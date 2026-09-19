@@ -1,29 +1,39 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+/**
+ * POST /api/libraries/:id/backup/ingest — happy paths and basic validation.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), with the library rooted at a per-test tmp directory.
+ * Sibling files cover the other scenarios so each stays under the file-size
+ * budget (#114, refs #134, closes #252):
+ *   - `backup-ingest-errors.test.ts`         — error / edge cases
+ *   - `backup-ingest-cloud-dedup.test.ts`    — cloud-id + advanced dedup
+ *   - `backup-ingest-fileinfo.test.ts`       — asset_locations content-addressing
+ */
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { assetsCollection } from '../src/db/client.ts';
+import {
+  findAssetIdByMapleId,
+  findAssetsByMapleId,
+  findPhassetLinksByLocalId,
+  readPhassetLinks,
+} from './helpers/sqlite-fixtures.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
-// Happy-path + basic-validation slice of the `POST /api/libraries/:id/backup/ingest`
-// suite. Sibling files cover the other scenarios so each stays under the
-// file-size budget (#114, refs #134, closes #252):
-//   - `backup-ingest-errors.test.ts`         — error / edge cases
-//   - `backup-ingest-cloud-dedup.test.ts`    — cloud-id + advanced dedup
-//   - `backup-ingest-fileinfo.test.ts`       — fileinfo[0] content-addressing
 const deviceId = 'test-device-ingest';
 const phid = 'ABC/L0/001';
 const phid2 = 'ABC/L0/002';
 
-const suite = setupBackupIngestSuite({ deviceId, withTokyoGeocode: true });
-beforeAll(suite.beforeAll);
-afterAll(suite.afterAll);
+const suite = setupBackupIngestSuite({ withTokyoGeocode: true });
+beforeEach(suite.setup);
+afterEach(suite.teardown);
 
-const ingest = makeIngestRequest(suite.handle.libId);
+const ingest = makeIngestRequest(suite.handle);
 
 describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
-  test('happy path single chunk with GPS → AssetDoc + located path', async () => {
+  test('happy path single chunk with GPS → asset row + located path', async () => {
     const bytes = Buffer.alloc(256, 1);
     const res = await authedHandle(
       ingest(bytes, {
@@ -46,10 +56,10 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     const onDisk = await fs.readFile(path.join(suite.handle.tmpLib, body.target_rel_path));
     expect(onDisk.byteLength).toBe(256);
 
-    const a = await assetsCollection();
-    const doc = await a.findOne({ 'phasset_links.phasset_local_id': phid });
-    expect(doc).toBeTruthy();
-    expect(doc?.phasset_links?.[0].device_id).toBe(deviceId);
+    // The device link is the record that this PHAsset was ingested.
+    const links = findPhassetLinksByLocalId(suite.handle.db, phid);
+    expect(links).toHaveLength(1);
+    expect(links[0].device_id).toBe(deviceId);
   });
 
   test('resume across two chunks', async () => {
@@ -81,7 +91,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     expect(r2.status).toBe(200);
   });
 
-  test('retry after completed upload → 200 short-circuit, no duplicate AssetDoc', async () => {
+  test('retry after completed upload → 200 short-circuit, no duplicate asset row', async () => {
     // Regression for #223: original ingest completes, but a downstream step
     // in the device pipeline (sidecar / rendered / live) fails and the
     // engine re-enqueues the task. The retry must NOT 409-loop — the server
@@ -117,13 +127,15 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     expect(secondBody.maple_id).toBe(retryMapleId);
     expect(secondBody.target_rel_path).toBe(firstTargetRelPath);
 
-    // Still exactly one AssetDoc for this content — no duplicate row, no
-    // duplicate phasset_link.
-    const a = await assetsCollection();
-    const docs = await a.find({ maple_id: retryMapleId }).toArray();
-    expect(docs.length).toBe(1);
-    expect(docs[0].phasset_links?.length).toBe(1);
-    expect(docs[0].phasset_links?.[0].phasset_local_id).toBe(retryPhid);
+    // Still exactly one asset row for this content — no duplicate row, no
+    // duplicate link.
+    const rows = findAssetsByMapleId(suite.handle.db, retryMapleId);
+    expect(rows).toHaveLength(1);
+    const assetId = findAssetIdByMapleId(suite.handle.db, retryMapleId);
+    expect(assetId).not.toBeNull();
+    const links = readPhassetLinks(suite.handle.db, assetId!);
+    expect(links).toHaveLength(1);
+    expect(links[0].phasset_local_id).toBe(retryPhid);
   });
 
   test('missing required header → 400', async () => {
@@ -169,7 +181,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     expect(b2.expected_offset).toBe(128);
   });
 
-  test('second device with same maple_id → $push phasset_link, no new AssetDoc', async () => {
+  test('second device with same maple_id → extra link row, no new asset row', async () => {
     const sharedMapleId = '02155ffeb77424a83923b93d70c9451b';
     const deviceA = 'device-A-dedup';
     const deviceB = 'device-B-dedup';
@@ -204,12 +216,14 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     );
     expect(rB.status).toBe(200);
 
-    // Exactly one AssetDoc with two phasset_links.
-    const a = await assetsCollection();
-    const docs = await a.find({ maple_id: sharedMapleId }).toArray();
-    expect(docs.length).toBe(1);
-    expect(docs[0].phasset_links?.length).toBe(2);
-    const deviceIds = docs[0].phasset_links?.map((l) => l.device_id);
+    // Exactly one asset row with two links.
+    const rows = findAssetsByMapleId(suite.handle.db, sharedMapleId);
+    expect(rows).toHaveLength(1);
+    const assetId = findAssetIdByMapleId(suite.handle.db, sharedMapleId);
+    expect(assetId).not.toBeNull();
+    const links = readPhassetLinks(suite.handle.db, assetId!);
+    expect(links).toHaveLength(2);
+    const deviceIds = links.map((link) => link.device_id);
     expect(deviceIds).toContain(deviceA);
     expect(deviceIds).toContain(deviceB);
   });

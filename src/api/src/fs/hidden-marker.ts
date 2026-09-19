@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
  * Get the path to the .hidden marker file for the given asset path.
  * The marker file is a sibling of the original photo. Filesystem-only
  * consumers (e.g. the File Provider's `/api/fs/dir`) can check for its
- * existence without querying Mongo; Maple's own UI never depends on it —
+ * existence without querying the database; Maple's own UI never depends on it —
  * the DB/XMP override is the sole authoritative source.
  */
 export function hiddenMarkerPath(absPath: string): string {

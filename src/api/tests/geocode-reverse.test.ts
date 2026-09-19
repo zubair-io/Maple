@@ -1,72 +1,55 @@
-import { describe, test, expect, beforeAll } from 'bun:test';
+/**
+ * GET /api/geocode/reverse — the device-facing read of the geocode cache.
+ *
+ * Real SQLite, installed as the process-wide handle for each test, because the
+ * route reaches `sqliteDb()` with no override. The one fixture row is written
+ * through `setCachedPlace` rather than by hand, so the row this suite reads is
+ * the row the geocode worker would actually have left behind.
+ */
+
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient } from 'mongodb';
 import { quantizedKey } from '../src/enrichment/coordinate-cache.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { setCachedPlace } from '../src/db/sqlite/repos/geocode-cache.repo.ts';
+import { geocodeReverseRoutes } from '../src/routes/geocode-reverse.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import type { Place } from '../src/db/schema.ts';
 
-const TEST_DB = withTestDb(`maple_test_geocode_reverse_${process.pid}`);
+const app = new Elysia().use(geocodeReverseRoutes);
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const TOKYO_STATION: Place = {
+  source: 'nominatim',
+  geocoder_version: 1,
+  geocoded_at: '2026-05-08T12:00:00.000Z',
+  lat: 35.6801,
+  lon: 139.6901,
+  display_name: 'Tokyo Station, Chiyoda, Tokyo, Japan',
+  address: { city: 'Tokyo', country: 'Japan', country_code: 'jp' },
+  pois: [{ name: 'Tokyo Station', category: 'public_transport', type: 'station' }],
+  rollups: { locality: 'Tokyo', region: 'Tokyo', country_code: 'jp' },
+  search_blob: 'tokyo station tokyo japan',
+};
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+let live: LiveTestDatabase;
 
 beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[geocode-reverse.test] skipping: MongoDB unreachable at', MONGO_URI);
-    return;
-  }
-  const db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
+  live = await createLiveTestDatabase();
+  // Seeded at the default precision of 4. The custom-precision test asks for
+  // precision 2, which quantises to a different key —
+  // `lat:35.6801,lon:139.6901` vs `lat:35.68,lon:139.69` — so it genuinely
+  // misses rather than reading this row through a looser key.
+  await setCachedPlace(quantizedKey(35.6801, 139.6901), TOKYO_STATION, 1);
+});
 
-  // Reset the singleton DB connection so subsequent imports use TEST_DB.
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-
-  const { geocodeCacheCollection } = await import('../src/db/client.ts');
-  const c = await geocodeCacheCollection();
-  await c.deleteMany({});
-  // Seed with coords that differ at precision=4 vs precision=2 so the
-  // custom-precision miss test (precision=2) genuinely misses.
-  // quantizedKey(35.6801, 139.6901, 4) → "lat:35.6801,lon:139.6901"
-  // quantizedKey(35.6801, 139.6901, 2) → "lat:35.68,lon:139.69"  (different → miss)
-  await c.insertOne({
-    _id: quantizedKey(35.6801, 139.6901),
-    place: {
-      address: {} as any,
-      pois: [{ name: 'Tokyo Station', category: 'public_transport', type: 'station' }],
-      rollups: { locality: 'Tokyo', region: 'Tokyo', country: 'Japan' } as any,
-      search_blob: 'Tokyo Station Tokyo Japan',
-    } as any,
-    fetched_at: new Date(),
-    geocoder_version: 1,
-  } as any);
+afterAll(() => {
+  live.close();
 });
 
 describe('GET /api/geocode/reverse', () => {
   test('returns the cached Place when present', async () => {
-    if (!mongoReachable) return;
-    const { geocodeReverseRoutes } = await import('../src/routes/geocode-reverse.ts');
-    const app = new Elysia().use(geocodeReverseRoutes);
     const res = await app.handle(
       new Request('http://localhost/api/geocode/reverse?lat=35.6801&lon=139.6901'),
     );
@@ -77,26 +60,16 @@ describe('GET /api/geocode/reverse', () => {
   });
 
   test('returns 404 when no cache row matches', async () => {
-    if (!mongoReachable) return;
-    const { geocodeReverseRoutes } = await import('../src/routes/geocode-reverse.ts');
-    const app = new Elysia().use(geocodeReverseRoutes);
     const res = await app.handle(new Request('http://localhost/api/geocode/reverse?lat=0&lon=0'));
     expect(res.status).toBe(404);
   });
 
   test('rejects missing params with 400', async () => {
-    if (!mongoReachable) return;
-    const { geocodeReverseRoutes } = await import('../src/routes/geocode-reverse.ts');
-    const app = new Elysia().use(geocodeReverseRoutes);
     const res = await app.handle(new Request('http://localhost/api/geocode/reverse?lat=35.68'));
     expect(res.status).toBe(400);
   });
 
   test('accepts custom precision', async () => {
-    if (!mongoReachable) return;
-    // Pre-seeded at precision 4. Query at precision 2 quantises differently → miss.
-    const { geocodeReverseRoutes } = await import('../src/routes/geocode-reverse.ts');
-    const app = new Elysia().use(geocodeReverseRoutes);
     const res = await app.handle(
       new Request('http://localhost/api/geocode/reverse?lat=35.6801&lon=139.6901&precision=2'),
     );
@@ -104,9 +77,6 @@ describe('GET /api/geocode/reverse', () => {
   });
 
   test('?precision=2.5 (non-integer) → 400', async () => {
-    if (!mongoReachable) return;
-    const { geocodeReverseRoutes } = await import('../src/routes/geocode-reverse.ts');
-    const app = new Elysia().use(geocodeReverseRoutes);
     const res = await app.handle(
       new Request('http://localhost/api/geocode/reverse?lat=35.6801&lon=139.6901&precision=2.5'),
     );

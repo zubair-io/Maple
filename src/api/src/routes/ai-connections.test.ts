@@ -1,12 +1,14 @@
 import { enrichmentRoutes } from './enrichment.ts';
 import { workerRoutes } from '../workers/routes.ts';
 import { generatedSearchConfigRoutes } from '../workers/generated-search/routes.ts';
-import { beforeAll, beforeEach, afterAll, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
-import type { Db } from 'mongodb';
 import { aiRoutes } from './ai.ts';
-import { closeDb, getDb } from '../db/client.ts';
-import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { withTestEnv } from '../test-support/env.test-helpers.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import {
   loadEnrichmentConfig,
@@ -18,14 +20,17 @@ import { assignedAiPool } from '../enrichment/ai-assigned-pool.ts';
 import { workerEnrichmentFingerprint } from '../workers/enrichment-config-refresh.ts';
 import { toPublicConfig } from './enrichment-public-config.ts';
 
-withTestDb(`maple_test_ai_connections_${process.pid}`);
 withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
-let db: Db;
+
+// Every route here reads and writes the `enrichment` settings row and the
+// `worker_config` table through the process-wide SQLite handle, so the database
+// is installed as that handle rather than handed in. A fresh one per test is
+// also what replaces the two `deleteMany({})` calls the MongoDB version needed.
+let live: LiveTestDatabase;
 let owner: string;
 let member: string;
+
 beforeAll(async () => {
-  await closeDb();
-  db = await getDb();
   owner = await signAccessToken(
     { sub: 'ai-owner', email: 'owner@example.com', role: 'owner', file_access: true },
     'x'.repeat(32),
@@ -35,9 +40,9 @@ beforeAll(async () => {
     'x'.repeat(32),
   );
 });
+
 beforeEach(async () => {
-  await db.collection('app_settings').deleteMany({});
-  await db.collection('worker_config').deleteMany({});
+  live = await createLiveTestDatabase();
   await saveEnrichmentConfig({
     describe_provider: 'ollama',
     describe_model: 'vision-model',
@@ -47,10 +52,11 @@ beforeEach(async () => {
     ],
   });
 });
-afterAll(async () => {
-  await db.dropDatabase();
-  await closeDb();
+
+afterEach(() => {
+  live.close();
 });
+
 const app = new Elysia()
   .use(aiRoutes)
   .use(enrichmentRoutes)

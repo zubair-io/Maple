@@ -19,6 +19,10 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
         LibraryRoot(id: id, path: path, label: id, fileCount: 0)
     }
 
+    /// The domain every enumerator in this file is built for; tests read the
+    /// cursor store back under the same key.
+    private static let domainID = "test-domain"
+
     private func makeEnumerator(
         session: URLSession,
         roots: [LibraryRoot]
@@ -29,11 +33,12 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
     /// Same construction as `makeEnumerator`, but also hands back the
     /// `WorkingSet` so a test can inspect its post-enumeration state —
     /// needed to assert on cache-mutation ordering, which `updates`/
-    /// `deletes` alone can't observe.
+    /// `deletes` alone can't observe — and the `ChangeCursorStore`, so a
+    /// test can assert on what the enumerator persisted.
     private func makeEnumeratorWithWorkingSet(
         session: URLSession,
         roots: [LibraryRoot]
-    ) -> (enumerator: WorkingSetEnumerator, workingSet: WorkingSet) {
+    ) -> (enumerator: WorkingSetEnumerator, workingSet: WorkingSet, cursorStore: ChangeCursorStore) {
         let server = URL(string: "https://x.test")!
         let http = AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session)
         let catalog = RemoteCatalog(http: http, server: server, downloadURLSession: session)
@@ -55,11 +60,11 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
             catalog: catalog,
             workingSet: workingSet,
             cursorStore: cursorStore,
-            domainID: "test-domain",
+            domainID: Self.domainID,
             listCache: listCache,
             rootCache: rootCache
         )
-        return (enumerator, workingSet)
+        return (enumerator, workingSet, cursorStore)
     }
 
     private func anchor(_ cursor: Int64) -> NSFileProviderSyncAnchor {
@@ -347,7 +352,7 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
             return (body.data(using: .utf8)!, resp)
         }
         let roots = [root(id: "F1", path: "/srv/lib")]
-        let (enumerator, workingSet) = makeEnumeratorWithWorkingSet(session: session, roots: roots)
+        let (enumerator, workingSet, _) = makeEnumeratorWithWorkingSet(session: session, roots: roots)
         let observer = TestChangeObserver()
         enumerator.enumerateChanges(for: observer, from: anchor(0))
         let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
@@ -361,6 +366,100 @@ final class WorkingSetEnumeratorChangesTests: XCTestCase {
             + "list it just because the update row's metadata GET finished after the delete's "
             + "synchronous removal"
         )
+    }
+
+    /// #3741: When the change log has been pruned past the requested cursor,
+    /// GET /api/changes returns HTTP 409 with `cursor too old`. The enumerator
+    /// must finish with `NSFileProviderError.syncAnchorExpired` so the OS discards
+    /// stale delta state and re-enumerates the working set from scratch.
+    func testEnumerateChangesStaleCursorSignalsSyncAnchorExpired() async throws {
+        let session = URLSession.stubbedSequence { req in
+            let body = #"{"error": "cursor too old", "current": 105}"#
+            let resp = HTTPURLResponse(
+                url: req.url!, statusCode: 409,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"])!
+            return (body.data(using: .utf8)!, resp)
+        }
+        let roots = [root(id: "F1", path: "/srv/lib")]
+        let (enumerator, _, _) = makeEnumeratorWithWorkingSet(session: session, roots: roots)
+        let observer = TestChangeObserver()
+        enumerator.enumerateChanges(for: observer, from: anchor(50))
+        let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
+        XCTAssertTrue(finished, "enumerateChanges did not finish in time")
+        XCTAssertNotNil(observer.error, "stale cursor must finish with an error")
+        XCTAssertTrue(observer.updates.isEmpty)
+        XCTAssertTrue(observer.deletes.isEmpty)
+        let nsError = observer.error as NSError?
+        XCTAssertEqual(nsError?.domain, NSFileProviderErrorDomain)
+        XCTAssertEqual(nsError?.code, NSFileProviderError.syncAnchorExpired.rawValue)
+    }
+
+    /// The other half of that contract, and the reason the 409 is actionable
+    /// at all: the persisted cursor has to move to the server's `current`
+    /// before expiry is signalled. `syncAnchorExpired` makes the OS
+    /// re-enumerate items — a path that never writes the cursor store — and
+    /// then ask for `currentSyncAnchor`. If that still answers the dead
+    /// cursor, the next delta call takes another 409 and the pair never
+    /// converges. `ChangeFeedClient` fixed the identical livelock on the SSE
+    /// side; before #3741 the poll side had no 409 to recover from at all.
+    func testEnumerateChangesStaleCursorAdvancesPersistedAnchor() async throws {
+        let session = URLSession.stubbedSequence { req in
+            let body = #"{"error": "cursor too old", "current": 105}"#
+            let resp = HTTPURLResponse(
+                url: req.url!, statusCode: 409,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"])!
+            return (body.data(using: .utf8)!, resp)
+        }
+        let roots = [root(id: "F1", path: "/srv/lib")]
+        let (enumerator, _, cursorStore) =
+            makeEnumeratorWithWorkingSet(session: session, roots: roots)
+        cursorStore.save(50, domain: Self.domainID)
+
+        let observer = TestChangeObserver()
+        enumerator.enumerateChanges(for: observer, from: anchor(50))
+        let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
+        XCTAssertTrue(finished, "enumerateChanges did not finish in time")
+
+        XCTAssertEqual(cursorStore.load(domain: Self.domainID), 105,
+                       "the 409's `current` must land in the cursor store, or the OS re-asks "
+                       + "from the same dead anchor after every re-enumeration")
+
+        let reported = await withCheckedContinuation { (cont: CheckedContinuation<Int64, Never>) in
+            enumerator.currentSyncAnchor { anchor in
+                let raw = anchor.flatMap { String(data: $0.rawValue, encoding: .utf8) }
+                cont.resume(returning: raw.flatMap(Int64.init) ?? -1)
+            }
+        }
+        XCTAssertEqual(reported, 105,
+                       "currentSyncAnchor must report the advanced cursor, not the expired one")
+    }
+
+    /// A malformed or zero `current` must not rewind the anchor. `save` is
+    /// monotonic-max, but the guard is explicit so a server that answers 0
+    /// (the pre-#3766 empty-ring-buffer case) can't be read as "start over".
+    func testEnumerateChangesStaleCursorWithZeroCurrentLeavesAnchorAlone() async throws {
+        let session = URLSession.stubbedSequence { req in
+            let body = #"{"error": "cursor too old", "current": 0}"#
+            let resp = HTTPURLResponse(
+                url: req.url!, statusCode: 409,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"])!
+            return (body.data(using: .utf8)!, resp)
+        }
+        let (enumerator, _, cursorStore) =
+            makeEnumeratorWithWorkingSet(session: session, roots: [])
+        cursorStore.save(50, domain: Self.domainID)
+
+        let observer = TestChangeObserver()
+        enumerator.enumerateChanges(for: observer, from: anchor(50))
+        let finished = await observer.waitUntilFinished(timeoutSeconds: 5)
+        XCTAssertTrue(finished, "enumerateChanges did not finish in time")
+
+        XCTAssertEqual(cursorStore.load(domain: Self.domainID), 50)
+        let nsError = observer.error as NSError?
+        XCTAssertEqual(nsError?.code, NSFileProviderError.syncAnchorExpired.rawValue)
     }
 }
 

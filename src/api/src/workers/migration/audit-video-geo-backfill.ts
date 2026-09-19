@@ -17,9 +17,15 @@
  * Spec: GitHub issue #1529.
  */
 
-import type { Collection, Filter, ObjectId, WithId } from 'mongodb';
-import { getDb, assetsCollection } from '../../db/client.ts';
-import type { AssetDoc } from '../../db/schema.ts';
+import type { ObjectId } from 'mongodb';
+import { countCandidates, listCandidates } from '../../db/sqlite/repos/assets.migrations.ts';
+import {
+  findGeoDonors,
+  GEO_AUDIT_SCOPE,
+  GEO_NO_TIMESTAMP_SCOPE,
+  type GeoDonor,
+} from '../../db/sqlite/repos/assets.video-migrations.ts';
+import { recordAuditDecision } from '../../db/sqlite/repos/video-geo-audit.repo.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { child as childLogger } from '../../log.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
@@ -29,34 +35,7 @@ const log = childLogger('migration:geo-backfill');
 /** ±15 minutes in milliseconds. */
 const WINDOW_MS = 15 * 60 * 1000;
 
-/**
- * Candidate filter: live mp4/mov, no GPS, has a captured_at timestamp.
- *
- * The $elemMatch combines `filename` and liveness (`deleted_at`/`missing_since`)
- * on the SAME fileinfo entry so the video-file requirement and the live-entry
- * requirement can never match different entries in the array.
- */
-function candidateFilter(): Filter<AssetDoc> {
-  return {
-    'exif.gps': null,
-    // `$type: 'string'` is stricter than `$ne: null`: it excludes null, missing,
-    // and any non-string value, so only a real ISO timestamp string can enter the
-    // candidate set (the donor range query relies on string comparison).
-    'exif.captured_at': { $type: 'string' },
-    // `media_kind` narrows the scan to the indexed video rows (#3492); the
-    // mp4/mov regex keeps the container scope this migration was written for.
-    media_kind: 'video',
-    fileinfo: {
-      $elemMatch: {
-        filename: { $regex: /\.(mp4|mov)$/i },
-        deleted_at: { $in: [null] },
-        missing_since: { $in: [null] },
-      },
-    },
-  } as Filter<AssetDoc>;
-}
-
-/** Shape of one audit document written to `video_geo_backfill_audit`. */
+/** Shape of one audit row written to `video_geo_backfill_audit`. */
 export interface AuditDoc {
   /** Same _id as the video asset — acts as the natural key for idempotency. */
   _id: ObjectId;
@@ -70,28 +49,24 @@ export interface AuditDoc {
   at: string;
 }
 
-export async function auditCollection(): Promise<Collection<AuditDoc>> {
-  const db = await getDb();
-  return db.collection<AuditDoc>('video_geo_backfill_audit');
-}
-
 /**
- * Find the closest-in-time donor: any live asset with GPS in the same library
- * within ±15 min of the video's `exif.captured_at`.
+ * Find the closest-in-time donor: any live photo with GPS in the same library
+ * within ±15 min of the video's capture time.
  *
- * The range query on `exif.captured_at` is index-friendly because the field is
- * stored as a 24-char UTC ISO string, making lexicographic string comparison
- * equivalent to chronological order.
+ * The range is on the stored capture timestamp, which is a 24-character UTC ISO
+ * string — so lexicographic comparison is chronological order, and the query is
+ * a seek on the `assets_gps_captured` partial index rather than a scan.
  *
  * Guards against malformed / non-Z timestamps by wrapping Date parsing in a
- * try/catch and skipping any candidate whose date cannot be parsed.
+ * try/catch and skipping any candidate whose date cannot be parsed. That is why
+ * the winner is chosen here rather than by `ORDER BY` in SQL: a timestamp that
+ * will not parse has to be skipped, not sorted.
  */
 export async function findDonor(
-  assets: Collection<AssetDoc>,
   videoId: ObjectId,
   capturedAt: string,
   libraryId: ObjectId,
-): Promise<{ donor: WithId<AssetDoc>; deltaMs: number } | null> {
+): Promise<{ donor: GeoDonor; deltaMs: number } | null> {
   let vt: Date;
   try {
     vt = new Date(capturedAt);
@@ -102,49 +77,15 @@ export async function findDonor(
 
   const lo = new Date(vt.getTime() - WINDOW_MS).toISOString();
   const hi = new Date(vt.getTime() + WINDOW_MS).toISOString();
-
-  const candidates = await assets
-    .find(
-      {
-        // GPS must be present. Predicate on `exif.gps.lat` (not the whole `exif.gps`
-        // object) so the partial index `exif_captured_at_gps_lat` is eligible and odd
-        // shapes are avoided; numeric validity is re-checked by the apply caller.
-        'exif.gps.lat': { $exists: true },
-        'exif.gps.lng': { $exists: true },
-        'exif.captured_at': { $gte: lo, $lte: hi },
-        // Only borrow from a ground-truth photo: exclude any already-inferred asset
-        // so inferred GPS can never daisy-chain (video → video), and exclude videos
-        // (a donor video's GPS is rare and not what the operator intends to borrow).
-        geo_inferred: { $exists: false },
-        _id: { $ne: videoId },
-        fileinfo: {
-          $elemMatch: {
-            library_id: libraryId,
-            deleted_at: { $in: [null] },
-            missing_since: { $in: [null] },
-            filename: { $not: /\.(mp4|mov)$/i },
-          },
-        },
-      },
-      {
-        projection: {
-          _id: 1,
-          maple_id: 1,
-          'exif.gps': 1,
-          'exif.captured_at': 1,
-        },
-      },
-    )
-    .toArray();
-
+  const candidates = await findGeoDonors(videoId, libraryId, lo, hi);
   if (candidates.length === 0) return null;
 
   // Pick the candidate with the smallest |Δt|. For ties, any order is fine.
-  let best: (typeof candidates)[number] | null = null;
+  let best: GeoDonor | null = null;
   let bestDelta = Infinity;
 
   for (const c of candidates) {
-    const cat = c.exif?.captured_at;
+    const cat = c.captured_at;
     if (!cat) continue;
     let ct: Date;
     try {
@@ -161,7 +102,7 @@ export async function findDonor(
   }
 
   if (!best) return null;
-  return { donor: best as WithId<AssetDoc>, deltaMs: bestDelta };
+  return { donor: best, deltaMs: bestDelta };
 }
 
 export const auditVideoGeoBackfill: Migration = {
@@ -176,68 +117,22 @@ export const auditVideoGeoBackfill: Migration = {
     'worker has resolved `place` for the newly GPS-tagged videos; otherwise refile-backups ' +
     'will stamp them with the placeless fallback path before geocode can run.',
 
-  async countRemaining(): Promise<number> {
-    const assets = await assetsCollection();
-    const audit = await auditCollection();
-
-    // Candidates still waiting = total candidates minus those already audited.
-    const auditedIds = await audit.distinct('_id', {});
-    const totalCandidates = await assets.countDocuments(candidateFilter());
-    const auditedCandidates =
-      auditedIds.length > 0
-        ? await assets.countDocuments({
-            ...candidateFilter(),
-            _id: { $in: auditedIds },
-          })
-        : 0;
-
-    return totalCandidates - auditedCandidates;
+  countRemaining(): Promise<number> {
+    // Candidates still waiting are the ones with no verdict row yet, which the
+    // scope expresses as a `NOT EXISTS` join. The Mongo version could only
+    // approximate it by counting all candidates and subtracting a second count
+    // restricted to an `$in` of every audited id.
+    return countCandidates(GEO_AUDIT_SCOPE);
   },
 
   async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    const assets = await assetsCollection();
-    const audit = await auditCollection();
-
-    // Fetch ids already audited so we can exclude them.
-    const auditedIds = await audit.distinct('_id', {});
-
-    const docs = await assets
-      .find(
-        {
-          ...candidateFilter(),
-          ...(auditedIds.length > 0 ? { _id: { $nin: auditedIds } } : {}),
-        },
-        {
-          projection: {
-            _id: 1,
-            maple_id: 1,
-            fileinfo: 1,
-            'exif.captured_at': 1,
-          },
-        },
-      )
-      .limit(batchSize)
-      .toArray();
+    const docs = await listCandidates(GEO_AUDIT_SCOPE, batchSize);
 
     // Log no-timestamp skips once per batch for visibility (these are NOT candidates).
     try {
-      const noTimestampFilter: Filter<AssetDoc> = {
-        'exif.gps': null,
-        'exif.captured_at': null,
-        fileinfo: {
-          $elemMatch: {
-            filename: { $regex: /\.(mp4|mov)$/i },
-            deleted_at: { $in: [null] },
-            missing_since: { $in: [null] },
-          },
-        },
-      } as Filter<AssetDoc>;
-      const noTimestampCount = await assets.countDocuments(noTimestampFilter);
+      const noTimestampCount = await countCandidates(GEO_NO_TIMESTAMP_SCOPE);
       if (noTimestampCount > 0) {
-        const sample = await assets
-          .find(noTimestampFilter, { projection: { maple_id: 1 } })
-          .limit(5)
-          .toArray();
+        const sample = await listCandidates(GEO_NO_TIMESTAMP_SCOPE, 5);
         log.info(
           { count: noTimestampCount, sample: sample.map((d) => d.maple_id) },
           'skip: no-timestamp (no captured_at anchor)',
@@ -264,46 +159,40 @@ export const auditVideoGeoBackfill: Migration = {
         // `skip` decision so the doc converges instead of head-of-line-blocking
         // the unsorted batch forever (the #1519 lesson).
         if (!capturedAt || !primary) {
-          await audit.replaceOne(
-            { _id: doc._id },
-            {
-              maple_id: doc.maple_id,
-              captured_at: capturedAt ?? '',
-              decision: 'skip',
-              at: now,
-            },
-            { upsert: true },
-          );
+          await recordAuditDecision(doc.id, {
+            maple_id: doc.maple_id,
+            captured_at: capturedAt ?? '',
+            decision: 'skip',
+            at: now,
+          });
           processed++;
           continue;
         }
 
         const libraryId = primary.library_id;
-        const result = await findDonor(assets, doc._id, capturedAt, libraryId);
+        const result = await findDonor(doc.id, capturedAt, libraryId);
 
-        let auditDoc: AuditDoc;
+        let decision: Omit<AuditDoc, '_id'>;
 
         if (result) {
           const { donor, deltaMs } = result;
-          const donorGps = donor.exif?.gps ?? undefined;
 
-          auditDoc = {
-            _id: doc._id,
+          decision = {
             maple_id: doc.maple_id,
             captured_at: capturedAt,
             decision: 'match',
-            donor_id: donor._id,
+            donor_id: donor.id,
             donor_maple_id: donor.maple_id,
-            donor_gps: donorGps,
+            donor_gps: donor.gps,
             delta_ms: deltaMs,
             at: now,
           };
 
           log.info(
             {
-              video_id: String(doc._id),
+              video_id: String(doc.id),
               maple_id: doc.maple_id,
-              donor_id: String(donor._id),
+              donor_id: String(donor.id),
               delta_ms: deltaMs,
             },
             'audit: match',
@@ -313,8 +202,7 @@ export const auditVideoGeoBackfill: Migration = {
           else if (deltaMs < 5 * 60_000) hist.lt5m++;
           else hist.lt15m++;
         } else {
-          auditDoc = {
-            _id: doc._id,
+          decision = {
             maple_id: doc.maple_id,
             captured_at: capturedAt,
             decision: 'no-donor',
@@ -322,21 +210,21 @@ export const auditVideoGeoBackfill: Migration = {
           };
 
           log.info(
-            { video_id: String(doc._id), maple_id: doc.maple_id },
+            { video_id: String(doc.id), maple_id: doc.maple_id },
             'audit: no-donor within ±15 min in same library',
           );
 
           hist.noDonor++;
         }
 
-        // Upsert — idempotent if the migration is re-run.
-        await audit.replaceOne({ _id: doc._id }, auditDoc, { upsert: true });
+        // Keyed by the video, so a re-run overwrites rather than appending.
+        await recordAuditDecision(doc.id, decision);
         processed++;
       } catch (err) {
         errors++;
         log.error(
           {
-            video_id: String(doc._id),
+            video_id: String(doc.id),
             err: err instanceof Error ? err.message : err,
           },
           'audit: error processing candidate',

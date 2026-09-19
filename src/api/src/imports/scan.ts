@@ -10,8 +10,8 @@
  * photo under in sync with the date it's shown under everywhere else in the
  * app. The result
  * drives the UI's editable-bucket review; the create route turns it (plus
- * the user's label edits) into the per-file destination list on the import
- * doc.
+ * the user's label edits) into the per-file destination list the import's own
+ * `import_files` rows carry.
  *
  * Sidecars inherit their parent image's bucket so a RAW and its `.xmp` never
  * land in different folders. Orphan sidecars (no matching image in the scan)
@@ -41,8 +41,8 @@ import {
   nearestCandidateFolder,
   NEARBY_ASSET_WINDOW_MS,
   resolveSourceFolderContext,
-  type NearbyAssetCandidate,
 } from './dest.ts';
+import type { NearbyAssetCandidate } from '../db/sqlite/repos/assets.locations.repo.ts';
 import { child as childLogger } from '../log.ts';
 import type { ImportFileEntry, ImportFileKind } from '../db/schema.ts';
 
@@ -411,10 +411,10 @@ export interface BuildImportFilesOptions {
    * Load already-indexed assets in the target library captured in
    * `[minMs, maxMs]`, so nearby-folder matches (see `nearestCandidateFolder`
    * in `dest.ts`) can be resolved in-memory for every file in this batch
-   * instead of issuing one Mongo query per file. Called ONCE per
+   * instead of issuing one database query per file. Called ONCE per
    * `buildImportFiles` call, with the min/max mtime across every scanned
    * file (already padded by the proximity window). Injected so this module
-   * stays Mongo-free (see file header) — the real implementation is
+   * stays database-free (see file header) — the real implementation is
    * `imports/nearby.ts`'s `loadNearbyAssetCandidates`. Omitted (e.g. in unit
    * tests) means "never match."
    */

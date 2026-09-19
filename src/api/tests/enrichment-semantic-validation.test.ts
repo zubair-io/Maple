@@ -1,59 +1,51 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { signAccessToken } from '../src/auth/tokens.ts';
-import { withTestDb, withTestEnv } from '../src/db/test-db.test-helpers.ts';
+/**
+ * Semantic-search settings validation and the connection test's readiness
+ * report: what PUT /api/enrichment/config refuses to save, and what
+ * POST /api/enrichment/test-meili reports back beyond a bare health check.
+ *
+ * Storage is SQLite (#3787): the saved config is one row of `app_settings`,
+ * and each test gets a private database installed as the process-wide handle.
+ */
 
-const TEST_DB = withTestDb(`maple_test_semantic_validation_${process.pid}`);
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { signAccessToken } from '../src/auth/tokens.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
+import { seedEnrichmentConfig } from './helpers/enrichment-route-fixtures.ts';
+
 // Never restored, these left both workers disabled for every later suite.
 withTestEnv('MAPLE_GEOCODE_WORKER_ENABLED', 'false');
 withTestEnv('MAPLE_DESCRIBE_WORKER_ENABLED', 'false');
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+
 const realFetch = globalThis.fetch;
-let mongo: MongoClient | null = null;
-let db: Db | null = null;
+let live: LiveTestDatabase;
 let app: Pick<Elysia, 'handle'> | null = null;
 
 // PUT /config is owner-gated (#2353); the other routes exercised here
 // (POST /test-meili) only need a valid bearer, so an owner token covers both.
 const ownerJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: newObjectIdHex(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 
 beforeAll(async () => {
-  mongo = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500 });
-  try {
-    await mongo.connect();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
-  } catch {
-    await mongo.close().catch(() => {});
-    mongo = null;
-    return;
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
   const { enrichmentRoutes } = await import('../src/routes/enrichment.ts');
   app = new Elysia().use(enrichmentRoutes);
 });
 
 beforeEach(async () => {
-  await db?.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
+  live = await createLiveTestDatabase();
 });
 
 afterEach(() => {
   globalThis.fetch = realFetch;
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
+  live.close();
 });
 
 async function request(method: 'POST' | 'PUT', path: string, body: object) {
@@ -69,7 +61,6 @@ async function request(method: 'POST' | 'PUT', path: string, body: object) {
 
 describe('semantic settings validation and connection readiness', () => {
   it('rejects a malformed shared Ollama URL and semantic mode without Meilisearch', async () => {
-    if (!app) return;
     const malformed = await request('PUT', '/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -88,11 +79,7 @@ describe('semantic settings validation and connection readiness', () => {
   });
 
   it('uses the saved write-only key when the test field is blank', async () => {
-    if (!app || !db) return;
-    await db.collection<{ _id: string; [key: string]: unknown }>('app_settings').insertOne({
-      _id: 'enrichment',
-      config: { meilisearch_api_key: 'saved-secret' },
-    } as never);
+    seedEnrichmentConfig(live.db, { meilisearch_api_key: 'saved-secret' });
     let authorization: string | null = null;
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       authorization = new Headers(init?.headers).get('authorization');
@@ -107,14 +94,10 @@ describe('semantic settings validation and connection readiness', () => {
   });
 
   it('returns semantic readiness details instead of health-only success', async () => {
-    if (!app || !db) return;
-    await db.collection<{ _id: string; [key: string]: unknown }>('app_settings').insertOne({
-      _id: 'enrichment',
-      config: {
-        meilisearch_semantic_enabled: true,
-        meilisearch_embedder_model: 'bge-m3',
-      },
-    } as never);
+    seedEnrichmentConfig(live.db, {
+      meilisearch_semantic_enabled: true,
+      meilisearch_embedder_model: 'bge-m3',
+    });
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const path = new URL(input.toString()).pathname;
       const body = path.endsWith('/health')

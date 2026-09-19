@@ -1,45 +1,67 @@
-/** Real Mongo indexes exercise HTTP conflict handling for creation and failed-only retries. */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+/**
+ * HTTP conflict handling for job creation and failed-only retries, against real
+ * roots and a real catalogue.
+ *
+ * Every conflict here is decided by SQLite (#3787): the request-id collision by
+ * `ON CONFLICT (id) DO NOTHING` plus a read-back, and the "another batch already
+ * holds this library" fence by the insert's own predicate. A fresh database per
+ * test replaces the `deleteMany({})` on `jobs` the MongoDB version ran.
+ *
+ * The last case still needs a failure the routes did *not* anticipate, to prove
+ * they do not dress one up as a 409. On MongoDB that was a unique index added to
+ * the collection for the duration of the test; here it is a unique index added
+ * to the table, which is the same trick against the same column.
+ */
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, symlink } from '../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { Elysia } from 'elysia';
-import { type MongoClient, ObjectId } from 'mongodb';
-import { closeDb, getDb } from '../db/client.ts';
-import { tryConnectTestMongo, withTestDb } from '../db/test-db.test-helpers.ts';
+import { ObjectId } from 'mongodb';
 import { registerRoot, unregisterRoot } from '../fs/root.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { createJob, getJob, JobConflictError, markCancelled } from '../job-runner/jobs.repo.ts';
 import { jobsRoutes } from './jobs.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
-const dbName = withTestDb(`maple_test_job_conflicts_${process.pid}`);
-let mongo: MongoClient | null = null;
+let live: LiveTestDatabase;
 let root = '';
 const patch = { attributes: { 'crs:Exposure2012': '1.25' }, elements: {} };
 const app = new Elysia().use(jobsRoutes);
 
 beforeAll(async () => {
-  mongo = await tryConnectTestMongo();
-  if (!mongo) throw new Error('Job conflict integration tests require MongoDB');
   root = await mkdtemp(join(tmpdir(), 'maple-job-conflicts-'));
   registerRoot(root);
-  await closeDb();
-  const db = await getDb();
-  await db.collection('folders').insertOne({ path: root, slug: 'conflicts' });
+});
+
+beforeEach(async () => {
+  live = await createLiveTestDatabase();
+  insertFolder(live.db, { path: root, slug: 'conflicts' });
   invalidateLibraryRoots();
 });
-beforeEach(async () => {
-  if (mongo) await mongo.db(dbName).collection('jobs').deleteMany({});
+
+afterEach(() => {
+  live.close();
+  invalidateLibraryRoots();
 });
+
 afterAll(async () => {
-  await closeDb();
-  await mongo?.close();
   if (root) {
     unregisterRoot(root);
     await rm(root, { recursive: true, force: true });
   }
   invalidateLibraryRoots();
 });
+
+/** How many job rows exist — the MongoDB `countDocuments()`. */
+function jobCount(): number {
+  return (live.db.query(`SELECT COUNT(*) AS n FROM jobs`).get() as { n: number }).n;
+}
 
 function batchPayload(name = 'photo') {
   return { targets: [{ id: `conflicts:${name}.jpg`, path: join(root, `${name}.jpg`) }], patch };
@@ -60,20 +82,17 @@ async function failedBatch() {
   const previous = await createJob({ kind: 'batch_adjustment_sync', payload });
   await markCancelled(previous._id);
   const frozenPatch = { attributes: { 'crs:Exposure2012': '2.5' }, elements: {} };
-  await mongo!
-    .db(dbName)
-    .collection('jobs')
-    .updateOne(
-      { _id: previous._id },
-      {
-        $set: {
-          checkpoint: {
-            failed: [{ id: payload.targets[0].id, reason: 'Write failed' }],
-            entries: [{ id: payload.targets[0].id, status: 'failed', patch: frozenPatch }],
-          },
-        },
-      },
-    );
+  // `checkpoint` is the `ledger` column; the recovery ledger is written whole
+  // here because the retry route is what is under test, not the checkpointer.
+  run(
+    live.db,
+    `UPDATE jobs SET ledger = ? WHERE id = ?`,
+    JSON.stringify({
+      failed: [{ id: payload.targets[0].id, reason: 'Write failed' }],
+      entries: [{ id: payload.targets[0].id, status: 'failed', patch: frozenPatch }],
+    }),
+    previous._id.toHexString(),
+  );
   return { previous, payload, frozenPatch };
 }
 
@@ -147,10 +166,7 @@ describe('job creation conflicts', () => {
     const alias = join(dirname(root), `${basename(root)}-alias`);
     await symlink(root, alias);
     registerRoot(alias);
-    const db = await getDb();
-    const folder = await db
-      .collection('folders')
-      .insertOne({ path: alias, slug: 'conflicts-alias' });
+    insertFolder(live.db, { path: alias, slug: 'conflicts-alias' });
     invalidateLibraryRoots();
     try {
       await createJob({ kind: 'batch_adjustment_sync', payload: batchPayload('canonical') });
@@ -164,7 +180,6 @@ describe('job creation conflicts', () => {
       expect(response.status).toBe(409);
       expect((await response.json()).error).toContain('active in this library');
     } finally {
-      await db.collection('folders').deleteOne({ _id: folder.insertedId });
       unregisterRoot(alias);
       await rm(alias, { force: true });
       invalidateLibraryRoots();
@@ -200,18 +215,17 @@ describe('job creation conflicts', () => {
     const created = await getJob(new ObjectId(requestId));
     expect(created?.payload.targets).toEqual([{ ...payload.targets[0], patch: frozenPatch }]);
     expect(created?.payload).not.toHaveProperty('relativeWhiteBalance');
-    expect(await mongo!.db(dbName).collection('jobs').countDocuments()).toBe(2);
+    expect(jobCount()).toBe(2);
   });
 
   it('preserves unrelated database failures as 500 on both creation routes', async () => {
     const { previous, payload } = await failedBatch();
-    const collection = mongo!.db(dbName).collection('jobs');
-    await collection.createIndex({ kind: 1 }, { unique: true, name: 'test_unrelated_conflict' });
+    live.db.run(`CREATE UNIQUE INDEX test_unrelated_conflict ON jobs (kind)`);
     try {
       expect((await post('', { kind: 'batch_adjustment_sync', payload })).status).toBe(500);
       expect((await post(`/${previous._id}/retry-failed`, {})).status).toBe(500);
     } finally {
-      await collection.dropIndex('test_unrelated_conflict');
+      live.db.run(`DROP INDEX test_unrelated_conflict`);
     }
   });
 });

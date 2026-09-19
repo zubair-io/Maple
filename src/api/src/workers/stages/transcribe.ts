@@ -6,7 +6,7 @@ import { extractAudioWav, hasAudioStream } from '../../audio/extract-audio.ts';
 import { transcribeWav } from '../../audio/whisper-cli.ts';
 import { ensureWhisperModel, type WhisperTier } from '../../audio/whisper-model.ts';
 import type { TranscriptResult } from '../../audio/whisper-parse.ts';
-import { assetsCollection } from '../../db/client.ts';
+import { transcriptStatement } from '../../db/sqlite/repos/assets.stage-patches.ts';
 import type { TranscriptDoc } from '../../db/schema.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
@@ -35,7 +35,6 @@ interface TranscribeDeps {
   ) => Promise<string | null>;
   wavByteLength: (path: string) => Promise<number>;
   assertReadable: (path: string) => Promise<void>;
-  persistTranscript: (id: ImageDoc['_id'], transcript: TranscriptDoc) => Promise<void>;
   tier: WhisperTier;
 }
 
@@ -67,23 +66,6 @@ async function dependencies(): Promise<TranscribeDeps> {
     ensureWhisperModel,
     wavByteLength: async (path) => (await stat(path)).size,
     assertReadable: async (path) => void (await stat(path)),
-    persistTranscript: async (id, transcript) => {
-      await (
-        await assetsCollection()
-      ).updateOne(
-        { _id: id },
-        {
-          $set: {
-            transcript,
-            'stages.meili.version': 0,
-            'stages.meili.attempts': 0,
-            'stages.meili.last_error': null,
-            'stages.meili.processed_at': null,
-            'stages.meili.dead': false,
-          },
-        },
-      );
-    },
     tier: config.transcribe_model_tier,
   };
 }
@@ -117,8 +99,18 @@ async function transcribeMedia(
       duration_sec: result.segments.at(-1)?.end ?? null,
       generated_at: new Date().toISOString(),
     };
-    await deps.persistTranscript(image._id, transcript);
-    return { wrote: true };
+    // The transcript and the search-stage re-arm go back to the runner rather
+    // than being written here, which is what makes them atomic with this
+    // stage's own success row. On Mongo they were one `$set` the handler issued
+    // itself — the transcript plus five `stages.meili.*` keys — and it returned
+    // `{ wrote: true }` precisely because the runner refuses a patch that
+    // touches stage bookkeeping. `invalidates` is that same re-arm expressed as
+    // something the runner owns, so the handler no longer has to reach around
+    // it.
+    return {
+      patch: [transcriptStatement(image._id.toHexString(), transcript)],
+      invalidates: ['meili'],
+    };
   } finally {
     await unlink(wavPath).catch(() => {});
   }
@@ -133,7 +125,16 @@ const transcribeStage = defineStage({
   // never sweeps the (much larger) photo library stamping `not-media` skips —
   // it goes straight to media. The handler's own extension + `no-audio` skips
   // stay the correctness backstop; this only narrows what gets claimed.
-  claimFilter: { media_kind: { $in: ['video', 'audio'] } },
+  //
+  // An `EXISTS` over `assets` rather than a join, because the claim scans
+  // `stage_state` and this has to stay a probe per candidate row — `media_kind`
+  // has a partial index over exactly the two minority kinds (#3492), so the
+  // probe is a seek.
+  claimResidual: {
+    sql: `EXISTS (SELECT 1 FROM assets
+                   WHERE id = stage_state.asset_id AND media_kind IN (?, ?))`,
+    params: ['video', 'audio'],
+  },
   defaults: {
     concurrency: 1,
     maxAttempts: 5,
@@ -152,8 +153,6 @@ const transcribeStage = defineStage({
     const deps = await dependencies();
     await deps.assertReadable(absolutePath);
     if (!(await deps.hasAudioStream(absolutePath))) return { skip: 'no-audio' };
-    // Persist transcript + Meili re-arm atomically. Returning `wrote` lets
-    // the runner record this stage without accepting forbidden stage keys.
     return transcribeMedia(image, absolutePath, deps, context.signal);
   },
 });

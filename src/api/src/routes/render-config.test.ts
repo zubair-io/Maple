@@ -1,54 +1,35 @@
+/**
+ * Route-integration test: GET/PUT /api/render/config.
+ *
+ * The `render` row of `app_settings`, reached through `readAppSettings` /
+ * `patchAppSettings` (#3787). The last case asserts on the stored document
+ * directly — it is the one that pins *where* the knob is persisted, so it reads
+ * the settings row rather than going back through the route.
+ */
+
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, type Db } from 'mongodb';
-import { closeDb } from '../db/client.ts';
 import { renderConfigRoutes } from './render-config.ts';
-
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_render_config_test_${process.pid}`;
+import { readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 interface ResolvedBody {
   gpu_live_render_enabled: boolean;
   source: { gpu_live_render_enabled: 'db' | 'default' };
 }
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
 describe('/api/render/config', () => {
-  let mongo: MongoClient | null = null;
-  let db: Db | null = null;
+  let live: LiveTestDatabase;
 
   beforeEach(async () => {
-    mongo = await tryConnect();
-    if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    await closeDb();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
+    live = await createLiveTestDatabase();
   });
 
-  afterEach(async () => {
-    if (db) await db.dropDatabase().catch(() => {});
-    if (mongo) await mongo.close().catch(() => {});
-    await closeDb();
-    db = null;
-    mongo = null;
+  afterEach(() => {
+    live.close();
   });
 
   function app() {
@@ -72,14 +53,12 @@ describe('/api/render/config', () => {
   }
 
   it('GET returns the default (GPU live render on) on a fresh database', async () => {
-    if (!db) return;
     const body = await getConfig();
     expect(body.gpu_live_render_enabled).toBe(true);
     expect(body.source.gpu_live_render_enabled).toBe('default');
   });
 
   it('PUT false kills GPU live render and GET reports it as db-sourced', async () => {
-    if (!db) return;
     const res = await putConfig({ gpu_live_render_enabled: false });
     expect(res.status).toBe(200);
     const saved = (await res.json()) as ResolvedBody;
@@ -91,7 +70,6 @@ describe('/api/render/config', () => {
   });
 
   it('PUT true ramps it back on', async () => {
-    if (!db) return;
     await putConfig({ gpu_live_render_enabled: false });
     await putConfig({ gpu_live_render_enabled: true });
     const body = await getConfig();
@@ -100,7 +78,6 @@ describe('/api/render/config', () => {
   });
 
   it('PUT null clears the saved value back to the default', async () => {
-    if (!db) return;
     await putConfig({ gpu_live_render_enabled: false });
     await putConfig({ gpu_live_render_enabled: null });
     const body = await getConfig();
@@ -109,7 +86,6 @@ describe('/api/render/config', () => {
   });
 
   it('PUT with the field omitted leaves the saved value alone', async () => {
-    if (!db) return;
     await putConfig({ gpu_live_render_enabled: false });
     const res = await putConfig({});
     expect(res.status).toBe(200);
@@ -117,12 +93,9 @@ describe('/api/render/config', () => {
     expect(body.gpu_live_render_enabled).toBe(false);
   });
 
-  it('persists to app_settings under _id "render"', async () => {
-    if (!db) return;
+  it('persists to the app_settings row named "render"', async () => {
     await putConfig({ gpu_live_render_enabled: false });
-    const doc = await db
-      .collection<{ _id: string; config: { gpu_live_render_enabled: boolean } }>('app_settings')
-      .findOne({ _id: 'render' });
+    const doc = await readAppSettings<{ config: { gpu_live_render_enabled: boolean } }>('render');
     expect(doc).not.toBeNull();
     expect(doc?.config.gpu_live_render_enabled).toBe(false);
   });

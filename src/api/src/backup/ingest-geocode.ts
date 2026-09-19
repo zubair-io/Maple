@@ -41,7 +41,7 @@ const log = childLogger('backup-ingest-geocode');
 let _cache: CoordinateCache | null = null;
 let _client: NominatimClient | null = null;
 /** Set once we've resolved config and found no usable Nominatim, so we don't
- * re-hit Mongo for the config doc on every cache miss. Cleared by the test
+ * re-hit the database for the config row on every cache miss. Cleared by the test
  * setter. */
 let _clientUnconfigured = false;
 
@@ -138,7 +138,7 @@ export async function resolveBackupLocation(lat: number, lon: number): Promise<s
 /** Test seam. Inject a client + cache, or pass `null` to reset to the
  * lazily-built, config-driven defaults. An explicitly-null `client` means
  * "no live geocoder" — `getClient()` then short-circuits instead of falling
- * through to a real config/Mongo load. */
+ * through to a real config/database load. */
 export function setIngestGeocodeDepsForTests(
   deps: {
     client: NominatimClient | null;

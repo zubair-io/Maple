@@ -1,5 +1,5 @@
 /**
- * Pure-string tests for `sourceFilenameForPreviewCacheName` — no Mongo, no
+ * Pure-string tests for `sourceFilenameForPreviewCacheName` — no database, no
  * filesystem. `cleanPreviewsCacheForLocation`'s actual disk-cleanup
  * behavior is exercised indirectly via `missing-reaper.test.ts`/
  * `dedupe.test.ts` (its real callers).

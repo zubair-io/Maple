@@ -1,8 +1,11 @@
 /**
  * /api/jobs HTTP round-trip tests via `app.handle`.
  *
- * Mirrors `tests/search-route.test.ts` — bare-Elysia construction, real
- * Mongo, skip-pass when MongoDB is unreachable.
+ * Real SQLite, installed as the process-wide handle for the duration of each
+ * test, because the route reaches `sqliteDb()` with no override. Every fixture
+ * is created through the route itself, which is also what makes the isolation
+ * cheap: a fresh database per test replaces the `deleteMany({})` the Mongo
+ * version ran between tests.
  *
  * Coverage:
  *   - bearer required (401 without)
@@ -12,16 +15,17 @@
  *   - GET /api/jobs?status= filters
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient } from 'mongodb';
 import { signAccessToken } from '../src/auth/tokens.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { requireAuth } from '../src/auth/middleware.ts';
+import { jobsRoutes } from '../src/routes/jobs.ts';
+import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-// JWT bootstrap MUST run before any module that touches `requireAuth`.
+// JWT bootstrap MUST run before any request reaches `requireAuth`.
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
-const SECRET = process.env.MAPLE_JWT_SECRET!;
+const SECRET = process.env.MAPLE_JWT_SECRET;
 const BEARER =
   'Bearer ' +
   (await signAccessToken(
@@ -34,89 +38,45 @@ const BEARER =
     SECRET,
   ));
 
-const TEST_DB = withTestDb(`maple_test_jobs_route_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
+const app = new Elysia().use(requireAuth).use(jobsRoutes);
 
 function fmtAuth(): Record<string, string> {
   return { Authorization: BEARER, 'Content-Type': 'application/json' };
 }
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
+const EXPORT_JOB = {
+  kind: 'batch_jpeg_export',
+  payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
+};
+
+/** Create one export job through the route and return its id. */
+async function createJob(): Promise<string> {
+  const res = await app.handle(
+    new Request('http://localhost/api/jobs', {
+      method: 'POST',
+      headers: fmtAuth(),
+      body: JSON.stringify(EXPORT_JOB),
+    }),
+  );
+  const body = (await res.json()) as { id: string };
+  return body.id;
 }
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[jobs-route.test] skipping: MongoDB unreachable at', MONGO_URI);
-    return;
-  }
-  await mongo!.db(TEST_DB).dropDatabase();
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await mongo!.db(TEST_DB).collection('jobs').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo && mongoReachable) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {}
-    try {
-      await mongo.close();
-    } catch {}
-  }
-  try {
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-  } catch {}
-});
 
 describe('/api/jobs', () => {
   it('requires a bearer', async () => {
-    if (!mongoReachable) return;
-    const { jobsRoutes } = await import('../src/routes/jobs.ts');
-    const { requireAuth } = await import('../src/auth/middleware.ts');
-    const app = new Elysia().use(requireAuth).use(jobsRoutes);
+    using live = await createLiveTestDatabase();
     const r = await app.handle(new Request('http://localhost/api/jobs'));
     expect(r.status).toBe(401);
   });
 
   it('POST /api/jobs creates a queued job and returns id', async () => {
-    if (!mongoReachable) return;
-    const { jobsRoutes } = await import('../src/routes/jobs.ts');
-    const { requireAuth } = await import('../src/auth/middleware.ts');
-    const app = new Elysia().use(requireAuth).use(jobsRoutes);
+    using live = await createLiveTestDatabase();
 
     const r = await app.handle(
       new Request('http://localhost/api/jobs', {
         method: 'POST',
         headers: fmtAuth(),
-        body: JSON.stringify({
-          kind: 'batch_jpeg_export',
-          payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
-        }),
+        body: JSON.stringify(EXPORT_JOB),
       }),
     );
     expect(r.status).toBe(201);
@@ -126,10 +86,7 @@ describe('/api/jobs', () => {
   });
 
   it('POST /api/jobs rejects unknown kinds', async () => {
-    if (!mongoReachable) return;
-    const { jobsRoutes } = await import('../src/routes/jobs.ts');
-    const { requireAuth } = await import('../src/auth/middleware.ts');
-    const app = new Elysia().use(requireAuth).use(jobsRoutes);
+    using live = await createLiveTestDatabase();
 
     const r = await app.handle(
       new Request('http://localhost/api/jobs', {
@@ -142,22 +99,8 @@ describe('/api/jobs', () => {
   });
 
   it('GET /api/jobs/:id returns the doc; 404 on unknown', async () => {
-    if (!mongoReachable) return;
-    const { jobsRoutes } = await import('../src/routes/jobs.ts');
-    const { requireAuth } = await import('../src/auth/middleware.ts');
-    const app = new Elysia().use(requireAuth).use(jobsRoutes);
-
-    const post = await app.handle(
-      new Request('http://localhost/api/jobs', {
-        method: 'POST',
-        headers: fmtAuth(),
-        body: JSON.stringify({
-          kind: 'batch_jpeg_export',
-          payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
-        }),
-      }),
-    );
-    const { id } = (await post.json()) as { id: string };
+    using live = await createLiveTestDatabase();
+    const id = await createJob();
 
     const get = await app.handle(
       new Request(`http://localhost/api/jobs/${id}`, { headers: fmtAuth() }),
@@ -183,22 +126,8 @@ describe('/api/jobs', () => {
   });
 
   it('POST /api/jobs/:id/cancel flips cancel_requested', async () => {
-    if (!mongoReachable) return;
-    const { jobsRoutes } = await import('../src/routes/jobs.ts');
-    const { requireAuth } = await import('../src/auth/middleware.ts');
-    const app = new Elysia().use(requireAuth).use(jobsRoutes);
-
-    const post = await app.handle(
-      new Request('http://localhost/api/jobs', {
-        method: 'POST',
-        headers: fmtAuth(),
-        body: JSON.stringify({
-          kind: 'batch_jpeg_export',
-          payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
-        }),
-      }),
-    );
-    const { id } = (await post.json()) as { id: string };
+    using live = await createLiveTestDatabase();
+    const id = await createJob();
 
     const cancel = await app.handle(
       new Request(`http://localhost/api/jobs/${id}/cancel`, {
@@ -215,24 +144,9 @@ describe('/api/jobs', () => {
   });
 
   it('GET /api/jobs?status= filters by status', async () => {
-    if (!mongoReachable) return;
-    const { jobsRoutes } = await import('../src/routes/jobs.ts');
-    const { requireAuth } = await import('../src/auth/middleware.ts');
-    const app = new Elysia().use(requireAuth).use(jobsRoutes);
+    using live = await createLiveTestDatabase();
 
-    // Create three queued jobs.
-    for (let i = 0; i < 3; i++) {
-      await app.handle(
-        new Request('http://localhost/api/jobs', {
-          method: 'POST',
-          headers: fmtAuth(),
-          body: JSON.stringify({
-            kind: 'batch_jpeg_export',
-            payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
-          }),
-        }),
-      );
-    }
+    for (let i = 0; i < 3; i++) await createJob();
 
     const list = await app.handle(
       new Request('http://localhost/api/jobs?status=queued&kind=batch_jpeg_export&limit=10', {

@@ -19,12 +19,16 @@
  */
 
 import { Elysia, t } from 'elysia';
-import type { WithId } from 'mongodb';
-import { presetsCollection } from '../db/client.ts';
-import type { PresetDoc } from '../db/schema.ts';
 import {
-  isMongoSafeKey,
-  unsafeKeyError,
+  deletePreset,
+  insertPreset,
+  isPresetNameConflict,
+  listPresets,
+} from '../db/sqlite/repos/presets.repo.ts';
+import type { PresetDoc, PresetWithId } from '../db/schema.ts';
+import {
+  isStorableKey,
+  unstorableKeyError,
   validatePresetDocument,
 } from '../presets/preset-validation.ts';
 import { child as childLogger } from '../log.ts';
@@ -49,30 +53,36 @@ const CreateBody = t.Object(
  * onto the wire row on read. */
 const OWNED_KEYS = new Set(['schemaVersion', 'name', 'fields']);
 
-/** Depth-first scan of a preserved value for a Mongo-unsafe key. `extra`
- * is stored as a subdocument, so every nested object key is a document
- * key too — an unsafe one would turn the insert into a 500. Returns the
- * first offending key, or null when the whole value is safe. */
-function findMongoUnsafeKey(value: unknown): string | null {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const bad = findMongoUnsafeKey(item);
-      if (bad !== null) return bad;
-    }
-    return null;
-  }
-  if (value !== null && typeof value === 'object') {
-    for (const [key, nested] of Object.entries(value)) {
-      if (!isMongoSafeKey(key)) return key;
-      const bad = findMongoUnsafeKey(nested);
-      if (bad !== null) return bad;
-    }
+/** Depth-first scan of a preserved value for a key the store will not take.
+ * `extra` persists as JSON in a text column, so a NUL byte inside a key is a
+ * real hazard; `.` and a leading `$` are inherited from the document-key era
+ * and stay rejected because the accepted input set is part of the API
+ * contract, not because storage needs it. Returns the first offending key, or
+ * null when the whole value is safe. See `presets/preset-validation.ts`. */
+function findUnstorableKey(value: unknown): string | null {
+  for (const [key, child] of childValues(value)) {
+    if (key !== null && !isStorableKey(key)) return key;
+    const bad = findUnstorableKey(child);
+    if (bad !== null) return bad;
   }
   return null;
 }
 
+/**
+ * What a preserved value contains, as `[key, child]` pairs.
+ *
+ * An array's items have no key of their own, which is what the null stands
+ * for; a scalar contains nothing and ends the walk. Saying that once here is
+ * what keeps the scan above a single loop rather than one per shape.
+ */
+function childValues(value: unknown): Array<[string | null, unknown]> {
+  if (Array.isArray(value)) return value.map((item) => [null, item]);
+  if (value !== null && typeof value === 'object') return Object.entries(value);
+  return [];
+}
+
 /** Wire shape: unknown preserved keys first so the owned keys win. */
-function toWireRow(row: WithId<PresetDoc>) {
+function toWireRow(row: PresetWithId) {
   return {
     ...(row.extra ?? {}),
     id: row._id.toHexString(),
@@ -87,12 +97,7 @@ function toWireRow(row: WithId<PresetDoc>) {
 export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
   // ── List ────────────────────────────────────────────────────────────
   .get('/', async () => {
-    const col = await presetsCollection();
-    const rows = await col
-      .find({})
-      .collation({ locale: 'en', strength: 2 })
-      .sort({ name: 1 })
-      .toArray();
+    const rows = await listPresets();
     return { presets: rows.map(toWireRow) };
   })
 
@@ -115,10 +120,10 @@ export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
       const extra: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
         if (OWNED_KEYS.has(key)) continue;
-        const bad = isMongoSafeKey(key) ? findMongoUnsafeKey(value) : key;
+        const bad = isStorableKey(key) ? findUnstorableKey(value) : key;
         if (bad !== null) {
           set.status = 400;
-          return { error: unsafeKeyError(bad) };
+          return { error: unstorableKeyError(bad) };
         }
         extra[key] = value;
       }
@@ -133,18 +138,17 @@ export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
         updated_at: now,
       };
 
-      const col = await presetsCollection();
       try {
-        const res = await col.insertOne(doc);
+        const insertedId = await insertPreset(doc);
         set.status = 201;
-        return toWireRow({ _id: res.insertedId, ...doc });
+        return toWireRow({ _id: insertedId, ...doc });
       } catch (err) {
-        // E11000 from the case-insensitive unique name index.
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/E11000/.test(msg)) {
+        // The case-insensitive unique name index rejected it.
+        if (isPresetNameConflict(err)) {
           set.status = 409;
           return { error: `a preset named "${name}" already exists` };
         }
+        const msg = err instanceof Error ? err.message : String(err);
         log.error({ err: msg }, 'preset insert failed');
         set.status = 500;
         return { error: msg };
@@ -160,8 +164,7 @@ export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
       set.status = 400;
       return { error: 'invalid preset id' };
     }
-    const col = await presetsCollection();
-    const res = await col.deleteOne({ _id: id });
+    const res = await deletePreset(id);
     if (res.deletedCount === 0) {
       set.status = 404;
       return { error: 'preset not found' };

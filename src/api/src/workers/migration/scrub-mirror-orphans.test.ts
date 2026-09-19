@@ -1,63 +1,37 @@
 /**
- * scrub-mirror-orphans migration tests. Integration tests against a real Mongo
- * (skip-pass when unreachable) because the migration persists discovery state via
- * the migration-config repo. The filesystem diff itself (findMirrorOrphans /
- * deleteOrphanRefs) is covered separately in `../mirror/scrub.test.ts`.
+ * scrub-mirror-orphans migration tests.
+ *
+ * The migration itself touches no database — it diffs two directory trees — but
+ * it persists its discovery state through the migration-config repository, so
+ * the suite needs a live SQLite handle rather than a mock. `createLiveTestDatabase`
+ * installs one for the process, which is what `readAppSettings` / `patchAppSettings`
+ * reach when the repo is called with no override.
+ *
+ * The filesystem diff itself (findMirrorOrphans / deleteOrphanRefs) is covered
+ * separately in `../mirror/scrub.test.ts`.
  *
  * Covers the two-phase shape: a sentinel count before discovery, a discovery
  * batch that finds orphans without deleting, a deletion batch that removes them,
  * and the primary-offline safety guard (never deletes, count resolves to 0).
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, type Db } from 'mongodb';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_scruborphans_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let reachable = false;
-let db: Db | null = null;
+let live: LiveTestDatabase | null = null;
 let primary: string;
 let mirror: string;
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  reachable = mongo !== null;
-  if (!reachable) {
-    console.log('[scrub-mirror-orphans.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
-});
-
 beforeEach(async () => {
-  if (!reachable || !db) return;
-  await db.collection('app_settings').deleteMany({});
+  // A fresh database per test, installed as the process-wide handle, so the
+  // migration-config repo's own reads and writes land somewhere isolated.
+  live = await createLiveTestDatabase();
   primary = mkdtempSync(join(tmpdir(), 'scrubmig-primary-'));
   mirror = mkdtempSync(join(tmpdir(), 'scrubmig-mirror-'));
   const { clearMirrorRoots, setMirrorRoots } = await import('../../fs/mirror-registry.ts');
@@ -65,15 +39,20 @@ beforeEach(async () => {
   setMirrorRoots({ [primary]: [mirror] });
 });
 
-afterAll(async () => {
-  if (mongo) await mongo.close();
+afterEach(() => {
+  live?.close();
+  live = null;
   if (primary) rmSync(primary, { recursive: true, force: true });
   if (mirror) rmSync(mirror, { recursive: true, force: true });
 });
 
+afterAll(() => {
+  // The roots are process state; leaving them set would follow the next suite.
+  void import('../../fs/mirror-registry.ts').then(({ clearMirrorRoots }) => clearMirrorRoots());
+});
+
 describe('scrub-mirror-orphans migration', () => {
   it('discovers, then deletes orphans across two batches', async () => {
-    if (!reachable) return;
     // Mirror holds a stranded old-layout copy (no primary) + a matched file.
     mkdirSync(join(mirror, '2024', '12-25'), { recursive: true });
     writeFileSync(join(mirror, '2024', '12-25', 'IMG.dng'), 'x'); // orphan
@@ -106,7 +85,6 @@ describe('scrub-mirror-orphans migration', () => {
   });
 
   it('never deletes when the primary root is offline', async () => {
-    if (!reachable) return;
     const offlinePrimary = join(tmpdir(), `scrubmig-gone-${process.pid}-${Date.now()}`);
     writeFileSync(join(mirror, 'IMG.dng'), 'x');
     const { setMirrorRoots } = await import('../../fs/mirror-registry.ts');
@@ -128,7 +106,6 @@ describe('scrub-mirror-orphans migration', () => {
   });
 
   it('reports 0 remaining while disabled', async () => {
-    if (!reachable) return;
     const { scrubMirrorOrphans } = await import('./scrub-mirror-orphans.ts');
     // No enablement written → disabled → cheap 0 (no walk, no sentinel).
     expect(await scrubMirrorOrphans.countRemaining()).toBe(0);

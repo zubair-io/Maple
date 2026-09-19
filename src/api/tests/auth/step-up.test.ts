@@ -4,36 +4,42 @@
  * Sensitive actions (add/remove credential, create/rescind invite) require a
  * fresh WebAuthn step-up token in `X-Step-Up`, not just a valid access token —
  * so a leaked short-lived access token can't escalate into persistent access.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787). The owner account is seeded there because the accepted
+ * action actually writes an invite naming it.
  */
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { buildApp } from '../../src/index.ts';
 import { signAccessToken, signStepUpToken } from '../../src/auth/tokens.ts';
-import { usersCollection } from '../../src/db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { seedUser } from '../helpers/sqlite-fixtures.ts';
 
 const app = buildApp({ stageNames: [] });
 const SECRET = process.env.MAPLE_JWT_SECRET!;
 const EMAIL = 'owner@maple.test';
 
+let live: LiveTestDatabase;
 let ownerId: ObjectId;
 let bearer: string;
 
 beforeEach(async () => {
-  const users = await usersCollection();
-  await users.deleteMany({});
-  const ins = await users.insertOne({
-    email: EMAIL,
-    role: 'owner',
-    created_at: new Date().toISOString(),
-    last_seen_at: null,
-  });
-  ownerId = ins.insertedId;
+  live = await createLiveTestDatabase();
+  ownerId = seedUser(live.db, { email: EMAIL, role: 'owner' });
   bearer = await signAccessToken(
     { file_access: true, sub: ownerId.toHexString(), email: EMAIL, role: 'owner' },
     SECRET,
   );
+});
+
+afterEach(() => {
+  live.close();
 });
 
 function req(
@@ -77,7 +83,7 @@ describe('step-up enforcement (#861)', () => {
       { email: 'invitee@maple.test' },
     );
     expect(res.status).toBe(200);
-    expect((await res.json()).code).toBeDefined();
+    expect(((await res.json()) as { code?: string }).code).toBeDefined();
   });
 
   it('rejects a malformed step-up token', async () => {

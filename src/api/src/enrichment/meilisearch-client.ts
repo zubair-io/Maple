@@ -1,14 +1,14 @@
 /**
- * Meilisearch sidecar client — typo-tolerant text search above the Mongo
- * `$text` index. See `docs/indexer-enrichment.md` §5.5 and Phase 7 brief.
+ * Meilisearch sidecar client — typo-tolerant text search above the catalogue's
+ * own full-text index. See `docs/indexer-enrichment.md` §5.5 and Phase 7 brief.
  *
  * Maple is purely a client. Operators run Meilisearch elsewhere (Proxmox VM,
  * Docker, separate host) and configure it under Settings → Workers → meili.
  *
  * Behaviour:
  *   - When no Meilisearch URL is configured, every method is a no-op
- *     (returns success / empty). The route layer falls back to the Mongo
- *     `$text` path; the asset stays searchable, just without typo tolerance.
+ *     (returns success / empty). The route layer falls back to the built-in
+ *     full-text path; the asset stays searchable, just without typo tolerance.
  *   - All non-`health` methods log-and-swallow on error. Failures must NOT
  *     break the geocode worker, the soft-delete path, or the search route.
  *     `health()` returns a boolean — callers decide what to do.
@@ -125,8 +125,8 @@ export interface MeilisearchClient {
    * `deletedAt IS NULL` so tombstoned docs disappear from results. */
   tombstone(id: string): Promise<void>;
   /** Typo-tolerant text search. Returns ids only; the route fetches the
-   * full asset rows from Mongo. Throws on transport error so the route can
-   * fall back to Mongo `$text`. */
+   * full asset rows from the catalogue. Throws on transport error so the route
+   * can fall back to the built-in full-text search. */
   search(q: string, opts?: MeilisearchSearchOptions): Promise<MeilisearchSearchResult>;
   /** Operator-facing semantic configuration and raw index population snapshot. */
   semanticStatus?(): Promise<MeilisearchSemanticStatus>;
@@ -421,8 +421,8 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
         searchRequest(cfg, q, opts),
       );
       if (!r.ok || !r.body) {
-        // Throw so the search route's try/catch falls back to Mongo. The
-        // route logs the fallback at warn level.
+        // Throw so the search route's try/catch falls back to the built-in
+        // full-text search. The route logs the fallback at warn level.
         throw new MeilisearchSearchError(r.status, r.errorText);
       }
       return parseSearchResult(r.body);

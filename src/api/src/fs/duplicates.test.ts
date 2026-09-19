@@ -1,5 +1,5 @@
 /**
- * Filesystem tests for the `_duplicates` mover. Real temp dirs (no Mongo) —
+ * Filesystem tests for the `_duplicates` mover. Real temp dirs (no database) —
  * always run. Mirrors the trash-move contract: relocate the original + its
  * paired XMP sidecars, never overwrite an existing quarantined file.
  */

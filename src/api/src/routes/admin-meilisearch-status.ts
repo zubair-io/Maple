@@ -1,16 +1,20 @@
 import { Elysia } from 'elysia';
-import type { Db } from 'mongodb';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
-import { assetsCollection, getDb } from '../db/client.ts';
+import {
+  readBackfillState,
+  type BackfillStateRow,
+} from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 import { EMBEDDER_NAME, meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
   DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
   DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
 } from '../enrichment/meilisearch-config.ts';
 import type { MeilisearchSemanticStatus } from '../enrichment/meilisearch-client.ts';
-import type { BackfillState } from '../enrichment/meilisearch-backfill.ts';
-import { LIVE_ASSET_FILTER } from '../enrichment/meilisearch-vector-coverage.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from '../workers/worker-config.repo.ts';
+import {
+  countLiveAssets,
+  countLiveAssetsWithFingerprint,
+} from '../enrichment/meilisearch-vector-coverage.ts';
 
 const unavailableStatus = (): MeilisearchSemanticStatus => ({
   configured: false,
@@ -31,18 +35,17 @@ const unavailableStatus = (): MeilisearchSemanticStatus => ({
 /** The `meili` stage's DB-backed pause state. When the stage paused ITSELF
  * (embedder address policy, #3315) the reason rides along here so the
  * semantic-status surface tells the same story as Settings → Workers. */
-async function meiliStagePause(db: Db): Promise<{ paused: boolean; pauseReason: string | null }> {
-  const repo = new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
-  const config = await repo.load('meili');
+async function meiliStagePause(): Promise<{ paused: boolean; pauseReason: string | null }> {
+  const config = await new WorkerConfigRepo().load('meili');
   return { paused: config?.paused === true, pauseReason: config?.pause_reason ?? null };
 }
 
-function backfillStatus(backfill: BackfillState): string {
+function backfillStatus(backfill: BackfillStateRow): string {
   if (!backfill.completed_at) return 'in_progress';
   return backfill.errors > 0 ? 'complete_with_errors' : 'complete';
 }
 
-function backfillPayload(backfill: BackfillState | null): Record<string, unknown> {
+function backfillPayload(backfill: BackfillStateRow | null): Record<string, unknown> {
   if (!backfill) {
     return {
       status: 'not_started',
@@ -69,25 +72,21 @@ function backfillPayload(backfill: BackfillState | null): Record<string, unknown
   };
 }
 
-async function liveVectorizedCount(fingerprint: string | null): Promise<number> {
-  if (!fingerprint) return 0;
-  return (await assetsCollection()).countDocuments({
-    ...LIVE_ASSET_FILTER,
-    semantic_vector_fingerprint: fingerprint,
-  } as never);
-}
-
 // ── Status response cache (#2359) ─────────────────────────────────────
 // Every call runs `semanticStatus()` (a live hybrid-search embed probe
-// against Ollama — see `meilisearch-semantic-status.ts`) plus two
-// unindexed O(N) `countDocuments` scans. This route backs the Settings →
-// Workers polling widget, so without a cache each poll tick re-hammers
-// both Ollama and Mongo. There's exactly one response shape (no request
-// params to key on), so a single cached slot + absolute expiry is enough
-// — mirrors the TTL-cache shape used by `totalCache` in
-// `routes/search/list.ts` and `bucketsCache` in `routes/search/buckets.ts`,
-// just without the per-filter `Map`. No bypass: operators can wait out
-// the TTL.
+// against Ollama — see `meilisearch-semantic-status.ts`) alongside two
+// asset counts. This route backs the Settings → Workers polling widget, so
+// without a cache each poll tick re-hammers Ollama. There's exactly one
+// response shape (no request params to key on), so a single cached slot +
+// absolute expiry is enough — mirrors the TTL-cache shape used by
+// `totalCache` in `routes/search/total-cache.ts` and `bucketsCache` in
+// `routes/search/buckets.ts`, just without the per-filter `Map`. No bypass:
+// operators can wait out the TTL.
+//
+// The two counts are no longer the reason the cache exists. They were
+// unindexed O(N) collection scans, because "live" lived in an `$elemMatch`
+// over `fileinfo[]`; they are partial-index counts now. The embed probe
+// still costs what it costs, so the cache stays for that.
 const STATUS_CACHE_TTL_MS = 30_000;
 let statusCache: { result: Record<string, unknown>; expiresMs: number } | null = null;
 
@@ -100,14 +99,12 @@ export function _resetAdminMeilisearchStatusCacheForTests(): void {
 async function computeAdminMeilisearchStatus(): Promise<Record<string, unknown>> {
   const client = meilisearchClient();
   const fingerprint = client.semanticFingerprint?.() ?? null;
-  const assets = await assetsCollection();
-  const db = await getDb();
   const [semantic, liveDocumentCount, vectorizedLive, backfill, stage] = await Promise.all([
     client.semanticStatus?.() ?? Promise.resolve(unavailableStatus()),
-    assets.countDocuments(LIVE_ASSET_FILTER as never),
-    liveVectorizedCount(fingerprint),
-    db.collection<BackfillState>('meilisearch_backfill_state').findOne({ _id: 'assets' }),
-    meiliStagePause(db),
+    countLiveAssets(),
+    countLiveAssetsWithFingerprint(fingerprint),
+    readBackfillState(),
+    meiliStagePause(),
   ]);
   return {
     semantic,

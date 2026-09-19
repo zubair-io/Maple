@@ -1,7 +1,7 @@
 /**
  * Unit tests for `clustering-metrics.ts`.
  *
- * No Mongo required — these are pure-function tests against known small
+ * No database required — these are pure-function tests against known small
  * inputs. The numerical reference values for NMI / V-measure / ARI come
  * from cross-checking against scikit-learn's `normalized_mutual_info_score`,
  * `v_measure_score`, and `adjusted_rand_score` on the same toy inputs.

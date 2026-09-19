@@ -1,47 +1,35 @@
 /**
- * ImportRunner tests. Real temp dirs + real Mongo (skip-pass when
- * unreachable). The indexer hand-off and asset dedup are injected so the
- * test exercises the copy/group/cancel logic without the full pipeline.
+ * ImportRunner tests. Real temp dirs, real file copies, and a private SQLite
+ * database per test (#3787). The indexer hand-off and asset dedup are injected
+ * so the test exercises the copy/group/cancel logic without the full pipeline.
  *
  * Covers: groupFiles (pure), end-to-end copy + indexer hand-off (images
  * only), content-dedup skip (image + its sidecar), and cancel-between-files
  * (already-copied files stay).
+ *
+ * The filesystem half of these cases is the point of them and is untouched by
+ * the cutover. What changed is underneath: `ImportRunner` reaches the database
+ * through `imports/repo.ts`, which now re-exports the SQLite repository, and a
+ * repository call made from inside a worker tick takes no override — it asks
+ * the process for its handle. `createLiveTestDatabase` is what puts one there,
+ * for the length of the block that opened it, so every test owns its own
+ * database and none of the old "clear the shared collections between cases"
+ * bookkeeping (or the "skip when Mongo is unreachable" escape hatch) survives.
  */
 
-import { describe, it, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { describe, it, test, expect, beforeAll, afterAll } from 'bun:test';
+import type { Database } from 'bun:sqlite';
+import { ObjectId } from 'mongodb';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ImportRunner, groupFiles } from './worker.ts';
 import type { ImportFileEntry } from '../db/schema.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import * as repo from './repo.ts';
 
-const TEST_DB = withTestDb(`maple_test_import_worker_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
 let tmp: string;
 let previousMapleRoots: string | undefined;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
 
 beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-import-worker-'));
@@ -51,38 +39,12 @@ beforeAll(async () => {
   // dirs; restored in afterAll so it doesn't leak to files that run after.
   previousMapleRoots = process.env.MAPLE_ROOTS;
   process.env.MAPLE_ROOTS = await fs.realpath(os.tmpdir());
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[import.worker.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('imports').deleteMany({});
-  await db!.collection('import_files').deleteMany({});
 });
 
 afterAll(async () => {
   await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
   if (previousMapleRoots === undefined) delete process.env.MAPLE_ROOTS;
   else process.env.MAPLE_ROOTS = previousMapleRoots;
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {}
-    try {
-      await mongo.close();
-    } catch {}
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
 });
 
 describe('groupFiles', () => {
@@ -147,10 +109,23 @@ async function stageSources(sub: string, names: string[]): Promise<Record<string
   return out;
 }
 
+/**
+ * Insert the library an import is created against, and return its id.
+ *
+ * `imports.library_id` is a foreign key onto `folders`, so the bare
+ * `new ObjectId()` these tests used to pass is now refused by the insert rather
+ * than stored pointing at nothing. `seedLibrary` in
+ * `imports-test-db.fixtures.ts` mints one at a fixed `/srv/lib`; these tests
+ * copy real bytes into the root they name, so the folder row carries that root
+ * instead of a placeholder.
+ */
+function seedLibraryAt(db: Database, root: string): ObjectId {
+  return new ObjectId(insertFolder(db, { path: root }));
+}
+
 describe('ImportRunner.tick', () => {
   it('auto import: the worker scans the source and copies (scan_pending)', async () => {
-    if (!mongoReachable) return;
-    const repo = await import('./repo.ts');
+    using live = await createLiveTestDatabase();
     const src = await stageSources('auto', ['IMG.dng', 'IMG.xmp']);
     // Known mtime → deterministic YEAR/MM bucket.
     const when = new Date('2024-03-09T12:00:00Z');
@@ -160,7 +135,7 @@ describe('ImportRunner.tick', () => {
 
     const created = await repo.createImport({
       source_root: path.join(tmp, 'auto', 'src'),
-      library_id: new ObjectId(),
+      library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
       files: [], // no files up front — worker scans
       scan_pending: true,
@@ -195,8 +170,7 @@ describe('ImportRunner.tick', () => {
   });
 
   it('auto import whose source has no importable files is marked failed', async () => {
-    if (!mongoReachable) return;
-    const repo = await import('./repo.ts');
+    using live = await createLiveTestDatabase();
     // A source folder with only a non-media file → nothing to import.
     const dir = path.join(tmp, 'auto-empty', 'src');
     await fs.mkdir(dir, { recursive: true });
@@ -205,7 +179,7 @@ describe('ImportRunner.tick', () => {
 
     const created = await repo.createImport({
       source_root: dir,
-      library_id: new ObjectId(),
+      library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
       files: [],
       scan_pending: true,
@@ -230,11 +204,10 @@ describe('ImportRunner.tick', () => {
   });
 
   it('copies files, hands images (not movies) to the indexer', async () => {
-    if (!mongoReachable) return;
-    const repo = await import('./repo.ts');
+    using live = await createLiveTestDatabase();
     const src = await stageSources('happy', ['IMG.dng', 'IMG.xmp', 'clip.mov']);
     const lib = path.join(tmp, 'happy', 'lib');
-    const libId = new ObjectId();
+    const libId = seedLibraryAt(live.db, lib);
 
     await repo.createImport({
       source_root: path.join(tmp, 'happy', 'src'),
@@ -287,14 +260,13 @@ describe('ImportRunner.tick', () => {
   });
 
   it('skips a duplicate image and its sidecar', async () => {
-    if (!mongoReachable) return;
-    const repo = await import('./repo.ts');
+    using live = await createLiveTestDatabase();
     const src = await stageSources('dup', ['IMG.dng', 'IMG.xmp']);
     const lib = path.join(tmp, 'dup', 'lib');
 
     await repo.createImport({
       source_root: path.join(tmp, 'dup', 'src'),
-      library_id: new ObjectId(),
+      library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
       files: [
         entry(src['IMG.xmp'], '2024/03/IMG.xmp', 'sidecar'),
@@ -324,8 +296,7 @@ describe('ImportRunner.tick', () => {
   });
 
   it('keeps a sidecar paired to its image after a collision rename', async () => {
-    if (!mongoReachable) return;
-    const repo = await import('./repo.ts');
+    using live = await createLiveTestDatabase();
     const src = await stageSources('collide', ['IMG.dng', 'IMG.xmp']);
     const lib = path.join(tmp, 'collide', 'lib');
     // A DIFFERENT photo already occupies the computed image path.
@@ -334,7 +305,7 @@ describe('ImportRunner.tick', () => {
 
     await repo.createImport({
       source_root: path.join(tmp, 'collide', 'src'),
-      library_id: new ObjectId(),
+      library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
       files: [
         entry(src['IMG.xmp'], '2024/03/IMG.xmp', 'sidecar'),
@@ -366,14 +337,13 @@ describe('ImportRunner.tick', () => {
   });
 
   it('cancels between files, leaving already-copied files in place', async () => {
-    if (!mongoReachable) return;
-    const repo = await import('./repo.ts');
+    using live = await createLiveTestDatabase();
     const src = await stageSources('cancel', ['A.dng', 'B.dng']);
     const lib = path.join(tmp, 'cancel', 'lib');
 
     const created = await repo.createImport({
       source_root: path.join(tmp, 'cancel', 'src'),
-      library_id: new ObjectId(),
+      library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
       files: [
         entry(src['A.dng'], '2024/03/A.dng', 'image'),
@@ -406,8 +376,7 @@ describe('ImportRunner.tick', () => {
   });
 
   it('skips a pre-failed file (no copy) and completes done with the good one (#795)', async () => {
-    if (!mongoReachable) return;
-    const repo = await import('./repo.ts');
+    using live = await createLiveTestDatabase();
     const src = await stageSources('prefailed', ['GOOD.dng']);
     const lib = path.join(tmp, 'prefailed', 'lib');
 
@@ -426,7 +395,7 @@ describe('ImportRunner.tick', () => {
 
     const created = await repo.createImport({
       source_root: path.join(tmp, 'prefailed', 'src'),
-      library_id: new ObjectId(),
+      library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
       files: [badFailed, entry(src['GOOD.dng'], '2024/03/GOOD.dng', 'image')],
     });
@@ -456,8 +425,7 @@ describe('ImportRunner.tick', () => {
   });
 
   it('marks an import failed when every file failed (#795)', async () => {
-    if (!mongoReachable) return;
-    const repo = await import('./repo.ts');
+    using live = await createLiveTestDatabase();
     const lib = path.join(tmp, 'allfailed', 'lib');
 
     const onlyFailed: ImportFileEntry = {
@@ -472,7 +440,7 @@ describe('ImportRunner.tick', () => {
 
     const created = await repo.createImport({
       source_root: path.join(tmp, 'allfailed', 'src'),
-      library_id: new ObjectId(),
+      library_id: seedLibraryAt(live.db, lib),
       library_root: lib,
       files: [onlyFailed],
     });

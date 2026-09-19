@@ -255,30 +255,32 @@ All six require a bearer — they write files and reconcile deletions. Resume id
 
 Pause and config changes are written to `worker_config` in Mongo; the worker child re-reads it on its next poll tick, so there is no IPC.
 
-| Method | Path                                       | Auth   | Purpose                                                                 |
-| ------ | ------------------------------------------ | ------ | ----------------------------------------------------------------------- |
-| GET    | `/api/workers/status`                      | bearer | Per-stage rows: pending, ready, dead, in-flight, throughput (#3491)     |
-| GET    | `/api/workers/performance`                 | bearer | FFI decode-pool size and the on-demand preview limiter                  |
-| PATCH  | `/api/workers/performance`                 | bearer | Resize the pool live, clamped to its min/max                            |
-| POST   | `/api/workers/:name/pause`                 | bearer | Pause one stage                                                         |
-| POST   | `/api/workers/:name/resume`                | bearer | Resume it; also clears a self-imposed `pause_reason`                    |
-| PATCH  | `/api/workers/:name/config`                | bearer | Patch its concurrency, batch size, and target version                   |
-| GET    | `/api/workers/:name/dead`                  | bearer | Dead-lettered assets for that stage                                     |
-| POST   | `/api/workers/:name/retry-dead`            | bearer | Re-arm them                                                             |
-| GET    | `/api/workers/damaged`                     | bearer | Assets tagged damaged by a stage                                        |
-| POST   | `/api/workers/damaged/clear`               | bearer | Clear the damaged tags                                                  |
-| GET    | `/api/workers/missing-reaper/prune-window` | bearer | How long a missing file waits before the reaper acts                    |
-| PATCH  | `/api/workers/missing-reaper/prune-window` | bearer | Change that window                                                      |
-| GET    | `/api/workers/deduplicate/config`          | bearer | Dedupe worker settings                                                  |
-| PATCH  | `/api/workers/deduplicate/config`          | bearer | Change them                                                             |
-| GET    | `/api/workers/migration/migrations`        | bearer | Every registered data migration, its enable/progress state, `remaining` |
-| PATCH  | `/api/workers/migration/migrations/:id`    | bearer | Enable, disable, or reset one                                           |
-| GET    | `/api/workers/generated-search/config`     | bearer | Generated-search worker settings                                        |
-| PATCH  | `/api/workers/generated-search/config`     | bearer | Change them                                                             |
-| POST   | `/api/workers/generated-search/run`        | bearer | Generate today's collections now                                        |
-| GET    | `/api/derivative-audit/status`             | bearer | Config plus last-pass progress for the derivative reconciliation worker |
-| PUT    | `/api/derivative-audit/config`             | bearer | Patch that config                                                       |
-| POST   | `/api/derivative-audit/run`                | bearer | Kick a pass; returns immediately                                        |
+| Method | Path                                       | Auth   | Purpose                                                                  |
+| ------ | ------------------------------------------ | ------ | ------------------------------------------------------------------------ |
+| GET    | `/api/workers/status`                      | bearer | Per-stage rows: pending, ready, dead, in-flight, throughput (#3491)      |
+| GET    | `/api/workers/performance`                 | bearer | FFI decode-pool size and the on-demand preview limiter                   |
+| PATCH  | `/api/workers/performance`                 | bearer | Resize the pool live, clamped to its min/max                             |
+| POST   | `/api/workers/:name/pause`                 | bearer | Pause one stage                                                          |
+| POST   | `/api/workers/:name/resume`                | bearer | Resume it; also clears a self-imposed `pause_reason`                     |
+| PATCH  | `/api/workers/:name/config`                | bearer | Patch its concurrency, batch size, and target version                    |
+| GET    | `/api/workers/:name/dead`                  | bearer | Dead-lettered assets for that stage                                      |
+| POST   | `/api/workers/:name/retry-dead`            | bearer | Re-arm them                                                              |
+| GET    | `/api/workers/damaged`                     | bearer | Assets tagged damaged by a stage                                         |
+| POST   | `/api/workers/damaged/clear`               | bearer | Clear the damaged tags                                                   |
+| GET    | `/api/workers/missing-reaper/prune-window` | bearer | How long a missing file waits before the reaper acts                     |
+| PATCH  | `/api/workers/missing-reaper/prune-window` | bearer | Change that window                                                       |
+| GET    | `/api/workers/deduplicate/config`          | bearer | Dedupe worker settings                                                   |
+| PATCH  | `/api/workers/deduplicate/config`          | bearer | Change them                                                              |
+| GET    | `/api/workers/migration/migrations`        | bearer | Every registered data migration, its enable/progress state, `remaining`  |
+| PATCH  | `/api/workers/migration/migrations/:id`    | bearer | Enable, disable, or reset one                                            |
+| GET    | `/api/workers/generated-search/config`     | bearer | Generated-search worker settings                                         |
+| PATCH  | `/api/workers/generated-search/config`     | bearer | Change them                                                              |
+| POST   | `/api/workers/generated-search/run`        | bearer | Generate today's collections now                                         |
+| GET    | `/api/derivative-audit/status`             | bearer | Config plus last-pass progress for the derivative reconciliation worker  |
+| PUT    | `/api/derivative-audit/config`             | bearer | Patch that config                                                        |
+| POST   | `/api/derivative-audit/run`                | bearer | Kick a pass; returns immediately                                         |
+| GET    | `/api/change-log-gc/status`                | bearer | Change-log retention: config, last sweep, estimated `asset_changes` rows |
+| PUT    | `/api/change-log-gc/config`                | bearer | Patch that config (`enabled`, `retention_days`)                          |
 
 Stage names accepted by the `:name` routes come from `workers/stages/manifest.ts` — `exif`, `thumb`, `preview`, `face-detect`, `face-embed`, `describe`, `geocode`, `meili`, `sidecar-metadata-index`, `cf-thumb-sync`, `transcribe` — plus the non-stage controllers `missing-reaper`, `migration`, `deduplicate`, and `discover`.
 

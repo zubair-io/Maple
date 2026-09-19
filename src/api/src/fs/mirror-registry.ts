@@ -3,10 +3,10 @@
  * backup/mirror roots, plus the path-resolution that turns an absolute path
  * under a primary root into the matching absolute path(s) under each mirror.
  *
- * This is deliberately a *pure, synchronous* module with no MongoDB or fs
+ * This is deliberately a *pure, synchronous* module with no database or fs
  * dependency: it is the gate the drop-in `fs/mirrored.ts` consults on every
  * mutating call, so it must be allocation-light and side-effect-free. The
- * Mongo-backed loader that populates it from `FolderDoc.mirrors` lives in
+ * database-backed loader that populates it from `FolderDoc.mirrors` lives in
  * `fs/mirror-config.ts`; tests drive it directly via `setMirrorRoots`.
  *
  * The registry is intentionally independent of the `root.ts` path jail. Mirror

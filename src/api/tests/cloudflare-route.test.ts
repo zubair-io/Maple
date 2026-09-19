@@ -3,84 +3,40 @@
  * with real owner/member bearer tokens (mirrors routes.invites.test.ts) —
  * unlike enrichment/observability, this route is owner-gated.
  *
+ * Real SQLite, installed as the process-wide handle for the length of each
+ * test, because the route reaches `sqliteDb()` with no override. A fresh
+ * database per test is what replaces the `deleteMany({})` on `app_settings`
+ * the Mongo version ran between tests.
+ *
  * R2 network calls are faked by stubbing `globalThis.fetch` for the
  * duration of each test.
  */
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { signAccessToken } from '../src/auth/tokens.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { cloudflareRoutes } from '../src/routes/cloudflare.ts';
+import { readAppSettings } from '../src/db/sqlite/repos/app-settings.repo.ts';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_cloudflare_route_${process.pid}`);
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let app: Pick<Elysia, 'handle'> | null = null;
+const app = new Elysia().use(cloudflareRoutes);
 
 const realFetch = globalThis.fetch;
 
 const ownerJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: newObjectIdHex(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 const memberJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  { file_access: true, sub: newObjectIdHex(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[cloudflare-route.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-  const { cloudflareRoutes } = await import('../src/routes/cloudflare.ts');
-  app = new Elysia().use(cloudflareRoutes);
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
-});
-
 afterEach(() => {
   globalThis.fetch = realFetch;
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
 });
 
 function stubFetch(status: number, body = ''): void {
@@ -88,7 +44,7 @@ function stubFetch(status: number, body = ''): void {
 }
 
 async function get(path: string, jwt: string): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(
+  const res = await app.handle(
     new Request(`http://localhost${path}`, {
       headers: { authorization: `Bearer ${jwt}` },
     }),
@@ -104,7 +60,7 @@ async function put(
   body: Record<string, unknown>,
   jwt: string,
 ): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(
+  const res = await app.handle(
     new Request(`http://localhost${path}`, {
       method: 'PUT',
       headers: {
@@ -120,6 +76,12 @@ async function put(
   };
 }
 
+/** The persisted document, secret included — what the wire never shows. */
+async function savedConfig(): Promise<{ secret_access_key?: string } | undefined> {
+  const doc = await readAppSettings<{ config: { secret_access_key?: string } }>('cloudflare');
+  return doc?.config;
+}
+
 const FULL_CONFIG = {
   enabled: true,
   account_id: 'acct123',
@@ -130,19 +92,19 @@ const FULL_CONFIG = {
 
 describe('GET /api/cloudflare/config', () => {
   it('rejects an unauthenticated request with 401', async () => {
-    if (!mongoReachable) return;
-    const res = await app!.handle(new Request('http://localhost/api/cloudflare/config'));
+    using live = await createLiveTestDatabase();
+    const res = await app.handle(new Request('http://localhost/api/cloudflare/config'));
     expect(res.status).toBe(401);
   });
 
   it('rejects a member-role token with 403', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await get('/api/cloudflare/config', memberJwt);
     expect(r.status).toBe(403);
   });
 
   it('returns defaults when no DB row exists', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await get('/api/cloudflare/config', ownerJwt);
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({
@@ -157,13 +119,13 @@ describe('GET /api/cloudflare/config', () => {
 
 describe('PUT /api/cloudflare/config', () => {
   it('rejects enabling without full credentials', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/cloudflare/config', { enabled: true }, ownerJwt);
     expect(r.status).toBe(400);
   });
 
   it('validates credentials against R2 before persisting when enabling', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(403, 'AccessDenied');
     const r = await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
     expect(r.status).toBe(502);
@@ -173,7 +135,7 @@ describe('PUT /api/cloudflare/config', () => {
   });
 
   it('saves full credentials once the R2 probe succeeds, redacting the secret', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(200);
     const r = await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
     expect(r.status).toBe(200);
@@ -183,7 +145,7 @@ describe('PUT /api/cloudflare/config', () => {
   });
 
   it('does not re-validate against R2 when disabling', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(200);
     await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
     globalThis.fetch = (async () => {
@@ -195,21 +157,16 @@ describe('PUT /api/cloudflare/config', () => {
   });
 
   it('omitting secret_access_key leaves the saved key unchanged', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(200);
     await put('/api/cloudflare/config', FULL_CONFIG, ownerJwt);
     const r = await put('/api/cloudflare/config', { enabled: false, bucket: 'renamed' }, ownerJwt);
     expect(r.status).toBe(200);
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne<{
-        config: { secret_access_key?: string };
-      }>({ _id: 'cloudflare' } as never);
-    expect(saved!.config.secret_access_key).toBe('secretexample');
+    expect((await savedConfig())!.secret_access_key).toBe('secretexample');
   });
 
   it('rejects a member-role token with 403', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     const r = await put('/api/cloudflare/config', { enabled: false }, memberJwt);
     expect(r.status).toBe(403);
   });
@@ -217,9 +174,9 @@ describe('PUT /api/cloudflare/config', () => {
 
 describe('POST /api/cloudflare/test', () => {
   it('returns ok:true on a successful R2 round-trip', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(200);
-    const res = await app!.handle(
+    const res = await app.handle(
       new Request('http://localhost/api/cloudflare/test', {
         method: 'POST',
         headers: {
@@ -234,9 +191,9 @@ describe('POST /api/cloudflare/test', () => {
   });
 
   it('returns ok:false with the error on a failed probe', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
     stubFetch(401, 'InvalidAccessKeyId');
-    const res = await app!.handle(
+    const res = await app.handle(
       new Request('http://localhost/api/cloudflare/test', {
         method: 'POST',
         headers: {

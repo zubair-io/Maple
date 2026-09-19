@@ -25,10 +25,13 @@
  * `geocode`'s `pausedOnFirstBoot` and the missing-reaper's paused default.
  */
 
-import { getDb } from '../../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../../db/sqlite/repos/app-settings.repo.ts';
 import { child as childLogger } from '../../log.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'generated_search';
 const log = childLogger('generated-search:config');
 
@@ -109,8 +112,7 @@ function fromDoc(doc: ConfigDoc | null): GeneratedSearchConfig {
 /** Resolve the effective config. Missing doc / missing fields → defaults. */
 export async function loadGeneratedSearchConfig(): Promise<GeneratedSearchConfig> {
   try {
-    const db = await getDb();
-    return fromDoc(await db.collection<ConfigDoc>(COLL).findOne({ _id: DOC_ID }));
+    return fromDoc(await readAppSettings<ConfigDoc>(DOC_ID));
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : err },
@@ -124,7 +126,7 @@ export async function loadGeneratedSearchConfig(): Promise<GeneratedSearchConfig
 export async function saveGeneratedSearchConfig(
   patch: Partial<GeneratedSearchConfig>,
 ): Promise<GeneratedSearchConfig> {
-  const set: Partial<ConfigDoc> = {};
+  const set: Record<string, SettingsValue | undefined> = {};
   for (const knob of Object.keys(LIMITS) as NumericKnob[]) {
     const value = patch[knob];
     if (typeof value === 'number') set[knob] = clampKnob(knob, value);
@@ -133,11 +135,6 @@ export async function saveGeneratedSearchConfig(
   if (typeof patch.paused === 'boolean') set.paused = patch.paused;
   if (typeof patch.dry_run === 'boolean') set.dry_run = patch.dry_run;
 
-  if (Object.keys(set).length > 0) {
-    const db = await getDb();
-    await db
-      .collection<ConfigDoc>(COLL)
-      .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
-  }
+  await patchAppSettings(DOC_ID, set);
   return loadGeneratedSearchConfig();
 }

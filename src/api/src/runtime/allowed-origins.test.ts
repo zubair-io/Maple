@@ -11,7 +11,7 @@
  */
 import { afterAll, afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { managedHttps } from '../network/managed-https.ts';
-import { withTestEnv } from '../db/test-db.test-helpers.ts';
+import { withTestEnv } from '../test-support/env.test-helpers.ts';
 import { allowedBrowserOrigins, managedHttpsOrigin } from './allowed-origins.ts';
 
 withTestEnv('MAPLE_ORIGIN', 'https://maple.example.com');

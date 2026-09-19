@@ -5,12 +5,32 @@ import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import exifStage, { isLikelyScreenshot } from './exif.ts';
 import { EXIF_PICK_TAGS } from '../../indexer/exif.ts';
+import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { solidJpeg, solidPng } from '../../test-support/synth-image.ts';
+import type { StageResult } from '../run-stage.ts';
+
+/**
+ * The `assets` UPDATE the handler asked the runner to run, decoded back into
+ * the fields it sets.
+ *
+ * The patch is a list of statements now rather than a map of document fields,
+ * so the assertions read the bound parameters instead of properties. Decoding
+ * from the statement's own column list keeps this indifferent to whether the
+ * `maple_id` upgrade rode along on this particular call.
+ */
+function patchFields(result: StageResult): Record<string, unknown> {
+  if (!('patch' in result)) throw new Error(`expected a patch, got ${JSON.stringify(result)}`);
+  const statement = result.patch[0];
+  if (statement === undefined) throw new Error('expected one statement in the patch');
+  const columns = [...statement.sql.matchAll(/(\w+) = \?/g)].map((match) => match[1]!);
+  const params = statement.params as unknown[];
+  return Object.fromEntries(columns.map((column, index) => [column, params[index]]));
+}
 
 function makeDoc(absPath: string, libraryId: ObjectId, libraryRoot: string) {
   const relDir = path.relative(libraryRoot, path.dirname(absPath));
   return {
-    _id: '000000000000000000000002' as unknown as ObjectId,
+    _id: new ObjectId('000000000000000000000002'),
     fileinfo: [
       {
         path: relDir === '.' || relDir === '' ? '' : relDir.split(path.sep).join('/'),
@@ -57,9 +77,8 @@ describe('exif handler', () => {
     const result = await exifStage.handler(doc as never, {} as never);
 
     expect('patch' in result).toBe(true);
-    const { patch } = result as { patch: Record<string, unknown> };
     // exif may be null (no EXIF data) — that is a valid and expected value.
-    expect('exif' in patch).toBe(true);
+    expect('exif' in patchFields(result)).toBe(true);
   });
 
   it('patch.exif contains camera_make when a DNG fixture is present', async () => {
@@ -79,29 +98,17 @@ describe('exif handler', () => {
         [rawLibraryId.toHexString(), path.dirname(dng)],
       ]),
     );
-    // The handler now does a Mongo lookup when its derived primary id
-    // differs from `image.maple_id`, to catch the duplicate-content merge
-    // case. This unit test is DB-free; stub assetsCollection so the merge
-    // probe sees "no winner" and the handler proceeds with patch.maple_id.
-    // Snapshot + restore so the stub doesn't leak into later tests.
-    const realDbClient = await import('../../db/client.ts');
-    const dbSpy = spyOn(realDbClient, 'assetsCollection').mockImplementation(async () => {
-      return {
-        findOne: async () => null,
-        updateOne: async () => ({ acknowledged: true, modifiedCount: 0 }),
-        deleteOne: async () => ({ acknowledged: true, deletedCount: 0 }),
-      } as any;
-    });
-    try {
-      const doc = makeDoc(dng, rawLibraryId, path.dirname(dng));
-      const result = await exifStage.handler(doc as never, {} as never);
-      const { patch } = result as { patch: Record<string, unknown> };
-      const exif = patch.exif as Record<string, unknown> | null;
-      expect(exif).not.toBeNull();
-      expect(typeof exif?.camera_make).toBe('string');
-    } finally {
-      dbSpy.mockRestore();
-    }
+    // The handler probes for a duplicate-content merge whenever its derived
+    // primary id differs from `image.maple_id`. An empty database answers "no
+    // holder", so the handler proceeds with the ordinary id upgrade — which is
+    // the path under test here.
+    using live = await createLiveTestDatabase();
+    void live;
+    const doc = makeDoc(dng, rawLibraryId, path.dirname(dng));
+    const result = await exifStage.handler(doc as never, {} as never);
+    const exif = JSON.parse(patchFields(result).exif as string) as Record<string, unknown>;
+    expect(exif).not.toBeNull();
+    expect(typeof exif.camera_make).toBe('string');
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
 
@@ -150,8 +157,9 @@ describe('exif handler', () => {
     await writeFile(file, await solidPng(8, 16, [0, 0, 0]));
     const doc = makeDoc(file, libraryId, dir);
     const result = await exifStage.handler(doc as never, {} as never);
-    const { patch } = result as { patch: Record<string, unknown> };
-    expect(patch.is_screenshot).toBe(true);
+    // SQLite has no boolean type — the column is `INTEGER CHECK (x IN (0, 1))`,
+    // so the stage binds 1/0 rather than true/false.
+    expect(patchFields(result).is_screenshot).toBe(1);
   });
 
   it('does NOT flag is_screenshot for a regular JPEG without EXIF', async () => {
@@ -159,8 +167,7 @@ describe('exif handler', () => {
     await writeFile(file, await solidJpeg(4, 4, [0, 0, 0]));
     const doc = makeDoc(file, libraryId, dir);
     const result = await exifStage.handler(doc as never, {} as never);
-    const { patch } = result as { patch: Record<string, unknown> };
-    expect(patch.is_screenshot).toBe(false);
+    expect(patchFields(result).is_screenshot).toBe(0);
   });
 
   it('propagates loadLibraryRoots errors instead of skip-passing on transient DB faults', async () => {
@@ -180,12 +187,12 @@ describe('exif handler', () => {
     // face.test.ts files broken.
     const realModule = await import('../../indexer/libraries.cache.ts');
     const cacheSpy = spyOn(realModule, 'loadLibraryRoots').mockImplementation(async () => {
-      throw new Error('simulated transient mongo failure');
+      throw new Error('simulated transient database failure');
     });
     try {
       const doc = makeDoc(path.join(dir, 'does-not-matter.jpg'), libraryId, dir);
       await expect(exifStage.handler(doc as never, {} as never)).rejects.toThrow(
-        'simulated transient mongo failure',
+        'simulated transient database failure',
       );
     } finally {
       cacheSpy.mockRestore();

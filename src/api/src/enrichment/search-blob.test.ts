@@ -1,8 +1,7 @@
 /**
- * Pure-function tests for `composeSearchBlob` + the Mongo aggregation
- * expression shape. The aggregation pipeline is also exercised end-to-
- * end inside `ocr-worker.test.ts` against a real Mongo — these tests
- * cover only the pure logic.
+ * Pure-function tests for `composeSearchBlob` + the shape of the MongoDB
+ * aggregation expression that the remaining MongoDB read path still builds.
+ * These tests cover only the pure logic.
  */
 
 import { describe, it, expect } from 'bun:test';

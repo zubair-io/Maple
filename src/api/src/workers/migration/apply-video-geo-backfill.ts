@@ -30,41 +30,18 @@
  * Spec: GitHub issue #1529.
  */
 
-import type { Filter } from 'mongodb';
-import { assetsCollection } from '../../db/client.ts';
-import type { AssetDoc } from '../../db/schema.ts';
+import { countCandidates, listCandidates } from '../../db/sqlite/repos/assets.migrations.ts';
+import {
+  applyGeoBackfill,
+  setGeoBackfillSkipped,
+  GEO_APPLY_SCOPE,
+} from '../../db/sqlite/repos/assets.video-migrations.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { child as childLogger } from '../../log.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 import { findDonor } from './audit-video-geo-backfill.ts';
 
 const log = childLogger('migration:geo-backfill');
-
-/**
- * Candidate filter: live mp4/mov, no GPS, has a captured_at timestamp, and has
- * not been marked with the no-donor sentinel from a previous batch.
- *
- * The $elemMatch combines `filename` and liveness on the SAME fileinfo entry.
- */
-function candidateFilter(): Filter<AssetDoc> {
-  return {
-    'exif.gps': null,
-    // `$type: 'string'` excludes null, missing, and non-string values so only a
-    // real ISO timestamp can enter the candidate set (matches the audit pass).
-    'exif.captured_at': { $type: 'string' },
-    geo_backfill_skipped: { $exists: false },
-    // `media_kind` narrows the scan to the indexed video rows (#3492); the
-    // mp4/mov regex keeps the container scope this migration was written for.
-    media_kind: 'video',
-    fileinfo: {
-      $elemMatch: {
-        filename: { $regex: /\.(mp4|mov)$/i },
-        deleted_at: { $in: [null] },
-        missing_since: { $in: [null] },
-      },
-    },
-  } as Filter<AssetDoc>;
-}
 
 export const applyVideoGeoBackfill: Migration = {
   id: 'apply-video-geo-backfill',
@@ -80,25 +57,12 @@ export const applyVideoGeoBackfill: Migration = {
     'so `place` resolves; (3) only then let refile-backups run. Out-of-order execution ' +
     'freezes videos in the placeless fallback folder.',
 
-  async countRemaining(): Promise<number> {
-    const assets = await assetsCollection();
-    return assets.countDocuments(candidateFilter());
+  countRemaining(): Promise<number> {
+    return countCandidates(GEO_APPLY_SCOPE);
   },
 
   async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    const assets = await assetsCollection();
-
-    const docs = await assets
-      .find(candidateFilter(), {
-        projection: {
-          _id: 1,
-          maple_id: 1,
-          fileinfo: 1,
-          'exif.captured_at': 1,
-        },
-      })
-      .limit(batchSize)
-      .toArray();
+    const docs = await listCandidates(GEO_APPLY_SCOPE, batchSize);
 
     let processed = 0;
     let errors = 0;
@@ -108,27 +72,26 @@ export const applyVideoGeoBackfill: Migration = {
         const capturedAt = doc.exif?.captured_at;
         const primary = assetPrimaryFileInfo(doc);
 
-        // The candidate filter should guarantee both; if either is missing (e.g.
-        // an empty-string timestamp, or no live fileinfo entry) set the sentinel
-        // so the doc converges instead of head-of-line-blocking the queue (#1519).
+        // The candidate scope should guarantee both; if either is missing (e.g.
+        // an empty-string timestamp, or no live location) set the sentinel so
+        // the row converges instead of head-of-line-blocking the queue (#1519).
         if (!capturedAt || !primary) {
-          await assets.updateOne({ _id: doc._id }, { $set: { geo_backfill_skipped: 'skip' } });
+          await setGeoBackfillSkipped(doc.id, 'skip');
           log.warn(
-            { video_id: String(doc._id), maple_id: doc.maple_id },
+            { video_id: String(doc.id), maple_id: doc.maple_id },
             'apply: missing captured_at or live fileinfo — set geo_backfill_skipped sentinel',
           );
           processed++;
           continue;
         }
 
-        const libraryId = primary.library_id;
-        const result = await findDonor(assets, doc._id, capturedAt, libraryId);
+        const result = await findDonor(doc.id, capturedAt, primary.library_id);
 
         if (!result) {
           // No donor found. Set sentinel so this video can't block the queue.
-          await assets.updateOne({ _id: doc._id }, { $set: { geo_backfill_skipped: 'no-donor' } });
+          await setGeoBackfillSkipped(doc.id, 'no-donor');
           log.warn(
-            { video_id: String(doc._id), maple_id: doc.maple_id },
+            { video_id: String(doc.id), maple_id: doc.maple_id },
             'apply: no-donor — set geo_backfill_skipped sentinel',
           );
           processed++;
@@ -136,55 +99,36 @@ export const applyVideoGeoBackfill: Migration = {
         }
 
         const { donor, deltaMs } = result;
-        const donorGps = donor.exif?.gps;
-        if (!donorGps || typeof donorGps.lat !== 'number' || typeof donorGps.lng !== 'number') {
-          // Donor GPS missing or malformed (non-numeric lat/lng). The donor query
-          // requires both coordinates to exist, so this only fires on a corrupt
-          // value or a race where the donor changed after selection — skip safely
-          // rather than writing a bad coordinate onto an original.
-          await assets.updateOne({ _id: doc._id }, { $set: { geo_backfill_skipped: 'no-donor' } });
+        const donorGps = donor.gps;
+        if (typeof donorGps.lat !== 'number' || typeof donorGps.lng !== 'number') {
+          // Donor GPS malformed (non-numeric lat/lng). The donor query requires
+          // both coordinates to be present, so this only fires on a corrupt
+          // value or a race where the donor changed after selection — skip
+          // safely rather than writing a bad coordinate onto an original.
+          await setGeoBackfillSkipped(doc.id, 'no-donor');
           log.warn(
-            { video_id: String(doc._id), donor_id: String(donor._id) },
+            { video_id: String(doc.id), donor_id: String(donor.id) },
             'apply: donor GPS missing/malformed at apply time — set no-donor sentinel',
           );
           processed++;
           continue;
         }
 
-        const now = new Date().toISOString();
-
-        // Atomic 3-step re-trigger:
-        //   1. Set exif.gps + provenance marker.
-        //   2. Reset stages.geocode so geocode re-runs on next tick.
-        //   3. Unset backup_layout_version so refile-backups re-files after geocode.
-        await assets.updateOne(
-          { _id: doc._id },
-          {
-            $set: {
-              'exif.gps': donorGps,
-              geo_inferred: {
-                source: 'temporal-neighbor',
-                donor_id: donor._id,
-                donor_delta_ms: deltaMs,
-                at: now,
-              },
-              'stages.geocode': {
-                version: 0,
-                attempts: 0,
-                last_error: null,
-                dead: false,
-                processed_at: null,
-              },
-            },
-            $unset: { backup_layout_version: '' },
-          },
-        );
+        // The 3-step re-trigger, in one transaction: the coordinate plus its
+        // provenance, the geocode stage back to unprocessed, and the refile
+        // marker cleared.
+        await applyGeoBackfill(doc.id, donorGps, {
+          source: 'temporal-neighbor',
+          donor_id: donor.id.toHexString(),
+          donor_delta_ms: deltaMs,
+          at: new Date().toISOString(),
+        });
 
         log.info(
           {
-            video_id: String(doc._id),
+            video_id: String(doc.id),
             maple_id: doc.maple_id,
-            donor_id: String(donor._id),
+            donor_id: String(donor.id),
             delta_ms: deltaMs,
             gps: donorGps,
           },
@@ -196,7 +140,7 @@ export const applyVideoGeoBackfill: Migration = {
         errors++;
         log.error(
           {
-            video_id: String(doc._id),
+            video_id: String(doc.id),
             err: err instanceof Error ? err.message : err,
           },
           'apply: error processing candidate',

@@ -1,10 +1,11 @@
 /**
- * Unit tests for the seek-cursor codec + predicate builder (#2129).
+ * Unit tests for the seek-cursor codec (#2129).
  *
- * These are pure — no Mongo. The end-to-end paging behaviour (including
- * the null/missing `captured_at` group, which is the part MongoDB's type
- * bracketing makes easy to get wrong) is covered against a real database
- * in `cursor-paging.test.ts`.
+ * These are pure — no database. The range predicate a cursor becomes lives in
+ * `db/sqlite/repos/search.sql.ts` beside the page statement whose order it has
+ * to agree with, and is covered there; the end-to-end paging behaviour
+ * (including the undated group, which is the part easiest to get wrong) is
+ * covered against a real database in `cursor-paging.test.ts`.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -14,7 +15,6 @@ import {
   cursorFromDoc,
   decodeCursor,
   encodeCursor,
-  seekFilter,
   type SeekCursor,
 } from './cursor.ts';
 
@@ -65,9 +65,10 @@ describe('decodeCursor rejects forged input', () => {
     Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 
   it('rejects an operator document in the value position', () => {
-    // The whole point of forcing `v` to a primitive: MongoDB only treats
-    // *objects* as operator documents, so a `{$ne: null}` payload must never
-    // survive decoding into the query.
+    // `v` stays a primitive: a cursor is a position, and an object in that
+    // slot has never been one. It was load-bearing against MongoDB, which
+    // reads an object in a value position as an operator document; it is kept
+    // because a forged cursor should be rejected rather than reinterpreted.
     expect(decodeCursor(encodeRaw({ v: { $ne: null }, i: ID_A, d: 'desc' }))).toBeNull();
     expect(decodeCursor(encodeRaw({ v: { $gt: '' }, i: ID_A, d: 'desc' }))).toBeNull();
     expect(decodeCursor(encodeRaw({ v: ['a'], i: ID_A, d: 'desc' }))).toBeNull();
@@ -117,47 +118,5 @@ describe('cursorFromDoc', () => {
     expect(cursorFromDoc({ _id: oid, exif: {} }, 'asc')).toEqual(expected);
     expect(cursorFromDoc({ _id: oid }, 'asc')).toEqual(expected);
     expect(cursorFromDoc({ _id: oid, exif: null }, 'asc')).toEqual(expected);
-  });
-});
-
-describe('seekFilter', () => {
-  const oid = new ObjectId(ID_A);
-
-  it('desc from a timed row spans the boundary into the untimed tail', () => {
-    // The untimed group sorts *after* every string descending, so it has to
-    // ride along in the same `$or`; Mongo's sort+limit only reaches it once
-    // the strings are exhausted.
-    expect(seekFilter({ v: '2024-01-01', i: ID_A, d: 'desc' })).toEqual({
-      $or: [
-        { 'exif.captured_at': { $lt: '2024-01-01' } },
-        { 'exif.captured_at': '2024-01-01', _id: { $gt: oid } },
-        { 'exif.captured_at': null },
-      ],
-    });
-  });
-
-  it('desc from an untimed row stays inside the untimed tail', () => {
-    expect(seekFilter({ v: null, i: ID_A, d: 'desc' })).toEqual({
-      'exif.captured_at': null,
-      _id: { $gt: oid },
-    });
-  });
-
-  it('asc from an untimed row spans the boundary into the timed rows', () => {
-    expect(seekFilter({ v: null, i: ID_A, d: 'asc' })).toEqual({
-      $or: [
-        { 'exif.captured_at': null, _id: { $gt: oid } },
-        { 'exif.captured_at': { $type: 'string' } },
-      ],
-    });
-  });
-
-  it('asc from a timed row does not re-emit the already-consumed untimed head', () => {
-    expect(seekFilter({ v: '2024-01-01', i: ID_A, d: 'asc' })).toEqual({
-      $or: [
-        { 'exif.captured_at': { $gt: '2024-01-01' } },
-        { 'exif.captured_at': '2024-01-01', _id: { $gt: oid } },
-      ],
-    });
   });
 });

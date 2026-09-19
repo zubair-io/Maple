@@ -181,7 +181,7 @@ function resolvePrimaryLocation(
  * filesystem, so a cache entry must resolve from a path alone — no DB lookup,
  * no hash — and stay readable when the folder is copied elsewhere. Content
  * addressing bought almost nothing back (the artefact lands in ONE folder, so
- * copies elsewhere shared nothing) and cost a Mongo round-trip per read. This
+ * copies elsewhere shared nothing) and cost a database round-trip per read. This
  * is why the `thumb` stage and `/api/fs/thumb` now agree on a filename.
  * Trade-off: a rename orphans the thumb for one re-render; cache-gc reclaims it.
  *

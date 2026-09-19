@@ -7,14 +7,17 @@
  */
 import path from 'node:path';
 import { promises as fs, type Dirent } from 'node:fs';
-import type { ObjectId, WithId } from 'mongodb';
-import { assetsCollection } from '../../db/client.ts';
+import type { ObjectId } from 'mongodb';
+import {
+  listRecordedInDirectory,
+  type RecordedInDirectory,
+} from '../../db/sqlite/repos/assets.discover.sweep.ts';
 import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
 import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
-import { readCheckpoint, writeCheckpoint } from '../../indexer/checkpoint.ts';
+import { readCheckpoint, writeCheckpoint } from '../../db/sqlite/repos/indexer-checkpoints.repo.ts';
 import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import { child } from '../../log.ts';
 import {
@@ -22,7 +25,6 @@ import {
   type MissingFileCandidate,
   type NewFileCandidate,
 } from './rename-reconcile.ts';
-import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { FOLDER_HIDDEN_MARKER, reconcileFolderHidden } from './folder-hidden.ts';
 import type { CleanupHidden } from './folder-hidden.ts';
 
@@ -145,15 +147,11 @@ function partitionEntries(
   return { subdirs, filesOnDisk, hasHiddenMarker };
 }
 
-type RecordedAsset = Pick<WithId<AssetDoc>, '_id' | 'size' | 'exif'> & {
-  fileinfo: FileInfo[];
-};
-
-/** ONE indexed read per dir: the non-deleted assets recorded directly in it.
- * Drives BOTH "what's new" and "what's gone" — so writes happen only on real
- * changes, never a per-file upsert storm. `size`/`exif` ride along on the
- * same read (no extra round-trip) because the rename-reconcile pass needs
- * them to fingerprint a candidate rename without re-reading the
+/** ONE indexed read per dir: the locations of non-deleted assets recorded
+ * directly in it. Drives BOTH "what's new" and "what's gone" — so writes happen
+ * only on real changes, never a per-file upsert storm. `size`/`exif` ride along
+ * on the same read (no extra round-trip) because the rename-reconcile pass
+ * needs them to fingerprint a candidate rename without re-reading the
  * (already-missing) old file. Returns the unrecorded on-disk files and the
  * confirmed-absent recorded entries — `visitDirectory`'s two candidate
  * pools for reconciliation (and, for whatever reconciliation declines,
@@ -165,18 +163,8 @@ async function loadDirectoryCandidates(
   filesOnDisk: ReadonlyMap<string, string>,
 ): Promise<{ newCandidates: NewFileCandidate[]; missingCandidates: MissingFileCandidate[] }> {
   const rel = toPosixRelDir(path.relative(root, dirPath));
-  const coll = await assetsCollection();
-  const recorded = (await coll
-    .find(
-      { deleted_at: null, fileinfo: { $elemMatch: { library_id: folderId, path: rel } } },
-      { projection: { 'fileinfo.$': 1, size: 1, exif: 1 } },
-    )
-    .toArray()) as RecordedAsset[];
-  const recordedNames = new Set<string>();
-  for (const a of recorded) {
-    const fn = a.fileinfo?.[0]?.filename;
-    if (fn) recordedNames.add(fn);
-  }
+  const recorded = await listRecordedInDirectory(folderId, rel);
+  const recordedNames = new Set(recorded.map((a) => a.fileinfo.filename));
 
   const newCandidates: NewFileCandidate[] = [];
   for (const [name, abs] of filesOnDisk) {
@@ -218,7 +206,7 @@ async function emitUnreconciledEvents(
  * at all (mirrors the prior emit-immediately behaviour exactly — see
  * `sweeper.test.ts`'s unmounted-mountpoint case). */
 async function confirmMissingCandidates(
-  recorded: RecordedAsset[],
+  recorded: readonly RecordedInDirectory[],
   filesOnDisk: ReadonlyMap<string, string>,
   dirPath: string,
   root: string,
@@ -226,8 +214,8 @@ async function confirmMissingCandidates(
   const out: MissingFileCandidate[] = [];
   let rootAvailable: boolean | null = null; // lazily checked, once per visit
   for (const a of recorded) {
-    const entry = a.fileinfo?.[0];
-    if (!entry || filesOnDisk.has(entry.filename)) continue;
+    const entry = a.fileinfo;
+    if (filesOnDisk.has(entry.filename)) continue;
     const abs = path.join(dirPath, entry.filename);
     if ((await statKind(abs)) !== 'absent') continue;
     rootAvailable ??= await libraryRootAvailable(root);
@@ -239,7 +227,7 @@ async function confirmMissingCandidates(
       return [];
     }
     out.push({
-      docId: a._id,
+      docId: a.assetId,
       fileinfo: entry,
       filename: entry.filename,
       absPath: abs,

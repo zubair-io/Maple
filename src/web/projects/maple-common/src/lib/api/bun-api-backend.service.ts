@@ -104,6 +104,33 @@ export interface DerivativeAuditStatusDto {
   progress: DerivativeAuditSummaryDto;
 }
 
+/** Summary of the most recent change-log-gc sweep. */
+export interface ChangeLogGcRunDto {
+  deleted: number;
+  batches: number;
+  duration_ms: number;
+  pruned_through: number;
+  remaining: number;
+  finished_at: string;
+  error?: string;
+}
+
+/** Config for the change-log-gc job (mirrors the API `ChangeLogGcConfig`). */
+export interface ChangeLogGcConfigDto {
+  enabled: boolean;
+  retention_days: number;
+  last_run: ChangeLogGcRunDto | null;
+}
+
+/** GET /api/change-log-gc/status payload, surfaced in the Maintenance group on
+ * the Workers settings page. `rows` is a collection-metadata estimate, not a
+ * count — the collection this job prunes is the one too large to count. */
+export interface ChangeLogGcStatusDto {
+  config: ChangeLogGcConfigDto;
+  rows: number;
+  pruned_through: number;
+}
+
 export interface ApiAsset {
   id: string;
   filename: string;
@@ -624,6 +651,21 @@ export class BunApiBackendService {
     return this.http.post<{ started: boolean; reason?: string }>(
       `${this.base}/derivative-audit/run`,
       {},
+    );
+  }
+
+  /** Change-log-gc: retention window, enable flag, and last-sweep readout. */
+  getChangeLogGcStatus(): Observable<ChangeLogGcStatusDto> {
+    return this.http.get<ChangeLogGcStatusDto>(`${this.base}/change-log-gc/status`);
+  }
+
+  /** Patch the change-log-gc config (partial). Applies on the next sweep. */
+  setChangeLogGcConfig(
+    patch: Partial<Pick<ChangeLogGcConfigDto, 'enabled' | 'retention_days'>>,
+  ): Observable<{ ok: boolean; config: ChangeLogGcConfigDto }> {
+    return this.http.put<{ ok: boolean; config: ChangeLogGcConfigDto }>(
+      `${this.base}/change-log-gc/config`,
+      patch,
     );
   }
 

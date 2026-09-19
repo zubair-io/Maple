@@ -1,98 +1,85 @@
+/**
+ * POST /api/libraries/:id/backup/rendered — the Apple-rendered companion
+ * upload.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * (#3787). The suite shares one database and one tmp library across the block
+ * on purpose: the last test inspects the upload sessions the earlier ones left
+ * behind, so the state has to accumulate.
+ */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { foldersCollection, assetsCollection, uploadSessionsCollection } from '../src/db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import {
+  findAssetIdByMapleId,
+  readAsset,
+  seedBackupAsset,
+  seedLibrary,
+} from './helpers/sqlite-fixtures.ts';
+import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const libId = new ObjectId();
 const deviceId = 'test-device-rendered';
 const phid = 'REND/L0/001';
 const phid2 = 'REND/L0/002';
 const mapleId = '02371b94aade2246ba56c6770a7624e1';
 const originalRelPath = '2024/Tokyo/03-15/IMG_RENDERED.HEIC';
+
+let live: LiveTestDatabase;
+let libId: ObjectId;
 let tmpLib: string;
+
+/** An asset as a prior ingest would have left it: one live location in this
+ * library and this device's PHAsset link. The rendered route resolves its
+ * update by `(maple_id, a location in this library)`, so both matter. */
+function seedIngested(args: {
+  mapleId: string;
+  relPath: string;
+  phassetLocalId: string;
+  size: number;
+}): ObjectId {
+  return seedBackupAsset(live.db, {
+    mapleId: args.mapleId,
+    size: args.size,
+    locations: [{ libraryId: libId, relPath: args.relPath }],
+    links: [{ deviceId, phassetLocalId: args.phassetLocalId }],
+  });
+}
+
+/** The completed upload session for a resume key, or `null`. */
+function completedSessionId(phassetLocalId: string): string | null {
+  const row = live.db
+    .query(
+      `SELECT id FROM upload_sessions
+        WHERE device_id = ? AND phasset_local_id = ? AND state = 'completed'`,
+    )
+    .get(deviceId, phassetLocalId) as { id: string } | null;
+  return row?.id ?? null;
+}
 
 beforeAll(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-rendered-test-'));
-  const f = await foldersCollection();
-  await f.insertOne({
-    _id: libId,
-    path: tmpLib,
-    label: 'test',
-    created_at: new Date(),
-    file_count: 0,
-  } as any);
-  const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+  live = await createLiveTestDatabase();
+  libId = seedLibrary(live.db, { path: tmpLib, label: 'rendered-test' });
   invalidateLibraryRoots();
 
-  // Pre-create an AssetDoc that simulates a prior ingest.
+  // Pre-create the asset a prior ingest would have written, bytes included.
   const assetPath = path.join(tmpLib, originalRelPath);
   await fs.mkdir(path.dirname(assetPath), { recursive: true });
   await fs.writeFile(assetPath, Buffer.alloc(64, 1));
-
-  const a = await assetsCollection();
-  await a.deleteMany({ 'phasset_links.device_id': deviceId });
-  // Post drop-abs-path-2026-05-21: persisted on-disk pointer is on
-  // `fileinfo[]`. The rendered route scopes its update by
-  // `{ 'fileinfo.library_id', maple_id }` so the seed must carry
-  // `fileinfo[].library_id` for the dedup match.
-  await a.insertOne({
-    _id: new ObjectId(),
-    fileinfo: [
-      {
-        library_id: libId,
-        path: path.dirname(originalRelPath),
-        filename: path.basename(originalRelPath),
-        deleted_at: null,
-      },
-    ],
-    size: 64,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    maple_id: mapleId,
-    phasset_links: [{ device_id: deviceId, phasset_local_id: phid, first_seen: new Date() }],
-    deleted_from_photos: false,
-  } as any);
-
-  // Ensure no leftover upload sessions.
-  const u = await uploadSessionsCollection();
-  await u.deleteMany({ device_id: deviceId });
+  seedIngested({ mapleId, relPath: originalRelPath, phassetLocalId: phid, size: 64 });
 });
 
 afterAll(async () => {
-  // Drop every row this suite wrote so it doesn't leak into the shared Mongo
-  // for later test files (KTLO #895). The rendered route creates assets tagged
-  // with this suite's `phasset_links.device_id` (several carry no fileinfo, so
-  // we can't scope by library alone) plus upload sessions keyed on the library,
-  // and beforeAll seeds one folder. Scoped to this suite's libId/deviceId to
-  // stay parallel-safe with the sibling backup suites.
-  try {
-    const a = await assetsCollection();
-    await a.deleteMany({
-      $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': deviceId }],
-    });
-    const f = await foldersCollection();
-    await f.deleteMany({ _id: libId });
-    const u = await uploadSessionsCollection();
-    await u.deleteMany({ library_id: libId });
-  } catch {
-    // Best-effort teardown — never mask a test failure with a cleanup error.
-  }
-  // Guard tmpLib: beforeAll can throw before assigning it, and an unguarded
-  // fs.rm(undefined) would throw and mask the original failure (mirrors the
-  // guard in setupBackupIngestSuite).
-  if (tmpLib) {
-    try {
-      await fs.rm(tmpLib, { recursive: true, force: true });
-    } catch {
-      // Teardown is best-effort; the OS will reclaim the tmpdir.
-    }
-  }
+  live.close();
+  invalidateLibraryRoots();
+  await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
 function rendered(body: Buffer, headers: Record<string, string>, libOverride?: string): Request {
@@ -105,7 +92,7 @@ function rendered(body: Buffer, headers: Record<string, string>, libOverride?: s
 }
 
 describe('POST /api/libraries/:id/backup/rendered', () => {
-  test('happy path single chunk → .rendered.HEIC created + AssetDoc updated', async () => {
+  test('happy path single chunk → .rendered.HEIC created + asset row updated', async () => {
     const bytes = Buffer.alloc(128, 7);
     const res = await authedHandle(
       rendered(bytes, {
@@ -126,10 +113,10 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     const onDisk = await fs.readFile(path.join(tmpLib, expected));
     expect(onDisk.byteLength).toBe(128);
 
-    // AssetDoc updated with apple_rendered_path.
-    const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: mapleId });
-    expect(doc?.apple_rendered_path).toBe(expected);
+    // Asset row updated with apple_rendered_path.
+    const assetId = findAssetIdByMapleId(live.db, mapleId);
+    expect(assetId).not.toBeNull();
+    expect(readAsset(live.db, assetId!)?.apple_rendered_path).toBe(expected);
   });
 
   test('explicit extension via X-Maple-Filename-Ext', async () => {
@@ -137,23 +124,13 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     const mapleIdExt = '026120dc19a247bbd0298afea4874eea';
     const bytes = Buffer.alloc(64, 8);
 
-    // Insert a minimal asset so the rendered endpoint can update it.
-    const a = await assetsCollection();
-    await a.insertOne({
-      _id: new ObjectId(),
-      folder_id: libId,
-      filename: 'IMG_EXT.HEIC',
-      abs_path: path.join(tmpLib, '2024/05/01/IMG_EXT.HEIC'),
+    // Seed a minimal asset so the rendered endpoint can update it.
+    seedIngested({
+      mapleId: mapleIdExt,
+      relPath: '2024/05/01/IMG_EXT.HEIC',
+      phassetLocalId: phidExt,
       size: 64,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      maple_id: mapleIdExt,
-      phasset_links: [{ device_id: deviceId, phasset_local_id: phidExt, first_seen: new Date() }],
-      deleted_from_photos: false,
-    } as any);
+    });
 
     const res = await authedHandle(
       rendered(bytes, {
@@ -176,22 +153,12 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     const mapleIdMov = '0291b57f1646235c26b1fe54758048e9';
     const bytes = Buffer.alloc(96, 9);
 
-    const a = await assetsCollection();
-    await a.insertOne({
-      _id: new ObjectId(),
-      folder_id: libId,
-      filename: 'IMG_MOV.HEIC',
-      abs_path: path.join(tmpLib, '2024/08/01/IMG_MOV.HEIC'),
+    seedIngested({
+      mapleId: mapleIdMov,
+      relPath: '2024/08/01/IMG_MOV.HEIC',
+      phassetLocalId: phidMov,
       size: 96,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      maple_id: mapleIdMov,
-      phasset_links: [{ device_id: deviceId, phasset_local_id: phidMov, first_seen: new Date() }],
-      deleted_from_photos: false,
-    } as any);
+    });
 
     const res = await authedHandle(
       rendered(bytes, {
@@ -218,23 +185,12 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
   test('chunked resume across two chunks', async () => {
     const mapleId2 = '02ac8d4d43295e11b7487e09f0563977';
 
-    // Insert a minimal asset.
-    const a = await assetsCollection();
-    await a.insertOne({
-      _id: new ObjectId(),
-      folder_id: libId,
-      filename: 'IMG_RESUME.HEIC',
-      abs_path: path.join(tmpLib, '2024/06/01/IMG_RESUME.HEIC'),
+    seedIngested({
+      mapleId: mapleId2,
+      relPath: '2024/06/01/IMG_RESUME.HEIC',
+      phassetLocalId: phid2,
       size: 256,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      maple_id: mapleId2,
-      phasset_links: [{ device_id: deviceId, phasset_local_id: phid2, first_seen: new Date() }],
-      deleted_from_photos: false,
-    } as any);
+    });
 
     const r1 = await authedHandle(
       rendered(Buffer.alloc(128, 3), {
@@ -285,22 +241,12 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     const phidOff = 'REND/L0/OFF';
     const mapleIdOff = '02a6633b6643f75243e080e787fedf0c';
 
-    const a = await assetsCollection();
-    await a.insertOne({
-      _id: new ObjectId(),
-      folder_id: libId,
-      filename: 'IMG_OFF.HEIC',
-      abs_path: path.join(tmpLib, '2024/07/01/IMG_OFF.HEIC'),
+    seedIngested({
+      mapleId: mapleIdOff,
+      relPath: '2024/07/01/IMG_OFF.HEIC',
+      phassetLocalId: phidOff,
       size: 256,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      maple_id: mapleIdOff,
-      phasset_links: [{ device_id: deviceId, phasset_local_id: phidOff, first_seen: new Date() }],
-      deleted_from_photos: false,
-    } as any);
+    });
 
     const r1 = await authedHandle(
       rendered(Buffer.alloc(128, 5), {
@@ -361,20 +307,12 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
   });
 
   test("rendered session de-dup: synthetic phid doesn't collide with original session", async () => {
-    // After the first happy-path test, the original session (phid) is completed.
-    // A new rendered session with the same phid should start fresh.
-    const u = await uploadSessionsCollection();
-    const origSess = await u.findOne({
-      device_id: deviceId,
-      phasset_local_id: phid,
-      state: 'completed',
-    });
-    const rendSess = await u.findOne({
-      device_id: deviceId,
-      phasset_local_id: `${phid}::rendered`,
-      state: 'completed',
-    });
-    // Both sessions exist and are distinct.
-    expect(origSess?._id).not.toEqual(rendSess?._id);
+    // After the first happy-path test, the rendered session (phid::rendered) is
+    // completed. It is a distinct row from any session the original phid would
+    // open — this suite never ingests an original, so there is none at all.
+    const origSess = completedSessionId(phid);
+    const rendSess = completedSessionId(`${phid}::rendered`);
+    expect(rendSess).not.toBeNull();
+    expect(origSess).not.toEqual(rendSess);
   });
 });

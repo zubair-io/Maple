@@ -1,53 +1,45 @@
 /**
- * Regression (#1519): the refile-backups migration must operate on the asset's
- * canonical *live* fileinfo entry, not `fileinfo[0]`.
+ * refile-backups against an asset whose first location is a tombstone (#1519).
  *
- * Production froze at 34,166 remaining because delete-then-readd backup docs have
- * a soft-deleted tombstone at `fileinfo[0]` and the live file at `fileinfo[1]`.
- * The old selector (`'fileinfo.0.deleted_at': null`) leaked them through, the
- * migration took `fileinfo[0]` (the tombstone), `moveBackupAsset` returned
- * `'skipped'` without stamping, and — because the fetch has no sort — those
- * un-stampable docs head-of-line-blocked every batch (`processed:0` forever).
+ * The defect: the migration took the location at array position zero as the
+ * canonical one. A delete-then-readd asset carries a tombstone there with the
+ * live entry behind it, so the move was attempted against a location that no
+ * longer holds the file, failed, and — being unstampable — head-of-line-blocked
+ * every unsorted batch. The fix is that both the candidate predicate and the
+ * move itself read the first *live* entry.
  *
- * Mongo-gated; skips when MongoDB is unreachable (mirrors refile-backups.e2e).
+ * ## One half of the original fixture is now unrepresentable
+ *
+ * The Mongo reproduction put the tombstone and the live entry at the SAME
+ * `(library, path, filename)`. `asset_locations_lib_path_name` is UNIQUE over
+ * exactly that triple regardless of liveness, so two rows cannot claim one file
+ * any more and that shape cannot be built. What survives — and what the defect
+ * actually turned on — is a tombstone ahead of a live entry, which this seeds at
+ * a different path.
  */
-import { describe, it, expect, afterAll, afterEach, beforeAll } from 'bun:test';
+import { describe, it, expect, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId, type Db } from 'mongodb';
 import { stageRegistry } from '../registry.ts';
 import { runMigrationTickOnce } from '../migration.ts';
-import { BACKUP_LAYOUT_VERSION } from './refile-backups.ts';
+import { BACKUP_LAYOUT_VERSION, refileBackups } from './refile-backups.ts';
+import { resetMigrationState, setMigrationEnabled } from '../migration-config.repo.ts';
+import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import type { Place } from '../../db/schema.ts';
-import type { getDb } from '../../db/client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_refile_backups_tombstone_e2e_${process.pid}`);
-
-// Captured here, not re-resolved in afterAll: withTestDb restores
-// MAPLE_MONGO_DB before this suite's teardown runs.
-let suiteDb: Db | null = null;
-
-beforeAll(async () => {
-  const { closeDb, getDb } = await import('../../db/client.ts');
-  // Force the singleton to reconnect under this file's TEST_DB even when
-  // an earlier suite left it connected.
-  await closeDb();
-  suiteDb = await getDb().catch(() => null);
-});
-
-afterAll(async () => {
-  const { closeDb } = await import('../../db/client.ts');
-  if (suiteDb) await suiteDb.dropDatabase();
-  await closeDb();
-});
+import {
+  assetRow,
+  createLibrary,
+  locationsOf,
+  seedAsset,
+  seedLocation,
+} from './migration.test-helpers.ts';
 
 const MIGRATION_ID = 'refile-backups';
+
+afterEach(() => {
+  setLibraryRootsForTests(null);
+  stageRegistry._resetForTests();
+});
 
 function parisPlace(): Place {
   return {
@@ -64,103 +56,58 @@ function parisPlace(): Place {
   };
 }
 
-async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof getDb>> | null> {
-  try {
-    const { getDb } = await import('../../db/client.ts');
-    return await getDb();
-  } catch {
-    console.log(`MongoDB unreachable — skipping ${label}`);
-    return null;
-  }
-}
+describe('refile-backups — tombstone ahead of the live location (#1519)', () => {
+  it('refiles the LIVE entry and stamps the asset, so the batch cannot clog', async () => {
+    using library = await createLibrary('refile-tombstone-');
+    setLibraryRootsForTests(new Map([[library.folderId.toHexString(), library.root]]));
 
-describe('refile-backups — soft-deleted primary (#1519)', () => {
-  let dir: string | null = null;
+    const staleRel = '2026/Adam';
+    const deadRel = '2026/Adam-old';
+    await fs.mkdir(path.join(library.root, ...staleRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(library.root, staleRel, 'IDG_0001.JPG'), 'pixels');
 
-  afterEach(async () => {
-    if (dir) await fs.rm(dir, { recursive: true, force: true });
-    dir = null;
-    stageRegistry._resetForTests();
-  });
+    const id = seedAsset(library.db, {
+      mapleId: 'refile-tombstone-id',
+      phassetDevices: ['dev'],
+      place: parisPlace(),
+      exif: { captured_year: 2026 },
+      stages: ['thumb', 'preview'],
+    });
+    // Position zero is a tombstone; the live entry is behind it.
+    seedLocation(library.db, {
+      assetId: id,
+      libraryId: library.folderId,
+      ordinal: 0,
+      path: deadRel,
+      filename: 'IDG_0001.JPG',
+      deletedAt: '2026-05-22T00:00:00.000Z',
+    });
+    seedLocation(library.db, {
+      assetId: id,
+      libraryId: library.folderId,
+      ordinal: 1,
+      path: staleRel,
+      filename: 'IDG_0001.JPG',
+    });
 
-  async function runTick(): Promise<void> {
-    const { setMigrationEnabled, resetMigrationState } =
-      await import('../migration-config.repo.ts');
     await resetMigrationState(MIGRATION_ID);
     await setMigrationEnabled(MIGRATION_ID, true, new Date().toISOString());
     await runMigrationTickOnce(50, new Date().toISOString());
-  }
 
-  it('refiles the LIVE entry of a [tombstone, live] doc and stamps it (no clog)', async () => {
-    const db = await connectOrSkip('tombstone-primary regression');
-    if (!db) return;
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const { resetMigrationState } = await import('../migration-config.repo.ts');
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
+    const locations = locationsOf(library.db, id);
+    const live = locations.find((row) => row.deleted_at === null);
+    const tombstone = locations.find((row) => row.deleted_at !== null);
+    expect(live?.path).toBe('2026/France/Paris');
+    expect(tombstone?.path).toBe(deadRel); // untouched
 
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'refile-tombstone-'));
-    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
+    // Stamped done → drops out of the candidate set.
+    expect(assetRow(library.db, id)!.backup_layout_version).toBe(BACKUP_LAYOUT_VERSION);
+    expect(await refileBackups.countRemaining()).toBe(0);
 
-    // The live file sits at the stale path; fileinfo[0] is a tombstone for the
-    // same path (delete-then-readd), fileinfo[1] is the live entry.
-    const oldRel = '2026/Adam';
-    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
-    await fs.writeFile(path.join(dir, oldRel, 'IDG_0001.JPG'), 'pixels');
-
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'refile-tombstone-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'IDG_0001.JPG',
-          library_id: libId,
-          deleted_at: '2026-05-22T00:00:00.000Z', // tombstone
-        },
-        { path: oldRel, filename: 'IDG_0001.JPG', library_id: libId, deleted_at: null }, // live
-      ],
-      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
-      place: parisPlace(),
-      exif: { captured_year: 2026 },
-      size: 6,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      stages: { thumb: { version: 2 }, preview: { version: 2 } },
-    } as never);
-
-    try {
-      await runTick();
-      const doc = (await assets.findOne({ _id })) as {
-        fileinfo?: { path: string; deleted_at: string | null }[];
-        backup_layout_version?: number;
-      } | null;
-
-      // The live entry was repointed to the canonical dir; the tombstone is untouched.
-      const live = doc?.fileinfo?.find((f) => f.deleted_at == null);
-      const tombstone = doc?.fileinfo?.find((f) => f.deleted_at != null);
-      expect(live?.path).toBe('2026/France/Paris');
-      expect(tombstone?.path).toBe(oldRel);
-
-      // Stamped done → drops out of the candidate set (no more clog).
-      expect(doc?.backup_layout_version).toBe(BACKUP_LAYOUT_VERSION);
-      expect(
-        await assets.countDocuments({ _id, backup_layout_version: { $ne: BACKUP_LAYOUT_VERSION } }),
-      ).toBe(0);
-
-      // The file actually moved on disk.
-      expect(await fs.readFile(path.join(dir, '2026/France/Paris/IDG_0001.JPG'), 'utf8')).toBe(
-        'pixels',
-      );
-      await expect(fs.stat(path.join(dir, oldRel))).rejects.toThrow();
-    } finally {
-      await assets.deleteOne({ _id });
-      await resetMigrationState(MIGRATION_ID);
-      setLibraryRootsForTests(null);
-    }
+    // And the file actually moved.
+    expect(
+      await fs.readFile(path.join(library.root, '2026/France/Paris/IDG_0001.JPG'), 'utf8'),
+    ).toBe('pixels');
+    await expect(fs.stat(path.join(library.root, staleRel))).rejects.toThrow();
   });
 });

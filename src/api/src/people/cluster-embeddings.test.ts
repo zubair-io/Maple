@@ -1,6 +1,6 @@
 /**
  * Unit tests for the pure `clusterEmbeddings` core extracted from
- * `runOnlineClustering`. No Mongo — these mirror the DB-backed test
+ * `runOnlineClustering`. No database — these mirror the DB-backed test
  * scenarios in `clustering-job.test.ts` so the refactor stays parity-safe.
  */
 

@@ -5,13 +5,13 @@
  * `process.env.MAPLE_JWT_SECRET`, which the auth middleware + routes read at
  * request time. The secret is NOT configured via the environment — it's owned
  * by the server. Resolution order:
- *   1. The database — collection `server_state`, document `_id: "jwt_secret"`,
- *      field `value`. Created once on first boot. This is the canonical store:
- *      Mongo data persists across container recreates and is shared by every
- *      instance, so the secret never silently rotates and tokens keep
- *      verifying. See `auth/jwt-secret.repo.ts`.
- *   2. On-disk file at MAPLE_JWT_SECRET_FILE — fallback ONLY when Mongo is
- *      unreachable at boot, so a degraded boot can still sign tokens.
+ *   1. The database — table `server_state`, row `id = 'jwt_secret'`, column
+ *      `value`. Created once on first boot. This is the canonical store: the
+ *      database lives on a volume, so it survives container recreates and is
+ *      shared by every instance, and the secret never silently rotates while
+ *      tokens keep verifying. See `auth/jwt-secret.repo.ts`.
+ *   2. On-disk file at MAPLE_JWT_SECRET_FILE — fallback ONLY when the database
+ *      is unreachable at boot, so a degraded boot can still sign tokens.
  *   3. In-memory random secret — last resort when even the filesystem is
  *      unusable (read-only / no perms). Logged loudly; it won't survive a
  *      restart (every restart logs everyone out), so this is a red flag.
@@ -88,8 +88,8 @@ function resolveJwtSecretFromFile(): {
     writeFileSync(path, secret, { mode: 0o600 });
     // Warn, not info: minting a new secret invalidates every access token issued
     // under the previous one (clients see "bad signature" 401s). Reaching here at
-    // all means Mongo was unreachable; if it recurs every restart, fix Mongo
-    // connectivity or point MAPLE_JWT_SECRET_FILE at persistent storage.
+    // all means the database was unreachable; if it recurs every restart, fix
+    // database connectivity or point MAPLE_JWT_SECRET_FILE at persistent storage.
     log.warn({ path }, 'generated a NEW JWT secret on disk — existing sessions are now invalid');
     return { secret, source: 'generated' };
   } catch (err) {
@@ -99,7 +99,7 @@ function resolveJwtSecretFromFile(): {
     const secret = randomBytes(32).toString('base64url');
     log.warn(
       { path, err: err instanceof Error ? err.message : err },
-      'could not read/write the JWT secret file — using an in-memory secret that will NOT survive a restart; fix Mongo connectivity or MAPLE_JWT_SECRET_FILE',
+      'could not read/write the JWT secret file — using an in-memory secret that will NOT survive a restart; fix database connectivity or MAPLE_JWT_SECRET_FILE',
     );
     return { secret, source: 'memory' };
   }

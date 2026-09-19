@@ -8,21 +8,31 @@ import { rejectLegacyAiWrite } from '../routes/ai-legacy-write.ts';
  * worker names use the static `KNOWN_WORKER_NAMES` set instead.
  *
  * Pause/resume cross-process contract:
- *   - POST /:name/pause|resume write `worker_config.{name}.paused` via
- *     WorkerConfigRepo.patch().  The worker process re-reads worker_config on
+ *   - POST /:name/pause|resume write the worker's `paused` flag via
+ *     WorkerConfigRepo.patch().  The worker process re-reads `worker_config` on
  *     every poll tick, so the change takes effect without any IPC.
  *
  * Config change flow for PATCH /:name/config:
  *    1. Validate the patch body.
- *    2. Write to worker_config in Mongo (persistence).
- *    3. The worker re-reads its config from Mongo on the next tick — no IPC.
+ *    2. Write the row (persistence).
+ *    3. The worker re-reads its config on the next tick — no IPC.
  *    4. Return { ok: true, config: WorkerConfig } (reads back saved config).
+ *
+ * The dead-letter and damaged surfaces below hold no SQL of their own: every
+ * one of them is a call into `db/sqlite/repos/worker-admin.repo.ts`, which is
+ * also where the damaged-clear's ordering (reset the stages, then drop the tag,
+ * in one transaction) lives.
  */
 
 import { Elysia, t } from 'elysia';
 import { WorkerConfigBody } from './worker-config.schema.ts';
-import { type Collection, type Filter, ObjectId } from 'mongodb';
-import { getDb } from '../db/client.ts';
+import { parseAssetId } from '../db/sqlite/repos/assets.repo.ts';
+import {
+  clearDamagedAssets,
+  listDamagedAssets,
+  listDeadAssets,
+  retryDeadStage,
+} from '../db/sqlite/repos/worker-admin.repo.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import {
   MAX_FFI_WORKERS,
@@ -32,8 +42,8 @@ import {
   resolveFfiPoolConfig,
   savePerformanceConfig,
 } from '../ffi/ffi-pool-config.repo.ts';
-import { WorkerConfigRepo } from './worker-config.repo.ts';
-import type { WorkerConfig, ImageDoc } from './run-stage.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import type { WorkerConfig } from './run-stage.ts';
 import { previewOndemandLimiter } from '../indexer/preview-ondemand-limiter.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
@@ -53,8 +63,6 @@ import {
   setMigrationEnabled,
   resetMigrationState,
 } from './migration-config.repo.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
   DEAD_LIST_LIMIT_DEFAULT,
   DEAD_LIST_LIMIT_MAX,
@@ -98,21 +106,8 @@ function resolveDeadListLimit(rawLimit: unknown): number {
     : DEAD_LIST_LIMIT_DEFAULT;
 }
 
-/** `assets` collection plus a limit clamped via `resolveDeadListLimit` —
- * the common setup for `/:name/dead` and `/damaged`, which otherwise only
- * differ in their Mongo filter/projection/sort. */
-async function loadDeadListPage(
-  rawLimit: unknown,
-): Promise<{ limit: number; assets: Collection<ImageDoc> }> {
-  const limit = resolveDeadListLimit(rawLimit);
-  const db = await getDb();
-  return { limit, assets: db.collection<ImageDoc>('assets') };
-}
-
 async function setWorkerPaused(name: string, paused: boolean): Promise<{ ok: true }> {
-  const db = await getDb();
-  const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
-  await repo.patch(name, { paused });
+  await new WorkerConfigRepo().patch(name, { paused });
   return { ok: true };
 }
 
@@ -292,37 +287,7 @@ export function workerRoutes() {
           return unknown;
         }
         try {
-          const { limit, assets } = await loadDeadListPage(query.limit);
-          const stageKey = `stages.${params.name}`;
-          const docs = await assets
-            .find(
-              { [`${stageKey}.dead`]: true },
-              {
-                projection: {
-                  _id: 1,
-                  abs_path: 1,
-                  fileinfo: 1,
-                  folder_id: 1,
-                  [`${stageKey}.last_error`]: 1,
-                  [`${stageKey}.attempts`]: 1,
-                  [`${stageKey}.processed_at`]: 1,
-                },
-              },
-            )
-            .sort({ [`${stageKey}.processed_at`]: -1 })
-            .limit(limit)
-            .toArray();
-          const libs = await loadLibraryRoots();
-          const items = docs.map((doc) => {
-            const stage = doc.stages?.[params.name];
-            return {
-              id: String(doc._id),
-              abs_path: assetAbsPath(doc, libs),
-              last_error: stage?.last_error ?? null,
-              attempts: stage?.attempts ?? 0,
-              processed_at: stage?.processed_at ? new Date(stage.processed_at).toISOString() : null,
-            };
-          });
+          const items = await listDeadAssets(params.name, resolveDeadListLimit(query.limit));
           return { items };
         } catch (err) {
           set.status = 500;
@@ -337,32 +302,7 @@ export function workerRoutes() {
       // list across the whole pipeline, each row keyed by maple_id.
       .get('/damaged', async ({ query, set }) => {
         try {
-          const { limit, assets } = await loadDeadListPage(query.limit);
-          const docs = await assets
-            .find(
-              { 'damaged.since': { $type: 'string' } },
-              {
-                projection: { _id: 1, maple_id: 1, fileinfo: 1, damaged: 1 },
-              },
-            )
-            .sort({ 'damaged.since': -1 })
-            .limit(limit)
-            .toArray();
-          const libs = await loadLibraryRoots();
-          const items = docs.map((doc) => {
-            const Damaged = doc as {
-              damaged?: { since: string; stage: string; reason: string };
-            };
-            const damaged = Damaged.damaged;
-            return {
-              id: String(doc._id),
-              maple_id: (doc as { maple_id?: string }).maple_id ?? null,
-              abs_path: assetAbsPath(doc, libs),
-              stage: damaged?.stage ?? null,
-              reason: damaged?.reason ?? null,
-              since: damaged?.since ?? null,
-            };
-          });
+          const items = await listDamagedAssets(resolveDeadListLimit(query.limit));
           return { items };
         } catch (err) {
           set.status = 500;
@@ -377,35 +317,17 @@ export function workerRoutes() {
       .post(
         '/damaged/clear',
         async ({ body, set }) => {
+          const id = (body as { id?: string } | null)?.id;
+          if (id !== undefined && parseAssetId(id) === null) {
+            set.status = 400;
+            return { error: `invalid asset id: ${id}` };
+          }
           try {
-            const db = await getDb();
-            const images = db.collection<ImageDoc>('assets');
-            const id = (body as { id?: string } | null)?.id;
-            let filter: Filter<ImageDoc>;
-            if (id) {
-              let oid: ObjectId;
-              try {
-                oid = new ObjectId(id);
-              } catch {
-                set.status = 400;
-                return { error: `invalid asset id: ${id}` };
-              }
-              filter = { _id: oid, 'damaged.since': { $type: 'string' } };
-            } else {
-              filter = { 'damaged.since': { $type: 'string' } };
-            }
-            // Reset the dead/attempt bookkeeping on the file-reading stages so a
-            // cleared file is genuinely re-tried, then drop the tag.
-            const stageResets: Record<string, unknown> = { damaged: null };
-            for (const stageName of DAMAGE_TAGGING_STAGES) {
-              stageResets[`stages.${stageName}.dead`] = false;
-              stageResets[`stages.${stageName}.attempts`] = 0;
-              stageResets[`stages.${stageName}.last_error`] = null;
-            }
-            const result = await images.updateMany(filter, {
-              $set: stageResets,
-            });
-            return { ok: true, cleared: result.modifiedCount };
+            // One transaction: the file-reading stages' dead/attempt
+            // bookkeeping is reset so a cleared file is genuinely re-tried, and
+            // only then is the tag dropped.
+            const cleared = await clearDamagedAssets(id ?? null, DAMAGE_TAGGING_STAGES);
+            return { ok: true, cleared };
           } catch (err) {
             set.status = 500;
             return { error: err instanceof Error ? err.message : String(err) };
@@ -427,19 +349,7 @@ export function workerRoutes() {
           return unknown;
         }
         try {
-          const db = await getDb();
-          const images = db.collection<ImageDoc>('assets');
-          const result = await images.updateMany(
-            { [`stages.${params.name}.dead`]: true },
-            {
-              $set: {
-                [`stages.${params.name}.dead`]: false,
-                [`stages.${params.name}.attempts`]: 0,
-                [`stages.${params.name}.last_error`]: null,
-              },
-            },
-          );
-          return { ok: true, reset: result.modifiedCount };
+          return { ok: true, reset: await retryDeadStage(params.name) };
         } catch (err) {
           set.status = 500;
           return { error: err instanceof Error ? err.message : String(err) };
@@ -470,9 +380,7 @@ export function workerRoutes() {
             };
           }
           try {
-            const db = await getDb();
-            const coll = db.collection('worker_config');
-            const repo = new WorkerConfigRepo(coll as never);
+            const repo = new WorkerConfigRepo();
             await repo.patch(params.name, body as Partial<WorkerConfig>);
             // The worker process re-reads worker_config on its next poll tick
             // — no IPC needed.

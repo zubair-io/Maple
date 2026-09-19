@@ -202,7 +202,7 @@ export class JobRunner {
         result = await this.tick();
       } catch (err) {
         // Defensive — `tick()` already catches handler errors. If we land
-        // here it's a Mongo problem (claim/findOneAndUpdate) and the right
+        // here it's a database problem (the claim/lease write) and the right
         // move is to back off and try again rather than crashing the loop.
         log.warn({ err: err instanceof Error ? err.message : String(err) }, 'tick error');
         result = { kind: 'no-claim' };

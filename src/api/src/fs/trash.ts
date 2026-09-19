@@ -2,7 +2,7 @@
  * Trash file-move primitives shared by DELETE and restore.
  *
  * `moveToTrash` and `moveOutOfTrash` are *pure* file-move logic — no
- * Mongo, no auth. The route handlers compose them with asset-doc
+ * database, no auth. The route handlers compose them with asset-doc
  * updates and HTTP plumbing. Both are now thin wrappers around the
  * generic crash-safe `relocateFile` primitive (`fs/relocate.ts`, #2629):
  * copy the primary + every paired sidecar (canonical + conflict variants),

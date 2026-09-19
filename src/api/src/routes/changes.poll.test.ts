@@ -1,54 +1,45 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+/**
+ * Route-integration test: GET /api/changes — the polling half of the change
+ * feed the File Provider extension syncs against.
+ *
+ * Journal rows are made with `recordAssetChange` from the SQLite repository
+ * (#3787). There is no separate cursor allocation to perform any more:
+ * `asset_changes.cursor` is an INTEGER PRIMARY KEY, so the insert mints it, and
+ * the Mongo repo's `allocateCursor` — which handed back a cursor with no row
+ * attached — is gone rather than ported.
+ *
+ * Each test gets a private database installed as the process-wide handle, which
+ * is what the route resolves; that also replaces the per-test `deleteMany({})`
+ * on `asset_changes` and `server_state`.
+ */
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId, type Db } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { changesRoutes } from './changes.ts';
-import { recordAssetChange } from '../db/changes.repo.ts';
-import { closeDb, getDb, isDbConnected } from '../db/client.ts';
+import { recordAssetChange, recordAssetChangeRow } from '../db/sqlite/repos/changes.repo.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_changes_poll_${process.pid}`);
-
-let db: Db | null = null;
-let app: Pick<Elysia, 'handle'> | null = null;
-let mongoReachable = false;
-
-beforeAll(async () => {
-  // Force the singleton to reconnect under this file's TEST_DB even when an
-  // earlier suite left it connected.
-  await closeDb();
-});
+let live: LiveTestDatabase;
+let app: Pick<Elysia, 'handle'>;
 
 beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  if (!mongoReachable || !db) return;
-  // Per-test cleanup of the collections this file touches (the whole
-  // database is ours now — dropped in afterAll).
-  await db.collection('asset_changes').deleteMany({});
-  await db.collection('server_state').deleteMany({});
+  live = await createLiveTestDatabase();
   app = new Elysia().use(fakeAuth()).use(changesRoutes);
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
+afterEach(() => {
+  live.close();
 });
 
 describe('GET /api/changes', () => {
   it('returns rows with cursor > since', async () => {
-    if (!mongoReachable || !db || !app) return;
     for (let i = 0; i < 3; i++) {
-      await recordAssetChange(db, {
+      await recordAssetChange(live.handle, {
         kind: 'create',
         asset_id: new ObjectId(),
         folder_id: new ObjectId(),
@@ -63,7 +54,6 @@ describe('GET /api/changes', () => {
   });
 
   it('returns empty list with no next_cursor when no changes', async () => {
-    if (!mongoReachable || !app) return;
     const res = await app.handle(new Request('http://localhost/api/changes?since=0'));
     const body = await res.json();
     expect(body.changes).toEqual([]);
@@ -71,7 +61,6 @@ describe('GET /api/changes', () => {
   });
 
   it('returns 400 for non-integer limit (regression — used to 500)', async () => {
-    if (!mongoReachable || !app) return;
     const res = await app.handle(new Request('http://localhost/api/changes?since=0&limit=abc'));
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -79,9 +68,8 @@ describe('GET /api/changes', () => {
   });
 
   it('respects limit parameter', async () => {
-    if (!mongoReachable || !db || !app) return;
     for (let i = 0; i < 10; i++) {
-      await recordAssetChange(db, {
+      await recordAssetChange(live.handle, {
         kind: 'create',
         asset_id: new ObjectId(),
         folder_id: new ObjectId(),
@@ -93,24 +81,21 @@ describe('GET /api/changes', () => {
     expect(body.changes.length).toBe(3);
   });
 
-  it('emits relative_path: null (explicit) for legacy rows lacking the field', async () => {
+  it('emits relative_path: null (explicit) for a row that carries none', async () => {
     // Regression — Phase 6 wire format: explicit null is the contract.
-    // Apple's decoder uses `decodeIfPresent` so it tolerates the key
-    // being missing, but the wire format guarantees the key is present
-    // (with `?? null`) so downstream consumers can rely on its
-    // existence — asserting the explicit-null shape protects against
-    // accidental drift in `asPayload`.
-    if (!mongoReachable || !db || !app) return;
-    // Insert directly so the BSON lacks `relative_path` entirely,
-    // mimicking a row written before Phase 6.
-    await db.collection('asset_changes').insertOne({
-      cursor: 1,
+    // Apple's decoder uses `decodeIfPresent` so it tolerates the key being
+    // missing, but the wire format guarantees the key is present (with
+    // `?? null`) so downstream consumers can rely on its existence —
+    // asserting the explicit-null shape protects against accidental drift in
+    // `asPayload`. On Mongo the fixture was a hand-written document with the
+    // field absent from the BSON; the column is NOT NULL-free here, so a row
+    // written without a relative path IS that state.
+    await recordAssetChangeRow(live.handle, {
+      kind: 'update',
       asset_id: new ObjectId(),
       folder_id: new ObjectId(),
-      kind: 'update',
       abs_path: '/p/legacy.dng',
-      at: new Date(),
-    } as never);
+    });
     const res = await app.handle(new Request('http://localhost/api/changes?since=0'));
     expect(res.status).toBe(200);
     const body = await res.json();

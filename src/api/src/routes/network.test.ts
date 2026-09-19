@@ -7,56 +7,30 @@
  * `available: false` when disabled. The config CRUD route validates input
  * and round-trips overrides.
  *
- * Requires a running MongoDB (skips gracefully if unreachable), mirroring
- * `backup-exists.test.ts`.
+ * The saved override is the `network` row of `app_settings`, so the two cases
+ * that need one seeded write it through `saveNetworkConfig` — the same
+ * `patchAppSettings` path the PUT route uses (#3787) — against a private
+ * SQLite database installed as the process-wide handle for the test.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, type Db } from 'mongodb';
-import { closeDb } from '../db/client.ts';
 import { networkPublicRoutes, networkSettingsRoutes } from './network.ts';
-
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_network_test_${process.pid}`;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+import { saveNetworkConfig } from '../network/network-config.repo.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 describe('/api/network/*', () => {
-  let mongo: MongoClient | null = null;
-  let db: Db | null = null;
+  let live: LiveTestDatabase;
 
   beforeEach(async () => {
-    mongo = await tryConnect();
-    if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    await closeDb();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
+    live = await createLiveTestDatabase();
   });
 
-  afterEach(async () => {
-    if (db) await db.dropDatabase().catch(() => {});
-    if (mongo) await mongo.close().catch(() => {});
-    await closeDb();
-    db = null;
-    mongo = null;
+  afterEach(() => {
+    live.close();
   });
 
   function publicApp() {
@@ -81,10 +55,6 @@ describe('/api/network/*', () => {
   }
 
   it('GET /api/network/local-address requires no Authorization header', async () => {
-    if (!mongo) {
-      console.log('[network.test] MongoDB unreachable — skipping');
-      return;
-    }
     const res = await getLocalAddress();
     expect(res.status).toBe(200);
     const body = (await res.json()) as { available: boolean };
@@ -92,14 +62,7 @@ describe('/api/network/*', () => {
   });
 
   it('reflects a saved local_ip_override', async () => {
-    if (!mongo || !db) return;
-    await db
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .updateOne(
-        { _id: 'network' },
-        { $set: { config: { local_ip_override: '10.0.0.5', local_port_override: 4000 } } },
-        { upsert: true },
-      );
+    await saveNetworkConfig({ local_ip_override: '10.0.0.5', local_port_override: 4000 });
     const res = await getLocalAddress();
     const body = (await res.json()) as {
       available: boolean;
@@ -111,29 +74,23 @@ describe('/api/network/*', () => {
   });
 
   it('reports available: false when disabled', async () => {
-    if (!mongo || !db) return;
-    await db
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .updateOne({ _id: 'network' }, { $set: { config: { enabled: false } } }, { upsert: true });
+    await saveNetworkConfig({ enabled: false });
     const res = await getLocalAddress();
     const body = await res.json();
     expect(body).toEqual({ available: false });
   });
 
   it('PUT /api/network/config rejects an invalid IP override', async () => {
-    if (!mongo) return;
     const res = await putConfig({ local_ip_override: 'bad value with spaces' });
     expect(res.status).toBe(400);
   });
 
   it('PUT /api/network/config rejects an out-of-range port override', async () => {
-    if (!mongo) return;
     const res = await putConfig({ local_port_override: 70000 });
     expect(res.status).toBe(400);
   });
 
   it('PUT /api/network/config round-trips an override and null clears it', async () => {
-    if (!mongo) return;
     const set = await putConfig({ local_ip_override: '192.168.1.10' });
     expect(set.status).toBe(200);
     const setBody = (await set.json()) as { local_ip: string; source: { local_ip: string } };

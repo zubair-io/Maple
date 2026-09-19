@@ -1,86 +1,36 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+/**
+ * How the vector backfill behaves when writes go wrong: one poisonous document
+ * is isolated rather than blocking its siblings, a transport outage exhausts a
+ * bounded retry budget without losing the cursor, and two callers cannot run at
+ * once.
+ *
+ * The status route's own surface — coverage reporting, the owner gate and the
+ * response cache — moved to `admin-meilisearch-status.test.ts` when this file
+ * went to SQLite, so a suite named for the backfill drives the backfill.
+ */
+
+import { afterEach, describe, expect, it } from 'bun:test';
 import {
   setMeilisearchClientForTests,
   type MeilisearchAssetDoc,
   type MeilisearchClient,
 } from '../src/enrichment/meilisearch-client.ts';
 import { MeilisearchTaskError } from '../src/enrichment/meilisearch-transport.ts';
-import { signAccessToken } from '../src/auth/tokens.ts';
-import { _resetAdminMeilisearchStatusCacheForTests } from '../src/routes/admin-meilisearch-status.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { readBackfillState } from '../src/db/sqlite/repos/meilisearch-backfill.repo.ts';
+import { failuresByMapleId, seedIndexableAsset } from './helpers/meili-backfill-fixtures.ts';
+import {
+  clearMeilisearchBackfillRetryState,
+  runMeilisearchBackfill,
+} from '../src/enrichment/meilisearch-backfill.ts';
+import {
+  MeilisearchBackfillBusyError,
+  withMeilisearchBackfillLease,
+} from '../src/enrichment/meilisearch-backfill-lease.ts';
 
-const TEST_DB = withTestDb(`maple_test_meili_resilience_${process.pid}`);
-process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-let mongo: MongoClient | null = null;
-let db: Db | null = null;
-const folder = new ObjectId();
-
-// admin-meilisearch-status is owner-gated (#2353).
-const ownerJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
-  'x'.repeat(32),
-);
-const memberJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
-  'x'.repeat(32),
-);
-
-beforeAll(async () => {
-  mongo = new MongoClient(URI, { serverSelectionTimeoutMS: 1500 });
-  try {
-    await mongo.connect();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
-  } catch {
-    await mongo.close().catch(() => {});
-    mongo = null;
-    return;
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!db) return;
-  for (const collection of [
-    'assets',
-    'people',
-    'meilisearch_backfill_state',
-    'meilisearch_backfill_failures',
-    'meilisearch_backfill_leases',
-  ]) {
-    await db.collection(collection).deleteMany({});
-  }
-  setMeilisearchClientForTests(null);
-  _resetAdminMeilisearchStatusCacheForTests();
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
+afterEach(() => {
   setMeilisearchClientForTests(null);
 });
-
-function row(id: string) {
-  return {
-    maple_id: id,
-    folder_id: folder,
-    filename: `${id}.jpg`,
-    size: 1,
-    mtime: 1,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    deleted_at: null,
-  };
-}
 
 function client(options: { reject?: string; transient?: boolean } = {}) {
   const upserts: MeilisearchAssetDoc[] = [];
@@ -106,68 +56,12 @@ function client(options: { reject?: string; transient?: boolean } = {}) {
 }
 
 describe('semantic backfill resilience', () => {
-  it('reports confirmed live coverage separately from raw tombstone-inclusive stats', async () => {
-    if (!db) return;
-    const liveFile = {
-      library_id: folder,
-      path: '',
-      filename: 'covered.jpg',
-      deleted_at: null,
-      missing_since: null,
-    };
-    await db.collection('assets').insertMany([
-      { ...row('covered'), fileinfo: [liveFile], semantic_vector_fingerprint: 'current' },
-      { ...row('pending'), fileinfo: [{ ...liveFile, filename: 'pending.jpg' }] },
-      {
-        ...row('tombstone'),
-        deleted_at: new Date().toISOString(),
-        fileinfo: [{ ...liveFile, deleted_at: new Date().toISOString() }],
-        semantic_vector_fingerprint: 'current',
-      },
-    ]);
-    const meili = client();
-    meili.fake.semanticFingerprint = () => 'current';
-    meili.fake.semanticStatus = async () => ({
-      configured: true,
-      enabled: true,
-      embedderName: 'caption',
-      model: 'bge-m3',
-      semanticRatio: 0.5,
-      meilisearchReachable: true,
-      embedderConfigured: true,
-      embedderReachable: true,
-      indexedDocumentCount: 3,
-      vectorizedDocumentCount: 3,
-      isIndexing: false,
-      embedderPolicyRejected: false,
-      error: null,
-    });
-    setMeilisearchClientForTests(meili.fake);
-    const { adminMeilisearchStatusRoutes } =
-      await import('../src/routes/admin-meilisearch-status.ts');
-    const { Elysia } = await import('elysia');
-    const response = await new Elysia().use(adminMeilisearchStatusRoutes).handle(
-      new Request('http://localhost/api/admin/enrichment/meilisearch-status', {
-        headers: { authorization: `Bearer ${ownerJwt}` },
-      }),
-    );
-    expect(await response.json()).toMatchObject({
-      documents: {
-        live: 2,
-        indexedRaw: 3,
-        vectorizedRaw: 3,
-        vectorizedLive: 1,
-        vectorCoverage: 0.5,
-      },
-    });
-  });
-
   it('isolates and dead-letters one invalid document while committing siblings', async () => {
-    if (!db) return;
-    await db.collection('assets').insertMany([row('valid'), row('invalid')]);
+    using live = await createLiveTestDatabase();
+    seedIndexableAsset(live.db, { id: '1'.repeat(24), mapleId: 'valid' });
+    seedIndexableAsset(live.db, { id: '2'.repeat(24), mapleId: 'invalid' });
     const meili = client({ reject: 'invalid' });
     setMeilisearchClientForTests(meili.fake);
-    const { runMeilisearchBackfill } = await import('../src/enrichment/meilisearch-backfill.ts');
 
     expect(await runMeilisearchBackfill(10, false)).toMatchObject({
       complete: true,
@@ -181,36 +75,31 @@ describe('semantic backfill resilience', () => {
     // 'invalid' unconditionally, so the immediate re-attempt fails the same
     // way and `attempts` reflects both tries (see meilisearch-backfill-redrive.ts
     // for the pass that recovers a row once its underlying cause is fixed).
-    expect(
-      await db.collection('meilisearch_backfill_failures').findOne({ maple_id: 'invalid' }),
-    ).toMatchObject({ attempts: 2 });
+    expect(failuresByMapleId(live.db).get('invalid')).toEqual({ attempts: 2 });
   });
 
   it('blocks after five transient failures and can rearm without losing its cursor', async () => {
-    if (!db) return;
-    await db.collection('assets').insertOne(row('blocked'));
+    using live = await createLiveTestDatabase();
+    seedIndexableAsset(live.db, { mapleId: 'blocked' });
     setMeilisearchClientForTests(client({ transient: true }).fake);
-    const { runMeilisearchBackfill, clearMeilisearchBackfillRetryState } =
-      await import('../src/enrichment/meilisearch-backfill.ts');
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
       const result = await runMeilisearchBackfill(10, false);
       expect(result.blocked).toBe(attempt === 5);
       expect(result.nextCursor).toBeNull();
     }
-    expect(
-      await db.collection<{ _id: string }>('meilisearch_backfill_state').findOne({ _id: 'assets' }),
-    ).toMatchObject({ scanned: 0, retry_attempts: 5 });
+    expect(await readBackfillState()).toMatchObject({ scanned: 0, retry_attempts: 5 });
+
     await clearMeilisearchBackfillRetryState();
-    expect(
-      await db.collection<{ _id: string }>('meilisearch_backfill_state').findOne({ _id: 'assets' }),
-    ).toMatchObject({ scanned: 0, retry_attempts: 0, blocked_at: null });
+    expect(await readBackfillState()).toMatchObject({
+      scanned: 0,
+      retry_attempts: 0,
+      blocked_at: null,
+    });
   });
 
   it('serializes admin, migration, and reset callers with a lease', async () => {
-    if (!db) return;
-    const { withMeilisearchBackfillLease, MeilisearchBackfillBusyError } =
-      await import('../src/enrichment/meilisearch-backfill-lease.ts');
+    using live = await createLiveTestDatabase();
     let release!: () => void;
     let acquired!: () => void;
     const blocker = new Promise<void>((resolve) => (release = resolve));
@@ -225,99 +114,5 @@ describe('semantic backfill resilience', () => {
     );
     release();
     await first;
-  });
-});
-
-describe('GET /api/admin/enrichment/meilisearch-status — owner gate (#2353)', () => {
-  it('rejects an unauthenticated request with 401', async () => {
-    if (!db) return;
-    const { adminMeilisearchStatusRoutes } =
-      await import('../src/routes/admin-meilisearch-status.ts');
-    const { Elysia } = await import('elysia');
-    const response = await new Elysia()
-      .use(adminMeilisearchStatusRoutes)
-      .handle(new Request('http://localhost/api/admin/enrichment/meilisearch-status'));
-    expect(response.status).toBe(401);
-  });
-
-  it('rejects a member-role token with 403', async () => {
-    if (!db) return;
-    const { adminMeilisearchStatusRoutes } =
-      await import('../src/routes/admin-meilisearch-status.ts');
-    const { Elysia } = await import('elysia');
-    const response = await new Elysia().use(adminMeilisearchStatusRoutes).handle(
-      new Request('http://localhost/api/admin/enrichment/meilisearch-status', {
-        headers: { authorization: `Bearer ${memberJwt}` },
-      }),
-    );
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: 'owner role required' });
-  });
-
-  it('allows an owner-role token through (200)', async () => {
-    if (!db) return;
-    const { adminMeilisearchStatusRoutes } =
-      await import('../src/routes/admin-meilisearch-status.ts');
-    const { Elysia } = await import('elysia');
-    const response = await new Elysia().use(adminMeilisearchStatusRoutes).handle(
-      new Request('http://localhost/api/admin/enrichment/meilisearch-status', {
-        headers: { authorization: `Bearer ${ownerJwt}` },
-      }),
-    );
-    expect(response.status).toBe(200);
-  });
-
-  it('caches the response so a second poll within the TTL does not re-probe Ollama or re-scan Mongo (#2359)', async () => {
-    if (!db) return;
-    let semanticStatusCalls = 0;
-    const meili = client();
-    meili.fake.semanticFingerprint = () => null;
-    meili.fake.semanticStatus = async () => {
-      semanticStatusCalls += 1;
-      return {
-        configured: true,
-        enabled: true,
-        embedderName: 'caption',
-        model: 'bge-m3',
-        semanticRatio: 0.5,
-        meilisearchReachable: true,
-        embedderConfigured: true,
-        embedderReachable: true,
-        indexedDocumentCount: 0,
-        vectorizedDocumentCount: 0,
-        isIndexing: false,
-        embedderPolicyRejected: false,
-        error: null,
-      };
-    };
-    setMeilisearchClientForTests(meili.fake);
-    const { adminMeilisearchStatusRoutes } =
-      await import('../src/routes/admin-meilisearch-status.ts');
-    const { Elysia } = await import('elysia');
-    const app = new Elysia().use(adminMeilisearchStatusRoutes);
-    const request = () =>
-      app.handle(
-        new Request('http://localhost/api/admin/enrichment/meilisearch-status', {
-          headers: { authorization: `Bearer ${ownerJwt}` },
-        }),
-      );
-
-    const first = await request();
-    expect(first.status).toBe(200);
-    const firstBody = await first.json();
-    expect(semanticStatusCalls).toBe(1);
-
-    // Second poll within the TTL is served from cache — no second probe.
-    const second = await request();
-    expect(second.status).toBe(200);
-    expect(semanticStatusCalls).toBe(1);
-    expect(await second.json()).toEqual(firstBody);
-
-    // Once the cache is cleared (simulating TTL expiry), the next poll
-    // probes again.
-    _resetAdminMeilisearchStatusCacheForTests();
-    const third = await request();
-    expect(third.status).toBe(200);
-    expect(semanticStatusCalls).toBe(2);
   });
 });

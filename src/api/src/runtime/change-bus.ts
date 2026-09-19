@@ -3,7 +3,7 @@
  *
  * - The HTTP SSE route (changes.ts) subscribes for fan-out.
  * - Reconnecting clients ask for replay-since-cursor; we serve from the
- *   buffer when the cursor is recent enough (no Mongo round-trip).
+ *   buffer when the cursor is recent enough (no database round-trip).
  * - When the requested cursor is older than the buffer's floor, the SSE
  *   route returns 409 and the client falls back to a full re-enumeration.
  *
@@ -12,8 +12,8 @@
  * after a transient network drop.
  */
 
-import { EventEmitter } from "node:events";
-import type { AssetChangeWithId } from "../db/schema.ts";
+import { EventEmitter } from 'node:events';
+import type { AssetChangeWithId } from '../db/schema.ts';
 
 export interface ChangeBusOptions {
   capacity: number;
@@ -33,7 +33,7 @@ export class ChangeBus {
 
   /**
    * Publish an event. Inserts into the buffer in cursor order — handlers
-   * that allocate cursors concurrently and then race on the Mongo insert
+   * that allocate cursors concurrently and then race on the database insert
    * can deliver `publish()` out of cursor order, but the buffer must
    * always be cursor-sorted so `snapshot()` / `replay()` / floor checks
    * are deterministic. Linear scan for the insert position is fine at
@@ -59,7 +59,7 @@ export class ChangeBus {
       this.buf.splice(i, 0, event);
     }
     while (this.buf.length > this.capacity) this.buf.shift();
-    this.emitter.emit("change", event);
+    this.emitter.emit('change', event);
   }
 
   /** Snapshot of the current buffer in cursor order. */
@@ -80,10 +80,10 @@ export class ChangeBus {
 
   /**
    * Persisted high-watermark — set by the API process at boot from
-   * `highestCursor()` in the asset_changes collection. The bus uses this
+   * `highestCursor()` over the `asset_changes` table. The bus uses this
    * to refuse replay when the in-memory buffer is empty but the
    * persistent store has events the client never saw (post-restart
-   * recovery). Updated by the tailer as it republishes Mongo rows so
+   * recovery). Updated by the tailer as it republishes persisted rows so
    * the bus stays in sync.
    */
   private persistedHighWatermark = 0;
@@ -101,7 +101,7 @@ export class ChangeBus {
 
   /**
    * True when `since` is within the buffer's reach (i.e. we can serve a
-   * replay without going to Mongo).
+   * replay without going to the database).
    *
    * - When the buffer is non-empty: `since + 1 >= floor`.
    * - When the buffer is empty: replayable iff the client is up-to-date
@@ -118,9 +118,9 @@ export class ChangeBus {
   }
 
   subscribe(listener: (event: AssetChangeWithId) => void): () => void {
-    this.emitter.on("change", listener);
+    this.emitter.on('change', listener);
     return () => {
-      this.emitter.off("change", listener);
+      this.emitter.off('change', listener);
     };
   }
 }

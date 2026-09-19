@@ -1,8 +1,8 @@
 /**
  * Mirror-scan detector — the "check, don't copy" half of the detect/copy split.
  *
- * Iterates live assets (the DB already knows every on-disk file + its
- * locations), resolves each live location's mirror target(s), and enqueues a
+ * Iterates every live location (the DB already knows every on-disk file and
+ * where it sits), resolves each one's mirror target(s), and enqueues a
  * `mirror_queue` row for any that are missing or stale on the mirror. It never
  * copies — the mirror copy worker drains the queue. Decoupled from the discover
  * sweep so it can't slow indexing, and independently throttled.
@@ -13,8 +13,10 @@
  */
 
 import * as path from 'node:path';
-import { assetsCollection } from '../../db/client.ts';
-import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
+import {
+  listLiveLocationsAfter,
+  type LiveLocationRow,
+} from '../../db/sqlite/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { resolveMirrorTargets, isMirroringActive } from '../../fs/mirror-registry.ts';
 import { enqueueMirrorCopy } from '../../fs/mirror-queue.repo.ts';
@@ -27,6 +29,39 @@ const log = childLogger('mirror-scan');
 
 const DEFAULT_INTERVAL_MS = 3_600_000; // hourly
 const DEFAULT_MAX_ENQUEUE = 10_000; // safety cap per pass
+
+/** Live locations fetched per round trip. Large enough that a library of a
+ * million files is a few thousand statements rather than a million, small
+ * enough that one page is a handful of kilobytes rather than the whole table. */
+const LOCATION_PAGE_SIZE = 1_000;
+
+/**
+ * Every live location in every library, one keyset page at a time.
+ *
+ * A location — not an asset — is the unit this walk wants: the scan checks one
+ * file on disk at a time, and an asset that exists at two paths has two files to
+ * mirror. Mongo could not express that. `$elemMatch` selects *documents* whose
+ * `fileinfo` array has a live entry but hands back the whole document, so the
+ * cursor version streamed every matching asset and re-filtered its array in
+ * TypeScript to find the entries that had actually matched. Here the liveness
+ * predicate runs in SQL and each row already is one live location.
+ *
+ * Paged on `asset_locations.id`, which is an `INTEGER PRIMARY KEY`, so resuming
+ * at `id > lastSeen` is a seek to the resume point however deep the walk is.
+ * `LIMIT`/`OFFSET` would re-read every row before the page and turn a full sweep
+ * into quadratic work.
+ */
+async function* liveLocations(): AsyncGenerator<LiveLocationRow> {
+  let afterId = 0;
+  for (;;) {
+    const page = await listLiveLocationsAfter(afterId, LOCATION_PAGE_SIZE);
+    for (const row of page) yield row;
+    // A short page means the table is exhausted — the next query would be a
+    // round trip that returns nothing.
+    if (page.length < LOCATION_PAGE_SIZE) return;
+    afterId = page[page.length - 1].id;
+  }
+}
 
 export interface MirrorScanOptions {
   /** Stop enqueueing after this many rows in one pass (runaway guard). */
@@ -63,7 +98,6 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
   if (!isMirroringActive()) return summary;
 
   const libs = await loadLibraryRoots();
-  const coll = await assetsCollection();
   // Per-pass mirror-root reachability cache so we stat each root once, not once
   // per file. Offline roots are skipped to avoid flooding on an unmounted disk.
   const rootOnline = new Map<string, boolean>();
@@ -101,56 +135,49 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
     return 'ok';
   };
 
-  // `liveFileInfoElemMatch()` already returns the full
-  // `{ fileinfo: { $elemMatch: … } }` fragment — use it as the query directly,
-  // don't wrap it again.
-  const cursor = coll.find(liveFileInfoElemMatch(), { projection: { fileinfo: 1 } });
+  // Liveness is now the query's job — every row that arrives here is a file the
+  // library believes is present at that path.
+  for await (const row of liveLocations()) {
+    const root = libs.get(row.library_id);
+    if (!root) continue;
+    const segments = row.path === '' ? [] : row.path.split('/');
+    const primaryAbs = path.join(root, ...segments, row.filename);
 
-  for await (const doc of cursor) {
-    for (const entry of doc.fileinfo ?? []) {
-      // Live entry only: holds this asset's content at a present path.
-      if (entry.deleted_at != null || entry.missing_since != null) continue;
-      const root = libs.get(entry.library_id.toHexString());
-      if (!root) continue;
-      const segments = entry.path === '' ? [] : entry.path.split('/');
-      const primaryAbs = path.join(root, ...segments, entry.filename);
+    // Everything this asset owns on disk, in priority order. `checkOne`
+    // no-ops on any of these that the primary doesn't have.
+    const replicable = [
+      primaryAbs,
+      // The canonical XMP sidecar carries the user's edits (the
+      // non-destructive contract), so it must back up too.
+      xmpSidecarPath(primaryAbs),
+      // The derived `.maple/` cache. Fresh renders reach the mirror inline via
+      // `fs/mirrored.ts:replicatePath`; this is what carries the pre-existing
+      // backlog — and anything a dropped inline copy missed — across, so a
+      // mirror-served read hits the cache instead of regenerating (#926).
+      resolveThumbPath(primaryAbs),
+      cachePathFor(primaryAbs, 'previews', PREVIEW_CACHE_SUFFIX),
+    ];
 
-      // Everything this asset owns on disk, in priority order. `checkOne`
-      // no-ops on any of these that the primary doesn't have.
-      const replicable = [
-        primaryAbs,
-        // The canonical XMP sidecar carries the user's edits (the
-        // non-destructive contract), so it must back up too.
-        xmpSidecarPath(primaryAbs),
-        // The derived `.maple/` cache. Fresh renders reach the mirror inline via
-        // `fs/mirrored.ts:replicatePath`; this is what carries the pre-existing
-        // backlog — and anything a dropped inline copy missed — across, so a
-        // mirror-served read hits the cache instead of regenerating (#926).
-        resolveThumbPath(primaryAbs),
-        cachePathFor(primaryAbs, 'previews', PREVIEW_CACHE_SUFFIX),
-      ];
-
-      try {
-        for (const candidate of replicable) {
-          if ((await checkOne(candidate)) === 'cap') {
-            log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
-            return summary;
-          }
+    try {
+      for (const candidate of replicable) {
+        if ((await checkOne(candidate)) === 'cap') {
+          log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
+          return summary;
         }
-      } catch (err) {
-        summary.errors++;
-        log.warn({ primaryAbs, err: err instanceof Error ? err.message : err }, 'scan row failed');
       }
-
-      // Surface live progress (the file just checked + running counts) so the
-      // "Scan now" UI can show the walk in motion.
-      opts.onProgress?.({
-        scanned: summary.scanned,
-        enqueued: summary.enqueued,
-        upToDate: summary.upToDate,
-        currentPath: primaryAbs,
-      });
+    } catch (err) {
+      summary.errors++;
+      log.warn({ primaryAbs, err: err instanceof Error ? err.message : err }, 'scan row failed');
     }
+
+    // Surface live progress (the file just checked + running counts) so the
+    // "Scan now" UI can show the walk in motion.
+    opts.onProgress?.({
+      scanned: summary.scanned,
+      enqueued: summary.enqueued,
+      upToDate: summary.upToDate,
+      currentPath: primaryAbs,
+    });
   }
 
   if (summary.scanned > 0) log.info(summary, 'mirror-scan pass complete');

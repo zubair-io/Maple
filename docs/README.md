@@ -37,14 +37,16 @@ and Apple EditSession lifecycle, shared state and existing test boundaries.
 
 ## Platforms
 
-| Doc                                            | Covers                                                                                                                                                               |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [apple.md](apple.md)                           | The Xcode project, every target and extension, the three local packages, the xcframework build, the render path, sources, and the UI test harnesses.                 |
-| [web.md](web.md)                               | The Angular workspace: the `maple` and `maple-syrup` apps, `maple-common`, the render worker, WASM build and sync, service worker, tests, deployment.                |
-| [api.md](api.md)                               | The Bun + Elysia server: process model, MongoDB collections, auth, library addressing, filesystem layout, native FFI, Cloudflare, Meilisearch, settings, operations. |
-| [server-api.md](server-api.md)                 | The HTTP route reference, generated from the route sources with auth tier and parameters.                                                                            |
-| [indexer-enrichment.md](indexer-enrichment.md) | The discover sweep, the stage runner, every registered stage, the job runner, search indexing, and face clustering.                                                  |
-| [windows.md](windows.md)                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                |
+| Doc                                            | Covers                                                                                                                                                                          |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [apple.md](apple.md)                           | The Xcode project, every target and extension, the three local packages, the xcframework build, the render path, sources, and the UI test harnesses.                            |
+| [web.md](web.md)                               | The Angular workspace: the `maple` and `maple-syrup` apps, `maple-common`, the render worker, WASM build and sync, service worker, tests, deployment.                           |
+| [api.md](api.md)                               | The Bun + Elysia server: process model, MongoDB collections, auth, library addressing, filesystem layout, native FFI, Cloudflare, Meilisearch, settings, operations.            |
+| [server-api.md](server-api.md)                 | The HTTP route reference, generated from the route sources with auth tier and parameters.                                                                                       |
+| [sqlite-schema.md](sqlite-schema.md)           | The relational schema replacing the MongoDB collections: table layout, the key-type decision, every query pattern mapped to the index that serves it, and the migration runner. |
+| [sqlite-import.md](sqlite-import.md)           | Moving an existing library across: the one-shot importer, how it resumes, what it verifies, and the collections it deliberately leaves behind.                                  |
+| [indexer-enrichment.md](indexer-enrichment.md) | The discover sweep, the stage runner, every registered stage, the job runner, search indexing, and face clustering.                                                             |
+| [windows.md](windows.md)                       | The WinUI 3 shell, its P/Invoke surface onto the Rust core, File Explorer integration, tests, and CI.                                                                           |
 
 ## Design system
 

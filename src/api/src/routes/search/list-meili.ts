@@ -3,33 +3,33 @@
  *
  * When a residual `placeQuery` is set and a Meilisearch sidecar is
  * configured, we query Meilisearch first (typo-tolerant, ranked) and
- * re-fetch the full asset rows from Mongo so the projection stays
- * source-of-truth. On a miss or an error the caller falls back to the Mongo
- * `$text` path, which is why this returns `null` rather than throwing —
- * the route must keep answering 200s when Meilisearch is down.
+ * re-fetch the full asset rows from the database so the projection stays
+ * source-of-truth. On a miss or an error the caller falls back to the
+ * database's own full-text path, which is why this returns `null` rather
+ * than throwing — the route must keep answering 200s when Meilisearch is
+ * down.
+ *
+ * Meilisearch is a separate service and is untouched by the SQLite cutover
+ * (#3787). What moved is the second half: the re-fetch is
+ * `searchByMapleIds` now rather than a `maple_id: { $in: … }` find, and the
+ * structured filters reach it as the same translated `SearchWhere` the
+ * database path uses.
  *
  * Split out of `list.ts` in #2129: adding seek pagination pushed the route
  * handler past the complexity gate, and this branch is the largest
  * self-contained piece of it. Behaviour is unchanged.
  *
  * This path is never seekable — Meilisearch orders by relevance, which is
- * not a stored Mongo field — so it paginates by `offset`/`limit` and the
- * caller stamps `nextCursor: null` on the response.
+ * not a stored column — so it paginates by `offset`/`limit` and the caller
+ * stamps `nextCursor: null` on the response.
  */
 
-import type { Collection, Filter, ObjectId } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.cache.ts';
+import { searchByMapleIds, type SearchWhere } from '../../db/sqlite/repos/search.repo.ts';
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { projectAsset, type SearchResult } from './project.ts';
-import {
-  applyLiveFilter,
-  peopleNames,
-  widenFromDate,
-  widenToDate,
-  type SearchQuery,
-} from './query.ts';
+import { libraryMaps } from './libraries.ts';
+import { peopleNames, widenFromDate, widenToDate, type SearchQuery } from './query.ts';
 
 const searchLog = childLogger('search');
 
@@ -39,9 +39,8 @@ export interface MeiliPage {
 }
 
 export interface MeiliPageInput {
-  coll: Collection<AssetDoc>;
-  /** The caller's structured filter, pre-`applyLiveFilter`. */
-  filter: Filter<AssetDoc>;
+  /** The caller's translated query — every filter except the free text. */
+  where: SearchWhere;
   /** Date-resolved query (`extractDatesFromQuery` output). */
   resolved: SearchQuery;
   /** Library scope, straight off the wire. */
@@ -57,8 +56,8 @@ export function usesPlaceText(resolved: SearchQuery): boolean {
 
 /** Person names for the Meili `people` filter, or `undefined` when the
  * explicit person picker is empty (parsing shared with the routes via
- * `peopleNames` in `query.ts`). Meili filters by name directly; the Mongo
- * re-fetch below additionally applies `buildFilter`'s id-based clause. */
+ * `peopleNames` in `query.ts`). Meili filters by name directly; the
+ * re-fetch below additionally applies the translated query's id-based clause. */
 function meiliPeople(resolved: SearchQuery): string[] | undefined {
   const names = peopleNames(resolved.people);
   return names.length > 0 ? names : undefined;
@@ -78,7 +77,7 @@ function meiliPeople(resolved: SearchQuery): string[] | undefined {
  * clauses, enough to lift the `hidden` exclusion or the `folderId` scope. A
  * canonical instant cannot carry a quote.
  *
- * An unparseable bound is dropped rather than guessed at. The Mongo
+ * An unparseable bound is dropped rather than guessed at. The database
  * predicate still applies it, so results stay correct either way.
  */
 function isoInstant(bound: string | undefined, offsetMs: number): string | undefined {
@@ -93,14 +92,14 @@ function isoInstant(bound: string | undefined, offsetMs: number): string | undef
  *
  * Pushing this down is not an optimisation. Meilisearch returns one page of
  * `limit` ids ranked by relevance; applying the window only to that page (as
- * the Mongo re-fetch below does) hides every in-window match that ranked
+ * the re-fetch below does) hides every in-window match that ranked
  * past it, and leaves `estimatedTotal` counting text matches from outside
  * the window entirely — an empty grid under a large result count.
  *
  * `resolved.to` is inclusive and already widened to the end of its day, so
  * the exclusive bound is one millisecond past it: at the millisecond
  * resolution `capturedAt` is stored in, `< to + 1ms` selects the same set as
- * `<= to`, which keeps this in step with the Mongo `$lte` predicate.
+ * `<= to`, which keeps this in step with the `captured_at <= ?` predicate.
  */
 function capturedWindow(resolved: SearchQuery): {
   capturedFrom?: string;
@@ -115,22 +114,22 @@ function capturedWindow(resolved: SearchQuery): {
 }
 
 /**
- * Filters that `buildFilter` turns into a Mongo predicate and that the
+ * Filters that `buildSearchWhere` turns into a SQL predicate and that the
  * Meilisearch query has no way to express — the index carries no
  * corresponding filterable attribute.
  *
  * They cannot simply be applied after the fact. Meili returns one page of
- * `limit` relevance-ranked ids; intersecting that page in Mongo can only
- * REMOVE rows, never reach a match ranked past it, and leaves `total`
+ * `limit` relevance-ranked ids; intersecting that page in the database can
+ * only REMOVE rows, never reach a match ranked past it, and leaves `total`
  * counting documents the filter would have excluded (#2928, #2932). So when
  * one is present the branch declines outright and the route falls through to
- * the Mongo `$text` path, which applies every filter in a single query and
- * counts correctly.
+ * the database's own full-text path, which applies every filter in a single
+ * query and counts correctly.
  *
  * That costs relevance ranking on those queries and is still the right
  * trade: the alternative is a confidently wrong answer.
  */
-const MONGO_ONLY_FILTERS = [
+const DATABASE_ONLY_FILTERS = [
   'q',
   'camera',
   'lens',
@@ -152,9 +151,9 @@ const MONGO_ONLY_FILTERS = [
 ] as const;
 
 /**
- * Params `buildFilter` reads as a boolean opt-in: they add a Mongo clause
+ * Params the filter builder reads as a boolean opt-in: they add a clause
  * ONLY on the exact string `'true'`. Treating any non-empty value as active
- * would send `hasCapturedAt=false` down the Mongo path for a filter that
+ * would send `hasCapturedAt=false` down the database path for a filter that
  * never existed — a needless loss of relevance ranking.
  */
 const TRUE_ONLY_FLAGS: ReadonlySet<string> = new Set(['hasCapturedAt', 'excludeHiddenPeople']);
@@ -165,7 +164,7 @@ function isSet(value: unknown, key?: string): boolean {
 }
 
 /**
- * Which of the caller's filters force the Mongo path, empty when the whole
+ * Which of the caller's filters force the database path, empty when the whole
  * query is expressible in Meilisearch.
  *
  * Exported for the coverage test that walks the wire schema: a param added
@@ -173,8 +172,8 @@ function isSet(value: unknown, key?: string): boolean {
  * post-filtering a single page.
  */
 export function unpushableFilters(resolved: SearchQuery): string[] {
-  const named = MONGO_ONLY_FILTERS.filter((key) => isSet(resolved[key], key));
-  // `photos` and absent are no-ops in `buildFilter`; `places`/`people` add a
+  const named = DATABASE_ONLY_FILTERS.filter((key) => isSet(resolved[key], key));
+  // `photos` and absent are no-ops in the filter builder; `places`/`people` add a
   // presence clause with no Meili counterpart. Anything else is rejected
   // upstream — treat it as unpushable rather than assume it is inert.
   const scope = resolved.scope?.trim() ?? '';
@@ -215,19 +214,19 @@ function visionFilters(resolved: SearchQuery): {
 /**
  * One page of Meilisearch-ranked results, or `null` when the sidecar isn't
  * configured, this isn't a text query, or the query failed (logged; the
- * caller falls through to Mongo `$text`).
+ * caller falls through to the database full-text path).
  */
 export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null> {
-  const { coll, filter, resolved, libraryId, skip, limit } = input;
+  const { where, resolved, libraryId, skip, limit } = input;
   const meili = meilisearchClient();
   if (!usesPlaceText(resolved) || !meili.isConfigured()) return null;
 
-  // Correctness outranks ranking: see MONGO_ONLY_FILTERS.
+  // Correctness outranks ranking: see DATABASE_ONLY_FILTERS.
   const unpushable = unpushableFilters(resolved);
   if (unpushable.length > 0) {
     searchLog.debug(
       { unpushable, placeQuery: resolved.placeQuery },
-      'meilisearch declined; filters have no index counterpart, using mongo $text',
+      'meilisearch declined; filters have no index counterpart, using the database',
     );
     return null;
   }
@@ -252,47 +251,28 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
     });
     if (hit.ids.length === 0) return { total: hit.estimatedTotal, results: [] };
 
-    // Fetch full asset summaries for the Meilisearch ids. Strip `$text` from
-    // the filter — Meilisearch already did the text match, and re-running
-    // Mongo `$text` on a typo-tolerant hit ("Musum" → "Museum") would zero
-    // the result. The structured filters (camera, lens, ext, …) and the
-    // soft-delete clause still apply.
-    const filterWithoutText = { ...filter };
-    delete (filterWithoutText as Record<string, unknown>).$text;
-    const restrict = applyLiveFilter({
-      ...filterWithoutText,
-      maple_id: { $in: hit.ids },
-    } as unknown as Filter<AssetDoc>);
-
-    const docs = (await coll.find(restrict).toArray()) as Array<AssetDoc & { _id: ObjectId }>;
-    const byId = new Map<string, AssetDoc & { _id: ObjectId }>();
-    for (const d of docs) {
-      const mapleId = (d as unknown as { maple_id?: string }).maple_id;
-      if (typeof mapleId === 'string') byId.set(mapleId, d);
-    }
-    // Preserve Meilisearch's relevance order. Drop ids that no longer exist
-    // in Mongo (rare; e.g. a mid-flight hard delete).
-    const ordered = hit.ids
-      .map((id) => byId.get(id))
-      .filter((d): d is AssetDoc & { _id: ObjectId } => d !== undefined);
-
-    const [libs, idToSlug] = await Promise.all([
-      loadLibraryRoots().catch(() => new Map<string, string>()),
-      loadLibraryIdToSlug().catch(() => new Map<string, string>()),
-    ]);
+    // Fetch full asset rows for the Meilisearch ids, in the order Meilisearch
+    // ranked them. `searchByMapleIds` drops the free-text half of `where` and
+    // keeps every structured filter — the sidecar already did the text match,
+    // and re-running it over a typo-tolerant hit ("Musum" → "Museum") would
+    // zero the result. Ids with no surviving row drop out, which is what a
+    // mid-flight hard delete looks like.
+    const docs = await searchByMapleIds(where, hit.ids);
+    const { libs, idToSlug } = await libraryMaps();
     return {
       total: hit.estimatedTotal,
-      results: ordered.map((d) => projectAsset(d, libs, idToSlug)),
+      results: docs.map((d) => projectAsset(d, libs, idToSlug)),
     };
   } catch (err) {
-    // Log and let the caller fall through to the Mongo `$text` path. The
-    // route still returns a 200 — the operator sees this in the logs.
+    // Log and let the caller fall through to the database's own full-text
+    // path. The route still returns a 200 — the operator sees this in the
+    // logs.
     searchLog.warn(
       {
         err: err instanceof Error ? err.message : String(err),
         placeQuery: resolved.placeQuery,
       },
-      'meilisearch query failed; falling back to mongo $text',
+      'meilisearch query failed; falling back to the database full-text path',
     );
     return null;
   }

@@ -1,31 +1,37 @@
 /**
  * Integration tests for `batchRenameAssets` / `previewBatchRename` (#2636).
  *
- * Real temp-dir files + real Mongo (skips gracefully when Mongo is
- * unreachable), following `relocate-asset.test.ts`'s pattern. Covers: each
- * template token, sequential self-collision mid-batch (the design doc's
- * explicit acceptance criterion), partial-failure reporting, and the
- * preview/dry-run mode.
+ * Real temp-dir files, and one real SQLite database per test (#3787)
+ * installed as the process-wide handle, so the orchestrator's own repository
+ * calls reach it. Covers: each template token, sequential self-collision
+ * mid-batch (the design doc's explicit acceptance criterion), partial-failure
+ * reporting, and the preview/dry-run mode.
  *
- * Tests that need an actual RENDERED name (not just the fail-closed
- * per-item error) require the native `raw-core` engine — `tryGetRawFfi()`
- * returns `null` in this repo's CI (`.github/workflows/api.yml` runs `bun
- * test` without ever building `libraw_ffi`; only the local dev workflow
- * runs `build-raw-ffi.sh`). `maybeTest` skip-gates exactly those tests, the
- * same "skip when the native dependency isn't present, don't fail
- * spuriously" convention `test_color_pipeline.sh` and the XCUITest visual
- * harness already use for their own native/fixture dependencies. The
- * fail-closed tests at the bottom of this file are NOT gated — they force
- * `tryGetRawFfi()` to `null` themselves via `setRawFfiForTests`, so they're
- * deterministic in every environment, dylib or not.
+ * Tests that need an actual RENDERED name (not just the fail-closed per-item
+ * error) require the native `raw-core` engine — `tryGetRawFfi()` returns
+ * `null` in this repo's CI (`.github/workflows/api.yml` runs `bun test`
+ * without ever building `libraw_ffi`; only the local dev workflow runs
+ * `build-raw-ffi.sh`). `maybeTest` skip-gates exactly those tests, the same
+ * "skip when the native dependency isn't present, don't fail spuriously"
+ * convention `test_color_pipeline.sh` and the XCUITest visual harness already
+ * use for their own native/fixture dependencies. The fail-closed tests at the
+ * bottom of this file are NOT gated — they force `tryGetRawFfi()` to `null`
+ * themselves via `setRawFfiForTests`, so they're deterministic in every
+ * environment, dylib or not.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { Database } from 'bun:sqlite';
+import { ObjectId } from 'mongodb';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { closeDb } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 import { setRawFfiForTests, tryGetRawFfi } from '../ffi/raw_ffi.ts';
 import { batchRenameAssets, previewBatchRename } from './batch-rename.ts';
@@ -33,41 +39,10 @@ import { batchRenameAssets, previewBatchRename } from './batch-rename.ts';
 const ffiAvailable = tryGetRawFfi() !== null;
 const maybeTest = ffiAvailable ? test : test.skip;
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_batch_rename_test_${process.pid}`;
-const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
-
-let client: MongoClient | null = null;
-let db: Db | null = null;
 let root: string;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
 
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'batch-rename-'));
-  client = await tryConnect();
-  if (!client) return;
-  await closeDb();
-  process.env.MAPLE_MONGO_URI = MONGO_URI;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  db = client.db(TEST_DB);
-  await db.dropDatabase();
 });
 
 afterEach(async () => {
@@ -75,55 +50,36 @@ afterEach(async () => {
   setLibraryRootsForTests(null);
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  if (client) await client.close();
-  if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
-  if (ORIGINAL_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
-  else process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
-  await closeDb();
-});
-
-/** Seed `count` assets on disk (`a/name0.dng`, `a/name1.dng`, ...) under one
- * library root, each with a distinct `exif.captured_at`, and wire the
- * in-memory library-roots cache. Returns ids in insertion (batch) order. */
+/** Seed `names.length` assets on disk (`a/<name>`) under one library root,
+ * each with its own `exif.captured_at`, and wire the in-memory library-roots
+ * cache. Returns ids in insertion (batch) order. */
 async function seedAssets(
-  d: Db,
+  db: Database,
   names: string[],
   capturedAt: (string | null)[] = [],
 ): Promise<ObjectId[]> {
-  const libraryId = new ObjectId();
+  const libraryId = insertFolder(db, { path: root, slug: 'batch-rename-test' });
   await fs.mkdir(path.join(root, 'a'), { recursive: true });
   const ids: ObjectId[] = [];
   for (let i = 0; i < names.length; i++) {
-    const id = new ObjectId();
     const filename = names[i]!;
     await fs.writeFile(path.join(root, 'a', filename), `pixels-${i}`);
-    await d.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [{ path: 'a', filename, library_id: libraryId, deleted_at: null }],
-      size: 8,
-      mtime: 1_700_000_000_000,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-01-01T00:00:00Z',
-      has_xmp: false,
-      deleted_at: null,
-      exif: capturedAt[i] ? { captured_at: capturedAt[i] } : null,
-    } as never);
-    ids.push(id);
+    const captured = capturedAt[i];
+    const id = insertAsset(db, {
+      exif: captured ? JSON.stringify({ captured_at: captured }) : null,
+    });
+    insertLocation(db, { assetId: id, libraryId, path: 'a', filename });
+    ids.push(new ObjectId(id));
   }
-  setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
+  setLibraryRootsForTests(new Map([[libraryId, root]]));
   return ids;
 }
 
 describe('batchRenameAssets — tokens', () => {
   maybeTest('{original}, {n}, {ext}, and {date:FORMAT} all render', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
     const ids = await seedAssets(
-      db,
+      live.db,
       ['IMG_1.dng', 'IMG_2.dng'],
       ['2024-06-01T12:00:00.000Z', '2024-06-02T13:00:00.000Z'],
     );
@@ -151,8 +107,8 @@ describe('batchRenameAssets — tokens', () => {
   maybeTest(
     'a missing captured_at falls back to the engine placeholder, not a failure',
     async () => {
-      if (!db) return;
-      const ids = await seedAssets(db, ['IMG_1.dng']);
+      using live = await createLiveTestDatabase();
+      const ids = await seedAssets(live.db, ['IMG_1.dng']);
 
       const results = await batchRenameAssets({
         ids,
@@ -174,12 +130,12 @@ describe('batchRenameAssets — sequential self-collision mid-batch', () => {
   maybeTest(
     'a template that collides with itself is resolved by the collision policy per step',
     async () => {
-      if (!db) return;
+      using live = await createLiveTestDatabase();
       // Every file renders to the SAME literal name — a template with no
       // distinguishing token, e.g. a user typo. Sequential application must
       // see each PRIOR step's result and auto-suffix against it, not just
       // against pre-existing files.
-      const ids = await seedAssets(db, ['a.dng', 'b.dng', 'c.dng']);
+      const ids = await seedAssets(live.db, ['a.dng', 'b.dng', 'c.dng']);
 
       const results = await batchRenameAssets({
         ids,
@@ -211,8 +167,8 @@ describe('batchRenameAssets — sequential self-collision mid-batch', () => {
   maybeTest(
     'collision: "skip" leaves later self-collisions untouched, reported per item',
     async () => {
-      if (!db) return;
-      const ids = await seedAssets(db, ['a.dng', 'b.dng']);
+      using live = await createLiveTestDatabase();
+      const ids = await seedAssets(live.db, ['a.dng', 'b.dng']);
 
       const results = await batchRenameAssets({
         ids,
@@ -234,10 +190,10 @@ describe('batchRenameAssets — partial failure', () => {
   maybeTest(
     'an unknown id in the middle of the batch is reported, not thrown, and the rest still apply',
     async () => {
-      if (!db) return;
+      using live = await createLiveTestDatabase();
       // One `seedAssets` call — it re-wires the in-memory library-roots cache
       // to a single map, so a second call would stomp the first's mapping.
-      const [first, , third] = await seedAssets(db, ['a.dng', 'ignore-me.dng', 'c.dng']);
+      const [first, , third] = await seedAssets(live.db, ['a.dng', 'ignore-me.dng', 'c.dng']);
       const missing = new ObjectId();
 
       const results = await batchRenameAssets({
@@ -256,8 +212,8 @@ describe('batchRenameAssets — partial failure', () => {
   );
 
   test('an unrenderable template (unknown token) is reported per-item as invalid', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['a.dng']);
+    using live = await createLiveTestDatabase();
+    const ids = await seedAssets(live.db, ['a.dng']);
 
     const results = await batchRenameAssets({
       ids,
@@ -273,8 +229,8 @@ describe('batchRenameAssets — partial failure', () => {
 
 describe('previewBatchRename — dry run', () => {
   maybeTest('renders names without touching the filesystem or the DB', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['IMG_1.dng', 'IMG_2.dng']);
+    using live = await createLiveTestDatabase();
+    const ids = await seedAssets(live.db, ['IMG_1.dng', 'IMG_2.dng']);
 
     const preview = await previewBatchRename({
       ids,
@@ -306,8 +262,8 @@ describe('previewBatchRename — dry run', () => {
   });
 
   maybeTest('flags a self-colliding template as duplicate, without applying anything', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['a.dng', 'b.dng']);
+    using live = await createLiveTestDatabase();
+    const ids = await seedAssets(live.db, ['a.dng', 'b.dng']);
 
     const preview = await previewBatchRename({
       ids,
@@ -330,8 +286,8 @@ describe('batch-rename — fails closed when the engine is unavailable', () => {
   });
 
   test('batchRenameAssets reports every item as invalid, applies nothing', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['IMG_1.dng', 'IMG_2.dng']);
+    using live = await createLiveTestDatabase();
+    const ids = await seedAssets(live.db, ['IMG_1.dng', 'IMG_2.dng']);
     setRawFfiForTests(null);
 
     const results = await batchRenameAssets({
@@ -354,8 +310,8 @@ describe('batch-rename — fails closed when the engine is unavailable', () => {
   });
 
   test('previewBatchRename surfaces the same per-item error, not a fabricated name', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['IMG_1.dng']);
+    using live = await createLiveTestDatabase();
+    const ids = await seedAssets(live.db, ['IMG_1.dng']);
     setRawFfiForTests(null);
 
     const preview = await previewBatchRename({

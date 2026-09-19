@@ -214,6 +214,17 @@ bun test             # bun test --timeout 20000
 
 **Tests need a real MongoDB.** `db/test-db.test-helpers.ts` connects to `MAPLE_MONGO_URI` (default `mongodb://localhost:27017`) with 1.5-second timeouts; when nothing answers, Mongo-backed suites skip-pass rather than fail, so a machine without a database gets a green but hollow run. Suites must scope their environment overrides with `withTestEnv` / `withTestDb` and never assign `process.env.MAPLE_MONGO_DB` at module scope — Bun evaluates every module body before any test runs, so the last import would silently rename the database for every other suite and a teardown could drop one still in use.
 
+**SQLite-backed tests need nothing.** Anything already ported to the SQLite backend uses [`db/sqlite/test-sqlite.test-helpers.ts`](../src/api/src/db/sqlite/test-sqlite.test-helpers.ts) instead, which hands each _test_ — not each suite — its own database, applies the full schema to it, and disposes of it when the test's block exits:
+
+```ts
+using handle = await createTestDatabase();
+const db = handle.db;
+```
+
+`using` is what makes the disposal unconditional: the handle closes even when an assertion throws, which is exactly when a trailing `db.close()` did not run. Two tests can insert the same primary key without knowing about each other, and because a handle is a local binding with no module-level "current database" behind it, tests written this way are safe under `test.concurrent`. Pass `'file'` when a test needs a database on disk; each one gets a private `mkdtemp` directory, so concurrent tests — and concurrent runs in separate worktrees — cannot land on the same path.
+
+Both harnesses are live at once while the repository ports (#3746–#3751) are in flight: a suite uses the SQLite one when the code under test reads SQLite, and the Mongo one otherwise. New suites should not add callers to `test-db.test-helpers.ts`.
+
 CI (`.github/workflows/api.yml`) runs `bun test --timeout 30000` against a `mongo:7` service with `MAPLE_JWT_SECRET` set, then runs the Meilisearch integration suite separately against a `getmeili/meilisearch:v1.50.0` service pointed at by `MAPLE_MEILISEARCH_INTEGRATION_URL`. `bun run test:production-mongo` starts a server against a production-shaped database for end-to-end work.
 
 See [testing](testing.md) for the full gate list across the repo.

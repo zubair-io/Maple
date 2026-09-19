@@ -5,96 +5,50 @@
  * photo and asks the server, in batches, which of those ids it does NOT
  * already have in a given library so it can skip re-uploading duplicates.
  *
- * Covers: missing ids returned, present ids excluded, unknown library → 404,
- * invalid library id → 400, > 1000 ids → 400, empty array → { missing: [] },
- * de-duplication + input-order preservation.
+ * Covers: missing ids returned, present ids excluded, presence scoped to the
+ * requested library, a trashed location not counting as present, unknown
+ * library → 404, invalid library id → 400, > 1000 ids → 400, empty array →
+ * { missing: [] }, de-duplication + input-order preservation.
  *
- * Requires a running MongoDB (skips gracefully if unreachable), mirroring
- * `folders.upload.test.ts`.
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787) — nothing external to start, nothing left behind.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { closeDb } from '../db/client.ts';
+import { ObjectId } from 'mongodb';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { seedBackupAsset, seedLibrary } from '../../tests/helpers/sqlite-fixtures.ts';
 import { backupExistsRoutes } from './backup-exists.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_backup_exists_test_${process.pid}`;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
-/** Insert a minimal asset row carrying `maple_id` linked to `libraryId`
- * through `fileinfo[0].library_id`, matching backup-ingest's writer shape. */
-async function seedAsset(db: Db, libraryId: ObjectId, mapleId: string): Promise<void> {
-  await db.collection('assets').insertOne({
-    _id: new ObjectId(),
-    fileinfo: [
-      {
-        path: '',
-        filename: `${mapleId}.dng`,
-        library_id: libraryId,
-        deleted_at: null,
-      },
-    ],
-    size: 4,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    maple_id: mapleId,
-  } as never);
-}
-
 describe('POST /api/libraries/:libraryId/backup/exists', () => {
-  let mongo: MongoClient | null = null;
-  let db: Db | null = null;
-  let libraryId: ObjectId | null = null;
+  let live: LiveTestDatabase;
+  let libraryId: ObjectId;
 
   beforeEach(async () => {
-    mongo = await tryConnect();
-    if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    // Reset module-cached client so MAPLE_MONGO_DB takes effect.
-    await closeDb();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
-    libraryId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: libraryId,
+    live = await createLiveTestDatabase();
+    libraryId = seedLibrary(live.db, {
       path: '/tmp/maple-backup-exists-test',
       label: 'exists-test',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
+    });
   });
 
-  afterEach(async () => {
-    if (db) await db.dropDatabase().catch(() => {});
-    if (mongo) await mongo.close().catch(() => {});
-    await closeDb();
-    db = null;
-    mongo = null;
-    libraryId = null;
+  afterEach(() => {
+    live.close();
   });
+
+  /** One asset carrying `mapleId`, with a single live location in `library` —
+   * the shape backup-ingest's writer leaves behind. */
+  function seedAsset(library: ObjectId, mapleId: string, deletedAt: string | null = null): void {
+    seedBackupAsset(live.db, {
+      mapleId,
+      size: 4,
+      locations: [{ libraryId: library, relPath: `${mapleId}.dng`, deletedAt }],
+    });
+  }
 
   function makeApp() {
     return new Elysia().use(backupExistsRoutes);
@@ -111,12 +65,8 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   }
 
   it('returns ids that are not present and excludes those that are', async () => {
-    if (!mongo || !db || !libraryId) {
-      console.log('[backup-exists.test] MongoDB unreachable — skipping');
-      return;
-    }
-    await seedAsset(db, libraryId, '02326e4802370e56c95b1b75b976ec74');
-    await seedAsset(db, libraryId, '0229d03e9b6a0dc6c1fb2d5c2772d62c');
+    seedAsset(libraryId, '02326e4802370e56c95b1b75b976ec74');
+    seedAsset(libraryId, '0229d03e9b6a0dc6c1fb2d5c2772d62c');
 
     const res = await post(libraryId.toHexString(), {
       maple_ids: [
@@ -136,10 +86,9 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   });
 
   it('scopes presence to the requested library', async () => {
-    if (!mongo || !db || !libraryId) return;
     // Seed the same maple_id but linked to a DIFFERENT library.
-    const otherLibrary = new ObjectId();
-    await seedAsset(db, otherLibrary, '02bfd7313542364285aa15157dffa946');
+    const otherLibrary = seedLibrary(live.db, { path: '/tmp/maple-backup-exists-other' });
+    seedAsset(otherLibrary, '02bfd7313542364285aa15157dffa946');
 
     const res = await post(libraryId.toHexString(), {
       maple_ids: ['02bfd7313542364285aa15157dffa946'],
@@ -150,9 +99,19 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
     expect(body.missing).toEqual(['02bfd7313542364285aa15157dffa946']);
   });
 
+  it('reports a trashed location as missing so the photo is re-uploaded', async () => {
+    seedAsset(libraryId, '0246d5e6e1bfbc9b96c0d5e6c8a2f931', '2026-05-12T00:00:00Z');
+
+    const res = await post(libraryId.toHexString(), {
+      maple_ids: ['0246d5e6e1bfbc9b96c0d5e6c8a2f931'],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { missing: string[] };
+    expect(body.missing).toEqual(['0246d5e6e1bfbc9b96c0d5e6c8a2f931']);
+  });
+
   it('de-duplicates input ids and preserves first-seen order', async () => {
-    if (!mongo || !db || !libraryId) return;
-    await seedAsset(db, libraryId, '02193c45b5281908d2d9c814ba73be69');
+    seedAsset(libraryId, '02193c45b5281908d2d9c814ba73be69');
 
     const res = await post(libraryId.toHexString(), {
       maple_ids: [
@@ -176,7 +135,6 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   });
 
   it('empty array yields an empty missing list', async () => {
-    if (!mongo || !db || !libraryId) return;
     const res = await post(libraryId.toHexString(), { maple_ids: [] });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { missing: string[] };
@@ -184,7 +142,6 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   });
 
   it('unknown library → 404', async () => {
-    if (!mongo || !db) return;
     const res = await post(new ObjectId().toHexString(), {
       maple_ids: ['02ee0874170b7f6f32b8c2ac9573c428'],
     });
@@ -194,7 +151,6 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   });
 
   it('invalid library id → 400', async () => {
-    if (!mongo || !db) return;
     const res = await post('not-an-objectid', { maple_ids: ['02ee0874170b7f6f32b8c2ac9573c428'] });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -202,7 +158,6 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   });
 
   it('non-array maple_ids → 400', async () => {
-    if (!mongo || !db || !libraryId) return;
     const res = await post(libraryId.toHexString(), { maple_ids: 'nope' });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -210,7 +165,6 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   });
 
   it('missing maple_ids field → 400', async () => {
-    if (!mongo || !db || !libraryId) return;
     const res = await post(libraryId.toHexString(), {});
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -218,7 +172,6 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   });
 
   it('more than 1000 ids → 400', async () => {
-    if (!mongo || !db || !libraryId) return;
     const tooMany = Array.from({ length: 1001 }, (_, i) => i.toString(16).padStart(32, '0'));
     const res = await post(libraryId.toHexString(), { maple_ids: tooMany });
     expect(res.status).toBe(400);
@@ -227,7 +180,6 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
   });
 
   it('accepts exactly 1000 ids', async () => {
-    if (!mongo || !db || !libraryId) return;
     const exactly = Array.from({ length: 1000 }, (_, i) => i.toString(16).padStart(32, '0'));
     const res = await post(libraryId.toHexString(), { maple_ids: exactly });
     expect(res.status).toBe(200);

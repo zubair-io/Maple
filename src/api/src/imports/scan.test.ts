@@ -1,5 +1,5 @@
 /**
- * scan.ts integration tests — real temp-dir trees, no Mongo.
+ * scan.ts integration tests — real temp-dir trees, no database.
  *
  * Covers: recursive walk (including symlinks), file classification, sidecar
  * pairing, capture-time bucketing (via the mtime fallback path — these test

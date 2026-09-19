@@ -1,155 +1,79 @@
 /**
- * `/api/fs/dir` attaches the Mongo asset `_id` (hex) to each image entry
- * whose `abs_path` matches an indexed asset doc. The client uses this id to
- * call `/api/assets/:id` for the enriched detail payload — without it,
- * FS-walk assets never resolve to a Mongo id and the detail panel's
- * enrichment sections stay empty.
+ * `/api/fs/dir` attaches the asset id (24-char hex) to each image entry whose
+ * resolved absolute path matches an indexed asset. The client uses this id to
+ * call `/api/assets/:id` for the enriched detail payload — without it, FS-walk
+ * assets never resolve to a catalog id and the detail panel's enrichment
+ * sections stay empty.
  *
- * Real Mongo; skip-passes if MongoDB is unreachable. Mirrors the setup in
- * `assets-overrides.test.ts`: per-pid DB name, close the singleton between
- * phases so the route reads the test DB.
+ * Real files in a tmp directory, real SQLite installed as the process-wide
+ * handle for the file (#3787).
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { pendingEnrichment } from '../src/db/schema.ts';
-import { fakeAuth } from './helpers/test-auth.ts';
 import { Elysia } from 'elysia';
+import { fakeAuth } from './helpers/test-auth.ts';
+import { seedIndexedAsset } from './helpers/fs-route-fixtures.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 
-const TEST_DB = `maple_test_fs_dir_asset_link_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+// The jail root has to be known before `withTestEnv` registers its hook, and a
+// `beforeAll` runs too late for that — so the directory is minted here.
+const ROOT = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'maple-fsdir-link-')));
+withTestEnv('MAPLE_ROOTS', ROOT);
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let tmpRoot: string;
-let realTmpRoot: string;
-let indexedRawPath: string;
-let unindexedRawPath: string;
-let indexedAssetId: ObjectId;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+let live: LiveTestDatabase;
+let indexedAssetId: string;
 
 describe('GET /api/fs/dir — asset id link', () => {
   beforeAll(async () => {
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) {
-      console.log('[fs-dir-asset-link.test] skipping: MongoDB unreachable at', MONGO_URI);
-      return;
-    }
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
+    await fs.writeFile(path.join(ROOT, 'indexed.dng'), 'raw');
+    await fs.writeFile(path.join(ROOT, 'unindexed.dng'), 'raw');
 
-    // Reset the singleton so the browse listing's `assetsCollection()` reads
-    // the test DB, not whatever was connected first.
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
+    live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db, { path: ROOT, slug: 'fsdir-link-test' });
+    indexedAssetId = seedIndexedAsset(live.db, { libraryId, filename: 'indexed.dng' });
 
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fsdir-link-'));
-    realTmpRoot = await fs.realpath(tmpRoot);
-    indexedRawPath = path.join(realTmpRoot, 'indexed.dng');
-    unindexedRawPath = path.join(realTmpRoot, 'unindexed.dng');
-    await fs.writeFile(indexedRawPath, 'raw');
-    await fs.writeFile(unindexedRawPath, 'raw');
-
-    // Post drop-abs-path-2026-05-21: the browse listing's id-link
-    // logic queries by `fileinfo[].filename` + resolves abs_path via
-    // `assetAbsPath`. Seed the folder + write the asset with a
-    // matching fileinfo[] entry pointing into `tmpRoot`.
-    const libraryId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: libraryId,
-      path: realTmpRoot,
-      label: 'fsdir-link-test',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
+    // The browse listing resolves each asset's absolute path through the
+    // library-roots cache, so it has to see the root this suite just seeded.
     const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
     invalidateLibraryRoots();
-
-    indexedAssetId = new ObjectId();
-    await db.collection('assets').insertOne({
-      _id: indexedAssetId,
-      fileinfo: [{ library_id: libraryId, path: '', filename: 'indexed.dng', deleted_at: null }],
-      size: 3,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      enrichment: pendingEnrichment(),
-      place: null,
-      faces: [],
-      description: null,
-      ocr_text: null,
-      search_blob: '',
-    } as never);
-
-    process.env.MAPLE_ROOTS = realTmpRoot;
   });
 
   afterAll(async () => {
-    delete process.env.MAPLE_ROOTS;
-    if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
-    if (mongo && mongoReachable) {
-      try {
-        await mongo.db(TEST_DB).dropDatabase();
-      } catch {}
-      try {
-        await mongo.close();
-      } catch {}
-    }
-    try {
-      const { closeDb } = await import('../src/db/client.ts');
-      await closeDb();
-    } catch {}
-    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
+    live.close();
+    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+    await fs.rm(ROOT, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('sets `id` (hex) on entries whose abs_path matches an asset doc; leaves it unset otherwise', async () => {
-    if (!mongoReachable) return;
+  it('sets `id` (hex) on entries whose abs_path matches an asset row; leaves it unset otherwise', async () => {
     const { fsRoutes } = await import('../src/routes/fs.ts');
     const authedApp = new Elysia().use(fakeAuth()).use(fsRoutes);
     const res = await authedApp.handle(
-      new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(realTmpRoot)}`),
+      new Request(`http://localhost/api/fs/dir?path=${encodeURIComponent(ROOT)}`),
     );
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = (await res.json()) as { images: Array<{ name: string; id?: string }> };
 
-    const indexed = json.images.find((i: any) => i.name === 'indexed.dng');
-    const unindexed = json.images.find((i: any) => i.name === 'unindexed.dng');
+    const indexed = json.images.find((i) => i.name === 'indexed.dng');
+    const unindexed = json.images.find((i) => i.name === 'unindexed.dng');
     expect(indexed).toBeDefined();
     expect(unindexed).toBeDefined();
 
-    // Indexed file → `id` is the hex form of the seeded asset's _id.
-    expect(indexed.id).toBe(indexedAssetId.toHexString());
+    // Indexed file → `id` is the seeded asset's id.
+    expect(indexed!.id).toBe(indexedAssetId);
 
-    // Un-indexed file → `id` is absent. The discover-on-browse fire-and-
-    // forget may have already enqueued an index job; assert it isn't set in
-    // this synchronous response.
-    expect(unindexed.id).toBeUndefined();
+    // Un-indexed file → `id` is absent. The discover-on-browse fire-and-forget
+    // may have already enqueued an index job; assert it isn't set in this
+    // synchronous response.
+    expect(unindexed!.id).toBeUndefined();
   });
 });

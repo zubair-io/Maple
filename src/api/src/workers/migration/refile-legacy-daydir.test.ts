@@ -6,15 +6,17 @@
  * Mongo-gated batch runner is covered by `refile-legacy-daydir.e2e.test.ts`.
  */
 import { describe, test, expect } from 'bun:test';
+import { countCandidates, unstamped } from '../../db/sqlite/repos/assets.migrations.ts';
+import { LEGACY_DAYDIR_SCOPE } from '../../db/sqlite/repos/assets.refile.ts';
 import {
   LEGACY_DAYDIR_WITH_LOCATION_RE,
   LEGACY_DAYDIR_NO_LOCATION_RE,
   LEGACY_DAYDIR_VERSION,
   isLegacyDaydirPath,
-  legacyDaydirCandidateFilter,
   resolveLegacyCapturedYear,
   computeCorrectedDir,
 } from './refile-legacy-daydir.ts';
+import { createLibrary, seedAsset } from './migration.test-helpers.ts';
 import type { Place } from '../../db/schema.ts';
 
 function place(p: {
@@ -86,28 +88,58 @@ describe('isLegacyDaydirPath', () => {
   });
 });
 
-describe('legacyDaydirCandidateFilter', () => {
-  test('scopes the Mongo query to a live fileinfo entry matching either old day-dir shape', () => {
-    const filter = legacyDaydirCandidateFilter() as {
-      fileinfo: { $elemMatch: Record<string, unknown> };
-      legacy_daydir_version: Record<string, unknown>;
-    };
-    const elemMatch = filter.fileinfo.$elemMatch;
-    const patterns = (elemMatch.path as { $in: RegExp[] }).$in;
-    const matchesAny = (p: string) => patterns.some((re) => re.test(p));
-    expect(matchesAny('2021/61st Street/01-05')).toBe(true);
-    expect(matchesAny('2021/01/05')).toBe(true);
-    expect(matchesAny('2021/61st Street')).toBe(false);
-    expect(matchesAny('2021/01')).toBe(false);
-    expect(elemMatch.deleted_at).toEqual({ $in: [null] });
-    expect(elemMatch.missing_since).toEqual({ $in: [null] });
+describe('LEGACY_DAYDIR_SCOPE', () => {
+  test('selects a live location in either old day-dir shape, and nothing else', async () => {
+    using library = await createLibrary('maple-daydir-scope-');
+    const shapes = [
+      { path: '2021/61st Street/01-05', selected: true },
+      { path: '2021/01/05', selected: true },
+      { path: '2021/61st Street', selected: false },
+      { path: '2021/01', selected: false },
+      // Four segments: the `GLOB` alone would match this, which is why the
+      // predicate also counts separators.
+      { path: '2021/a/b/01-05', selected: false },
+    ];
+    for (const [index, shape] of shapes.entries()) {
+      seedAsset(library.db, {
+        location: { libraryId: library.folderId, path: shape.path, filename: `p${index}.dng` },
+      });
+    }
+
+    expect(await countCandidates(LEGACY_DAYDIR_SCOPE)).toBe(
+      shapes.filter((shape) => shape.selected).length,
+    );
   });
 
-  test('excludes assets already stamped done, so a re-run does not re-select them', () => {
-    const filter = legacyDaydirCandidateFilter() as {
-      legacy_daydir_version: Record<string, unknown>;
-    };
-    expect(filter.legacy_daydir_version).toEqual({ $ne: LEGACY_DAYDIR_VERSION });
+  test('ignores a location that is not live', async () => {
+    using library = await createLibrary('maple-daydir-scope-');
+    seedAsset(library.db, {
+      location: {
+        libraryId: library.folderId,
+        path: '2021/01/05',
+        filename: 'gone.dng',
+        missingSince: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    expect(await countCandidates(LEGACY_DAYDIR_SCOPE)).toBe(0);
+  });
+
+  test('excludes assets already stamped done, so a re-run does not re-select them', async () => {
+    using library = await createLibrary('maple-daydir-scope-');
+    const scope = unstamped(LEGACY_DAYDIR_SCOPE, 'legacy_daydir_version', LEGACY_DAYDIR_VERSION);
+    seedAsset(library.db, {
+      legacyDaydirVersion: LEGACY_DAYDIR_VERSION,
+      location: { libraryId: library.folderId, path: '2021/01/05', filename: 'done.dng' },
+    });
+    expect(await countCandidates(scope)).toBe(0);
+
+    // An older generation is still a candidate — that is what a bump re-sweeps.
+    seedAsset(library.db, {
+      legacyDaydirVersion: LEGACY_DAYDIR_VERSION - 1,
+      location: { libraryId: library.folderId, path: '2021/02/06', filename: 'stale.dng' },
+    });
+    expect(await countCandidates(scope)).toBe(1);
   });
 });
 

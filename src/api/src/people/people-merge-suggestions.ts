@@ -1,7 +1,7 @@
 /**
  * Pure core for person-page merge suggestions: given every live person's
  * L2-normalised centroid, find each person's single best-scoring OTHER
- * person by cosine similarity. Extracted as pure math (no Mongo) so it's
+ * person by cosine similarity. Extracted as pure math (no database) so it's
  * independently unit-testable — mirrors the `cluster-embeddings.ts` split.
  *
  * Stricter than clustering's face-to-cluster threshold

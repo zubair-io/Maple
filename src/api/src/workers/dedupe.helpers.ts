@@ -1,8 +1,8 @@
 /**
  * Pure helpers for the DeDuplicate worker — duplicate-location classification,
- * the keeper-selection ranking, and the pass-summary shape. No Mongo, no fs, no
- * module state (mirrors `missing-reaper.helpers.ts`). Lifted out of `dedupe.ts`
- * to keep that file under the size budget.
+ * the keeper-selection ranking, and the pass-summary shape. No database, no fs,
+ * no module state (mirrors `missing-reaper.helpers.ts`). Lifted out of
+ * `dedupe.ts` to keep that file under the size budget.
  *
  * The keeper ranking encodes the operator's spec for "which copy to move":
  *   1. a copy in a folder whose path contains "unsorted"
@@ -20,7 +20,7 @@
 import type { FileInfo } from '../db/schema.ts';
 
 export interface DeDuplicateSummary {
-  /** Assets with >1 fileinfo entry examined this pass. */
+  /** Assets with ≥2 live locations examined this pass. */
   scanned: number;
   /** Assets that had ≥2 live duplicate locations and were collapsed to one. */
   deduped: number;
@@ -132,20 +132,9 @@ export function selectKeeper(liveEntries: FileInfo[]): FileInfo {
   return keeper;
 }
 
-/** Pipeline stages whose output is keyed to the primary location's folder.
- * When the cache anchor moves to the kept copy they must regenerate there. */
-export const CACHE_STAGES = ['thumb', 'preview'] as const;
-
-/** `$set` that re-queues the location-keyed cache stages (version → 0) so the
- * kept copy regenerates its thumb + preview at the new primary folder. */
-export function reArmCacheStages(): Record<string, unknown> {
-  const set: Record<string, unknown> = {};
-  for (const name of CACHE_STAGES) {
-    set[`stages.${name}.version`] = 0;
-    set[`stages.${name}.attempts`] = 0;
-    set[`stages.${name}.last_error`] = null;
-    set[`stages.${name}.processed_at`] = null;
-    set[`stages.${name}.dead`] = false;
-  }
-  return set;
-}
+// The cache-stage re-arm that used to live here — the `$set` fragment zeroing
+// `stages.thumb` / `stages.preview` when the cache anchor moved to the kept
+// copy — is now `stageRearmStatements(assetId, RELOCATE_CACHE_STAGES)` in
+// `db/sqlite/repos/assets.stage-rearm.ts`. It was one of four hand-written
+// copies of the same five-field reset; the repository builds the statements
+// once so a stage cannot be re-armed with `dead` or `last_error` left behind.

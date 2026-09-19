@@ -1,162 +1,82 @@
 /**
- * Tests the process-wide library-roots cache used by every code path that
- * resolves `fileinfo[]` entries to an absolute on-disk location.
+ * The process-wide library-roots cache.
  *
- * Follows the per-process isolated-DB + skip-if-Mongo-unreachable pattern
- * from `client.test.ts` so:
- *   - running locally against `mongodb://localhost:27017` does NOT wipe real
- *     folder rows in the developer's `maple` database;
- *   - CI environments without Mongo skip the suite instead of failing.
+ * The interesting behaviour is not the read — `folders.repo.ts` owns that — but
+ * what the cache does between reads. It has no TTL, so a second lookup is
+ * served from memory and a caller that mutates `folders` without calling
+ * `invalidateLibraryRoots()` keeps seeing the old map indefinitely. Each case
+ * below therefore writes behind the cache's back and asserts what the next
+ * lookup sees.
+ *
+ * The cache lives at module scope and outlives any one test, so every case
+ * starts from an invalidated one.
  */
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_libraries_cache_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+import { beforeEach, describe, expect, test } from 'bun:test';
+import { ObjectId } from 'mongodb';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  run,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { getLibraryBySlug, invalidateLibraryRoots, loadLibraryRoots } from './libraries.cache.ts';
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[libraries.cache.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  // Reset any singleton state inside the production client module that may
-  // hold a connection to the default DB from a prior test.
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('folders').deleteMany({});
-  // Reset the process-local cache so each test sees fresh state.
-  const { invalidateLibraryRoots } = await import('./libraries.cache.ts');
+beforeEach(() => {
   invalidateLibraryRoots();
 });
 
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await mongo.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
 describe('loadLibraryRoots', () => {
-  test('returns a map keyed by hex _id', async () => {
-    if (!mongoReachable) return;
-    const { loadLibraryRoots } = await import('./libraries.cache.ts');
-    const { foldersCollection } = await import('../db/client.ts');
-    const f = await foldersCollection();
-    const id = new ObjectId();
-    await f.insertOne({
-      _id: id,
-      path: '/srv/lib-a',
-      label: 'A',
-      last_scan: null,
-      file_count: 0,
-      created_at: '2026-05-20T00:00:00Z',
-    } as never);
-    const roots = await loadLibraryRoots();
-    expect(roots.get(id.toHexString())).toBe('/srv/lib-a');
+  test('returns a map keyed by hex id', async () => {
+    using live = await createLiveTestDatabase();
+    const id = insertFolder(live.db, { path: '/srv/lib-a' });
+
+    expect((await loadLibraryRoots()).get(id)).toBe('/srv/lib-a');
   });
 
   test('returns the same map on a second call without refetching', async () => {
-    if (!mongoReachable) return;
-    const { loadLibraryRoots } = await import('./libraries.cache.ts');
-    const { foldersCollection } = await import('../db/client.ts');
-    const f = await foldersCollection();
-    const id = new ObjectId();
-    await f.insertOne({
-      _id: id,
-      path: '/x',
-      label: 'X',
-      last_scan: null,
-      file_count: 0,
-      created_at: 'now',
-    } as never);
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/x' });
+
     const first = await loadLibraryRoots();
     // Wipe behind the cache; the cached map should still be returned.
-    await f.deleteMany({});
+    run(live.db, `DELETE FROM folders`);
     const second = await loadLibraryRoots();
+
     expect(second).toBe(first);
     expect(second.size).toBe(1);
   });
 
   test('invalidate forces a re-read', async () => {
-    if (!mongoReachable) return;
-    const { loadLibraryRoots, invalidateLibraryRoots } = await import('./libraries.cache.ts');
-    const { foldersCollection } = await import('../db/client.ts');
-    const f = await foldersCollection();
-    await f.insertOne({
-      _id: new ObjectId(),
-      path: '/x',
-      label: 'X',
-      last_scan: null,
-      file_count: 0,
-      created_at: 'now',
-    } as never);
-    const first = await loadLibraryRoots();
-    expect(first.size).toBe(1);
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/x' });
+
+    expect((await loadLibraryRoots()).size).toBe(1);
+
     invalidateLibraryRoots();
-    await f.deleteMany({});
-    const second = await loadLibraryRoots();
-    expect(second.size).toBe(0);
+    run(live.db, `DELETE FROM folders`);
+
+    expect((await loadLibraryRoots()).size).toBe(0);
   });
 });
 
 describe('getLibraryBySlug', () => {
   test('returns {libraryId, root, label} for a known slug', async () => {
-    if (!mongoReachable) return;
-    const { getLibraryBySlug } = await import('./libraries.cache.ts');
-    const { foldersCollection } = await import('../db/client.ts');
-    const f = await foldersCollection();
+    using live = await createLiveTestDatabase();
     const id = new ObjectId();
-    await f.insertOne({
-      _id: id,
-      path: '/srv/lib-slug',
-      label: 'My Library',
-      slug: 'my-library',
-      last_scan: null,
-      file_count: 0,
-      created_at: '2026-06-16T00:00:00Z',
-    } as never);
+    // Inserted by hand rather than through `insertFolder`, which labels every
+    // row 'Test library' — a distinctive label is what shows the value comes
+    // off the row rather than out of a default.
+    run(
+      live.db,
+      `INSERT INTO folders (id, path, slug, label, file_count, created_at)
+       VALUES (?, ?, ?, ?, 0, ?)`,
+      id.toHexString(),
+      '/srv/lib-slug',
+      'my-library',
+      'My Library',
+      '2026-06-16T00:00:00.000Z',
+    );
+
     const result = await getLibraryBySlug('my-library');
     expect(result).not.toBeNull();
     expect(result!.root).toBe('/srv/lib-slug');
@@ -165,35 +85,25 @@ describe('getLibraryBySlug', () => {
   });
 
   test('returns null for an unknown slug', async () => {
-    if (!mongoReachable) return;
-    const { getLibraryBySlug } = await import('./libraries.cache.ts');
-    const result = await getLibraryBySlug('no-such-slug');
-    expect(result).toBeNull();
+    // The database is opened and left empty on purpose: the answer has to be
+    // "no library has that slug", not "the lookup never got as far as asking".
+    using live = await createLiveTestDatabase();
+    expect(live.db.query(`SELECT COUNT(*) AS n FROM folders`).get()).toEqual({ n: 0 });
+
+    expect(await getLibraryBySlug('no-such-slug')).toBeNull();
   });
 
   test('invalidate forces reload that picks up a newly-inserted folder slug', async () => {
-    if (!mongoReachable) return;
-    const { getLibraryBySlug, invalidateLibraryRoots } = await import('./libraries.cache.ts');
-    const { foldersCollection } = await import('../db/client.ts');
+    using live = await createLiveTestDatabase();
 
-    // Not yet present
+    // Not yet present.
     expect(await getLibraryBySlug('fresh-library')).toBeNull();
 
-    // Insert a new folder
-    const f = await foldersCollection();
-    await f.insertOne({
-      path: '/srv/fresh',
-      label: 'Fresh Library',
-      slug: 'fresh-library',
-      last_scan: null,
-      file_count: 0,
-      created_at: '2026-06-16T00:00:00Z',
-    } as never);
+    insertFolder(live.db, { path: '/srv/fresh', slug: 'fresh-library' });
 
-    // Cache still stale — must not see it yet
+    // Cache still stale — must not see it yet.
     expect(await getLibraryBySlug('fresh-library')).toBeNull();
 
-    // Invalidate and re-query
     invalidateLibraryRoots();
     const result = await getLibraryBySlug('fresh-library');
     expect(result).not.toBeNull();

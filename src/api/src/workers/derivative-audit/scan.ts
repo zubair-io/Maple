@@ -5,9 +5,20 @@
  * `docs/superpowers/specs/2026-07-22-derivative-reconcile-worker-design.md`).
  * Modeled on `mirror/scan.ts`. It NEVER renders/uploads — it only issues the
  * canonical 5-field stage reset so the existing stages regenerate.
+ *
+ * That reset used to be five `$set` paths this module spelled out itself; it is
+ * now `stageRearmStatements`, the one definition every re-arming caller in the
+ * repository shares. The cooldown marks that rate-limit it go through
+ * `writeAuditMarks`, which commits both in a single transaction — see
+ * `auditAsset` for why they must not be separable.
  */
-import { assetsCollection } from '../../db/client.ts';
-import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
+import {
+  listAuditCandidatesAfter,
+  writeAuditMarks,
+  type AuditCandidate,
+  type AuditMark,
+} from '../../db/sqlite/repos/assets.sweeps.ts';
+import { stageRearmStatements } from '../../db/sqlite/repos/assets.stage-rearm.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../../indexer/libraries.cache.ts';
 import { statOrNull } from '../mirror/replicate.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
@@ -19,7 +30,6 @@ import {
 import { thumbExistsInR2 } from '../../cloudflare/r2-client.ts';
 import { child as childLogger } from '../../log.ts';
 import { evaluateAsset, type AuditDeps, type AuditResult } from './checks.ts';
-import { buildStageReset, auditMarkKey, AUDIT_MAX_ATTEMPTS } from './reset.ts';
 import {
   DEFAULT_DERIVATIVE_AUDIT_CONFIG,
   loadDerivativeAuditConfig,
@@ -31,32 +41,42 @@ import type { ImageDoc } from '../run-stage.ts';
 
 const log = childLogger('derivative-audit');
 
+/** After this many audit re-arms that did NOT resolve the drift, stop
+ * re-arming an asset+stage — the stage keeps marking itself done without
+ * producing output (an imperfect skip-predicate would otherwise loop). */
+const AUDIT_MAX_ATTEMPTS = 3;
+
+/** Assets fetched per round trip. The per-asset work is filesystem stats and
+ * possibly an R2 HEAD, so a page is cheap next to what is done with it. */
+const CANDIDATE_PAGE_SIZE = 500;
+
 /** Single-flight lock shared by the interval loop AND the manual /run route, so
  * a manual kick can never overlap a scheduled pass (double R2 load, racing
  * resets, and a clobbered progress summary). */
 let passInFlight = false;
 
 interface AssetUpdatePlan {
-  set: Record<string, unknown>;
-  unset: Record<string, unknown>;
+  /** Per-stage cooldown marks to write, one JSON key each. */
+  marks: Map<string, AuditMark>;
+  /** Stages whose mark is removed because their derivative is verifiably back. */
+  cleared: string[];
   /** Stages actually re-armed this asset (excludes cooldown-skipped). */
   rearmed: string[];
   /** Drifted stages left alone because they hit the per-asset cooldown. */
   cooldownSkipped: number;
 }
 
-/** Build the `$set`/`$unset` for one asset from its drift verdict. Re-arms up to
+/** Build one asset's write plan from its drift verdict. Re-arms up to
  * `rearmBudget` drifted stages (respecting the per-asset cooldown), and clears
  * cooldown marks ONLY for stages whose derivative was positively verified
  * present — never for a below-target stage still awaiting regeneration. */
 function planAssetUpdate(
-  doc: ImageDoc,
+  doc: AuditCandidate,
   verdict: AuditResult,
   nowIso: string,
   rearmBudget: number,
 ): AssetUpdatePlan {
-  const set: Record<string, unknown> = {};
-  const unset: Record<string, unknown> = {};
+  const marks = new Map<string, AuditMark>();
   const rearmed: string[] = [];
   let cooldownSkipped = 0;
 
@@ -67,14 +87,11 @@ function planAssetUpdate(
       cooldownSkipped++;
       continue;
     }
-    Object.assign(set, buildStageReset(s));
-    set[auditMarkKey(s)] = { attempts: prev + 1, last_reset_at: nowIso };
+    marks.set(s, { attempts: prev + 1, last_reset_at: nowIso });
     rearmed.push(s);
   }
-  for (const s of verdict.resolved) {
-    if (doc.derivative_audit?.[s]) unset[auditMarkKey(s)] = '';
-  }
-  return { set, unset, rearmed, cooldownSkipped };
+  const cleared = verdict.resolved.filter((s) => doc.derivative_audit?.[s] !== undefined);
+  return { marks, cleared, rearmed, cooldownSkipped };
 }
 
 /** Shared state threaded through a single pass's per-asset work. */
@@ -82,9 +99,26 @@ interface PassContext {
   libs: ReadonlyMap<string, string>;
   idToSlug: ReadonlyMap<string, string>;
   deps: AuditDeps;
-  coll: Awaited<ReturnType<typeof assetsCollection>>;
   cfg: DerivativeAuditConfig;
   summary: DerivativeAuditSummary;
+}
+
+/**
+ * Every live, undamaged asset, one keyset page at a time.
+ *
+ * Keyset on the asset's own primary key rather than `LIMIT`/`OFFSET`, for the
+ * reason the mirror scan uses one: a full sweep with an offset page re-reads
+ * every row before it, so the last page costs the whole table. The empty string
+ * sorts before every hex id, which is what makes it the start of the walk.
+ */
+async function* auditCandidates(): AsyncGenerator<AuditCandidate> {
+  let afterId = '';
+  for (;;) {
+    const page = await listAuditCandidatesAfter(afterId, CANDIDATE_PAGE_SIZE);
+    for (const row of page) yield row;
+    if (page.length < CANDIDATE_PAGE_SIZE) return;
+    afterId = page[page.length - 1].rowId;
+  }
 }
 
 /** Assemble the pass's injected dependencies. The deep R2 check runs only when
@@ -102,12 +136,22 @@ async function buildAuditDeps(cfg: DerivativeAuditConfig): Promise<AuditDeps> {
 
 /** Evaluate one asset and apply its re-arm/clear plan, tallying into the pass
  * summary. Swallows per-row errors so one bad asset can't abort the pass. */
-async function auditAsset(doc: ImageDoc, ctx: PassContext): Promise<void> {
+async function auditAsset(doc: AuditCandidate, ctx: PassContext): Promise<void> {
   const { cfg, summary } = ctx;
   if (summary.reArmed >= cfg.max_resets_per_pass) return;
   try {
     summary.scanned++;
-    const verdict = await evaluateAsset(doc, ctx.libs, ctx.idToSlug, ctx.deps);
+    // The checks read a document's `fileinfo`, `stages[].version`, caption and
+    // hidden flag, which is exactly what the candidate row carries — but its
+    // stage entries hold only the version the audit compares against, not the
+    // full retry bookkeeping an `ImageDoc` declares, so the shapes meet through
+    // a cast rather than structurally.
+    const verdict = await evaluateAsset(
+      doc as unknown as ImageDoc,
+      ctx.libs,
+      ctx.idToSlug,
+      ctx.deps,
+    );
     const budget = cfg.max_resets_per_pass - summary.reArmed;
     const plan = planAssetUpdate(doc, verdict, new Date().toISOString(), budget);
     for (const s of plan.rearmed) {
@@ -115,13 +159,19 @@ async function auditAsset(doc: ImageDoc, ctx: PassContext): Promise<void> {
       summary.byStage[s] = (summary.byStage[s] ?? 0) + 1;
     }
     summary.skippedCooldown += plan.cooldownSkipped;
-    const update: Record<string, unknown> = {};
-    if (Object.keys(plan.set).length) update.$set = plan.set;
-    if (Object.keys(plan.unset).length) update.$unset = plan.unset;
-    if (Object.keys(update).length) await ctx.coll.updateOne({ _id: doc._id }, update);
+    // One transaction: a stage is re-armed and the mark that rate-limits that
+    // re-arm is recorded together, so a crash between them cannot produce a
+    // stage queued for regeneration with no record of the attempt. A plan with
+    // nothing in it writes nothing.
+    await writeAuditMarks({
+      assetId: doc.rowId,
+      set: plan.marks,
+      clear: plan.cleared,
+      extra: stageRearmStatements(doc.rowId, plan.rearmed),
+    });
   } catch (err) {
     summary.errors++;
-    log.warn({ id: doc._id, err: err instanceof Error ? err.message : err }, 'audit row failed');
+    log.warn({ id: doc.rowId, err: err instanceof Error ? err.message : err }, 'audit row failed');
   }
 }
 
@@ -136,40 +186,24 @@ export async function runDerivativeAuditOnce(
   summary.running = true;
   setDerivativeAuditProgress({ ...summary });
 
-  const coll = await assetsCollection();
   const ctx: PassContext = {
     libs: await loadLibraryRoots(),
     idToSlug: await loadLibraryIdToSlug(),
     deps: await buildAuditDeps(cfg),
-    coll,
     cfg,
     summary,
   };
 
-  const cursor = coll.find(
-    { ...liveFileInfoElemMatch(), 'damaged.since': { $not: { $type: 'string' } } },
-    {
-      projection: {
-        fileinfo: 1,
-        maple_id: 1,
-        stages: 1,
-        description: 1,
-        hidden: 1,
-        derivative_audit: 1,
-      },
-    },
-  );
-
   // Evaluate in bounded-concurrency chunks so per-asset R2 HEADs run in parallel
   // without an unbounded fan-out.
   const chunkSize = Math.max(1, cfg.concurrency);
-  let chunk: ImageDoc[] = [];
+  let chunk: AuditCandidate[] = [];
   const flush = async () => {
     await Promise.all(chunk.map((d) => auditAsset(d, ctx)));
     chunk = [];
   };
-  for await (const doc of cursor) {
-    chunk.push(doc as unknown as ImageDoc);
+  for await (const doc of auditCandidates()) {
+    chunk.push(doc);
     if (chunk.length >= chunkSize) await flush();
     if (summary.reArmed >= cfg.max_resets_per_pass) break;
   }

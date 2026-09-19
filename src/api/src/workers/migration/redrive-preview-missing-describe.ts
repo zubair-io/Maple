@@ -29,11 +29,16 @@
  * Bump `PREVIEW_MISSING_REDRIVE_VERSION` to sweep again.
  */
 
-import type { Filter } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-import { assetsCollection } from '../../db/client.ts';
+import type { ObjectId } from 'mongodb';
+import {
+  countCandidates,
+  rearmStagesAndStamp,
+  unstamped,
+  type CandidateScope,
+} from '../../db/sqlite/repos/assets.migrations.ts';
 import { child as childLogger } from '../../log.ts';
 
+import { runRowBatch } from './row-batch.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 
 const log = childLogger('migration:preview-missing-redrive');
@@ -47,27 +52,28 @@ const SKIP_MARKER = 'skip: preview-missing';
 /** Bump to re-sweep every previously-skipped row again. */
 export const PREVIEW_MISSING_REDRIVE_VERSION = 1;
 
+/** The one stage this sweep touches. Preview is deliberately NOT reset here —
+ * whether it needs a re-run is the describe handler's call, because it can see
+ * whether the artefact is genuinely absent and why. */
+const REARMED_STAGES = ['describe'] as const;
+
+/** Rows whose describe stage still carries the pre-#2177 terminal skip. This is
+ * the half that has to be re-asserted at write time: a worker can legitimately
+ * re-stamp the stage between this migration's read and its write. */
+const SKIPPED_ON_PREVIEW: CandidateScope = {
+  sql: `EXISTS (SELECT 1 FROM stage_state s
+                 WHERE s.asset_id = a.id AND s.stage = 'describe' AND s.last_error = ?)`,
+  params: [SKIP_MARKER],
+};
+
 /** Rows stamped done by the pre-#2177 terminal skip that this sweep hasn't
  * re-driven yet. */
-function candidateFilter(): Filter<AssetDoc> {
-  return {
-    'stages.describe.last_error': SKIP_MARKER,
-    preview_missing_redrive_version: { $ne: PREVIEW_MISSING_REDRIVE_VERSION },
-  } as Filter<AssetDoc>;
-}
-
-/** The `$set` that re-queues one asset: the describe stage back to
- * unprocessed (full five-field reset — see `rearm-video-posters.ts` for why
- * `version` alone is not enough), plus the done-marker. */
-function redriveUpdate(): Record<string, unknown> {
-  return {
-    preview_missing_redrive_version: PREVIEW_MISSING_REDRIVE_VERSION,
-    'stages.describe.version': 0,
-    'stages.describe.attempts': 0,
-    'stages.describe.last_error': null,
-    'stages.describe.processed_at': null,
-    'stages.describe.dead': false,
-  };
+function candidateScope(): CandidateScope {
+  return unstamped(
+    SKIPPED_ON_PREVIEW,
+    'preview_missing_redrive_version',
+    PREVIEW_MISSING_REDRIVE_VERSION,
+  );
 }
 
 export const redrivePreviewMissingDescribe: Migration = {
@@ -79,47 +85,44 @@ export const redrivePreviewMissingDescribe: Migration = {
     'regenerates its preview and gets captioned, or re-skips terminally where no preview can ' +
     'exist (e.g. video on a host without ffmpeg). One-time; idempotent per asset.',
 
-  async countRemaining(): Promise<number> {
-    const coll = await assetsCollection();
-    return coll.countDocuments(candidateFilter());
+  countRemaining(): Promise<number> {
+    return countCandidates(candidateScope());
   },
 
-  async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    const coll = await assetsCollection();
-
-    // Pure Mongo — no file I/O. This only moves stage bookkeeping; the actual
-    // preview/describe work is done by the stage workers on their own
-    // schedule, under their own concurrency limits, once these rows become
-    // claimable again. So a whole batch is one `updateMany`.
-    const ids = await coll
-      .find(candidateFilter(), { projection: { _id: 1 } })
-      .limit(batchSize)
-      .toArray();
-
-    if (ids.length === 0) return { processed: 0, errors: 0 };
-
-    try {
-      // Re-assert the candidate filter alongside the ids: a row can change
-      // between the find and this update (e.g. a worker just re-stamped the
-      // describe stage), and an id-only update would reset that fresh state
-      // and stamp the done-marker on a non-candidate. A raced-away row is
-      // simply not modified — and not counted.
-      const res = await coll.updateMany(
-        { _id: { $in: ids.map((d) => d._id) }, ...candidateFilter() },
-        { $set: redriveUpdate() },
-      );
-      log.info(
-        { matched: res.matchedCount, modified: res.modifiedCount },
-        're-drove preview-missing describe rows',
-      );
-      return { processed: res.modifiedCount, errors: 0 };
-    } catch (err) {
-      // Left unstamped, so the next tick retries this same batch.
-      log.error(
-        { count: ids.length, err: err instanceof Error ? err.message : err },
-        're-drive batch failed — left for retry',
-      );
-      return { processed: 0, errors: ids.length };
-    }
+  // No file I/O. This only moves stage bookkeeping; the actual preview/describe
+  // work is done by the stage workers on their own schedule, under their own
+  // concurrency limits, once these rows become claimable again. So a whole batch
+  // is one transaction — see `row-batch.ts`.
+  runBatch(batchSize: number): Promise<MigrationBatchResult> {
+    return runRowBatch(
+      candidateScope(),
+      batchSize,
+      log,
+      {
+        done: 're-drove preview-missing describe rows',
+        failed: 're-drive batch failed — left for retry',
+      },
+      redriveRows,
+    );
   },
 };
+
+/**
+ * The write: re-arm describe and stamp the done-marker, for the rows that still
+ * carry the pre-#2177 skip.
+ *
+ * The skip-marker half of the candidate predicate is re-asserted here, at write
+ * time, rather than trusted from the read: a row can change in between (a worker
+ * just re-stamped the describe stage), and an id-only update would reset that
+ * fresh state and stamp the done-marker on something that is no longer a
+ * candidate. A row that raced away is simply not modified — and not counted.
+ */
+function redriveRows(ids: readonly ObjectId[]): Promise<number> {
+  return rearmStagesAndStamp(
+    ids,
+    REARMED_STAGES,
+    'preview_missing_redrive_version',
+    PREVIEW_MISSING_REDRIVE_VERSION,
+    SKIPPED_ON_PREVIEW,
+  );
+}

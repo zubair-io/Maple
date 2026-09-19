@@ -44,6 +44,7 @@ import {
 } from './face-stage-shared.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
+import { faceDetectionStatements } from '../../db/sqlite/repos/faces.stage-patches.ts';
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 
@@ -82,7 +83,7 @@ export async function faceDetectHandler(image: ImageDoc, _ctx: StageContext): Pr
   const filtered =
     minSize > 0 ? detections.filter((d) => Math.min(d.bbox.w, d.bbox.h) >= minSize) : detections;
 
-  return { patch: { faces: filtered.map(detectionToDoc) } };
+  return { patch: faceDetectionStatements(image._id.toHexString(), filtered.map(detectionToDoc)) };
 }
 
 /** Detection → face doc. No embedding here — `face-embed` fills that in.

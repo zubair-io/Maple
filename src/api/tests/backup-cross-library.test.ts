@@ -6,28 +6,41 @@
  * original bytes uploaded fine.
  *
  * Root cause: `maple_id` is a GLOBAL content hash (not scoped to a library).
- * The ingest dedup does `findOne({ maple_id })` with no library filter, so a
+ * The ingest dedup looks an asset up by content id with no library filter, so a
  * photo whose content already lives in some OTHER folder/library (e.g. it was
  * discovered by a folder scan, or backed up to a different library first)
  * matches that other-library row. If ingest merely link-and-dedups against it
- * without materializing a `fileinfo` entry for the TARGET library, the
- * folder-scoped sidecar / rendered lookups (`{ 'fileinfo.library_id': B, … }`)
- * find nothing and 404 — failing the asset even though step 1 wrote bytes.
+ * without materializing a location for the TARGET library, the folder-scoped
+ * sidecar / rendered lookups find nothing and 404 — failing the asset even
+ * though step 1 wrote bytes.
  *
  * The invariant under test: backing a photo up to library B must leave a
- * usable `fileinfo` entry referencing B, so the sidecar + rendered companions
- * attach correctly — even when the same content already exists in library A.
+ * usable location referencing B, so the sidecar + rendered companions attach
+ * correctly — even when the same content already exists in library A.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for the test (#3787), with both libraries rooted at their own tmp directory.
  */
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { ObjectId } from 'mongodb';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import type { ObjectId } from 'mongodb';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { assetsCollection, foldersCollection, uploadSessionsCollection } from '../src/db/client.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import {
+  findAssetIdByMapleId,
+  findAssetsByMapleId,
+  readLocations,
+  readPhassetLinks,
+  seedBackupAsset,
+  seedLibrary,
+} from './helpers/sqlite-fixtures.ts';
+import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 
-const libA = new ObjectId();
-const libB = new ObjectId();
 const deviceId = 'test-device-cross-lib';
 const phid = 'XLIB/L0/001';
 // A content hash that already lives in library A (e.g. a prior folder scan).
@@ -39,82 +52,49 @@ const sharedBytes = Buffer.alloc(256, 0x5a);
 // up to library B derives a different rel-path from capture date + filename.
 const relPathInA = 'scanned/originals/IMG_XLIB.HEIC';
 
+let live: LiveTestDatabase;
+let libA: ObjectId;
+let libB: ObjectId;
 let tmpLibA: string;
 let tmpLibB: string;
 
-beforeAll(async () => {
+beforeEach(async () => {
   tmpLibA = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-xlib-A-'));
   tmpLibB = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-xlib-B-'));
 
-  const f = await foldersCollection();
-  await f.deleteMany({ _id: { $in: [libA, libB] } });
-  await f.insertOne({
-    _id: libA,
-    path: tmpLibA,
-    label: 'library-A',
-    created_at: new Date(),
-    file_count: 0,
-  } as never);
-  await f.insertOne({
-    _id: libB,
-    path: tmpLibB,
-    label: 'library-B',
-    created_at: new Date(),
-    file_count: 0,
-  } as never);
-
-  // The library-roots cache memoizes folder docs; invalidate so the freshly
-  // inserted libraries resolve.
-  const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+  live = await createLiveTestDatabase();
+  libA = seedLibrary(live.db, { path: tmpLibA, label: 'library-A' });
+  libB = seedLibrary(live.db, { path: tmpLibB, label: 'library-B' });
+  // The library-roots cache memoizes folder rows; invalidate so the freshly
+  // seeded libraries resolve.
   invalidateLibraryRoots();
 
   // Materialize the shared content on disk inside library A and record an
-  // AssetDoc whose ONLY fileinfo entry points at library A. This is the
-  // "already exists in another folder" precondition.
+  // asset whose ONLY location points at library A. This is the "already exists
+  // in another folder" precondition.
   const aPath = path.join(tmpLibA, relPathInA);
   await fs.mkdir(path.dirname(aPath), { recursive: true });
   await fs.writeFile(aPath, sharedBytes);
 
-  const a = await assetsCollection();
-  await a.deleteMany({ maple_id: sharedMapleId });
-  await a.deleteMany({ 'phasset_links.device_id': deviceId });
-  await a.insertOne({
-    _id: new ObjectId(),
-    fileinfo: [
-      {
-        library_id: libA,
-        path: path.dirname(relPathInA),
-        filename: path.basename(relPathInA),
-        deleted_at: null,
-      },
-    ],
+  seedBackupAsset(live.db, {
+    mapleId: sharedMapleId,
     size: sharedBytes.byteLength,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    maple_id: sharedMapleId,
-    phasset_links: [],
-    deleted_from_photos: false,
-  } as never);
-
-  const u = await uploadSessionsCollection();
-  await u.deleteMany({ device_id: deviceId });
+    locations: [{ libraryId: libA, relPath: relPathInA }],
+  });
 });
 
-afterAll(async () => {
-  await fs.rm(tmpLibA, { recursive: true, force: true }).catch(() => {});
-  await fs.rm(tmpLibB, { recursive: true, force: true }).catch(() => {});
-  const a = await assetsCollection();
-  await a.deleteMany({ maple_id: sharedMapleId });
+afterEach(async () => {
+  live.close();
+  invalidateLibraryRoots();
+  await fs.rm(tmpLibA, { recursive: true, force: true });
+  await fs.rm(tmpLibB, { recursive: true, force: true });
 });
 
 function ingest(body: Buffer, headers: Record<string, string>): Request {
   return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/ingest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body: typeof body === 'string' ? body : new Uint8Array(body),
+    body: new Uint8Array(body),
   });
 }
 
@@ -122,7 +102,7 @@ function sidecar(body: string, headers: Record<string, string>): Request {
   return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/sidecar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/xml', ...headers },
-    body: typeof body === 'string' ? body : new Uint8Array(body),
+    body,
   });
 }
 
@@ -130,7 +110,7 @@ function rendered(body: Buffer, headers: Record<string, string>): Request {
   return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/rendered`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body: typeof body === 'string' ? body : new Uint8Array(body),
+    body: new Uint8Array(body),
   });
 }
 
@@ -138,7 +118,7 @@ describe('cross-library backup: same content already in library A, backing up to
   test('ingest → sidecar → rendered to library B all succeed (no 404)', async () => {
     // ---- Step 1: original bytes → library B ingest -----------------------
     // The content already exists (in library A), so ingest hits the dedup
-    // branch. It must MATERIALIZE a fileinfo entry for library B rather than
+    // branch. It must MATERIALIZE a location for library B rather than
     // pure-dedup against library A's row.
     const ingestRes = await authedHandle(
       ingest(sharedBytes, {
@@ -163,18 +143,19 @@ describe('cross-library backup: same content already in library A, backing up to
     const onDiskB = await fs.readFile(path.join(tmpLibB, targetRelPath));
     expect(onDiskB.byteLength).toBe(sharedBytes.byteLength);
 
-    // Still exactly one AssetDoc for this content (dedup, not a fresh row),
-    // now carrying fileinfo entries for BOTH libraries.
-    const a = await assetsCollection();
-    const docs = await a.find({ maple_id: sharedMapleId }).toArray();
-    expect(docs.length).toBe(1);
-    const libIds = (docs[0].fileinfo ?? []).map((e: any) => e.library_id?.toHexString());
+    // Still exactly one asset row for this content (dedup, not a fresh row),
+    // now carrying locations for BOTH libraries.
+    const rows = findAssetsByMapleId(live.db, sharedMapleId);
+    expect(rows).toHaveLength(1);
+    const assetId = findAssetIdByMapleId(live.db, sharedMapleId);
+    expect(assetId).not.toBeNull();
+    const libIds = readLocations(live.db, assetId!).map((location) => location.library_id);
     expect(libIds).toContain(libA.toHexString());
     expect(libIds).toContain(libB.toHexString());
     // The device link was attached.
     expect(
-      (docs[0].phasset_links ?? []).some(
-        (l: any) => l.device_id === deviceId && l.phasset_local_id === phid,
+      readPhassetLinks(live.db, assetId!).some(
+        (link) => link.device_id === deviceId && link.phasset_local_id === phid,
       ),
     ).toBe(true);
 

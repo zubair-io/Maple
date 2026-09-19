@@ -1,72 +1,59 @@
 /**
- * Migration: "Backfill live_location_count".
+ * Migration: "Repair live_location_count".
  *
- * Computes `live_location_count` — the number of live (non-tombstoned)
- * `fileinfo` entries per asset — for existing rows that pre-date the
- * denormalization introduced in #1302. A `fileinfo` entry is live when
- * neither `deleted_at` nor `missing_since` is set (same definition as
- * `isLiveFileInfo` in `indexer/images.repo.ts`).
+ * `live_location_count` is the number of locations an asset holds whose file is
+ * still there — neither replaced in place (`deleted_at`) nor gone from disk
+ * (`missing_since`). It is denormalised onto the asset row because "is this
+ * asset live" is the base predicate of every browse, search and facet query,
+ * and as a column it folds into a partial index's `WHERE` clause where as a
+ * sub-select it costs one B-tree probe per candidate row.
  *
- * After this migration runs, `countDocuments({ live_location_count: { $gte: 2 } })`
- * is index-covered by the `live_location_count_gte2` partial index and
- * replaces the `$expr`+`$filter` FETCH scan the deduplicate `/status`
- * count previously used.
+ * ## What changed at the SQLite cutover (#3787)
  *
- * Processes assets in batches of `batchSize`. Each batch queries rows that
- * are still missing the field (`pendingFilter`) with a `limit`; because the
- * batch SETS `live_location_count`, processed rows drop out of `pendingFilter`
- * automatically, so the next batch sees fresh rows — no cursor or sort needed.
+ * This used to be a genuine backfill: the column was introduced in #1302 and
+ * assets written before it simply had no such field, so the migration walked
+ * `{ live_location_count: { $exists: false } }` and computed one for each.
+ *
+ * There is no such state any more. The column is `NOT NULL DEFAULT 0` and three
+ * triggers derive it from `asset_locations`, so every write that can change a
+ * location's liveness updates it in the same statement and nothing can be
+ * "missing" it. The old pending filter would match nothing for ever, which is a
+ * migration that silently does nothing — worse than one that is honest about
+ * what it now checks.
+ *
+ * So it becomes a drift check: count the assets whose stored number disagrees
+ * with their actual live locations, and recompute those. On a healthy library
+ * that is zero and the migration idles immediately. It stays on Settings →
+ * Workers because the number is load-bearing for every grid and facet query,
+ * and an operator who doubts it should be able to verify and repair it without
+ * shell access to the database.
  */
 
-import { getDb } from '../../db/client.ts';
-import { liveLocationCountExpression } from '../../indexer/images.repo.ts';
+import {
+  countLiveLocationCountDrift,
+  repairLiveLocationCounts,
+} from '../../db/sqlite/repos/assets.migrations.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 
 const MIGRATION_ID = 'backfill-live-location-count';
 
-/** Assets that have no `live_location_count` field yet. */
-function pendingFilter(): Record<string, unknown> {
-  return { live_location_count: { $exists: false } };
-}
-
 export const backfillLiveLocationCount: Migration = {
   id: MIGRATION_ID,
-  title: 'Backfill live_location_count',
+  title: 'Repair live_location_count',
   description:
-    'Computes the denormalized live-location count for existing assets, enabling an index-covered ' +
-    'deduplicate status count without the expensive $expr FETCH scan introduced in #1290.',
+    'Verifies the denormalised live-location count on every asset against its actual on-disk ' +
+    'locations, and recomputes any that disagree. The count is maintained automatically, so a ' +
+    'healthy library reports nothing to do; this is the operator-visible way to confirm that.',
 
-  async countRemaining(): Promise<number> {
-    const db = await getDb();
-    return db.collection('assets').countDocuments(pendingFilter());
+  countRemaining(): Promise<number> {
+    return countLiveLocationCountDrift();
   },
 
   async runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    const db = await getDb();
-    const assets = db.collection('assets');
-
-    // Collect a batch of IDs missing the field, then atomically recompute
-    // live_location_count for each via a single pipeline updateMany. Using
-    // find(pendingFilter, { limit }) + updateMany({_id:{$in:ids}}) rather
-    // than an unbounded updateMany, which would process ALL pending rows in
-    // one shot — fine for correctness but potentially a large write on first run.
-    const candidates = await assets
-      .find(pendingFilter(), { projection: { _id: 1 }, limit: batchSize })
-      .toArray();
-
-    if (candidates.length === 0) return { processed: 0, errors: 0 };
-
-    const ids = candidates.map((c) => c._id);
-
-    const result = await assets.updateMany({ _id: { $in: ids } }, [
-      {
-        $set: {
-          live_location_count: liveLocationCountExpression(),
-        },
-      },
-    ]);
-    const processed = result.modifiedCount;
-
+    // Bounded rather than a single unbounded recompute: correctness would be
+    // the same either way, but a first run over a large library should not be
+    // one enormous write holding the single writer.
+    const processed = await repairLiveLocationCounts(batchSize);
     return { processed, errors: 0 };
   },
 };

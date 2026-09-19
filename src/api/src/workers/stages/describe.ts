@@ -38,6 +38,7 @@ import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
+import { describeStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import { describeServersForRuntime } from '../describe-capacity.ts';
 import {
@@ -287,10 +288,10 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // actually consumed, per VisionMeta.raw_response_size contract.
   const rawResponseSize = Buffer.byteLength(strippedRawFor(result.text), 'utf8');
 
-  const patch: Record<string, unknown> = {
+  const patch = describeStatements(image._id.toHexString(), {
     // Free-text caption mirror — legacy clients still read `description`.
     description: vision.caption,
-    description_meta: {
+    descriptionMeta: {
       provider: server.provider ?? providerName,
       // Which box answered. Without it a slow or subtly-broken server in a
       // multi-server pool is invisible in triage.
@@ -307,7 +308,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
     // its first source of truth, so leaving it true would let the flag
     // reappear on the next sidecar re-index.
     vision: { ...vision, is_screenshot: isScreenshot },
-    vision_meta: {
+    visionMeta: {
       provider: server.provider ?? providerName,
       server_url: server.url,
       model: server.model ?? model,
@@ -315,25 +316,24 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
       generated_at: now,
       raw_response_size: rawResponseSize,
     },
+    // OCR mirror: the structured vision pass extracts visible text as part of
+    // captioning, so `ocr_text` comes from `vision.text_visible`. qwen2.5-vl is
+    // the sole OCR source; the engine field is always that literal.
+    ocrText: vision.text_visible ?? '',
+    ocrMeta: {
+      engine: 'qwen2.5-vl',
+      engine_version: server.model ?? model,
+      generated_at: now,
+      // qwen2.5-vl has no per-token confidence a classic OCR engine would give.
+      mean_confidence: null,
+    },
     // Top-level mirror of the VLM's screenshot verdict, overwriting any
     // exif-stage heuristic. The describe stage has more signal than
     // filename + missing camera_make (it sees cropped screenshots and
     // photos-of-screens correctly), so its verdict wins — except for video,
     // which is never a screenshot whatever the model saw in the poster.
-    is_screenshot: isScreenshot,
-  };
-
-  // OCR mirror: the structured vision pass extracts visible text as part
-  // of captioning, so we populate ocr_text from vision.text_visible. qwen2.5-vl
-  // is the sole OCR source; the engine field is always the literal "qwen2.5-vl".
-  patch.ocr_text = vision.text_visible ?? '';
-  patch.ocr_meta = {
-    engine: 'qwen2.5-vl',
-    engine_version: server.model ?? model,
-    generated_at: now,
-    // qwen2.5-vl has no per-token confidence the way a classic OCR engine does.
-    mean_confidence: null,
-  };
+    isScreenshot,
+  });
 
   // The VLM verdict is the authoritative screenshot signal. If it flags a
   // backup-origin asset the ingest filename heuristic missed, file it under

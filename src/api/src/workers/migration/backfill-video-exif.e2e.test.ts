@@ -1,41 +1,25 @@
 /**
- * End-to-end tests for the backfill-video-exif migration (#1525, Mongo-gated).
+ * End-to-end coverage for the video-metadata backfill (#1525).
  *
- * Seeds a backup video with a real `.MOV` on disk (QuickTime moov atoms), runs a
- * batch, and asserts the recovered date/GPS land on `exif` and the right
- * downstream stage is nudged (geocode reset for GPS, blv reset for no-GPS).
+ * Seeds a backup video with a real `.MOV` on disk — QuickTime `moov` atoms
+ * built by hand below, so the reader is genuinely exercised rather than mocked
+ * — runs a batch, and asserts that the recovered date and GPS land on the
+ * asset and that the right downstream work is nudged: geocode re-runs when GPS
+ * was recovered, and the refile marker is cleared when only a date was.
  */
-import { describe, it, expect, afterAll, afterEach, beforeAll } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import * as fs from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId, type Collection, type Db } from 'mongodb';
 import { backfillVideoExif, VIDEO_META_VERSION } from './backfill-video-exif.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_backfill_video_exif_e2e_${process.pid}`);
-
-// Captured here, not re-resolved in afterAll: withTestDb restores
-// MAPLE_MONGO_DB before this suite's teardown runs.
-let suiteDb: Db | null = null;
-
-beforeAll(async () => {
-  const { closeDb, getDb } = await import('../../db/client.ts');
-  // Force the singleton to reconnect under this file's TEST_DB even when
-  // an earlier suite left it connected.
-  await closeDb();
-  suiteDb = await getDb().catch(() => null);
-});
-
-afterAll(async () => {
-  const { closeDb } = await import('../../db/client.ts');
-  if (suiteDb) await suiteDb.dropDatabase();
-  await closeDb();
-});
+import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import {
+  assetRow,
+  createLibrary,
+  seedAsset,
+  seedLocation,
+  stageRow,
+  type MigrationLibrary,
+} from './migration.test-helpers.ts';
 
 // ── minimal QuickTime box builders ─────────────────────────────────────────
 const box = (type: string, payload: Buffer): Buffer => {
@@ -91,175 +75,130 @@ function mov(opts: { date: string; gps?: string }): Buffer {
   return Buffer.concat([ftyp, mdat, box('moov', meta)]);
 }
 
-async function connectOrSkip(label: string) {
-  try {
-    const { getDb } = await import('../../db/client.ts');
-    return await getDb();
-  } catch {
-    console.log(`MongoDB unreachable — skipping ${label}`);
-    return null;
-  }
+/**
+ * A library whose root is registered with the in-memory cache the migration
+ * resolves absolute paths through, and which un-registers itself on exit.
+ */
+async function createVideoLibrary(): Promise<MigrationLibrary & { restore(): void }> {
+  const library = await createLibrary('backfill-vid-');
+  setLibraryRootsForTests(new Map([[library.folderId.toHexString(), library.root]]));
+  return {
+    ...library,
+    restore: () => setLibraryRootsForTests(null),
+    [Symbol.dispose]: () => {
+      setLibraryRootsForTests(null);
+      library[Symbol.dispose]();
+    },
+  };
 }
 
-describe('backfill-video-exif end-to-end', () => {
-  let dir: string | null = null;
-  afterEach(async () => {
-    if (dir) await fs.rm(dir, { recursive: true, force: true });
-    dir = null;
+/** A backup-origin video asset with its `.MOV` genuinely on disk. */
+async function seedVideo(
+  library: MigrationLibrary,
+  opts: { movBytes: Buffer; rel: string; filename: string },
+): Promise<string> {
+  await fs.mkdir(path.join(library.root, ...opts.rel.split('/')), { recursive: true });
+  await fs.writeFile(path.join(library.root, opts.rel, opts.filename), opts.movBytes);
+  const id = seedAsset(library.db, {
+    mediaKind: 'video',
+    phassetDevices: ['dev'],
+    backupLayoutVersion: 4,
+    stages: ['geocode'],
+    location: { libraryId: library.folderId, path: opts.rel, filename: opts.filename },
   });
+  library.db.run(`UPDATE stage_state SET version = 2 WHERE asset_id = ? AND stage = 'geocode'`, [
+    id,
+  ]);
+  return id;
+}
 
-  async function seed(opts: {
-    movBytes: Buffer;
-    rel: string;
-    filename: string;
-  }): Promise<{ id: ObjectId; assets: Collection }> {
-    const { getDb } = await import('../../db/client.ts');
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const db = await getDb();
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'backfill-vid-'));
-    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
-    await fs.mkdir(path.join(dir, ...opts.rel.split('/')), { recursive: true });
-    await fs.writeFile(path.join(dir, opts.rel, opts.filename), opts.movBytes);
-    const id = new ObjectId();
-    await assets.insertOne({
-      _id: id,
-      maple_id: 'backfill-vid-' + id.toHexString(),
-      media_kind: 'video',
-      fileinfo: [{ path: opts.rel, filename: opts.filename, library_id: libId, deleted_at: null }],
-      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
-      backup_layout_version: 4,
-      stages: { geocode: { version: 2 } },
-      size: opts.movBytes.length,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-    } as never);
-    return { id, assets };
-  }
+/** The EXIF payload the migration wrote back, parsed. */
+function exifOf(library: MigrationLibrary, id: string): Record<string, unknown> | null {
+  const raw = assetRow(library.db, id)!.exif;
+  return raw === null ? null : (JSON.parse(raw) as Record<string, unknown>);
+}
 
-  it('GPS video → writes exif.gps + resets geocode for re-run', async () => {
-    if (!(await connectOrSkip('gps video'))) return;
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const { id, assets } = await seed({
-      movBytes: mov({ date: '2026-04-05T11:26:20-0700', gps: '+48.8041+002.1176/' }),
-      rel: '2026/2595',
+const GPS_MOV = { date: '2026-04-05T11:26:20-0700', gps: '+48.8041+002.1176/' };
+const REL = '2026/2595';
+
+describe('backfill-video-exif end-to-end', () => {
+  it('GPS video → writes the coordinate and re-arms geocode', async () => {
+    using library = await createVideoLibrary();
+    const id = await seedVideo(library, {
+      movBytes: mov(GPS_MOV),
+      rel: REL,
       filename: 'IMG_2693.MOV',
     });
-    try {
-      const res = await backfillVideoExif.runBatch(50);
-      expect(res.processed).toBeGreaterThanOrEqual(1);
-      const doc = (await assets.findOne({ _id: id })) as {
-        exif?: { gps?: unknown; captured_year?: number };
-        video_meta_version?: number;
-        stages?: { geocode?: { version?: number } };
-      } | null;
-      expect(doc?.exif?.gps).toEqual({ lat: 48.8041, lng: 2.1176 });
-      expect(doc?.exif?.captured_year).toBe(2026);
-      expect(doc?.video_meta_version).toBe(VIDEO_META_VERSION);
-      expect(doc?.stages?.geocode?.version).toBe(0); // re-geocode
-    } finally {
-      await assets.deleteOne({ _id: id });
-      setLibraryRootsForTests(null);
-    }
+
+    const result = await backfillVideoExif.runBatch(50);
+    expect(result.processed).toBeGreaterThanOrEqual(1);
+
+    const exif = exifOf(library, id)!;
+    expect(exif.gps).toEqual({ lat: 48.8041, lng: 2.1176 });
+    expect(exif.captured_year).toBe(2026);
+    expect(assetRow(library.db, id)!.video_meta_version).toBe(VIDEO_META_VERSION);
+    expect(stageRow(library.db, id, 'geocode')!.version).toBe(0); // re-geocode
   });
 
-  it('no-GPS dated video → resets backup_layout_version for <year>/<MM> refile', async () => {
-    if (!(await connectOrSkip('no-gps video'))) return;
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const { id, assets } = await seed({
+  it('dated video with no GPS → becomes a refile candidate for <year>/<MM>', async () => {
+    using library = await createVideoLibrary();
+    const id = await seedVideo(library, {
       movBytes: mov({ date: '2026-05-31T10:00:00-0400' }),
-      rel: '2026/2595',
+      rel: REL,
       filename: 'IMG_X.MOV',
     });
-    try {
-      await backfillVideoExif.runBatch(50);
-      const doc = (await assets.findOne({ _id: id })) as {
-        exif?: { captured_month?: number; gps?: unknown };
-        backup_layout_version?: number;
-        video_meta_version?: number;
-      } | null;
-      expect(doc?.exif?.gps ?? null).toBeNull();
-      expect(doc?.exif?.captured_month).toBe(5);
-      expect(doc?.backup_layout_version).toBe(0); // becomes a refile candidate
-      expect(doc?.video_meta_version).toBe(VIDEO_META_VERSION);
-    } finally {
-      await assets.deleteOne({ _id: id });
-      setLibraryRootsForTests(null);
-    }
+
+    await backfillVideoExif.runBatch(50);
+
+    const exif = exifOf(library, id)!;
+    expect(exif.gps ?? null).toBeNull();
+    expect(exif.captured_month).toBe(5);
+    expect(assetRow(library.db, id)!.backup_layout_version).toBe(0);
+    expect(assetRow(library.db, id)!.video_meta_version).toBe(VIDEO_META_VERSION);
   });
 
   it('stamps the marker so the asset drops out of the candidate set', async () => {
-    if (!(await connectOrSkip('idempotent'))) return;
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const { id, assets } = await seed({
-      movBytes: mov({ date: '2026-04-05T11:26:20-0700', gps: '+48.8041+002.1176/' }),
-      rel: '2026/2595',
-      filename: 'IMG_Z.MOV',
-    });
-    try {
-      await backfillVideoExif.runBatch(50);
-      // A second batch must not re-process this asset (marker present).
-      expect(
-        await assets.countDocuments({ _id: id, video_meta_version: { $ne: VIDEO_META_VERSION } }),
-      ).toBe(0);
-    } finally {
-      await assets.deleteOne({ _id: id });
-      setLibraryRootsForTests(null);
-    }
+    using library = await createVideoLibrary();
+    await seedVideo(library, { movBytes: mov(GPS_MOV), rel: REL, filename: 'IMG_Z.MOV' });
+
+    await backfillVideoExif.runBatch(50);
+
+    expect(await backfillVideoExif.countRemaining()).toBe(0);
+    expect(await backfillVideoExif.runBatch(50)).toEqual({ processed: 0, errors: 0 });
   });
 
-  it('reads the live VIDEO entry, not the primary still (still+video asset)', async () => {
-    if (!(await connectOrSkip('still+video'))) return;
-    const { getDb } = await import('../../db/client.ts');
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const db = await getDb();
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'backfill-vid-'));
-    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
-    const rel = '2026/2595';
-    await fs.mkdir(path.join(dir, ...rel.split('/')), { recursive: true });
-    await fs.writeFile(
-      path.join(dir, rel, 'clip.MOV'),
-      mov({ date: '2026-04-05T11:26:20-0700', gps: '+48.8041+002.1176/' }),
-    );
-    const id = new ObjectId();
-    await assets.insertOne({
-      _id: id,
-      maple_id: 'still-video-' + id.toHexString(),
-      // Primary live entry is the STILL; the video is second — the migration must
-      // still read the .MOV, not the .HEIC (which doesn't even exist on disk).
-      // `media_kind` is `video` because ANY location is a video (#3492).
-      media_kind: 'video',
-      fileinfo: [
-        { path: rel, filename: 'still.HEIC', library_id: libId, deleted_at: null },
-        { path: rel, filename: 'clip.MOV', library_id: libId, deleted_at: null },
-      ],
-      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
-      backup_layout_version: 4,
-      stages: { geocode: { version: 2 } },
-      size: 1,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-    } as never);
-    try {
-      await backfillVideoExif.runBatch(50);
-      const doc = (await assets.findOne({ _id: id })) as {
-        exif?: { gps?: unknown };
-        video_meta_version?: number;
-      } | null;
-      expect(doc?.exif?.gps).toEqual({ lat: 48.8041, lng: 2.1176 });
-      expect(doc?.video_meta_version).toBe(VIDEO_META_VERSION);
-    } finally {
-      await assets.deleteOne({ _id: id });
-      setLibraryRootsForTests(null);
-    }
+  it('reads the live VIDEO location, not the canonical still', async () => {
+    using library = await createVideoLibrary();
+    await fs.mkdir(path.join(library.root, ...REL.split('/')), { recursive: true });
+    await fs.writeFile(path.join(library.root, REL, 'clip.MOV'), mov(GPS_MOV));
+
+    // The first live location is the STILL; the video is second. The migration
+    // must still read the `.MOV`, not the `.HEIC` — which does not even exist
+    // on disk. `media_kind` is video because ANY location is a video (#3492).
+    const id = seedAsset(library.db, {
+      mediaKind: 'video',
+      phassetDevices: ['dev'],
+      backupLayoutVersion: 4,
+      stages: ['geocode'],
+    });
+    seedLocation(library.db, {
+      assetId: id,
+      libraryId: library.folderId,
+      ordinal: 0,
+      path: REL,
+      filename: 'still.HEIC',
+    });
+    seedLocation(library.db, {
+      assetId: id,
+      libraryId: library.folderId,
+      ordinal: 1,
+      path: REL,
+      filename: 'clip.MOV',
+    });
+
+    await backfillVideoExif.runBatch(50);
+
+    expect(exifOf(library, id)!.gps).toEqual({ lat: 48.8041, lng: 2.1176 });
+    expect(assetRow(library.db, id)!.video_meta_version).toBe(VIDEO_META_VERSION);
   });
 });

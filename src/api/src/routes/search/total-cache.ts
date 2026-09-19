@@ -1,9 +1,6 @@
 /**
  * Total-count cache for `GET /api/search` (#2128).
  *
- * `countDocuments` runs the same non-indexable residual predicates as the
- * main find (deleted_at / hidden / the fileinfo liveness $elemMatch) — even
- * once the default-sort find is index-only, the count stays an O(N) scan.
  * `total`'s only consumer is the `canLoadMore` infinite-scroll gate in the
  * two search components (`search.component.ts:144` and `:175`), so brief
  * staleness is not user-visible. Cached for 30 s keyed on the full filter
@@ -12,11 +9,18 @@
  *
  * Extracted from `list.ts` in #2129 to keep that route file inside the
  * file-size budget once seek pagination landed; the behaviour is unchanged.
+ *
+ * The cache is worth much less than it was. On MongoDB this count was a
+ * documented ~2.5 s O(N) scan, because the liveness predicate lived in an
+ * unindexable `$elemMatch` over `fileinfo[]` and every candidate had to be
+ * fetched. On SQLite it counts the same partial index the page query walks,
+ * measured at 3.7 ms at production's row count — so the 30 s window now buys
+ * repeat scrolls a few milliseconds rather than seconds. It stays because the
+ * staleness it trades for that has never been visible, and removing it would
+ * be a behaviour change dressed up as a cleanup.
  */
 
-import type { Collection, Filter } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-import { SEARCH_COUNT_TIMEOUT_MS } from './query-timeout.ts';
+import { searchCount, type SearchWhere } from '../../db/sqlite/repos/search.repo.ts';
 import type { SearchQuery } from './query.ts';
 
 const TOTAL_CACHE_TTL_MS = 30_000;
@@ -28,11 +32,11 @@ interface CachedTotal {
 
 const totalCache = new Map<string, CachedTotal>();
 
-/** Every field that feeds `buildFilter` (i.e. the full filter set the
+/** Every field that feeds `buildSearchWhere` (i.e. the full filter set the
  * count depends on), in a fixed order. `page`/`limit`/`sort`/`cursor` are
- * deliberately excluded because `countDocuments` doesn't depend on
- * pagination or ordering. `people` and `place` joined the list in #2864,
- * when both became Mongo filters. */
+ * deliberately excluded because the count doesn't depend on pagination or
+ * ordering. `people` and `place` joined the list in #2864, when both became
+ * predicates rather than client-side trimming. */
 const TOTAL_CACHE_KEY_FIELDS = [
   'pathPrefix',
   'libraryId',
@@ -81,80 +85,29 @@ export function _resetCacheForTests(): void {
 }
 
 /**
- * `countDocuments`, hinting the narrow `fileinfo.library_id` index when
- * `canHint` is true (see the call site for why that's conditional on
- * `usingPlaceText`).
- *
- * Falls back to an unhinted count if the hint index doesn't exist —
- * Mongo raises `BadValue` (code 2) "hint provided does not correspond to
- * an existing index" in that case. That's not hypothetical: `ensureIndexes`
- * (`db/client.ts`) runs in the background at boot, and the index-creation
- * step this hint targets is itself gated on a migration that can be
- * pending on an older/partially-migrated database (see the
- * `drop-abs-path-2026-05-21` guard). A missing hint index must degrade to
- * the planner's own (slower) choice, not 500 the whole search route.
- */
-async function countTotal(
-  coll: Collection<AssetDoc>,
-  filter: Filter<AssetDoc>,
-  canHint: boolean,
-): Promise<number> {
-  // Bounded (#2988): the count is a documented O(N) scan; unbounded it can
-  // hold connections past the front proxy's patience on broad `$text`
-  // filters. A timeout propagates to the route's 503 mapping.
-  const opts = { maxTimeMS: SEARCH_COUNT_TIMEOUT_MS };
-  if (!canHint) return coll.countDocuments(filter, opts);
-  try {
-    return await coll.countDocuments(filter, { ...opts, hint: { 'fileinfo.library_id': 1 } });
-  } catch (err) {
-    if (err instanceof Error && (err as { code?: number }).code === 2) {
-      return coll.countDocuments(filter, opts);
-    }
-    throw err;
-  }
-}
-
-/**
  * Resolve `total` for this request: serve it from `totalCache` if a fresh
- * entry exists for this exact filter set, otherwise compute it via
- * `countTotal` and cache the result before returning.
+ * entry exists for this exact filter set, otherwise count and cache the
+ * result before returning.
  *
- * `$text` queries require the planner to use the text index — combining
- * `$text` with an explicit `hint` throws "text and hint not allowed in
- * same query", so `canHint` must be false whenever the filter carries
- * `$text` (i.e. `usingPlaceText` at the call site). Otherwise, hint the
- * narrower `fileinfo.library_id` index: adding the new
- * lib+captured+_id compound index in `db/client.ts` (needed to fix the
- * find) gives the planner a wider, slower index it will otherwise pick
- * for this count. Measured on the 333k-asset production library:
- * unhinted 3379ms vs hinted 2513ms (~1.34x). An earlier ~2.5x figure in
- * the #2128 commit message came from 723-byte synthetic documents; the
- * ratio compresses at production's ~6KB avgObjSize, because both plans
- * are dominated by the same FETCH volume.
+ * The hint machinery this used to carry is gone with the engine it argued
+ * with. Mongo needed to be told which of two overlapping indexes to use for
+ * the count, and told *not* to be told whenever the filter carried `$text`
+ * (the two are illegal together). The SQLite count composes the same `FROM`
+ * and `WHERE` the page query does, from the same translated query, so there
+ * is one plan and nothing to steer — and a facet total and a grid page cannot
+ * disagree, which is the failure the Meilisearch branch shipped once.
  *
- * Both remain O(N): `hidden`/`deleted_at`/the `fileinfo` `$elemMatch`
- * appear in no index, so every candidate must be fetched and neither
- * index can make this an index-only COUNT_SCAN (the multikey
- * `fileinfo.library_id` path would force a FETCH to dedupe
- * array-generated entries regardless). The 30s cache bounds how often
- * that ~2.5s scan is paid, it does not remove it.
- *
- * Note the filter passed here is the *unpaged* one — the seek predicate
- * from `cursor.ts` must never reach the count, or `total` would shrink as
+ * Note the predicate passed here is the *unpaged* one — the seek predicate a
+ * cursor contributes must never reach the count, or `total` would shrink as
  * the user scrolls.
  */
-export async function getCachedTotal(
-  coll: Collection<AssetDoc>,
-  query: SearchQuery,
-  finalFilter: Filter<AssetDoc>,
-  canHint: boolean,
-): Promise<number> {
+export async function getCachedTotal(query: SearchQuery, where: SearchWhere): Promise<number> {
   const cacheKey = makeTotalCacheKey(query);
   const nowMs = Date.now();
   const cached = totalCache.get(cacheKey);
   if (cached && cached.expiresMs > nowMs) return cached.total;
 
-  const total = await countTotal(coll, finalFilter, canHint);
+  const total = await searchCount(where);
   // Bound the cache so a parameterised attack can't grow it unboundedly.
   // 500 unique filter sets is generous for a single server; eviction is
   // FIFO via insertion order.

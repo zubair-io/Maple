@@ -1,7 +1,15 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+/**
+ * `POST /api/search/assets` — the service-API search surface.
+ *
+ * Meilisearch is mocked through `setMeilisearchClientForTests`; the database
+ * fallback beneath it runs for real against SQLite, installed as the
+ * process-wide handle for each test.
+ */
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId } from 'mongodb';
 import { createServiceApiKey } from '../src/auth/service-api-keys.ts';
+import { insertUser } from '../src/db/sqlite/repos/auth.users.repo.ts';
 import { saveEnrichmentConfig } from '../src/enrichment/enrichment-config.repo.ts';
 import {
   MeilisearchSearchError,
@@ -13,30 +21,17 @@ import {
   _resetServiceSearchRateLimitsForTests,
   serviceAssetSearchRoutes,
 } from '../src/routes/service-asset-search.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { seedSearchAsset } from '../src/db/sqlite/repos/search.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  insertLocation,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = `maple_test_service_asset_search_${process.pid}`;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-withTestDb(TEST_DB);
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
+let live: LiveTestDatabase;
+let libraryId: string;
 let serviceKey = '';
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const client = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await client.connect();
-    await client.db('admin').command({ ping: 1 });
-    return client;
-  } catch {
-    await client.close().catch(() => {});
-    return null;
-  }
-}
 
 function mockMeili(input: {
   semantic?: boolean;
@@ -63,6 +58,21 @@ function mockMeili(input: {
   };
 }
 
+/** A Meilisearch client that reports itself unconfigured, forcing the
+ * database fallback. */
+function unconfiguredMeili(): MeilisearchClient {
+  return {
+    isConfigured: () => false,
+    semanticConfigured: () => false,
+    health: async () => false,
+    ensureIndex: async () => {},
+    upsert: async () => {},
+    upsertOrThrow: async () => {},
+    tombstone: async () => {},
+    search: async () => ({ ids: [], estimatedTotal: 0 }),
+  };
+}
+
 function request(body: Record<string, unknown>, key = serviceKey): Promise<Response> {
   return new Elysia().use(serviceAssetSearchRoutes).handle(
     new Request('http://localhost/api/search/assets', {
@@ -76,53 +86,28 @@ function request(body: Record<string, unknown>, key = serviceKey): Promise<Respo
   );
 }
 
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[service-asset-search.test] skipping: MongoDB unreachable');
-    return;
-  }
-  await mongo!.db(TEST_DB).dropDatabase();
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-});
-
 beforeEach(async () => {
-  if (!mongoReachable) return;
-  const db = mongo!.db(TEST_DB);
-  await db.collection('app_settings').deleteMany({});
-  await db.collection('service_api_keys').deleteMany({});
-  await db.collection('assets').deleteMany({});
-  serviceKey = (
-    await createServiceApiKey({
-      name: 'SugarMaple integration',
-      createdBy: new ObjectId(),
-    })
-  ).key;
+  live = await createLiveTestDatabase();
+  libraryId = insertFolder(live.db, { path: '/lib', slug: 'service-search' });
+  // `created_by` is a foreign key onto `users`, so the owner exists first.
+  const createdBy = await insertUser({
+    email: 'owner@maple.test',
+    role: 'owner',
+    created_at: new Date().toISOString(),
+    last_seen_at: null,
+  });
+  serviceKey = (await createServiceApiKey({ name: 'SugarMaple integration', createdBy })).key;
   _resetServiceSearchRateLimitsForTests();
   setMeilisearchClientForTests(null);
 });
 
 afterEach(() => {
   setMeilisearchClientForTests(null);
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo
-      .db(TEST_DB)
-      .dropDatabase()
-      .catch(() => {});
-    await mongo.close().catch(() => {});
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
+  live.close();
 });
 
 describe('POST /api/search/assets', () => {
   it('returns the concrete HVAC video from a hybrid conceptual query', async () => {
-    if (!mongoReachable) return;
     const meili = mockMeili({
       search: async () => ({
         ids: ['010045ca68ac1f7f7e8b3aa02f72ac80', 'lexical-only'],
@@ -159,7 +144,6 @@ describe('POST /api/search/assets', () => {
   });
 
   it('passes an inclusive capture-date range to hybrid search', async () => {
-    if (!mongoReachable) return;
     const meili = mockMeili({
       search: async () => ({ ids: [], estimatedTotal: 0 }),
     });
@@ -180,7 +164,6 @@ describe('POST /api/search/assets', () => {
   });
 
   it('rejects invalid or reversed capture-date ranges', async () => {
-    if (!mongoReachable) return;
     expect((await request({ query: 'HVAC', from: '2026-02-30' })).status).toBe(400);
     expect((await request({ query: 'HVAC', from: '2026-07-30', to: '2026-07-29' })).status).toBe(
       400,
@@ -188,7 +171,6 @@ describe('POST /api/search/assets', () => {
   });
 
   it('retries lexical search and reports the fallback when embedding fails', async () => {
-    if (!mongoReachable) return;
     const meili = mockMeili({
       search: async (_query, options) => {
         if (options.semantic) {
@@ -235,7 +217,6 @@ describe('POST /api/search/assets', () => {
   });
 
   it('reports the lexical failure when hybrid and lexical Meilisearch queries both fail', async () => {
-    if (!mongoReachable) return;
     const meili = mockMeili({
       search: async (_query, options) => {
         throw new MeilisearchSearchError(
@@ -281,69 +262,36 @@ describe('POST /api/search/assets', () => {
     expect(meili.calls.map((call) => call.options.semantic)).toEqual([true, false]);
   });
 
-  it('preserves exact filename search during full Mongo fallback', async () => {
-    if (!mongoReachable) return;
-    const folder = new ObjectId();
-    await mongo!
-      .db(TEST_DB)
-      .collection('assets')
-      .insertOne({
-        maple_id: '010045ca68ac1f7f7e8b3aa02f72ac80',
-        fileinfo: [
-          {
-            library_id: folder,
-            path: '',
-            filename: 'IMG_4185.MOV',
-            deleted_at: null,
-            missing_since: null,
-          },
-        ],
-        size: 1024,
-        mtime: Date.now(),
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        indexed_at: new Date().toISOString(),
-        deleted_at: null,
-        hidden: false,
-      });
-    // The matching filename belongs to a stale location while another
-    // location is live. The exact filename and liveness predicates must
-    // match the same fileinfo element.
-    await mongo!
-      .db(TEST_DB)
-      .collection('assets')
-      .insertOne({
-        maple_id: 'stale-filename',
-        fileinfo: [
-          {
-            library_id: folder,
-            path: '',
-            filename: 'IMG_4185.MOV',
-            deleted_at: new Date().toISOString(),
-            missing_since: null,
-          },
-          {
-            library_id: folder,
-            path: '',
-            filename: 'IMG_9999.MOV',
-            deleted_at: null,
-            missing_since: null,
-          },
-        ],
-        deleted_at: null,
-        hidden: false,
-      });
-    setMeilisearchClientForTests({
-      isConfigured: () => false,
-      semanticConfigured: () => false,
-      health: async () => false,
-      ensureIndex: async () => {},
-      upsert: async () => {},
-      upsertOrThrow: async () => {},
-      tombstone: async () => {},
-      search: async () => ({ ids: [], estimatedTotal: 0 }),
+  it('preserves exact filename search during the database fallback', async () => {
+    seedSearchAsset(live.db, libraryId, {
+      filename: 'IMG_4185.MOV',
+      path: '',
+      mapleId: '010045ca68ac1f7f7e8b3aa02f72ac80',
+      mediaKind: 'video',
+      capturedAt: null,
     });
+    // The matching filename belongs to a stale location while another
+    // location of the same asset is live. The exact-filename and liveness
+    // predicates must match the same location row, so this asset must not
+    // come back. It sits in its own directory because `asset_locations` is
+    // unique on (library, path, filename) — two live copies of one name in
+    // one directory is a state the schema rules out.
+    const stale = seedSearchAsset(live.db, libraryId, {
+      filename: 'IMG_4185.MOV',
+      path: 'archive',
+      mapleId: 'stale-filename',
+      mediaKind: 'video',
+      capturedAt: null,
+      locationDeletedAt: '2026-01-01T00:00:00.000Z',
+    });
+    insertLocation(live.db, {
+      assetId: stale,
+      libraryId,
+      ordinal: 1,
+      path: '',
+      filename: 'IMG_9999.MOV',
+    });
+    setMeilisearchClientForTests(unconfiguredMeili());
 
     const response = await request({ query: 'IMG_4185.MOV', mode: 'hybrid' });
     const body = (await response.json()) as {
@@ -363,48 +311,27 @@ describe('POST /api/search/assets', () => {
     ]);
   });
 
-  it('applies the capture-date range during full Mongo fallback', async () => {
-    if (!mongoReachable) return;
-    const folder = new ObjectId();
-    // `exif.captured_at` is stored as a UTC ISO string (`db/schema.ts`), so
-    // the range is a lexicographic compare. `undated` carries no
-    // `exif.captured_at` at all — Mongo's range operators are type-bracketed,
-    // so it must fall out of a bounded window rather than sorting below every
-    // string, and must still be reachable when no window is given.
-    const asset = (mapleId: string, capturedAt: string | null) => ({
-      maple_id: mapleId,
-      fileinfo: [
-        {
-          library_id: folder,
-          path: '',
-          filename: `${mapleId}.jpg`,
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      ...(capturedAt === null ? {} : { exif: { captured_at: capturedAt } }),
-      deleted_at: null,
-      hidden: false,
-    });
-    await mongo!
-      .db(TEST_DB)
-      .collection('assets')
-      .insertMany([
-        asset('dated-2023', '2023-06-15T12:00:00.000Z'),
-        asset('dated-2024', '2024-06-15T12:00:00.000Z'),
-        asset('dated-2025', '2025-06-15T12:00:00.000Z'),
-        asset('undated', null),
-      ]);
-    setMeilisearchClientForTests({
-      isConfigured: () => false,
-      semanticConfigured: () => false,
-      health: async () => false,
-      ensureIndex: async () => {},
-      upsert: async () => {},
-      upsertOrThrow: async () => {},
-      tombstone: async () => {},
-      search: async () => ({ ids: [], estimatedTotal: 0 }),
-    });
+  it('applies the capture-date range during the database fallback', async () => {
+    // `captured_at` is a UTC ISO string, so the range is a lexicographic
+    // compare. `undated` carries no capture date at all — NULL satisfies
+    // neither bound, so it must fall out of a bounded window rather than
+    // sorting below every string, and must still be reachable when no window
+    // is given.
+    for (const [mapleId, capturedAt] of [
+      ['dated-2023', '2023-06-15T12:00:00.000Z'],
+      ['dated-2024', '2024-06-15T12:00:00.000Z'],
+      ['dated-2025', '2025-06-15T12:00:00.000Z'],
+      ['undated', null],
+    ] as Array<[string, string | null]>) {
+      seedSearchAsset(live.db, libraryId, {
+        filename: `${mapleId}.jpg`,
+        path: '',
+        mapleId,
+        capturedAt,
+      });
+    }
+    setMeilisearchClientForTests(unconfiguredMeili());
+
     const idsFor = async (range: Record<string, unknown>) => {
       const body = (await (await request({ query: 'dated-2024.jpg', ...range })).json()) as {
         results: Array<{ assetId: string }>;
@@ -423,7 +350,6 @@ describe('POST /api/search/assets', () => {
   });
 
   it('rejects invalid credentials and whitespace-only queries', async () => {
-    if (!mongoReachable) return;
     const invalid = await request({ query: 'HVAC' }, 'maple_sk_invalid');
     expect(invalid.status).toBe(401);
 
@@ -433,7 +359,6 @@ describe('POST /api/search/assets', () => {
   });
 
   it('authenticates before validating the request body', async () => {
-    if (!mongoReachable) return;
     const response = await new Elysia().use(serviceAssetSearchRoutes).handle(
       new Request('http://localhost/api/search/assets', {
         method: 'POST',
@@ -445,7 +370,6 @@ describe('POST /api/search/assets', () => {
   });
 
   it('reads the per-key request budget from persisted enrichment settings', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({ service_search_rate_limit_per_minute: 1 });
     const meili = mockMeili({
       search: async () => ({ ids: [], estimatedTotal: 0 }),
@@ -459,7 +383,6 @@ describe('POST /api/search/assets', () => {
   });
 
   it('accepts service-key authentication over plain HTTP on remote hosts', async () => {
-    if (!mongoReachable) return;
     const response = await new Elysia().use(serviceAssetSearchRoutes).handle(
       new Request('http://maple.example/api/search/assets', {
         method: 'POST',

@@ -9,87 +9,56 @@
  * `meilisearch_url` (and the Meilisearch API key bearer) at an
  * attacker-controlled host, so the `put()` helper below defaults to an
  * owner JWT. GET/test stay member-readable.
+ *
+ * Storage is SQLite (#3787): the saved config is one row of `app_settings`,
+ * and each test gets a private database installed as the process-wide handle.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { signAccessToken } from '../src/auth/tokens.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
+import { readEnrichmentConfig } from './helpers/enrichment-route-fixtures.ts';
 
-const TEST_DB = withTestDb(`maple_test_enrichment_route_meili_${process.pid}`);
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+withTestEnv('MAPLE_NOMINATIM_URL', '');
+withTestEnv('MAPLE_GEOCODE_WORKER_ENABLED', 'false');
+withTestEnv('MAPLE_DESCRIBE_WORKER_ENABLED', 'false');
+withTestEnv('MAPLE_FACE_WORKER_ENABLED', 'false');
+withTestEnv('MAPLE_OCR_WORKER_ENABLED', 'false');
+
+let live: LiveTestDatabase;
 let app: Pick<Elysia, 'handle'> | null = null;
 
 const realFetch = globalThis.fetch;
 
 const ownerJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'o@m.c', role: 'owner' },
+  { file_access: true, sub: newObjectIdHex(), email: 'o@m.c', role: 'owner' },
   'x'.repeat(32),
 );
 const memberJwt = await signAccessToken(
-  { file_access: true, sub: new ObjectId().toHexString(), email: 'm@m.c', role: 'member' },
+  { file_access: true, sub: newObjectIdHex(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
 beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[enrichment-route-meilisearch.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
-  delete process.env.MAPLE_NOMINATIM_URL;
-  process.env.MAPLE_GEOCODE_WORKER_ENABLED = 'false';
-  process.env.MAPLE_DESCRIBE_WORKER_ENABLED = 'false';
-  process.env.MAPLE_FACE_WORKER_ENABLED = 'false';
-  process.env.MAPLE_OCR_WORKER_ENABLED = 'false';
   const { enrichmentRoutes } = await import('../src/routes/enrichment.ts');
   app = new Elysia().use(enrichmentRoutes);
 });
 
 beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection<{ _id: string; [key: string]: unknown }>('app_settings').deleteMany({});
+  live = await createLiveTestDatabase();
 });
 
 afterEach(() => {
   globalThis.fetch = realFetch;
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
+  live.close();
 });
 
 function stubFetch(handler: (url: string) => { status?: number; body?: unknown } | Error): void {
@@ -147,7 +116,6 @@ async function post(
 
 describe('PUT /api/enrichment/config — meilisearch_url', () => {
   it('rejects a malformed meilisearch_url with 400', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -158,10 +126,9 @@ describe('PUT /api/enrichment/config — meilisearch_url', () => {
   });
 
   it("persists meilisearch_url and reports source 'db' (no health gate)", async () => {
-    if (!mongoReachable) return;
     // A bad/unreachable Meili URL must NOT block the save — search degrades
-    // to Mongo $text. We still stub fetch so the background health probe
-    // doesn't hit the network.
+    // to the local full-text index. We still stub fetch so the background
+    // health probe doesn't hit the network.
     stubFetch(() => ({ status: 503 }));
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
@@ -175,16 +142,14 @@ describe('PUT /api/enrichment/config — meilisearch_url', () => {
     };
     expect(body.meilisearch_url).toBe('http://meili.test:7700');
     expect(body.source.meilisearch_url).toBe('db');
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne<{ config: { meilisearch_url?: string } }>({ _id: 'enrichment' } as never);
-    expect(saved!.config.meilisearch_url).toBe('http://meili.test:7700');
+    expect(readEnrichmentConfig(live.db)).toMatchObject({
+      meilisearch_url: 'http://meili.test:7700',
+    });
   });
 });
 
 describe('PUT /api/enrichment/config — meilisearch task timeout', () => {
   it('persists an operator timeout and rejects values outside the safe range', async () => {
-    if (!mongoReachable) return;
     const saved = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -210,7 +175,6 @@ describe('PUT /api/enrichment/config — meilisearch task timeout', () => {
 
 describe('PUT /api/enrichment/config — semantic search', () => {
   it('reuses the Describe Ollama URL and persists the freeform embedding model', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', {
       nominatim_url: null,
       geocode_worker_enabled: false,
@@ -253,7 +217,6 @@ describe('PUT /api/enrichment/config — semantic search', () => {
   });
 
   it('ignores the retired separate embedder URL and rejects an invalid blend', async () => {
-    if (!mongoReachable) return;
     const base = { nominatim_url: null, geocode_worker_enabled: false };
     const legacyUrl = await put('/api/enrichment/config', {
       ...base,
@@ -274,7 +237,6 @@ describe('PUT /api/enrichment/config — semantic search', () => {
 
 describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', () => {
   it('persists the key but never echoes it; reports meilisearch_api_key_set', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 200 }));
     const put1 = await put('/api/enrichment/config', {
       nominatim_url: null,
@@ -295,15 +257,11 @@ describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', 
     expect(JSON.stringify(got.body)).not.toContain('super-secret');
     expect((got.body as { meilisearch_api_key_set: boolean }).meilisearch_api_key_set).toBe(true);
 
-    // ...but it IS persisted in Mongo.
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne<{ config: { meilisearch_api_key?: string } }>({ _id: 'enrichment' } as never);
-    expect(saved!.config.meilisearch_api_key).toBe('super-secret');
+    // ...but it IS persisted.
+    expect(readEnrichmentConfig(live.db)).toMatchObject({ meilisearch_api_key: 'super-secret' });
   });
 
   it('a blank/omitted key leaves the saved key unchanged', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 200 }));
     await put('/api/enrichment/config', {
       nominatim_url: null,
@@ -316,14 +274,10 @@ describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', 
       geocode_worker_enabled: false,
       meilisearch_api_key: '',
     });
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne<{ config: { meilisearch_api_key?: string } }>({ _id: 'enrichment' } as never);
-    expect(saved!.config.meilisearch_api_key).toBe('keep-me');
+    expect(readEnrichmentConfig(live.db)).toMatchObject({ meilisearch_api_key: 'keep-me' });
   });
 
   it('an explicit null clears the saved key', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 200 }));
     await put('/api/enrichment/config', {
       nominatim_url: null,
@@ -335,10 +289,7 @@ describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', 
       geocode_worker_enabled: false,
       meilisearch_api_key: null,
     });
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne<{ config: { meilisearch_api_key?: string | null } }>({ _id: 'enrichment' } as never);
-    expect(saved!.config.meilisearch_api_key).toBeNull();
+    expect(readEnrichmentConfig(live.db)?.meilisearch_api_key).toBeNull();
   });
 });
 
@@ -349,7 +300,6 @@ describe('PUT /api/enrichment/config — owner gate (#2353)', () => {
   const body = { nominatim_url: null, geocode_worker_enabled: false };
 
   it('rejects an unauthenticated request with 401', async () => {
-    if (!mongoReachable) return;
     // Raw request (bypassing the `put()` helper) — the 401 rejection body is
     // plain text ("missing bearer"), not JSON, so `put()`'s `res.json()`
     // parse would throw.
@@ -364,31 +314,24 @@ describe('PUT /api/enrichment/config — owner gate (#2353)', () => {
   });
 
   it('rejects a member-role token with 403', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', body, memberJwt);
     expect(r.status).toBe(403);
     expect((r.body as { error: string }).error).toBe('owner role required');
     // The rejected request must not have persisted anything.
-    const saved = await db!
-      .collection<{ _id: string; [key: string]: unknown }>('app_settings')
-      .findOne({ _id: 'enrichment' });
-    expect(saved).toBeNull();
+    expect(readEnrichmentConfig(live.db)).toBeNull();
   });
 
   it('allows an owner-role token through to the save path (200)', async () => {
-    if (!mongoReachable) return;
     const r = await put('/api/enrichment/config', body, ownerJwt);
     expect(r.status).toBe(200);
   });
 
   it('GET /config stays member-readable', async () => {
-    if (!mongoReachable) return;
     const r = await get('/api/enrichment/config', memberJwt);
     expect(r.status).toBe(200);
   });
 
   it('POST /test stays member-accessible', async () => {
-    if (!mongoReachable) return;
     stubFetch(() => ({ status: 200 }));
     const r = await post('/api/enrichment/test', { nominatim_url: 'http://n.test' }, memberJwt);
     expect(r.status).toBe(200);

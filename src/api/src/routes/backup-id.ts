@@ -1,4 +1,26 @@
+import type { ObjectId } from 'mongodb';
+import { safeObjectId } from '../db/safe-object-id.ts';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
+import type { FolderWithId } from '../db/schema.ts';
 import { fromHex, isMapleId } from '../indexer/id.ts';
+
+/**
+ * The `:libraryId` path parameter as an id, or the 400 to return instead.
+ *
+ * All four backup routes open by parsing it, and all four answered the same
+ * `{ error: 'invalid library id' }` from their own copy of the same try/catch.
+ * `safeObjectId` accepts exactly what the constructor accepted — 24 hex
+ * characters, either case — so this is the same verdict in one place.
+ */
+export function backupLibraryId(raw: string): ObjectId | Response {
+  return safeObjectId(raw) ?? badRequest({ error: 'invalid library id' });
+}
+
+/** The library the request names, or the 404 to return instead. */
+export async function backupLibrary(id: ObjectId): Promise<FolderWithId | Response> {
+  const folder = await findFolderById(id);
+  return folder ?? Response.json({ error: 'library not found' }, { status: 404 });
+}
 
 /** Normalize optional client IDs before any upload or sidecar state changes. */
 export function backupId(value: string | undefined, header: string): string | undefined | Response {

@@ -28,9 +28,15 @@ export function registerDiscoverWorker(): void {
       cachedPaused = false;
     },
   });
-  void loadDiscoverConfig().then((c) => {
-    cachedPaused = c.paused;
-  });
+  // Prime the cached flag. Deliberately not awaited — registration happens on
+  // the boot path — and deliberately caught: a read that loses a race with the
+  // database opening must leave the worker running with its default rather than
+  // raise an unhandled rejection. `reloadConfig` re-reads on the next tick.
+  void loadDiscoverConfig()
+    .then((c) => {
+      cachedPaused = c.paused;
+    })
+    .catch(() => {});
 }
 
 export function unregisterDiscoverWorker(): void {

@@ -1,158 +1,137 @@
 /**
- * reapRow tests (#2977) — the reaper's terminal action is a SOFT delete:
- * `deleted_at` + `deleted_reason: 'reaped'` set on the surviving record,
- * guarded against a concurrent revive and against double-soft-delete.
- * Integration tests against a real Mongo (skip-pass when unreachable,
- * mirroring missing-reaper.test.ts).
+ * `reapRow` tests (#2977) — the reaper's terminal action is a SOFT delete:
+ * `deleted_at` + `deleted_reason: 'reaped'` set on the surviving asset, guarded
+ * against a concurrent revive and against double-soft-delete.
+ *
+ * Each test owns an in-memory SQLite database installed as the process-wide
+ * handle, because `reapRow` reaches the repositories with no override — the same
+ * way it does in production.
+ *
+ * The guard is the interesting half. On MongoDB it was a nested
+ * `$not`/`$elemMatch` re-scanning the `fileinfo` array inside the update's
+ * filter; here it is `live_location_count = 0`, a column the `asset_locations`
+ * triggers maintain. These tests pin the behaviour rather than the spelling: a
+ * location that came back, or a user trash that landed first, must still make
+ * the reap a no-op.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import { describe, it, expect } from 'bun:test';
+import type { Database } from 'bun:sqlite';
+import { ObjectId } from 'mongodb';
+import { reapRow } from './missing-reaper.reconcile.ts';
+import type { MissingTaggedAsset } from '../db/sqlite/repos/assets.sweeps.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_reapreconcile_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const MISSING_SINCE = '2026-01-01T00:00:00.000Z';
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[missing-reaper.reconcile.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb, ensureIndexes } = await import('../db/client.ts');
-  await closeDb();
-  await ensureIndexes();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-const ASSET_BASE = {
-  size: 1,
-  mtime: 0,
-  rating: 0,
-  flag: 0,
-  color_label: '',
-  indexed_at: '2026-05-11T00:00:00Z',
-  stages: {},
-};
-
-function goneEntry(libId: ObjectId, filename: string, missingIso: string) {
+/**
+ * The classified asset the reap pass hands `reapRow` — what `listMissingTagged`
+ * would have returned for the seeded rows. Built by hand rather than read back
+ * so the already-trashed case, which that query deliberately excludes, can be
+ * exercised with the same shape as the others.
+ */
+function taggedAsset(assetId: string, libraryId: string, filename: string): MissingTaggedAsset {
   return {
-    library_id: libId,
-    path: 'sub',
-    filename,
-    deleted_at: null,
-    missing_since: missingIso,
-    missing_reason: 'enoent',
+    _id: new ObjectId(assetId),
+    maple_id: null,
+    fileinfo: [
+      {
+        path: 'sub',
+        filename,
+        library_id: new ObjectId(libraryId),
+        deleted_at: null,
+        missing_since: MISSING_SINCE,
+        missing_reason: 'enoent',
+      },
+    ],
+    deadStages: [],
   };
 }
 
+/** One asset whose only location is tagged missing. */
+function seedGoneAsset(
+  db: Database,
+  filename: string,
+  deletedAt: string | null = null,
+): MissingTaggedAsset {
+  const libraryId = insertFolder(db);
+  const assetId = insertAsset(db, { deletedAt });
+  insertLocation(db, {
+    assetId,
+    libraryId,
+    path: 'sub',
+    filename,
+    missingSince: MISSING_SINCE,
+  });
+  return taggedAsset(assetId, libraryId, filename);
+}
+
+function readAsset(
+  db: Database,
+  id: ObjectId,
+): { deleted_at: string | null; deleted_reason: string | null } {
+  return db
+    .query(`SELECT deleted_at, deleted_reason FROM assets WHERE id = ?`)
+    .get(id.toHexString()) as { deleted_at: string | null; deleted_reason: string | null };
+}
+
+function locationCount(db: Database, id: ObjectId): number {
+  return (db
+    .query(`SELECT COUNT(*) AS n FROM asset_locations WHERE asset_id = ?`)
+    .get(id.toHexString()) as { n: number } | null)!.n;
+}
+
 describe('reapRow', () => {
-  it('soft-deletes an all-gone row instead of removing it', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../db/client.ts');
-    const { reapRow } = await import('./missing-reaper.reconcile.ts');
-    const coll = await assetsCollection();
-    const libId = new ObjectId();
-    const _id = new ObjectId();
-    await coll.insertOne({
-      ...ASSET_BASE,
-      _id,
-      maple_id: 'reap-test-1',
-      fileinfo: [goneEntry(libId, 'a.dng', '2026-01-01T00:00:00.000Z')],
-      deleted_at: null,
-    } as never);
-    const reaped = await reapRow(coll, (await coll.findOne({ _id }))! as never);
-    expect(reaped).toBe(true);
-    const after = await coll.findOne({ _id });
-    expect(after).not.toBeNull();
-    expect(typeof after!.deleted_at).toBe('string');
-    expect((after as { deleted_reason?: string }).deleted_reason).toBe('reaped');
-    // fileinfo untouched — kept for revive matching + Trash display.
-    expect(after!.fileinfo).toHaveLength(1);
+  it('soft-deletes an all-gone asset instead of removing it', async () => {
+    using live = await createLiveTestDatabase();
+    const doc = seedGoneAsset(live.db, 'a.dng');
+
+    expect(await reapRow(doc)).toBe(true);
+
+    const after = readAsset(live.db, doc._id);
+    expect(typeof after.deleted_at).toBe('string');
+    expect(after.deleted_reason).toBe('reaped');
+    // Locations untouched — kept for revive matching + Trash display.
+    expect(locationCount(live.db, doc._id)).toBe(1);
   });
 
-  it('is a no-op when the row regained a live entry (concurrent revive guard)', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../db/client.ts');
-    const { reapRow } = await import('./missing-reaper.reconcile.ts');
-    const coll = await assetsCollection();
-    const libId = new ObjectId();
-    const _id = new ObjectId();
-    await coll.insertOne({
-      ...ASSET_BASE,
-      _id,
-      maple_id: 'reap-test-2',
-      fileinfo: [goneEntry(libId, 'b.dng', '2026-01-01T00:00:00.000Z')],
-      deleted_at: null,
-    } as never);
-    const stale = (await coll.findOne({ _id }))! as never;
-    // Simulate discover reviving the location AFTER classification.
-    await coll.updateOne(
-      { _id },
-      { $set: { 'fileinfo.0.missing_since': null, 'fileinfo.0.missing_reason': null } },
+  it('is a no-op when the asset regained a live location (concurrent revive guard)', async () => {
+    using live = await createLiveTestDatabase();
+    const doc = seedGoneAsset(live.db, 'b.dng');
+    // Simulate discover reviving the location AFTER classification. Clearing the
+    // tag puts `live_location_count` back to 1 through the location triggers,
+    // which is exactly what the reap's guard tests.
+    run(
+      live.db,
+      `UPDATE asset_locations SET missing_since = NULL, missing_reason = NULL
+        WHERE asset_id = ?`,
+      doc._id.toHexString(),
     );
-    const reaped = await reapRow(coll, stale);
-    expect(reaped).toBe(false);
-    const after = await coll.findOne({ _id });
-    expect(after!.deleted_at).toBeNull();
-    expect((after as { deleted_reason?: string }).deleted_reason).toBeUndefined();
+
+    expect(await reapRow(doc)).toBe(false);
+
+    const after = readAsset(live.db, doc._id);
+    expect(after.deleted_at).toBeNull();
+    expect(after.deleted_reason).toBeNull();
   });
 
-  it('is a no-op on an already user-trashed row', async () => {
-    if (!mongoReachable) return;
-    const { assetsCollection } = await import('../db/client.ts');
-    const { reapRow } = await import('./missing-reaper.reconcile.ts');
-    const coll = await assetsCollection();
-    const libId = new ObjectId();
-    const _id = new ObjectId();
-    await coll.insertOne({
-      ...ASSET_BASE,
-      _id,
-      maple_id: 'reap-test-3',
-      fileinfo: [goneEntry(libId, 'c.dng', '2026-01-01T00:00:00.000Z')],
-      deleted_at: '2026-08-01T00:00:00.000Z',
-      original_path: '/lib/sub/c.dng',
-    } as never);
-    const reaped = await reapRow(coll, (await coll.findOne({ _id }))! as never);
-    expect(reaped).toBe(false);
-    const after = await coll.findOne({ _id });
-    expect(after!.deleted_at).toBe('2026-08-01T00:00:00.000Z');
-    expect((after as { deleted_reason?: string }).deleted_reason).toBeUndefined();
+  it('is a no-op on an already user-trashed asset', async () => {
+    using live = await createLiveTestDatabase();
+    const trashedAt = '2026-08-01T00:00:00.000Z';
+    const doc = seedGoneAsset(live.db, 'c.dng', trashedAt);
+
+    expect(await reapRow(doc)).toBe(false);
+
+    const after = readAsset(live.db, doc._id);
+    // The user's trash timestamp and reason survive — the reap must not restamp
+    // a row that already belongs to the trash retention window.
+    expect(after.deleted_at).toBe(trashedAt);
+    expect(after.deleted_reason).toBeNull();
   });
 });

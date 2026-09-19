@@ -1,13 +1,19 @@
 // The vector backfill under Meilisearch's embedder address policy (#3315),
-// end to end against a real Mongo (skip-passes without one): the batch is
-// refused before it is submitted, the `meili` stage's worker_config row is
-// paused with the reason, the cursor is retained, and a resume after the
-// policy fix lets the same batch through and clears the reason.
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { ObjectId } from 'mongodb';
-import { closeDb, getDb, isDbConnected } from '../db/client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
-import { WorkerConfigRepo, type WorkerConfigDoc } from '../workers/worker-config.repo.ts';
+// end to end against a real database: the batch is refused before it is
+// submitted, the `meili` stage's worker_config row is paused with the reason,
+// the cursor is retained, and a resume after the policy fix lets the same batch
+// through and clears the reason.
+import { afterEach, describe, expect, it } from 'bun:test';
+import type { Database } from 'bun:sqlite';
+import { newObjectIdHex } from '../db/sqlite/object-id.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { insertDetail } from '../db/sqlite/repos/assets.test-helpers.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 import { runMeilisearchBackfill } from './meilisearch-backfill.ts';
 import {
   ASSETS_INDEX,
@@ -83,59 +89,33 @@ const documentWrites = (calls: CapturedRequest[]): CapturedRequest[] =>
     (c) => c.method === 'POST' && new URL(c.url).pathname === `/indexes/${ASSETS_INDEX}/documents`,
   );
 
-withTestDb(`maple_test_meili_backfill_policy_${process.pid}`);
-
-let mongoReachable = false;
-
-beforeAll(async () => {
-  await closeDb();
-});
-
-beforeEach(async () => {
-  try {
-    await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  await (await getDb()).dropDatabase();
-});
-
 afterEach(() => {
   setMeilisearchClientForTests(null);
   _configureEmbeddingGateForTests(null);
 });
 
-afterAll(async () => {
-  const db = await getDb().catch(() => null);
-  if (db) await db.dropDatabase();
-  await closeDb();
-});
-
-async function seedAsset(mapleId: string): Promise<void> {
-  const db = await getDb();
-  await db.collection('assets').insertOne({
-    _id: new ObjectId(),
-    maple_id: mapleId,
-    fileinfo: [
-      { library_id: new ObjectId(), path: '', filename: `${mapleId}.jpg`, deleted_at: null },
-    ],
-    description: 'a red bicycle outside a bike shop',
-  });
-}
-
-async function meiliConfig(): Promise<ReturnType<WorkerConfigRepo['load']>> {
-  const db = await getDb();
-  return new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config')).load('meili');
+/** One indexable asset with a live location and something to index. */
+function seedAsset(db: Database, mapleId: string): void {
+  const library = insertFolder(db);
+  const id = newObjectIdHex();
+  run(
+    db,
+    `INSERT INTO assets (id, size, mtime, indexed_at, maple_id) VALUES (?, 1, 1, ?, ?)`,
+    id,
+    new Date().toISOString(),
+    mapleId,
+  );
+  insertLocation(db, { assetId: id, libraryId: library, path: '', filename: `${mapleId}.jpg` });
+  insertDetail(db, id, { description: 'a red bicycle outside a bike shop' });
 }
 
 describe('vector backfill — embedder policy gate (#3315)', () => {
   it('refuses the batch, pauses the meili stage with the reason, keeps the cursor, and recovers on resume', async () => {
-    if (!mongoReachable) return;
-    await seedAsset('asset-policy-1');
+    using live = await createLiveTestDatabase();
+    seedAsset(live.db, 'asset-policy-1');
     const routes = fakeMeilisearch(rejectedProbe);
     const { fetchImpl, calls } = makeFakeFetch({ routes });
+    const repo = new WorkerConfigRepo();
     let clock = 5_000_000;
     // Real pause side effect (writes worker_config through the DB); only
     // the clock is controlled so the rejected verdict's short TTL can elapse.
@@ -159,7 +139,7 @@ describe('vector backfill — embedder policy gate (#3315)', () => {
     expect(refused.retryableError).toContain('Paused automatically');
     expect(refused.retryableError).toContain(EMBEDDING_POLICY_KEY);
     expect(documentWrites(calls)).toHaveLength(0);
-    const pausedConfig = await meiliConfig();
+    const pausedConfig = await repo.load('meili');
     expect(pausedConfig?.paused).toBe(true);
     expect(pausedConfig?.pause_reason).toContain(EMBEDDING_POLICY_KEY);
 
@@ -167,10 +147,7 @@ describe('vector backfill — embedder policy gate (#3315)', () => {
     // the stage; the retained cursor lets the same batch land.
     routes.splice(routes.indexOf(rejectedProbe), 1, healthyProbe);
     clock += EMBEDDER_PROBE_TTL_MS.rejected;
-    const db = await getDb();
-    await new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config')).patch('meili', {
-      paused: false,
-    });
+    await repo.patch('meili', { paused: false });
 
     const landed = await runMeilisearchBackfill(50, false);
 
@@ -178,7 +155,7 @@ describe('vector backfill — embedder policy gate (#3315)', () => {
     expect(landed.upserted).toBe(1);
     expect(landed.complete).toBe(true);
     expect(documentWrites(calls)).toHaveLength(1);
-    const resumedConfig = await meiliConfig();
+    const resumedConfig = await repo.load('meili');
     expect(resumedConfig?.paused).toBe(false);
     expect(resumedConfig).not.toHaveProperty('pause_reason');
   });

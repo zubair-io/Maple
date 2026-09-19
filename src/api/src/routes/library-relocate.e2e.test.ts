@@ -1,98 +1,55 @@
 /**
- * End-to-end tests for POST /api/library/relocate (and relocate-count),
- * Mongo-gated (#1671).
+ * End-to-end tests for POST /api/library/relocate (and relocate-count) — #1671.
  *
- * These exercise the REAL move machinery: a temp library on disk + a real
- * asset doc in a throwaway Mongo DB, driven through the mounted route handler.
- * They assert the crash-safe outcome — the photo file AND its `.xmp` sidecar
- * both land in `<libraryRoot>/<year>/<state>/<city>/`, the source paths are
- * gone, and the DB `fileinfo` is repointed — plus the collision auto-rename
- * (file + sidecar get a `.N` suffix; the pre-existing occupant is untouched)
- * and the already-in-place no-op. Video relocation with its full-name
- * `.mov.xmp` sidecar is covered separately in
- * `library-relocate-video.e2e.test.ts` (#1678, split for file-size budget).
+ * These exercise the REAL move machinery: a temp library on disk plus a real
+ * asset in an in-memory SQLite database, driven through the mounted route
+ * handler. They assert the crash-safe outcome — the photo file AND its `.xmp`
+ * sidecar both land in `<libraryRoot>/<year>/<state>/<city>/`, the source paths
+ * are gone, and the location row is repointed — plus the collision auto-rename
+ * (file + sidecar get a `.N` suffix; the pre-existing occupant is untouched) and
+ * the already-in-place no-op.
  *
- * Skips when MongoDB is unreachable (mirrors refile-backups.e2e.test.ts).
- * Pure wiring / validation is covered in library-relocate.test.ts.
+ * Video relocation with its full-name `.mov.xmp` sidecar is covered in
+ * `library-relocate-video.e2e.test.ts` (#1678), and the Apple-rendered
+ * companion plus the byte-identical dedupe in
+ * `library-relocate-companion.e2e.test.ts` (#2667) — both split for the
+ * file-size budget. Pure wiring and validation is `library-relocate.test.ts`.
+ *
+ * Nothing skips: the database is created per test, so there is no external
+ * service that could be unreachable (#3787).
  */
 
-import { describe, it, expect, afterEach, beforeAll, afterAll } from 'bun:test';
+import { describe, it, expect, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { ObjectId } from 'mongodb';
-import { Elysia } from 'elysia';
-import { libraryRelocateRoutes } from './library-relocate.ts';
-import type { getDb } from '../db/client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import {
+  SIDECAR_METADATA_INDEX_STAGE_NAME,
+  SIDECAR_METADATA_INDEX_VERSION,
+} from '../workers/stages/sidecar-metadata-index.ts';
+import {
+  SLUG,
+  clearLibraryCache,
+  locationOf,
+  metadataOverrideOf,
+  postCount,
+  postRelocate,
+  seedRelocatableAsset,
+  stageVersionOf,
+  usPlaceText,
+} from './library-relocate.test-helpers.ts';
 
-// Unique test DB so a stray run never touches the real `maple` DB.
-withTestDb(`maple_test_library_relocate_e2e_${process.pid}`);
-
-const app = new Elysia().use(libraryRelocateRoutes);
-
-const SLUG = 'photos';
-
-async function connectOrSkip(label: string): Promise<Awaited<ReturnType<typeof getDb>> | null> {
-  try {
-    const { getDb } = await import('../db/client.ts');
-    return await getDb();
-  } catch {
-    console.log(`MongoDB unreachable — skipping ${label}`);
-    return null;
-  }
+interface RelocateResult {
+  ok: boolean;
+  outcome?: string;
+  renamed?: boolean;
+  error?: string;
 }
 
-/** Seed the in-memory library cache with a single slug → root mapping so both
- *  loadLibraryRoots (byId) and resolveAddress (bySlug) resolve. */
-async function seedLibrary(libId: ObjectId, root: string): Promise<void> {
-  const { setLibraryRootsForTests, setLibraryBySlugForTests } =
-    await import('../indexer/libraries.cache.ts');
-  setLibraryRootsForTests(new Map([[libId.toHexString(), root]]));
-  setLibraryBySlugForTests(SLUG, { libraryId: libId, root, label: 'Photos' });
+async function resultsOf(res: Response): Promise<RelocateResult[]> {
+  return ((await res.json()) as { results: RelocateResult[] }).results;
 }
-
-/** Minimal metadata_override.place_text so geoDir computes California/Berkeley. */
-function usPlaceText() {
-  return {
-    edited_at: new Date().toISOString(),
-    touched_fields: ['place_text'],
-    place_text: {
-      city: 'Berkeley',
-      state: 'California',
-      country: 'United States',
-      country_code: 'us',
-    },
-  };
-}
-
-async function postCount(addresses: string[]): Promise<Response> {
-  return app.handle(
-    new Request('http://localhost/api/library/relocate-count', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ addresses }),
-    }),
-  );
-}
-
-async function postRelocate(addresses: string[]): Promise<Response> {
-  return app.handle(
-    new Request('http://localhost/api/library/relocate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ addresses }),
-    }),
-  );
-}
-
-beforeAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
-});
-
-afterAll(async () => {
-  await (await import('../db/client.ts')).closeDb();
-});
 
 describe('library-relocate end-to-end', () => {
   let dir: string | null = null;
@@ -100,152 +57,102 @@ describe('library-relocate end-to-end', () => {
   afterEach(async () => {
     if (dir) await fs.rm(dir, { recursive: true, force: true });
     dir = null;
-    const { setLibraryRootsForTests } = await import('../indexer/libraries.cache.ts');
-    setLibraryRootsForTests(null);
+    clearLibraryCache();
   });
 
-  it('relocates a photo + its .xmp sidecar into year/state/city, repoints DB, removes source', async () => {
-    const db = await connectOrSkip('photo+sidecar relocate');
-    if (!db) return;
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
+  it('relocates a photo + its .xmp sidecar into year/state/city, repoints the row, removes the source', async () => {
+    using live = await createLiveTestDatabase();
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-photo-'));
-    await seedLibrary(libId, dir);
 
     const oldRel = '2024/Loose';
     await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
     await fs.writeFile(path.join(dir, oldRel, 'IMG_1.dng'), 'pixels');
     await fs.writeFile(path.join(dir, oldRel, 'IMG_1.xmp'), 'edits');
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'relocate-photo-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'IMG_1.dng',
-          library_id: libId,
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      metadata_override: usPlaceText(),
-      exif: { captured_year: 2024 },
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
-    } as never);
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_1.dng',
+      mapleId: 'relocate-photo-id',
+      metadataOverride: usPlaceText(),
+    });
 
-    try {
-      const res = await postRelocate([`${SLUG}:${oldRel}/IMG_1.dng`]);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        results: Array<{ ok: boolean; outcome?: string; renamed?: boolean }>;
-      };
-      expect(body.results).toHaveLength(1);
-      expect(body.results[0]!.ok).toBe(true);
-      expect(body.results[0]!.outcome).toBe('moved');
-      expect(body.results[0]!.renamed).toBe(false);
+    const res = await postRelocate([`${SLUG}:${oldRel}/IMG_1.dng`]);
+    expect(res.status).toBe(200);
+    const results = await resultsOf(res);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.ok).toBe(true);
+    expect(results[0]!.outcome).toBe('moved');
+    expect(results[0]!.renamed).toBe(false);
 
-      const newRel = '2024/California/Berkeley';
-      // File + sidecar both landed at the new dir with identical bytes.
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_1.dng'), 'utf8')).toBe('pixels');
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_1.xmp'), 'utf8')).toBe('edits');
-      // Sources gone.
-      await expect(fs.stat(path.join(dir, oldRel, 'IMG_1.dng'))).rejects.toThrow();
-      await expect(fs.stat(path.join(dir, oldRel, 'IMG_1.xmp'))).rejects.toThrow();
+    const newRel = '2024/California/Berkeley';
+    // File + sidecar both landed at the new dir with identical bytes.
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_1.dng'), 'utf8')).toBe('pixels');
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_1.xmp'), 'utf8')).toBe('edits');
+    // Sources gone.
+    await expect(fs.stat(path.join(dir, oldRel, 'IMG_1.dng'))).rejects.toThrow();
+    await expect(fs.stat(path.join(dir, oldRel, 'IMG_1.xmp'))).rejects.toThrow();
 
-      // DB repointed.
-      const doc = (await assets.findOne({ _id })) as {
-        fileinfo?: { path: string; filename: string }[];
-      } | null;
-      expect(doc?.fileinfo?.[0].path).toBe(newRel);
-      expect(doc?.fileinfo?.[0].filename).toBe('IMG_1.dng');
-    } finally {
-      await assets.deleteOne({ _id });
-    }
+    // The location row is repointed, and the caches keyed on the old path are
+    // re-armed in the same transaction that repointed it.
+    expect(locationOf(live.db, asset.assetId)).toMatchObject({
+      path: newRel,
+      filename: 'IMG_1.dng',
+    });
+    expect(stageVersionOf(live.db, asset.assetId, 'thumb')).toBe(0);
+    expect(stageVersionOf(live.db, asset.assetId, 'preview')).toBe(0);
+    expect(stageVersionOf(live.db, asset.assetId, 'meili')).toBe(0);
   });
 
-  it('relocates a photo even if it is flagged missing_since, and clears the missing_since flag in the DB', async () => {
-    const db = await connectOrSkip('photo missing_since relocate');
-    if (!db) return;
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
+  it('relocates a photo flagged missing_since, and clears the flag', async () => {
+    using live = await createLiveTestDatabase();
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-missing-'));
-    await seedLibrary(libId, dir);
 
     const oldRel = '2024/Loose';
     await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
     await fs.writeFile(path.join(dir, oldRel, 'IMG_missing.dng'), 'missing_bytes');
     await fs.writeFile(path.join(dir, oldRel, 'IMG_missing.xmp'), 'edits');
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'relocate-missing-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'IMG_missing.dng',
-          library_id: libId,
-          deleted_at: null,
-          missing_since: '2026-06-30T00:00:00.000Z', // marked missing
-        },
-      ],
-      metadata_override: usPlaceText(),
-      exif: { captured_year: 2024 },
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
-    } as never);
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_missing.dng',
+      mapleId: 'relocate-missing-id',
+      metadataOverride: usPlaceText(),
+      missingSince: '2026-06-30T00:00:00.000Z',
+    });
 
-    try {
-      // 1. Verify relocate-count counts it correctly (it returns 1, not 0)
-      const countRes = await postCount([`${SLUG}:${oldRel}/IMG_missing.dng`]);
-      expect(countRes.status).toBe(200);
-      const countBody = await countRes.json();
-      expect(countBody.count).toBe(1);
+    // 1. relocate-count still counts it: a missing-tagged file the client has
+    //    resolved on disk is a relocation candidate like any other.
+    const countRes = await postCount([`${SLUG}:${oldRel}/IMG_missing.dng`]);
+    expect(countRes.status).toBe(200);
+    expect(((await countRes.json()) as { count: number }).count).toBe(1);
 
-      // 2. Perform relocate
-      const res = await postRelocate([`${SLUG}:${oldRel}/IMG_missing.dng`]);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        results: Array<{ ok: boolean; outcome?: string; renamed?: boolean }>;
-      };
-      expect(body.results).toHaveLength(1);
-      expect(body.results[0]!.ok).toBe(true);
-      expect(body.results[0]!.outcome).toBe('moved');
+    // 2. Perform the relocate.
+    const res = await postRelocate([`${SLUG}:${oldRel}/IMG_missing.dng`]);
+    expect(res.status).toBe(200);
+    const results = await resultsOf(res);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.ok).toBe(true);
+    expect(results[0]!.outcome).toBe('moved');
 
-      const newRel = '2024/California/Berkeley';
-      // File + sidecar both landed at the new dir
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.dng'), 'utf8')).toBe(
-        'missing_bytes',
-      );
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.xmp'), 'utf8')).toBe('edits');
+    const newRel = '2024/California/Berkeley';
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.dng'), 'utf8')).toBe(
+      'missing_bytes',
+    );
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_missing.xmp'), 'utf8')).toBe('edits');
 
-      // DB repointed and missing_since is cleared (null)
-      const doc = (await assets.findOne({ _id })) as {
-        fileinfo?: {
-          path: string;
-          filename: string;
-          missing_since?: string | null;
-        }[];
-      } | null;
-      expect(doc?.fileinfo?.[0].path).toBe(newRel);
-      expect(doc?.fileinfo?.[0].filename).toBe('IMG_missing.dng');
-      expect(doc?.fileinfo?.[0].missing_since).toBeNull();
-    } finally {
-      await assets.deleteOne({ _id });
-    }
+    // Repointed, and the missing tag is gone — the file is demonstrably there.
+    expect(locationOf(live.db, asset.assetId)).toMatchObject({
+      path: newRel,
+      filename: 'IMG_missing.dng',
+      missing_since: null,
+    });
   });
 
-  it('auto-renames file + sidecar on collision (.N suffix), leaves the pre-existing occupant untouched', async () => {
-    const db = await connectOrSkip('collision auto-rename');
-    if (!db) return;
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
+  it('auto-renames file + sidecar on collision (.N suffix), leaving the occupant untouched', async () => {
+    using live = await createLiveTestDatabase();
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-collision-'));
-    await seedLibrary(libId, dir);
 
     const oldRel = '2024/Loose';
     const newRel = '2024/California/Berkeley';
@@ -255,69 +162,43 @@ describe('library-relocate end-to-end', () => {
     await fs.writeFile(path.join(dir, oldRel, 'IMG_2.dng'), 'source-pixels');
     await fs.writeFile(path.join(dir, oldRel, 'IMG_2.xmp'), 'source-edits');
     // Pre-existing occupant at the target with the SAME name, different bytes.
+    // Untracked on purpose: a file on disk the catalogue knows nothing about.
     await fs.writeFile(path.join(dir, newRel, 'IMG_2.dng'), 'occupant-pixels');
     await fs.writeFile(path.join(dir, newRel, 'IMG_2.xmp'), 'occupant-edits');
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'relocate-collision-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'IMG_2.dng',
-          library_id: libId,
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      metadata_override: usPlaceText(),
-      exif: { captured_year: 2024 },
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
-    } as never);
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_2.dng',
+      mapleId: 'relocate-collision-id',
+      metadataOverride: usPlaceText(),
+    });
 
-    try {
-      const res = await postRelocate([`${SLUG}:${oldRel}/IMG_2.dng`]);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        results: Array<{ ok: boolean; outcome?: string; renamed?: boolean }>;
-      };
-      expect(body.results[0]!.ok).toBe(true);
-      expect(body.results[0]!.outcome).toBe('moved');
-      expect(body.results[0]!.renamed).toBe(true);
+    const res = await postRelocate([`${SLUG}:${oldRel}/IMG_2.dng`]);
+    expect(res.status).toBe(200);
+    const results = await resultsOf(res);
+    expect(results[0]!.ok).toBe(true);
+    expect(results[0]!.outcome).toBe('moved');
+    expect(results[0]!.renamed).toBe(true);
 
-      // Occupant untouched.
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_2.dng'), 'utf8')).toBe(
-        'occupant-pixels',
-      );
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_2.xmp'), 'utf8')).toBe('occupant-edits');
-      // Moved copy landed at the suffixed sibling (.1) — file AND sidecar.
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_2.1.dng'), 'utf8')).toBe(
-        'source-pixels',
-      );
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_2.1.xmp'), 'utf8')).toBe('source-edits');
-      // Source gone.
-      await expect(fs.stat(path.join(dir, oldRel, 'IMG_2.dng'))).rejects.toThrow();
+    // Occupant untouched.
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_2.dng'), 'utf8')).toBe('occupant-pixels');
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_2.xmp'), 'utf8')).toBe('occupant-edits');
+    // Moved copy landed at the suffixed sibling (.1) — file AND sidecar.
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_2.1.dng'), 'utf8')).toBe('source-pixels');
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_2.1.xmp'), 'utf8')).toBe('source-edits');
+    // Source gone.
+    await expect(fs.stat(path.join(dir, oldRel, 'IMG_2.dng'))).rejects.toThrow();
 
-      // DB repointed to the renamed filename.
-      const doc = (await assets.findOne({ _id })) as {
-        fileinfo?: { path: string; filename: string }[];
-      } | null;
-      expect(doc?.fileinfo?.[0].path).toBe(newRel);
-      expect(doc?.fileinfo?.[0].filename).toBe('IMG_2.1.dng');
-    } finally {
-      await assets.deleteOne({ _id });
-    }
+    expect(locationOf(live.db, asset.assetId)).toMatchObject({
+      path: newRel,
+      filename: 'IMG_2.1.dng',
+    });
   });
 
   it('already in the right folder → count 0, relocate is a no-op', async () => {
-    const db = await connectOrSkip('already in place');
-    if (!db) return;
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
+    using live = await createLiveTestDatabase();
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-inplace-'));
-    await seedLibrary(libId, dir);
 
     // The asset already lives at its canonical geo dir.
     const rel = '2024/California/Berkeley';
@@ -325,61 +206,34 @@ describe('library-relocate end-to-end', () => {
     await fs.writeFile(path.join(dir, rel, 'IMG_3.dng'), 'pixels');
     await fs.writeFile(path.join(dir, rel, 'IMG_3.xmp'), 'edits');
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'relocate-inplace-id',
-      fileinfo: [
-        {
-          path: rel,
-          filename: 'IMG_3.dng',
-          library_id: libId,
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      metadata_override: usPlaceText(),
-      exif: { captured_year: 2024 },
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
-    } as never);
+    seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: rel,
+      filename: 'IMG_3.dng',
+      mapleId: 'relocate-inplace-id',
+      metadataOverride: usPlaceText(),
+    });
 
-    try {
-      const res = await postCount([`${SLUG}:${rel}/IMG_3.dng`]);
-      expect(res.status).toBe(200);
-      expect(((await res.json()) as { count: number }).count).toBe(0);
-    } finally {
-      await assets.deleteOne({ _id });
-    }
+    const res = await postCount([`${SLUG}:${rel}/IMG_3.dng`]);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { count: number }).count).toBe(0);
   });
 
   it('relocates to year/Screenshot when metadata_override.is_screenshot is true', async () => {
-    const db = await connectOrSkip('override screenshot relocate');
-    if (!db) return;
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
+    using live = await createLiveTestDatabase();
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-override-screenshot-'));
-    await seedLibrary(libId, dir);
 
     const oldRel = '2024/Loose';
     await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
     await fs.writeFile(path.join(dir, oldRel, 'IMG_scr.dng'), 'pixels');
     await fs.writeFile(path.join(dir, oldRel, 'IMG_scr.xmp'), 'edits');
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'relocate-override-screenshot-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'IMG_scr.dng',
-          library_id: libId,
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      metadata_override: {
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_scr.dng',
+      mapleId: 'relocate-override-screenshot-id',
+      metadataOverride: {
         place_text: {
           city: 'Berkeley',
           state: 'California',
@@ -388,50 +242,32 @@ describe('library-relocate end-to-end', () => {
         },
         is_screenshot: true,
       },
-      exif: { captured_year: 2024 },
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
-    } as never);
+    });
 
-    try {
-      const countRes = await postCount([`${SLUG}:${oldRel}/IMG_scr.dng`]);
-      expect(countRes.status).toBe(200);
-      expect(((await countRes.json()) as { count: number }).count).toBe(1);
+    const countRes = await postCount([`${SLUG}:${oldRel}/IMG_scr.dng`]);
+    expect(countRes.status).toBe(200);
+    expect(((await countRes.json()) as { count: number }).count).toBe(1);
 
-      const res = await postRelocate([`${SLUG}:${oldRel}/IMG_scr.dng`]);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        results: Array<{ ok: boolean; outcome?: string; renamed?: boolean }>;
-      };
-      expect(body.results[0]!.ok).toBe(true);
+    const res = await postRelocate([`${SLUG}:${oldRel}/IMG_scr.dng`]);
+    expect(res.status).toBe(200);
+    expect((await resultsOf(res))[0]!.ok).toBe(true);
 
-      const newRel = '2024/Screenshot';
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_scr.dng'), 'utf8')).toBe('pixels');
-      expect(await fs.readFile(path.join(dir, newRel, 'IMG_scr.xmp'), 'utf8')).toBe('edits');
-
-      const doc = (await assets.findOne({ _id })) as {
-        fileinfo?: { path: string; filename: string }[];
-      } | null;
-      expect(doc?.fileinfo?.[0].path).toBe(newRel);
-    } finally {
-      await assets.deleteOne({ _id });
-    }
+    const newRel = '2024/Screenshot';
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_scr.dng'), 'utf8')).toBe('pixels');
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_scr.xmp'), 'utf8')).toBe('edits');
+    expect(locationOf(live.db, asset.assetId)).toMatchObject({ path: newRel });
   });
 
-  it('synchronously reconciles override from sidecar on-the-fly when stage version is dirty (relocate-count)', async () => {
-    const db = await connectOrSkip('on-the-fly reconcile');
-    if (!db) return;
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
+  it('reconciles the override from the sidecar on the fly when the stage is dirty', async () => {
+    using live = await createLiveTestDatabase();
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-reconcile-'));
-    await seedLibrary(libId, dir);
 
     const oldRel = '2024/Loose';
     await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
     await fs.writeFile(path.join(dir, oldRel, 'IMG_4.dng'), 'pixels');
-
-    // Create a valid XMP sidecar on disk with geo information
-    const xmpContent = `<?xml version="1.0" encoding="UTF-8"?>
+    await fs.writeFile(
+      path.join(dir, oldRel, 'IMG_4.xmp'),
+      `<?xml version="1.0" encoding="UTF-8"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
   <rdf:Description rdf:about=""
@@ -443,53 +279,34 @@ describe('library-relocate end-to-end', () => {
    Iptc4xmpCore:CountryCode="US">
   </rdf:Description>
  </rdf:RDF>
-</x:xmpmeta>`;
-    await fs.writeFile(path.join(dir, oldRel, 'IMG_4.xmp'), xmpContent);
+</x:xmpmeta>`,
+    );
 
-    const _id = new ObjectId();
-    // Insert asset with stages version set to 0 (dirty) and NO metadata_override place_text
-    await assets.insertOne({
-      _id,
-      maple_id: 'relocate-reconcile-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'IMG_4.dng',
-          library_id: libId,
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      // No metadata_override at all, mimicking state immediately after batchApply
-      exif: { captured_year: 2024 },
-      stages: {
-        'sidecar-metadata-index': { version: 0, attempts: 0, dead: false },
-      },
-    } as never);
+    // No override at all and the stage below target — the state an asset is in
+    // immediately after the batch metadata editor wrote its sidecar.
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_4.dng',
+      mapleId: 'relocate-reconcile-id',
+      metadataOverride: null,
+      sidecarStageVersion: 0,
+    });
 
-    try {
-      // Prior to relocate-count, doc in DB has no metadata_override.place_text.
-      // Calling relocate-count should:
-      //   1. Notice version !== 1.
-      //   2. Run sidecarMetadataIndexHandler.
-      //   3. Update the doc in the DB with metadata_override.place_text.
-      //   4. Correctly count this asset as wouldRelocate (since target is California/Berkeley and current is Loose).
-      const res = await postCount([`${SLUG}:${oldRel}/IMG_4.dng`]);
-      expect(res.status).toBe(200);
-      const countBody = (await res.json()) as { count: number };
-      expect(countBody.count).toBe(1);
+    // relocate-count has to notice the stage is behind, run the handler, store
+    // what it produced, and only then decide — otherwise it would compare the
+    // asset's current folder against a place it does not know about yet.
+    const res = await postCount([`${SLUG}:${oldRel}/IMG_4.dng`]);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { count: number }).count).toBe(1);
 
-      // Verify DB was updated
-      const doc = (await assets.findOne({ _id })) as any;
-      expect(doc?.metadata_override?.place_text?.city).toBe('Berkeley');
-      expect(doc?.metadata_override?.place_text?.state).toBe('California');
-      expect(doc?.stages?.['sidecar-metadata-index']?.version).toBe(1);
-    } finally {
-      await assets.deleteOne({ _id });
-      if (dir) {
-        await fs.rm(dir, { recursive: true, force: true });
-        dir = null;
-      }
-    }
+    const override = metadataOverrideOf(live.db, asset.assetId);
+    expect((override?.['place_text'] as { city?: string; state?: string })?.city).toBe('Berkeley');
+    expect((override?.['place_text'] as { city?: string; state?: string })?.state).toBe(
+      'California',
+    );
+    expect(stageVersionOf(live.db, asset.assetId, SIDECAR_METADATA_INDEX_STAGE_NAME)).toBe(
+      SIDECAR_METADATA_INDEX_VERSION,
+    );
   });
 });

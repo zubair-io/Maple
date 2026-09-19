@@ -4,31 +4,41 @@
  *
  * `GET /api/workers/status` used to run ~38 `countDocuments` in parallel on
  * every page load, and `GET /api/workers/migration/migrations` ran every
- * migration's `countRemaining()`. On a 335k-asset library several of those are
- * multi-second scans (a case-insensitive filename regex is never filtered at a
- * multikey index, and `$ne` done-markers / `$exists: false` have no index
- * shape at all), so both endpoints took ~8 s and an open Workers tab kept the
- * DB saturated. Now:
+ * migration's `countRemaining()`. On a 335k-asset library several of those were
+ * multi-second scans, so both endpoints took ~8 s and an open Workers tab kept
+ * the database saturated. Now:
  *
  *  - `computeStatusCounts()` runs the per-stage pending / ready / dead counts
  *    plus the collection-level totals, SEQUENTIALLY (one query in flight at a
- *    time, so a refresh never starves real requests), and the result is
- *    written to `worker_status.counts`.
+ *    time, so a refresh never starves real requests), and the result is written
+ *    to the `worker_status` row.
  *  - `runMigrationCountsPass()` does the same for every migration's
  *    `remaining` (and `failedPermanently`), persisted on the migration state.
  *  - `startStatusCountsRefresher()` drives both on a demand-aware cadence: the
  *    API bumps `counts_wanted_until` while someone is looking at the page, and
- *    only then do the passes run quickly (backing off in proportion to how
- *    long the last pass took). Idle, stage counts refresh every 10 min and
- *    migration counts not at all (the migration worker persists `remaining`
- *    itself for every enabled migration on each tick).
+ *    only then do the passes run quickly (backing off in proportion to how long
+ *    the last pass took). Idle, stage counts refresh every 10 min and migration
+ *    counts not at all (the migration worker persists `remaining` itself for
+ *    every enabled migration on each tick).
  *
- * The API reads the snapshot with a single `findOne` (`routes-status.ts`).
+ * The API reads the snapshot with one keyed read (`routes-status.ts`).
+ *
+ * ## What the SQLite cutover changed here, and what it did not
+ *
+ * The counts are cheap now — `stage_dead` answers a dead count from the index
+ * alone, and pending / ready are range scans of `stage_claim` — but they still
+ * run here and are still persisted. The contract was never about the cost of
+ * one count; it is that the request path does not go near the backlog. A future
+ * reader tempted to move `countStageBacklog` into the route because it is fast
+ * should read #3491 first.
  */
-import { type Collection, type Document, type Filter } from 'mongodb';
-import { getDb } from '../db/client.ts';
-import { buildClaimQuery } from './claim-query.ts';
-import { liveFileInfoElemMatch } from '../indexer/images.repo.ts';
+import { countStageBacklog, type StageBacklogQuery } from '../db/sqlite/repos/stage-state.repo.ts';
+import {
+  countDamagedAssets,
+  countDuplicateAssets,
+  countMissingTaggedAssets,
+  countNewlyHiddenAssets,
+} from '../db/sqlite/repos/worker-admin.repo.ts';
 import { ALL_STAGE_NAMES, stageManifest } from './stages/manifest.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
@@ -40,7 +50,7 @@ import {
   readStatusCountsDemand,
   writeStatusCounts,
   type StatusCountsSnapshot,
-} from './worker-status.repo.ts';
+} from '../db/sqlite/repos/worker-status.repo.ts';
 import { MIGRATIONS } from './migration/index.ts';
 import type { Migration } from './migration/types.ts';
 import { patchMigrationState, type MigrationState } from './migration-config.repo.ts';
@@ -48,12 +58,14 @@ import { child } from '../log.ts';
 
 const log = child('workers:status-counts');
 
-// Names of the version-claim pipeline stages. Other registry entries (e.g.
-// the `missing-reaper`, which is registered for pause/resume/status control
-// but is NOT a per-asset claim stage) carry no `stages.<name>` subdocument, so
-// the pending / dead `countDocuments` below is meaningless for them — and the
-// `version: { $exists: false }` branch would match the ENTIRE collection. Gate
-// the counts to real claim stages; everything else reports pending/dead 0.
+/**
+ * Names of the version-claim pipeline stages.
+ *
+ * Other registry entries — the `missing-reaper`, registered for pause/resume
+ * and status control but not a per-asset claim stage — have no `stage_state`
+ * rows at all, so a backlog count is meaningless for them. They report
+ * pending/dead 0 unless one of the special cases below fills them in.
+ */
 const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
 
 /**
@@ -70,57 +82,33 @@ export const ALL_KNOWN_WORKER_NAMES: ReadonlyArray<string> = [
 ];
 
 /**
- * name → the stage's optional extra claim predicate (`StageConfig.claimFilter`).
- * The `pending`/`ready` counts must apply it too, or a media-only stage like
- * `transcribe` reports the entire photo library as pending forever — docs it
- * never claims (and, with the filter, never marks done) would otherwise sit in
- * the count indefinitely, defeating the operator diagnosis the filter exists
- * to give. `undefined` for stages without one → counts are unchanged.
+ * name → the stage's optional extra claim predicate (`StageConfig.claimResidual`).
+ *
+ * The pending/ready counts apply it too, or a media-only stage like `transcribe`
+ * reports the entire photo library as pending forever — assets it never claims,
+ * and therefore never marks done, would otherwise sit in the count indefinitely
+ * and defeat the operator diagnosis the split exists to give.
  */
-const CLAIM_FILTER_BY_STAGE = new Map(stageManifest.map((s) => [s.name, s.claimFilter]));
+const CLAIM_RESIDUAL_BY_STAGE = new Map(
+  stageManifest.map((stage) => [stage.name, stage.claimResidual]),
+);
 
-/**
- * Build the `pending` and `ready` count queries for one claim stage. Applies
- * the stage's optional `claimFilter` to BOTH so the counts match what the
- * runner actually claims (a media-only stage must not count the whole library
- * as pending).
- */
-function stageCountQueries(
-  name: string,
-  tv: number,
-  deps: Parameters<typeof buildClaimQuery>[2],
-): { pendingQuery: Filter<Document>; readyQuery: Filter<Document> } {
-  const claimFilter = CLAIM_FILTER_BY_STAGE.get(name);
-  const pendingBase = {
-    $or: [
-      { [`stages.${name}.version`]: { $lt: tv } },
-      { [`stages.${name}.version`]: { $exists: false } },
-    ],
-    [`stages.${name}.dead`]: { $ne: true },
-    // Require a live location the same way the claim query (`ready`) does, so
-    // `blocked = pending - ready` doesn't absorb the no-live-location backlog
-    // (the reaper's queue) into every claim stage's blocked count.
-    ...liveFileInfoElemMatch(),
-  };
-  // The claimFilter is $and-merged (not spread) so it can't collide with the
-  // base query's own `fileinfo`/`$or` keys — same reasoning as buildClaimQuery.
-  return {
-    pendingQuery: (claimFilter
-      ? { $and: [pendingBase, claimFilter] }
-      : pendingBase) as Filter<Document>,
-    readyQuery: buildClaimQuery(name, tv, deps, new Set(), claimFilter) as Filter<Document>,
-  };
+/** Count one stage's backlog, reporting zeros rather than failing the pass. */
+async function safeBacklog(query: StageBacklogQuery) {
+  try {
+    return await countStageBacklog(query);
+  } catch (err) {
+    log.warn({ stage: query.stage, err }, 'stage backlog count failed — reporting 0');
+    return { pending: 0, ready: 0, dead: 0 };
+  }
 }
 
-async function safeCount(
-  assets: Collection<Document>,
-  filter: Filter<Document>,
-  label: string,
-): Promise<number> {
+/** One collection-level count, reporting 0 rather than failing the pass. */
+async function safeCount(count: () => Promise<number>, label: string): Promise<number> {
   try {
-    return await assets.countDocuments(filter);
+    return await count();
   } catch (err) {
-    log.warn({ count: label, err }, 'countDocuments failed — reporting 0');
+    log.warn({ count: label, err }, 'count failed — reporting 0');
     return 0;
   }
 }
@@ -128,11 +116,11 @@ async function safeCount(
 /**
  * Compute every count the Workers page shows. Queries run one at a time on
  * purpose: this is background work, and a 38-wide parallel burst is exactly
- * what used to saturate the DB while the page was open.
+ * what used to saturate the database while the page was open.
  *
- * `statuses` supplies each stage's targetVersion / dependsOn (the worker's
- * own registry snapshot in production; tests pass an explicit map). Stages
- * absent from it fall back to the in-process registry, then to version 1.
+ * `statuses` supplies each stage's targetVersion / dependsOn (the worker's own
+ * registry snapshot in production; tests pass an explicit map). Stages absent
+ * from it fall back to the in-process registry, then to version 1.
  */
 export async function computeStatusCounts(
   stageNames: readonly string[],
@@ -142,54 +130,35 @@ export async function computeStatusCounts(
   const pending: Record<string, number> = {};
   const ready: Record<string, number> = {};
   const dead: Record<string, number> = {};
-  const assets = await getDb()
-    .then((db) => db.collection<Document>('assets'))
-    .catch(() => null);
-  if (!assets) {
-    // DB unavailable — zeros, stamped so the reader can still tell "counted,
-    // nothing there" from "never counted".
-    return {
-      pending,
-      ready,
-      dead,
-      damaged: 0,
-      newly_hidden: 0,
-      computed_at: startedAt,
-      duration_ms: 0,
-    };
-  }
 
   for (const name of stageNames) {
     if (!CLAIM_STAGE_NAMES.has(name)) continue;
     const registryEntry = stageRegistry.statuses()[name];
-    const tv = statuses[name]?.targetVersion ?? registryEntry?.targetVersion ?? 1;
-    const deps = statuses[name]?.dependsOn ?? registryEntry?.dependsOn ?? [];
-    const { pendingQuery, readyQuery } = stageCountQueries(name, tv, deps);
-    pending[name] = await safeCount(assets, pendingQuery, `${name}.pending`);
-    ready[name] = await safeCount(assets, readyQuery, `${name}.ready`);
-    dead[name] = await safeCount(assets, { [`stages.${name}.dead`]: true }, `${name}.dead`);
+    const backlog = await safeBacklog({
+      stage: name,
+      targetVersion: statuses[name]?.targetVersion ?? registryEntry?.targetVersion ?? 1,
+      dependsOn: statuses[name]?.dependsOn ?? registryEntry?.dependsOn ?? [],
+      residual: CLAIM_RESIDUAL_BY_STAGE.get(name),
+    });
+    pending[name] = backlog.pending;
+    ready[name] = backlog.ready;
+    dead[name] = backlog.dead;
   }
 
+  // Two workers whose queue is a property of the asset rather than a stage row.
   if (stageNames.includes(MISSING_REAPER_NAME)) {
-    const tagged = await safeCount(
-      assets,
-      { 'fileinfo.missing_since': { $type: 'string' } },
-      'missing-reaper',
-    );
+    const tagged = await safeCount(countMissingTaggedAssets, 'missing-reaper');
     pending[MISSING_REAPER_NAME] = tagged;
     ready[MISSING_REAPER_NAME] = tagged;
   }
   if (stageNames.includes(DEDUPLICATE_NAME)) {
-    const dupes = await safeCount(assets, { live_location_count: { $gte: 2 } }, 'deduplicate');
+    const dupes = await safeCount(countDuplicateAssets, 'deduplicate');
     pending[DEDUPLICATE_NAME] = dupes;
     ready[DEDUPLICATE_NAME] = dupes;
   }
-  const damaged = await safeCount(assets, { 'damaged.since': { $type: 'string' } }, 'damaged');
-  const newlyHidden = await safeCount(
-    assets,
-    { hidden: true, hidden_ack: false, hidden_reason: { $in: ['nudity', 'nudity-burst'] } },
-    'newly-hidden',
-  );
+
+  const damaged = await safeCount(countDamagedAssets, 'damaged');
+  const newlyHidden = await safeCount(countNewlyHiddenAssets, 'newly-hidden');
   const computedAt = Date.now();
   return {
     pending,
@@ -255,7 +224,7 @@ const REFRESH_POLL_MS = 2_000;
 /** Stage counts while watched: at least this often … */
 export const STAGE_COUNTS_MIN_INTERVAL_MS = 5_000;
 /** … and at most this rarely, however slow the last pass was. */
-export const STAGE_COUNTS_MAX_INTERVAL_MS = 120_000;
+const STAGE_COUNTS_MAX_INTERVAL_MS = 120_000;
 /** Stage counts while nobody is watching. */
 export const STAGE_COUNTS_IDLE_INTERVAL_MS = 10 * 60_000;
 export const MIGRATION_COUNTS_MIN_INTERVAL_MS = 30_000;
@@ -268,9 +237,9 @@ export function nextDelayMs(lastDurationMs: number, minMs: number, maxMs: number
 }
 
 export interface RefreshClock {
-  /** When the refresher started — the idle cadence counts from here so a
-   * fresh worker doesn't spend its first minute counting; a demand poke
-   * still gets an immediate first pass. */
+  /** When the refresher started — the idle cadence counts from here so a fresh
+   * worker doesn't spend its first minute counting; a demand poke still gets an
+   * immediate first pass. */
   bootAt: number;
   lastStageRunAt: number;
   lastStageDurationMs: number;
@@ -319,14 +288,14 @@ export interface RefresherHandle {
 }
 
 /**
- * Start the demand-aware refresh loop. Iterations never overlap: the next
- * poll is scheduled only after the current one (including any pass it ran)
- * has finished, so a slow pass simply delays the next check.
+ * Start the demand-aware refresh loop. Iterations never overlap: the next poll
+ * is scheduled only after the current one (including any pass it ran) has
+ * finished, so a slow pass simply delays the next check.
  */
 export function startStatusCountsRefresher(deps: RefresherDeps = {}): RefresherHandle {
   const pollMs = deps.pollMs ?? REFRESH_POLL_MS;
   const now = deps.now ?? Date.now;
-  const readDemand = deps.readDemand ?? readStatusCountsDemand;
+  const readDemand = deps.readDemand ?? (() => readStatusCountsDemand());
   const stagePass = deps.stagePass ?? runStatusCountsPass;
   const migrationPass = deps.migrationPass ?? runMigrationCountsPass;
   const clock: RefreshClock = {

@@ -7,13 +7,23 @@
 // auth-native-code.ts.
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { usersCollection, credentialsCollection } from '../db/client.ts';
+import {
+  countCredentialsForUser,
+  deleteCredential,
+  findCredentialByCredentialId,
+  findUserById,
+  insertCredential,
+  listCredentialDescriptorsForUser,
+  listCredentialSummariesForUser,
+  touchCredential,
+} from '../db/sqlite/repos/auth.users.repo.ts';
 import {
   buildRegistrationOptions,
   consumeChallenge,
   buildAuthenticationOptions,
   verifyAuthentication,
   consumeRegistrationCeremony,
+  credentialFromRegistration,
 } from '../auth/webauthn.ts';
 import { signStepUpToken, STEP_UP_TTL_SECONDS } from '../auth/tokens.ts';
 import { requireAuth, stepUpBeforeHandle } from '../auth/middleware.ts';
@@ -29,22 +39,8 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
   .use(requireAuth)
   .get('/me', async ({ auth }) => {
     const userId = new ObjectId(auth.user.sub);
-    const user = await (await usersCollection()).findOne({ _id: userId });
-    const creds = await (
-      await credentialsCollection()
-    )
-      .find(
-        { user_id: userId },
-        {
-          projection: {
-            _id: 1,
-            device_label: 1,
-            last_used_at: 1,
-            created_at: 1,
-          },
-        },
-      )
-      .toArray();
+    const user = await findUserById(userId);
+    const creds = await listCredentialSummariesForUser(userId);
     return {
       user: user ? toPublicAuthUser(user) : null,
       credentials: creds.map((c) => ({
@@ -86,9 +82,8 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 400;
         return { error: 'challenge mismatch' };
       }
-      const credsColl = await credentialsCollection();
       const credentialId = body.credential?.id;
-      const cred = credentialId ? await credsColl.findOne({ credential_id: credentialId }) : null;
+      const cred = credentialId ? await findCredentialByCredentialId(credentialId) : null;
       if (!cred || !cred.user_id.equals(userId)) {
         set.status = 400;
         return { error: 'unknown credential' };
@@ -102,14 +97,10 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 400;
         return { error: 'verification failed' };
       }
-      await credsColl.updateOne(
-        { _id: cred._id },
-        {
-          $set: {
-            counter: verification.authenticationInfo.newCounter,
-            last_used_at: new Date().toISOString(),
-          },
-        },
+      await touchCredential(
+        cred._id,
+        verification.authenticationInfo.newCounter,
+        new Date().toISOString(),
       );
       const step_up_token = await signStepUpToken(userId.toHexString(), jwtSecret());
       return { step_up_token, expires_in: STEP_UP_TTL_SECONDS };
@@ -120,9 +111,7 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
   // ----- add another credential -----
   .post('/credentials/options', async ({ auth }) => {
     const userId = new ObjectId(auth.user.sub);
-    const existing = await (await credentialsCollection())
-      .find({ user_id: userId }, { projection: { credential_id: 1 } })
-      .toArray();
+    const existing = await listCredentialDescriptorsForUser(userId);
     return buildRegistrationOptions({
       email: auth.user.email,
       inviteCode: null,
@@ -144,19 +133,16 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 400;
         return { error: ceremony.error };
       }
-      const reg = ceremony.registrationInfo;
-      const c = await credentialsCollection();
-      const ins = await c.insertOne({
-        user_id: userId,
-        credential_id: reg.credential.id,
-        public_key: Buffer.from(reg.credential.publicKey),
-        counter: reg.credential.counter,
-        transports: (body.credential.response?.transports ?? []) as string[],
-        device_label: body.device_label,
-        created_at: new Date().toISOString(),
-        last_used_at: new Date().toISOString(),
-      });
-      return { credential_id: ins.insertedId.toHexString() };
+      const insertedId = await insertCredential(
+        credentialFromRegistration({
+          userId,
+          registrationInfo: ceremony.registrationInfo,
+          transports: body.credential.response?.transports as string[] | undefined,
+          deviceLabel: body.device_label,
+          now: new Date().toISOString(),
+        }),
+      );
+      return { credential_id: insertedId.toHexString() };
     },
     {
       body: t.Object({
@@ -172,16 +158,12 @@ export const accountRoutes = new Elysia({ prefix: '/api/auth' })
     '/credentials/:id',
     async ({ auth, params, set }) => {
       const userId = new ObjectId(auth.user.sub);
-      const c = await credentialsCollection();
-      const count = await c.countDocuments({ user_id: userId });
+      const count = await countCredentialsForUser(userId);
       if (count <= 1) {
         set.status = 409;
         return { error: 'cannot remove last credential' };
       }
-      const r = await c.deleteOne({
-        _id: new ObjectId(params.id),
-        user_id: userId,
-      });
+      const r = await deleteCredential(new ObjectId(params.id), userId);
       if (r.deletedCount === 0) {
         set.status = 404;
         return { error: 'not found' };

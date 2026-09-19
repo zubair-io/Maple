@@ -1,80 +1,59 @@
 /**
  * Route-integration test: GET /api/users + PATCH /api/users/:id (#2893).
  *
- * Requires a running MongoDB (skips gracefully if unreachable).
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for the duration of each test (#3787), so the handlers reach it through the
+ * same `sqliteDb()` they use in production. Nothing external is needed and
+ * nothing is left behind — the database goes away with the test.
  */
 
-import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { closeDb } from '../db/client.ts';
+import { ObjectId } from 'mongodb';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { seedUser } from '../../tests/helpers/sqlite-fixtures.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import { usersRoutes } from './users.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_users_routes_test_${process.pid}`;
 const SECRET = 'x'.repeat(32);
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
 describe('users routes (#2893)', () => {
-  let mongo: MongoClient | null = null;
-  let db: Db | null = null;
+  let live: LiveTestDatabase;
   let ownerId: ObjectId;
   let memberId: ObjectId;
   const app = new Elysia().use(usersRoutes);
 
   beforeEach(async () => {
-    mongo = await tryConnect();
-    if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
-    process.env.MAPLE_MONGO_DB = TEST_DB;
     process.env.MAPLE_JWT_SECRET = SECRET;
-    await closeDb();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
-    ownerId = new ObjectId();
-    memberId = new ObjectId();
-    await db.collection('users').insertMany([
-      {
-        _id: ownerId,
-        email: 'owner@x.y',
-        role: 'owner',
-        created_at: '2026-01-01T00:00:00Z',
-        last_seen_at: null,
-      },
-      {
-        _id: memberId,
-        email: 'member@x.y',
-        role: 'member',
-        created_at: '2026-01-02T00:00:00Z',
-        last_seen_at: null,
-      },
-    ]);
+    live = await createLiveTestDatabase();
+    ownerId = seedUser(live.db, {
+      email: 'owner@x.y',
+      role: 'owner',
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    memberId = seedUser(live.db, {
+      email: 'member@x.y',
+      role: 'member',
+      createdAt: '2026-01-02T00:00:00Z',
+    });
   });
 
-  afterAll(async () => {
-    if (db) await db.dropDatabase();
-    await closeDb();
-    if (mongo) await mongo.close();
+  afterEach(() => {
+    live.close();
   });
+
+  /** The stored row, for assertions that the write actually landed. */
+  function storedUser(id: ObjectId): { role: string; file_access: number | null } {
+    return live.db
+      .query(`SELECT role, file_access FROM users WHERE id = ?`)
+      .get(id.toHexString()) as {
+      role: string;
+      file_access: number | null;
+    };
+  }
 
   async function bearer(role: 'owner' | 'member', sub: ObjectId): Promise<string> {
     return `Bearer ${await signAccessToken(
@@ -88,7 +67,6 @@ describe('users routes (#2893)', () => {
   }
 
   it('lists every user with resolved file_access for the owner', async () => {
-    if (!mongo) return;
     const r = await app.handle(
       req('/', { headers: { authorization: await bearer('owner', ownerId) } }),
     );
@@ -100,7 +78,6 @@ describe('users routes (#2893)', () => {
   });
 
   it('403s a member on the roster', async () => {
-    if (!mongo) return;
     const r = await app.handle(
       req('/', { headers: { authorization: await bearer('member', memberId) } }),
     );
@@ -108,7 +85,6 @@ describe('users routes (#2893)', () => {
   });
 
   it('revokes and restores a member file_access via PATCH', async () => {
-    if (!mongo) return;
     const auth = { authorization: await bearer('owner', ownerId) };
     const revoke = await app.handle(
       req(`/${memberId.toHexString()}`, {
@@ -120,8 +96,7 @@ describe('users routes (#2893)', () => {
     expect(revoke.status).toBe(200);
     expect(((await revoke.json()) as { file_access: boolean }).file_access).toBe(false);
 
-    const stored = await db!.collection('users').findOne({ _id: memberId });
-    expect(stored!.file_access).toBe(false);
+    expect(storedUser(memberId).file_access).toBe(0);
 
     const restore = await app.handle(
       req(`/${memberId.toHexString()}`, {
@@ -134,7 +109,6 @@ describe('users routes (#2893)', () => {
   });
 
   it('rejects revoking the owner', async () => {
-    if (!mongo) return;
     const r = await app.handle(
       req(`/${ownerId.toHexString()}`, {
         method: 'PATCH',
@@ -149,7 +123,6 @@ describe('users routes (#2893)', () => {
   });
 
   it('promotes a member to owner and back via PATCH role (#2921)', async () => {
-    if (!mongo) return;
     const auth = { authorization: await bearer('owner', ownerId) };
     const promote = await app.handle(
       req(`/${memberId.toHexString()}`, {
@@ -171,12 +144,10 @@ describe('users routes (#2893)', () => {
     );
     expect(demote.status).toBe(200);
     expect(((await demote.json()) as { role: string }).role).toBe('member');
-    const stored = await db!.collection('users').findOne({ _id: memberId });
-    expect(stored!.role).toBe('member');
+    expect(storedUser(memberId).role).toBe('member');
   });
 
   it('409s demoting the only owner (#2921 last-owner guard)', async () => {
-    if (!mongo) return;
     const r = await app.handle(
       req(`/${ownerId.toHexString()}`, {
         method: 'PATCH',
@@ -192,7 +163,6 @@ describe('users routes (#2893)', () => {
   });
 
   it('rejects toggling file_access on someone becoming an owner', async () => {
-    if (!mongo) return;
     const r = await app.handle(
       req(`/${memberId.toHexString()}`, {
         method: 'PATCH',
@@ -207,7 +177,6 @@ describe('users routes (#2893)', () => {
   });
 
   it('400s an empty patch', async () => {
-    if (!mongo) return;
     const r = await app.handle(
       req(`/${memberId.toHexString()}`, {
         method: 'PATCH',
@@ -222,7 +191,6 @@ describe('users routes (#2893)', () => {
   });
 
   it('404s an unknown user id', async () => {
-    if (!mongo) return;
     const r = await app.handle(
       req(`/${new ObjectId().toHexString()}`, {
         method: 'PATCH',

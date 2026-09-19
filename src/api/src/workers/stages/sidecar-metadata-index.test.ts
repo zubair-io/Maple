@@ -1,141 +1,41 @@
 /**
- * Unit tests for the sidecar-metadata-index stage handler.
+ * Unit tests for the sidecar-metadata-index stage handler: what it skips, what
+ * it puts in `metadata_override`, and which downstream stages it re-arms.
  *
- * Uses `setLibraryRootsForTests` + a real temp directory for sidecars
- * so the handler runs real fs calls without needing MongoDB.
+ * Real fs calls against a temp directory and no database at all. That is now
+ * true of the handler as well as of this file: its two downstream stage re-arms
+ * used to be `updateOne` calls it issued itself, and are declared as
+ * `invalidates` for the runner to commit with the stage's own success row
+ * (#3787).
+ *
+ * The projection onto the asset row — rating, flag, colour label, the
+ * `is_screenshot` tri-state and visibility — lives in
+ * `sidecar-metadata-index.projection.test.ts`, split out for the file budget.
+ * Fixtures shared by both are in `sidecar-metadata-index.test-helpers.ts`.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
+import { describe, test, expect } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import type { ObjectId } from 'mongodb';
 import {
   sidecarMetadataIndexHandler,
   SIDECAR_METADATA_INDEX_VERSION,
 } from './sidecar-metadata-index.ts';
 import type { ImageDoc } from '../run-stage.ts';
-import type { StageContext } from '../stage-config.ts';
-import type { Logger } from 'pino';
-import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import {
+  FAKE_LIB_ID,
+  fakeCtx,
+  invalidatesOf,
+  makeImage,
+  makeXmp,
+  useTempLibrary,
+  writeSidecar,
+  writeVideoSidecar,
+  written,
+} from './sidecar-metadata-index.test-helpers.ts';
 
-// Isolate the shared db-client singleton so any incidental Mongo touch here
-// neither hits the real `maple` DB nor leaks the connection into later files.
-withTestDb(`maple_test_override_ingest_${process.pid}`);
-beforeAll(async () => {
-  await (await import('../../db/client.ts')).closeDb();
-});
-afterAll(async () => {
-  await (await import('../../db/client.ts')).closeDb();
-});
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
-const FAKE_LIB_ID = 'aabbccddeeff001122334455';
-
-const fakeCtx: StageContext = {
-  log: {
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    child: () => fakeCtx.log,
-  } as unknown as Logger,
-  signal: new AbortController().signal,
-};
-
-function makeImage(overrides: Partial<ImageDoc> = {}): ImageDoc {
-  return {
-    _id: { toHexString: () => FAKE_LIB_ID } as unknown as ObjectId,
-    fileinfo: [
-      {
-        path: '',
-        filename: 'test.dng',
-        library_id: { toHexString: () => FAKE_LIB_ID } as unknown as ObjectId,
-      },
-    ],
-    size: 1000,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    stages: {
-      'sidecar-metadata-index': {
-        version: 0,
-        attempts: 0,
-        last_error: null,
-        processed_at: null,
-        dead: false,
-      },
-    },
-    ...overrides,
-  };
-}
-
-function makeXmp(attrs: string, nested = ''): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/">
- <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-  <rdf:Description rdf:about=""
-   xmlns:exif="http://ns.adobe.com/exif/1.0/"
-   xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
-   xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"
-   xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/"
-   xmlns:dc="http://purl.org/dc/elements/1.1/"
-   xmlns:papp="https://justmaple.app/ns/1.0/"
-   ${attrs}>
-${nested}  </rdf:Description>
- </rdf:RDF>
-</x:xmpmeta>`;
-}
-
-// ---------------------------------------------------------------------------
-// Temp dir lifecycle
-// ---------------------------------------------------------------------------
-
-let tmpDir: string;
-
-beforeEach(async () => {
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'sidecar-metadata-index-test-'));
-  // Wire the library cache to point FAKE_LIB_ID → tmpDir.
-  setLibraryRootsForTests(new Map([[FAKE_LIB_ID, tmpDir]]));
-});
-
-afterEach(async () => {
-  setLibraryRootsForTests(null); // reset to lazy-load
-  await fs.rm(tmpDir, { recursive: true, force: true });
-});
-
-async function writeSidecar(xmpContent: string): Promise<ImageDoc> {
-  const rawFile = path.join(tmpDir, 'test.dng');
-  const sidecarFile = path.join(tmpDir, 'test.xmp');
-  await fs.writeFile(rawFile, '');
-  await fs.writeFile(sidecarFile, xmpContent, 'utf-8');
-  return makeImage();
-}
-
-/** Write a video file + its full-name sidecar (`clip.mov.xmp`) and return an
- *  ImageDoc pointing at the video. Videos use the full-name convention so a
- *  Live Photo's motion clip never clobbers the same-stem still's `.xmp`. */
-async function writeVideoSidecar(xmpContent: string): Promise<ImageDoc> {
-  const videoFile = path.join(tmpDir, 'clip.mov');
-  const sidecarFile = path.join(tmpDir, 'clip.mov.xmp');
-  await fs.writeFile(videoFile, '');
-  await fs.writeFile(sidecarFile, xmpContent, 'utf-8');
-  return makeImage({
-    fileinfo: [
-      {
-        path: '',
-        filename: 'clip.mov',
-        library_id: { toHexString: () => FAKE_LIB_ID } as unknown as ObjectId,
-      },
-    ],
-  });
-}
+const library = useTempLibrary();
 
 // ---------------------------------------------------------------------------
 // Skip paths
@@ -143,31 +43,31 @@ async function writeVideoSidecar(xmpContent: string): Promise<ImageDoc> {
 
 describe('sidecarMetadataIndexHandler — skip paths', () => {
   test('skip: no-sidecar when sidecar does not exist', async () => {
-    const rawFile = path.join(tmpDir, 'test.dng');
-    await fs.writeFile(rawFile, '');
-    const image = makeImage();
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
+    await fs.writeFile(path.join(library.dir, 'test.dng'), '');
+    const result = await sidecarMetadataIndexHandler(makeImage(), fakeCtx);
     expect(result).toHaveProperty('skip', 'no-sidecar');
   });
 
   test('skip: no-metadata when sidecar has only adjustment fields', async () => {
-    const xml = makeXmp('crs:Exposure2012="0.5" crs:Contrast2012="0"');
-    const image = await writeSidecar(xml);
+    const image = await writeSidecar(
+      library,
+      makeXmp('crs:Exposure2012="0.5" crs:Contrast2012="0"'),
+    );
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     expect(result).toHaveProperty('skip', 'no-metadata');
   });
 
   test('does not skip a missing-flagged file (ignores missing_since, prefers live entry)', async () => {
-    // writeSidecar creates test.dng and test.xmp under tmpDir, and returns an ImageDoc
-    // with fileinfo pointing to test.dng (primary).
     const image = await writeSidecar(
+      library,
       makeXmp(
         'photoshop:City="Berkeley" photoshop:State="California" photoshop:Country="United States"',
       ),
     );
 
-    // Add a second entry to fileinfo which is flagged as missing and points to a non-existent file.
-    // Place it FIRST in the array to test that the locator bypasses it in favor of the live one.
+    // Add a second entry to fileinfo which is flagged as missing and points to a
+    // non-existent file. Place it FIRST to test that the locator bypasses it in
+    // favour of the live one.
     image.fileinfo!.unshift({
       path: '',
       filename: 'nonexistent.dng',
@@ -175,35 +75,21 @@ describe('sidecarMetadataIndexHandler — skip paths', () => {
       missing_since: '2026-06-30T00:00:00.000Z',
     });
 
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).not.toEqual({ skip: 'no-path' });
-    expect('patch' in result).toBe(true);
-    if ('patch' in result) {
-      const override = result.patch.metadata_override as
-        | { place_text?: { city?: string } }
-        | undefined;
-      expect(override?.place_text?.city).toBe('Berkeley');
-    }
+    const { override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect((override['place_text'] as { city?: string })?.city).toBe('Berkeley');
   });
 
   test('does not skip when only missing entries exist', async () => {
     const image = await writeSidecar(
+      library,
       makeXmp(
         'photoshop:City="Berkeley" photoshop:State="California" photoshop:Country="United States"',
       ),
     );
-    // Mark the only entry as missing
     image.fileinfo![0].missing_since = '2026-06-30T00:00:00.000Z';
 
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).not.toEqual({ skip: 'no-path' });
-    expect('patch' in result).toBe(true);
-    if ('patch' in result) {
-      const override = result.patch.metadata_override as
-        | { place_text?: { city?: string } }
-        | undefined;
-      expect(override?.place_text?.city).toBe('Berkeley');
-    }
+    const { override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect((override['place_text'] as { city?: string })?.city).toBe('Berkeley');
   });
 });
 
@@ -213,20 +99,15 @@ describe('sidecarMetadataIndexHandler — skip paths', () => {
 
 describe('sidecarMetadataIndexHandler — patch path', () => {
   test('returns patch with metadata_override when GPS present', async () => {
-    const xml = makeXmp('exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"');
-    const image = await writeSidecar(xml);
+    const image = await writeSidecar(
+      library,
+      makeXmp('exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"'),
+    );
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
 
-    expect(result).toHaveProperty('patch');
-    expect((result as { invalidates?: string[] }).invalidates).toContain('meili');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    const override = patch['metadata_override'] as Record<string, unknown>;
-    expect(override).toBeDefined();
-    expect(override['gps']).toMatchObject({
-      lat: expect.any(Number),
-      lng: expect.any(Number),
-    });
+    expect(invalidatesOf(result)).toContain('meili');
+    const { override } = written(result);
+    expect(override['gps']).toMatchObject({ lat: expect.any(Number), lng: expect.any(Number) });
     expect(Array.isArray(override['touched_fields'])).toBe(true);
     expect((override['touched_fields'] as string[]).includes('gps')).toBe(true);
     expect(typeof override['edited_at']).toBe('string');
@@ -234,78 +115,54 @@ describe('sidecarMetadataIndexHandler — patch path', () => {
 
   test('patch includes captured_year/month when DateTimeOriginal present', async () => {
     // 2026-06-26T18:40:00+02:00 → UTC 2026-06-26T16:40:00Z → year=2026, month=6
-    const xml = makeXmp('exif:DateTimeOriginal="2026-06-26T18:40:00+02:00"');
-    const image = await writeSidecar(xml);
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    // Derived year/month live in metadata_override, NOT exif.* (immutable).
-    expect(patch['exif.captured_year']).toBeUndefined();
-    const override = patch['metadata_override'] as Record<string, unknown>;
+    const image = await writeSidecar(
+      library,
+      makeXmp('exif:DateTimeOriginal="2026-06-26T18:40:00+02:00"'),
+    );
+    // Derived year/month live in metadata_override; `exif` is the immutable
+    // file-original and is never a column this stage writes.
+    const { columns, override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect(columns['exif']).toBeUndefined();
     expect(override['captured_year']).toBe(2026);
     expect(override['captured_month']).toBe(6);
   });
 
   test('does not include year/month in patch when no captured_at in sidecar or exif', async () => {
-    const xml = makeXmp('photoshop:City="Paris"');
-    const image = await writeSidecar(xml);
-    // No exif on the image doc
+    const image = await writeSidecar(library, makeXmp('photoshop:City="Paris"'));
     (image as Partial<ImageDoc>).exif = null;
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    // year/month not set when no captured_at available (and never under exif.*)
-    expect(patch['exif.captured_year']).toBeUndefined();
-    const override = patch['metadata_override'] as Record<string, unknown>;
+    const { columns, override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect(columns['exif']).toBeUndefined();
     expect(override['captured_year']).toBeUndefined();
     expect(override['captured_month']).toBeUndefined();
   });
 
   test('patch includes place_text when IPTC attrs present', async () => {
-    const xml = makeXmp('photoshop:City="Paris" photoshop:Country="France"');
-    const image = await writeSidecar(xml);
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const override = (result.patch as Record<string, unknown>)['metadata_override'] as Record<
-      string,
-      unknown
-    >;
-    expect(override['place_text']).toMatchObject({
-      city: 'Paris',
-      country: 'France',
-    });
+    const image = await writeSidecar(
+      library,
+      makeXmp('photoshop:City="Paris" photoshop:Country="France"'),
+    );
+    const { override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect(override['place_text']).toMatchObject({ city: 'Paris', country: 'France' });
   });
 
   test('patch includes nested title from lang-alt block', async () => {
-    const xml = makeXmp(
-      '',
-      `  <dc:title>
+    const image = await writeSidecar(
+      library,
+      makeXmp(
+        '',
+        `  <dc:title>
    <rdf:Alt>
     <rdf:li xml:lang="x-default">My Vacation</rdf:li>
    </rdf:Alt>
   </dc:title>`,
+      ),
     );
-    const image = await writeSidecar(xml);
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const override = (result.patch as Record<string, unknown>)['metadata_override'] as Record<
-      string,
-      unknown
-    >;
+    const { override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
     expect(override['title']).toBe('My Vacation');
   });
 
   test('falls back to exif.captured_at for year/month when sidecar has no captured_at', async () => {
-    const xml = makeXmp('photoshop:City="Paris"');
-    const image = await writeSidecar(xml);
+    const image = await writeSidecar(library, makeXmp('photoshop:City="Paris"'));
     image.exif = {
       captured_at: '2025-03-15T10:00:00Z',
       captured_year: 2025,
@@ -320,12 +177,8 @@ describe('sidecarMetadataIndexHandler — patch path', () => {
       gps: null,
       camera_serial: null,
     };
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    expect(patch['exif.captured_year']).toBeUndefined();
-    const override = patch['metadata_override'] as Record<string, unknown>;
+    const { columns, override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect(columns['exif']).toBeUndefined();
     expect(override['captured_year']).toBe(2025);
     expect(override['captured_month']).toBe(3);
   });
@@ -338,27 +191,17 @@ describe('sidecarMetadataIndexHandler — patch path', () => {
 describe('sidecarMetadataIndexHandler — video assets (M5)', () => {
   test('video asset with metadata-only sidecar returns metadata_override patch', async () => {
     // A metadata-only sidecar has no CRS/papp adjustment attrs — just metadata.
-    const xml = makeXmp('exif:GPSLatitude="37,46.4940N" exif:GPSLongitude="122,25.1640W"');
-    const image = await writeVideoSidecar(xml);
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const override = (result.patch as Record<string, unknown>)['metadata_override'] as Record<
-      string,
-      unknown
-    >;
-    expect(override).toBeDefined();
-    expect(override['gps']).toMatchObject({
-      lat: expect.any(Number),
-      lng: expect.any(Number),
-    });
+    const image = await writeVideoSidecar(
+      library,
+      makeXmp('exif:GPSLatitude="37,46.4940N" exif:GPSLongitude="122,25.1640W"'),
+    );
+    const { override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
+    expect(override['gps']).toMatchObject({ lat: expect.any(Number), lng: expect.any(Number) });
     expect((override['touched_fields'] as string[]).includes('gps')).toBe(true);
   });
 
   test('video asset with no sidecar returns { skip: no-sidecar }', async () => {
-    const videoFile = path.join(tmpDir, 'clip.mov');
-    await fs.writeFile(videoFile, '');
+    await fs.writeFile(path.join(library.dir, 'clip.mov'), '');
     const image = makeImage({
       fileinfo: [
         {
@@ -374,23 +217,20 @@ describe('sidecarMetadataIndexHandler — video assets (M5)', () => {
 
   test('video asset with adjustment-only sidecar returns { skip: no-metadata }', async () => {
     // Even if a tool writes CRS attrs to a video sidecar, the stage should skip gracefully.
-    const xml = makeXmp('crs:Exposure2012="0.5" crs:Contrast2012="0"');
-    const image = await writeVideoSidecar(xml);
+    const image = await writeVideoSidecar(
+      library,
+      makeXmp('crs:Exposure2012="0.5" crs:Contrast2012="0"'),
+    );
     const result = await sidecarMetadataIndexHandler(image, fakeCtx);
     expect(result).toHaveProperty('skip', 'no-metadata');
   });
 
   test('video asset sidecar with IPTC place text produces correct place_text patch', async () => {
-    const xml = makeXmp('photoshop:City="San Francisco" photoshop:Country="United States"');
-    const image = await writeVideoSidecar(xml);
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const override = (result.patch as Record<string, unknown>)['metadata_override'] as Record<
-      string,
-      unknown
-    >;
+    const image = await writeVideoSidecar(
+      library,
+      makeXmp('photoshop:City="San Francisco" photoshop:Country="United States"'),
+    );
+    const { override } = written(await sidecarMetadataIndexHandler(image, fakeCtx));
     expect(override['place_text']).toMatchObject({
       city: 'San Francisco',
       country: 'United States',
@@ -399,163 +239,65 @@ describe('sidecarMetadataIndexHandler — video assets (M5)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Culling projection
+// Downstream re-arms
 // ---------------------------------------------------------------------------
 
-describe('culling projection', () => {
-  test('rating in sidecar is projected to metadata_override and top-level', async () => {
+describe('sidecarMetadataIndexHandler — downstream re-arms', () => {
+  test('re-arms only the search index when nothing else changed', async () => {
+    const image = await writeSidecar(library, makeXmp('photoshop:City="Paris"'));
+    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toEqual(['meili']);
+  });
+
+  test('re-arms geocode when the sidecar moved the coordinates', async () => {
+    // The re-arm travels back with the patch rather than being written
+    // separately, so the stored coordinates and "geocode must run again"
+    // cannot land apart from one another.
     const image = await writeSidecar(
-      makeXmp('xmp:Rating="4" xmlns:xmp="http://ns.adobe.com/xap/1.0/"'),
+      library,
+      makeXmp('exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"'),
     );
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    expect((patch['metadata_override'] as Record<string, unknown>)['rating']).toBe(4);
-    expect(patch['rating']).toBe(4);
+    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toContain('geocode');
   });
 
-  test('flag=pick in sidecar is projected to metadata_override and top-level (flag=1)', async () => {
+  test('leaves geocode alone when the coordinates are unchanged', async () => {
     const image = await writeSidecar(
-      makeXmp('papp:Flag="pick" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
+      library,
+      makeXmp('exif:GPSLatitude="48,31.4360N" exif:GPSLongitude="2,21.0480E"'),
     );
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    expect((patch['metadata_override'] as Record<string, unknown>)['flag']).toBe('pick');
-    expect(patch['flag']).toBe(1);
-  });
-
-  test('flag=reject in sidecar is projected to metadata_override and top-level (flag=-1)', async () => {
-    const image = await writeSidecar(
-      makeXmp('papp:Flag="reject" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
-    );
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    expect((patch['metadata_override'] as Record<string, unknown>)['flag']).toBe('reject');
-    expect(patch['flag']).toBe(-1);
-  });
-
-  test('cleared culling overwrites stale top-level rating/flag with defaults', async () => {
-    // Asset previously had flag=pick (1) and rating=5; the sidecar now carries
-    // other metadata (a city) but NO culling attrs — the user cleared them. The
-    // sidecar is authoritative, so the projection must reset the stale top-level
-    // values to the insert defaults (rating 0, flag 0), not leave them in place.
-    const rawFile = path.join(tmpDir, 'test.dng');
-    const sidecarFile = path.join(tmpDir, 'test.xmp');
-    await fs.writeFile(rawFile, '');
-    await fs.writeFile(sidecarFile, makeXmp('photoshop:City="Berlin"'), 'utf-8');
-    const image = makeImage({ rating: 5, flag: 1 });
-
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    // metadata_override carries only the present (non-culling) field…
-    const override = patch['metadata_override'] as Record<string, unknown>;
-    expect(override['rating']).toBeUndefined();
-    expect(override['flag']).toBeUndefined();
-    // …but the top-level projection resets the stale values to cleared defaults.
-    expect(patch['rating']).toBe(0);
-    expect(patch['flag']).toBe(0);
-    expect(patch['color_label']).toBe('');
-  });
-
-  test('isScreenshot=true in sidecar is projected to metadata_override and top-level', async () => {
-    const image = await writeSidecar(
-      makeXmp('papp:IsScreenshot="true" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
-    );
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    expect((patch['metadata_override'] as Record<string, unknown>)['is_screenshot']).toBe(true);
-    expect(patch['is_screenshot']).toBe(true);
-  });
-
-  test('isScreenshot=false in sidecar is projected to metadata_override and top-level', async () => {
-    const image = await writeSidecar(
-      makeXmp('papp:IsScreenshot="false" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
-    );
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    expect((patch['metadata_override'] as Record<string, unknown>)['is_screenshot']).toBe(false);
-    expect(patch['is_screenshot']).toBe(false);
-  });
-
-  test('absent isScreenshot in sidecar reverts to native is_screenshot (false for photo, true for screenshot)', async () => {
-    // 1. Photo case: sidecar test.xmp exists with metadata, has no isScreenshot
-    const rawPhoto = path.join(tmpDir, 'test.dng');
-    const sidecarPhoto = path.join(tmpDir, 'test.xmp');
-    await fs.writeFile(rawPhoto, '');
-    await fs.writeFile(sidecarPhoto, makeXmp('photoshop:City="Berlin"'), 'utf-8');
-
-    const photoImage = makeImage({ is_screenshot: true });
-    const resultPhoto = await sidecarMetadataIndexHandler(photoImage, fakeCtx);
-    expect(resultPhoto).toHaveProperty('patch');
-    if (!('patch' in resultPhoto)) throw new Error('Expected patch result');
-    const patchPhoto = resultPhoto.patch as Record<string, unknown>;
-    expect(patchPhoto['is_screenshot']).toBe(false);
-
-    // 2. Screenshot case: sidecar Screenshot_123.xmp exists with metadata, has no isScreenshot
-    const rawScreenshot = path.join(tmpDir, 'Screenshot_123.png');
-    const sidecarScreenshot = path.join(tmpDir, 'Screenshot_123.xmp');
-    await fs.writeFile(rawScreenshot, '');
-    await fs.writeFile(sidecarScreenshot, makeXmp('photoshop:City="Berlin"'), 'utf-8');
-
-    const screenshotImage = makeImage({
-      is_screenshot: false,
-      fileinfo: [
-        {
-          path: '',
-          filename: 'Screenshot_123.png',
-          library_id: { toHexString: () => FAKE_LIB_ID } as unknown as ObjectId,
-        },
-      ],
-    });
-    const resultScreenshot = await sidecarMetadataIndexHandler(screenshotImage, fakeCtx);
-    expect(resultScreenshot).toHaveProperty('patch');
-    if (!('patch' in resultScreenshot)) throw new Error('Expected patch result');
-    const patchScreenshot = resultScreenshot.patch as Record<string, unknown>;
-    expect(patchScreenshot['is_screenshot']).toBe(true);
-  });
-
-  // `is_screenshot` is a stills-only concept (#2325). The still-image control
-  // for these is the `isScreenshot=true` case above, which must keep passing.
-  test('a video with an explicit isScreenshot=true override still projects false', async () => {
-    const image = await writeVideoSidecar(
-      makeXmp('papp:IsScreenshot="true" xmlns:papp="http://ns.justmaple.app/photo/1.0/"'),
-    );
-    const result = await sidecarMetadataIndexHandler(image, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-
-    // The user's sidecar value is preserved verbatim — XMP is the contract
-    // and this is their data…
-    expect((patch['metadata_override'] as Record<string, unknown>)['is_screenshot']).toBe(true);
-    // …but the projected field that search, the facet counts, and the
-    // Photos/Screenshots filter read honours the stills-only invariant.
-    expect(patch['is_screenshot']).toBe(false);
-  });
-
-  test('a video with a stored vision verdict of true still projects false', async () => {
-    const image = await writeVideoSidecar(makeXmp('photoshop:City="Berlin"'));
-    const withVision = {
+    const first = await sidecarMetadataIndexHandler(image, fakeCtx);
+    // Feed the stored override back in, as a second poll of an unchanged
+    // sidecar would: the coordinates match, so there is nothing to re-geocode.
+    const unchanged = {
       ...image,
-      vision: { is_screenshot: true, caption: 'a UI' },
+      metadata_override: written(first).override,
     } as unknown as ImageDoc;
+    expect(invalidatesOf(await sidecarMetadataIndexHandler(unchanged, fakeCtx))).not.toContain(
+      'geocode',
+    );
+  });
 
-    const result = await sidecarMetadataIndexHandler(withVision, fakeCtx);
-    expect(result).toHaveProperty('patch');
-    if (!('patch' in result)) throw new Error('Expected patch result');
-    const patch = result.patch as Record<string, unknown>;
-    expect(patch['is_screenshot']).toBe(false);
+  test('re-arms cf-thumb-sync when the asset is un-hidden', async () => {
+    // cf-thumb-sync marks a hidden asset permanently handled with its own
+    // `{ skip: 'hidden' }`, so becoming visible again has to put it back in the
+    // queue or the thumbnail never reaches the edge cache.
+    const image = await writeSidecar(
+      library,
+      makeXmp('papp:Hidden="false" photoshop:City="Paris"', ''),
+    );
+    image.hidden = true;
+    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).toContain(
+      'cf-thumb-sync',
+    );
+  });
+
+  test('leaves cf-thumb-sync alone for an asset that was already visible', async () => {
+    const image = await writeSidecar(
+      library,
+      makeXmp('papp:Hidden="false" photoshop:City="Paris"', ''),
+    );
+    expect(invalidatesOf(await sidecarMetadataIndexHandler(image, fakeCtx))).not.toContain(
+      'cf-thumb-sync',
+    );
   });
 });
 

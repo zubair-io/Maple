@@ -1,70 +1,69 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
-import { ObjectId } from 'mongodb';
-import { issueNativeCode, redeemNativeCode, pkceS256 } from '../../src/auth/native_code_store.ts';
-import { nativeAuthCodesCollection } from '../../src/db/client.ts';
+/**
+ * `auth/native_code_store.ts` reaches the SQLite store (#3787).
+ *
+ * The PKCE properties — single use, and a wrong verifier that neither succeeds
+ * nor burns the code — are covered against the repository in
+ * `db/sqlite/repos/auth.sessions.repo.test.ts`. This file covers the module the
+ * native auth routes actually import: that its three operations and the
+ * re-exported `pkceS256` still resolve, and that they now write to SQLite.
+ */
 
-const userId = new ObjectId();
+import { describe, it, expect } from 'bun:test';
+import {
+  claimNativeCode,
+  issueNativeCode,
+  pkceS256,
+  redeemNativeCode,
+} from '../../src/auth/native_code_store.ts';
+import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-beforeEach(async () => {
-  const c = await nativeAuthCodesCollection();
-  await c.deleteMany({});
-});
+const VERIFIER = 'verifier-abc123';
 
-describe('native auth code store (#856)', () => {
-  it('issues a code and redeems it with the matching verifier', async () => {
-    const verifier = 'verifier-abc123';
+async function seedUser(live: LiveTestDatabase) {
+  return await insertUser(
+    {
+      email: 'owner@maple.test',
+      role: 'owner',
+      created_at: new Date().toISOString(),
+      last_seen_at: null,
+    },
+    live.handle,
+  );
+}
+
+describe('native auth codes through the auth module', () => {
+  it('issues a code the redirect hop can spend once', async () => {
+    using live = await createLiveTestDatabase();
+    const userId = await seedUser(live);
     const { code } = await issueNativeCode({
       userId,
-      codeChallenge: pkceS256(verifier),
+      codeChallenge: pkceS256(VERIFIER),
       state: 'st1',
       deviceLabel: 'iPhone',
     });
-    const r = await redeemNativeCode(code, verifier);
-    expect(r).not.toBeNull();
-    expect(r!.userId.toHexString()).toBe(userId.toHexString());
-    expect(r!.deviceLabel).toBe('iPhone');
-    expect(r!.state).toBe('st1');
+
+    const redeemed = await redeemNativeCode(code, VERIFIER);
+    expect(redeemed).toMatchObject({ deviceLabel: 'iPhone', state: 'st1' });
+    expect(redeemed?.userId.toHexString()).toBe(userId.toHexString());
+    expect(await redeemNativeCode(code, VERIFIER)).toBeNull();
   });
 
-  it('rejects a wrong verifier WITHOUT burning the code (PKCE in the atomic match)', async () => {
-    const verifier = 'right-verifier';
-    const { code } = await issueNativeCode({
+  it('issues a code the polling channel can spend without the code (#3063)', async () => {
+    using live = await createLiveTestDatabase();
+    const userId = await seedUser(live);
+    await issueNativeCode({
       userId,
-      codeChallenge: pkceS256(verifier),
-      state: 'st',
+      codeChallenge: pkceS256(VERIFIER),
+      state: 'st2',
       deviceLabel: 'iPhone',
     });
-    expect(await redeemNativeCode(code, 'wrong-verifier')).toBeNull();
-    // The code survives a wrong verifier — the legit verifier still redeems.
-    expect(await redeemNativeCode(code, verifier)).not.toBeNull();
-  });
 
-  it('is single-use: a second redeem returns null', async () => {
-    const verifier = 'v';
-    const { code } = await issueNativeCode({
-      userId,
-      codeChallenge: pkceS256(verifier),
-      state: 'st',
-      deviceLabel: 'iPhone',
-    });
-    expect(await redeemNativeCode(code, verifier)).not.toBeNull();
-    expect(await redeemNativeCode(code, verifier)).toBeNull();
-  });
-
-  it('rejects an expired code', async () => {
-    const verifier = 'v';
-    const { code } = await issueNativeCode({
-      userId,
-      codeChallenge: pkceS256(verifier),
-      state: 'st',
-      deviceLabel: 'iPhone',
-    });
-    const c = await nativeAuthCodesCollection();
-    await c.updateMany({}, { $set: { expires_at: new Date(Date.now() - 1000) } });
-    expect(await redeemNativeCode(code, verifier)).toBeNull();
-  });
-
-  it('rejects an unknown code', async () => {
-    expect(await redeemNativeCode('no-such-code', 'v')).toBeNull();
+    expect(await claimNativeCode('st2', 'wrong-verifier')).toBeNull();
+    expect(await claimNativeCode('st2', VERIFIER)).toMatchObject({ state: 'st2' });
+    expect(await claimNativeCode('st2', VERIFIER)).toBeNull();
   });
 });

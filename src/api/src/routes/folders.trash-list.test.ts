@@ -1,238 +1,132 @@
 /**
- * Trash-list route plan + correctness tests — verify the route uses the
- * `deleted_at_1` partial index instead of falling back to a per-folder
- * COLLSCAN.
+ * `GET /api/folders/:id/trash` — the query plan, and the response.
  *
- * Issue #83: the route's filter `{ folder_id, deleted_at: { $ne: null },
- * original_path: { $ne: null } }` and its cursor predicate
- * `{ deleted_at: { $lt: iso } }` lacked `$type: "string"`, so the planner
- * could not prove the partial filter (`{ deleted_at: { $type: "string" } }`)
- * subsumes them, and chose `folder_id` IXSCAN + filter-after-fetch instead.
+ * Issue #83 was a plan regression, not a wrong answer: the predicate was
+ * paraphrased into a shape the planner could no longer prove the partial
+ * `deleted_at` index subsumed, so a five-row response read every asset in the
+ * library. SQLite has exactly the same failure mode — `assets_trashed` is
+ * partial over `deleted_at IS NOT NULL`, and a query whose own `WHERE` stops
+ * implying that loses the index silently — so the plan is still asserted here
+ * rather than left to a timing that a twenty-row test database cannot measure.
  *
- * Skip-passes when Mongo is unreachable so CI without a Mongo runner
- * doesn't spuriously fail.
+ * The route handler reaches `sqliteDb()` with no override, so the correctness
+ * half installs its database as the process-wide handle for the block.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import type { Database } from 'bun:sqlite';
+import { ObjectId } from 'mongodb';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import { folderTrashStatement } from '../db/sqlite/repos/folder-assets.repo.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { foldersRoutes } from './folders.ts';
 
-const TEST_DB = withTestDb(`maple_test_trash_list_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const FOLDER_PATH = '/srv/lib';
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let folderId: ObjectId;
-let folderPath: string;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[folders.trash-list.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
-    await db.createCollection(name).catch(() => undefined);
-  }
-  const { closeDb, ensureIndexes } = await import('../db/client.ts');
-  await closeDb();
-  await ensureIndexes();
-});
+let live: LiveTestDatabase;
+let folderId: string;
 
 beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-  await db!.collection('folders').deleteMany({});
-
-  folderId = new ObjectId();
-  folderPath = '/srv/lib';
-  await db!.collection('folders').insertOne({
-    _id: folderId,
-    path: folderPath,
-    label: 'lib',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  } as never);
-  // Invalidate the process-wide library cache so the route's resolution
-  // doesn't reuse stale entries from sibling tests.
-  const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+  live = await createLiveTestDatabase();
+  folderId = insertFolder(live.db, { path: FOLDER_PATH, slug: 'trash-list-lib' });
+  // The library-roots cache is process-wide, so a sibling test's roots would
+  // otherwise answer this one's path resolution.
   invalidateLibraryRoots();
 });
 
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
+afterEach(() => {
+  live.close();
+  invalidateLibraryRoots();
 });
 
-/**
- * Seed `live` live rows + `trashed` trashed rows in the test folder.
- * Returns the inserted trashed-asset ids (newest-deleted_at first).
- */
-async function seed(live: number, trashed: number): Promise<ObjectId[]> {
-  const base = {
-    size: 1,
-    mtime: 0,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: '2026-05-11T00:00:00Z',
-  };
-  const liveRows = Array.from({ length: live }, (_, i) => ({
-    ...base,
-    fileinfo: [{ path: '', filename: `live-${i}.jpg`, library_id: folderId, deleted_at: null }],
-    deleted_at: null,
-  }));
-  const now = Date.now();
-  const trashedRows: Array<{ _id: ObjectId; [k: string]: unknown }> = Array.from(
-    { length: trashed },
-    (_, i) => ({
-      _id: new ObjectId(),
-      ...base,
-      fileinfo: [
-        {
-          path: '.maple-trash',
-          filename: `trash-${i}.jpg`,
-          library_id: folderId,
-          deleted_at: null,
-        },
-      ],
-      original_path: `${folderPath}/trash-${i}.jpg`,
-      deleted_at: new Date(now - i * 1000).toISOString(),
-    }),
-  );
-  if (liveRows.length > 0) {
-    await db!.collection('assets').insertMany(liveRows);
-  }
-  if (trashedRows.length > 0) {
-    await db!.collection('assets').insertMany(trashedRows);
-  }
-  return trashedRows.map((r) => r._id);
+/** The planner's own description of how it will run a statement. */
+function plan(db: Database, sql: string, ...params: Array<string | number>): string {
+  const rows = db.query(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as Array<{ detail: string }>;
+  return rows.map((row) => row.detail).join('\n');
 }
 
-describe('buildTrashListFilter — query plan', () => {
-  it('baseline: the OLD predicate (no $type) DID COLLSCAN — sanity-check the bug', async () => {
-    if (!mongoReachable) return;
+/**
+ * Seed `liveCount` live rows and `trashedCount` user-trashed rows in the
+ * library, newest-deleted first. Returns the trashed asset ids in that order.
+ */
+function seed(liveCount: number, trashedCount: number): string[] {
+  for (let i = 0; i < liveCount; i++) {
+    const assetId = insertAsset(live.db);
+    insertLocation(live.db, { assetId, libraryId: folderId, path: '', filename: `live-${i}.jpg` });
+  }
+  const now = Date.now();
+  const trashed: string[] = [];
+  for (let i = 0; i < trashedCount; i++) {
+    const assetId = insertAsset(live.db);
+    insertLocation(live.db, {
+      assetId,
+      libraryId: folderId,
+      path: '.maple-trash',
+      filename: `trash-${i}.jpg`,
+    });
+    run(
+      live.db,
+      `UPDATE assets SET deleted_at = ?, original_path = ? WHERE id = ?`,
+      new Date(now - i * 1000).toISOString(),
+      `${FOLDER_PATH}/trash-${i}.jpg`,
+      assetId,
+    );
+    trashed.push(assetId);
+  }
+  return trashed;
+}
 
-    // Reproduce the pre-fix predicate shape verbatim to confirm the
-    // planner falls back to a per-folder scan without `$type: "string"`.
-    // If this test ever flips to IXSCAN spontaneously, Mongo's planner
-    // got smarter and the gate below can be relaxed.
-    await seed(1000, 5);
-    const brokenFilter = {
-      'fileinfo.library_id': folderId,
-      deleted_at: { $ne: null },
-      original_path: { $ne: null },
-    };
-    const explain = await db!
-      .collection('assets')
-      .find(brokenFilter)
-      .sort({ deleted_at: -1, _id: -1 })
-      .limit(101)
-      .explain('executionStats');
-    const stats =
-      (explain as { executionStats?: { totalDocsExamined?: number; nReturned?: number } })
-        .executionStats ?? {};
-    expect(stats.nReturned).toBe(5);
-    // The broken predicate examines all 1005 folder_id matches even
-    // though only 5 satisfy the filter.
-    expect(stats.totalDocsExamined ?? 0).toBeGreaterThanOrEqual(1000);
+describe('the trash page plan', () => {
+  it('seeks the partial assets_trashed index instead of scanning the library', () => {
+    const statement = folderTrashStatement(new ObjectId(folderId), { cursor: null, limit: 101 });
+    const detail = plan(live.db, statement.sql, ...statement.params);
+
+    // The whole point of #83: the trashed rows lead, and the library scope is
+    // a probe per candidate rather than the driving scan.
+    expect(detail).toContain('assets_trashed');
+    expect(detail).not.toContain('SCAN a');
   });
 
-  it('uses the deleted_at_1 partial index (no COLLSCAN)', async () => {
-    if (!mongoReachable) return;
+  it('keeps the index on the cursor branch too', () => {
+    // The cursor predicate is where #83 actually reintroduced itself: the base
+    // predicate was fixed and the seek branch was not.
+    const cursor = `${new Date().toISOString()}|${new ObjectId().toHexString()}`;
+    const statement = folderTrashStatement(new ObjectId(folderId), { cursor, limit: 101 });
+    const detail = plan(live.db, statement.sql, ...statement.params);
 
-    await seed(1000, 5);
-
-    const { buildTrashListFilter } = await import('./folders.ts');
-    const filter = buildTrashListFilter(folderId, null);
-    const explain = await db!
-      .collection('assets')
-      .find(filter)
-      .sort({ deleted_at: -1, _id: -1 })
-      .limit(101)
-      .explain('executionStats');
-
-    const planStr = JSON.stringify(explain);
-    expect(planStr).toContain('IXSCAN');
-    expect(planStr).toContain('deleted_at_1');
-
-    const stats =
-      (explain as { executionStats?: { totalDocsExamined?: number; nReturned?: number } })
-        .executionStats ?? {};
-    expect(stats.nReturned).toBe(5);
-    // The whole point of the fix: docsExamined must be O(trashed),
-    // not O(live + trashed). Before the fix this was 1005.
-    expect(stats.totalDocsExamined ?? 0).toBeLessThan(10);
+    expect(detail).toContain('assets_trashed');
+    expect(detail).not.toContain('SCAN a');
   });
 
-  it('cursor predicate also uses the deleted_at_1 partial index', async () => {
-    if (!mongoReachable) return;
-
-    await seed(1000, 5);
-
-    const { buildTrashListFilter } = await import('./folders.ts');
-    // Construct a cursor pointing somewhere in the middle of the result
-    // set. Format matches the route's emitter: `<iso>|<hex>`.
-    const iso = new Date().toISOString();
-    const cursor = `${iso}|${new ObjectId().toHexString()}`;
-    const filter = buildTrashListFilter(folderId, cursor);
-    const explain = await db!
-      .collection('assets')
-      .find(filter)
-      .sort({ deleted_at: -1, _id: -1 })
-      .limit(101)
-      .explain('executionStats');
-
-    const planStr = JSON.stringify(explain);
-    expect(planStr).toContain('IXSCAN');
-    expect(planStr).toContain('deleted_at_1');
-
-    const stats =
-      (explain as { executionStats?: { totalDocsExamined?: number } }).executionStats ?? {};
-    expect(stats.totalDocsExamined ?? 0).toBeLessThan(10);
+  it('ignores a malformed cursor rather than binding it', () => {
+    const statement = folderTrashStatement(new ObjectId(folderId), {
+      cursor: 'nonsense-with-no-separator',
+      limit: 101,
+    });
+    // Library id and limit only — the seek contributed nothing.
+    expect(statement.params).toHaveLength(2);
   });
 });
 
 describe('GET /api/folders/:id/trash — response correctness', () => {
-  it('returns the trashed assets and nothing else', async () => {
-    if (!mongoReachable) return;
-    await seed(20, 5);
-
-    const { foldersRoutes } = await import('./folders.ts');
+  function get(query = ''): Promise<Response> {
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
-    const res = await app.handle(
-      new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash`),
-    );
+    return app.handle(new Request(`http://localhost/api/folders/${folderId}/trash${query}`));
+  }
+
+  it('returns the trashed assets and nothing else', async () => {
+    seed(20, 5);
+
+    const res = await get();
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       items: Array<{ filename: string; deleted_at: string }>;
@@ -252,37 +146,49 @@ describe('GET /api/folders/:id/trash — response correctness', () => {
     }
   });
 
+  it('pages with a cursor and stops when the page is the last one', async () => {
+    seed(0, 5);
+
+    const first = (await (await get('?limit=2')).json()) as {
+      items: Array<{ filename: string }>;
+      next_cursor: string | null;
+    };
+    expect(first.items.map((i) => i.filename)).toEqual(['trash-0.jpg', 'trash-1.jpg']);
+    expect(first.next_cursor).not.toBeNull();
+
+    const second = (await (
+      await get(`?limit=2&cursor=${encodeURIComponent(first.next_cursor!)}`)
+    ).json()) as { items: Array<{ filename: string }>; next_cursor: string | null };
+    expect(second.items.map((i) => i.filename)).toEqual(['trash-2.jpg', 'trash-3.jpg']);
+
+    const third = (await (
+      await get(`?limit=2&cursor=${encodeURIComponent(second.next_cursor!)}`)
+    ).json()) as { items: Array<{ filename: string }>; next_cursor: string | null };
+    expect(third.items.map((i) => i.filename)).toEqual(['trash-4.jpg']);
+    expect(third.next_cursor).toBeNull();
+  });
+
   it('lists reaped rows alongside user-trashed rows, tagged reason "reaped" (#2977)', async () => {
-    if (!mongoReachable) return;
-    await seed(2, 1); // one user-trashed row
+    seed(2, 1); // one user-trashed row
 
-    // One reaped row: no original_path, fileinfo points at the (gone)
-    // original library location, doc-level deleted_at + reason.
-    await db!.collection('assets').insertOne({
-      size: 1,
-      mtime: 0,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-05-11T00:00:00Z',
-      fileinfo: [
-        {
-          path: 'sub',
-          filename: 'gone.dng',
-          library_id: folderId,
-          deleted_at: null,
-          missing_since: '2026-08-01T00:00:00.000Z',
-        },
-      ],
-      deleted_at: new Date().toISOString(),
-      deleted_reason: 'reaped',
-    } as never);
-
-    const { foldersRoutes } = await import('./folders.ts');
-    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
-    const res = await app.handle(
-      new Request(`http://localhost/api/folders/${folderId.toHexString()}/trash`),
+    // One reaped row: no original_path, its location points at the (gone)
+    // original library path, asset-level deleted_at plus the discriminator.
+    const reapedId = insertAsset(live.db);
+    insertLocation(live.db, {
+      assetId: reapedId,
+      libraryId: folderId,
+      path: 'sub',
+      filename: 'gone.dng',
+      missingSince: '2026-08-01T00:00:00.000Z',
+    });
+    run(
+      live.db,
+      `UPDATE assets SET deleted_at = ?, deleted_reason = 'reaped' WHERE id = ?`,
+      new Date().toISOString(),
+      reapedId,
     );
+
+    const res = await get();
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       items: Array<{

@@ -6,6 +6,12 @@
 // after the #2006 AVIF/path-key migration) never runs more than the
 // configured cap's worth of decode+encode jobs concurrently.
 //
+// The catalogue behind the route runs against SQLite (#3787): a private
+// in-memory database per test, installed as the process-wide handle. The route
+// only serves a burst at all when every requested file resolves to an indexed
+// asset with a `maple_id`, so the seed is what makes the concurrency assertion
+// meaningful rather than a row of 404s.
+//
 // `generatePreview` is faked with a slow, concurrency-tracking implementation
 // so this never touches maple/libraw — via `spyOn` on the previewer module
 // namespace, NOT `mock.module`. #2032: the previous `mock.module`-based fake
@@ -16,34 +22,30 @@
 // wrote literal `generated-<n>` text bytes as their "preview" and made
 // the decoder's `.metadata()` call fail with "unsupported image format" (deterministically
 // red on CI, green on macOS where collection order differs). `spyOn` patches
-// the one export in place and `mockRestore()` reverts it for every importer —
-// the same leak-proof pattern `worker-status.repo.test.ts` documents for
-// db/client. Kept in its own file so the fake's lifetime stays trivially
-// scoped to this file's beforeAll/afterAll.
+// the one export in place and `mockRestore()` reverts it for every importer.
+// Kept in its own file so the fake's lifetime stays trivially scoped to this
+// file's beforeAll/afterAll.
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_preview_ondemand_route_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
   previewOndemandLimiter,
   _resetPreviewOndemandLimiterForTests,
 } from '../../indexer/preview-ondemand-limiter.ts';
-import { getDb, closeDb } from '../../db/client.ts';
+import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
+import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+let live: LiveTestDatabase;
 let tmpDir = '';
-let libraryId = new ObjectId();
+let libraryId = '';
 
 let activeGenerations = 0;
 let peakConcurrent = 0;
@@ -80,96 +82,43 @@ beforeAll(() => {
   );
 });
 
+afterAll(() => {
+  generatePreviewSpy?.mockRestore(); // restore for sibling test files — see module doc
+  generatePreviewSpy = null;
+});
+
 const { previewRoutes } = await import('./preview.ts');
 const { Elysia } = await import('elysia');
 const app = new Elysia().use(previewRoutes);
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    await c.close().catch(() => {});
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) return;
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  // Force the app's shared `getDb()` singleton to drop whatever connection an
-  // earlier test file in this same `bun test` process left cached and
-  // reconnect against THIS file's `MAPLE_MONGO_DB` — `getDb()` only re-reads
-  // the env var when its cached `_db` is null (see its own doc), so a prior
-  // file's still-open connection would otherwise silently serve
-  // `loadLibraryRoots()` / `findAssetByAddress` against the WRONG database
-  // here. Mirrors the same guard in `fs-previews.test.ts`.
-  await closeDb().catch(() => {});
-  await getDb();
-  tmpDir = await mkdtemp(join(tmpdir(), 'maple-preview-ondemand-'));
-  libraryId = new ObjectId();
-  // `resolveAddress` (slug → root) AND `cachePathForAsset` (library_id →
-  // root, used to resolve where the on-demand miss should write) both
-  // resolve via the SAME `folders`-collection-backed cache
-  // (`libraries.cache.ts`'s `loadCache()`) — a real DB doc with a `slug`
-  // populates both `byId` and `bySlug` in one read (see `fs-previews.test.ts`
-  // for the identical setup on the path-keyed route).
-  await db.collection('folders').insertOne({
-    _id: libraryId,
-    path: tmpDir,
-    slug: 'ondemandlib',
-    label: 'Ondemand Test',
-  });
-  invalidateLibraryRoots();
-});
-
 beforeEach(async () => {
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
+  live = await createLiveTestDatabase();
+  tmpDir = await realpath(await mkdtemp(join(tmpdir(), 'maple-preview-ondemand-')));
+  // `resolveAddress` (slug → root) AND `cachePathForAsset` (library_id → root,
+  // used to resolve where the on-demand miss should write) both resolve via the
+  // SAME `folders`-backed cache, so one row populates both.
+  libraryId = registerLibrary(live.db, tmpDir, 'ondemandlib');
   activeGenerations = 0;
   peakConcurrent = 0;
   completedCount = 0;
   _resetPreviewOndemandLimiterForTests();
-  invalidateLibraryRoots();
 });
 
-afterAll(async () => {
-  generatePreviewSpy?.mockRestore(); // restore for sibling test files — see module doc
-  generatePreviewSpy = null;
-  if (mongo) {
-    await mongo
-      .db(TEST_DB)
-      .dropDatabase()
-      .catch(() => {});
-    await mongo.close().catch(() => {});
-  }
-  if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+afterEach(async () => {
   invalidateLibraryRoots();
-  await closeDb().catch(() => {});
+  live.close();
+  if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 });
 
 describe('GET /preview/:slug/* — on-demand regeneration is concurrency-bounded (#2012)', () => {
   it('never runs more concurrent regenerations than the configured cap, across a burst of cache-miss requests', async () => {
-    if (!mongoReachable) return; // skip-if-unreachable
-
     previewOndemandLimiter().setLimit(3);
 
     const FILE_COUNT = 9;
     const filenames = Array.from({ length: FILE_COUNT }, (_, i) => `burst-${i}.jpg`);
-    await db!.collection('assets').insertMany(
-      filenames.map((filename) => ({
-        maple_id: new ObjectId().toHexString(),
-        fileinfo: [
-          { library_id: libraryId, path: '', filename, deleted_at: null, missing_since: null },
-        ],
-        deleted_at: null,
-      })) as never[],
-    );
+    for (const filename of filenames) {
+      seedRouteAsset(live.db, { libraryId, path: '', filename, mapleId: newObjectIdHex() });
+    }
     await Promise.all(filenames.map((f) => writeFile(join(tmpDir, f), 'source-bytes')));
 
     // Fire every request near-simultaneously — a synchronized burst, exactly
@@ -186,23 +135,13 @@ describe('GET /preview/:slug/* — on-demand regeneration is concurrency-bounded
   });
 
   it('does not gate a warm cache read through the limiter (no generation call at all)', async () => {
-    if (!mongoReachable) return;
-
     previewOndemandLimiter().setLimit(1);
-    const mapleId = new ObjectId().toHexString();
-    await db!.collection('assets').insertOne({
-      maple_id: mapleId,
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: '',
-          filename: 'warm.jpg',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      deleted_at: null,
-    } as never);
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: 'warm.jpg',
+      mapleId: newObjectIdHex(),
+    });
     await writeFile(join(tmpDir, 'warm.jpg'), 'source-bytes');
     const previewPath = join(tmpDir, '.maple', 'previews', 'warm.jpg.avif');
     await mkdir(join(previewPath, '..'), { recursive: true });

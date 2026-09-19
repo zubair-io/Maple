@@ -1,7 +1,28 @@
+/**
+ * Service API keys: the key format, and four operations on the keys table.
+ *
+ * The storage moved to `db/sqlite/repos/auth.service-api-keys.repo.ts` at the
+ * cutover (#3787); the format did not. Minting a key, hashing its secret and
+ * comparing that hash in constant time are this module's job and stay here —
+ * a second copy of a timing-safe comparison inside a database module would be
+ * one copy too many. What crosses the boundary is four calls: insert, look up
+ * by public key id, list, and stamp last-used.
+ *
+ * `revokeServiceApiKey` is storage all the way down, id guard included, so it
+ * is re-exported from the repository rather than reimplemented.
+ */
+
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { ObjectId } from 'mongodb';
-import { serviceApiKeysCollection } from '../db/client.ts';
+import {
+  findServiceApiKeyByKeyId,
+  insertServiceApiKey,
+  listServiceApiKeyRows,
+  markServiceApiKeyUsed,
+} from '../db/sqlite/repos/auth.service-api-keys.repo.ts';
 import type { ServiceApiKeyDoc, ServiceApiScope } from '../db/schema.ts';
+
+export { revokeServiceApiKey } from '../db/sqlite/repos/auth.service-api-keys.repo.ts';
 
 const KEY_PREFIX = 'maple_sk';
 const KEY_ID_BYTES = 8;
@@ -61,7 +82,7 @@ export async function createServiceApiKey(input: {
     revoked_at: null,
     last_used_at: null,
   };
-  await (await serviceApiKeysCollection()).insertOne(doc);
+  await insertServiceApiKey(doc);
   return {
     key,
     keyId,
@@ -103,8 +124,7 @@ export async function authenticateServiceApiKey(
   if (!parsed) return { ok: false, status: 401, reason: 'invalid_key' };
   const [, keyId, secret] = parsed;
 
-  const coll = await serviceApiKeysCollection();
-  const doc = await coll.findOne({ key_id: keyId });
+  const doc = await findServiceApiKeyByKeyId(keyId!);
   const actualHash = sha256(secret!);
   const hashMatches = constantTimeHexEqual(actualHash, doc?.secret_hash ?? DUMMY_HASH);
   if (!doc || !hashMatches) return { ok: false, status: 401, reason: 'invalid_key' };
@@ -116,10 +136,12 @@ export async function authenticateServiceApiKey(
     return { ok: false, status: 403, reason: 'insufficient_scope' };
   }
 
+  // Fire-and-forget: a request is not worth failing because its usage stamp
+  // could not be written. The repository's own `revoked_at IS NULL` guard is
+  // what stops a request authorised a moment before a revocation from marking
+  // the revoked key active again.
   const lastUsedAt = new Date().toISOString();
-  void coll
-    .updateOne({ _id: doc._id, revoked_at: null }, { $set: { last_used_at: lastUsedAt } })
-    .catch(() => {});
+  void markServiceApiKeyUsed(doc._id, lastUsedAt).catch(() => {});
   return {
     ok: true,
     identity: {
@@ -143,7 +165,7 @@ export async function listServiceApiKeys(): Promise<
     lastUsedAt: string | null;
   }>
 > {
-  const rows = await (await serviceApiKeysCollection()).find({}).sort({ created_at: -1 }).toArray();
+  const rows = await listServiceApiKeyRows();
   return rows.map((row) => ({
     keyId: row.key_id,
     prefix: `${KEY_PREFIX}_${row.key_id}`,
@@ -154,15 +176,4 @@ export async function listServiceApiKeys(): Promise<
     revokedAt: row.revoked_at,
     lastUsedAt: row.last_used_at,
   }));
-}
-
-export async function revokeServiceApiKey(keyId: string): Promise<boolean> {
-  if (!/^[a-f0-9]{16}$/.test(keyId)) return false;
-  const result = await (
-    await serviceApiKeysCollection()
-  ).updateOne(
-    { key_id: keyId, revoked_at: null },
-    { $set: { revoked_at: new Date().toISOString() } },
-  );
-  return result.matchedCount > 0;
 }

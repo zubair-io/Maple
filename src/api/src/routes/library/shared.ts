@@ -386,31 +386,11 @@ export function wildcardSlugParams() {
 
 /**
  * Get the asset record for a specific (library_id, path, filename) tuple.
- * Uses the `fileinfo_lib_path_name` compound index.
+ * Keyed on the UNIQUE `asset_locations_lib_path_name` index.
  */
-import { assetsCollection } from '../../db/client.ts';
+import { findAssetAtAddress } from '../../db/sqlite/repos/assets.address.ts';
 import type { ObjectId } from 'mongodb';
 
 export async function findAssetByAddress(libraryId: ObjectId, relPath: string, filename: string) {
-  const coll = await assetsCollection();
-  return coll.findOne(
-    {
-      fileinfo: {
-        $elemMatch: {
-          library_id: libraryId,
-          path: relPath,
-          filename,
-          deleted_at: null,
-          missing_since: null,
-        },
-      },
-      deleted_at: null,
-    },
-    {
-      projection: {
-        maple_id: 1,
-        fileinfo: 1,
-      },
-    },
-  );
+  return findAssetAtAddress(libraryId, relPath, filename);
 }

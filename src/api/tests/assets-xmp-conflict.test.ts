@@ -4,48 +4,38 @@
  *  - matches on-disk     → atomic overwrite, 204, Last-Modified set
  *  - mismatches on-disk  → conflict-copy file written, 409 + JSON,
  *                          original untouched
+ *
+ * Real files in a private temp directory, and one real SQLite database
+ * installed as the process-wide handle for the file (#3787) — the route
+ * resolves the RAW's absolute path from `folders` + `asset_locations`, so both
+ * have to be seeded where `sqliteDb()` will look. No external service, so
+ * nothing to skip on.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { pendingEnrichment } from '../src/db/schema.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
+import { registerLibrary, seedRouteAsset } from './helpers/assets-route-fixtures.ts';
 
-const TEST_DB = `maple_test_fp2_conflict_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const ROOT = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'maple-fp2-conflict-')));
+withTestEnv('MAPLE_ROOTS', ROOT);
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let tmpRoot: string;
-let realTmpRoot: string;
-let rawPath: string;
-let xmpPath: string;
-let assetId: ObjectId;
+const rawPath = path.join(ROOT, 'IMG_1.ARW');
+const xmpPath = path.join(ROOT, 'IMG_1.xmp');
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+let live: LiveTestDatabase;
+let assetId: string;
 
 async function callPut(body: string, headers: Record<string, string> = {}): Promise<Response> {
   const { assetsRoutes } = await import('../src/routes/assets.ts');
-  const url = `http://test/api/assets/${assetId.toHexString()}/xmp`;
+  const url = `http://test/api/assets/${assetId}/xmp`;
   return assetsRoutes.handle(
     new Request(url, {
       method: 'PUT',
@@ -57,71 +47,18 @@ async function callPut(body: string, headers: Record<string, string> = {}): Prom
 
 describe('PUT /api/assets/:id/xmp — conflict copies', () => {
   beforeAll(async () => {
-    // Reset singleton BEFORE setting MAPLE_MONGO_DB so subsequent imports
-    // pick up the test DB.
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) return;
-
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fp2-conflict-'));
-    realTmpRoot = await fs.realpath(tmpRoot);
-    process.env.MAPLE_ROOTS = realTmpRoot;
-
-    rawPath = path.join(realTmpRoot, 'IMG_1.ARW');
-    xmpPath = path.join(realTmpRoot, 'IMG_1.xmp');
+    live = await createLiveTestDatabase();
+    const libraryId = registerLibrary(live.db, ROOT, 'xmp-conflict');
+    assetId = seedRouteAsset(live.db, { libraryId, path: '', filename: 'IMG_1.ARW' });
     await fs.writeFile(rawPath, new Uint8Array([0xff, 0xd8, 0xff]));
-
-    const now = new Date().toISOString();
-    assetId = new ObjectId();
-    // Post drop-abs-path-2026-05-21: seed the folder + fileinfo so the
-    // route's `findCoreInfoById` / `assetAbsPath` chain resolves
-    // `rawPath` from the library root + primary fileinfo entry. The
-    // legacy `{ folder_id, abs_path, filename }` triple no longer
-    // matters to the route.
-    const libraryId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: libraryId,
-      path: realTmpRoot,
-      label: 'test',
-      created_at: now,
-      file_count: 0,
-    } as never);
-    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
-    invalidateLibraryRoots();
-    await db.collection('assets').insertOne({
-      _id: assetId,
-      fileinfo: [{ library_id: libraryId, path: '', filename: 'IMG_1.ARW', deleted_at: null }],
-      size: 3,
-      mtime: now,
-      indexed_at: now,
-      enrichment: pendingEnrichment(),
-    } as never);
   });
 
   afterAll(async () => {
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    if (mongo) {
-      try {
-        await db?.dropDatabase();
-      } catch {}
-      await mongo.close();
-    }
-    try {
-      await fs.rm(tmpRoot, { recursive: true, force: true });
-    } catch {}
-    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
+    live.close();
+    await fs.rm(ROOT, { recursive: true, force: true });
   });
 
   it('unconditional write returns 204 with Last-Modified', async () => {
-    if (!mongoReachable) return;
     const res = await callPut('<x:xmpmeta>v1</x:xmpmeta>');
     expect(res.status).toBe(204);
     expect(res.headers.get('last-modified')).toBeTruthy();
@@ -130,7 +67,6 @@ describe('PUT /api/assets/:id/xmp — conflict copies', () => {
   });
 
   it('matching precondition overwrites atomically', async () => {
-    if (!mongoReachable) return;
     const st = await fs.stat(xmpPath);
     const epoch = Math.floor(st.mtimeMs / 1000);
     const res = await callPut('<x:xmpmeta>v2</x:xmpmeta>', {
@@ -140,12 +76,11 @@ describe('PUT /api/assets/:id/xmp — conflict copies', () => {
     expect(res.status).toBe(204);
     const onDisk = await fs.readFile(xmpPath, 'utf8');
     expect(onDisk).toContain('v2');
-    const dir = await fs.readdir(realTmpRoot);
+    const dir = await fs.readdir(ROOT);
     expect(dir.some((f) => f.includes('conflict from'))).toBe(false);
   });
 
   it('mismatching precondition writes a conflict copy', async () => {
-    if (!mongoReachable) return;
     const res = await callPut('<x:xmpmeta>v3-from-B</x:xmpmeta>', {
       'x-if-mtime-matches': '1',
       'x-maple-device-name': 'test-laptop-B',
@@ -163,7 +98,6 @@ describe('PUT /api/assets/:id/xmp — conflict copies', () => {
   });
 
   it("missing device name produces 'Unknown device' conflict file", async () => {
-    if (!mongoReachable) return;
     const res = await callPut('<x:xmpmeta>v4</x:xmpmeta>', {
       'x-if-mtime-matches': '1',
     });
@@ -177,7 +111,6 @@ describe('PUT /api/assets/:id/xmp — conflict copies', () => {
   // prior version), this models Finder creating a sidecar it believes is
   // brand new. It must never silently clobber one that already exists.
   it('X-Maple-Require-Absent refuses to overwrite an existing sidecar (writes conflict copy instead)', async () => {
-    if (!mongoReachable) return;
     const before = await fs.readFile(xmpPath, 'utf8'); // still "v2" from an earlier test
     const res = await callPut('<x:xmpmeta>from-a-create</x:xmpmeta>', {
       'x-maple-require-absent': 'true',

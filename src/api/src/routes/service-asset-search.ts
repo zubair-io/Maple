@@ -1,8 +1,25 @@
+/**
+ * `POST /api/search/assets` — the service-API search surface.
+ *
+ * Meilisearch answers first (hybrid, then lexical) and is untouched by the
+ * SQLite cutover (#3787): it is a separate service, and only the database
+ * half of this route moved. What moved is the fallback that runs when the
+ * sidecar is absent, unconfigured or failing — `serviceLexicalSearch` in
+ * `db/sqlite/repos/search.service.ts`, an exact-filename pass followed by a
+ * ranked FTS5 pass.
+ *
+ * The fallback answers two questions better than the query it replaces.
+ * Media type is a stored column set by the indexer from the actual file,
+ * rather than a regex over the extension lists matched against a filename —
+ * so a `.mov` renamed to `.mp4` is no longer classified by its name. And a
+ * malformed query can no longer throw: every term is quoted into the FTS5
+ * expression, so there is no syntax error left to swallow and report as
+ * "exact filename matches only".
+ */
+
 import { Elysia } from 'elysia';
-import type { Collection, Filter } from 'mongodb';
 import { authenticateServiceApiKey, type ServiceApiIdentity } from '../auth/service-api-keys.ts';
-import { assetsCollection } from '../db/client.ts';
-import type { AssetDoc } from '../db/schema.ts';
+import { serviceLexicalSearch } from '../db/sqlite/repos/search.repo.ts';
 import {
   MeilisearchSearchError,
   meilisearchClient,
@@ -14,7 +31,6 @@ import {
   consumeServiceSearchRateLimit,
   resetServiceSearchRateLimitsForTests,
 } from '../enrichment/service-search-rate-limit.ts';
-import { AUDIO_EXTS, VIDEO_EXTS } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('service-search');
@@ -111,142 +127,29 @@ export function _resetServiceSearchRateLimitsForTests(): void {
   resetServiceSearchRateLimitsForTests();
 }
 
-function regexEscape(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function imageFilenameRegex(
-  include: ReadonlySet<MeilisearchMediaType>,
-  video: string[],
-  audio: string[],
-): RegExp | null {
-  if (!include.has('image')) return null;
-  if (include.size === 1 && include.has('image')) {
-    return new RegExp(`^(?!.*(?:${[...video, ...audio].join('|')})$).*`, 'i');
-  }
-  const excluded = include.has('video') ? audio : video;
-  return new RegExp(`^(?!.*(?:${excluded.join('|')})$).*`, 'i');
-}
-
-function mediaFilenameRegex(mediaTypes: MeilisearchMediaType[] | undefined): RegExp | null {
-  if (!mediaTypes || mediaTypes.length === 0 || mediaTypes.length === 3) return null;
-  const include = new Set(mediaTypes);
-  const video = [...VIDEO_EXTS].map(regexEscape);
-  const audio = [...AUDIO_EXTS].map(regexEscape);
-  const image = imageFilenameRegex(include, video, audio);
-  if (image) return image;
-  const extensions = [
-    ...(include.has('video') ? video : []),
-    ...(include.has('audio') ? audio : []),
-  ];
-  return new RegExp(`(?:${extensions.join('|')})$`, 'i');
-}
-
-/** `fileinfo.$elemMatch` filename clause. Both patterns must hold when a
- * media-type narrowing and an exact-filename probe are in play, so those
- * combine under `$and` rather than one silently overwriting the other. */
-function filenameClause(
-  mediaRegex: RegExp | null,
-  exactFilename: RegExp | undefined,
-): Record<string, unknown> {
-  const patterns = [mediaRegex, exactFilename].filter((r): r is RegExp => r != null);
-  if (patterns.length === 0) return {};
-  if (patterns.length === 1) return { filename: patterns[0] };
-  return { $and: patterns.map((filename) => ({ filename })) };
-}
-
-/** Capture-window clause, empty when unbounded. `exif.captured_at` is stored
- * as a UTC ISO string (`db/schema.ts`), so this is a lexicographic range over
- * the existing `exif.captured_at` index — the same trick as `imports/nearby`
- * and `db/assets.repo`. Mongo's range operators are type-bracketed, so rows
- * with a null or missing `captured_at` are excluded, which is what a caller
- * asking for a date window wants. */
-function capturedAtClause(
-  capturedFrom: string | undefined,
-  capturedBefore: string | undefined,
-): Record<string, unknown> {
-  if (!capturedFrom && !capturedBefore) return {};
-  return {
-    'exif.captured_at': {
-      ...(capturedFrom ? { $gte: capturedFrom } : {}),
-      ...(capturedBefore ? { $lt: capturedBefore } : {}),
-    },
-  };
-}
-
-/** The parts of a search request that narrow the Mongo fallback query.
+/** The parts of a search request that narrow the database fallback query.
  * `SearchContext` satisfies this structurally. */
-interface MongoFilterScope {
+interface DatabaseFilterScope {
   includeHidden: boolean;
   mediaTypes: MeilisearchMediaType[] | undefined;
   capturedFrom: string | undefined;
   capturedBefore: string | undefined;
 }
 
-function mongoBaseFilter(scope: MongoFilterScope, exactFilename?: RegExp): Filter<AssetDoc> {
-  const entry: Record<string, unknown> = {
-    deleted_at: { $in: [null] },
-    missing_since: { $in: [null] },
-    ...filenameClause(mediaFilenameRegex(scope.mediaTypes), exactFilename),
-  };
-  return {
-    deleted_at: { $in: [null] },
-    ...(scope.includeHidden ? {} : { hidden: { $ne: true } }),
-    ...capturedAtClause(scope.capturedFrom, scope.capturedBefore),
-    fileinfo: { $elemMatch: entry },
-  } as Filter<AssetDoc>;
-}
-
-async function mongoLexicalSearch(
-  scope: MongoFilterScope,
+/**
+ * The database fallback, in the shape the rest of this route expects.
+ *
+ * `estimatedTotal` is the number of ids returned, exactly as it was before:
+ * the fallback never counted past the page it built, and reporting a
+ * larger-than-delivered total is the failure mode this route has to avoid.
+ */
+async function databaseLexicalSearch(
+  scope: DatabaseFilterScope,
   query: string,
   limit: number,
 ): Promise<MeilisearchSearchResult & { exactIds: Set<string> }> {
-  const coll = await assetsCollection();
-  const base = mongoBaseFilter(scope);
-  const exactFilename = new RegExp(`^${regexEscape(query)}$`, 'i');
-  const exactRows = await coll
-    .find(mongoBaseFilter(scope, exactFilename))
-    .project<{ maple_id?: string }>({ maple_id: 1 })
-    .limit(limit)
-    .toArray();
-  const ids = exactRows
-    .map((row) => row.maple_id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0);
-  const exactIds = new Set(ids);
-
-  if (ids.length < limit) await appendMongoTextMatches(coll, base, query, limit, ids);
-  return { ids, estimatedTotal: ids.length, exactIds };
-}
-
-async function appendMongoTextMatches(
-  coll: Collection<AssetDoc>,
-  base: Filter<AssetDoc>,
-  query: string,
-  limit: number,
-  ids: string[],
-): Promise<void> {
-  try {
-    const rows = await coll
-      .find({ ...base, $text: { $search: query } } as Filter<AssetDoc>)
-      .project<{ maple_id?: string; score?: number }>({
-        maple_id: 1,
-        score: { $meta: 'textScore' },
-      })
-      .sort({ score: { $meta: 'textScore' } })
-      .limit(limit)
-      .toArray();
-    for (const row of rows) {
-      if (typeof row.maple_id !== 'string' || ids.includes(row.maple_id)) continue;
-      ids.push(row.maple_id);
-      if (ids.length >= limit) return;
-    }
-  } catch (error) {
-    log.warn(
-      { err: error instanceof Error ? error.message : String(error) },
-      'mongo text fallback failed; returning exact filename matches only',
-    );
-  }
+  const hits = await serviceLexicalSearch(scope, query, limit);
+  return { ids: hits.ids, estimatedTotal: hits.ids.length, exactIds: hits.exactIds };
 }
 
 function responseHits(result: MeilisearchSearchResult, exactIds: ReadonlySet<string> = new Set()) {
@@ -413,7 +316,7 @@ async function tryMeilisearchLexical(
   } catch (error) {
     log.warn(
       { keyId: identity.keyId, err: error instanceof Error ? error.message : String(error) },
-      'meilisearch lexical query failed; falling back to mongo',
+      'meilisearch lexical query failed; falling back to the database',
     );
     const details =
       error instanceof MeilisearchSearchError
@@ -458,7 +361,7 @@ async function executeSearch(
     fallbackReason = 'meilisearch_unavailable';
   }
 
-  const result = await mongoLexicalSearch(context, context.query, context.limit);
+  const result = await databaseLexicalSearch(context, context.query, context.limit);
   return finishSearch(
     identity,
     startedAt,

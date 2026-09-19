@@ -1,92 +1,97 @@
 /**
- * Registry — Mongo-backed cache integration tests.
+ * Registry — cache integration tests.
  *
- * The registry is a thin cache over the `stage_handlers` collection, so the
- * tests round-trip against real Mongo.
+ * The registry is a thin cache over the `stage_handlers` table, so the tests
+ * round-trip against a real database. `resolve()` reaches the process-wide
+ * handle with no override, so each test installs its own.
  */
 
-import { describe, it, expect, beforeEach, afterAll } from "bun:test";
-import { stageHandlersCollection } from "../db/client.ts";
-import { resolve, __resetForTests } from "./registry.ts";
+import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
+import {
+  createLiveTestDatabase,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { resolve, __resetForTests } from './registry.ts';
 
-async function clearStageHandlers(): Promise<void> {
-  const coll = await stageHandlersCollection();
-  await coll.deleteMany({});
+let live: LiveTestDatabase;
+
+function insertHandler(args: {
+  impl: 'builtin' | 'http';
+  url?: string | null;
+  timeoutMs?: number | null;
+  enabled: boolean;
+}): void {
+  run(
+    live.db,
+    `INSERT INTO stage_handlers (stage, impl, url, timeout_ms, enabled) VALUES ('ai', ?, ?, ?, ?)`,
+    args.impl,
+    args.url ?? null,
+    args.timeoutMs ?? null,
+    args.enabled ? 1 : 0,
+  );
 }
 
-describe("registry.resolve", () => {
+describe('registry.resolve', () => {
   beforeEach(async () => {
-    __resetForTests();
-    await clearStageHandlers();
-  });
-
-  afterAll(async () => {
-    await clearStageHandlers();
+    live = await createLiveTestDatabase();
     __resetForTests();
   });
 
-  it("returns the builtin descriptor when no row exists", async () => {
-    const r = await resolve("ai");
-    expect(r.impl).toBe("builtin");
+  afterEach(() => {
+    __resetForTests();
+    live.close();
+  });
+
+  it('returns the builtin descriptor when no row exists', async () => {
+    const r = await resolve('ai');
+    expect(r.impl).toBe('builtin');
     expect(r.url).toBeNull();
   });
 
-  it("returns the http descriptor when an enabled row exists", async () => {
-    const coll = await stageHandlersCollection();
-    await coll.insertOne({
-      stage: "ai",
-      impl: "http",
-      url: "https://example.invalid/ai",
-      timeout_ms: 5000,
+  it('returns the http descriptor when an enabled row exists', async () => {
+    insertHandler({
+      impl: 'http',
+      url: 'https://example.invalid/ai',
+      timeoutMs: 5000,
       enabled: true,
     });
 
-    const r = await resolve("ai");
-    expect(r.impl).toBe("http");
-    expect(r.url).toBe("https://example.invalid/ai");
+    const r = await resolve('ai');
+    expect(r.impl).toBe('http');
+    expect(r.url).toBe('https://example.invalid/ai');
     expect(r.timeoutMs).toBe(5000);
   });
 
-  it("treats disabled rows as if they did not exist", async () => {
-    const coll = await stageHandlersCollection();
-    await coll.insertOne({
-      stage: "ai",
-      impl: "http",
-      url: "https://example.invalid/ai",
-      enabled: false,
-    });
+  it('treats disabled rows as if they did not exist', async () => {
+    insertHandler({ impl: 'http', url: 'https://example.invalid/ai', enabled: false });
 
-    const r = await resolve("ai");
-    expect(r.impl).toBe("builtin");
+    const r = await resolve('ai');
+    expect(r.impl).toBe('builtin');
   });
 
-  it("caches: changing the row after the first resolve does not affect the second", async () => {
+  it('caches: changing the row after the first resolve does not affect the second', async () => {
     // Behavioural cache check that doesn't rely on internal monkey-patching:
     // 1. Insert row A and resolve — populates the cache.
-    // 2. Mutate the row in Mongo to value B.
+    // 2. Mutate the row to value B.
     // 3. Resolve again WITHOUT calling refresh() — must still see A.
     // 4. refresh(), resolve again — must see B.
-    const coll = await stageHandlersCollection();
-    await coll.insertOne({
-      stage: "ai",
-      impl: "http",
-      url: "https://example.invalid/cache-A",
-      enabled: true,
-    });
+    insertHandler({ impl: 'http', url: 'https://example.invalid/cache-A', enabled: true });
 
-    const first = await resolve("ai");
-    expect(first.url).toBe("https://example.invalid/cache-A");
+    const first = await resolve('ai');
+    expect(first.url).toBe('https://example.invalid/cache-A');
 
-    await coll.updateOne(
-      { stage: "ai" },
-      { $set: { url: "https://example.invalid/cache-B" } }
+    run(
+      live.db,
+      `UPDATE stage_handlers SET url = ? WHERE stage = 'ai'`,
+      'https://example.invalid/cache-B',
     );
 
-    const second = await resolve("ai");
-    expect(second.url).toBe("https://example.invalid/cache-A");
+    const second = await resolve('ai');
+    expect(second.url).toBe('https://example.invalid/cache-A');
 
     __resetForTests();
-    const third = await resolve("ai");
-    expect(third.url).toBe("https://example.invalid/cache-B");
+    const third = await resolve('ai');
+    expect(third.url).toBe('https://example.invalid/cache-B');
   });
 });

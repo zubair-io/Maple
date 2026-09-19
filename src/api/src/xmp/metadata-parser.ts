@@ -315,9 +315,9 @@ function parseColorLabel(str: StrGetter): Pick<XmpMetadataResult, 'colorLabel'> 
   // Object.prototype properties (`"constructor"`, `"toString"`,
   // `"hasOwnProperty"`, …), so a malformed sidecar carrying
   // `xmp:Label="toString"` would read as a hit and assign the built-in
-  // FUNCTION as colorLabel — which then throws deep inside the BSON
-  // serializer when a worker tries to write the resulting patch to Mongo
-  // (found in review on #2201).
+  // FUNCTION as colorLabel — which used to throw deep inside the BSON
+  // serializer when a worker wrote the resulting patch (found in review on
+  // #2201), and is still not a value any store can persist.
   const xmpLabelStr = str('xmp:Label');
   if (xmpLabelStr !== undefined && Object.hasOwn(XMP_LABEL_WORD_MAP, xmpLabelStr)) {
     return { colorLabel: XMP_LABEL_WORD_MAP[xmpLabelStr] };

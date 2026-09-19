@@ -1,37 +1,57 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { ObjectId } from 'mongodb';
+/**
+ * POST /api/libraries/:id/backup/ingest — cloud-id persistence and advanced
+ * dedup.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), with the library rooted at a per-test tmp directory.
+ * The happy paths live in `backup-ingest.test.ts`; error/edge cases in
+ * `backup-ingest-errors.test.ts`. Split to keep each file under the file-size
+ * budget (#114).
+ */
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { assetsCollection } from '../src/db/client.ts';
+import { deriveId } from '../src/indexer/id.ts';
+import {
+  findAssetIdByMapleId,
+  findAssetsByMapleId,
+  findPhassetLinksByLocalId,
+  readPhassetLinks,
+  seedBackupAsset,
+} from './helpers/sqlite-fixtures.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
-// Cloud-id persistence + advanced dedup slice of the
-// `POST /api/libraries/:id/backup/ingest` suite. The happy paths live in
-// `backup-ingest.test.ts`; error/edge cases in `backup-ingest-errors.test.ts`.
-// Split to keep each file under the file-size budget (#114).
-//
-// Unique deviceId so parallel suites don't wipe each other's data on beforeAll.
 const deviceId = 'test-device-ingest-cloud';
 
-const suite = setupBackupIngestSuite({ deviceId });
-beforeAll(suite.beforeAll);
-afterAll(suite.afterAll);
+const suite = setupBackupIngestSuite();
+beforeEach(suite.setup);
+afterEach(suite.teardown);
 
-const ingest = makeIngestRequest(suite.handle.libId);
+const ingest = makeIngestRequest(suite.handle);
+
+/** Every file under `dir`, recursively, as absolute paths. */
+async function walk(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      const full = path.join(dir, entry.name);
+      return entry.isDirectory() ? await walk(full) : [full];
+    }),
+  );
+  return nested.flat();
+}
 
 describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', () => {
-  test('backup upload with spec-form maple_id matching pre-seeded AssetDoc → dedup, no second file', async () => {
-    // End-to-end dedup proof for the device-side spec-form maple_id fix:
-    // an indexer-style AssetDoc exists on disk + in Mongo, and the device
-    // backs up the same content with the matching spec-form id. The server
-    // must short-circuit on `findOne({ maple_id })` and not write a second
-    // copy.
-    const { deriveId } = await import('../src/indexer/id.ts');
+  test('backup upload with spec-form maple_id matching pre-seeded asset → dedup, no second file', async () => {
+    // End-to-end dedup proof for the device-side spec-form maple_id fix: an
+    // indexer-style asset row exists on disk + in the database, and the device
+    // backs up the same content with the matching spec-form id. The server must
+    // short-circuit on the content id and not write a second copy.
 
     // Simulate "indexer scanned this file" — write the file to the library
-    // folder directly, derive a spec-form id from its head, insert the
-    // AssetDoc with that id.
+    // folder directly, derive a spec-form id from its head, seed the asset row
+    // with that id.
     const indexerRelPath = 'indexed/IMG_INDEXED.HEIC';
     const indexerAbsPath = path.join(suite.handle.tmpLib, indexerRelPath);
     await fs.mkdir(path.dirname(indexerAbsPath), { recursive: true });
@@ -44,38 +64,13 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     expect(id.hex.length).toBe(32);
     expect(id.kind).toBe('primary');
 
-    const a = await assetsCollection();
-    // The id is deterministic (same bytes + capture date every run), and the
-    // suite's beforeAll only cleans rows by `phasset_links.device_id` — which
-    // never matches this indexer row (it seeds with empty phasset_links). So
-    // a prior run's row with this maple_id would survive and, because
-    // `findOne({ maple_id })` returns the OLDEST match (a different library),
-    // the dedup branch would resolve against the wrong row. Purge any stale
-    // copies of this content-id before seeding so the test is run-order
-    // independent.
-    await a.deleteMany({ maple_id: id.hex });
-    // Post drop-abs-path-2026-05-21: persisted location is fileinfo[]; the
-    // backup-ingest route resolves the target path via `assetAbsPath`.
-    await a.insertOne({
-      _id: new ObjectId(),
-      fileinfo: [
-        {
-          library_id: suite.handle.libId,
-          path: path.dirname(indexerRelPath),
-          filename: path.basename(indexerRelPath),
-          deleted_at: null,
-        },
-      ],
+    // The persisted location is a row in `asset_locations`; the backup-ingest
+    // route resolves the dedup target's path from it.
+    seedBackupAsset(suite.handle.db, {
+      mapleId: id.hex,
       size: sharedBytes.byteLength,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      maple_id: id.hex,
-      phasset_links: [],
-      deleted_from_photos: false,
-    } as never);
+      locations: [{ libraryId: suite.handle.libId, relPath: indexerRelPath }],
+    });
 
     // Now the device sends a backup with the same content + same spec-form id.
     const devicePhid = 'ABC/L0/SPEC-FORM';
@@ -98,31 +93,24 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     // resolved to the existing row, not a fresh upload destination.
     expect(body.target_rel_path).toBe(indexerRelPath);
 
-    // Exactly one AssetDoc; phasset_links got the device link pushed onto it.
-    const rows = await a.find({ maple_id: id.hex }).toArray();
-    expect(rows.length).toBe(1);
-    expect(rows[0].phasset_links?.length).toBe(1);
-    expect(rows[0].phasset_links?.[0].device_id).toBe(deviceForId);
-    expect(rows[0].phasset_links?.[0].phasset_local_id).toBe(devicePhid);
+    // Exactly one asset row; the device link was recorded against it.
+    const rows = findAssetsByMapleId(suite.handle.db, id.hex);
+    expect(rows).toHaveLength(1);
+    const assetId = findAssetIdByMapleId(suite.handle.db, id.hex);
+    expect(assetId).not.toBeNull();
+    const links = readPhassetLinks(suite.handle.db, assetId!);
+    expect(links).toHaveLength(1);
+    expect(links[0].device_id).toBe(deviceForId);
+    expect(links[0].phasset_local_id).toBe(devicePhid);
 
     // Only the indexer's file exists on disk under the library folder —
     // no second copy was written under the device's would-be target path.
     // The "phid-routing" target path would have been derived from
     // capture_date + filename → e.g. `2024/2024/09-01/IMG_INDEXED.HEIC` —
     // walk the folder tree and assert exactly one IMG_INDEXED.HEIC exists.
-    async function walk(dir: string): Promise<string[]> {
-      const out: string[] = [];
-      const ents = await fs.readdir(dir, { withFileTypes: true });
-      for (const e of ents) {
-        const full = path.join(dir, e.name);
-        if (e.isDirectory()) out.push(...(await walk(full)));
-        else out.push(full);
-      }
-      return out;
-    }
     const allFiles = await walk(suite.handle.tmpLib);
     const sharedNameMatches = allFiles.filter((p) => p.endsWith('IMG_INDEXED.HEIC'));
-    expect(sharedNameMatches.length).toBe(1);
+    expect(sharedNameMatches).toHaveLength(1);
     expect(sharedNameMatches[0]).toBe(indexerAbsPath);
   });
 
@@ -159,7 +147,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     expect(body.retry_after_seconds).toBeGreaterThan(0);
   });
 
-  test('X-Maple-PHAsset-Cloud-Id is persisted into phasset_links', async () => {
+  test('X-Maple-PHAsset-Cloud-Id is persisted onto the device link', async () => {
     const phidCloud = 'ABC/L0/CLOUD1';
     const cloudId = 'icloud-XYZ-stable-across-devices';
     const res = await authedHandle(
@@ -176,14 +164,9 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     );
     expect(res.status).toBe(200);
 
-    const a = await assetsCollection();
-    const doc = await a.findOne({
-      'phasset_links.phasset_local_id': phidCloud,
-    });
-    expect(doc).toBeTruthy();
-    const link = doc!.phasset_links!.find((l) => l.phasset_local_id === phidCloud);
-    expect(link).toBeTruthy();
-    expect(link!.phasset_cloud_id).toBe(cloudId);
+    const links = findPhassetLinksByLocalId(suite.handle.db, phidCloud);
+    expect(links).toHaveLength(1);
+    expect(links[0].phasset_cloud_id).toBe(cloudId);
   });
 
   test('absent X-Maple-PHAsset-Cloud-Id leaves phasset_cloud_id unset', async () => {
@@ -202,17 +185,13 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     );
     expect(res.status).toBe(200);
 
-    const a = await assetsCollection();
-    const doc = await a.findOne({
-      'phasset_links.phasset_local_id': phidNoCloud,
-    });
-    expect(doc).toBeTruthy();
-    const link = doc!.phasset_links!.find((l) => l.phasset_local_id === phidNoCloud);
-    expect(link).toBeTruthy();
-    expect(link!.phasset_cloud_id).toBeUndefined();
+    const links = findPhassetLinksByLocalId(suite.handle.db, phidNoCloud);
+    expect(links).toHaveLength(1);
+    // The absent Mongo field is a NULL column here.
+    expect(links[0].phasset_cloud_id).toBeNull();
   });
 
-  test("second device with same maple_id $push's the link including its cloud id", async () => {
+  test('second device with same maple_id adds a link row carrying its cloud id', async () => {
     const sharedMapleId = '02f0cdd420e020da4a3fcd60af3c35d3';
     const deviceA = 'device-A-cloud';
     const deviceB = 'device-B-cloud';
@@ -251,12 +230,13 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     );
     expect(rB.status).toBe(200);
 
-    const a = await assetsCollection();
-    const docs = await a.find({ maple_id: sharedMapleId }).toArray();
-    expect(docs.length).toBe(1);
-    const links = docs[0].phasset_links ?? [];
-    expect(links.length).toBe(2);
-    const byPhid = new Map(links.map((l: any) => [l.phasset_local_id, l]));
+    const rows = findAssetsByMapleId(suite.handle.db, sharedMapleId);
+    expect(rows).toHaveLength(1);
+    const assetId = findAssetIdByMapleId(suite.handle.db, sharedMapleId);
+    expect(assetId).not.toBeNull();
+    const links = readPhassetLinks(suite.handle.db, assetId!);
+    expect(links).toHaveLength(2);
+    const byPhid = new Map(links.map((link) => [link.phasset_local_id, link]));
     expect(byPhid.get(phidA)?.phasset_cloud_id).toBe(sharedCloudId);
     expect(byPhid.get(phidB)?.phasset_cloud_id).toBe(sharedCloudId);
   });

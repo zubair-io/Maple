@@ -38,7 +38,7 @@ import {
   type ResolvedEnrichmentConfig,
 } from './enrichment-config.resolve.ts';
 import { preloadFaceModelsOffThread } from './face-pool.ts';
-import { workerConfigCollection } from '../db/client.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 
 const log = childLogger('face');
 
@@ -51,30 +51,28 @@ const log = childLogger('face');
  */
 export const FACE_STAGE_NAMES = ['face-detect', 'face-embed'] as const;
 
-/** Apply the paused state to every stage in the split face pipeline. */
+/**
+ * Apply the paused state to every stage in the split face pipeline.
+ *
+ * `WorkerConfigRepo.patch` is the same verb the Settings → Workers buttons use,
+ * so a resume here clears any stale `pause_reason` the stage paused itself with
+ * — the repository's documented contract, and the reason every resume path goes
+ * through it rather than writing the row directly.
+ */
 async function applyPausedToFaceStages(paused: boolean): Promise<void> {
-  try {
-    const coll = await workerConfigCollection();
-    await Promise.all(
-      FACE_STAGE_NAMES.map(async (name) => {
-        try {
-          await coll.updateOne(
-            { name },
-            { $set: { paused }, $setOnInsert: { name } as never },
-            { upsert: true },
-          );
-        } catch (err) {
-          // Non-fatal — log and continue. The stage controller will fall back to
-          // the stage's built-in defaults if the DB write fails.
-          const msg = err instanceof Error ? err.message : String(err);
-          log.warn({ err: msg, name }, 'failed to write paused state to worker_config');
-        }
-      }),
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: msg }, 'failed to access worker_config collection');
-  }
+  const repo = new WorkerConfigRepo();
+  await Promise.all(
+    FACE_STAGE_NAMES.map(async (name) => {
+      try {
+        await repo.patch(name, { paused });
+      } catch (err) {
+        // Non-fatal — log and continue. The stage controller will fall back to
+        // the stage's built-in defaults if the DB write fails.
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn({ err: msg, name }, 'failed to write paused state to worker_config');
+      }
+    }),
+  );
 }
 
 /**
@@ -101,15 +99,15 @@ async function applyPausedToFaceStages(paused: boolean): Promise<void> {
  * will encounter the error on first inference and dead-letter that asset. */
 export async function startFaceWorker(): Promise<null> {
   // `loadEnrichmentConfig` reads the DB-backed enrichment row; `resolveEnrichmentConfig`
-  // folds it together with env fallbacks. Both can throw — `loadEnrichmentConfig` if Mongo
-  // is unreachable mid-boot (it guards internally today, but that's an implementation
-  // detail this contract must not depend on), and `resolveEnrichmentConfig` on a malformed
-  // config. This function is documented "Never throws", and the `index.ts` call site treats
+  // folds it together with env fallbacks. Both can throw — `loadEnrichmentConfig` if the
+  // database is unreachable mid-boot (it guards internally today, but that's an
+  // implementation detail this contract must not depend on), and `resolveEnrichmentConfig`
+  // on a malformed config. This function is documented "Never throws", and the `index.ts` call site treats
   // a face bootstrap failure as isolated/non-fatal (log + continue). Catch here, log, and
   // leave the worker disabled by returning — identical to how the preload path below logs
   // and falls through on failure. Don't coerce the error into `null` and continue:
   // `resolveEnrichmentConfig(null)` is the legitimate "no DB row, use env" path, so feeding
-  // a Mongo-down boot into it could route an env-enabled preload; a throw means "leave
+  // a database-down boot into it could route an env-enabled preload; a throw means "leave
   // disabled and return."
   let resolved: ResolvedEnrichmentConfig;
   try {

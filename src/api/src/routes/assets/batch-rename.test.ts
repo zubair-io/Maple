@@ -6,19 +6,30 @@
  * this file checks the HTTP surface: body validation, status/shape
  * mapping, and one end-to-end pass to prove the route is actually wired to
  * the library functions.
+ *
+ * End-to-end runs against a real SQLite database (#3787) installed as the
+ * process-wide handle, plus real temp-dir files.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { Database } from 'bun:sqlite';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { batchRenameRoutes } from './batch-rename.ts';
-import { closeDb } from '../../db/client.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { tryGetRawFfi } from '../../ffi/raw_ffi.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
+import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
 // The two "end to end" tests below need a real rendered filename, which
 // requires the native `raw-core` engine — unavailable in this repo's CI
@@ -27,11 +38,6 @@ import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
 // suites; see that file's module doc for the full rationale.
 const ffiAvailable = tryGetRawFfi() !== null;
 const maybeTest = ffiAvailable ? test : test.skip;
-
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_batch_rename_route_test_${process.pid}`;
-const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
 
 const app = new Elysia({ prefix: '/api/assets' }).use(fakeAuth()).use(batchRenameRoutes);
 
@@ -44,6 +50,20 @@ async function post(urlPath: string, body: unknown): Promise<Response> {
     }),
   );
 }
+
+let live: LiveTestDatabase;
+let root: string;
+
+beforeEach(async () => {
+  live = await createLiveTestDatabase();
+  root = await fs.mkdtemp(path.join(os.tmpdir(), 'batch-rename-route-'));
+});
+
+afterEach(async () => {
+  live.close();
+  await fs.rm(root, { recursive: true, force: true });
+  setLibraryRootsForTests(null);
+});
 
 describe('POST /api/assets/batch-rename — wiring', () => {
   test('returns 4xx for an empty ids array', async () => {
@@ -58,7 +78,7 @@ describe('POST /api/assets/batch-rename — wiring', () => {
 
   test('returns 400 for a malformed id in the list', async () => {
     const res = await post('/batch-rename', {
-      ids: [new ObjectId().toHexString(), 'not-an-object-id'],
+      ids: [newObjectIdHex(), 'not-an-object-id'],
       template: '{original}.{ext}',
       collision: 'auto-suffix',
     });
@@ -67,7 +87,7 @@ describe('POST /api/assets/batch-rename — wiring', () => {
 
   test('returns 4xx for an invalid collision policy', async () => {
     const res = await post('/batch-rename', {
-      ids: [new ObjectId().toHexString()],
+      ids: [newObjectIdHex()],
       template: '{original}.{ext}',
       collision: 'yolo',
     });
@@ -77,7 +97,7 @@ describe('POST /api/assets/batch-rename — wiring', () => {
 
   test('returns 4xx for a missing template', async () => {
     const res = await post('/batch-rename', {
-      ids: [new ObjectId().toHexString()],
+      ids: [newObjectIdHex()],
       collision: 'auto-suffix',
     });
     expect(res.status).toBeGreaterThanOrEqual(400);
@@ -88,7 +108,7 @@ describe('POST /api/assets/batch-rename — wiring', () => {
 describe('POST /api/assets/batch-rename/preview — wiring', () => {
   test('does not require a collision policy', async () => {
     const res = await post('/batch-rename/preview', {
-      ids: [new ObjectId().toHexString()],
+      ids: [newObjectIdHex()],
       template: '{original}.{ext}',
     });
     // Not-found item, but the request shape itself is valid — 200 with a
@@ -106,88 +126,30 @@ describe('POST /api/assets/batch-rename/preview — wiring', () => {
 });
 
 // ---------------------------------------------------------------------------
-// End-to-end — real Mongo + real temp-dir files.
+// End-to-end — real catalogue + real temp-dir files.
 // ---------------------------------------------------------------------------
 
-let client: MongoClient | null = null;
-let db: Db | null = null;
-let root: string;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
-beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), 'batch-rename-route-'));
-  client = await tryConnect();
-  if (!client) return;
-  await closeDb();
-  process.env.MAPLE_MONGO_URI = MONGO_URI;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  db = client.db(TEST_DB);
-  await db.dropDatabase();
-});
-
-afterEach(async () => {
-  await fs.rm(root, { recursive: true, force: true });
-  setLibraryRootsForTests(null);
-});
-
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  if (client) await client.close();
-  if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
-  if (ORIGINAL_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
-  else process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
-  await closeDb();
-});
-
-async function seedAssets(d: Db, names: string[]): Promise<ObjectId[]> {
-  const libraryId = new ObjectId();
+async function seedAssets(db: Database, names: string[]): Promise<string[]> {
+  const libraryId = insertFolder(db, { path: root, slug: 'batch-rename-route-test' });
   await fs.mkdir(path.join(root, 'a'), { recursive: true });
-  const ids: ObjectId[] = [];
+  const ids: string[] = [];
   for (const filename of names) {
-    const id = new ObjectId();
     await fs.writeFile(path.join(root, 'a', filename), 'pixels');
-    await d.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [{ path: 'a', filename, library_id: libraryId, deleted_at: null }],
-      size: 6,
-      mtime: 1_700_000_000_000,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-01-01T00:00:00Z',
-      has_xmp: false,
-      deleted_at: null,
-    } as never);
+    const id = insertAsset(db);
+    insertLocation(db, { assetId: id, libraryId, path: 'a', filename });
+    run(db, `UPDATE assets SET size = 6, mtime = 1700000000000 WHERE id = ?`, id);
     ids.push(id);
   }
-  setLibraryRootsForTests(new Map([[libraryId.toHexString(), root]]));
+  setLibraryRootsForTests(new Map([[libraryId, root]]));
   return ids;
 }
 
 describe('POST /api/assets/batch-rename — end to end', () => {
   maybeTest('applies the template sequentially and returns a summary', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['IMG_1.dng', 'IMG_2.dng']);
+    const ids = await seedAssets(live.db, ['IMG_1.dng', 'IMG_2.dng']);
 
     const res = await post('/batch-rename', {
-      ids: ids.map((id) => id.toHexString()),
+      ids,
       template: '{original}_{n}.{ext}',
       sequence_start: 1,
       sequence_pad_width: 2,
@@ -205,11 +167,10 @@ describe('POST /api/assets/batch-rename — end to end', () => {
 
 describe('POST /api/assets/batch-rename/preview — end to end', () => {
   maybeTest('renders names without applying anything', async () => {
-    if (!db) return;
-    const ids = await seedAssets(db, ['IMG_1.dng']);
+    const ids = await seedAssets(live.db, ['IMG_1.dng']);
 
     const res = await post('/batch-rename/preview', {
-      ids: ids.map((id) => id.toHexString()),
+      ids,
       template: '{original}_preview.{ext}',
     });
     expect(res.status).toBe(200);

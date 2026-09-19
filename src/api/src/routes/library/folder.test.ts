@@ -1,109 +1,72 @@
 /**
  * Integration tests for GET /api/folder/:slug/*
  *
- * Uses a real Mongo DB (MAPLE_MONGO_URI, separate test DB) + a real temp
- * directory so `readdir` calls work. Skips gracefully when Mongo is unreachable.
+ * A real temp directory, so `readdir` walks something, and a real library row,
+ * so the slug resolves and the catalog rows have a library to belong to.
+ *
+ * The handler reaches `sqliteDb()` with no override, so each test installs its
+ * own database as the process-wide handle for the block.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { ObjectId } from 'mongodb';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { folderRoutes } from './folder.ts';
-import { setLibraryBySlugForTests } from '../../indexer/libraries.cache.ts';
-import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots, setLibraryBySlugForTests } from '../../indexer/libraries.cache.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_folder_route_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+let live: LiveTestDatabase;
 let tmpDir = '';
-let libraryId = new ObjectId();
+let libraryId = '';
 
 const app = new Elysia().use(fakeAuth()).use(folderRoutes);
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  // Make this file order-independent: another test file's module-load may have
-  // overwritten MAPLE_MONGO_DB and/or left the shared db-client singleton
-  // connected to a different DB. Re-assert our DB and reset the singleton so
-  // the route's getDb() reconnects to TEST_DB on first use.
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  await (await import('../../db/client.ts')).closeDb();
-
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[folder.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  tmpDir = `/tmp/maple-folder-test-${process.pid}`;
-  await mkdir(tmpDir, { recursive: true });
-
-  // Wire the slug → library in the in-memory cache
-  libraryId = new ObjectId();
-  setLibraryBySlugForTests('testlib', {
-    libraryId,
-    root: tmpDir,
-    label: 'Test Library',
-  });
-});
-
 beforeEach(async () => {
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
-  await db.collection('folders').deleteMany({});
+  live = await createLiveTestDatabase();
+  tmpDir = await mkdtemp(path.join(tmpdir(), 'maple-folder-test-'));
+  libraryId = insertFolder(live.db, { path: tmpDir, slug: 'testlib' });
+  // One read of the folders table populates both halves of the roots cache.
+  invalidateLibraryRoots();
 });
 
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await mongo.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  if (tmpDir) {
-    try {
-      await rm(tmpDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
+afterEach(async () => {
+  live.close();
   invalidateLibraryRoots();
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
+  await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 });
+
+/** One indexed asset at `(dir, filename)` in the test library. */
+function seedIndexed(
+  dir: string,
+  filename: string,
+  over: { exif?: unknown; mapleId?: string; libraryId?: string } = {},
+): string {
+  const assetId = insertAsset(live.db, {
+    exif: over.exif === undefined ? null : JSON.stringify(over.exif),
+  });
+  if (over.mapleId !== undefined) {
+    run(live.db, `UPDATE assets SET maple_id = ? WHERE id = ?`, over.mapleId, assetId);
+  }
+  insertLocation(live.db, {
+    assetId,
+    libraryId: over.libraryId ?? libraryId,
+    path: dir,
+    filename,
+  });
+  return assetId;
+}
 
 describe('GET /folder/:slug/*', () => {
   test('returns 404 for unknown slug', async () => {
@@ -114,7 +77,6 @@ describe('GET /folder/:slug/*', () => {
   });
 
   test('matches the library root WITHOUT a trailing slash (regression: no SPA fallback)', async () => {
-    if (!mongoReachable) return;
     // The web client requests `/api/folder/<slug>` (NO trailing slash) for the
     // library root. `/folder/:slug/*` alone does NOT match that, so the request
     // fell through to the SPA static handler and returned index.html (the live
@@ -127,15 +89,15 @@ describe('GET /folder/:slug/*', () => {
   });
 
   test('returns empty listing for a root with no files or subdirs', async () => {
-    if (!mongoReachable) return;
     const subDir = path.join(tmpDir, `empty-${Date.now()}`);
     await mkdir(subDir, { recursive: true });
-    const slugEntry = {
+    // A slug the folders table does not carry — stubbed straight into the
+    // cache, which is what `setLibraryBySlugForTests` exists for.
+    setLibraryBySlugForTests('emptylib', {
       libraryId: new ObjectId(),
       root: subDir,
       label: 'Empty',
-    };
-    setLibraryBySlugForTests('emptylib', slugEntry);
+    });
 
     const res = await app.handle(new Request('http://localhost/folder/emptylib/'));
     expect(res.status).toBe(200);
@@ -152,24 +114,12 @@ describe('GET /folder/:slug/*', () => {
   });
 
   test('returns indexed images from catalog', async () => {
-    if (!mongoReachable) return;
     const mapleId = new ObjectId().toHexString();
 
-    // Insert a catalog asset
-    await db!.collection('assets').insertOne({
-      maple_id: mapleId,
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: '',
-          filename: 'shot.dng',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      deleted_at: null,
+    seedIndexed('', 'shot.dng', {
+      mapleId,
       exif: { width: 3000, height: 2000, captured_at: '2026-06-01T12:00:00Z' },
-    } as never);
+    });
 
     const res = await app.handle(new Request('http://localhost/folder/testlib/'));
     expect(res.status).toBe(200);
@@ -194,7 +144,6 @@ describe('GET /folder/:slug/*', () => {
   });
 
   test('on-disk unindexed files appear with indexed:false', async () => {
-    if (!mongoReachable) return;
     // Write a file to disk that is not in the catalog
     await writeFile(path.join(tmpDir, 'new-file.jpg'), 'fake-jpeg');
 
@@ -210,13 +159,11 @@ describe('GET /folder/:slug/*', () => {
   });
 
   test('Server-Timing header is present', async () => {
-    if (!mongoReachable) return;
     const res = await app.handle(new Request('http://localhost/folder/testlib/'));
     expect(res.headers.get('Server-Timing')).toMatch(/^total;dur=\d+$/);
   });
 
   test('lists subdirectories', async () => {
-    if (!mongoReachable) return;
     const sub = path.join(tmpDir, 'sub-album');
     await mkdir(sub, { recursive: true });
     const res = await app.handle(new Request('http://localhost/folder/testlib/'));
@@ -228,33 +175,23 @@ describe('GET /folder/:slug/*', () => {
   });
 
   test('does NOT leak a deduplicated asset whose (library,path) live in different fileinfo entries', async () => {
-    if (!mongoReachable) return;
     // Regression: a loose `{'fileinfo.library_id': id, 'fileinfo.path': relPath}`
     // query cross-matches when library_id and path come from DIFFERENT entries.
     // This asset has the test library at folderB and a *different* library at
     // folderA — querying folderA must NOT surface its folderB filename.
     await mkdir(path.join(tmpDir, 'folderA'), { recursive: true });
     await mkdir(path.join(tmpDir, 'folderB'), { recursive: true });
-    await db!.collection('assets').insertOne({
-      maple_id: new ObjectId().toHexString(),
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: 'folderB',
-          filename: 'b.jpg',
-          deleted_at: null,
-          missing_since: null,
-        },
-        {
-          library_id: new ObjectId(),
-          path: 'folderA',
-          filename: 'a.jpg',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      deleted_at: null,
-    } as never);
+    const otherLibrary = insertFolder(live.db, { path: '/srv/other', slug: 'otherlib' });
+    const assetId = seedIndexed('folderB', 'b.jpg', {
+      mapleId: new ObjectId().toHexString(),
+    });
+    insertLocation(live.db, {
+      assetId,
+      libraryId: otherLibrary,
+      ordinal: 1,
+      path: 'folderA',
+      filename: 'a.jpg',
+    });
 
     const res = await app.handle(new Request('http://localhost/folder/testlib/folderA'));
     expect(res.status).toBe(200);
@@ -265,23 +202,10 @@ describe('GET /folder/:slug/*', () => {
   });
 
   test('percent-decodes the wildcard so folders/files with spaces resolve', async () => {
-    if (!mongoReachable) return;
     // Regression: Elysia does not decode path params; without explicit
     // decoding, `My%20Album` never matches the on-disk dir or the catalog path.
     await mkdir(path.join(tmpDir, 'My Album'), { recursive: true });
-    await db!.collection('assets').insertOne({
-      maple_id: new ObjectId().toHexString(),
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: 'My Album',
-          filename: 'x.jpg',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      deleted_at: null,
-    } as never);
+    seedIndexed('My Album', 'x.jpg', { mapleId: new ObjectId().toHexString() });
 
     const res = await app.handle(new Request('http://localhost/folder/testlib/My%20Album'));
     expect(res.status).toBe(200);

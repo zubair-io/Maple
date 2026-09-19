@@ -22,47 +22,35 @@
  * Path-resolution, index-on-demand, and security tests live in
  * pano.resolve.test.ts (#1311, #1313).
  *
- * DB isolation: getDb() is a singleton. When bun test runs the full suite in
- * one process, a prior test file may have already connected the singleton to
- * :27017. We reset it via closeDb() in beforeAll so the first route call in
- * this file reconnects using our :27077 env vars. The env vars are set at
- * module scope — they're evaluated before any route call even though ESM
- * imports are hoisted (getDb() is lazy; it reads env at connect-time).
+ * The handlers reach `sqliteDb()` with no override, so each test installs its
+ * own database as the process-wide handle for the block. Nothing external is
+ * required and nothing is skipped.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { panoRoutes } from './pano.ts';
-import { withTestDb, withTestEnv } from '../db/test-db.test-helpers.ts';
-
-// Standalone test DB — never touches the dev DB on :27017.
-const MONGO_URL = 'mongodb://localhost:27077';
-const TEST_DB = `maple_pano_test_${process.pid}`;
-
-// Both overrides are claimed in beforeAll and restored in afterAll. Leaving
-// the URI pointing at :27077 makes every later test file in the same process
-// reconnect to a port that only exists on dev machines (CI has no :27077 —
-// the whole tail of the suite times out "MongoDB unreachable"), and capturing
-// the prior value at module scope would capture pano.resolve.test.ts's own
-// :27077 override and then restore THAT process-wide.
-withTestEnv('MAPLE_MONGO_URI', MONGO_URL);
-withTestDb(TEST_DB);
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 
 const app = new Elysia().use(panoRoutes);
 
-let client: MongoClient | null = null;
-let db: Db | null = null;
-let mongoReachable = false;
+let live: LiveTestDatabase;
 
 /** Absolute path of the fake maple-cli shell script. */
 let fakeCli = '';
 let tmpDir = '';
-let folderId: ObjectId;
+let folderId: string;
 
 // 1×1 white PNG (PNG spec: 8-byte signature + IHDR + IDAT + IEND).
 // Generated once and embedded as base64 to avoid any runtime dependency.
@@ -70,12 +58,6 @@ const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 beforeAll(async () => {
-  // Reset the getDb() singleton so this file's env vars take effect. In the
-  // full test suite a prior file may have connected to :27017; closeDb() sets
-  // _db back to null so the next getDb() call reconnects to :27077.
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-
   // Create fake maple-cli.
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-test-'));
   fakeCli = path.join(tmpDir, 'fake-maple-cli');
@@ -104,47 +86,25 @@ exit 0
 `,
   );
   await fs.chmod(fakeCli, 0o755);
-
-  // Connect to the test Mongo with our own client (not getDb()).
-  try {
-    client = new MongoClient(MONGO_URL, { serverSelectionTimeoutMS: 1000 });
-    await client.connect();
-    db = client.db(TEST_DB);
-    mongoReachable = true;
-  } catch {
-    mongoReachable = false;
-  }
 });
 
 afterAll(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-  if (db) await db.dropDatabase().catch(() => {});
-  await client?.close().catch(() => {});
-  // Reset the singleton so subsequent test files reconnect to the suite's own
-  // Mongo, not this file's throwaway :27077 (the env itself is already back).
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
 });
 
 beforeEach(async () => {
-  if (!mongoReachable || !db) return;
-  // Reset relevant collections between tests.
-  await db.collection('jobs').deleteMany({});
-  await db.collection('app_settings').deleteMany({});
-  await db.collection('assets').deleteMany({});
-  await db.collection('folders').deleteMany({});
-
-  folderId = new ObjectId();
+  live = await createLiveTestDatabase();
   const libPath = path.join(tmpDir, 'lib');
   await fs.mkdir(libPath, { recursive: true });
-  await db.collection('folders').insertOne({
-    _id: folderId,
-    path: libPath,
-    label: 'Test lib',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  } as never);
+  folderId = insertFolder(live.db, { path: libPath, slug: 'pano-lib' });
+  // The roots map is a process-wide cache with no TTL, so a sibling test's
+  // library would otherwise answer this one's jail check.
+  invalidateLibraryRoots();
+});
+
+afterEach(() => {
+  live.close();
+  invalidateLibraryRoots();
 });
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -179,7 +139,7 @@ async function deleteReq(url: string): Promise<Response> {
 
 const STITCH_BODY = () => ({
   assetIds: [new ObjectId().toHexString(), new ObjectId().toHexString()],
-  libraryId: folderId?.toHexString() ?? new ObjectId().toHexString(),
+  libraryId: folderId ?? new ObjectId().toHexString(),
   options: { retention: 'keep', localAlign: 'mesh' },
 });
 
@@ -189,7 +149,6 @@ const STITCH_BODY = () => ({
 
 describe('probeStrategySupported via PUT /api/pano/config', () => {
   it('returns strategy_supported:true when help output contains --strategy flag', async () => {
-    if (!mongoReachable) return;
     // Write a fake CLI that prints --strategy in its help output (to stdout).
     const strategyFakeCli = path.join(tmpDir, 'fake-cli-with-strategy');
     await fs.writeFile(
@@ -207,7 +166,6 @@ describe('probeStrategySupported via PUT /api/pano/config', () => {
   });
 
   it('returns strategy_supported:false when help output only mentions word "strategy" without the --flag', async () => {
-    if (!mongoReachable) return;
     // A help text that mentions "strategy" as a noun but NOT "--strategy".
     // The old code matched `.includes('strategy')` which would be a false positive.
     const noFlagFakeCli = path.join(tmpDir, 'fake-cli-no-strategy-flag');
@@ -223,7 +181,6 @@ describe('probeStrategySupported via PUT /api/pano/config', () => {
   });
 
   it('returns strategy_supported:true when --strategy flag appears on stderr (some clap versions)', async () => {
-    if (!mongoReachable) return;
     // Some clap versions print help to stderr; the probe must capture both.
     const stderrFakeCli = path.join(tmpDir, 'fake-cli-strategy-stderr');
     await fs.writeFile(
@@ -242,7 +199,6 @@ describe('probeStrategySupported via PUT /api/pano/config', () => {
 
 describe('GET /api/pano/config', () => {
   it('returns defaults when no config saved', async () => {
-    if (!mongoReachable) return;
     const res = await getReq('/api/pano/config');
     expect(res.status).toBe(200);
     const body = (await res.json()) as { enabled: boolean; maple_cli_path: null };
@@ -253,7 +209,6 @@ describe('GET /api/pano/config', () => {
 
 describe('PUT /api/pano/config', () => {
   it('persists config and returns updated values', async () => {
-    if (!mongoReachable) return;
     const res = await putJson('/api/pano/config', {
       maple_cli_path: fakeCli,
       enabled: true,
@@ -270,7 +225,6 @@ describe('PUT /api/pano/config', () => {
 
 describe('POST /api/pano/stitch (provisioning)', () => {
   it('returns 409 pano_not_provisioned when config absent', async () => {
-    if (!mongoReachable) return;
     const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
@@ -278,7 +232,6 @@ describe('POST /api/pano/stitch (provisioning)', () => {
   });
 
   it('returns 409 pano_not_provisioned when enabled=false', async () => {
-    if (!mongoReachable) return;
     await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: false });
     const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(409);
@@ -291,12 +244,10 @@ describe('POST /api/pano/stitch (provisioning)', () => {
 
 describe('POST /api/pano/stitch (provisioned)', () => {
   beforeEach(async () => {
-    if (!mongoReachable) return;
     await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true });
   });
 
   it('creates a queued job and returns 201 + id', async () => {
-    if (!mongoReachable) return;
     const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(201);
     const body = (await res.json()) as { id: string };
@@ -305,21 +256,19 @@ describe('POST /api/pano/stitch (provisioned)', () => {
   });
 
   it('returns 409 pano_job_running when a job is already running', async () => {
-    if (!mongoReachable) return;
     // Manually insert a running job to simulate the concurrent-job guard.
-    await db!.collection('jobs').insertOne({
-      kind: 'pano_stitch',
-      status: 'running',
-      payload: {},
-      progress: { current: 0, total: 0 },
-      result: null,
-      error: null,
-      locked_by: 'worker-1',
-      lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
-      cancel_requested: false,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    } as never);
+    const now = new Date().toISOString();
+    run(
+      live.db,
+      `INSERT INTO jobs
+         (id, kind, status, locked_by, lease_expires_at, cancel_requested,
+          progress_current, progress_total, error, created_at, updated_at, params)
+       VALUES (?, 'pano_stitch', 'running', 'worker-1', ?, 0, 0, 0, NULL, ?, ?, '{}')`,
+      new ObjectId().toHexString(),
+      new Date(Date.now() + 60_000).toISOString(),
+      now,
+      now,
+    );
 
     const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(409);
@@ -332,7 +281,6 @@ describe('POST /api/pano/stitch (provisioned)', () => {
     // The first creates a queued job; the second must see the queued job and
     // return 409 — not enqueue a second job that a worker would later execute
     // concurrently (pano is ~tens of GB RSS, concurrent runs OOM the box).
-    if (!mongoReachable) return;
     // First request — should succeed.
     const first = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(first.status).toBe(201);
@@ -344,7 +292,6 @@ describe('POST /api/pano/stitch (provisioned)', () => {
   });
 
   it('rejects when assetIds has fewer than 2 items', async () => {
-    if (!mongoReachable) return;
     const res = await postJson('/api/pano/stitch', {
       ...STITCH_BODY(),
       assetIds: [new ObjectId().toHexString()],
@@ -362,13 +309,11 @@ describe('GET /api/pano/jobs/:id', () => {
   });
 
   it('returns 404 when job does not exist', async () => {
-    if (!mongoReachable) return;
     const res = await getReq(`/api/pano/jobs/${new ObjectId().toHexString()}`);
     expect(res.status).toBe(404);
   });
 
   it('returns the job when it exists', async () => {
-    if (!mongoReachable) return;
     await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true });
     const createRes = await postJson('/api/pano/stitch', STITCH_BODY());
     const { id } = (await createRes.json()) as { id: string };
@@ -391,7 +336,6 @@ describe('DELETE /api/pano/jobs/:id', () => {
   });
 
   it('sets cancel_requested on a queued job', async () => {
-    if (!mongoReachable) return;
     await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true });
     const { id } = (await (await postJson('/api/pano/stitch', STITCH_BODY())).json()) as {
       id: string;
@@ -403,7 +347,9 @@ describe('DELETE /api/pano/jobs/:id', () => {
     expect(body.ok).toBe(true);
 
     // Verify the flag was set.
-    const doc = await db!.collection('jobs').findOne({ _id: new ObjectId(id) });
-    expect(doc?.cancel_requested).toBe(true);
+    const row = live.db.query(`SELECT cancel_requested FROM jobs WHERE id = ?`).get(id) as {
+      cancel_requested: number;
+    } | null;
+    expect(row?.cancel_requested).toBe(1);
   });
 });

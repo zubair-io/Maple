@@ -1,9 +1,21 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+/**
+ * Lens-profile storage, end to end.
+ *
+ * File-backed rather than in-memory, and `MAPLE_SQLITE_PATH` points at it: the
+ * develop cases below drive the real FFI decode child, which opens its own pool
+ * on the path it inherits. That is the one place in the system where a child
+ * process reaches this table, so it is worth exercising rather than stubbing.
+ */
+
+import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { blake3 } from '@noble/hashes/blake3.js';
 import { Elysia } from 'elysia';
-import { getDb, closeDb } from '../db/client.ts';
-import { withTestDb, tryConnectTestMongo } from '../db/test-db.test-helpers.ts';
-import { loadLensProfile, saveLensProfile } from './cache.ts';
+import {
+  createLiveTestDatabase,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { __resetLensProfileCacheForTests, loadLensProfile, saveLensProfile } from './cache.ts';
 import { lensProfileDigest, type LensProfileInventory } from './types.ts';
 import { nativeLibAvailable } from '../ffi/raw_ffi.ts';
 import { ffiPool, _resetFfiPoolForTests } from '../ffi/ffi-pool.ts';
@@ -13,16 +25,26 @@ import { mkdtemp, writeFile, readFile, rm } from '../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-withTestDb(`maple_test_lcp_cache_${process.pid}`);
-let mongoAvailable = false;
+let live: LiveTestDatabase;
+let priorPath: string | undefined;
+
 beforeAll(async () => {
-  const client = await tryConnectTestMongo();
-  mongoAvailable = client !== null;
-  await client?.close();
+  live = await createLiveTestDatabase('file');
+  priorPath = process.env.MAPLE_SQLITE_PATH;
+  process.env.MAPLE_SQLITE_PATH = live.path;
 });
-afterAll(async () => {
+
+afterEach(() => {
+  // The loader keeps the last profile it read, and these cases deliberately
+  // rewrite a stored blob underneath it.
+  __resetLensProfileCacheForTests();
+});
+
+afterAll(() => {
   _resetFfiPoolForTests();
-  await closeDb();
+  if (priorPath === undefined) delete process.env.MAPLE_SQLITE_PATH;
+  else process.env.MAPLE_SQLITE_PATH = priorPath;
+  live.close();
 });
 
 function inventory(bytes: Uint8Array): LensProfileInventory {
@@ -37,8 +59,17 @@ function inventory(bytes: Uint8Array): LensProfileInventory {
   };
 }
 
-test('GridFS persists exact bytes above the single-document ceiling and deduplicates imports', async () => {
-  if (!mongoAvailable) return;
+function storedCount(digest: string): number {
+  const row = live.db
+    .query(`SELECT COUNT(*) AS n FROM lens_profiles WHERE digest = ?`)
+    .get(digest) as { n: number };
+  return row.n;
+}
+
+test('persists exact bytes above the old document ceiling and deduplicates imports', async () => {
+  // 17 MiB is over MongoDB's 16 MiB limit, which is why this was a GridFS
+  // bucket; the blob column has no such ceiling and the bytes must still
+  // round-trip identically.
   const bytes = new Uint8Array(17 * 1024 * 1024).fill(65);
   const info = inventory(bytes);
   await saveLensProfile(bytes, info);
@@ -47,29 +78,47 @@ test('GridFS persists exact bytes above the single-document ceiling and deduplic
   const actual = await loadLensProfile(digest);
   expect(actual?.length).toBe(bytes.length);
   expect(Buffer.from(blake3(actual!)).toString('hex')).toBe(digest);
-  expect(
-    await (await getDb()).collection('lens_profiles.files').countDocuments({ filename: digest }),
-  ).toBe(1);
+  expect(storedCount(digest)).toBe(1);
+});
+
+test('answers a repeat read from memory instead of the database', async () => {
+  const bytes = new Uint8Array([7, 7, 7, 7]);
+  const info = inventory(bytes);
+  const digest = lensProfileDigest(info.reference);
+  await saveLensProfile(bytes, info);
+  expect(await loadLensProfile(digest)).not.toBeNull();
+
+  // Delete the row underneath the cache. A second read that still answers can
+  // only have come from memory — which is what keeps a slider tick off the
+  // database. See the module comment on the 16 ms budget.
+  run(live.db, `DELETE FROM lens_profiles WHERE digest = ?`, digest);
+  expect(await loadLensProfile(digest)).not.toBeNull();
+
+  __resetLensProfileCacheForTests();
+  expect(await loadLensProfile(digest)).toBeNull();
 });
 
 test('missing, corrupt and oversized cached profiles fail explicitly', async () => {
-  if (!mongoAvailable) return;
   expect(await loadLensProfile('0'.repeat(64))).toBeNull();
   const bytes = new Uint8Array([1, 2, 3]);
   await expect(saveLensProfile(bytes, inventory(new Uint8Array([4])))).rejects.toThrow('digest');
   await expect(
     saveLensProfile(new Uint8Array(32 * 1024 * 1024 + 1), inventory(bytes)),
   ).rejects.toThrow('32 MiB');
+
   const info = inventory(bytes);
   await saveLensProfile(bytes, info);
-  const db = await getDb();
-  const file = await db
-    .collection('lens_profiles.files')
-    .findOne({ filename: lensProfileDigest(info.reference) });
-  await db
-    .collection('lens_profiles.chunks')
-    .updateOne({ files_id: file!._id }, { $set: { data: Buffer.from([9, 9, 9]) } });
-  await expect(loadLensProfile(lensProfileDigest(info.reference))).rejects.toThrow('digest');
+  const digest = lensProfileDigest(info.reference);
+  // A blob that no longer hashes to its own key is the failure that would
+  // otherwise change every rendered pixel of a photo using this profile.
+  run(
+    live.db,
+    `UPDATE lens_profiles SET bytes = ? WHERE digest = ?`,
+    new Uint8Array([9, 9, 9]),
+    digest,
+  );
+  __resetLensProfileCacheForTests();
+  await expect(loadLensProfile(digest)).rejects.toThrow('digest');
 });
 
 test('reference parsing preserves explicit approximation and rejects future versions', () => {
@@ -83,7 +132,6 @@ const xml = `<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:r="http://www.w3.org/1999
 test.skipIf(!nativeLibAvailable())(
   'authenticated import validates in a real child, survives child reset and downloads exact bytes',
   async () => {
-    if (!mongoAvailable) return;
     const app = new Elysia().use(fakeAuth()).use(lensProfileRoutes);
     const form = new FormData();
     form.set('file', new File([xml], 'synthetic.lcp'));
@@ -95,6 +143,7 @@ test.skipIf(!nativeLibAvailable())(
     expect(info.reference).toBe(inventory(Buffer.from(xml)).reference);
     ffiPool().shutdown();
     _resetFfiPoolForTests();
+    __resetLensProfileCacheForTests();
     const downloaded = await app.handle(
       new Request(`http://localhost/api/lens-profiles/${lensProfileDigest(info.reference)}`),
     );
@@ -112,7 +161,6 @@ test.skipIf(!nativeLibAvailable())(
 test.skipIf(!nativeLibAvailable())(
   'isolated develop rejects a missing required profile but renders a disabled profile unchanged',
   async () => {
-    if (!mongoAvailable) return;
     const dir = await mkdtemp(join(tmpdir(), 'maple-lcp-develop-test-'));
     const raw = resolve(
       import.meta.dir,
@@ -129,6 +177,8 @@ test.skipIf(!nativeLibAvailable())(
       await ffiPool().renderDevelopJpegToFile(raw, sidecar, join(dir, 'off.jpg'), 64);
       expect(await readFile(join(dir, 'off.jpg'))).toEqual(await readFile(join(dir, 'base.jpg')));
       await writeFile(sidecar, sidecarXml(1));
+      // The child opens its own pool on MAPLE_SQLITE_PATH, finds no such
+      // profile, and reports the miss rather than failing to reach a database.
       await expect(
         ffiPool().renderDevelopJpegToFile(raw, sidecar, join(dir, 'missing.jpg'), 64),
       ).rejects.toThrow('not in the local cache');

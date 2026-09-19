@@ -223,23 +223,29 @@ describe('faceEmbedHandler — happy path', () => {
       setDefaultFaceDetectorForTests(detector);
       const result = await faceEmbedHandler(doc, noopCtx);
       expect(result).toHaveProperty('patch');
-      const patch = (result as { patch: Record<string, unknown> }).patch;
-      // Per-index embedding + version keys only — never the whole faces array.
-      expect(patch['faces.0.embedding']).toEqual([
+      if (!('patch' in result)) throw new Error('expected a patch');
+      // One keyed UPDATE per detection, and nothing else. The old document
+      // patch spelled this as `faces.<i>.embedding` keys; the statements are
+      // the same promise — addressed by `face_index`, so a concurrent
+      // re-detect that shrank the array simply matches no row.
+      expect(result.patch).toHaveLength(2);
+      for (const [index, statement] of result.patch.entries()) {
+        expect(statement.sql).toContain('UPDATE faces SET embedding = json(?)');
+        // Must not rewrite bbox / person_id / landmarks / hidden.
+        expect(statement.sql).not.toContain('bbox');
+        expect(statement.sql).not.toContain('person_id');
+        expect(statement.sql).not.toContain('landmarks');
+        const [, version, assetId, faceIndex] = statement.params as unknown[];
+        expect(version).toBe(CURRENT_EMBEDDING_VERSION);
+        expect(assetId).toBe(doc._id.toHexString());
+        expect(faceIndex).toBe(index);
+      }
+      expect(JSON.parse((result.patch[0]!.params as string[])[0]!)).toEqual([
         expect.closeTo(0.1, 5),
         expect.closeTo(0.2, 5),
         expect.closeTo(0.3, 5),
         expect.closeTo(0.4, 5),
       ] as never);
-      expect(patch['faces.0.embedding_version']).toBe(CURRENT_EMBEDDING_VERSION);
-      expect(patch['faces.1.embedding_version']).toBe(CURRENT_EMBEDDING_VERSION);
-      // Must not rewrite bbox / person_id / landmarks.
-      expect(Object.keys(patch)).toEqual([
-        'faces.0.embedding',
-        'faces.0.embedding_version',
-        'faces.1.embedding',
-        'faces.1.embedding_version',
-      ]);
       // The stored bbox + landmarks were forwarded to the recognizer, not
       // re-detected.
       expect(detector.embedded).toHaveLength(2);

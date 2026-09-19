@@ -21,11 +21,16 @@
  * thrashing Meilisearch re-indexing and R2 thumbnail delete/upload cycles.
  */
 import path from 'node:path';
-import type { Collection, FindCursor, ObjectId, WithId } from 'mongodb';
-import { assetsCollection } from '../../db/client.ts';
-import type { AssetDoc, FileInfo } from '../../db/schema.ts';
+import type { ObjectId } from 'mongodb';
+import {
+  hideAssetsInFolder,
+  listFolderHideCandidates,
+  listFolderUnhideCandidates,
+  unhideAssetsInFolder,
+  type FolderHiddenCandidate,
+} from '../../db/sqlite/repos/assets.folder-hidden.ts';
+import type { FileInfo } from '../../db/schema.ts';
 import { toPosixRelDir } from './types.ts';
-import { invalidationSets } from '../stage-config.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import {
@@ -46,17 +51,10 @@ export const FOLDER_HIDDEN_MARKER = '.hidden';
  * write path that can flip `hidden` to true). */
 export type CleanupHidden = (assets: HidableAsset[]) => Promise<void>;
 
-/** Entry-level liveness, matching `liveFileInfoElemMatch` in
- * `indexer/images.repo.ts` — a trashed or missing path must neither apply
- * nor lift the folder-hidden state on an otherwise-live asset. */
-const LIVE_ENTRY = { deleted_at: { $in: [null] }, missing_since: { $in: [null] } };
-
-/** Bound on how many asset docs are buffered per write round-trip, so a
+/** Bound on how many asset rows are buffered per write round-trip, so a
  * marker dropped on a directory with tens of thousands of photos can't
  * balloon the sweeper's heap. */
 const BATCH_SIZE = 1000;
-
-type CandidateDoc = Pick<WithId<AssetDoc>, '_id' | 'fileinfo' | 'cf_thumb_synced_at'>;
 
 /**
  * Reconcile one directory's assets against its effective folder-hidden state
@@ -72,121 +70,79 @@ export async function reconcileFolderHidden(
   cleanupHidden: CleanupHidden = cleanupR2ThumbsForHiddenAssets,
 ): Promise<void> {
   const rel = toPosixRelDir(path.relative(root, dirPath));
-  const inDir = {
-    deleted_at: null,
-    fileinfo: { $elemMatch: { library_id: folderId, path: rel, ...LIVE_ENTRY } },
-  };
-  const coll = await assetsCollection();
 
   if (folderHidden) {
-    const cursor = coll
-      .find(
-        { ...inDir, hidden: { $ne: true }, 'metadata_override.hidden': { $ne: false } },
-        { projection: { fileinfo: 1, cf_thumb_synced_at: 1 } },
-      )
-      .batchSize(BATCH_SIZE) as unknown as FindCursor<CandidateDoc>;
-    const hidden = await forEachBatch(cursor, (batch) => hideBatch(coll, batch, cleanupHidden));
+    const hidden = await forEachBatch(
+      (after) => listFolderHideCandidates(folderId, rel, after, BATCH_SIZE),
+      async (batch) => {
+        const count = await hideAssetsInFolder(
+          batch.map((a) => a.id),
+          folderId,
+          rel,
+        );
+        // Newly hidden: any thumbnail already mirrored to R2 must come down
+        // (best-effort/non-throwing, see cloudflare/hidden-cleanup.ts).
+        // Deliberately the whole batch, not only the modified rows: for a row
+        // the guard skipped, the concurrent un-hide re-armed cf-thumb-sync, so
+        // an extra R2 delete self-heals via re-mirror (and 404s are treated as
+        // success by deleteThumbFromR2).
+        await cleanupHidden(batch.map(toHidable));
+        return count;
+      },
+    );
     if (hidden > 0) {
       log.info({ dir: dirPath, count: hidden }, 'folder .hidden marker: hid assets');
     }
     return;
   }
 
-  const cursor = coll
-    .find(
-      { ...inDir, hidden_reason: 'folder', 'metadata_override.hidden': { $ne: true } },
-      { projection: { fileinfo: 1 } },
-    )
-    .batchSize(BATCH_SIZE) as unknown as FindCursor<CandidateDoc>;
   const memo = new CoverageMemo();
-  const unhidden = await forEachBatch(cursor, async (batch) => {
-    const free: ObjectId[] = [];
-    for (const doc of batch) {
-      if (!(await otherLiveEntryStillCovered(doc, folderId, rel, memo))) free.push(doc._id);
-    }
-    if (free.length === 0) return 0;
-    // The write filter repeats the cursor's predicates (not just `_id`): a
-    // concurrent writer — most plausibly the sidecar projection landing a
-    // manual override — may have changed the doc between the read and this
-    // write, and the guard turns the stale un-hide into a no-op instead of
-    // stomping the newer state.
-    const res = await coll.updateMany(
-      {
-        _id: { $in: free },
-        deleted_at: null,
-        hidden_reason: 'folder',
-        'metadata_override.hidden': { $ne: true },
-      },
-      {
-        $set: {
-          hidden: false,
-          hidden_reason: null,
-          // Re-arm cf-thumb-sync: its `{ skip: 'hidden' }` marked itself done,
-          // so without a reset an un-hidden asset would never re-mirror to R2
-          // (same rationale as the un-hide path in sidecar-metadata-index).
-          ...invalidationSets(['meili', 'cf-thumb-sync'], 'discover'),
-        },
-      } as never,
-    );
-    return res.modifiedCount;
-  });
+  const unhidden = await forEachBatch(
+    (after) => listFolderUnhideCandidates(folderId, rel, after, BATCH_SIZE),
+    async (batch) => {
+      const free: ObjectId[] = [];
+      for (const candidate of batch) {
+        if (!(await otherLiveEntryStillCovered(candidate, folderId, rel, memo))) {
+          free.push(candidate.id);
+        }
+      }
+      return unhideAssetsInFolder(free, folderId, rel);
+    },
+  );
   if (unhidden > 0) {
     log.info({ dir: dirPath, count: unhidden }, 'folder .hidden marker removed: un-hid assets');
   }
 }
 
-/** Drain a cursor in bounded batches; returns the summed per-batch counts. */
-async function forEachBatch(
-  cursor: FindCursor<CandidateDoc>,
-  fn: (batch: CandidateDoc[]) => Promise<number>,
-): Promise<number> {
-  let total = 0;
-  let batch: CandidateDoc[] = [];
-  for await (const doc of cursor) {
-    batch.push(doc);
-    if (batch.length >= BATCH_SIZE) {
-      total += await fn(batch);
-      batch = [];
-    }
-  }
-  if (batch.length > 0) total += await fn(batch);
-  return total;
+/** A candidate as `cloudflare/hidden-cleanup.ts` reads one. */
+function toHidable(candidate: FolderHiddenCandidate): HidableAsset {
+  return {
+    _id: candidate.id,
+    fileinfo: candidate.locations,
+    cf_thumb_synced_at: candidate.cfThumbSyncedAt,
+  };
 }
 
-async function hideBatch(
-  coll: Collection<AssetDoc>,
-  batch: CandidateDoc[],
-  cleanupHidden: CleanupHidden,
+/**
+ * Walk the candidate set in bounded pages; returns the summed per-page counts.
+ *
+ * Paging is by id rather than by offset, and a page that changed nothing still
+ * advances: the un-hide pass deliberately leaves some candidates hidden (their
+ * other live location is still under a marked directory), so a loop that
+ * re-asked for "the first thousand candidates" would never terminate.
+ */
+async function forEachBatch(
+  page: (after: string) => Promise<FolderHiddenCandidate[]>,
+  fn: (batch: FolderHiddenCandidate[]) => Promise<number>,
 ): Promise<number> {
-  // The write filter repeats the cursor's predicates (not just `_id`) so a
-  // doc changed between the read and this write — a concurrent manual
-  // un-hide landing via the sidecar projection, say — is left alone rather
-  // than stomped back to hidden (which, with the marker still present,
-  // would then stick until the sidecar stage next re-ran).
-  const res = await coll.updateMany(
-    {
-      _id: { $in: batch.map((a) => a._id) },
-      deleted_at: null,
-      hidden: { $ne: true },
-      'metadata_override.hidden': { $ne: false },
-    },
-    {
-      $set: {
-        hidden: true,
-        hidden_reason: 'folder',
-        // The hidden flag is a Meilisearch filter — re-project the document.
-        ...invalidationSets(['meili'], 'discover'),
-      },
-    } as never,
-  );
-  // Newly hidden: any thumbnail already mirrored to R2 must come down
-  // (best-effort/non-throwing, see cloudflare/hidden-cleanup.ts).
-  // Deliberately the whole batch, not only the modified docs: for a doc the
-  // guard skipped, the concurrent un-hide re-armed cf-thumb-sync, so an
-  // extra R2 delete self-heals via re-mirror (and 404s are treated as
-  // success by deleteThumbFromR2).
-  await cleanupHidden(batch);
-  return res.modifiedCount;
+  let total = 0;
+  let after = '';
+  for (;;) {
+    const batch = await page(after);
+    if (batch.length === 0) return total;
+    total += await fn(batch);
+    after = batch[batch.length - 1]!.id.toHexString();
+  }
 }
 
 /** Per-reconcile stat memoization — dup candidates in one directory tend to
@@ -205,12 +161,12 @@ class CoverageMemo {
  * for this sweep rather than risking a hide/un-hide flap.
  */
 async function otherLiveEntryStillCovered(
-  doc: CandidateDoc,
+  candidate: FolderHiddenCandidate,
   folderId: ObjectId,
   rel: string,
   memo: CoverageMemo,
 ): Promise<boolean> {
-  const others = (doc.fileinfo ?? []).filter(
+  const others = candidate.locations.filter(
     (e) =>
       e.deleted_at == null &&
       e.missing_since == null &&

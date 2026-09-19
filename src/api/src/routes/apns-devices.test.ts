@@ -1,35 +1,21 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+/**
+ * Route-integration test: /api/apns/devices.
+ *
+ * The rows live in `apns_device_tokens`, reached through the SQLite repository
+ * (#3787). `user_id` is a foreign key into `users`, so each test seeds the two
+ * accounts its registrations belong to — on MongoDB the collection accepted any
+ * id at all, and it is the schema that now insists the owner exists.
+ */
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { type Db } from 'mongodb';
 import { apnsDeviceRoutes } from './apns-devices.ts';
-import { closeDb, getDb, isDbConnected } from '../db/client.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
-
-withTestDb(`maple_test_apns_devices_route_${process.pid}`);
-
-let db: Db | null = null;
-let mongoReachable = false;
-
-beforeAll(async () => {
-  await closeDb();
-});
-
-beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  await db.collection('apns_device_tokens').deleteMany({});
-});
-
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
-});
+import {
+  createLiveTestDatabase,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 const USER_A = '0'.repeat(24);
 const USER_B = '1'.repeat(24);
@@ -39,6 +25,28 @@ const USER_B = '1'.repeat(24);
 const TOKEN_1 = 'a1'.repeat(32);
 const TOKEN_2 = 'b2'.repeat(32);
 const TOKEN_3 = 'c3'.repeat(32);
+
+let live: LiveTestDatabase;
+
+beforeEach(async () => {
+  live = await createLiveTestDatabase();
+  for (const [id, email] of [
+    [USER_A, 'a@maple.local'],
+    [USER_B, 'b@maple.local'],
+  ]) {
+    run(
+      live.db,
+      `INSERT INTO users (id, email, role, created_at) VALUES (?, ?, 'member', ?)`,
+      id,
+      email,
+      new Date().toISOString(),
+    );
+  }
+});
+
+afterEach(() => {
+  live.close();
+});
 
 function appAs(sub: string) {
   return new Elysia().use(fakeAuth({ sub })).use(apnsDeviceRoutes);
@@ -64,7 +72,6 @@ async function postDevice(
 
 describe('/api/apns/devices', () => {
   it('rejects a member without file_access (registering a device subscribes to server-wide change activity, same tier as the change-feed routes)', async () => {
-    if (!mongoReachable) return;
     const app = new Elysia()
       .use(fakeAuth({ sub: USER_A, role: 'member', file_access: false }))
       .use(apnsDeviceRoutes);
@@ -73,7 +80,6 @@ describe('/api/apns/devices', () => {
   });
 
   it('POST registers a device, GET lists it back for the same user', async () => {
-    if (!mongoReachable) return;
     const app = appAs(USER_A);
     const post = await postDevice(app, TOKEN_1);
     expect(post.status).toBe(204);
@@ -86,13 +92,11 @@ describe('/api/apns/devices', () => {
   });
 
   it('POST rejects a malformed device_token (not hex, or too short)', async () => {
-    if (!mongoReachable) return;
     const res = await postDevice(appAs(USER_A), 'not-a-real-token');
     expect(res.status).toBe(400);
   });
 
   it('POST normalizes case and surrounding whitespace before storing', async () => {
-    if (!mongoReachable) return;
     const app = appAs(USER_A);
     const post = await postDevice(app, `  ${TOKEN_1.toUpperCase()}  `);
     expect(post.status).toBe(204);
@@ -103,7 +107,6 @@ describe('/api/apns/devices', () => {
   });
 
   it('re-registering the same token under different case does not duplicate', async () => {
-    if (!mongoReachable) return;
     const app = appAs(USER_A);
     await postDevice(app, TOKEN_1);
     await postDevice(app, TOKEN_1.toUpperCase());
@@ -113,7 +116,6 @@ describe('/api/apns/devices', () => {
   });
 
   it('GET only returns the caller own devices, not another user’s', async () => {
-    if (!mongoReachable) return;
     await postDevice(appAs(USER_A), TOKEN_2);
     const listB = await appAs(USER_B).handle(new Request('http://localhost/api/apns/devices'));
     const bodyB = (await listB.json()) as { devices: unknown[] };
@@ -121,7 +123,6 @@ describe('/api/apns/devices', () => {
   });
 
   it('DELETE unregisters a device', async () => {
-    if (!mongoReachable) return;
     const app = appAs(USER_A);
     await postDevice(app, TOKEN_3);
     const del = await app.handle(
@@ -138,7 +139,6 @@ describe('/api/apns/devices', () => {
   });
 
   it('DELETE rejects a malformed device_token', async () => {
-    if (!mongoReachable) return;
     const res = await appAs(USER_A).handle(
       new Request('http://localhost/api/apns/devices', {
         method: 'DELETE',

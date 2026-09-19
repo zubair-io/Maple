@@ -2,122 +2,49 @@
  * Integration tests for GET /api/preview/:slug/*
  *
  * Like thumb.test.ts: exercises HTTP logic without invoking actual preview
- * generation (which requires native image files and the core).
+ * generation (which requires native image files and the core). The one
+ * catalogue lookup behind the route (`findAssetAtAddress`) runs against SQLite
+ * (#3787) — a private in-memory database per test, installed as the
+ * process-wide handle, seeded through the shared route fixtures.
+ *
+ * Nothing skips: there is no external service to be unreachable, so a pass here
+ * means the assertions actually ran.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { previewRoutes } from './preview.ts';
+import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
+import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
 import {
-  setLibraryRootsForTests,
-  setLibraryBySlugForTests,
-  invalidateLibraryRoots,
-} from '../../indexer/libraries.cache.ts';
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = `maple_test_preview_route_${process.pid}`;
-// Both the capture and the assignment live in `beforeAll`, never at module
-// scope. Bun evaluates every test file's module body during the import
-// phase, before any test runs, so a module-scope write here would clobber
-// (and be clobbered by) other files' writes, and a module-scope capture
-// would record whichever file happened to load last rather than the value
-// in effect when these tests run. `client.ts` reads this at connect time,
-// not module load, so deferring it costs nothing.
-let PRIOR_MONGO_DB: string | undefined;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+let live: LiveTestDatabase;
 let tmpDir = '';
-let libraryId = new ObjectId();
+let libraryId = '';
 
 const app = new Elysia().use(previewRoutes);
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  // Pin the database and drop any cached handle before the route under test
-  // can reach `getDb()`. `getDb()` caches `_db` on first connect and never
-  // re-reads the env afterwards, so without this the route's
-  // `assetsCollection()` can read a different database than the one this
-  // file inserts fixtures into, and every lookup 404s (#2787).
-  PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  await (await import('../../db/client.ts')).closeDb();
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[preview.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  tmpDir = `/tmp/maple-preview-test-${process.pid}`;
-  await mkdir(tmpDir, { recursive: true });
-  libraryId = new ObjectId();
-  // Seed byId (loadLibraryRoots — used to resolve the preview cache path) AND
-  // bySlug (resolveAddress). setLibraryRootsForTests first so the bySlug add
-  // below appends to the same cache entry rather than being wiped.
-  setLibraryRootsForTests(new Map([[libraryId.toHexString(), tmpDir]]));
-  setLibraryBySlugForTests('prevlib', { libraryId, root: tmpDir, label: 'Preview Test Library' });
-});
-
 beforeEach(async () => {
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
+  live = await createLiveTestDatabase();
+  // realpath: `resolveAddress` compares the realpath'd target against the
+  // realpath'd root, and on macOS os.tmpdir() sits under /var → /private/var.
+  tmpDir = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-preview-test-')));
+  // One real `folders` row, so the slug → root and id → root lookups both
+  // resolve through the cache production uses rather than a hand-stuffed map.
+  libraryId = registerLibrary(live.db, tmpDir, 'prevlib');
 });
 
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await mongo.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  if (tmpDir) {
-    try {
-      await rm(tmpDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
+afterEach(async () => {
   invalidateLibraryRoots();
-  // Restore the env before dropping the cached handle, so the next file to
-  // reconnect reads whatever was there before this one rather than our
-  // per-pid database.
-  if (PRIOR_MONGO_DB === undefined) {
-    delete process.env.MAPLE_MONGO_DB;
-  } else {
-    process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
-  }
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
+  live.close();
+  await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 });
 
 describe('GET /preview/:slug/*', () => {
@@ -136,13 +63,11 @@ describe('GET /preview/:slug/*', () => {
   });
 
   test('returns 404 when file does not exist on disk and is not indexed', async () => {
-    if (!mongoReachable) return;
     const res = await app.handle(new Request('http://localhost/preview/prevlib/ghost.jpg'));
     expect(res.status).toBe(404);
   });
 
   test('returns 202 with Retry-After when file exists on disk but is not indexed', async () => {
-    if (!mongoReachable) return;
     await writeFile(path.join(tmpDir, 'pending.jpg'), 'fake-jpeg');
     const res = await app.handle(new Request('http://localhost/preview/prevlib/pending.jpg'));
     expect(res.status).toBe(202);
@@ -152,21 +77,12 @@ describe('GET /preview/:slug/*', () => {
   });
 
   test('serves the single <filename>.avif with a file-based ETag and 304s on If-None-Match', async () => {
-    if (!mongoReachable) return;
-    const mapleId = new ObjectId().toHexString();
-    await db!.collection('assets').insertOne({
-      maple_id: mapleId,
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: '',
-          filename: 'ready.jpg',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      deleted_at: null,
-    } as never);
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: 'ready.jpg',
+      mapleId: newObjectIdHex(),
+    });
 
     // Pre-stage the one preview file so the route serves it without generating.
     // The serving path only stats/reads it (no decode), so arbitrary bytes work.

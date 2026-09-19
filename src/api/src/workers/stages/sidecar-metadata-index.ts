@@ -12,13 +12,26 @@
  *  4. If no metadata fields found → skip.
  *  5. Build `metadata_override` patch.
  *  6. Recompute `captured_year`/`captured_month` from effective captured_at.
- *  7. If GPS changed relative to the existing override → reset `geocode` stage
- *     so it re-runs with the new coordinates.
- *  8. Return `{ patch }`.
+ *  7. If GPS changed relative to the existing override → re-arm `geocode` so it
+ *     re-runs with the new coordinates.
+ *  8. Return `{ patch, invalidates }`.
  *
  * The `POST /api/xmp/batch` route marks this stage dirty by setting
  * `stages.sidecar-metadata-index.version = 0` on affected assets, causing the claim
  * query to pick them up on the next poll.
+ *
+ * ## Why the downstream re-arms are declared rather than written
+ *
+ * Three stages can need re-arming from one run of this handler: `meili` always,
+ * `geocode` when the coordinates moved, and `cf-thumb-sync` when the asset just
+ * became visible again. The first was always declared as `invalidates`; the
+ * other two were separate `updateOne` calls this handler issued itself, before
+ * returning, and that is a write that can be lost independently of the patch it
+ * belongs with — a crash in the gap leaves the new coordinates stored with
+ * `geocode` still marked done against the old ones, and nothing notices. Named
+ * in `invalidates` instead, all three are statements in the same transaction as
+ * this stage's own success row (`db/sqlite/repos/stage-writeback.ts`), so either
+ * everything lands or nothing does.
  *
  * Spec: docs/superpowers/specs/2026-06-26-batch-metadata-editor-design.md
  */
@@ -31,7 +44,8 @@ import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { parseXmpMetadata, xmpMetadataToOverridePatch } from '../../xmp/metadata-parser.ts';
 import { parseYearMonth } from '../../metadata/override-resolver.ts';
 import type { MetadataOverride } from '../../db/schema.ts';
-import { coll, assetAbsPath } from '../../indexer/images.repo.ts';
+import { sidecarMetadataStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { writeHiddenMarker, removeHiddenMarker } from '../../fs/hidden-marker.ts';
@@ -124,20 +138,6 @@ export async function sidecarMetadataIndexHandler(
     delete override.captured_month;
   }
 
-  const patch: Record<string, unknown> = {
-    metadata_override: override,
-  };
-
-  // Project culling fields to top-level ImageDoc fields so search/sort, grid
-  // badges, and folder listings see them. The sidecar is the source of truth for
-  // culling, so we ALWAYS set these (never conditionally): an absent attr means
-  // the user cleared it, and we must overwrite any stale top-level value with the
-  // cleared default — matching the insert seed defaults (rating 0, flag 0,
-  // color_label ''). Written in the same $set as metadata_override so the DB
-  // update is atomic.
-  patch['rating'] = override.rating ?? 0;
-  patch['flag'] = override.flag === 'pick' ? 1 : override.flag === 'reject' ? -1 : 0;
-  patch['color_label'] = override.color_label ?? '';
   const primaryFile = image.fileinfo?.find((e) => !e.deleted_at);
   const isVideo = !!primaryFile && isVideoFilename(primaryFile.filename);
 
@@ -154,24 +154,35 @@ export async function sidecarMetadataIndexHandler(
       ? override.is_screenshot
       : nativeIsScreenshot;
 
-  // `is_screenshot` is a stills-only concept (#2325). An explicit override
-  // stays in the sidecar untouched — XMP is the contract and it is the
-  // user's data — but the projected field that search, the facet counts, and
-  // the Photos/Screenshots filter read is clamped, so the invariant holds
-  // everywhere it is observable without discarding anything the user wrote.
-  patch['is_screenshot'] = isVideo ? false : effectiveIsScreenshot;
-
   // Hidden precedence: an explicit user override always wins. Absent an
   // override, the effective value is the prior hidden status.
   const priorHidden = image.hidden === true;
   const finalHidden = override.hidden ?? priorHidden;
-  patch['hidden'] = finalHidden;
 
-  if (override.hidden === true) {
-    patch['hidden_reason'] = 'manual';
-  } else if (override.hidden === false) {
-    patch['hidden_reason'] = null;
-  }
+  // Project the culling fields onto the asset row so search/sort, grid badges
+  // and folder listings see them. The sidecar is the source of truth for
+  // culling, so all five are written unconditionally: an absent attribute means
+  // the user cleared it, and the stored value has to go back to the insert
+  // default (rating 0, flag 0, empty label) rather than keep a stale one. The
+  // override document and the row go in one transaction, so the projection can
+  // never disagree with the document it was derived from.
+  const patch = sidecarMetadataStatements(image._id.toHexString(), {
+    metadataOverride: override,
+    rating: override.rating ?? 0,
+    flag: override.flag === 'pick' ? 1 : override.flag === 'reject' ? -1 : 0,
+    colorLabel: override.color_label ?? '',
+    // `is_screenshot` is a stills-only concept (#2325). An explicit override
+    // stays in the sidecar untouched — XMP is the contract and it is the user's
+    // data — but the projected column that search, the facet counts and the
+    // Photos/Screenshots filter read is clamped, so the invariant holds
+    // everywhere it is observable without discarding anything the user wrote.
+    isScreenshot: isVideo ? false : effectiveIsScreenshot,
+    hidden: finalHidden,
+    // Three cases, not two: said to hide, said to un-hide, said nothing. The
+    // last leaves whatever reason is stored alone — see `SidecarMetadataPatch`.
+    hiddenReason:
+      override.hidden === true ? 'manual' : override.hidden === false ? null : undefined,
+  });
 
   if (finalHidden) {
     await writeHiddenMarker(absPath);
@@ -186,34 +197,21 @@ export async function sidecarMetadataIndexHandler(
     await cleanupR2ThumbForHiddenAsset(image);
   }
 
-  // The inverse transition — explicitly un-hidden — resets `cf-thumb-sync`'s
-  // stage state so the pipeline picks it back up: that stage's own
-  // `{ skip: 'hidden' }` marks itself permanently done for a hidden asset
-  // (`stages.*.version` is the "already handled" signal for every stage,
-  // including terminal skips), so without this reset an un-hidden asset
-  // would never get its thumbnail mirrored to R2 again. Mirrors this same
-  // function's own GPS-change → geocode-reset precedent below. Full reset
-  // shape (also clearing `last_error`/`processed_at`), matching
-  // `reArmCacheStages()` in `workers/dedupe.helpers.ts` — otherwise a
-  // previously dead-lettered/errored cf-thumb-sync run would keep showing
-  // that stale error in Settings → Workers even after this reset.
-  if (priorHidden && !finalHidden) {
-    const images = await coll();
-    await images.updateOne(
-      { _id: image._id },
-      {
-        $set: {
-          'stages.cf-thumb-sync.version': 0,
-          'stages.cf-thumb-sync.attempts': 0,
-          'stages.cf-thumb-sync.last_error': null,
-          'stages.cf-thumb-sync.processed_at': null,
-          'stages.cf-thumb-sync.dead': false,
-        },
-      },
-    );
-  }
+  // Effective hidden/screenshot/place metadata changes affect Meilisearch
+  // filters or semantic document text, so the search document is rebuilt
+  // atomically with the metadata projection.
+  const invalidates = ['meili'];
 
-  // 7. If GPS changed, reset geocode stage to trigger re-run.
+  // The inverse transition — explicitly un-hidden — re-arms `cf-thumb-sync` so
+  // the pipeline picks the asset back up: that stage's own `{ skip: 'hidden' }`
+  // marks it permanently done for a hidden asset (a stage's version is the
+  // "already handled" signal, including for terminal skips), so without this an
+  // un-hidden asset would never get its thumbnail mirrored to R2 again. The
+  // re-arm is the full five-field reset, so a previously dead-lettered or
+  // errored run stops showing its stale error on Settings → Workers.
+  if (priorHidden && !finalHidden) invalidates.push('cf-thumb-sync');
+
+  // 7. If GPS changed, re-arm geocode so it re-runs against the new coordinates.
   const oldGps = image.metadata_override?.gps
     ? {
         lat: image.metadata_override.gps.lat,
@@ -223,30 +221,14 @@ export async function sidecarMetadataIndexHandler(
   const newGps = override.gps ? { lat: override.gps.lat, lng: override.gps.lng } : null;
 
   if (gpsChanged(oldGps, newGps) && newGps !== null) {
-    // Reset geocode stage version to 0 so the claim query picks it up.
-    // We cannot set stages.* in the returned patch (forbidden by run-stage.ts),
-    // so we issue a separate targeted update before returning.
-    const images = await coll();
-    await images.updateOne(
-      { _id: image._id },
-      {
-        $set: {
-          'stages.geocode.version': 0,
-          'stages.geocode.dead': false,
-          'stages.geocode.attempts': 0,
-        },
-      },
-    );
+    invalidates.push('geocode');
     ctx.log.info(
       { id: image._id.toHexString() },
-      'sidecar-metadata-index: GPS changed, reset geocode stage',
+      'sidecar-metadata-index: GPS changed, re-arming geocode stage',
     );
   }
 
-  // Effective hidden/screenshot/place metadata changes affect Meilisearch
-  // filters or semantic document text, so rebuild the document atomically
-  // with the metadata projection.
-  return { patch, invalidates: ['meili'] };
+  return { patch, invalidates };
 }
 
 // ---------------------------------------------------------------------------

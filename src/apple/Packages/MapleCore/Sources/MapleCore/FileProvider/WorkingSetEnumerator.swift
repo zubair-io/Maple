@@ -171,7 +171,19 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                     observer.finishEnumeratingChanges(upTo: newAnchor, moreComing: moreComing)
                 }
             } catch let e as StaleCursorError {
-                log.notice("stale cursor (server current=\(e.current)); requesting full re-enumeration")
+                // Jump the persisted cursor to the server's current one BEFORE
+                // signalling expiry, or the recovery never completes. The OS
+                // answers `syncAnchorExpired` by re-enumerating items, which
+                // never calls `cursorStore.save`; it then asks for
+                // `currentSyncAnchor`, gets the same stale cursor back, and
+                // takes another 409 on the next delta call — around and around.
+                // `ChangeFeedClient` hit exactly this livelock and fixed it the
+                // same way. Saving is monotonic-max, so a `current` behind what
+                // we already hold is ignored rather than rewinding us.
+                if e.current > 0 {
+                    cursorStore.save(e.current, domain: domainID)
+                }
+                log.notice("stale cursor (server current=\(e.current)); advancing anchor and requesting full re-enumeration")
                 observer.finishEnumeratingWithError(
                     NSError(domain: NSFileProviderErrorDomain,
                             code: NSFileProviderError.syncAnchorExpired.rawValue)

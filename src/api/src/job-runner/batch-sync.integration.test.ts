@@ -1,12 +1,40 @@
-/** Real temporary sidecars plus real Mongo. Set MAPLE_MONGO_URI to run integration cases. */
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+/**
+ * Real temporary sidecars plus a real database. Every case drives the batch
+ * handler or the HTTP route end to end against its own SQLite database (#3787).
+ *
+ * The temporary library root is shared across cases — it is filesystem setup,
+ * not state — while the `folders` row that makes it a registered library is
+ * seeded per test, because each test owns its database. `seedLibrary` does both
+ * halves: the row, and the invalidation the process-wide library cache needs to
+ * notice it.
+ *
+ * The active-batch fence no longer has an index behind it. "Only one settings
+ * batch per library" is a `WHERE NOT EXISTS` inside the insert, so there is
+ * nothing to create in setup and a conflict arrives as a thrown
+ * `JobConflictError` that the route still turns into a 409.
+ *
+ * The interruption cases — a failed change-feed write, a sidecar edited from
+ * under a prepared entry, a lost acknowledgement, a reclaimed lease — live in
+ * `batch-sync-recovery.integration.test.ts`, because the two sets together do
+ * not fit inside one file's line budget. The fixture helpers below are repeated
+ * there rather than shared, so that neither file's tests are registered twice by
+ * importing the other.
+ */
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from '../fs/mirrored.ts';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import type { Database } from 'bun:sqlite';
 import { Elysia } from 'elysia';
-import { type MongoClient, ObjectId } from 'mongodb';
-import { tryConnectTestMongo, withTestDb } from '../db/test-db.test-helpers.ts';
-import { assetChangesCollection, closeDb, getDb } from '../db/client.ts';
+import { ObjectId } from 'mongodb';
+import { listChangesSince } from '../db/sqlite/repos/changes.repo.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { registerRoot, unregisterRoot } from '../fs/root.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -17,53 +45,44 @@ import { jobsRoutes } from '../routes/jobs.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { getChangeBus, __resetChangeBusForTests } from '../runtime/change-bus.ts';
 
-const dbName = withTestDb(`maple_test_batch_sync_${process.pid}`);
-let mongo: MongoClient | null = null;
 let root = '';
 const patch = { attributes: { 'crs:Exposure2012': '1.25' }, elements: {} };
 const untouched =
   '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:custom="urn:custom" custom:Keep="&#65;"/></rdf:RDF>';
 
 beforeAll(async () => {
-  mongo = await tryConnectTestMongo();
-  if (!mongo) {
-    console.log('[batch-sync integration] skipped: MongoDB unavailable');
-    return;
-  }
   root = await mkdtemp(join(tmpdir(), 'maple-batch-sync-'));
   registerRoot(root);
-  await closeDb();
-  const db = await getDb();
-  await db.collection('folders').insertOne({ path: root, slug: 'batch' });
-  await db.collection('jobs').createIndex(
-    { batch_scopes: 1 },
-    {
-      name: 'batch_active_library',
-      unique: true,
-      partialFilterExpression: {
-        kind: 'batch_adjustment_sync',
-        status: { $in: ['queued', 'running'] },
-        batch_scopes: { $exists: true },
-      },
-    },
-  );
-  invalidateLibraryRoots();
 });
-beforeEach(async () => {
+beforeEach(() => {
   __resetChangeBusForTests();
-  if (mongo) await mongo.db(dbName).collection('jobs').deleteMany({});
+});
+afterEach(() => {
+  // The cache is process-wide and this test's database is about to close, so
+  // the next case must not be served a map built from a disposed handle.
+  invalidateLibraryRoots();
 });
 afterAll(async () => {
   __resetChangeBusForTests();
   await ffiPool().shutdown();
-  await closeDb();
-  await mongo?.close();
   if (root) {
     unregisterRoot(root);
     await rm(root, { recursive: true, force: true });
   }
   invalidateLibraryRoots();
 });
+
+/** Register the shared temporary root as a library of this test's database. */
+function seedLibrary(db: Database): string {
+  const id = insertFolder(db, { path: root, slug: 'batch' });
+  invalidateLibraryRoots();
+  return id;
+}
+
+/** The single number a `SELECT … AS n` query answers, or -1 for no row. */
+function scalar(db: Database, sql: string, ...params: string[]): number {
+  return (db.query(sql).get(...params) as { n: number } | null)?.n ?? -1;
+}
 
 async function target(name: string, sidecar = untouched) {
   const path = join(root, `${name}.jpg`);
@@ -95,114 +114,65 @@ async function claimed(targets: Awaited<ReturnType<typeof target>>[]) {
 
 describe('persisted batch adjustment sync', () => {
   it('publishes the edited copy and bumps its shared asset version without editing its primary copy', async () => {
-    if (!mongo) throw new Error('This regression requires MongoDB');
-    const db = await getDb();
-    const library = await db.collection('folders').findOne({ slug: 'batch' });
-    expect(library).not.toBeNull();
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db);
     await mkdir(join(root, 'copies'), { recursive: true });
     const primary = await target('primary-copy');
     const photo = await target('copies/selected');
     const primaryXml = await readFile(xmpSidecarPath(primary.path), 'utf8');
-    const assetId = new ObjectId();
-    await db.collection('assets').insertOne({
-      _id: assetId,
-      sidecar_ver: 7,
-      fileinfo: [
-        { library_id: library!._id, path: '', filename: 'primary-copy.jpg', deleted_at: null },
-        { library_id: library!._id, path: 'copies', filename: 'selected.jpg', deleted_at: null },
-      ],
+    const assetId = new ObjectId().toHexString();
+    insertAsset(live.db, { id: assetId });
+    run(live.db, 'UPDATE assets SET sidecar_ver = 7 WHERE id = ?', assetId);
+    // The two former fileinfo[] entries, one row each, in array order.
+    insertLocation(live.db, {
+      assetId,
+      libraryId,
+      ordinal: 0,
+      path: '',
+      filename: 'primary-copy.jpg',
+    });
+    insertLocation(live.db, {
+      assetId,
+      libraryId,
+      ordinal: 1,
+      path: 'copies',
+      filename: 'selected.jpg',
     });
     const job = await claimed([photo]);
     const out = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
     expect(out.result.applied).toEqual([photo.id]);
     expect(await readFile(xmpSidecarPath(primary.path), 'utf8')).toBe(primaryXml);
-    const asset = await db.collection('assets').findOne({ _id: assetId });
-    expect(asset?.sidecar_ver).toBe(8);
-    expect(asset?.has_xmp).toBe(true);
-    const changes = await assetChangesCollection();
-    const rows = await changes.find({ asset_id: assetId }).toArray();
+    expect(scalar(live.db, 'SELECT sidecar_ver AS n FROM assets WHERE id = ?', assetId)).toBe(8);
+    expect(scalar(live.db, 'SELECT has_xmp AS n FROM assets WHERE id = ?', assetId)).toBe(1);
+    const rows = await listChangesSince(undefined, { since: 0, limit: 10 });
     expect(rows).toHaveLength(1);
+    expect(rows[0].asset_id?.toHexString()).toBe(assetId);
     expect(rows[0].abs_path).toBe(photo.path);
     expect(rows[0].relative_path).toBe('copies/selected.jpg');
-    expect(rows[0].folder_id).toEqual(library!._id);
+    expect(rows[0].folder_id?.toHexString()).toBe(libraryId);
     expect(getChangeBus().snapshot()).toEqual(rows);
     const again = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
     expect(again.result.applied).toEqual([photo.id]);
-    expect((await db.collection('assets').findOne({ _id: assetId }))?.sidecar_ver).toBe(8);
+    expect(scalar(live.db, 'SELECT sidecar_ver AS n FROM assets WHERE id = ?', assetId)).toBe(8);
   });
 
   it('resolves an id without a slug delimiter from the longest matching library root', async () => {
-    if (!mongo) throw new Error('This regression requires MongoDB');
-    const db = await getDb();
-    const library = await db.collection('folders').findOne({ slug: 'batch' });
-    expect(library).not.toBeNull();
-    const misleading = await db
-      .collection('folders')
-      .insertOne({ path: dirname(root), slug: 'plain-photo.jp' });
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db);
+    const misleadingId = insertFolder(live.db, { path: dirname(root), slug: 'plain-photo.jp' });
     invalidateLibraryRoots();
-    try {
-      const photo = await target('plain-photo');
-      photo.id = 'plain-photo.jpg';
-      const job = await claimed([photo]);
-      await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
-      const row = await db.collection('asset_changes').findOne({ abs_path: photo.path });
-      expect(row?.folder_id).toEqual(library!._id);
-      expect(row?.folder_id).not.toEqual(misleading.insertedId);
-    } finally {
-      await db.collection('folders').deleteOne({ _id: misleading.insertedId });
-      invalidateLibraryRoots();
-    }
-  });
-
-  it('recovers a real change-feed failure without rewriting an already committed sidecar', async () => {
-    if (!mongo) throw new Error('This regression requires MongoDB');
-    const db = await getDb();
-    const photo = await target('notification-recovery');
+    const photo = await target('plain-photo');
+    photo.id = 'plain-photo.jpg';
     const job = await claimed([photo]);
-    await db.collection('asset_changes').createIndex({ cursor: 1 });
-    await db.command({
-      collMod: 'asset_changes',
-      validator: { impossible_batch_field: { $exists: true } },
-    });
-    try {
-      await expect(
-        batchAdjustmentSyncHandler.run(job.payload, await context(job._id)),
-      ).rejects.toThrow();
-      const ledger = (await jobs.getJob(job._id))?.checkpoint?.entries as { status: string }[];
-      expect(ledger[0].status).toBe('prepared');
-      expect(await readFile(xmpSidecarPath(photo.path), 'utf8')).toContain(
-        'crs:Exposure2012="1.25"',
-      );
-    } finally {
-      await db.command({ collMod: 'asset_changes', validator: {} });
-    }
-    const written = await stat(xmpSidecarPath(photo.path));
-    const out = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
-    expect(out.result.applied).toEqual([photo.id]);
-    expect((await stat(xmpSidecarPath(photo.path))).mtimeMs).toBe(written.mtimeMs);
-    expect(await db.collection('asset_changes').countDocuments({ abs_path: photo.path })).toBe(1);
-  });
-
-  it('detects a new sidecar created after preparation and leaves its bytes untouched', async () => {
-    if (!mongo) throw new Error('This regression requires MongoDB');
-    const photo = await target('new-sidecar-race');
-    await rm(xmpSidecarPath(photo.path));
-    const job = await claimed([photo]);
-    const ctx = await context(job._id);
-    const save = ctx.saveCheckpoint!;
-    ctx.saveCheckpoint = async (ledger) => {
-      await save(ledger);
-      if ((ledger.entries as { status?: string }[])[0]?.status === 'prepared')
-        await writeFile(xmpSidecarPath(photo.path), untouched);
-    };
-    const out = await batchAdjustmentSyncHandler.run(job.payload, ctx);
-    expect(out.result.applied).toEqual([]);
-    expect((out.result.failed as { reason: string }[])[0].reason).toContain('changed');
-    expect(await readFile(xmpSidecarPath(photo.path), 'utf8')).toBe(untouched);
+    await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
+    const rows = await listChangesSince(undefined, { since: 0, limit: 10 });
+    expect(rows[0]?.abs_path).toBe(photo.path);
+    expect(rows[0]?.folder_id?.toHexString()).toBe(libraryId);
+    expect(rows[0]?.folder_id?.toHexString()).not.toBe(misleadingId);
   });
 
   it('rejects legacy or unversioned relative white balance before queueing', async () => {
-    if (!mongo) throw new Error('This regression requires MongoDB');
+    using live = await createLiveTestDatabase();
     const photo = await target('legacy-wb');
     const app = new Elysia().use(jobsRoutes);
     for (const version of [undefined, '4']) {
@@ -229,12 +199,13 @@ describe('persisted batch adjustment sync', () => {
       expect(response.status).toBe(400);
       expect((await response.json()).error).toContain('current-scale');
     }
-    expect(await (await getDb()).collection('jobs').countDocuments()).toBe(0);
+    expect(scalar(live.db, 'SELECT COUNT(*) AS n FROM jobs')).toBe(0);
     expect(await readFile(xmpSidecarPath(photo.path), 'utf8')).toBe(untouched);
   });
 
   it('refuses a concurrent batch in the same library, including a second client', async () => {
-    if (!mongo) throw new Error('This regression requires MongoDB');
+    using live = await createLiveTestDatabase();
+    seedLibrary(live.db);
     const first = await claimed([await target('owner')]);
     const app = new Elysia().use(jobsRoutes);
     const request = () =>
@@ -260,7 +231,8 @@ describe('persisted batch adjustment sync', () => {
   });
 
   it('reads actual paired RAW baselines through HTTP and writes a frozen relative patch', async () => {
-    if (!mongo) throw new Error('This regression requires MongoDB');
+    using live = await createLiveTestDatabase();
+    seedLibrary(live.db);
     const sourcePath = join(root, 'paired-source.dng');
     const targetPath = join(root, 'paired-target.dng');
     const sourceBytes = await readFile(
@@ -326,7 +298,8 @@ describe('persisted batch adjustment sync', () => {
   });
 
   it('reuses a client-generated job identity after a lost creation response', async () => {
-    if (!mongo) return;
+    using live = await createLiveTestDatabase();
+    seedLibrary(live.db);
     const payload = { targets: [await target('request-id')], patch };
     const requestId = new ObjectId().toHexString();
     const one = await jobs.createJob({
@@ -340,7 +313,9 @@ describe('persisted batch adjustment sync', () => {
       requestId,
     });
     expect(two._id).toEqual(one._id);
-    expect(await mongo.db(dbName).collection('jobs').countDocuments({ _id: one._id })).toBe(1);
+    expect(
+      scalar(live.db, 'SELECT COUNT(*) AS n FROM jobs WHERE id = ?', one._id.toHexString()),
+    ).toBe(1);
     await expect(
       jobs.createJob({
         kind: 'batch_adjustment_sync',
@@ -354,7 +329,8 @@ describe('persisted batch adjustment sync', () => {
   });
 
   it('returns 409 for conflicting create and retry identities without changing either job', async () => {
-    if (!mongo) return;
+    using live = await createLiveTestDatabase();
+    seedLibrary(live.db);
     const targets = [await target('identity-conflict')];
     const original = await claimed(targets);
     const ctx = await context(original._id);
@@ -388,13 +364,15 @@ describe('persisted batch adjustment sync', () => {
     expect((await jobs.getJob(original._id))?.checkpoint?.failed).toEqual([
       { id: targets[0].id, reason: 'Disk full' },
     ]);
-    expect(await mongo.db(dbName).collection('jobs').countDocuments()).toBe(2);
+    expect(scalar(live.db, 'SELECT COUNT(*) AS n FROM jobs')).toBe(2);
   });
 
   it.skipIf(process.env.MAPLE_BATCH_BENCHMARK !== '1')(
     'measures a 2,000-sidecar run when MAPLE_BATCH_BENCHMARK=1',
     async () => {
-      if (!mongo || process.env.MAPLE_BATCH_BENCHMARK !== '1') return;
+      if (process.env.MAPLE_BATCH_BENCHMARK !== '1') return;
+      using live = await createLiveTestDatabase();
+      seedLibrary(live.db);
       const targets = [];
       for (let i = 0; i < 2000; i++) targets.push(await target(`bench-${i}`));
       const job = await claimed(targets);
@@ -438,7 +416,8 @@ describe('persisted batch adjustment sync', () => {
   );
 
   it('continues after a malformed sidecar and retries only failed photos through HTTP', async () => {
-    if (!mongo) return;
+    using live = await createLiveTestDatabase();
+    seedLibrary(live.db);
     const targets = [await target('good'), await target('bad', '<broken>'), await target('later')];
     const job = await claimed(targets);
     const out = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
@@ -465,91 +444,6 @@ describe('persisted batch adjustment sync', () => {
     expect(view.payload).toBeUndefined();
     expect(view.checkpoint.applied).toEqual(out.result.applied);
     expect(view.checkpoint.entries).toBeUndefined();
-  });
-
-  it('cancels between photos, resumes pending work, and never replays acknowledged photos', async () => {
-    if (!mongo) return;
-    const targets = [await target('cancel-a'), await target('cancel-b')];
-    const job = await claimed(targets);
-    const ctx = await context(job._id);
-    const report = ctx.reportProgress;
-    ctx.reportProgress = async (current, total) => {
-      await report(current, total);
-      if (current === 1) await jobs.requestCancel(job._id);
-    };
-    const out = await batchAdjustmentSyncHandler.run(job.payload, ctx);
-    expect(out.kind).toBe('cancelled');
-    await jobs.markCancelled(job._id, out.result);
-    const appliedBytes = await readFile(xmpSidecarPath(targets[0].path), 'utf8');
-    const changedAfter = appliedBytes.replace('1.25', '2.75');
-    await writeFile(xmpSidecarPath(targets[0].path), changedAfter);
-    const response = await new Elysia().use(jobsRoutes).handle(
-      new Request(`http://localhost/api/jobs/${job._id}/resume`, {
-        method: 'POST',
-      }),
-    );
-    expect(response.status).toBe(200);
-    await jobs.claimJob('worker-a', 60000);
-    const completed = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
-    expect(completed.result.applied).toEqual(targets.map((t) => t.id));
-    expect(await readFile(xmpSidecarPath(targets[0].path), 'utf8')).toBe(changedAfter);
-  });
-
-  it('reconciles a crash after atomic rename before acknowledgement without writing twice', async () => {
-    if (!mongo) return;
-    const photo = await target('crash');
-    const job = await claimed([photo]);
-    const ctx = await context(job._id);
-    const save = ctx.saveCheckpoint!;
-    ctx.saveCheckpoint = async (ledger) => {
-      if ((ledger.applied as string[]).length > 0) throw new Error('simulated process loss');
-      await save(ledger);
-    };
-    await expect(batchAdjustmentSyncHandler.run(job.payload, ctx)).rejects.toThrow('process loss');
-    const before = await stat(xmpSidecarPath(photo.path));
-    const ledger = (await jobs.getJob(job._id))?.checkpoint;
-    expect(((ledger?.entries ?? []) as { status: string }[])[0].status).toBe('prepared');
-    const completed = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
-    expect(completed.result.applied).toEqual([photo.id]);
-    expect((await stat(xmpSidecarPath(photo.path))).mtimeMs).toBe(before.mtimeMs);
-  });
-
-  it('records an intervening edit as a conflict instead of replaying a prepared write', async () => {
-    if (!mongo) return;
-    const photo = await target('conflict');
-    const job = await claimed([photo]);
-    const ctx = await context(job._id);
-    const save = ctx.saveCheckpoint!;
-    ctx.saveCheckpoint = async (ledger) => {
-      await save(ledger);
-      if ((ledger.entries as { status?: string }[])[0]?.status === 'prepared')
-        throw new Error('process loss');
-    };
-    await expect(batchAdjustmentSyncHandler.run(job.payload, ctx)).rejects.toThrow();
-    const edit = untouched.replace('&#65;', 'new edit');
-    await writeFile(xmpSidecarPath(photo.path), edit);
-    const completed = await batchAdjustmentSyncHandler.run(job.payload, await context(job._id));
-    expect(completed.result.applied).toEqual([]);
-    expect((completed.result.failed as { reason: string }[])[0].reason).toContain('changed');
-    expect(await readFile(xmpSidecarPath(photo.path), 'utf8')).toBe(edit);
-  });
-
-  it('fences stale progress, checkpoint and completion after a lease is reclaimed', async () => {
-    if (!mongo) return;
-    const job = await claimed([await target('fence')]);
-    await mongo
-      .db(dbName)
-      .collection('jobs')
-      .updateOne({ _id: job._id }, { $set: { lease_expires_at: '2000-01-01T00:00:00.000Z' } });
-    expect((await jobs.claimJob('worker-b', 60000))?._id).toEqual(job._id);
-    await expect(jobs.saveJobCheckpoint(job._id, 'worker-a', {}, 60000)).rejects.toThrow('lease');
-    await expect(
-      jobs.updateProgress(job._id, { current: 99, total: 99 }, 60000, undefined, 'worker-a'),
-    ).rejects.toThrow('lease');
-    await jobs.completeJob(job._id, {}, undefined, 'worker-a');
-    await jobs.failJob(job._id, 'stale failure', undefined, 'worker-a');
-    expect((await jobs.getJob(job._id))?.status).toBe('running');
-    expect((await jobs.getJob(job._id))?.progress.current).toBe(0);
   });
 
   it('rejects relative paths, unsupported fields and same-stem sidecar collisions before queueing', () => {

@@ -4,88 +4,53 @@
  * the person from the normal people listing, surfaces them on the recovery
  * list, and un-excluding restores all of it.
  *
- * Real Mongo required (localhost:27017 by default, override via
- * `MAPLE_MONGO_URI`) — soft-skips when unreachable, matching the other
- * suites in this directory.
+ * Real SQLite, installed as the process-wide handle so both route trees and
+ * the people repository underneath them reach the same database.
  */
 
-import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId, type Db } from 'mongodb';
 import { listRoute } from './list.ts';
+import { _resetCacheForTests } from './total-cache.ts';
 import { peopleRoutes } from '../people.ts';
-import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { insertFaceRow, insertPersonRow } from '../../db/sqlite/repos/assets.test-helpers.ts';
+import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-// Per-file database, claimed for the duration of this suite and restored
-// afterwards (#2900) — a module-scope assignment would rename the database
-// for every suite imported after this one. `closeDb()` in beforeEach retires
-// any singleton a prior suite left connected; `getDb()` re-reads the env on
-// every call and swaps connection when the (uri, dbName) key changes, so this
-// is belt-and-braces rather than load-bearing.
-withTestDb(`maple_test_person_exclude_${process.pid}`);
-
-let db: Db | null = null;
-let mongoReachable = false;
-
-const personId = new ObjectId();
-const bystanderId = new ObjectId();
+let live: LiveTestDatabase;
+let personId: string;
+let bystanderId: string;
 
 beforeEach(async () => {
-  await closeDb();
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
-  await db.collection('people').deleteMany({});
-  await seed(db);
+  live = await createLiveTestDatabase();
+  const libraryId = insertFolder(live.db, { slug: 'person-exclude', path: '/lib' });
+  personId = insertPersonRow(live.db, 'Ex Cluded');
+  bystanderId = insertPersonRow(live.db, 'By Stander');
+
+  // Group shot: the excluded person plus a bystander — the whole asset must
+  // drop, not just the one face.
+  const group = seedSearchAsset(live.db, libraryId, {
+    filename: 'a.dng',
+    capturedAt: '2026-05-10T00:00:00.000Z',
+  });
+  insertFaceRow(live.db, { assetId: group, faceIndex: 0, personId });
+  insertFaceRow(live.db, { assetId: group, faceIndex: 1, personId: bystanderId });
+
+  seedSearchAsset(live.db, libraryId, {
+    filename: 'b.dng',
+    capturedAt: '2026-05-10T00:00:00.000Z',
+  });
+  _resetCacheForTests();
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
+afterEach(() => {
+  live.close();
+  _resetCacheForTests();
 });
-
-async function seed(d: Db): Promise<void> {
-  const folder = new ObjectId();
-  const now = new Date('2026-05-10T00:00:00Z').toISOString();
-  const baseAsset = {
-    size: 1,
-    mtime: 1,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: 'now',
-    deleted_at: null,
-    hidden: false,
-    exif: { captured_at: now },
-  };
-  await d.collection('people').insertMany([
-    { _id: personId, name: 'Ex Cluded', merged_into: null, created_at: now, updated_at: now },
-    { _id: bystanderId, name: 'By Stander', merged_into: null, created_at: now, updated_at: now },
-  ] as never);
-  await d.collection('assets').insertMany([
-    {
-      ...baseAsset,
-      maple_id: 'with-excluded-person',
-      fileinfo: [{ path: '', filename: 'a.dng', library_id: folder, deleted_at: null }],
-      // Group shot: the excluded person plus a bystander — the whole asset
-      // must drop, not just the one face.
-      faces: [{ person_id: personId.toHexString() }, { person_id: bystanderId.toHexString() }],
-    },
-    {
-      ...baseAsset,
-      maple_id: 'without-person',
-      fileinfo: [{ path: '', filename: 'b.dng', library_id: folder, deleted_at: null }],
-      faces: [],
-    },
-  ] as never);
-}
 
 const searchApp = new Elysia().use(listRoute);
 const peopleApp = new Elysia().use(peopleRoutes);
@@ -110,43 +75,38 @@ async function peopleNames(path: string): Promise<string[]> {
   return rows.map((r) => r.name);
 }
 
-describe('person exclude (#2894, e2e against Mongo)', () => {
+describe('person exclude (#2894, end to end)', () => {
   it('drops assets with the excluded person from plain search, and restores on unexclude', async () => {
-    if (!mongoReachable) return;
-
     expect((await searchIds()).sort()).toEqual(['a.dng', 'b.dng']);
 
-    const ex = await post(`/${personId.toHexString()}/exclude`);
+    const ex = await post(`/${personId}/exclude`);
     expect(ex.status).toBe(200);
 
     // No flag on the request — exclusion must apply unconditionally.
     expect(await searchIds()).toEqual(['b.dng']);
 
-    const unex = await post(`/${personId.toHexString()}/unexclude`);
+    const unex = await post(`/${personId}/unexclude`);
     expect(unex.status).toBe(200);
     expect((await searchIds()).sort()).toEqual(['a.dng', 'b.dng']);
   });
 
   it('moves the person from the normal listing to the recovery list', async () => {
-    if (!mongoReachable) return;
-
     expect((await peopleNames('/')).sort()).toEqual(['By Stander', 'Ex Cluded']);
     expect(await peopleNames('/excluded')).toEqual([]);
 
-    await post(`/${personId.toHexString()}/exclude`);
+    await post(`/${personId}/exclude`);
 
     expect(await peopleNames('/')).toEqual(['By Stander']);
     expect(await peopleNames('/excluded')).toEqual(['Ex Cluded']);
     // Excluded ≠ hidden — the Hidden page stays empty.
     expect(await peopleNames('/hidden')).toEqual([]);
 
-    await post(`/${personId.toHexString()}/unexclude`);
+    await post(`/${personId}/unexclude`);
     expect((await peopleNames('/')).sort()).toEqual(['By Stander', 'Ex Cluded']);
     expect(await peopleNames('/excluded')).toEqual([]);
   });
 
   it('rejects a malformed person id', async () => {
-    if (!mongoReachable) return;
     const res = await post('/not-an-id/exclude');
     expect(res.status).toBe(400);
   });

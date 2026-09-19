@@ -37,12 +37,11 @@
  *         Body: { retry_after_seconds }. Same-key metadata mismatches
  *         self-heal silently (session reset in place).
  */
-import { backupId, backupChunkRange } from './backup-id.ts';
+import { backupId, backupChunkRange, backupLibrary, backupLibraryId } from './backup-id.ts';
+import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
-import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
-import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
+import { setAppleRenderedPath } from '../db/sqlite/repos/backup.repo.ts';
+import { uploadSessions } from '../backup/upload-session.ts';
 import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
 import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the rendered-companion publish replicates to the
@@ -127,71 +126,141 @@ function renderedRelPath(originalRelPath: string, ext?: string, suffixOverride?:
   return `${base}.rendered${normalExt}`;
 }
 
+/** Every header this route reads, validated, or the 400 to answer instead. */
+interface RenderedHeaders {
+  deviceId: string;
+  phid: string;
+  originalRelPath: string;
+  totalBytesRaw: string;
+  range: string;
+  mapleIdHeader: string | undefined;
+  filenameExt: string | undefined;
+  suffixOverride: string | undefined;
+  phCloudId: string | undefined;
+}
+
+/**
+ * Reads and checks the request's headers before anything is opened or written.
+ *
+ * Kept out of the handler because it is the half of this route that has no
+ * order to it — every check here is independent of every other, and none of
+ * them touches the database or the disk. What is left in the handler is the
+ * sequence that does.
+ */
+function renderedHeaders(headers: Record<string, string | undefined>): Response | RenderedHeaders {
+  const deviceId = headers['x-maple-device-id'];
+  const phid = headers['x-maple-phasset-id'];
+  const originalRelPath = headers['x-maple-target-rel-path'];
+  const totalBytesRaw = headers['x-maple-total-bytes'];
+  const range = headers['content-range'];
+  if (!deviceId || !phid || !originalRelPath || !totalBytesRaw || !range) {
+    return badRequest('missing required headers');
+  }
+
+  // Path-traversal guard.
+  if (!isSafeRelPath(originalRelPath)) return badRequest('unsafe X-Maple-Target-Rel-Path');
+
+  const filenameExt = headers['x-maple-filename-ext'];
+  const suffixOverride = headers['x-maple-suffix-override'];
+  const unsafePart = unsafeFilenamePart(filenameExt, suffixOverride);
+  if (unsafePart !== null) return badRequest(unsafePart);
+
+  const mapleIdHeader = backupId(headers['x-maple-maple-id'], 'x-maple-maple-id');
+  if (mapleIdHeader instanceof Response) return mapleIdHeader;
+
+  return {
+    deviceId,
+    phid,
+    originalRelPath,
+    totalBytesRaw,
+    range,
+    mapleIdHeader,
+    filenameExt,
+    suffixOverride,
+    // Optional iCloud cloud id — when two devices on the same iCloud library
+    // both try to upload the rendered companion for one photo, `openOrResume`
+    // uses this to detect the collision and answer 423 rather than letting the
+    // second device race the move at the end of the upload.
+    phCloudId: headers['x-maple-phasset-cloud-id'],
+  };
+}
+
+/**
+ * Names the first optional filename part that is not safe to splice into a
+ * path, or null when both are.
+ *
+ * Both are spliced into the write path, so they get their own allowlist on top
+ * of the rel-path guard — a `..` or a separator in either one would escape the
+ * library root (#854).
+ */
+function unsafeFilenamePart(ext: string | undefined, suffix: string | undefined): string | null {
+  if (ext !== undefined && !isSafeFilenamePart(ext)) return 'unsafe X-Maple-Filename-Ext';
+  if (suffix !== undefined && !isSafeFilenamePart(suffix)) {
+    return 'unsafe X-Maple-Suffix-Override';
+  }
+  return null;
+}
+
+/**
+ * Moves the assembled companion into the library.
+ *
+ * `EEXIST` is success, not a failure: another device won the race past the
+ * cloud-id check and its copy is already at the canonical path. The asset
+ * update that follows either already points there or is about to, so the loser
+ * drops its temporary copy and reports the same result.
+ */
+async function placeRenderedFile(
+  tmpFile: string,
+  libraryRoot: string,
+  relPath: string,
+): Promise<Response | string> {
+  // Containment backstop: never write outside the library root, even if an
+  // upstream guard was missed (#854).
+  const finalPath = containedJoin(libraryRoot, relPath);
+  if (!finalPath) return badRequest('resolved path escapes library root');
+  await fs.mkdir(path.dirname(finalPath), { recursive: true });
+  try {
+    await atomicMove(tmpFile, finalPath);
+  } catch (e: unknown) {
+    if ((e as { code?: unknown } | null)?.code !== 'EEXIST') throw e;
+    await fs.unlink(tmpFile).catch(() => {});
+  }
+  return finalPath;
+}
+
+/**
+ * The cloud id a rendered session claims, which is the photo's with a suffix.
+ *
+ * The suffix is what namespaces rendered sessions apart from the original-asset
+ * sessions for the same photo. Without it a rendered upload from device B sees
+ * device A's ORIGINAL session as a busy peer and backs off for nothing.
+ */
+function renderedSessionCloudId(phCloudId: string | undefined): string | undefined {
+  return phCloudId === undefined ? undefined : `${phCloudId}::rendered`;
+}
+
+function badRequest(error: string): Response {
+  return Response.json({ error }, { status: 400 });
+}
+
 export const backupRenderedRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/rendered',
   async ({ params, headers, body, set }) => {
-    // Validate library id.
-    let libraryId: ObjectId;
-    try {
-      libraryId = new ObjectId(params.libraryId);
-    } catch {
-      set.status = 400;
-      return { error: 'invalid library id' };
-    }
+    const libraryId = backupLibraryId(params.libraryId);
+    if (libraryId instanceof Response) return libraryId;
 
-    // Extract + validate required headers.
-    const deviceId = headers['x-maple-device-id'];
-    const phid = headers['x-maple-phasset-id'];
-    const originalRelPath = headers['x-maple-target-rel-path'];
-    const totalBytesRaw = headers['x-maple-total-bytes'];
-    const range = headers['content-range'];
-    const mapleId = backupId(headers['x-maple-maple-id'], 'x-maple-maple-id');
-    if (mapleId instanceof Response) return mapleId;
-    const filenameExt = headers['x-maple-filename-ext'];
-    // Optional suffix-override: when present, the assembled file is named
-    // `<base>.<suffixOverride>` instead of `<base>.rendered.<ext>`.
-    // Used by the Live Photo .mov path to avoid the `.rendered.` infix.
-    const suffixOverride = headers['x-maple-suffix-override'];
-    // Optional iCloud cloud id — when both devices on the same iCloud
-    // library try to upload the rendered companion for the same photo,
-    // openOrResume uses this to detect the cross-device collision and
-    // return 423 instead of letting the second device race the
-    // `atomicMove` at the end of the upload.
-    const phCloudId = headers['x-maple-phasset-cloud-id'];
+    const request = renderedHeaders(headers);
+    if (request instanceof Response) return request;
+    const { deviceId, phid, originalRelPath, totalBytesRaw, range } = request;
+    const { mapleIdHeader, filenameExt, suffixOverride, phCloudId } = request;
 
-    if (!deviceId || !phid || !originalRelPath || !totalBytesRaw || !range) {
-      set.status = 400;
-      return { error: 'missing required headers' };
-    }
-
-    // Path-traversal guard.
-    if (!isSafeRelPath(originalRelPath)) {
-      set.status = 400;
-      return { error: 'unsafe X-Maple-Target-Rel-Path' };
-    }
-
-    // The optional filename parts are spliced into the write path, so they get
-    // their own allowlist — a `..` or separator here would escape the library
-    // root (#854).
-    if (filenameExt !== undefined && !isSafeFilenamePart(filenameExt)) {
-      set.status = 400;
-      return { error: 'unsafe X-Maple-Filename-Ext' };
-    }
-    if (suffixOverride !== undefined && !isSafeFilenamePart(suffixOverride)) {
-      set.status = 400;
-      return { error: 'unsafe X-Maple-Suffix-Override' };
-    }
-
-    const chunk = backupChunkRange(totalBytesRaw, range, mapleId);
+    const chunk = backupChunkRange(totalBytesRaw, range, mapleIdHeader);
     if (chunk instanceof Response) return chunk;
     const { start, end, rangeTotal, totalBytes } = chunk;
 
     // Check library exists.
-    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
-    if (!folder) {
-      set.status = 404;
-      return { error: 'library not found' };
-    }
+    const folder = await backupLibrary(libraryId);
+    if (folder instanceof Response) return folder;
 
     // Compute target rel-path for the rendered companion.
     const targetRelPath = renderedRelPath(originalRelPath, filenameExt, suffixOverride);
@@ -199,40 +268,19 @@ export const backupRenderedRoutes = new Elysia().post(
     // Use synthetic phid so rendered sessions don't collide with original sessions.
     const syntheticPhid = `${phid}::rendered`;
 
-    // Suffix the cloud id so the cross-device check namespaces rendered
-    // sessions separately from the original-asset sessions for the same
-    // photo — otherwise a rendered upload from device B would see device
-    // A's *original* session as a busy peer.
-    const renderedCloudId = phCloudId ? `${phCloudId}::rendered` : undefined;
+    const renderedCloudId = renderedSessionCloudId(phCloudId);
 
-    // Open or resume the upload session.
-    let session;
-    let didReset = false;
-    let alreadyComplete = false;
-    try {
-      const r = await uploadSessions.openOrResume({
-        libraryId,
-        deviceId,
-        phassetLocalId: syntheticPhid,
-        totalBytes,
-        chunkSize: end - start + 1,
-        targetRelPath,
-        phassetCloudId: renderedCloudId,
-      });
-      session = r.session;
-      didReset = r.reset;
-      alreadyComplete = r.alreadyComplete;
-    } catch (e: any) {
-      if (e instanceof BusyElsewhereError) {
-        set.status = 423;
-        return {
-          error: e.message,
-          retry_after_seconds: e.retryAfterSeconds,
-        };
-      }
-      set.status = 409;
-      return { error: e?.message ?? 'session metadata mismatch on resume' };
-    }
+    const opened = await openChunkSession({
+      libraryId,
+      deviceId,
+      phassetLocalId: syntheticPhid,
+      totalBytes,
+      chunkSize: end - start + 1,
+      targetRelPath,
+      phassetCloudId: renderedCloudId,
+    });
+    if (opened instanceof Response) return opened;
+    const { session, didReset, alreadyComplete } = opened;
 
     // Same short-circuit as backup-ingest: when the rendered companion
     // already finished server-side, return 200 with the stored target path
@@ -249,112 +297,33 @@ export const backupRenderedRoutes = new Elysia().post(
 
     const resolvedTargetRelPath = session.target_rel_path;
 
-    // Append chunk to the per-session tmp file.
-    const tmpFile = path.join(BACKUP_CHUNK_DIR, `${session._id.toHexString()}.part`);
-    await fs.mkdir(BACKUP_CHUNK_DIR, { recursive: true });
-
-    // Self-heal reset cleared received_bytes — also clear any stale tmp bytes
-    // so the next append starts from 0. Only ENOENT is tolerable; anything
-    // else risks appending onto stale bytes and moving a corrupted companion
-    // file into place.
-    if (didReset) {
-      try {
-        await fs.unlink(tmpFile);
-      } catch (e: any) {
-        if (e?.code !== 'ENOENT') {
-          set.status = 500;
-          return { error: `could not clear stale tmp file: ${e?.message ?? 'unlink failed'}` };
-        }
-      }
-    }
-
-    // Enforce resume offset.
-    if (session.received_bytes !== start) {
-      set.status = 409;
-      return { error: 'resume offset mismatch', expected_offset: session.received_bytes };
-    }
-
-    const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
-
-    // Verify body length matches Content-Range claim.
-    const expectedChunkLen = end - start + 1;
-    if (buf.byteLength !== expectedChunkLen) {
-      set.status = 400;
-      return {
-        error: `body length ${buf.byteLength} does not match Content-Range span ${expectedChunkLen}`,
-      };
-    }
-
-    // Verify tmp file size is consistent with DB state before appending.
-    if (start !== 0) {
-      let tmpStat: Awaited<ReturnType<typeof fs.stat>> | null = null;
-      try {
-        tmpStat = await fs.stat(tmpFile);
-      } catch {
-        await uploadSessions.resetForRestart(session._id);
-        set.status = 409;
-        return { error: 'tmp file missing — restart required', expected_offset: 0 };
-      }
-      if (tmpStat.size !== session.received_bytes) {
-        set.status = 409;
-        return {
-          error: 'tmp file size mismatch — restart required',
-          expected_offset: tmpStat.size,
-        };
-      }
-    }
-
-    await fs.appendFile(tmpFile, buf);
-    await uploadSessions.recordChunk({ sessionId: session._id, bytesReceived: buf.byteLength });
-
-    const isFinalChunk = end + 1 === rangeTotal;
-    if (!isFinalChunk) {
-      set.status = 202;
-      return { next_offset: end + 1 };
-    }
+    const chunkResult = await takeChunk({
+      session,
+      didReset,
+      start,
+      end,
+      rangeTotal,
+      body,
+      mapleId: mapleIdHeader,
+    });
+    if (chunkResult instanceof Response) return chunkResult;
+    // The upload is assembled and `mapleId` is known to be present: every
+    // earlier return above is the chunk protocol's, not this route's.
+    const { tmpFile, mapleId } = chunkResult;
 
     // -----------------------------------------------------------------------
     // Final chunk — move assembled file into place + update AssetDoc.
     // -----------------------------------------------------------------------
 
-    if (!mapleId) {
-      set.status = 400;
-      return { error: 'X-Maple-Maple-Id required on final chunk' };
-    }
-
-    // Containment backstop: never write outside the library root, even if an
-    // upstream guard was missed (#854).
-    const finalPath = containedJoin(folder.path, resolvedTargetRelPath);
-    if (!finalPath) {
-      set.status = 400;
-      return { error: 'resolved path escapes library root' };
-    }
-    await fs.mkdir(path.dirname(finalPath), { recursive: true });
-    try {
-      await atomicMove(tmpFile, finalPath);
-    } catch (e: any) {
-      if (e?.code === 'EEXIST') {
-        // Another device beat us to the final path (cross-device race past
-        // the non-atomic cloud-id check). The rendered companion already
-        // exists at the canonical location and the AssetDoc below will
-        // either already point at it or get updated to the same path — so
-        // drop our tmp and treat as success.
-        await fs.unlink(tmpFile).catch(() => {});
-      } else {
-        throw e;
-      }
-    }
+    const placed = await placeRenderedFile(tmpFile, folder.path, resolvedTargetRelPath);
+    if (placed instanceof Response) return placed;
     await uploadSessions.complete({ sessionId: session._id, mapleId });
 
-    // Persist apple_rendered_path on the matching AssetDoc. Post
-    // drop-abs-path-2026-05-21 the per-library pointer lives on
-    // `fileinfo[].library_id`; we scope the update via that path plus
+    // Persist apple_rendered_path on the matching asset. Post
+    // drop-abs-path-2026-05-21 the per-library pointer is the asset's
+    // locations, so the update is scoped by a location in this library plus
     // the content-addressed `maple_id`.
-    const a = await assetsCollection();
-    await a.updateOne(
-      { 'fileinfo.library_id': libraryId, maple_id: mapleId },
-      { $set: { apple_rendered_path: resolvedTargetRelPath } },
-    );
+    await setAppleRenderedPath(libraryId, mapleId, resolvedTargetRelPath);
 
     log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, 'rendered ingest complete');
     set.status = 200;

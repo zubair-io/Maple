@@ -13,8 +13,8 @@
  *     entering the claim loop.
  *
  * Single-process rate limit is fine for v1. If multiple worker processes
- * ever target the same Nominatim, swap the bucket for a shared
- * Mongo/Redis token store — out of scope here.
+ * ever target the same Nominatim, swap the bucket for a token store shared
+ * across processes — out of scope here.
  *
  * Spec: `docs/indexer-enrichment.md` §4.1, §4.2.
  */

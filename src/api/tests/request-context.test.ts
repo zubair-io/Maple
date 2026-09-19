@@ -9,7 +9,8 @@
  *     still lands as the envelope via mapResponse.
  *   - A thrown exception inside a route surfaces as `code: "internal"` 500
  *     and carries the request-id.
- *   - The legacy DB-unavailable carve-out keeps its 503 + `tip` semantic
+ *   - The DB-unavailable carve-out keeps its 503 + `tip` semantic, and
+ *     distinguishes an unusable database from a statement that was wrong
  *     with `tip` at the top level (the existing operator UI reads it there).
  *
  * No MongoDB required — every case mounts a tiny Elysia app from
@@ -179,10 +180,10 @@ describe('requestContext: uncaught error → internal envelope', () => {
     expect(body.requestId).toBe(supplied);
   });
 
-  test("DB-unavailable carve-out: '[db]' in message → 503 + service_unavailable + tip", async () => {
+  test('DB-unavailable carve-out: the pool is not open → 503 + tip', async () => {
     const app = appWith((a) =>
       a.get('/db', () => {
-        throw new Error('[db] MongoDB connection refused');
+        throw new Error('sqlite pool: not open — openSqlitePool() must run during startup');
       }),
     );
     const res = await app.handle(new Request('http://localhost/db'));
@@ -190,9 +191,39 @@ describe('requestContext: uncaught error → internal envelope', () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.code).toBe('service_unavailable');
     expect(body.error).toBe('Database unavailable');
-    // Backwards-compat carve-out: `tip` stays at the top level so existing
-    // operator UI can read it. New clients are free to ignore it.
-    expect(body.tip).toMatch(/docker compose up.*mongo/i);
+    // The `tip` stays at the top level so existing operator UI can read it.
+    expect(body.tip).toMatch(/MAPLE_SQLITE_PATH/);
+  });
+
+  test('DB-unavailable carve-out: an unreadable database file → 503', async () => {
+    const app = appWith((a) =>
+      a.get('/db', () => {
+        throw Object.assign(new Error('unable to open database file'), {
+          code: 'SQLITE_CANTOPEN',
+        });
+      }),
+    );
+    expect((await app.handle(new Request('http://localhost/db'))).status).toBe(503);
+  });
+
+  test('DB-unavailable carve-out: a constraint violation is NOT an outage', async () => {
+    // The case the carve-out must not catch. A unique or foreign-key violation
+    // is a bug or a bad request; answering it with "Database unavailable" would
+    // send an operator to check a file that is perfectly healthy. This is the
+    // distinction the MongoDB-era substring match could not make, because every
+    // driver error carried the same marker.
+    const app = appWith((a) =>
+      a.get('/db', () => {
+        throw Object.assign(new Error('UNIQUE constraint failed: assets.maple_id'), {
+          code: 'SQLITE_CONSTRAINT_UNIQUE',
+        });
+      }),
+    );
+    const res = await app.handle(new Request('http://localhost/db'));
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.code).toBe('internal');
+    expect(body.tip).toBeUndefined();
   });
 });
 

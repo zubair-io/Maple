@@ -9,9 +9,18 @@ import {
   type VerifiedRegistrationResponse,
   type VerifiedAuthenticationResponse,
 } from '@simplewebauthn/server';
-import { challengesCollection, credentialsCollection } from '../db/client.ts';
+import { consumeChallenge, storeChallenge } from '../db/sqlite/repos/auth.challenges.repo.ts';
+import { listCredentialDescriptorsForUser } from '../db/sqlite/repos/auth.users.repo.ts';
 import { allowedBrowserOrigins } from '../runtime/allowed-origins.ts';
-import type { ChallengePurpose, CredentialDoc } from '../db/schema.ts';
+import type { CredentialDoc } from '../db/schema.ts';
+
+// The ceremony logic is `@simplewebauthn/server` and has no database in it.
+// The two things here that did — recording a challenge and spending it — moved
+// to `db/sqlite/repos/auth.challenges.repo.ts` at the cutover (#3787), along
+// with the five-minute lifetime and both of the error messages the register
+// and login routes surface. A challenge is still spendable exactly once: the
+// `findOneAndDelete` became a read followed by a delete whose row count
+// identifies the single winner.
 
 const RP_NAME = 'Maple';
 function rpID(): string {
@@ -21,27 +30,6 @@ function rpID(): string {
 // Allowed WebAuthn origins come from `runtime/allowed-origins.ts`:
 // MAPLE_ORIGIN (or the dev localhost ports) plus the managed LAN HTTPS
 // hostname while that listener is serving. SimpleWebAuthn accepts the array.
-
-const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-
-async function storeChallenge(args: {
-  challenge: string;
-  purpose: ChallengePurpose;
-  user_id: ObjectId | null;
-  email: string | null;
-  invite_code: string | null;
-}) {
-  const c = await challengesCollection();
-  await c.insertOne({ ...args, expires_at: new Date(Date.now() + CHALLENGE_TTL_MS) });
-}
-
-async function consumeChallenge(challenge: string) {
-  const c = await challengesCollection();
-  const row = await c.findOneAndDelete({ challenge });
-  if (!row) throw new Error('challenge not found / already consumed');
-  if (row.expires_at.getTime() < Date.now()) throw new Error('challenge expired');
-  return row;
-}
 
 /**
  * One WebAuthn registration ceremony: parse the clientDataJSON challenge,
@@ -78,6 +66,35 @@ export async function consumeRegistrationCeremony(args: {
     return { ok: false, error: 'verification failed' };
   }
   return { ok: true, challengeRow, registrationInfo: verification.registrationInfo };
+}
+
+/**
+ * The passkey row a verified registration becomes.
+ *
+ * Both registration flows — a new account in `auth.ts`, an extra device in
+ * `auth-account.ts` — reach this point with the same verified ceremony and
+ * wrote the same eight fields out of it. The public key is the one field that
+ * needs converting rather than copying: SimpleWebAuthn hands back a
+ * `Uint8Array` and the column holds a `Buffer`.
+ */
+export function credentialFromRegistration(args: {
+  userId: ObjectId;
+  registrationInfo: NonNullable<VerifiedRegistrationResponse['registrationInfo']>;
+  transports: string[] | undefined;
+  deviceLabel: string;
+  now: string;
+}): CredentialDoc {
+  const { credential } = args.registrationInfo;
+  return {
+    user_id: args.userId,
+    credential_id: credential.id,
+    public_key: Buffer.from(credential.publicKey),
+    counter: credential.counter,
+    transports: args.transports ?? [],
+    device_label: args.deviceLabel,
+    created_at: args.now,
+    last_used_at: args.now,
+  };
 }
 
 export async function buildRegistrationOptions(args: {
@@ -130,8 +147,9 @@ async function verifyRegistration(args: {
 }
 
 export async function buildAuthenticationOptions(userId: ObjectId, email: string) {
-  const creds = await credentialsCollection();
-  const allowed = await creds.find({ user_id: userId }).toArray();
+  // Ids and transports only — a passkey's COSE public key has no place in a
+  // ceremony's options, and the repository's projection keeps it out.
+  const allowed = await listCredentialDescriptorsForUser(userId);
   const opts = await generateAuthenticationOptions({
     rpID: rpID(),
     allowCredentials: allowed.map((c) => ({
@@ -177,16 +195,17 @@ export async function buildDiscoverableAuthenticationOptions() {
 /**
  * Read a stored credential public key as a tight `Uint8Array<ArrayBuffer>`.
  *
- * MongoDB hands binary fields back as a BSON `Binary` (with a `.buffer` Node
- * Buffer) by default, or — under `promoteBuffers` — as a raw Node `Buffer`. A
- * Node Buffer is a view into a shared pool, so its `.buffer` is the WHOLE pool
- * (extra bytes + wrong length); we must copy the Buffer itself (which respects
- * byteOffset/length), not its underlying ArrayBuffer. Handles both shapes so a
- * driver/config change can't silently corrupt the key and break every login.
+ * A stored key comes back as a Node `Buffer`, which is a view into a shared
+ * pool: its `.buffer` is the WHOLE pool (extra bytes + wrong length), so we copy
+ * the Buffer itself — which respects byteOffset/length — and never its
+ * underlying ArrayBuffer. The `.buffer`-unwrapping branch below also accepts the
+ * wrapper shape the MongoDB driver used to hand back (a BSON `Binary`), so a
+ * change in what the store returns can't silently corrupt the key and break
+ * every login.
  */
 function credentialPublicKeyBytes(pk: unknown): Uint8Array<ArrayBuffer> {
   if (pk instanceof Uint8Array) return Uint8Array.from(pk); // Node Buffer / Uint8Array
-  const buf = (pk as { buffer?: unknown } | null)?.buffer; // BSON Binary
+  const buf = (pk as { buffer?: unknown } | null)?.buffer; // wrapper shape
   if (buf instanceof Uint8Array) return Uint8Array.from(buf);
   if (buf) return Uint8Array.from(new Uint8Array(buf as ArrayBufferLike));
   return new Uint8Array(0);

@@ -11,52 +11,35 @@
  * param. Clients render the first and attribute it with the second.
  */
 
-import { afterAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { ObjectId, type Db } from 'mongodb';
 import { listRoute } from './list.ts';
-import { closeDb, getDb, isDbConnected } from '../../db/client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { _resetCacheForTests } from './total-cache.ts';
+import { seedSearchAsset } from '../../db/sqlite/repos/search.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-withTestDb(`maple_test_search_dateprov_${process.pid}`);
-
-let db: Db | null = null;
-let mongoReachable = false;
+let live: LiveTestDatabase;
 
 beforeEach(async () => {
-  try {
-    db = await getDb();
-    mongoReachable = isDbConnected();
-  } catch {
-    mongoReachable = false;
-    return;
-  }
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
-  // Queries with residual text take the Mongo `$text` path, which needs the
-  // index the real deployment builds at startup.
-  await db
-    .collection('assets')
-    .createIndex({ search_blob: 'text' })
-    .catch(() => {});
-  await db.collection('assets').insertOne({
-    maple_id: 'maple-1',
-    fileinfo: [{ path: '', filename: 'a.dng', library_id: new ObjectId(), deleted_at: null }],
-    size: 1,
-    mtime: 1,
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: 'now',
-    deleted_at: null,
-    hidden: false,
-    exif: { captured_at: '2024-05-05T12:00:00.000Z' },
-  } as never);
+  live = await createLiveTestDatabase();
+  const libraryId = insertFolder(live.db, { slug: 'date-prov', path: '/lib' });
+  // A residual text query takes the full-text path, so the row carries a
+  // search blob the FTS index is populated from.
+  seedSearchAsset(live.db, libraryId, {
+    filename: 'a.dng',
+    capturedAt: '2024-05-05T12:00:00.000Z',
+    searchBlob: 'skiing in the alps',
+  });
+  _resetCacheForTests();
 });
 
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  await closeDb();
+afterEach(() => {
+  live.close();
+  _resetCacheForTests();
 });
 
 async function search(qs: string): Promise<Record<string, unknown>> {
@@ -68,7 +51,6 @@ async function search(qs: string): Promise<Record<string, unknown>> {
 
 describe('GET /api/search — applied date window is reported', () => {
   it('reports a window inferred from the query text, and the text it came from', async () => {
-    if (!mongoReachable) return;
     const body = await search('placeQuery=2024');
     expect(body.dateFilter).toEqual({
       from: '2024-01-01T00:00:00.000Z',
@@ -78,13 +60,11 @@ describe('GET /api/search — applied date window is reported', () => {
   });
 
   it('attributes only the consumed text, not the whole query', async () => {
-    if (!mongoReachable) return;
     const body = await search('placeQuery=2024%20skiing');
     expect((body.dateFilter as { inferredFrom?: string })?.inferredFrom).toBe('2024');
   });
 
   it('reports an explicit window with no inferred attribution', async () => {
-    if (!mongoReachable) return;
     const body = await search('from=2024-01-01&to=2024-06-30');
     expect(body.dateFilter).toEqual({
       from: '2024-01-01T00:00:00.000Z',
@@ -93,7 +73,6 @@ describe('GET /api/search — applied date window is reported', () => {
   });
 
   it('omits the field entirely when no date constraint is active', async () => {
-    if (!mongoReachable) return;
     const body = await search('placeQuery=skiing');
     expect(body.dateFilter).toBeUndefined();
   });
@@ -105,7 +84,6 @@ describe('GET /api/search — applied date window is reported', () => {
    * them something untrue about their own query (#2960).
    */
   it('does not attribute a window an explicit param owns outright', async () => {
-    if (!mongoReachable) return;
     const body = await search('placeQuery=2024&from=2024-03-01&to=2024-04-30');
     expect(body.dateFilter).toEqual({
       from: '2024-03-01T00:00:00.000Z',
@@ -114,7 +92,6 @@ describe('GET /api/search — applied date window is reported', () => {
   });
 
   it('still attributes when the query text set one of the bounds', async () => {
-    if (!mongoReachable) return;
     // The explicit `from` tightens the lower bound; the upper is still the
     // parse's own, so the text did contribute and is named.
     const body = await search('placeQuery=2024&from=2024-03-01');

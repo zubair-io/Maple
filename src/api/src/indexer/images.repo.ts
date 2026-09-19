@@ -1,17 +1,30 @@
 /**
- * Images repository — thin wrapper over the `assets` collection.
- * Adds the fields the T7 pipeline needs (maple:id, sha1Head, deletedAt)
- * while remaining compatible with the existing `AssetDoc` shape.
+ * Asset-document helpers shared across the indexer, the workers and the routes.
+ *
+ * Most of this file is pure: given an asset's `fileinfo[]` and the map of
+ * registered library roots, work out which entry is the live one and where its
+ * bytes are. Those helpers describe the document shape rather than any
+ * database, so they survived the SQLite cutover (#3787) untouched — the DTO
+ * layer rebuilds the same `fileinfo[]` from `asset_locations` rows
+ * (`db/sqlite/repos/assets.rows.ts`).
+ *
+ * What did not survive is the storage. The skeleton upsert moved to
+ * `db/sqlite/repos/assets.upsert.ts`, and `findByMapleId` / `softDelete` /
+ * `listExpiredDeletions` / `hardDelete` went with the collection: none had a
+ * caller left, and the trash workflows they predate live in
+ * `db/sqlite/repos/assets.trash.ts`.
+ *
+ * Nothing here opens a collection any more. What is left is the document
+ * helpers — the ones that read a `fileinfo` array and answer a question about
+ * it — which are pure functions over a shape the SQLite rows are still
+ * assembled into, plus a few query-fragment builders whose last callers are
+ * going with them. Each of those is noted at its own declaration.
  */
 
 import * as path from 'node:path';
-import { ObjectId, type Collection, type UpdateResult } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
-import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
+import { ObjectId } from 'mongodb';
 import {
-  pendingEnrichment,
   type AssetDoc,
-  type AssetExif,
   type AssetFaceDoc,
   type Enrichment,
   type FileInfo,
@@ -53,11 +66,6 @@ export interface IndexerAssetFields {
 }
 
 export type IndexerAssetDoc = AssetDoc & IndexerAssetFields;
-
-export async function coll(): Promise<Collection<IndexerAssetDoc>> {
-  const c = await assetsCollection();
-  return c as unknown as Collection<IndexerAssetDoc>;
-}
 
 // ---------------------------------------------------------------------------
 // Location helpers (content-addressing migration)
@@ -102,65 +110,6 @@ export function liveFileInfoElemMatch(): Record<string, unknown> {
 }
 
 /**
- * Mongo predicate for "this asset has ≥2 *live* `fileinfo` entries", used by
- * both the deduplicate worker's candidate `find` and the `/status` pending
- * count so the two stay in sync (#1290).
- *
- * **Query strategy:** we first apply the `fileinfo.1 exists` partial-index
- * filter (`fileinfo_multi_location`) to restrict the scan to the small set of
- * multi-location rows, then use `$expr` + `$filter` to count only the live
- * subset of each row's `fileinfo` array in-memory. This avoids a full
- * COLLSCAN while giving an exact "≥2 live" count rather than the coarser
- * "≥2 total" that the bare index predicate would give.
- *
- * **Tradeoff:** `$expr` with `$filter` is not covered by the partial index
- * (MongoDB cannot use an index to evaluate `$expr` sub-expressions), so the
- * executor does:
- *   1. Index COUNT_SCAN / FETCH over the `fileinfo_multi_location` partial
- *      index (only duplicate-location rows, typically tiny).
- *   2. Per-row in-memory `$filter` over the `fileinfo` array to count live
- *      entries (array is small — usually 2–3 elements).
- *
- * This is safe under the 2 s status cache: step 1 is O(duplicates) not
- * O(total assets), and step 2 is O(fileinfo.length) per row. On a library
- * with 100 k assets but only 1 k duplicates the index prunes to 1 k rows;
- * the per-row work is negligible. A defensible cheaper alternative would be
- * `fileinfo.1 exists AND ≥1 live` (one `$elemMatch`), which also narrows via
- * the partial index and avoids `$expr` entirely, but would still count some
- * one-live + tombstoned-sibling rows. The exact predicate is preferred because
- * it lets the badge reach 0 from deduplicate alone.
- *
- * In `$expr`/`$filter` context, absent fields are NOT automatically `null` —
- * they evaluate to a missing-value that `$in: [null]` does not match. We use
- * `$ifNull` to coerce absent fields to `null` before comparing, so both
- * missing and explicit `null` are treated as "no tag" (live), exactly matching
- * `isLiveFileInfo` which checks `!entry.deleted_at && !entry.missing_since`.
- */
-export function liveAwareDuplicatePredicate(): Record<string, unknown> {
-  return {
-    'fileinfo.1': { $exists: true },
-    $expr: {
-      $gte: [
-        {
-          $size: {
-            $filter: {
-              input: { $ifNull: ['$fileinfo', []] },
-              cond: {
-                $and: [
-                  { $eq: [{ $ifNull: ['$$this.deleted_at', null] }, null] },
-                  { $eq: [{ $ifNull: ['$$this.missing_since', null] }, null] },
-                ],
-              },
-            },
-          },
-        },
-        2,
-      ],
-    },
-  };
-}
-
-/**
  * MongoDB aggregation expression that counts live `fileinfo` entries (where
  * neither `deleted_at` nor `missing_since` is set). Identical liveness
  * definition as `isLiveFileInfo`. Used in pipeline `$set` stages so the
@@ -171,7 +120,7 @@ export function liveAwareDuplicatePredicate(): Record<string, unknown> {
  * `$eq: null` does NOT match — we use `$ifNull` to coerce absent → `null`
  * before comparing, matching `isLiveFileInfo` exactly.
  */
-export function liveLocationCountExpression(): Record<string, unknown> {
+function liveLocationCountExpression(): Record<string, unknown> {
   return {
     $size: {
       $filter: {
@@ -196,8 +145,8 @@ export function liveLocationCountExpression(): Record<string, unknown> {
  * recomputes `live_location_count` from `$fileinfo`. It is normally called as
  * a SEPARATE round-trip AFTER the mutation that changed liveness, so there is
  * a brief window where the stored count is stale. That window is safe because:
- * the dedupe worker uses the exact `liveAwareDuplicatePredicate()` (drift-proof)
- * and only the 2 s-cached `/status` count reads this field.
+ * the dedupe worker counts live locations from the column directly
+ * (drift-proof) and only the 2 s-cached `/status` count reads this field.
  *
  * Callers that already issue a pipeline update themselves (e.g. adding a new
  * entry via `$concatArrays`) should inline `liveLocationCountExpression()`
@@ -314,20 +263,6 @@ export function assetAddress(
 }
 
 /**
- * True when the asset HAS `fileinfo` entries but none of them is live — i.e.
- * it once had at least one on-disk location and all of them are now gone
- * (every entry `deleted_at` and/or `missing_since`). Distinct from "no
- * fileinfo at all" (a never-located skeleton row) and from "live entry but
- * library unregistered" (a transient/config condition). See `assetAbsPath`
- * for the three null cases.
- */
-export function hasOnlySoftDeletedFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): boolean {
-  const list = asset.fileinfo;
-  if (!list || list.length === 0) return false;
-  return assetPrimaryFileInfo(asset) === null;
-}
-
-/**
  * Library root absolute path for this asset's primary location, looked up
  * in the supplied `libraries` map (`hex(_id) → root path`).
  *
@@ -394,122 +329,6 @@ export function assetAbsPath(
   if (!root) return null;
   const segments = primary.path === '' ? [] : primary.path.split('/');
   return path.join(root, ...segments, primary.filename);
-}
-
-export interface UpsertInput {
-  libraryId: ObjectId;
-  /** POSIX-style relative directory under the library root. `""` for root. */
-  relDir: string;
-  filename: string;
-  size: number;
-  mtime: number;
-  mapleId: string;
-  sha1Head: string;
-  /**
-   * EXIF extraction result. `undefined` means the caller (typically a test)
-   * did not run exif and we should not write/clear the field. `null` means
-   * exif ran and produced no usable data — write `exif: null` so the search
-   * route can distinguish "not yet processed" from "no metadata available".
-   */
-  exif?: AssetExif | null;
-}
-
-/**
- * Skeleton upsert (Phase 1, `docs/indexer-enrichment.md` §1.1).
- *
- * Filters on `maple_id` (the new content-addressing identity) and seeds
- * `fileinfo[0]` on first insert. Subsequent calls update the indexer-owned
- * fast-tier fields (size, mtime, sha1_head, exif, indexed_at) without
- * touching the fileinfo array — the discover watcher writes the array
- * directly when it observes new locations or renames.
- *
- * `$setOnInsert` seeds enrichment state and outputs so a re-upsert (e.g.
- * mtime changed) cannot clobber what a worker has already written.
- */
-export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult> {
-  const c = await coll();
-  const now = new Date().toISOString();
-  const setFields: Record<string, unknown> = {
-    size: input.size,
-    mtime: input.mtime,
-    sha1_head: input.sha1Head,
-    indexed_at: now,
-    deleted_at: null,
-  };
-  // Only write exif when it was provided (undefined = unwired / test path).
-  // null is a meaningful value (exif ran, no metadata) so it must persist.
-  if (input.exif !== undefined) {
-    setFields.exif = input.exif;
-  }
-  return c.updateOne(
-    { maple_id: input.mapleId },
-    {
-      $set: setFields,
-      $setOnInsert: {
-        maple_id: input.mapleId,
-        fileinfo: [
-          {
-            path: input.relDir,
-            filename: input.filename,
-            library_id: input.libraryId,
-            deleted_at: null,
-          } as FileInfo,
-        ],
-        // One live fileinfo entry on insert.
-        live_location_count: 1,
-        rating: 0,
-        flag: 0,
-        color_label: '',
-        enrichment: pendingEnrichment(),
-        place: null,
-        faces: [] as AssetFace[],
-        description: null,
-        ai_tags: [] as string[],
-      },
-    },
-    { upsert: true },
-  );
-}
-
-export async function findByMapleId(mapleId: string): Promise<IndexerAssetDoc | null> {
-  const c = await coll();
-  return c.findOne({ maple_id: mapleId });
-}
-
-/** Soft-delete by maple_id. Marks `deleted_at` on the row without removing
- * it; GC sweeps later.
- *
- * After the Mongo update, fire a best-effort tombstone into Meilisearch
- * (Phase 7). Failures must NOT propagate — Mongo is canonical, and the
- * search route's `applyLiveFilter` excludes soft-deleted rows from the
- * `$text` fallback regardless of whether the Meilisearch update succeeds.
- */
-export async function softDelete(mapleId: string): Promise<void> {
-  // Defensive: an empty maple_id can't refer to a real row (the
-  // uniqueness contract from #244 makes maple_id mandatory on every
-  // live row); skip the Meili tombstone too so we don't pollute the
-  // index with empty-key writes. This matches the old "skip Meili
-  // when maple_id absent" branch the route used to take itself.
-  if (!mapleId) return;
-  const c = await coll();
-  await c.updateOne({ maple_id: mapleId }, { $set: { deleted_at: new Date().toISOString() } });
-  try {
-    await meilisearchClient().tombstone(mapleId);
-  } catch {
-    // The client log-and-swallows on its own; this catch is just
-    // defensive against a programmer-error throw inside the client.
-  }
-}
-
-/** Assets soft-deleted before `olderThan` (ms epoch). Used by GC sweep. */
-export async function listExpiredDeletions(olderThanIso: string): Promise<IndexerAssetDoc[]> {
-  const c = await coll();
-  return c.find({ deleted_at: { $ne: null, $lt: olderThanIso } }).toArray();
-}
-
-export async function hardDelete(mapleId: string): Promise<void> {
-  const c = await coll();
-  await c.deleteOne({ maple_id: mapleId });
 }
 
 /** True when an error is a filesystem "no such file or directory".

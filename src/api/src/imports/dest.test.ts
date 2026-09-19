@@ -1,5 +1,5 @@
 /**
- * Pure unit tests for the imports destination-layout helpers. No Mongo, no
+ * Pure unit tests for the imports destination-layout helpers. No database, no
  * filesystem — these are the layout/safety primitives PR #1 ships.
  *
  * Layout target (ticket #742):

@@ -1,122 +1,49 @@
 /**
- * Discover producer — stages-skeleton + module-boot tests.
+ * Discover producer — stage-skeleton + module-boot tests.
  *
- * Split from the original discover.test.ts (#251). Verifies the inserted
- * doc carries the full stages skeleton from `ALL_STAGE_NAMES`, and that
- * `startDiscover` boots without error.
+ * Verifies that a newly discovered file gets one `stage_state` row per stage in
+ * `ALL_STAGE_NAMES`, all at version 0, and that `startDiscover` boots without
+ * error against a registered library.
  *
- * Requires: MAPLE_MONGO_URI (or a local MongoDB on localhost:27017).
- * Skips gracefully when Mongo is unreachable.
+ * The skeleton used to be a `stages` subdocument written into the asset itself;
+ * it is a dense set of rows in `stage_state` now, seeded in the same
+ * transaction as the asset and its location. Dense rather than lazy is
+ * load-bearing: a missing row would make the claim an anti-join against
+ * `assets`, which cannot use an index at all.
  */
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import type { MongoClient } from 'mongodb';
-import { type Db } from 'mongodb';
-import * as os from 'node:os';
+import { describe, expect, it } from 'bun:test';
+import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { ALL_STAGE_NAMES } from '../stages/manifest.ts';
-import { tryConnect } from './_test-helpers.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_discover_skeleton_${process.pid}`);
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[discover.skeleton.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
-});
-
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {}
-    try {
-      await mongo.close();
-    } catch {}
-  }
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
-});
+import { assetIdAt, createDiscoverLibrary, stageRow } from './discover.test-helpers.ts';
+import { handleEvent, startDiscover } from './index.ts';
 
 describe('discover producer — skeleton', () => {
-  let dir: string;
-  let discoverHandle: { stop: () => Promise<void> } | null = null;
+  it('inserts a row with the full stage skeleton when a file is created', async () => {
+    using library = await createDiscoverLibrary('discover-test-');
 
-  afterAll(async () => {
-    if (discoverHandle) await discoverHandle.stop();
-    if (dir) await rm(dir, { recursive: true, force: true });
-  });
+    // Start discover so we verify the module boots without errors. The folder
+    // is resolved per-root from the registered folders table.
+    const discoverHandle = await startDiscover({ roots: [library.root] });
+    try {
+      const file = path.join(library.root, 'test.jpg');
+      await writeFile(file, Buffer.alloc(100, 0xcc));
 
-  it('inserts a doc with the full stages skeleton when a file is created', async () => {
-    if (!mongoReachable) return;
+      // Drive the event directly rather than waiting for the sweep's own pacing.
+      await handleEvent({ kind: 'created', absPath: file }, library.folderId, library.root);
 
-    dir = await mkdtemp(path.join(os.tmpdir(), 'discover-test-'));
+      const assetId = assetIdAt(library.db, '', 'test.jpg');
+      expect(assetId).not.toBeNull();
 
-    // Import the discover module.
-    const { startDiscover, handleEvent } = await import('./index.ts');
-
-    // Create a temporary folder row in the DB so discover can reference it.
-    // The FolderDoc schema uses `path` (not `abs_path`) for the library root.
-    const { foldersCollection, assetsCollection } = await import('../../db/client.ts');
-    const foldersColl = await foldersCollection();
-    const folderResult = await foldersColl.insertOne({
-      path: dir,
-      label: path.basename(dir),
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
-    const folderId = folderResult.insertedId;
-
-    // Start discover so we verify the module boots without errors.
-    // folderId is now resolved per-root from the registered folders collection.
-    discoverHandle = await startDiscover({ roots: [dir] });
-
-    // Write a file so stat() inside handleEvent succeeds.
-    const file = path.join(dir, 'test.jpg');
-    await writeFile(file, Buffer.alloc(100, 0xcc));
-
-    // Directly invoke handleEvent to bypass chokidar's polling interval
-    // (60 s / 300 s in production — unusable in a unit test).
-    await handleEvent({ kind: 'created', absPath: file }, folderId, dir);
-
-    // The doc should now be in the assets collection.
-    const coll = await assetsCollection();
-    const filename = path.basename(file);
-    const raw = await coll.findOne({
-      fileinfo: { $elemMatch: { library_id: folderId, filename } },
-    });
-    const doc = raw as unknown as { stages?: Record<string, unknown> } | null;
-
-    expect(doc).not.toBeNull();
-    expect(doc!.stages).toBeDefined();
-
-    // Every stage name from the manifest must be present in the skeleton.
-    // The legacy `hash` stage was retired in the drop-abs-path-2026-05-21
-    // migration once discover began writing maple_id + sha1_head inline at
-    // insert; the manifest now starts with exif.
-    for (const name of ALL_STAGE_NAMES) {
-      const entry = (doc!.stages as Record<string, unknown>)[name] as Record<string, unknown>;
-      expect(entry).toBeDefined();
-      expect(entry.version).toBe(0);
-      expect(entry.dead).toBe(false);
-      expect(entry.last_error).toBeNull();
+      for (const name of ALL_STAGE_NAMES) {
+        const entry = stageRow(library.db, assetId!, name);
+        expect(entry).not.toBeNull();
+        expect(entry!.version).toBe(0);
+        expect(entry!.dead).toBe(0);
+        expect(entry!.last_error).toBeNull();
+      }
+    } finally {
+      await discoverHandle.stop();
     }
-
-    // Clean up: remove the test folder and asset rows.
-    await foldersColl.deleteOne({ _id: folderId });
-    await coll.deleteOne({ fileinfo: { $elemMatch: { library_id: folderId, filename } } } as never);
   });
 });

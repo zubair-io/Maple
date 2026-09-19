@@ -4,91 +4,43 @@
  * Does NOT exercise actual thumb generation (that requires real image files
  * and the native core). Tests the HTTP logic: slug resolution, 404/202 guards,
  * ETag / Cache-Control, and 304 short-circuit.
+ *
+ * The catalogue lookup behind the route (`findAssetAtAddress`) runs against
+ * SQLite (#3787) — a private in-memory database per test, installed as the
+ * process-wide handle, seeded through the shared route fixtures. Nothing skips.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { thumbRoutes } from './thumb.ts';
 import { resolveThumbPath } from '../../fs/xmp.ts';
-import { setLibraryBySlugForTests, invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
+import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
+import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_thumb_route_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
+let live: LiveTestDatabase;
 let tmpDir = '';
-let libraryId = new ObjectId();
+let libraryId = '';
 
 const app = new Elysia().use(thumbRoutes);
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[thumb.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  tmpDir = `/tmp/maple-thumb-test-${process.pid}`;
-  await mkdir(tmpDir, { recursive: true });
-  libraryId = new ObjectId();
-  setLibraryBySlugForTests('thumblib', { libraryId, root: tmpDir, label: 'Thumb Test Library' });
-});
-
 beforeEach(async () => {
-  if (!mongoReachable || !db) return;
-  await db.collection('assets').deleteMany({});
+  live = await createLiveTestDatabase();
+  tmpDir = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-thumb-test-')));
+  libraryId = registerLibrary(live.db, tmpDir, 'thumblib');
 });
 
-afterAll(async () => {
-  if (mongo) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await mongo.close();
-    } catch {
-      /* ignore */
-    }
-  }
-  if (tmpDir) {
-    try {
-      await rm(tmpDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
+afterEach(async () => {
   invalidateLibraryRoots();
-  const { closeDb } = await import('../../db/client.ts');
-  await closeDb();
+  live.close();
+  await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 });
 
 describe('GET /thumb/:slug/*', () => {
@@ -107,13 +59,11 @@ describe('GET /thumb/:slug/*', () => {
   });
 
   test('returns 404 when file does not exist on disk and is not indexed', async () => {
-    if (!mongoReachable) return;
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/ghost.jpg'));
     expect(res.status).toBe(404);
   });
 
   test('serves an on-the-fly thumb (200, not 202) for an un-indexed on-disk file', async () => {
-    if (!mongoReachable) return;
     const src = path.join(tmpDir, 'pending.jpg');
     await writeFile(src, 'fake-source');
     // Pre-seed the path-keyed thumb so the route serves it without invoking
@@ -134,7 +84,6 @@ describe('GET /thumb/:slug/*', () => {
   });
 
   test('on-the-fly thumb honours If-None-Match with a 304', async () => {
-    if (!mongoReachable) return;
     const src = path.join(tmpDir, 'pending2.jpg');
     await writeFile(src, 'fake-source-2');
     const thumbPath = resolveThumbPath(src);
@@ -155,7 +104,6 @@ describe('GET /thumb/:slug/*', () => {
   });
 
   test('returns 404 (never a 200 image) for an un-indexed video on disk', async () => {
-    if (!mongoReachable) return;
     // Post-#1638 videos are selectable, so the grid will request thumbs for
     // them. A video has no still frame: the route must 404 rather than fall
     // through to generation (which would otherwise copy the raw .MOV bytes to
@@ -172,21 +120,13 @@ describe('GET /thumb/:slug/*', () => {
   });
 
   test('returns 404 (never a 200 image) for an indexed video asset', async () => {
-    if (!mongoReachable) return;
-    const mapleId = new ObjectId().toHexString();
-    await db!.collection('assets').insertOne({
-      maple_id: mapleId,
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: '',
-          filename: 'indexed-clip.mp4',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      deleted_at: null,
-    } as never);
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: 'indexed-clip.mp4',
+      mapleId: newObjectIdHex(),
+      mediaKind: 'video',
+    });
     const src = path.join(tmpDir, 'indexed-clip.mp4');
     await writeFile(src, 'fake-video-bytes-2');
 
@@ -200,7 +140,6 @@ describe('GET /thumb/:slug/*', () => {
   test.each(['scan.eip', 'session.braw', 'project.afphoto', 'logo.ai'])(
     'returns 404 (never a 200 image) for an un-indexed stub image on disk (%s, #1835)',
     async (filename) => {
-      if (!mongoReachable) return;
       // Metadata-only stub images have no decoder: the route must 404 rather
       // than fall through to generation (which would otherwise copy the raw
       // source bytes to a .avif and serve 200 image/avif garbage).
@@ -218,7 +157,6 @@ describe('GET /thumb/:slug/*', () => {
   test.each(['track.mp3', 'voice.wav', 'memo.m4a', 'song.aac'])(
     'returns 404 (never a 200 image) for an un-indexed audio file on disk (%s, #1835)',
     async (filename) => {
-      if (!mongoReachable) return;
       const src = path.join(tmpDir, filename);
       await writeFile(src, 'fake-audio-bytes');
 
@@ -231,32 +169,12 @@ describe('GET /thumb/:slug/*', () => {
   );
 
   test('returns 304 when ETag matches If-None-Match', async () => {
-    if (!mongoReachable) return;
-    const mapleId = new ObjectId().toHexString();
-    await db!.collection('assets').insertOne({
-      maple_id: mapleId,
-      fileinfo: [
-        {
-          library_id: libraryId,
-          path: '',
-          filename: 'cached.jpg',
-          deleted_at: null,
-          missing_since: null,
-        },
-      ],
-      deleted_at: null,
-    } as never);
+    const mapleId = newObjectIdHex();
+    seedRouteAsset(live.db, { libraryId, path: '', filename: 'cached.jpg', mapleId });
 
-    // Create a fake thumb so the route doesn't try to generate it
-    const { mkdir: mkdirNative } = await import('node:fs/promises');
-    const thumbDir = path.join(tmpDir, '.maple', 'thumbs');
-    await mkdirNative(thumbDir, { recursive: true });
-    // resolveThumbPathForAsset uses maple_id's first 2 chars as bucket dir
-    const bucket = mapleId.slice(0, 2);
-    const bucketDir = path.join(tmpDir, '.maple', 'thumbs', bucket);
-    await mkdirNative(bucketDir, { recursive: true });
-    await writeFile(path.join(bucketDir, `${mapleId}.avif`), 'fake-thumb-bytes');
-
+    // The indexed branch answers the conditional request from `maple_id` alone
+    // and returns before it resolves (or generates) the thumb file, so there is
+    // nothing to pre-stage on disk here.
     const etag = `"${mapleId}"`;
     const res = await app.handle(
       new Request('http://localhost/thumb/thumblib/cached.jpg', {

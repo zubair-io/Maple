@@ -1,278 +1,277 @@
 /**
- * trash-gc tests — verify the sweeper uses the `deleted_at_1` partial
- * index instead of COLLSCANning the assets collection on every pass
- * (the production bug fixed in this PR).
+ * trash-gc tests (#3787).
  *
- * Skip-passes when Mongo is unreachable.
+ * Two things are worth pinning here and they are not the same thing.
+ *
+ * The first is the sweep's *cost*: it runs on a daily timer over the whole
+ * library, so the candidate query has to seek the partial index that holds only
+ * trashed rows rather than read every asset. That was the production bug the
+ * Mongo version of this file was written for — the predicate had to be spelled
+ * a particular way or the planner fell back to a collection scan — and SQLite
+ * has the same failure mode with a partial index, so the plan is asserted
+ * rather than assumed. The statement under test is whatever `listTrashedBefore`
+ * actually issues, recorded through the handle it is given, so paraphrasing the
+ * predicate in the repository fails this test instead of quietly costing a scan.
+ *
+ * The second is what the sweep does to the filesystem: the file, its sidecars,
+ * and the one case where it must touch neither (#2977).
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, type Db } from 'mongodb';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, afterEach } from 'bun:test';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import type { Database } from 'bun:sqlite';
+import { listTrashedBefore } from '../db/sqlite/repos/assets.sweeps.ts';
+import type { SqliteDb } from '../db/sqlite/repos/db-handle.ts';
+import type { SqlParams, SqlValue } from '../db/sqlite/protocol.ts';
+import {
+  createLiveTestDatabase,
+  createTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+  testSqliteDb,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots, setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
+import { runTrashGcOnce } from './trash-gc.ts';
 
-const TEST_DB = withTestDb(`maple_test_trashgc_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const DAY_MS = 86_400_000;
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
+/** A statement a repository issued, as it was issued. */
+interface Issued {
+  sql: string;
+  params: SqlParams | undefined;
 }
 
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[trash-gc.test] skipping: MongoDB unreachable');
-    return;
+/**
+ * A handle that passes everything through and keeps a note of what it read.
+ *
+ * The point is to get at the repository's own SQL without copying it into the
+ * test: a copy would keep passing after the repository's predicate changed,
+ * which is precisely the regression being guarded against.
+ */
+function recordingDb(inner: SqliteDb, reads: Issued[]): SqliteDb {
+  return {
+    read: (sql, params) => {
+      reads.push({ sql, params });
+      return inner.read(sql, params);
+    },
+    write: (sql, params) => inner.write(sql, params),
+    transaction: (statements) => inner.transaction(statements),
+  };
+}
+
+/** The planner's own description of how it will run a statement. */
+function plan(db: Database, issued: Issued): string {
+  const params = (issued.params === undefined ? [] : issued.params) as SqlValue[];
+  const rows = db.query(`EXPLAIN QUERY PLAN ${issued.sql}`).all(...params) as Array<{
+    detail: string;
+  }>;
+  return rows.map((row) => row.detail).join('\n');
+}
+
+/** Register a library root and drop the process-wide roots cache onto it. */
+function registerLibrary(db: Database, root: string): string {
+  const libraryId = insertFolder(db, { path: root });
+  invalidateLibraryRoots();
+  return libraryId;
+}
+
+function trashedAsset(
+  db: Database,
+  args: { libraryId: string; filename: string; deletedAt: string; reason?: string },
+): string {
+  const id = insertAsset(db, { deletedAt: args.deletedAt });
+  if (args.reason !== undefined) {
+    run(db, `UPDATE assets SET deleted_reason = ? WHERE id = ?`, args.reason, id);
   }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
-    await db.createCollection(name).catch(() => undefined);
-  }
-  const { closeDb, ensureIndexes } = await import('../db/client.ts');
-  await closeDb();
-  await ensureIndexes();
+  insertLocation(db, {
+    assetId: id,
+    libraryId: args.libraryId,
+    path: '',
+    filename: args.filename,
+  });
+  return id;
+}
+
+function assetIds(db: Database): string[] {
+  return (db.query(`SELECT id FROM assets ORDER BY id`).all() as Array<{ id: string }>).map(
+    (row) => row.id,
+  );
+}
+
+// The roots cache is process-wide, so a library registered by one test would
+// otherwise still resolve in the next one — against a database that has been
+// disposed.
+afterEach(() => {
+  invalidateLibraryRoots();
 });
 
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('assets').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-describe('trash-gc sweeper query plan', () => {
-  it('uses the deleted_at_1 partial index (IXSCAN, not COLLSCAN)', async () => {
-    if (!mongoReachable) return;
-
+describe('trash-gc candidate query', () => {
+  it('seeks the trashed partial index instead of scanning the library', async () => {
+    using handle = await createTestDatabase();
+    const libraryId = insertFolder(handle.db);
     const now = Date.now();
-    const oldIso = new Date(now - 60 * 86_400_000).toISOString();
-    const cutoffIso = new Date(now - 30 * 86_400_000).toISOString();
+    const oldIso = new Date(now - 60 * DAY_MS).toISOString();
+    const cutoffIso = new Date(now - 30 * DAY_MS).toISOString();
 
-    // Mixed population: live rows (deleted_at: null) outnumber the
-    // trashed rows. Without the partial index this is a full scan; with
-    // it the planner only walks the small set of trashed entries.
-    const base = {
-      folder_id: 'f',
-      filename: 'x',
-      abs_path: '/x',
-      size: 1,
-      mtime: 0,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-05-11T00:00:00Z',
-    };
-    const live = Array.from({ length: 50 }, (_, i) => ({
-      ...base,
-      filename: `live-${i}.jpg`,
-      deleted_at: null,
-    }));
-    const trashed = Array.from({ length: 3 }, (_, i) => ({
-      ...base,
-      filename: `trash-${i}.jpg`,
-      deleted_at: oldIso,
-    }));
-    await db!.collection('assets').insertMany([...live, ...trashed]);
+    // Live rows outnumber trashed ones, which is the shape that makes a scan
+    // expensive and an index cheap.
+    for (let i = 0; i < 50; i++) {
+      insertLocation(handle.db, {
+        assetId: insertAsset(handle.db),
+        libraryId,
+        filename: `live-${i}.jpg`,
+      });
+    }
+    for (let i = 0; i < 3; i++) {
+      trashedAsset(handle.db, { libraryId, filename: `trash-${i}.jpg`, deletedAt: oldIso });
+    }
 
-    // The query shape MUST match what trash-gc.ts emits — `$type: "string"`
-    // is what lets the planner prove the partial filter subsumes the
-    // predicate. Without it the planner falls back to COLLSCAN.
-    const explain = await db!
-      .collection('assets')
-      .find({ deleted_at: { $type: 'string', $lt: cutoffIso, $ne: null } })
-      .explain('executionStats');
+    const reads: Issued[] = [];
+    const found = await listTrashedBefore(cutoffIso, recordingDb(testSqliteDb(handle.db), reads));
+    expect(found.length).toBe(3);
 
-    const planStr = JSON.stringify(explain);
-    expect(planStr).toContain('IXSCAN');
-    expect(planStr).toContain('deleted_at_1');
-    expect(planStr).not.toMatch(/"stage":\s*"COLLSCAN"/);
+    const detail = plan(handle.db, reads[0]!);
+    expect(detail).toContain('assets_trashed');
+    expect(detail).not.toContain('SCAN assets');
+  });
+});
 
-    const execStats =
-      (explain as { executionStats?: { totalDocsExamined?: number; nReturned?: number } })
-        .executionStats ?? {};
-    expect(execStats.nReturned).toBe(3);
-    // docsExamined should be O(trashed), NOT O(live + trashed). The bug
-    // before the fix had this at 53 (full scan); with the index it's at
-    // most 3.
-    expect(execStats.totalDocsExamined ?? 0).toBeLessThanOrEqual(3);
+describe('runTrashGcOnce', () => {
+  it('purges only rows older than the cutoff', async () => {
+    using live = await createLiveTestDatabase();
+    const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-'));
+    const libraryId = registerLibrary(live.db, root);
+    const now = Date.now();
+
+    for (const name of ['old.jpg', 'new.jpg']) writeFileSync(join(root, name), 'x');
+
+    const old = trashedAsset(live.db, {
+      libraryId,
+      filename: 'old.jpg',
+      deletedAt: new Date(now - 60 * DAY_MS).toISOString(),
+    });
+    const fresh = trashedAsset(live.db, {
+      libraryId,
+      filename: 'new.jpg',
+      deletedAt: new Date(now - 1 * DAY_MS).toISOString(),
+    });
+    const liveAsset = insertAsset(live.db);
+    insertLocation(live.db, { assetId: liveAsset, libraryId, path: '', filename: 'live.jpg' });
+
+    const summary = await runTrashGcOnce({ retentionDays: 30 });
+    expect(summary).toEqual({ scanned: 1, purged: 1, errors: 0 });
+
+    expect(assetIds(live.db).sort()).toEqual([fresh, liveAsset].sort());
+    expect(assetIds(live.db)).not.toContain(old);
+    expect(existsSync(join(root, 'old.jpg'))).toBe(false);
+    expect(existsSync(join(root, 'new.jpg'))).toBe(true);
   });
 
-  it('runTrashGcOnce purges only rows older than the cutoff', async () => {
-    if (!mongoReachable) return;
+  it('unlinks the paired sidecars alongside the purged original', async () => {
+    using live = await createLiveTestDatabase();
+    const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-sidecars-'));
+    const libraryId = registerLibrary(live.db, root);
 
-    const dir = mkdtempSync(join(tmpdir(), 'maple-trash-gc-'));
-    const now = Date.now();
-    const oldIso = new Date(now - 60 * 86_400_000).toISOString();
-    const newIso = new Date(now - 1 * 86_400_000).toISOString();
+    writeFileSync(join(root, 'shot.dng'), 'x');
+    writeFileSync(join(root, 'shot.xmp'), '<xmp/>');
+    // A neighbour that merely starts with the same stem is not a paired
+    // sidecar and must survive the purge.
+    writeFileSync(join(root, 'shot (2).xmp'), '<xmp/>');
 
-    const oldPath = join(dir, 'old.jpg');
-    const newPath = join(dir, 'new.jpg');
-    writeFileSync(oldPath, 'x');
-    writeFileSync(newPath, 'x');
+    trashedAsset(live.db, {
+      libraryId,
+      filename: 'shot.dng',
+      deletedAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+    });
 
-    // Seed a folder so the trash-gc handler can resolve fileinfo[0]
-    // entries via assetAbsPath.
-    const { foldersCollection } = await import('../db/client.ts');
-    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
-    invalidateLibraryRoots();
-    const foldersColl = await foldersCollection();
-    const libraryId = await foldersColl
-      .insertOne({
-        path: dir,
-        label: 'trash-gc-test',
-        last_scan: null,
-        file_count: 0,
-        created_at: '2026-05-11T00:00:00Z',
-      } as never)
-      .then((r) => r.insertedId);
-    const base = {
-      size: 1,
-      mtime: 0,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-05-11T00:00:00Z',
-    };
-    await db!.collection('assets').insertMany([
-      {
-        ...base,
-        fileinfo: [{ path: '', filename: 'old.jpg', library_id: libraryId, deleted_at: null }],
-        deleted_at: oldIso,
-      },
-      {
-        ...base,
-        fileinfo: [{ path: '', filename: 'new.jpg', library_id: libraryId, deleted_at: null }],
-        deleted_at: newIso,
-      },
-      {
-        ...base,
-        fileinfo: [{ path: '', filename: 'live.jpg', library_id: libraryId, deleted_at: null }],
-        deleted_at: null,
-      },
-    ]);
-
-    const { runTrashGcOnce } = await import('./trash-gc.ts');
     const summary = await runTrashGcOnce({ retentionDays: 30 });
-    expect(summary.purged).toBe(1);
-    expect(summary.scanned).toBe(1);
+    expect(summary).toEqual({ scanned: 1, purged: 1, errors: 0 });
 
-    // The old row is gone, the new one and the live one remain.
-    const remaining = (await db!
-      .collection('assets')
-      .find({}, { projection: { fileinfo: 1 } })
-      .toArray()) as Array<{ fileinfo?: Array<{ filename?: string }> }>;
-    const names = remaining.map((r) => r.fileinfo?.[0]?.filename).sort();
-    expect(names).toEqual(['live.jpg', 'new.jpg']);
+    expect(existsSync(join(root, 'shot.dng'))).toBe(false);
+    expect(existsSync(join(root, 'shot.xmp'))).toBe(false);
+    expect(existsSync(join(root, 'shot (2).xmp'))).toBe(true);
+  });
+
+  it('tolerates a file that is already gone', async () => {
+    using live = await createLiveTestDatabase();
+    const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-enoent-'));
+    const libraryId = registerLibrary(live.db, root);
+
+    // Nothing was ever written at this path — the previous pass got as far as
+    // the unlink and died before the row went away.
+    trashedAsset(live.db, {
+      libraryId,
+      filename: 'vanished.dng',
+      deletedAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+    });
+
+    const summary = await runTrashGcOnce({ retentionDays: 30 });
+    expect(summary).toEqual({ scanned: 1, purged: 1, errors: 0 });
+    expect(assetIds(live.db)).toEqual([]);
   });
 
   it('purges a reaped row past retention WITHOUT touching the file at its stored path (#2977)', async () => {
-    if (!mongoReachable) return;
+    using live = await createLiveTestDatabase();
+    const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-reaped-'));
+    const libraryId = registerLibrary(live.db, root);
 
-    const dir = mkdtempSync(join(tmpdir(), 'maple-trash-gc-reaped-'));
-    const oldIso = new Date(Date.now() - 31 * 86_400_000).toISOString();
+    // The photo quietly RETURNED to its original location after the reap (no
+    // revive ran yet). The purge must be a pure DB delete — a reaped row has no
+    // trashed copy, and its locations point at ORIGINAL library paths that may
+    // hold a real photo again.
+    writeFileSync(join(root, 'back.jpg'), 'real-photo-bytes');
+    writeFileSync(join(root, 'back.xmp'), '<xmp/>');
 
-    // The photo quietly RETURNED to its original location after the reap
-    // (no revive ran yet). The purge must be a pure DB delete — a reaped
-    // row has no trashed copy, and its fileinfo paths point at ORIGINAL
-    // library locations that may hold a real photo again.
-    const backPath = join(dir, 'back.jpg');
-    const sidecarPath = join(dir, 'back.xmp');
-    writeFileSync(backPath, 'real-photo-bytes');
-    writeFileSync(sidecarPath, '<xmp/>');
+    trashedAsset(live.db, {
+      libraryId,
+      filename: 'back.jpg',
+      deletedAt: new Date(Date.now() - 31 * DAY_MS).toISOString(),
+      reason: 'reaped',
+    });
 
-    const { foldersCollection } = await import('../db/client.ts');
-    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
-    invalidateLibraryRoots();
-    const foldersColl = await foldersCollection();
-    const libraryId = await foldersColl
-      .insertOne({
-        path: dir,
-        label: 'trash-gc-reaped-test',
-        last_scan: null,
-        file_count: 0,
-        created_at: '2026-05-11T00:00:00Z',
-      } as never)
-      .then((r) => r.insertedId);
-    await db!.collection('assets').insertOne({
-      size: 1,
-      mtime: 0,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-05-11T00:00:00Z',
-      fileinfo: [
-        {
-          path: '',
-          filename: 'back.jpg',
-          library_id: libraryId,
-          deleted_at: null,
-          missing_since: oldIso,
-        },
-      ],
-      deleted_at: oldIso,
-      deleted_reason: 'reaped',
-    } as never);
-
-    const { runTrashGcOnce } = await import('./trash-gc.ts');
     const summary = await runTrashGcOnce({ retentionDays: 30 });
-    expect(summary.purged).toBe(1);
-    expect(summary.errors).toBe(0);
-    expect(await db!.collection('assets').countDocuments({})).toBe(0);
+    expect(summary).toEqual({ scanned: 1, purged: 1, errors: 0 });
+    expect(assetIds(live.db)).toEqual([]);
 
-    // The returned photo and its sidecar are untouched.
-    const { existsSync } = await import('node:fs');
-    expect(existsSync(backPath)).toBe(true);
-    expect(existsSync(sidecarPath)).toBe(true);
+    expect(existsSync(join(root, 'back.jpg'))).toBe(true);
+    expect(existsSync(join(root, 'back.xmp'))).toBe(true);
   });
 
   it('leaves a reaped row inside the retention window untouched', async () => {
-    if (!mongoReachable) return;
-    const freshIso = new Date(Date.now() - 1 * 86_400_000).toISOString();
-    await db!.collection('assets').insertOne({
-      size: 1,
-      mtime: 0,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-05-11T00:00:00Z',
-      fileinfo: [],
-      deleted_at: freshIso,
-      deleted_reason: 'reaped',
-    } as never);
+    using live = await createLiveTestDatabase();
+    const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-fresh-reap-'));
+    const libraryId = registerLibrary(live.db, root);
+    const id = trashedAsset(live.db, {
+      libraryId,
+      filename: 'recent.jpg',
+      deletedAt: new Date(Date.now() - 1 * DAY_MS).toISOString(),
+      reason: 'reaped',
+    });
 
-    const { runTrashGcOnce } = await import('./trash-gc.ts');
     const summary = await runTrashGcOnce({ retentionDays: 30 });
-    expect(summary.purged).toBe(0);
-    expect(await db!.collection('assets').countDocuments({})).toBe(1);
+    expect(summary).toEqual({ scanned: 0, purged: 0, errors: 0 });
+    expect(assetIds(live.db)).toEqual([id]);
+  });
+
+  it('counts an asset whose library root is gone as an error and keeps the row', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = insertFolder(live.db);
+    // The library was unregistered after the asset was trashed, so no absolute
+    // path can be composed. That is a condition an operator can fix, so the row
+    // has to survive for the pass that runs after they do.
+    setLibraryRootsForTests(new Map());
+    const id = trashedAsset(live.db, {
+      libraryId,
+      filename: 'orphan.jpg',
+      deletedAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+    });
+
+    const summary = await runTrashGcOnce({ retentionDays: 30 });
+    expect(summary).toEqual({ scanned: 1, purged: 0, errors: 1 });
+    expect(assetIds(live.db)).toEqual([id]);
   });
 });

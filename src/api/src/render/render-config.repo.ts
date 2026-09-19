@@ -1,8 +1,8 @@
 /**
  * Persisted render runtime config — the operator ramp/kill switch for the web
  * GPU live-render path (#1062, epic #925). Mirrors the observability- and
- * display-config shape: a single document in `app_settings` keyed by
- * `_id: "render"`.
+ * display-config shape: a single row in `app_settings` keyed
+ * `id = 'render'`.
  *
  * Config lives ENTIRELY in the database — set it from web Settings → Workers
  * (or `PUT /api/render/config`). There is no env-var fallback here: an
@@ -17,9 +17,12 @@
  * threaded-CPU `render_bytes` fallback accordingly.
  */
 
-import { getDb } from '../db/client.ts';
+import {
+  patchAppSettings,
+  readAppSettings,
+  type SettingsValue,
+} from '../db/sqlite/repos/app-settings.repo.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'render';
 
 /**
@@ -56,13 +59,12 @@ export interface ResolvedRenderConfig {
 /**
  * Read the persisted config. Returns `null` when no row exists yet (fresh
  * database) or when the database is unreachable — `resolveRenderConfig` then
- * supplies the built-in default, so an operator with a broken Mongo gets
+ * supplies the built-in default, so an operator with a broken database gets
  * today's behaviour rather than an unrendered editor.
  */
 export async function loadRenderConfig(): Promise<RenderConfig | null> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<RenderConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<RenderConfigDoc>(DOC_ID);
     return doc?.config ?? null;
   } catch {
     return null;
@@ -72,16 +74,13 @@ export async function loadRenderConfig(): Promise<RenderConfig | null> {
 /** Upsert. Partial patches are supported: only the fields you supply are
  * touched, the rest of the config doc is preserved. */
 export async function saveRenderConfig(patch: Partial<RenderConfig>): Promise<void> {
-  const db = await getDb();
-  const set: Record<string, unknown> = {
+  const set: Record<string, SettingsValue | undefined> = {
     'config.updated_at': Date.now(),
   };
   if (patch.gpu_live_render_enabled !== undefined) {
     set['config.gpu_live_render_enabled'] = patch.gpu_live_render_enabled;
   }
-  await db
-    .collection<RenderConfigDoc>(COLL)
-    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await patchAppSettings(DOC_ID, set);
 }
 
 /**

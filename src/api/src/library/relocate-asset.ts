@@ -1,5 +1,5 @@
 /**
- * Asset-level relocate (#2629) — the Mongo-aware orchestrator built on the
+ * Asset-level relocate (#2629) — the catalogue-aware orchestrator built on the
  * generic crash-safe `relocateFile` primitive (`fs/relocate.ts`). This is
  * the foundation every other file-management feature (rename, move,
  * drag-to-folder, folder move) is meant to call into — see
@@ -33,9 +33,12 @@
 
 import * as path from 'node:path';
 import type { ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
+import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
+import {
+  findLiveOccupantAssetId,
+  repointAssetLocation,
+} from '../db/sqlite/repos/assets.relocate.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { MEILI_REARM_SET } from '../people/people-search-reindex.ts';
 import {
   relocateFile,
   type CollisionPolicy,
@@ -45,7 +48,6 @@ import {
 import { resolveRelPathUnderRoot } from './address.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { child as childLogger } from '../log.ts';
-import { relocateCacheStageResetSet, liveFileinfoMatchFilter } from '../db/relocate-cache-reset.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 
 const log = childLogger('library/relocate-asset');
@@ -121,7 +123,7 @@ export type RelocateAssetResult =
    * DIFFERENT live, indexed asset (#2843). Refused rather than published —
    * `replace` is only safe when the destination is untracked (an ordinary
    * file the indexer hasn't (yet) catalogued, or nothing at all); replacing
-   * a tracked asset's bytes out from under its own Mongo row is silent data
+   * a tracked asset's bytes out from under its own database row is silent data
    * loss (stale sidecar unlinked, occupant's row left pointing at someone
    * else's pixels). 409-shaped so the caller's collision prompt (Skip /
    * Replace / Keep Both) can re-ask with the occupant identified, rather
@@ -143,47 +145,6 @@ export function activeFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | nu
   return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
 }
 
-/** Id (as a hex string) of the live, indexed asset — other than `excludeId`
- * — that already occupies `(library_id, path, filename)`, or `null` if the
- * destination is unoccupied by any tracked asset (an ordinary untracked
- * file, or nothing at all — both are `copyVerifiedIntoPlace`'s legitimate
- * `'replace'` case).
- *
- * "Live" here means BOTH: the fileinfo entry itself is not tagged
- * `deleted_at` (mirrors the `$elemMatch` shape `repointToNewLocation` /
- * `workers/migration/move-backup-asset.ts` / `db/assets.repo.ts`'s
- * `findDetailByAddress` all use for "the entry that currently names this
- * path"), AND the asset's own top-level `deleted_at` is unset — a trashed
- * asset's fileinfo entry stays entry-level-live but is repointed at the
- * trash location (see `workers/live-location-count.test.ts`), so in the
- * ordinary case it can never collide with a real destination path; the
- * top-level check is defense in depth against exactly that path somehow
- * coinciding, matching the issue's "live (deleted_at: null) asset" framing. */
-async function findLiveOccupant(
-  c: Awaited<ReturnType<typeof assetsCollection>>,
-  libraryId: ObjectId,
-  destPath: string,
-  destFilename: string,
-  excludeId: ObjectId,
-): Promise<string | null> {
-  const occupant = await c.findOne(
-    {
-      _id: { $ne: excludeId },
-      deleted_at: null,
-      fileinfo: {
-        $elemMatch: {
-          library_id: libraryId,
-          path: destPath,
-          filename: destFilename,
-          deleted_at: null,
-        },
-      },
-    },
-    { projection: { _id: 1 } },
-  );
-  return occupant ? occupant._id.toHexString() : null;
-}
-
 /** #2843: the `'occupied'` result to short-circuit `relocateAsset` with, or
  * `null` when the relocate may proceed as normal — either the collision
  * policy isn't `'replace'` (the only policy that overwrites the
@@ -192,7 +153,6 @@ async function findLiveOccupant(
  * `relocateAsset` itself to keep that function's branching flat — this
  * whole check is one self-contained early-exit. */
 async function occupiedResultIfReplaceBlocked(
-  c: Awaited<ReturnType<typeof assetsCollection>>,
   input: RelocateAssetInput,
   destLibraryId: ObjectId,
   destLibRoot: string,
@@ -200,11 +160,8 @@ async function occupiedResultIfReplaceBlocked(
 ): Promise<Extract<RelocateAssetResult, { kind: 'occupied' }> | null> {
   if (input.collision !== 'replace') return null;
   const destSplit = splitRelPath(destLibRoot, destAbsPath);
-  const occupiedByAssetId = await findLiveOccupant(
-    c,
-    destLibraryId,
-    destSplit.relPath,
-    destSplit.filename,
+  const occupiedByAssetId = await findLiveOccupantAssetId(
+    { libraryId: destLibraryId, path: destSplit.relPath, filename: destSplit.filename },
     input.id,
   );
   if (!occupiedByAssetId) return null;
@@ -309,12 +266,15 @@ async function resolveDestinationPlan(
 }
 
 /** The `onVerified` hook `relocateFile` runs between the verified copy and
- * the delete, for `mode: 'move'` only — repoints the DB `fileinfo` entry
+ * the delete, for `mode: 'move'` only — repoints the location row
  * (including, per #2725, `library_id` for a cross-library move) and resets
  * the cache-writing stages. Split out of `relocateAsset` alongside
- * `resolveDestinationPlan` to keep that function's own size/complexity down. */
+ * `resolveDestinationPlan` to keep that function's own size/complexity down.
+ *
+ * The old address goes into the repoint's own `WHERE`, which is what makes a
+ * row count of zero mean "the entry changed underneath us" rather than "the
+ * write did nothing". See `db/sqlite/repos/assets.relocate.repo.ts`. */
 function buildRepointHook(
-  c: Awaited<ReturnType<typeof assetsCollection>>,
   input: RelocateAssetInput,
   primary: FileInfo,
   destLibraryId: ObjectId,
@@ -322,23 +282,12 @@ function buildRepointHook(
 ): (info: RelocateVerifiedInfo) => Promise<void> {
   return async ({ newAbsPath, companionPaths }) => {
     const split = splitRelPath(destLibRoot, newAbsPath);
-    const set: Record<string, unknown> = {
-      // #2725: repoint library_id too — a plain path/filename repoint left
-      // a cross-library move's fileinfo entry claiming the OLD library
-      // while the bytes now live under the new one.
-      'fileinfo.$.library_id': destLibraryId,
-      'fileinfo.$.path': split.relPath,
-      'fileinfo.$.filename': split.filename,
-      'fileinfo.$.missing_since': null,
-      ...MEILI_REARM_SET,
-      ...relocateCacheStageResetSet(),
-    };
     // #2667: only touch `apple_rendered_path` when the companion actually
     // copied — a companion that was REQUESTED but failed to copy (best-effort,
     // `fs/relocate.ts`'s `tryCopyCompanion`) leaves `companionPaths` empty, and
-    // omitting the field here means the doc's existing value is left exactly
-    // as it was, matching `moveBackupAsset`'s same "unchanged on a companion
-    // that didn't move" behavior.
+    // omitting the field here means the stored value is left exactly as it
+    // was, matching `moveBackupAsset`'s same "unchanged on a companion that
+    // didn't move" behavior.
     //
     // `companionPaths[0]` (rather than matching by source path) is safe
     // ONLY because this call site ever passes exactly ONE entry into
@@ -350,27 +299,35 @@ function buildRepointHook(
     // source→dest pairs instead of a bare array, and this line would need
     // to match on source path rather than position — don't reuse this
     // pattern for a multi-companion caller without making that change.
-    if (input.renderedCompanionAbsPath && companionPaths[0]) {
-      set.apple_rendered_path = path
-        .relative(destLibRoot, companionPaths[0])
-        .split(path.sep)
-        .join('/');
-    }
-    const res = await c.updateOne(liveFileinfoMatchFilter(input.id, primary), {
-      $set: set,
-    } as never);
-    if (res.matchedCount === 0) {
+    const companion =
+      input.renderedCompanionAbsPath && companionPaths[0]
+        ? path.relative(destLibRoot, companionPaths[0]).split(path.sep).join('/')
+        : undefined;
+
+    const repointed = await repointAssetLocation({
+      id: input.id,
+      from: {
+        libraryId: primary.library_id,
+        path: primary.path,
+        filename: primary.filename,
+      },
+      // #2725: repoint library_id too — a plain path/filename repoint left
+      // a cross-library move's location claiming the OLD library while the
+      // bytes now live under the new one.
+      to: { libraryId: destLibraryId, path: split.relPath, filename: split.filename },
+      ...(companion === undefined ? {} : { appleRenderedPath: companion }),
+    });
+    if (!repointed) {
       throw new Error('asset fileinfo entry changed concurrently — aborting relocate');
     }
   };
 }
 
 export async function relocateAsset(input: RelocateAssetInput): Promise<RelocateAssetResult> {
-  const c = await assetsCollection();
-  const doc = await c.findOne({ _id: input.id });
-  if (!doc) return { kind: 'not-found' };
+  const view = await loadAssetLocationView(input.id);
+  if (!view) return { kind: 'not-found' };
 
-  const primary = input.activeFileInfoOverride ?? activeFileInfo(doc);
+  const primary = input.activeFileInfoOverride ?? activeFileInfo(view);
   if (!primary) return { kind: 'error', error: 'asset has no live location' };
 
   const plan = await resolveDestinationPlan(input, primary);
@@ -389,7 +346,6 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // path (they suffix around it) and `'skip'` is a no-op, so this check is
   // scoped to `'replace'` alone — see `occupiedResultIfReplaceBlocked`.
   const occupied = await occupiedResultIfReplaceBlocked(
-    c,
     input,
     destLibraryId,
     destLibRoot,
@@ -404,7 +360,7 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
   // is a cache of it. Wiring the repoint unconditionally would re-address
   // the ORIGINAL asset doc at the copy's location and catalog-orphan the
   // untouched source file.
-  const repointToNewLocation = buildRepointHook(c, input, primary, destLibraryId, destLibRoot);
+  const repointToNewLocation = buildRepointHook(input, primary, destLibraryId, destLibRoot);
 
   const outcome = await relocateFile({
     sourceAbsPath,

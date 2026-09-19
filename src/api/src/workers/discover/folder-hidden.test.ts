@@ -1,74 +1,60 @@
 /**
- * Folder-level `.hidden` marker (#2972): the discover sweep hides every photo
- * in a marked directory (and its subtree, via the frontier's
- * `hidden_ancestor` flag), and un-hides them when the marker is removed.
- * Real temp dirs + real Mongo, matching `sweeper.test.ts`.
+ * Folder-level `.hidden` marker (#2972): the sweep hides every photo in a
+ * marked directory — and its subtree, via the frontier's `hidden_ancestor` flag
+ * — and un-hides them when the marker is removed.
+ *
+ * The rules that make this safe rather than merely functional are all here. An
+ * explicit per-photo override wins in both directions. Only `folder` hides are
+ * lifted, so a manual or nudity hide survives marker removal. A non-live
+ * location neither applies nor lifts the state. And a deduplicated asset stays
+ * hidden while any of its other live locations is still under a marked
+ * directory, without which it would flip-flop every sweep generation and thrash
+ * both the search index and the R2 mirror.
+ *
+ * Real temp directories against a real database, matching `sweeper.test.ts`.
  */
-import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'bun:test';
-import { ObjectId, type Db, type WithId } from 'mongodb';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { describe, it, expect } from 'bun:test';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { closeDb, getDb, assetsCollection } from '../../db/client.ts';
-import { withTestDb } from '../../db/test-db.test-helpers.ts';
-import type { AssetDoc } from '../../db/schema.ts';
+import type { ObjectId } from 'mongodb';
+import { newObjectIdHex } from '../../db/sqlite/object-id.ts';
 import type { HidableAsset } from '../../cloudflare/hidden-cleanup.ts';
+import {
+  assetRow,
+  createDiscoverLibrary,
+  seedAsset,
+  seedLocation,
+  stageRow,
+  type DiscoverLibrary,
+} from './discover.test-helpers.ts';
+import * as frontier from './frontier.repo.ts';
+import { visitDirectory } from './sweeper.ts';
 
-withTestDb(`maple_test_discover_folder_hidden_${process.pid}`);
+type SeedOptions = Omit<Parameters<typeof seedAsset>[1], 'id'>;
 
-let suiteDb: Db | null = null;
-let reachable = true;
-beforeAll(async () => {
-  try {
-    await closeDb();
-    suiteDb = await getDb();
-  } catch {
-    reachable = false;
-  }
-});
-beforeEach(async () => {
-  if (!reachable) return;
-  await (await getDb()).collection('discover_frontier').deleteMany({});
-  await (await assetsCollection()).deleteMany({});
-});
-afterAll(async () => {
-  if (suiteDb) await suiteDb.dropDatabase();
-  await closeDb();
-});
-
-function makeRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'maple-folder-hidden-'));
-}
-
-async function insertAsset(
-  folderId: ObjectId,
+/** Record one asset at one location in the library. */
+function record(
+  library: DiscoverLibrary,
   relDir: string,
   filename: string,
-  extra: Record<string, unknown> = {},
-): Promise<ObjectId> {
-  const coll = await assetsCollection();
-  const res = await coll.insertOne({
-    maple_id: `${relDir}/${filename}`,
-    fileinfo: [{ library_id: folderId, path: relDir, filename }],
-    deleted_at: null,
-    ...extra,
-  } as never);
-  return res.insertedId;
+  options: SeedOptions = {},
+): string {
+  const id = seedAsset(library.db, { id: newObjectIdHex(), mapleId: newObjectIdHex(), ...options });
+  seedLocation(library.db, {
+    assetId: id,
+    libraryId: library.folderId.toHexString(),
+    path: relDir,
+    filename,
+  });
+  return id;
 }
 
-async function loadAsset(id: ObjectId): Promise<WithId<AssetDoc>> {
-  const doc = await (await assetsCollection()).findOne({ _id: id });
-  expect(doc).not.toBeNull();
-  return doc as WithId<AssetDoc>;
-}
-
+/** Claim and visit the next frontier directory. */
 async function visit(
   folderId: ObjectId,
   root: string,
   cleanupCalls?: HidableAsset[][],
 ): Promise<void> {
-  const { visitDirectory } = await import('./sweeper.ts');
-  const frontier = await import('./frontier.repo.ts');
   const dir = await frontier.claimNextDir(folderId, 1, 60_000);
   expect(dir).not.toBeNull();
   await visitDirectory(dir!, root, {
@@ -84,219 +70,195 @@ async function visit(
 
 describe('folder .hidden marker — hide pass', () => {
   it('hides visible recorded assets in a marked dir, with reason folder and R2 cleanup', async () => {
-    if (!reachable) return;
-    const frontier = await import('./frontier.repo.ts');
-    const root = makeRoot();
-    writeFileSync(join(root, '.hidden'), '');
-    writeFileSync(join(root, 'a.dng'), 'x');
-    const folderId = new ObjectId();
-    const visibleId = await insertAsset(folderId, '', 'a.dng');
+    using library = await createDiscoverLibrary('maple-folder-hidden-');
+    writeFileSync(join(library.root, '.hidden'), '');
+    writeFileSync(join(library.root, 'a.dng'), 'x');
+    const visibleId = record(library, '', 'a.dng', { stages: ['meili'] });
 
-    await frontier.seedRoot(folderId, root, 1);
+    await frontier.seedRoot(library.folderId, library.root, 1);
     const cleanupCalls: HidableAsset[][] = [];
-    await visit(folderId, root, cleanupCalls);
+    await visit(library.folderId, library.root, cleanupCalls);
 
-    const doc = await loadAsset(visibleId);
-    expect(doc.hidden).toBe(true);
-    expect(doc.hidden_reason).toBe('folder');
-    // Operator-initiated: never enters the AI-review list.
-    expect(doc.hidden_ack).toBeUndefined();
+    const row = assetRow(library.db, visibleId)!;
+    expect(row.hidden).toBe(1);
+    expect(row.hidden_reason).toBe('folder');
     // Meilisearch must re-project the hidden flag.
-    const stages = (doc as unknown as { stages?: Record<string, { version?: number }> }).stages;
-    expect(stages?.meili?.version).toBe(0);
-    // R2 mirror comes down for the newly hidden asset.
-    expect(cleanupCalls.flat().map((a) => a._id.toHexString())).toEqual([visibleId.toHexString()]);
-    rmSync(root, { recursive: true, force: true });
+    expect(stageRow(library.db, visibleId, 'meili')!.version).toBe(0);
+    // The R2 mirror comes down for the newly hidden asset.
+    expect(cleanupCalls.flat().map((asset) => asset._id.toHexString())).toEqual([visibleId]);
   });
 
-  it('leaves assets with an explicit visible override untouched, and does not disturb existing hides', async () => {
-    if (!reachable) return;
-    const frontier = await import('./frontier.repo.ts');
-    const root = makeRoot();
-    writeFileSync(join(root, '.hidden'), '');
-    writeFileSync(join(root, 'override.dng'), 'x');
-    writeFileSync(join(root, 'manual.dng'), 'x');
-    const folderId = new ObjectId();
-    const overrideId = await insertAsset(folderId, '', 'override.dng', {
-      metadata_override: { hidden: false },
+  it('leaves an explicit visible override alone, and does not disturb existing hides', async () => {
+    using library = await createDiscoverLibrary('maple-folder-hidden-');
+    writeFileSync(join(library.root, '.hidden'), '');
+    writeFileSync(join(library.root, 'override.dng'), 'x');
+    writeFileSync(join(library.root, 'manual.dng'), 'x');
+    const overrideId = record(library, '', 'override.dng', {
+      metadataOverride: { hidden: false },
     });
-    const manualId = await insertAsset(folderId, '', 'manual.dng', {
+    const manualId = record(library, '', 'manual.dng', {
       hidden: true,
-      hidden_reason: 'manual',
+      hiddenReason: 'manual',
     });
 
-    await frontier.seedRoot(folderId, root, 1);
+    await frontier.seedRoot(library.folderId, library.root, 1);
     const cleanupCalls: HidableAsset[][] = [];
-    await visit(folderId, root, cleanupCalls);
+    await visit(library.folderId, library.root, cleanupCalls);
 
-    const overridden = await loadAsset(overrideId);
-    expect(overridden.hidden).not.toBe(true);
-    expect(overridden.hidden_reason).toBeUndefined();
-    const manual = await loadAsset(manualId);
-    expect(manual.hidden).toBe(true);
+    const overridden = assetRow(library.db, overrideId)!;
+    expect(overridden.hidden).toBe(0);
+    expect(overridden.hidden_reason).toBeNull();
+    const manual = assetRow(library.db, manualId)!;
+    expect(manual.hidden).toBe(1);
     expect(manual.hidden_reason).toBe('manual');
     expect(cleanupCalls.flat()).toHaveLength(0);
-    rmSync(root, { recursive: true, force: true });
   });
 });
 
 describe('folder .hidden marker — un-hide pass', () => {
   it('un-hides only folder-hidden assets when the marker is gone, re-arming cf-thumb-sync', async () => {
-    if (!reachable) return;
-    const frontier = await import('./frontier.repo.ts');
-    const root = makeRoot();
-    writeFileSync(join(root, 'a.dng'), 'x');
-    writeFileSync(join(root, 'manual.dng'), 'x');
-    const folderId = new ObjectId();
-    const folderHiddenId = await insertAsset(folderId, '', 'a.dng', {
+    using library = await createDiscoverLibrary('maple-folder-hidden-');
+    writeFileSync(join(library.root, 'a.dng'), 'x');
+    writeFileSync(join(library.root, 'manual.dng'), 'x');
+    const folderHiddenId = record(library, '', 'a.dng', {
       hidden: true,
-      hidden_reason: 'folder',
-      stages: { 'cf-thumb-sync': { version: 3 }, meili: { version: 2 } },
+      hiddenReason: 'folder',
+      stages: ['cf-thumb-sync', 'meili'],
     });
-    const manualId = await insertAsset(folderId, '', 'manual.dng', {
-      hidden: true,
-      hidden_reason: 'manual',
-    });
+    library.db.run(`UPDATE stage_state SET version = 3 WHERE asset_id = ?`, [folderHiddenId]);
+    const manualId = record(library, '', 'manual.dng', { hidden: true, hiddenReason: 'manual' });
 
-    await frontier.seedRoot(folderId, root, 1);
-    await visit(folderId, root);
+    await frontier.seedRoot(library.folderId, library.root, 1);
+    await visit(library.folderId, library.root);
 
-    const unhidden = await loadAsset(folderHiddenId);
-    expect(unhidden.hidden).toBe(false);
+    const unhidden = assetRow(library.db, folderHiddenId)!;
+    expect(unhidden.hidden).toBe(0);
     expect(unhidden.hidden_reason).toBeNull();
-    const stages = (unhidden as unknown as { stages?: Record<string, { version?: number }> })
-      .stages;
-    expect(stages?.['cf-thumb-sync']?.version).toBe(0);
-    expect(stages?.meili?.version).toBe(0);
-    const manual = await loadAsset(manualId);
-    expect(manual.hidden).toBe(true);
+    expect(stageRow(library.db, folderHiddenId, 'cf-thumb-sync')!.version).toBe(0);
+    expect(stageRow(library.db, folderHiddenId, 'meili')!.version).toBe(0);
+    const manual = assetRow(library.db, manualId)!;
+    expect(manual.hidden).toBe(1);
     expect(manual.hidden_reason).toBe('manual');
-    rmSync(root, { recursive: true, force: true });
   });
 
   it('does not un-hide a folder-hidden asset whose override has since forced hidden', async () => {
-    if (!reachable) return;
-    const frontier = await import('./frontier.repo.ts');
-    const root = makeRoot();
-    writeFileSync(join(root, 'a.dng'), 'x');
-    const folderId = new ObjectId();
-    const id = await insertAsset(folderId, '', 'a.dng', {
+    using library = await createDiscoverLibrary('maple-folder-hidden-');
+    writeFileSync(join(library.root, 'a.dng'), 'x');
+    const id = record(library, '', 'a.dng', {
       hidden: true,
-      hidden_reason: 'folder',
-      metadata_override: { hidden: true },
+      hiddenReason: 'folder',
+      metadataOverride: { hidden: true },
     });
 
-    await frontier.seedRoot(folderId, root, 1);
-    await visit(folderId, root);
+    await frontier.seedRoot(library.folderId, library.root, 1);
+    await visit(library.folderId, library.root);
 
-    const doc = await loadAsset(id);
-    expect(doc.hidden).toBe(true);
-    rmSync(root, { recursive: true, force: true });
+    expect(assetRow(library.db, id)!.hidden).toBe(1);
   });
 });
 
 describe('folder .hidden marker — deduplicated assets (multi-location)', () => {
-  it('keeps a dup hidden when its other live location is still under a marked dir (no flapping)', async () => {
-    if (!reachable) return;
-    const frontier = await import('./frontier.repo.ts');
+  it('keeps a dup hidden while its other live location is under a marked dir', async () => {
+    using library = await createDiscoverLibrary('maple-folder-hidden-');
     const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const root = makeRoot();
-    mkdirSync(join(root, 'hidden-src'));
-    writeFileSync(join(root, 'hidden-src', '.hidden'), '');
-    writeFileSync(join(root, 'hidden-src', 'dup.dng'), 'x');
-    mkdirSync(join(root, 'visible-dup'));
-    writeFileSync(join(root, 'visible-dup', 'dup.dng'), 'x');
-    const folderId = new ObjectId();
-    setLibraryRootsForTests(new Map([[folderId.toHexString(), root]]));
-    const coll = await assetsCollection();
-    const { insertedId } = await coll.insertOne({
-      maple_id: 'dup',
-      fileinfo: [
-        { library_id: folderId, path: 'hidden-src', filename: 'dup.dng' },
-        { library_id: folderId, path: 'visible-dup', filename: 'dup.dng' },
-      ],
-      deleted_at: null,
+    mkdirSync(join(library.root, 'hidden-src'));
+    writeFileSync(join(library.root, 'hidden-src', '.hidden'), '');
+    writeFileSync(join(library.root, 'hidden-src', 'dup.dng'), 'x');
+    mkdirSync(join(library.root, 'visible-dup'));
+    writeFileSync(join(library.root, 'visible-dup', 'dup.dng'), 'x');
+    setLibraryRootsForTests(new Map([[library.folderId.toHexString(), library.root]]));
+
+    const id = seedAsset(library.db, {
+      id: newObjectIdHex(),
+      mapleId: 'dup',
       hidden: true,
-      hidden_reason: 'folder',
-    } as never);
+      hiddenReason: 'folder',
+    });
+    seedLocation(library.db, {
+      assetId: id,
+      libraryId: library.folderId.toHexString(),
+      ordinal: 0,
+      path: 'hidden-src',
+      filename: 'dup.dng',
+    });
+    seedLocation(library.db, {
+      assetId: id,
+      libraryId: library.folderId.toHexString(),
+      ordinal: 1,
+      path: 'visible-dup',
+      filename: 'dup.dng',
+    });
 
-    // Visit ONLY the unmarked dir — the marker in hidden-src must still
-    // keep the asset hidden, else every sweep generation flip-flops it.
-    await frontier.enqueueDirs(folderId, [join(root, 'visible-dup')], 1, false);
-    await visit(folderId, root);
+    try {
+      // Visit ONLY the unmarked dir — the marker in hidden-src must still keep
+      // the asset hidden, or every sweep generation flip-flops it.
+      await frontier.enqueueDirs(library.folderId, [join(library.root, 'visible-dup')], 1, false);
+      await visit(library.folderId, library.root);
 
-    const doc = await loadAsset(insertedId);
-    expect(doc.hidden).toBe(true);
-    expect(doc.hidden_reason).toBe('folder');
-    setLibraryRootsForTests(null);
-    rmSync(root, { recursive: true, force: true });
+      const row = assetRow(library.db, id)!;
+      expect(row.hidden).toBe(1);
+      expect(row.hidden_reason).toBe('folder');
+    } finally {
+      setLibraryRootsForTests(null);
+    }
   });
 });
 
 describe('folder .hidden marker — entry liveness', () => {
-  it('does not hide an asset whose only entry in the marked dir is missing/dead', async () => {
-    if (!reachable) return;
-    const frontier = await import('./frontier.repo.ts');
-    const root = makeRoot();
-    writeFileSync(join(root, '.hidden'), '');
-    const folderId = new ObjectId();
-    const missingId = await insertAsset(folderId, '', 'gone.dng', {});
-    await (
-      await assetsCollection()
-    ).updateOne(
-      { _id: missingId },
-      { $set: { 'fileinfo.0.missing_since': '2026-01-01T00:00:00Z' } },
-    );
-    const deadId = await insertAsset(folderId, '', 'dead.dng', {});
-    await (
-      await assetsCollection()
-    ).updateOne({ _id: deadId }, { $set: { 'fileinfo.0.deleted_at': '2026-01-01T00:00:00Z' } });
+  it('does not hide an asset whose only entry in the marked dir is missing or dead', async () => {
+    using library = await createDiscoverLibrary('maple-folder-hidden-');
+    writeFileSync(join(library.root, '.hidden'), '');
 
-    await frontier.seedRoot(folderId, root, 1);
-    await visit(folderId, root);
+    const missingId = seedAsset(library.db, { id: newObjectIdHex(), mapleId: 'missing' });
+    seedLocation(library.db, {
+      assetId: missingId,
+      libraryId: library.folderId.toHexString(),
+      filename: 'gone.dng',
+      missingSince: '2026-01-01T00:00:00Z',
+    });
+    const deadId = seedAsset(library.db, { id: newObjectIdHex(), mapleId: 'dead' });
+    seedLocation(library.db, {
+      assetId: deadId,
+      libraryId: library.folderId.toHexString(),
+      filename: 'dead.dng',
+      deletedAt: '2026-01-01T00:00:00Z',
+    });
 
-    expect((await loadAsset(missingId)).hidden).not.toBe(true);
-    expect((await loadAsset(deadId)).hidden).not.toBe(true);
-    rmSync(root, { recursive: true, force: true });
+    await frontier.seedRoot(library.folderId, library.root, 1);
+    await visit(library.folderId, library.root);
+
+    expect(assetRow(library.db, missingId)!.hidden).toBe(0);
+    expect(assetRow(library.db, deadId)!.hidden).toBe(0);
   });
 });
 
 describe('folder .hidden marker — subtree propagation', () => {
-  it('enqueues child dirs of a marked dir with hidden_ancestor, and hides their assets on visit', async () => {
-    if (!reachable) return;
-    const frontier = await import('./frontier.repo.ts');
-    const root = makeRoot();
-    writeFileSync(join(root, '.hidden'), '');
-    mkdirSync(join(root, 'sub'));
-    writeFileSync(join(root, 'sub', 'nested.dng'), 'x');
-    const folderId = new ObjectId();
-    const nestedId = await insertAsset(folderId, 'sub', 'nested.dng');
+  it('enqueues child dirs of a marked dir with the flag, and hides their assets', async () => {
+    using library = await createDiscoverLibrary('maple-folder-hidden-');
+    writeFileSync(join(library.root, '.hidden'), '');
+    mkdirSync(join(library.root, 'sub'));
+    writeFileSync(join(library.root, 'sub', 'nested.dng'), 'x');
+    const nestedId = record(library, 'sub', 'nested.dng');
 
-    await frontier.seedRoot(folderId, root, 1);
-    await visit(folderId, root); // visits root, enqueues sub with the flag
-    await visit(folderId, root); // visits sub (no marker of its own)
+    await frontier.seedRoot(library.folderId, library.root, 1);
+    await visit(library.folderId, library.root); // visits root, enqueues sub with the flag
+    await visit(library.folderId, library.root); // visits sub (no marker of its own)
 
-    const nested = await loadAsset(nestedId);
-    expect(nested.hidden).toBe(true);
+    const nested = assetRow(library.db, nestedId)!;
+    expect(nested.hidden).toBe(1);
     expect(nested.hidden_reason).toBe('folder');
-    rmSync(root, { recursive: true, force: true });
   });
 
-  it('does not propagate hidden_ancestor from an unmarked dir', async () => {
-    if (!reachable) return;
-    const frontier = await import('./frontier.repo.ts');
-    const root = makeRoot();
-    mkdirSync(join(root, 'sub'));
-    writeFileSync(join(root, 'sub', 'nested.dng'), 'x');
-    const folderId = new ObjectId();
-    const nestedId = await insertAsset(folderId, 'sub', 'nested.dng');
+  it('does not propagate the flag from an unmarked dir', async () => {
+    using library = await createDiscoverLibrary('maple-folder-hidden-');
+    mkdirSync(join(library.root, 'sub'));
+    writeFileSync(join(library.root, 'sub', 'nested.dng'), 'x');
+    const nestedId = record(library, 'sub', 'nested.dng');
 
-    await frontier.seedRoot(folderId, root, 1);
-    await visit(folderId, root);
-    await visit(folderId, root);
+    await frontier.seedRoot(library.folderId, library.root, 1);
+    await visit(library.folderId, library.root);
+    await visit(library.folderId, library.root);
 
-    const nested = await loadAsset(nestedId);
-    expect(nested.hidden).not.toBe(true);
-    rmSync(root, { recursive: true, force: true });
+    expect(assetRow(library.db, nestedId)!.hidden).toBe(0);
   });
 });

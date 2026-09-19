@@ -43,7 +43,7 @@ import {
 import { previewOndemandLimiter } from '../indexer/preview-ondemand-limiter.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { ffmpegBinary } from '../thumbs/video-poster.ts';
-import { isDbConnected } from '../db/client.ts';
+import { isSqliteOpen } from '../db/sqlite/index.ts';
 import { findAssetByAddress, previewFileETag, MUTABLE_PREVIEW_CACHE } from './library/shared.ts';
 import { resolveJailedFile, notModifiedResponse } from './fs-jail.ts';
 import { child as childLogger } from '../log.ts';
@@ -108,7 +108,7 @@ async function resolvePreviewCachePath(real: string): Promise<string> {
  * / DB down / no matching library). Used by `resolvePreviewCachePath` to key
  * the shared path-keyed cache off the asset's `fileinfo`. */
 async function lookupAssetByReal(real: string) {
-  if (!isDbConnected()) return null;
+  if (!isSqliteOpen()) return null;
   const libs = await loadLibraryRoots();
   const addr = libraryAddressFor(real, libs);
   if (!addr) return null;

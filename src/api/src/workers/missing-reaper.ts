@@ -13,14 +13,22 @@
  *      modified-content guard dual-flags an orphaned entry. Tagging is the only
  *      automatic step. A tagged entry is non-live, so the asset drops out of
  *      reads + stage claims the moment its LAST live entry is tagged.
- *   2. REAP. This worker scans rows with any tagged entry each tick, re-stats
- *      each tagged location, and either recovers it (clear the tag), `$pull`s
- *      it once aged past the prune window, or — when the `$pull` would empty
- *      the row — soft-deletes the record (emitting a `delete` change event).
- *      A reaped record keeps its fileinfo + derived data: trash-gc purges it
- *      after the trash retention window (default 30 days), and discover
- *      revives it on a content-hash
- *      re-discover in the meantime.
+ *   2. REAP. This worker scans assets with any tagged location each tick,
+ *      re-stats each tagged location, and either recovers it (clear the tag),
+ *      removes it once aged past the prune window, or — when that removal would
+ *      leave the asset with no location at all — soft-deletes the record
+ *      (emitting a `delete` change event). A reaped record keeps its locations +
+ *      derived data: trash-gc purges it after the trash retention window
+ *      (default 30 days), and discover revives it on a content-hash re-discover
+ *      in the meantime.
+ *
+ * The candidate set comes from `listMissingTagged` (`db/sqlite/repos/
+ * assets.sweeps.ts`) and is served by the `asset_locations_missing` partial
+ * index, `WHERE missing_since IS NOT NULL`. That is the SQLite equivalent of
+ * the `fileinfo_missing_since_1` partial index the old query's `$type: "string"`
+ * clause existed to reach: a partial index only covers a query whose own `WHERE`
+ * repeats the index's predicate, so the discipline survives the move even though
+ * the spelling changed.
  *
  * Safety properties, all load-bearing:
  *
@@ -57,7 +65,7 @@
  * Per-entry classification each pass:
  *   - A `deleted_at` tagged entry (content replaced in place — an orphan) is
  *     dead: NOT re-stat'd (a different file may sit at the path) and not
- *     near-match vetoed; it is simply `$pull`ed once aged.
+ *     near-match vetoed; it is simply removed once aged.
  *   - A `missing_since`-only entry is re-stat'd: present → recover (clear the
  *     tag); absent + aged → prune; absent + cooldown → left; offline/unreadable
  *     → row skipped.
@@ -74,7 +82,7 @@
  */
 
 import * as path from 'node:path';
-import { assetsCollection } from '../db/client.ts';
+import { listMissingTagged, type MissingTaggedAsset } from '../db/sqlite/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
@@ -131,7 +139,6 @@ export async function runMissingReaperOnce(
   opts: RunMissingReaperOptions,
 ): Promise<MissingReaperSummary> {
   const batchSize = opts.batchSize ?? DEFAULT_BATCH;
-  const coll = await assetsCollection();
 
   let libs: ReadonlyMap<string, string>;
   try {
@@ -170,58 +177,29 @@ export async function runMissingReaperOnce(
     errors: 0,
   };
 
-  // Every row with a tagged entry is examined each pass (no boot gate) —
+  // Every asset with a tagged location is examined each pass (no boot gate) —
   // recovery is prompt. The age window + pause only gate the record
-  // soft-delete below. `$type: "string"` lets the planner use the
-  // `fileinfo.missing_since_1` partial multikey index instead of a COLLSCAN.
+  // soft-delete below. `listMissingTagged` excludes assets already soft-deleted
+  // (user trash OR a prior reap): user-trashed rows belong to the trash
+  // retention window, reaping them early would race it, and reaped ones are
+  // done. It also carries each asset's dead-lettered original-file stages, so
+  // recovery can re-arm the ones that dead-lettered against the vanished path.
   //
-  // Fetched in PAGES rather than a single `limit(batchSize)` batch (#2171):
-  // rows the pass cannot resolve (delete-gated while paused, still in
-  // cooldown, mount offline) stay tagged, so a sort-by-oldest single batch
-  // re-fetches exactly those rows every pass and a newer false-tagged row
-  // whose file IS back on disk never gets scanned — recovery starves behind
-  // the clog. Paging up to MAX_SCAN_PAGES × batchSize per pass bounds the work
-  // while letting recovery reach past an undrainable backlog. (Recovered
-  // rows leave the candidate set mid-pass, which can shift `skip` over a few
-  // rows — those are simply picked up next pass.)
-  const fetchPage = (offset: number) =>
-    coll
-      .find(
-        {
-          'fileinfo.missing_since': { $type: 'string' },
-          // Rows already soft-deleted (user trash OR a prior reap) are out of
-          // scope: user-trashed rows belong to the trash retention window
-          // (reaping them early would race it), and reaped rows are done.
-          deleted_at: { $not: { $type: 'string' } },
-        },
-        {
-          projection: {
-            _id: 1,
-            fileinfo: 1,
-            maple_id: 1,
-            // Dead flags for the original-file stages — so recovery can re-arm
-            // ones that dead-lettered against the vanished path (drains the
-            // legacy backlog from before tag-only suppression).
-            'stages.exif.dead': 1,
-            'stages.thumb.dead': 1,
-            'stages.preview.dead': 1,
-          },
-        },
-      )
-      // Oldest-missing first. A multikey sort orders by each row's smallest
-      // entry `missing_since`, so the longest-waiting rows are reconciled first
-      // even when a backlog exceeds one page.
-      .sort({ 'fileinfo.missing_since': 1 })
-      .skip(offset)
-      .limit(batchSize)
-      .toArray();
-
-  const firstPage = await fetchPage(0);
+  // Fetched in PAGES rather than a single batch of `batchSize` (#2171): assets
+  // the pass cannot resolve (delete-gated while paused, still in cooldown,
+  // mount offline) stay tagged, so a sort-by-oldest single batch re-fetches
+  // exactly those every pass and a newer false-tagged asset whose file IS back
+  // on disk never gets scanned — recovery starves behind the clog. Paging up to
+  // MAX_SCAN_PAGES × batchSize per pass bounds the work while letting recovery
+  // reach past an undrainable backlog. (Recovered assets leave the candidate set
+  // mid-pass, which can shift the offset over a few rows — those are simply
+  // picked up next pass.)
+  const fetchPage = (offset: number) => listMissingTagged({ limit: batchSize, offset });
 
   // Defer record deletes: classify all candidates first, then gate on the breaker.
-  const toDelete: typeof firstPage = [];
+  const toDelete: MissingTaggedAsset[] = [];
 
-  let page = firstPage;
+  let page = await fetchPage(0);
   let offset = 0;
   while (page.length > 0) {
     for (const doc of page) {
@@ -229,7 +207,7 @@ export async function runMissingReaperOnce(
       try {
         const tagged = missingFileInfos(doc.fileinfo);
         const recover: FileInfo[] = []; // present again → clear missing_since
-        const prune: FileInfo[] = []; // confirmed gone (or orphan) AND aged → $pull
+        const prune: FileInfo[] = []; // confirmed gone (or orphan) AND aged → remove
         // Aged + absent + non-orphan entries needing a near-match veto before any
         // record delete. (Orphan/`deleted_at` entries skip the veto: a different
         // file may legitimately sit at the path, so a near-match isn't a bug.)
@@ -273,21 +251,21 @@ export async function runMissingReaperOnce(
 
         // Survivors = every entry we are NOT pruning this pass (live entries,
         // recovered entries, and still-in-cooldown missing entries).
-        const survivors = (doc.fileinfo ?? []).filter((f) => !prune.some((p) => sameEntry(p, f)));
+        const survivors = doc.fileinfo.filter((f) => !prune.some((p) => sameEntry(p, f)));
 
         if (survivors.length > 0) {
-          // The row keeps at least one location → reconcile in place (runs even
+          // The asset keeps at least one location → reconcile in place (runs even
           // while paused; nothing here removes the record). Nothing to do at all
           // when every tagged entry is still in cooldown and none recovered.
           if (recover.length === 0 && prune.length === 0) {
             if (!hasLiveEntry(doc.fileinfo)) summary.skippedCooldown++;
             continue;
           }
-          await reconcileSurvivor(coll, doc, recover, prune, survivors, summary, libs);
+          await reconcileSurvivor(doc, recover, prune, survivors, summary, libs);
           continue;
         }
 
-        // No survivor — the prune would empty the row → REAP (soft-delete).
+        // No survivor — the prune would leave no location → REAP (soft-delete).
         // Near-match veto on the absent (non-orphan) entries first.
         let veto: 'name-mismatch' | 'unreadable' | null = null;
         for (const fi of absentForVeto) {
@@ -358,7 +336,7 @@ export async function runMissingReaperOnce(
 
   for (const doc of toDelete) {
     try {
-      if (await reapRow(coll, doc)) summary.reaped++;
+      if (await reapRow(doc)) summary.reaped++;
     } catch (err) {
       summary.errors++;
       log.warn(

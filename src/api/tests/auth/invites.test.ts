@@ -1,42 +1,57 @@
-import { describe, it, expect, beforeEach } from "bun:test";
-import { ObjectId } from "mongodb";
-import { createInvite, redeemInvite, listInvites, rescindInvite } from "../../src/auth/invites.ts";
-import { invitesCollection } from "../../src/db/client.ts";
+/**
+ * `auth/invites.ts` reaches the SQLite store (#3787).
+ *
+ * The invite rules themselves — the four distinct 410s, creation order, the
+ * `Date` the DTO promises — are covered against the repository in
+ * `db/sqlite/repos/auth.enrolment.repo.test.ts`. This file exists for the one
+ * thing that test cannot see: that the module `routes/auth.ts` imports still
+ * exports those four operations, and that they now land in SQLite rather than
+ * in a collection nothing opens any more.
+ */
 
-const owner = new ObjectId();
+import { describe, it, expect } from 'bun:test';
+import { createInvite, listInvites, redeemInvite, rescindInvite } from '../../src/auth/invites.ts';
+import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-beforeEach(async () => { await (await invitesCollection()).deleteMany({}); });
+async function seedOwner(live: LiveTestDatabase) {
+  return await insertUser(
+    {
+      email: 'owner@maple.test',
+      role: 'owner',
+      created_at: new Date().toISOString(),
+      last_seen_at: null,
+    },
+    live.handle,
+  );
+}
 
-describe("invites", () => {
-  it("creates an 8-char base32 code", async () => {
-    const inv = await createInvite(owner, "alice@example.com");
-    expect(inv.code).toMatch(/^[A-Z2-7]{8}$/);
-    expect(inv.expires_at.getTime()).toBeGreaterThan(Date.now() + 14 * 60 * 1000);
+describe('invites through the auth module', () => {
+  it('mints a readable code, redeems it once, and lists it', async () => {
+    using live = await createLiveTestDatabase();
+    const owner = await seedOwner(live);
+
+    const invite = await createInvite(owner, 'Alice@Example.com');
+    // Base32 without 0/1/8/9 — an invite is read out loud or typed from a
+    // message, so the confusable characters are not in the alphabet.
+    expect(invite.code).toMatch(/^[A-Z2-7]{8}$/);
+    expect(invite.email).toBe('alice@example.com');
+
+    expect(await listInvites()).toHaveLength(1);
+    expect(await redeemInvite(invite.code, 'alice@example.com')).toMatchObject({ ok: true });
+    await expect(redeemInvite(invite.code, 'alice@example.com')).rejects.toThrow(/consumed/);
   });
 
-  it("redeems an invite once for the matching email", async () => {
-    const inv = await createInvite(owner, "alice@example.com");
-    const r = await redeemInvite(inv.code, "alice@example.com");
-    expect(r.ok).toBe(true);
-    // Second redeem fails
-    await expect(redeemInvite(inv.code, "alice@example.com")).rejects.toThrow(/consumed|410/);
-  });
+  it('rescinding takes the code out of the store', async () => {
+    using live = await createLiveTestDatabase();
+    const owner = await seedOwner(live);
+    const invite = await createInvite(owner, 'alice@example.com');
 
-  it("rejects redemption with a wrong email", async () => {
-    const inv = await createInvite(owner, "alice@example.com");
-    await expect(redeemInvite(inv.code, "bob@example.com")).rejects.toThrow();
-  });
-
-  it("rescinds an invite by code", async () => {
-    const inv = await createInvite(owner, "alice@example.com");
-    await rescindInvite(inv.code);
-    await expect(redeemInvite(inv.code, "alice@example.com")).rejects.toThrow();
-  });
-
-  it("lists pending invites", async () => {
-    await createInvite(owner, "a@b.c");
-    await createInvite(owner, "x@y.z");
-    const all = await listInvites();
-    expect(all).toHaveLength(2);
+    await rescindInvite(invite.code);
+    expect(await listInvites()).toHaveLength(0);
+    await expect(redeemInvite(invite.code, 'alice@example.com')).rejects.toThrow(/not found/);
   });
 });

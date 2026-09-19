@@ -1,4 +1,4 @@
-// Unit tests for fs/root-connectivity.ts (#2892). Pure filesystem — no Mongo.
+// Unit tests for fs/root-connectivity.ts (#2892). Pure filesystem — no database.
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';

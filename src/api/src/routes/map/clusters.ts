@@ -4,29 +4,25 @@
  * `docs/superpowers/specs/2026-08-14-photo-map-view-design.md`; ticket
  * #2825, part of epic #2824).
  *
- * Mirrors `search/buckets.ts`'s shape: reuse the shared `buildFilter` +
- * `applyLiveFilter` so the map respects whatever search filters the
- * caller already has active, then additionally require an in-viewport
- * GPS point and bucket the survivors into a zoom-sized lat/lng grid via
- * plain `$floor` arithmetic — no geohash/tiling dependency. Payload size
- * is bounded by the number of *cells* the viewport can show, not by
- * library size (root CLAUDE.md performance invariants).
+ * Mirrors `search/buckets.ts`'s shape: reuse the shared query translation
+ * so the map respects whatever search filters the caller already has
+ * active, then additionally require an in-viewport GPS point and bucket
+ * the survivors into a zoom-sized lat/lng grid with plain `floor`
+ * arithmetic — no geohash/tiling dependency. Payload size is bounded by
+ * the number of *cells* the viewport can show, not by library size (root
+ * CLAUDE.md performance invariants).
+ *
+ * The grouping itself lives in `db/sqlite/repos/map-clusters.repo.ts`;
+ * everything in this file is viewport arithmetic and wire shaping.
  */
 
 import { Elysia, t } from 'elysia';
-import type { ObjectId } from 'mongodb';
-import { assetsCollection } from '../../db/client.ts';
-import type { FileInfo } from '../../db/schema.ts';
+import { mapClusters } from '../../db/sqlite/repos/map-clusters.repo.ts';
+import { buildSearchWhere } from '../../db/sqlite/repos/search.where.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { personIdsToDrop } from '../../people/people.repo.ts';
-import {
-  applyLiveFilter,
-  buildFilter,
-  clampInt,
-  SearchQueryT,
-  type SearchQuery,
-} from '../search/query.ts';
+import { personIdsToDrop } from '../../db/sqlite/repos/people.visibility.ts';
+import { clampInt, SearchQueryT, type SearchQuery } from '../search/query.ts';
 
 /** The `/api/map/clusters` query-string contract: every `/api/search`
  * filter param (so the map respects the caller's active search filters)
@@ -199,25 +195,6 @@ function placeLabelFrom(
   return locality || region || countryCode || null;
 }
 
-/** One cell's representative asset, carried out of the `$group` as a
- * single sub-document so the id and the fields read off that asset can't
- * disagree (see the `$top` accumulator in the pipeline). */
-interface ClusterRepresentative {
-  id: ObjectId;
-  fileinfo: FileInfo[] | undefined;
-  locality: string | null | undefined;
-  region: string | null | undefined;
-  countryCode: string | null | undefined;
-}
-
-interface ClusterGroupRow {
-  _id: { lat: number; lng: number };
-  count: number;
-  avgLat: number;
-  avgLng: number;
-  representative: ClusterRepresentative;
-}
-
 interface MapCluster {
   lat: number;
   lng: number;
@@ -247,114 +224,40 @@ export const mapClustersRoute = new Elysia().get(
 
     // Same id set as the search routes (see `personIdsToDrop`).
     const dropIds = await personIdsToDrop(q.excludeHiddenPeople);
-    const filterOrError = buildFilter(q as SearchQuery, dropIds);
-    if ('error' in filterOrError) {
+    const where = buildSearchWhere(q as SearchQuery, dropIds);
+    if ('error' in where) {
       set.status = 400;
-      return { error: filterOrError.error };
+      return { error: where.error };
     }
-    const finalFilter = applyLiveFilter(filterOrError);
 
-    // Longitude containment. The ordinary case is a plain range; an
-    // antimeridian-crossing viewport (west > east, e.g. west=170,
-    // east=-170) means "east of `west` OR west of `east`".
+    // The viewport is handed to the repository as its own predicate rather
+    // than folded into the translated query. Keeping the two apart is what
+    // makes every clause restrictive no matter what the search translation
+    // contributes — the same reasoning `buckets.ts` records, where a naive
+    // merge of an `$or` once dropped the live-row constraint and let
+    // soft-deleted rows into a count.
     //
-    // Note this makes the bbox FILTER correct across the seam. Grid
+    // Note the bbox makes the FILTER correct across the antimeridian. Grid
     // bucketing is NOT merged across it — a point at lng=179.9 and one at
     // lng=-179.9 land in different cells even though they're physically
-    // adjacent. That's an accepted, explicitly-called-out limitation for
-    // a density/cluster view (not a silent bug): the antimeridian is
-    // mid-ocean for every inhabited landmass, so a cell split there costs
-    // nothing in practice.
-    const lngClause =
-      bbox.west <= bbox.east
-        ? { 'exif.gps.lng': { $gte: bbox.west, $lte: bbox.east } }
-        : {
-            $or: [{ 'exif.gps.lng': { $gte: bbox.west } }, { 'exif.gps.lng': { $lte: bbox.east } }],
-          };
-
-    // Compose with `$and` rather than spreading `finalFilter` and adding
-    // sibling keys. Spreading looks equivalent today — `applyLiveFilter`
-    // currently returns `$and` at the top level — but it silently breaks
-    // the moment either side contributes a key the other also uses, and
-    // the antimeridian branch above contributes exactly such a key
-    // (`$or`). `buckets.ts` has the same note for the same reason: a
-    // naive spread + `$or` override there dropped the live-row constraint
-    // and let soft-deleted rows into the count. `$and` keeps every
-    // predicate restrictive no matter how `buildFilter` /
-    // `applyLiveFilter` evolve. Mongo's canonicalizer flattens the nested
-    // `$and`, and `$text` (which `placeQuery` adds) stays legal inside
-    // `$and` — the placeQuery test covers that path.
-    const matchFilter = {
-      $and: [
-        finalFilter,
-        { 'exif.gps': { $ne: null } },
-        { 'exif.gps.lat': { $gte: bbox.south, $lte: bbox.north } },
-        lngClause,
-      ],
-    };
-
-    const coll = await assetsCollection();
-    const rows = await coll
-      .aggregate<ClusterGroupRow>([
-        { $match: matchFilter as never },
-        {
-          $addFields: {
-            __cellLat: { $floor: { $divide: ['$exif.gps.lat', cellSizeDeg] } },
-            __cellLng: { $floor: { $divide: ['$exif.gps.lng', cellSizeDeg] } },
-          },
-        },
-        {
-          // `$top` (sortBy `_id`) rather than a pipeline-level `$sort`
-          // feeding `$first`: it picks each cell's representative WITHIN
-          // the group, so the pipeline never has to order the matched set
-          // as a whole. A pre-`$group` `{ $sort: { _id: 1 } }` is a
-          // blocking stage over every located asset in the viewport —
-          // O(library) memory and runtime at low zoom on a big library,
-          // the one part of this pipeline that genuinely could not be
-          // bounded by the `$match`. Sorting inside the accumulator also
-          // keeps the id and the fields read off that same asset
-          // consistent by construction, which a `$min` id plus separate
-          // `$first` fields would not guarantee.
-          //
-          // Cell count is capped (see MAX_CELLS_PER_AXIS), so the group's
-          // hash table holds at most ~4k of these sub-documents — hence
-          // no `allowDiskUse`: there is no longer a stage here whose
-          // memory scales with the number of matched assets.
-          $group: {
-            _id: { lat: '$__cellLat', lng: '$__cellLng' },
-            count: { $sum: 1 },
-            avgLat: { $avg: '$exif.gps.lat' },
-            avgLng: { $avg: '$exif.gps.lng' },
-            representative: {
-              $top: {
-                sortBy: { _id: 1 },
-                output: {
-                  id: '$_id',
-                  fileinfo: '$fileinfo',
-                  locality: '$place.rollups.locality',
-                  region: '$place.rollups.region',
-                  countryCode: '$place.rollups.country_code',
-                },
-              },
-            },
-          },
-        },
-      ])
-      .toArray();
+    // adjacent. That's an accepted, explicitly-called-out limitation for a
+    // density/cluster view (not a silent bug): the antimeridian is mid-ocean
+    // for every inhabited landmass, so a cell split there costs nothing in
+    // practice.
+    const rows = await mapClusters(where, bbox, cellSizeDeg);
 
     const libraries = await loadLibraryRoots().catch(() => new Map<string, string>());
 
     const cells: MapCluster[] = rows.map((r) => {
-      const rep = r.representative;
       const cell: MapCluster = {
         lat: r.avgLat,
         lng: r.avgLng,
         count: r.count,
-        representativeAssetId: rep.id.toHexString(),
-        placeLabel: placeLabelFrom(rep.locality, rep.region, rep.countryCode),
+        representativeAssetId: r.representativeId,
+        placeLabel: placeLabelFrom(r.locality, r.region, r.countryCode),
       };
       if (r.count === 1) {
-        const asset = { fileinfo: rep.fileinfo };
+        const asset = { fileinfo: r.fileinfo };
         const primary = assetPrimaryFileInfo(asset);
         const absPath = primary ? assetAbsPath(asset, libraries) : null;
         if (absPath) {

@@ -1,5 +1,5 @@
 /**
- * Auto-clustering coordinator tests — no Mongo.
+ * Auto-clustering coordinator tests — no database.
  *
  * `runOnlineClustering` is injected as a stub so we exercise the trigger
  * logic (N-faces / idle edge), the single-flight + coalescing guard, and the

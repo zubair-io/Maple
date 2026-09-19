@@ -15,7 +15,7 @@ async function canonicalRoot(root: string): Promise<string> {
   return marker.ok && marker.data ? dirname(marker.data) : resolve(root);
 }
 
-/** Canonical registered roots form an atomic Mongo uniqueness fence across clients. */
+/** Canonical registered roots form an atomic uniqueness fence across clients. */
 export async function batchScopes(payload: Record<string, unknown>): Promise<string[]> {
   const roots = await Promise.all(
     [...(await loadLibraryRoots()).values(), ...parseRootList(process.env.MAPLE_ROOTS)].map(

@@ -1,8 +1,8 @@
 /** Invalidate the selected on-disk copy, including non-primary deduplicated locations. */
 import { ObjectId } from 'mongodb';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
-import { assetsCollection } from '../../db/client.ts';
-import { recordAssetChangeRow } from '../../db/changes.repo.ts';
+import { recordSidecarEditAtAddress } from '../../db/sqlite/repos/assets.relocate.repo.ts';
+import { recordAssetChangeRow } from '../../db/sqlite/repos/changes.repo.ts';
 import { getChangeBus } from '../../runtime/change-bus.ts';
 import { getLibraryBySlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 
@@ -25,31 +25,20 @@ export async function publishBatchSidecarEdit(id: string, path: string): Promise
   const library = await selectedLibrary(id, path);
   const folderId = library?.libraryId ?? null;
   const relativePath = library ? relative(library.root, path).split(sep).join('/') : null;
-  const asset = library
-    ? await (
-        await assetsCollection()
-      ).findOneAndUpdate(
-        {
-          fileinfo: {
-            $elemMatch: {
-              library_id: library.libraryId,
-              path: relative(library.root, dirname(path)).split(sep).join('/'),
-              filename: basename(path),
-              deleted_at: null,
-            },
-          },
-        },
-        { $set: { has_xmp: true }, $inc: { sidecar_ver: 1 } },
-        { projection: { _id: 1 }, returnDocument: 'after' },
-      )
-    : null;
   // Resolve the selected copy and bump its version atomically at publication
   // time, so relocation cannot redirect an earlier lookup to a different file.
   // Unlike fire-and-forget editor notifications, a persisted batch can recover
   // a failed publication. Keep its ledger prepared until the durable row exists.
+  const assetId = library
+    ? await recordSidecarEditAtAddress({
+        libraryId: library.libraryId,
+        path: relative(library.root, dirname(path)).split(sep).join('/'),
+        filename: basename(path),
+      })
+    : null;
   const change = await recordAssetChangeRow(undefined, {
     kind: 'update',
-    asset_id: asset?._id ?? null,
+    asset_id: assetId,
     folder_id: folderId,
     abs_path: path,
     relative_path: relativePath,

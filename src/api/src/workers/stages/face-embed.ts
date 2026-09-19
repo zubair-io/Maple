@@ -44,6 +44,7 @@ import {
 } from './face-stage-shared.ts';
 import { FACE_DETECT_TARGET_VERSION } from './face-detect.ts';
 import { clusterCoordinator } from '../../people/cluster-coordinator.ts';
+import { faceEmbeddingStatements } from '../../db/sqlite/repos/faces.stage-patches.ts';
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 
@@ -76,15 +77,12 @@ export async function faceEmbedHandler(image: ImageDoc, _ctx: StageContext): Pro
   const loaded = await loadThumbBytes(image);
   if ('skip' in loaded) return loaded;
 
-  const patch: Record<string, unknown> = {};
-  let embeddedCount = 0;
+  const embedded: { faceIndex: number; embedding: number[] }[] = [];
   for (let i = 0; i < faces.length; i++) {
     const face = faces[i]!;
     try {
       const embedding = await detector.embedFace(loaded.bytes, toDetection(face));
-      patch[`faces.${i}.embedding`] = Array.from(embedding);
-      patch[`faces.${i}.embedding_version`] = CURRENT_EMBEDDING_VERSION;
-      embeddedCount++;
+      embedded.push({ faceIndex: i, embedding: Array.from(embedding) });
     } catch (err) {
       if (err instanceof ThumbDecodeError) {
         return { skip: `${THUMB_UNDECODABLE_REASON}: ${err.message}` };
@@ -96,8 +94,10 @@ export async function faceEmbedHandler(image: ImageDoc, _ctx: StageContext): Pro
   // (drives the "every N faces" cadence + the idle-edge "did any work?" gate).
   // The generic per-tick `onProgress` hook only sees the asset count, so the
   // accurate face count must come from here, where we know `image.faces`.
-  clusterCoordinator().recordFacesEmbedded(embeddedCount);
-  return { patch };
+  clusterCoordinator().recordFacesEmbedded(embedded.length);
+  return {
+    patch: faceEmbeddingStatements(image._id.toHexString(), embedded, CURRENT_EMBEDDING_VERSION),
+  };
 }
 
 /** Build the `DetectedFace`-shaped input `embedFace` expects from a stored

@@ -21,14 +21,14 @@
  */
 
 import { Elysia } from 'elysia';
-import { ObjectId, type WithId } from 'mongodb';
-import { foldersCollection } from '../db/client.ts';
-import type { FolderDoc } from '../db/schema.ts';
+import { ObjectId } from 'mongodb';
+import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
+import type { FolderWithId } from '../db/schema.ts';
 import { validateRelPathHeader } from './folders.ts';
 import { trashFolderRecursive, restoreFolderRecursive } from '../library/folder-trash.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 
-type ResolvedTarget = { folderId: ObjectId; folder: WithId<FolderDoc>; relPath: string };
+type ResolvedTarget = { folderId: ObjectId; folder: FolderWithId; relPath: string };
 type ResolveError = { status: number; error: string };
 
 /**
@@ -49,8 +49,7 @@ async function resolveFolderAndTarget(
     return { status: 400, error: 'Invalid folder id' };
   }
 
-  const folders = await foldersCollection();
-  const folder = await folders.findOne({ _id: folderId });
+  const folder = await findFolderById(folderId);
   if (!folder) {
     return { status: 404, error: 'Folder not found' };
   }

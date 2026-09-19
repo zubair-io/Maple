@@ -5,7 +5,13 @@
  *
  * Env vars:
  *   PORT               — listen port (default: 3000)
- *   MAPLE_MONGO_URI    — MongoDB connection string (default: mongodb://localhost:27017)
+ *   MAPLE_SQLITE_PATH  — the library database file (default: ./data/maple.sqlite).
+ *                        Read before anything else, since it names the database
+ *                        the settings themselves live in. See
+ *                        `db/sqlite/boot-migration.ts`.
+ *   MAPLE_MONGO_URI    — MongoDB connection string (default: mongodb://localhost:27017).
+ *                        Only read on a boot that still has to migrate (#3752);
+ *                        once the cutover is recorded it is never contacted.
  *   MAPLE_MONGO_DB     — MongoDB database name (default: maple)
  *   MAPLE_ROOTS        — colon-separated allowed FS roots for browsing &
  *                        registered-folder access. Defaults to '/' (Docker
@@ -73,7 +79,9 @@ import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
 import { uploadSessions } from './backup/upload-session.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { authedApi } from './routes/authed-api.ts';
-import { getDb, ensureIndexes, closeDb } from './db/client.ts';
+
+import { openSqlitePool, closeSqlitePool } from './db/sqlite/index.ts';
+import { migrateAtBoot, sqliteDatabasePath } from './db/sqlite/boot-migration.ts';
 import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { installMirrorQueueSink } from './workers/mirror/sink.ts';
@@ -86,11 +94,7 @@ import { initOtel, shutdownOtel } from './otel.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 import { getApnsPushTrigger } from './apns/push-trigger.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
-import {
-  ChildProcessWorker,
-  childScriptPath,
-  DEFAULT_NATIVE_CHILD_NICE,
-} from './runtime/child-process-worker.ts';
+import { startWorkerSupervisor, stopWorkerSupervisor } from './runtime/worker-supervisor.ts';
 import { SERVER_PORT } from './runtime/server-port.ts';
 import { TLS_ENABLED, listenOptions } from './runtime/tls-config.ts';
 
@@ -254,14 +258,32 @@ export const app = buildApp({ stageNames: [] });
 // Startup
 // ---------------------------------------------------------------------------
 
-/** Handle for the spawned worker-tier child process (Task 3). */
-let _workerChild: ChildProcessWorker | null = null;
-
-/** Set to true at the start of shutdown() so the respawn guard doesn't
- * re-spawn a worker that we intentionally terminated. */
-let shuttingDown = false;
+/**
+ * The cutover, and the pool every repository reads through afterwards (#3752).
+ *
+ * Runs before anything else in `start()`, because everything else in `start()`
+ * — beginning with `ensureJwtSecret` on the next line — reads a database. And
+ * it runs to completion before the server listens or the worker child is
+ * spawned, which is what makes the downtime one bounded window rather than a
+ * period of serving an empty library.
+ *
+ * Exiting is deliberate, and is the one place in this boot that does it. Every
+ * other phase logs and continues, because a degraded subsystem beats no server;
+ * an unmigrated library is the case where continuing is worse, since the File
+ * Provider clients cannot tell it from a deleted one.
+ */
+async function startSqlite(): Promise<void> {
+  try {
+    await migrateAtBoot();
+  } catch (err) {
+    log.fatal({ err }, 'SQLite migration failed — refusing to serve');
+    process.exit(1);
+  }
+  await openSqlitePool({ path: sqliteDatabasePath() });
+}
 
 async function start(): Promise<void> {
+  await startSqlite();
   await ensureJwtSecret();
   log.info(
     {
@@ -295,25 +317,25 @@ async function start(): Promise<void> {
     // pool respawns) and never the server. Nothing to warm here; the pool
     // spawns its first child lazily on the first decode request.
 
+    // No `getDb()` / `ensureIndexes()` here any more (#3787). The database is
+    // SQLite, its pool was opened before `listen`, and its schema arrived with
+    // the migration rather than being reconciled on every boot — there is no
+    // index to ensure and nothing to connect to lazily. The one place that
+    // still reaches MongoDB is `migrateAtBoot`, above, which reads it to fill
+    // SQLite and then never looks again.
+    //
+    // This phase is no longer allowed to fail soft the way the Mongo one did.
+    // "MongoDB not available — DB-bound routes will 503" was a reasonable
+    // posture for a remote server that might come back; a missing SQLite file
+    // is not that, and the pool has already refused to open if it were.
     try {
-      await getDb();
-    } catch (err) {
-      log.warn({ err }, 'MongoDB not available — server continues, DB-bound routes will 503');
-      return;
-    }
-
-    try {
-      await ensureIndexes();
-      // #2920 — plant the ownership sentinel on installs whose owner
-      // predates it (or came from dev-login), so an invited registration
-      // can never win the claim. Self-gating: one point-read per boot.
+      // #2920 — plant the ownership sentinel on installs whose owner predates
+      // it (or came from dev-login), so an invited registration can never win
+      // the claim. Self-gating: one point-read per boot.
       await backfillOwnershipClaim();
       log.info('DB ready');
     } catch (err) {
-      log.error(
-        { err },
-        'ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved',
-      );
+      log.error({ err }, 'ownership-claim backfill failed — registration claims may be contested');
     }
 
     try {
@@ -347,51 +369,12 @@ async function start(): Promise<void> {
       log.error({ err }, 'APNs push trigger failed to start');
     }
 
-    // Worker tier — spawned as a niced child process so the HTTP event loop can
-    // never be starved or crashed by indexer/enrichment load. The child runs
-    // `startWorkers()` which owns stages, discover, FFI pool, enrichment, job
-    // runner, and import runner. Auto-respawns on crash unless shutting down.
-    // Respawn backoff. A worker that dies almost immediately is crash-looping
-    // (e.g. a poison asset that aborts the tier on boot per #897, or a bad
-    // deploy); a flat 1s respawn just hammers the box and the log pipeline.
-    // Grow the delay on each rapid death (capped), and reset it once a worker
-    // has run healthily — so a one-off crash still respawns promptly.
-    const WORKER_RESPAWN_MIN_MS = 1000;
-    const WORKER_RESPAWN_MAX_MS = 30_000;
-    const WORKER_HEALTHY_UPTIME_MS = 60_000;
-    let workerRespawnMs = WORKER_RESPAWN_MIN_MS;
-    function spawnWorker(): void {
-      if (shuttingDown) return;
-      try {
-        const spawnedAt = Date.now();
-        const w = new ChildProcessWorker(
-          childScriptPath(import.meta.url, './workers/worker-main.ts'),
-          { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'worker' },
-        );
-        w.addEventListener('error', (e) => {
-          const uptimeMs = Date.now() - spawnedAt;
-          // Ran healthily then died → one-off, reset backoff. Died fast → grow it.
-          if (uptimeMs >= WORKER_HEALTHY_UPTIME_MS) workerRespawnMs = WORKER_RESPAWN_MIN_MS;
-          const delayMs = workerRespawnMs;
-          workerRespawnMs = Math.min(workerRespawnMs * 2, WORKER_RESPAWN_MAX_MS);
-          log.error(
-            { msg: e.message, uptimeMs, respawnInMs: delayMs },
-            'worker process died — respawning',
-          );
-          _workerChild = null;
-          if (!shuttingDown) setTimeout(spawnWorker, delayMs);
-        });
-        _workerChild = w;
-        log.info('worker process spawned');
-      } catch (err) {
-        log.error({ err }, 'failed to spawn worker process');
-      }
-    }
-    if (process.env.MAPLE_INDEXER_AUTOSTART === '0') {
-      log.info('Worker process disabled (MAPLE_INDEXER_AUTOSTART=0)');
-    } else {
-      spawnWorker();
-    }
+    // Worker tier — a niced child process, so indexer and enrichment load can
+    // never starve or crash the HTTP event loop. Spawned here rather than
+    // earlier because the SQLite migration (#3752) must be finished before
+    // anything claims a stage; `startSqlite()` at the top of `start()` is what
+    // guarantees that. Respawn-on-crash and its backoff live in the supervisor.
+    startWorkerSupervisor(import.meta.url);
 
     await initializeHttpSearch();
 
@@ -455,7 +438,6 @@ async function start(): Promise<void> {
 
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
-  shuttingDown = true;
   log.info({ signal }, 'shutting down');
   managedHttps.stop();
   // Stop the event-loop lag probe (no-op if it was never started).
@@ -481,8 +463,7 @@ async function shutdown(signal: string): Promise<void> {
   // stages, discover, enrichment workers, job/import runners, and FFI pool
   // before exiting. Best-effort — worker may already be dead or not yet spawned.
   try {
-    _workerChild?.terminate();
-    _workerChild = null;
+    stopWorkerSupervisor();
   } catch (e) {
     log.warn({ err: e }, 'error stopping worker process');
   }
@@ -503,8 +484,12 @@ async function shutdown(signal: string): Promise<void> {
   } catch {
     /* ignore */
   }
+  // Nothing to close on the Mongo side: the only connection this process opens
+  // to it belongs to the boot migration, which closes its own before serving.
+  // Terminates the pool's writer and reader threads. Last, so anything above
+  // that still wanted a query got one.
   try {
-    await closeDb();
+    closeSqlitePool();
   } catch {
     /* ignore */
   }
@@ -525,11 +510,11 @@ process.on('SIGINT', () => {
 });
 
 // Only kick off the boot sequence when this module is run as the process
-// entry point — `bun src/index.ts`. Importing the module (tests reaching
-// for `app` / `buildApp` / route handlers) must not trigger the background
-// boot, otherwise its `ensureIndexes()` races with the test harness's
-// `closeDb()` calls and randomly skips index builds downstream tests rely
-// on. Bun sets `import.meta.main = true` for the entry module.
+// entry point — `bun src/index.ts`. Importing the module (tests reaching for
+// `app` / `buildApp` / route handlers) must not trigger the background boot:
+// it would run the migration and open a second pool against the operator's
+// real database underneath a test that installed its own handle. Bun sets
+// `import.meta.main = true` for the entry module.
 if ((import.meta as { main?: boolean }).main) {
   start();
 }

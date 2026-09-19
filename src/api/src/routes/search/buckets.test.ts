@@ -1,16 +1,14 @@
 /**
- * Pure unit tests for `makeBucketsCacheKey` (#2131). No Mongo — the cache
+ * Pure unit tests for `makeBucketsCacheKey` (#2131). No database — the cache
  * key is built directly from a `SearchQuery` object with no I/O, so these
  * assert on the serialised key string.
  *
- * Root cause: the key was an explicit field list that omitted `scope`
- * even though `buildFilter` (query.ts) applies a scope filter (`places`
- * → `exif.gps != null`, `people` → `faces.0 exists`). Two requests
- * differing only by `scope` shared a cache entry within the 30s TTL, so
- * flicking between Timeline scope chips served one scope's histogram
- * under another's chip. `hidden` had the same bug — it also shapes
- * `buildFilter`'s output (line ~452 of query.ts) and was also missing
- * from the key.
+ * Root cause: the key was an explicit field list that omitted `scope` even
+ * though the filter builder applies a scope filter (`places` → has GPS,
+ * `people` → has at least one face). Two requests differing only by `scope`
+ * shared a cache entry within the 30s TTL, so flicking between Timeline scope
+ * chips served one scope's histogram under another's chip. `hidden` had the
+ * same bug — it also shapes the filter and was also missing from the key.
  */
 
 import { describe, it, expect } from 'bun:test';
@@ -25,7 +23,7 @@ describe('makeBucketsCacheKey — scope isolation (#2131)', () => {
     const people = makeBucketsCacheKey({ ...base, scope: 'people' });
     const absent = makeBucketsCacheKey({ ...base });
 
-    // `photos` is `buildFilter`'s no-op default — it must share the absent
+    // `photos` is the filter builder's no-op default — it must share the absent
     // key rather than fragment the cache into two identical entries.
     expect(photos).toBe(absent);
     expect(new Set([places, people, absent]).size).toBe(3);

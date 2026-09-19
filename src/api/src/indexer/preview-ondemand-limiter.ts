@@ -14,7 +14,7 @@
  *
  * Judgment call (see PR description): this reuses the EXISTING `preview`
  * stage's `concurrency` setting — already a DB-backed, operator-visible
- * control on Settings → Workers (`worker_config` collection) — as the cap
+ * control on Settings → Workers (`worker_config` table) — as the cap
  * for this gate, rather than introducing a brand new setting/UI. Both knobs
  * answer the same physical question ("how many preview-generation jobs may
  * run at once"), just for two different trigger sources (poll-claimed batch
@@ -32,8 +32,8 @@
  * warm at boot" convention for the FFI pool — see `index.ts`).
  */
 
-import { isDbConnected, workerConfigCollection } from '../db/client.ts';
-import { WorkerConfigRepo } from '../workers/worker-config.repo.ts';
+import { isSqliteOpen } from '../db/sqlite/index.ts';
+import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('preview-ondemand-limiter');
@@ -107,23 +107,20 @@ class PreviewOndemandLimiter {
    * effort: a failure (DB unreachable) just leaves the built-in default in
    * place; `setLimit` from the live PATCH hook still applies going forward.
    *
-   * Gated on `isDbConnected()` — the same guard `fs-previews.ts` uses before
-   * its own DB lookup — so a request that arrives before the API has ever
-   * connected (or during an outage) skips straight to `DEFAULT_ONDEMAND_LIMIT`
-   * instead of paying the driver's ~5s connect/server-selection timeout on
-   * the hot request path. `isDbConnected()` is a synchronous `_db !== null`
-   * check (see `db/client.ts`), so it can never itself stall. Deliberately
-   * NOT memoized when skipped this way: a later call, once the DB comes up,
-   * gets a real chance to seed from the persisted value instead of staying
-   * stuck at the default until an operator happens to touch the `preview`
-   * stage's concurrency setting. */
+   * Gated on `isSqliteOpen()` — a synchronous check of whether the process-wide
+   * handle exists (see `db/sqlite/index.ts`), so it can never itself stall — so
+   * a request that arrives before startup has opened the pool, or after
+   * shutdown closed it, skips straight to `DEFAULT_ONDEMAND_LIMIT` rather than
+   * throwing on the hot request path. Deliberately NOT memoized when skipped
+   * this way: a later call, once the pool is open, gets a real chance to seed
+   * from the persisted value instead of staying stuck at the default until an
+   * operator happens to touch the `preview` stage's concurrency setting. */
   private ensureSeeded(): Promise<void> {
     if (!this.seedPromise) {
-      if (!isDbConnected()) return Promise.resolve();
+      if (!isSqliteOpen()) return Promise.resolve();
       this.seedPromise = (async () => {
         try {
-          const repo = new WorkerConfigRepo(await workerConfigCollection());
-          const cfg = await repo.load('preview');
+          const cfg = await new WorkerConfigRepo().load('preview');
           if (cfg) this.setLimit(cfg.concurrency);
         } catch (err) {
           log.warn(

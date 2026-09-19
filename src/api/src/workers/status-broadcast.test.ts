@@ -1,44 +1,17 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import type { Db } from 'mongodb';
+/**
+ * `WorkersStatusBroadcaster` — subscription gating and single-broadcast fan-out.
+ *
+ * Deliberately database-free. The broadcaster takes its count source and its
+ * demand poke as constructor arguments, so every test here injects both and
+ * nothing under test reads or writes a row. The suite used to open a per-pid
+ * MongoDB database and empty `worker_status` around each test purely as
+ * isolation hygiene against the shared client singleton; with the singleton gone
+ * (#3787) there is nothing left for that to protect.
+ */
+
+import { describe, expect, it } from 'bun:test';
 import { WorkersStatusBroadcaster, type WorkersStatusFrame } from './status-broadcast.ts';
 import type { WorkersStatusPayload } from './routes.ts';
-import { closeDb, getDb } from '../db/client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
-
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_status_broadcast_${process.pid}`);
-
-// Captured here, not re-resolved in afterAll: withTestDb restores
-// MAPLE_MONGO_DB before this suite's teardown runs.
-let suiteDb: Db | null = null;
-
-let dbReachable = true;
-beforeAll(async () => {
-  try {
-    await closeDb();
-    suiteDb = await getDb();
-  } catch {
-    dbReachable = false;
-  }
-});
-
-async function cleanWorkerStatus(): Promise<void> {
-  if (dbReachable) {
-    await (await getDb())
-      .collection<{ _id: string; [key: string]: unknown }>('worker_status')
-      .deleteMany({ _id: 'singleton' });
-  }
-}
-
-beforeEach(cleanWorkerStatus);
-afterEach(cleanWorkerStatus);
-afterAll(async () => {
-  if (suiteDb) await suiteDb.dropDatabase();
-  await closeDb();
-});
 
 const fakePayload: WorkersStatusPayload = {
   stages: [
@@ -62,8 +35,8 @@ const fakePayload: WorkersStatusPayload = {
   countsAt: 1_700_000_000_000,
 };
 
-/** Every broadcaster under test gets a no-op demand poke — the real one
- * writes to Mongo, which these unit tests don't need. */
+/** Every broadcaster under test gets a no-op demand poke — the real one sets
+ * the worker's demand flag, which these unit tests don't need. */
 const noPoke = async () => {};
 
 describe('WorkersStatusBroadcaster — subscription gating', () => {

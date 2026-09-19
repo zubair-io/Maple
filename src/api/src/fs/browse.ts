@@ -7,9 +7,11 @@
 // the filesystem root unless `showAll` is true.
 
 import { readdir, realpath, stat } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 import type { OpResult } from './root.ts';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
+import { findListingAssetsByFilenames } from '../db/sqlite/repos/assets.by-filename.ts';
+import { listFolders } from '../db/sqlite/repos/folders.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {
@@ -19,7 +21,7 @@ import {
   SHARP_EXTENSIONS,
   STUB_IMAGE_EXTENSIONS,
 } from '../indexer/media-types.ts';
-import type { AssetExif, FileInfo } from '../db/schema.ts';
+import type { AssetExif } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/browse');
@@ -196,39 +198,10 @@ export function isUnderRoot(absPath: string, root: string): boolean {
 }
 
 export async function listDir(reqPath: string, showAll: boolean): Promise<OpResult<DirListing>> {
-  if (!path.isAbsolute(reqPath)) {
-    return { ok: false, error: 'Path must be absolute.' };
-  }
-
-  let real: string;
-  try {
-    real = await realpath(reqPath);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  const roots = await browseRoots();
-  if (!roots.some((r) => isUnderRoot(real, r))) {
-    return {
-      ok: false,
-      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
-    };
-  }
-
-  let rawEntries: { name: string }[];
-  try {
-    rawEntries = await readdir(real, { withFileTypes: false }).then((names) =>
-      names.map((n) => ({ name: n })),
-    );
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
+  const opened = await openDirectory(reqPath, browseRoots);
+  if ('error' in opened) return opened;
+  const { real, roots, names } = opened;
+  const rawEntries = names.map((name) => ({ name }));
 
   const atRoot = real === '/';
 
@@ -433,7 +406,7 @@ export interface ImageChild extends DirChild {
   size: number; // bytes
   ext: string; // lowercase, no dot
   /**
-   * Mongo `_id` of the matching asset doc, hex-encoded. Set when this file
+   * `_id` of the matching asset, hex-encoded. Set when this file
    * has been indexed; `undefined` when the indexer hasn't seen it yet. The
    * client uses this to call `/api/assets/:id` for the enriched detail
    * payload (place, faces, description, vision) — FS-walk assets have no other
@@ -442,7 +415,7 @@ export interface ImageChild extends DirChild {
   id?: string;
   /**
    * Indexed EXIF for this RAW (camera/lens/exposure/captured_at/gps), looked
-   * up by `abs_path` against the `assets` collection. `null` when the indexer
+   * up by `abs_path` against the `assets` table. `null` when the indexer
    * processed this file but found no usable EXIF; `undefined` when the file
    * hasn't been indexed yet (or the indexer hasn't run for this folder).
    */
@@ -463,7 +436,7 @@ export interface SidecarChild {
   mtime: string; // ISO-8601
   size: number; // bytes
   /**
-   * Hex Mongo `_id` of the asset this XMP is paired to. Always set —
+   * Hex `_id` of the asset this XMP is paired to. Always set —
    * sidecars without a matching indexed asset are dropped from the
    * listing (same filter as `images`).
    */
@@ -476,7 +449,7 @@ export interface SidecarChild {
  * are stored on disk and surfaced through the File Provider so it can sync
  * *all* file types, but they get no `AssetDoc` (the database stays
  * image-only). Addressed by `(folderID, relativePath)` on the client, not by
- * a Mongo asset id.
+ * an asset id.
  */
 export interface FileChild extends DirChild {
   size: number; // bytes
@@ -534,6 +507,104 @@ export function decodeCursor(s: string): number {
   return n;
 }
 
+/** A directory that resolved inside the jail, and what it holds. */
+interface OpenedDirectory {
+  /** The symlink-resolved path. Every child is re-checked against it. */
+  real: string;
+  /** The jail this listing was allowed through. */
+  roots: string[];
+  /** Raw entry names, as `readdir` gave them. */
+  names: string[];
+  /** The names a listing may show, sorted: no dotfiles, no `.hidden` markers. */
+  visible: string[];
+}
+
+/**
+ * Resolves a request path, confirms it is inside the jail, and reads it.
+ *
+ * The two listing endpoints open identically and jail against different root
+ * sets — the browse roots for one, the File Provider's for the other — so the
+ * root loader is the argument rather than a copy of the four checks.
+ *
+ * Each failure keeps the message it had: the three of them name the path the
+ * caller asked for, which is what makes a listing failure diagnosable from the
+ * response alone.
+ */
+async function openDirectory(
+  reqPath: string,
+  loadRoots: () => Promise<string[]>,
+): Promise<OpenedDirectory | { ok: false; error: string }> {
+  if (!path.isAbsolute(reqPath)) return { ok: false, error: 'Path must be absolute.' };
+
+  const real = await realpath(reqPath).catch((err: unknown) => err);
+  if (typeof real !== 'string') {
+    return { ok: false, error: `Cannot access "${reqPath}": ${errorText(real)}` };
+  }
+
+  const roots = await loadRoots();
+  if (!roots.some((r) => isUnderRoot(real, r))) {
+    return { ok: false, error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]` };
+  }
+
+  const names = await readdir(real).catch((err: unknown) => err);
+  if (!Array.isArray(names)) {
+    return { ok: false, error: `Cannot list "${real}": ${errorText(names)}` };
+  }
+  const visible = names
+    .filter((n: string) => !n.startsWith('.') && !n.endsWith('.hidden'))
+    .sort((a: string, b: string) => a.localeCompare(b));
+  return { real, roots, names, visible };
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** The page of `visible` this request asked for, or the cursor's complaint. */
+interface PageWindow {
+  /** False when neither `cursor` nor `limit` was sent: one shot, no slicing. */
+  pagedMode: boolean;
+  slice: string[];
+  /** Where the next page starts, or null when this one ends the listing. */
+  nextOffset: number | null;
+}
+
+/**
+ * Slices a sorted listing into the page the caller asked for.
+ *
+ * Both listing endpoints page identically and differed only in how they
+ * rendered the same failure — one of them also re-checked an upper bound on
+ * the offset, which `decodeCursor` has already refused by the time the check
+ * could run.
+ *
+ * With neither `cursor` nor `limit` the result is the whole listing and a null
+ * next offset, which is the unpaged behaviour both endpoints kept.
+ */
+function pageWindow(
+  visible: string[],
+  opts: { cursor?: string; limit?: number },
+): PageWindow | { ok: false; error: string } {
+  const pagedMode = opts.cursor !== undefined || opts.limit !== undefined;
+  const decoded = decodeOffset(opts.cursor);
+  if (typeof decoded !== 'number') return decoded;
+  const limit = pagedMode ? Math.max(1, Math.min(2000, opts.limit ?? 500)) : visible.length;
+  return {
+    pagedMode,
+    slice: pagedMode ? visible.slice(decoded, decoded + limit) : visible,
+    nextOffset: pagedMode && decoded + limit < visible.length ? decoded + limit : null,
+  };
+}
+
+/** The offset a cursor carries, 0 when there is none, or the complaint. */
+function decodeOffset(cursor: string | undefined): number | { ok: false; error: string } {
+  if (cursor === undefined) return 0;
+  try {
+    return decodeCursor(cursor);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * List a single directory level: subdirectories + image files.
  *
@@ -550,57 +621,16 @@ export async function listDirContents(
   reqPath: string,
   opts: ListDirOptions = {},
 ): Promise<OpResult<DirContents>> {
-  if (!path.isAbsolute(reqPath)) {
-    return { ok: false, error: 'Path must be absolute.' };
-  }
-
-  let real: string;
-  try {
-    real = await realpath(reqPath);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  const roots = await fileProviderBrowseRoots();
-  if (!roots.some((r) => isUnderRoot(real, r))) {
-    return {
-      ok: false,
-      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
-    };
-  }
-
-  let names: string[];
-  try {
-    names = await readdir(real);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  const visible = names
-    .filter((n) => !n.startsWith('.') && !n.endsWith('.hidden'))
-    .sort((a, b) => a.localeCompare(b));
+  const opened = await openDirectory(reqPath, fileProviderBrowseRoots);
+  if ('error' in opened) return opened;
+  const { real, roots, visible } = opened;
 
   // Paging window. cursor === undefined AND limit === undefined keeps
   // the historical single-shot behaviour (no slicing, no next_cursor).
   // Any cursor OR limit query param triggers paged mode.
-  const pagedMode = opts.cursor !== undefined || opts.limit !== undefined;
-  let offset = 0;
-  if (opts.cursor !== undefined) {
-    try {
-      offset = decodeCursor(opts.cursor);
-    } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-  const limit = pagedMode ? Math.max(1, Math.min(2000, opts.limit ?? 500)) : visible.length;
-  const slice = pagedMode ? visible.slice(offset, offset + limit) : visible;
-  const nextOffset = pagedMode && offset + limit < visible.length ? offset + limit : null;
+  const window = pageWindow(visible, opts);
+  if ('error' in window) return window;
+  const { pagedMode, slice, nextOffset } = window;
 
   // ── Cross-page sidecar pairing (issue #6 of PR #66 review) ─────────
   // Sidecars are paired to images by canonical filename base. When the
@@ -610,7 +640,7 @@ export async function listDirContents(
   //
   // Fix: in paged mode, pre-walk ALL visible image filenames (cheap —
   // just an extension test + path join, no realpath/stat) and look up
-  // the full set of indexed asset IDs in one Mongo `$in` query. That
+  // the full set of indexed asset IDs in one batched query. That
   // map is then consulted by the per-slice sidecar loop below so a
   // sidecar resolves its assetID regardless of which page its paired
   // image fell on. In unpaged mode the slice == visible, so the global
@@ -634,22 +664,18 @@ export async function listDirContents(
     }
     if (allImageBases.size > 0) {
       try {
-        const coll = await assetsCollection();
-        // Query by filename via fileinfo[]. The legacy `abs_path` field was
-        // retired in the drop-abs-path-2026-05-21 migration; we resolve each
-        // hit's on-disk path from `assetAbsPath(doc, libs)` and match against
-        // the candidate paths in code.
+        // Query by filename via the locations table. The legacy `abs_path`
+        // field was retired in the drop-abs-path-2026-05-21 migration; we
+        // resolve each hit's on-disk path from `assetAbsPath(doc, libs)` and
+        // match against the candidate paths in code.
         const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
         const filenames = new Set<string>();
         for (const [, p] of allImageBases) filenames.add(p.split('/').pop()!);
-        const cursor = coll.find(
-          { 'fileinfo.filename': { $in: Array.from(filenames) } },
-          { projection: { _id: 1, fileinfo: 1 } },
-        );
+        const docs = await findListingAssetsByFilenames(Array.from(filenames));
         const pathToBase = new Map<string, string>();
         for (const [b, p] of allImageBases) pathToBase.set(p, b);
-        for await (const doc of cursor) {
-          const resolved = assetAbsPath(doc as unknown as { fileinfo?: FileInfo[] }, libs);
+        for (const doc of docs) {
+          const resolved = assetAbsPath(doc, libs);
           if (!resolved) continue;
           const b = pathToBase.get(resolved);
           if (b) globalImageBaseToAsset.set(b, doc._id.toHexString());
@@ -673,29 +699,7 @@ export async function listDirContents(
   // below (without `asset_id`) invalid under strict TS.
   const sidecarRaw: Array<Omit<SidecarChild, 'asset_id'>> = [];
 
-  const results = await Promise.all(
-    slice.map(async (name) => {
-      const childCandidate = real === '/' ? '/' + name : `${real}/${name}`;
-
-      // Re-resolve realpath and re-check the jail (symlink-swap defence).
-      let childReal: string;
-      try {
-        childReal = await realpath(childCandidate);
-      } catch {
-        return null; // broken symlink / permission denied
-      }
-      if (!roots.some((r) => isUnderRoot(childReal, r))) return null;
-
-      let st: Awaited<ReturnType<typeof stat>>;
-      try {
-        st = await stat(childReal);
-      } catch {
-        return null;
-      }
-
-      return { name, path: childReal, st };
-    }),
-  );
+  const results = await scanChildren(slice, real, roots);
 
   for (const r of results) {
     if (!r) continue;
@@ -729,32 +733,27 @@ export async function listDirContents(
     }
   }
 
-  // Bulk-attach indexed EXIF for the images in this listing. Single round-
-  // trip with `$in` rather than per-image lookups. If the indexer hasn't
-  // touched this folder yet, the find returns nothing and `exif` stays
-  // undefined on each entry — the client renders "—" gracefully.
+  // Bulk-attach indexed EXIF for the images in this listing. One batched
+  // lookup rather than per-image queries. If the indexer hasn't touched this
+  // folder yet, it returns nothing and `exif` stays undefined on each entry —
+  // the client renders "—" gracefully.
   const indexedPaths = new Set<string>();
   const trashedPaths = new Set<string>();
   if (images.length > 0) {
     try {
-      const coll = await assetsCollection();
       const libs = await loadLibraryRoots().catch(() => new Map<string, string>());
       const imageFilenames = new Set(images.map((i) => i.path.split('/').pop()!));
-      const cursor = coll.find(
-        { 'fileinfo.filename': { $in: Array.from(imageFilenames) } },
-        { projection: { _id: 1, fileinfo: 1, exif: 1, deleted_at: 1 } },
-      );
+      const docs = await findListingAssetsByFilenames(Array.from(imageFilenames));
       const byPath = new Map<string, { id: string; exif: AssetExif | null | undefined }>();
-      for await (const doc of cursor) {
-        const resolved = assetAbsPath(doc as unknown as { fileinfo?: FileInfo[] }, libs);
+      for (const doc of docs) {
+        const resolved = assetAbsPath(doc, libs);
         if (!resolved) continue;
-        const raw = doc as unknown as Record<string, unknown>;
-        // Files whose asset doc is soft-deleted must not appear under their
+        // Files whose asset row is soft-deleted must not appear under their
         // pre-trash directory listing — the file has either moved to
         // .maple/trash/<rel> (File-Provider DELETE) or vanished from disk
         // (watcher); either way, hiding it from /api/fs/dir matches what
         // the user expects after a delete.
-        if (raw.deleted_at != null) {
+        if (doc.deleted_at != null) {
           trashedPaths.add(resolved);
           continue;
         }
@@ -848,12 +847,12 @@ export async function listDirContents(
 // listDirFast — used by GET /api/fs/dir-fast.
 //
 // Pure-filesystem variant of `listDirContents`: readdir + realpath + stat,
-// nothing else. No Mongo queries, no EXIF lookup, no trash hiding, no
+// nothing else. No database queries, no EXIF lookup, no trash hiding, no
 // sidecar pairing, no discover enqueue. Designed for the web Browse grid,
 // which doesn't need any of those — per-image badges (rating / flag / has-
 // edits / EXIF) live in the search/timeline grid, and the editor's cold-
 // load path keys assets by `fs:${abs_path}` so it doesn't need a stable
-// Mongo id either.
+// database id either.
 //
 // The Apple File Provider extension and the iOS/macOS cloud-source browse
 // continue to use `/api/fs/dir`, which preserves the enriched response
@@ -881,111 +880,95 @@ export interface FastDirContents {
   next_cursor?: string;
 }
 
+/** One surviving child of a listing: it resolved, and it is inside the jail. */
+interface ScannedEntry {
+  name: string;
+  path: string;
+  st: Stats;
+}
+
+/**
+ * Resolves and stats every name in a page, dropping the ones a listing must
+ * not show.
+ *
+ * The realpath re-check per child is the symlink-swap defence: the directory
+ * passed the jail, but a child could be a symlink pointing out of it, and a
+ * listing that trusted the parent's verdict would hand out a path outside
+ * every root. A null is that, a broken symlink, a permission denial, or a file
+ * that vanished between the readdir and the stat — all four mean the same
+ * thing to a caller, which is that there is nothing here to list.
+ */
+async function scanChildren(
+  slice: readonly string[],
+  real: string,
+  roots: readonly string[],
+): Promise<Array<ScannedEntry | null>> {
+  return Promise.all(
+    slice.map(async (name) => {
+      const childCandidate = real === '/' ? '/' + name : `${real}/${name}`;
+      const childReal = await realpath(childCandidate).catch(() => null);
+      if (childReal === null) return null;
+      if (!roots.some((r) => isUnderRoot(childReal, r))) return null;
+      const st = await stat(childReal).catch(() => null);
+      return st === null ? null : { name, path: childReal, st };
+    }),
+  );
+}
+
+/**
+ * Sorts scanned children into the two lists the fast listing answers with.
+ *
+ * Anything that is neither a directory nor a listable media file is dropped —
+ * including a file with no extension, which cannot be classified and is not
+ * something this endpoint offers. A null entry is a child that vanished or
+ * left the jail between the readdir and the stat.
+ */
+function splitEntries(entries: ReadonlyArray<ScannedEntry | null>): {
+  dirs: DirChild[];
+  images: FastImageChild[];
+} {
+  const dirs: DirChild[] = [];
+  const images: FastImageChild[] = [];
+  for (const entry of entries) {
+    if (entry === null) continue;
+    const { name, path: childReal, st } = entry;
+    if (st.isDirectory()) {
+      dirs.push({ name, path: childReal, mtime: st.mtime.toISOString() });
+      continue;
+    }
+    const ext = listableExt(name, st);
+    if (ext !== null) images.push(buildMediaListItem(name, childReal, st, ext));
+  }
+  return { dirs, images };
+}
+
+/** The extension this entry should be listed under, or null for "not listed". */
+function listableExt(name: string, st: Stats): string | null {
+  if (!st.isFile()) return null;
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return null;
+  const ext = name.slice(dot + 1).toLowerCase();
+  return isListableMediaExt(ext) ? ext : null;
+}
+
 export async function listDirFast(
   reqPath: string,
   opts: ListDirOptions = {},
 ): Promise<OpResult<FastDirContents>> {
-  if (!path.isAbsolute(reqPath)) {
-    return { ok: false, error: 'Path must be absolute.' };
-  }
+  const opened = await openDirectory(reqPath, browseRoots);
+  if ('error' in opened) return opened;
+  const { real, roots } = opened;
+  // This endpoint does not surface `.xmp` sidecars, and they should not pay
+  // the realpath+stat cost per entry, so they come out before paging.
+  const visible = opened.visible.filter((n) => !n.toLowerCase().endsWith('.xmp'));
 
-  let real: string;
-  try {
-    real = await realpath(reqPath);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot access "${reqPath}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
+  const window = pageWindow(visible, opts);
+  if ('error' in window) return window;
+  const { slice, nextOffset } = window;
 
-  const roots = await browseRoots();
-  if (!roots.some((r) => isUnderRoot(real, r))) {
-    return {
-      ok: false,
-      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
-    };
-  }
+  const results = await scanChildren(slice, real, roots);
 
-  let names: string[];
-  try {
-    names = await readdir(real);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Cannot list "${real}": ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  // Filter once before paging: drop hidden dot-files and `.xmp` sidecars
-  // (the latter aren't surfaced by this endpoint and shouldn't pay the
-  // realpath+stat cost per entry).
-  const visible = names
-    .filter((n) => !n.startsWith('.') && !n.endsWith('.hidden'))
-    .filter((n) => !n.toLowerCase().endsWith('.xmp'))
-    .sort((a, b) => a.localeCompare(b));
-
-  const pagedMode = opts.cursor !== undefined || opts.limit !== undefined;
-  let offset = 0;
-  if (opts.cursor !== undefined) {
-    try {
-      offset = decodeCursor(opts.cursor);
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-    if (offset > CURSOR_MAX_OFFSET) {
-      return { ok: false, error: `cursor offset too large: ${offset}` };
-    }
-  }
-  const limit = pagedMode ? Math.max(1, Math.min(2000, opts.limit ?? 500)) : visible.length;
-  const slice = pagedMode ? visible.slice(offset, offset + limit) : visible;
-  const nextOffset = pagedMode && offset + limit < visible.length ? offset + limit : null;
-
-  const dirs: DirChild[] = [];
-  const images: FastImageChild[] = [];
-
-  const results = await Promise.all(
-    slice.map(async (name) => {
-      const childCandidate = real === '/' ? '/' + name : `${real}/${name}`;
-
-      // Re-resolve realpath and re-check the jail (symlink-swap defence).
-      let childReal: string;
-      try {
-        childReal = await realpath(childCandidate);
-      } catch {
-        return null;
-      }
-      if (!roots.some((r) => isUnderRoot(childReal, r))) return null;
-
-      let st: Awaited<ReturnType<typeof stat>>;
-      try {
-        st = await stat(childReal);
-      } catch {
-        return null;
-      }
-
-      return { name, path: childReal, st };
-    }),
-  );
-
-  for (const r of results) {
-    if (!r) continue;
-    const { name, path: childReal, st } = r;
-
-    if (st.isDirectory()) {
-      dirs.push({ name, path: childReal, mtime: st.mtime.toISOString() });
-    } else if (st.isFile()) {
-      const dot = name.lastIndexOf('.');
-      if (dot < 0) continue;
-      const ext = name.slice(dot + 1).toLowerCase();
-      if (isListableMediaExt(ext)) {
-        images.push(buildMediaListItem(name, childReal, st, ext));
-      }
-    }
-  }
+  const { dirs, images } = splitEntries(results);
 
   const isRoot = real === '/';
   return {
@@ -1008,11 +991,10 @@ export async function listDirFast(
  * registered) so a full scan here is fine.
  *
  * The returned `root` is passed straight through to `handleEvent` so the
- * discover producer doesn't pay a second Mongo round-trip per file.
+ * discover producer doesn't pay a second database round-trip per file.
  */
 async function findOwningFolder(absPath: string): Promise<{ id: string; root: string } | null> {
-  const coll = await foldersCollection();
-  const folders = await coll.find({}).toArray();
+  const folders = await listFolders();
   let best: { id: string; root: string } | null = null;
   let bestLen = -1;
   for (const f of folders) {
@@ -1030,7 +1012,7 @@ async function findOwningFolder(absPath: string): Promise<{ id: string; root: st
  * Push a batch of un-indexed paths into the discover producer via handleEvent.
  *
  * Calls handleEvent({ kind: "created", absPath }, folderId) for each path that
- * is not yet in the assets collection. This is a fire-and-forget operation —
+ * is not yet in the `assets` table. This is a fire-and-forget operation —
  * the caller does not wait for upserts to complete. A failed upsert is logged
  * as a warning and does not surface to the HTTP response.
  *

@@ -1,25 +1,22 @@
 // preview-ondemand-limiter.test.ts
 //
 // Unit coverage for the on-demand preview-regeneration semaphore (#2012).
-// Two layers:
+// Three layers:
 //   - Pure concurrency-gate behavior, exercised directly against a fresh
 //     `PreviewOndemandLimiter` instance (no DB, no HTTP) via synthetic slow
 //     jobs — this is the "simulate N concurrent cache-miss requests and
 //     assert regeneration is actually bounded" coverage the ticket calls for.
-//   - DB-seeding from the `preview` stage's persisted `worker_config` row,
-//     using the same per-process isolated-DB + skip-if-Mongo-unreachable
-//     pattern as `libraries.cache.test.ts`.
+//   - Seeding from the `preview` stage's persisted `worker_config` row, over a
+//     per-test SQLite database installed as the process-wide handle (#3787).
+//   - The gate that keeps a request arriving before startup — or after
+//     shutdown — off a database that isn't there.
 //
 // Route-level integration coverage (real HTTP requests through
 // `routes/library/preview.ts`) lives in
 // `routes/library/preview-ondemand-limiter.test.ts`.
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { MongoClient } from 'mongodb';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
-
-const TEST_DB = withTestDb(`maple_test_preview_ondemand_limiter_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+import type { Database } from 'bun:sqlite';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   DEFAULT_ONDEMAND_LIMIT,
@@ -27,12 +24,23 @@ import {
   _resetPreviewOndemandLimiterForTests,
   type PreviewOndemandLimiter,
 } from './preview-ondemand-limiter.ts';
-import { WorkerConfigRepo } from '../workers/worker-config.repo.ts';
-import { getDb, closeDb, isDbConnected } from '../db/client.ts';
+import { isSqliteOpen } from '../db/sqlite/index.ts';
+import { createLiveTestDatabase, run } from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 /** Yield the event loop a tick — enough for a pending `acquire()`'s promise
  * continuation to run without a real timer. */
 const tick = () => new Promise((r) => setTimeout(r, 0));
+
+/** The `preview` stage concurrency an operator would have saved on Settings →
+ * Workers. Every other column is nullable, so a row may carry this alone. */
+function setPreviewConcurrency(db: Database, concurrency: number): void {
+  run(
+    db,
+    `INSERT INTO worker_config (name, concurrency) VALUES ('preview', ?)
+       ON CONFLICT (name) DO UPDATE SET concurrency = excluded.concurrency`,
+    concurrency,
+  );
+}
 
 describe('PreviewOndemandLimiter — bounded concurrency', () => {
   afterEach(() => {
@@ -144,51 +152,14 @@ describe('PreviewOndemandLimiter — bounded concurrency', () => {
   });
 });
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db(TEST_DB).command({ ping: 1 });
-    return c;
-  } catch {
-    await c.close().catch(() => {});
-    return null;
-  }
-}
-
-describe('PreviewOndemandLimiter — DB seeding from the `preview` stage config', () => {
-  let mongo: MongoClient | null = null;
-
-  beforeAll(async () => {
-    mongo = await tryConnect();
-    if (mongo) await getDb();
-  });
-
-  afterAll(async () => {
-    if (mongo) {
-      await mongo
-        .db(TEST_DB)
-        .dropDatabase()
-        .catch(() => {});
-      await mongo.close().catch(() => {});
-    }
-    await closeDb().catch(() => {});
-  });
-
+describe('PreviewOndemandLimiter — seeding from the `preview` stage config', () => {
   afterEach(() => {
     _resetPreviewOndemandLimiterForTests();
   });
 
   it('seeds its cap from worker_config.preview.concurrency on first run()', async () => {
-    if (!mongo) return; // skip-if-unreachable
-
-    const repo = new WorkerConfigRepo((await getDb()).collection('worker_config') as never);
-    await repo.upsert('preview', {
-      concurrency: 7,
-      maxAttempts: 5,
-      paused: false,
-      last_seen_target_version: 3,
-    });
+    using live = await createLiveTestDatabase();
+    setPreviewConcurrency(live.db, 7);
 
     const limiter = previewOndemandLimiter();
     expect(limiter.currentLimit()).toBe(DEFAULT_ONDEMAND_LIMIT); // not seeded yet
@@ -198,8 +169,9 @@ describe('PreviewOndemandLimiter — DB seeding from the `preview` stage config'
   });
 
   it('falls back to the built-in default when no worker_config row exists', async () => {
-    if (!mongo) return;
-    await (await getDb()).collection('worker_config').deleteOne({ name: 'preview' });
+    // Opened and left empty: a fresh install has the table but not the row.
+    using live = await createLiveTestDatabase();
+    expect(live.db.query(`SELECT COUNT(*) AS n FROM worker_config`).get()).toEqual({ n: 0 });
 
     const limiter = previewOndemandLimiter();
     await limiter.run(async () => {});
@@ -207,21 +179,14 @@ describe('PreviewOndemandLimiter — DB seeding from the `preview` stage config'
   });
 
   it('only reads the DB once — a later external DB edit does not retroactively reseed', async () => {
-    if (!mongo) return;
-
-    const repo = new WorkerConfigRepo((await getDb()).collection('worker_config') as never);
-    await repo.upsert('preview', {
-      concurrency: 9,
-      maxAttempts: 5,
-      paused: false,
-      last_seen_target_version: 3,
-    });
+    using live = await createLiveTestDatabase();
+    setPreviewConcurrency(live.db, 9);
 
     const limiter = previewOndemandLimiter();
     await limiter.run(async () => {});
     expect(limiter.currentLimit()).toBe(9);
 
-    await repo.patch('preview', { concurrency: 2 });
+    setPreviewConcurrency(live.db, 2);
     await limiter.run(async () => {});
     // Still 9 — live changes only apply via the explicit `setLimit` hook
     // (routes-main.ts's PATCH /:name/config handler), not a re-poll here.
@@ -229,53 +194,34 @@ describe('PreviewOndemandLimiter — DB seeding from the `preview` stage config'
   });
 });
 
-describe('PreviewOndemandLimiter — DB-down does not stall the hot path (Copilot review, PR #2015)', () => {
+describe('PreviewOndemandLimiter — no open database does not break the hot path (Copilot review, PR #2015)', () => {
   afterEach(() => {
     _resetPreviewOndemandLimiterForTests();
   });
 
-  it('run() resolves quickly and stays at the default when isDbConnected() is false, without attempting a connect', async () => {
-    // Force a known-disconnected state regardless of what an earlier
-    // describe block in this file left behind.
-    await closeDb().catch(() => {});
-    expect(isDbConnected()).toBe(false);
+  it('run() stays at the default when no database is open, without reaching for the pool', async () => {
+    // No test handle installed and no pool open. `sqliteDb()` throws in that
+    // state, so `ensureSeeded`'s `isSqliteOpen()` gate is the only reason the
+    // request path survives at all — this is the assertion that catches the
+    // gate being dropped.
+    expect(isSqliteOpen()).toBe(false);
 
     const limiter = previewOndemandLimiter();
-    const started = Date.now();
     await limiter.run(async () => {});
-    const elapsedMs = Date.now() - started;
 
-    // The driver's connect/server-selection timeout in `getDb()` is 5000ms;
-    // resolving well under that proves `ensureSeeded()` never attempted a
-    // connect. Generous bound to absorb CI jitter without risking a false
-    // pass if the gate regresses back to an unconditional connect attempt.
-    expect(elapsedMs).toBeLessThan(1000);
     expect(limiter.currentLimit()).toBe(DEFAULT_ONDEMAND_LIMIT);
   });
 
-  it('a later call, once the DB connects, still gets a real chance to seed (the skip is not memoized as done)', async () => {
-    const probe = await tryConnect();
-    if (!probe) return; // skip-if-unreachable
-    await probe.close().catch(() => {});
-
-    await closeDb().catch(() => {});
+  it('a later call, once the database is open, still gets a real chance to seed (the skip is not memoized as done)', async () => {
     const limiter = previewOndemandLimiter();
-    await limiter.run(async () => {}); // DB down — skipped, stays at default
+    await limiter.run(async () => {}); // nothing open — skipped, stays at default
     expect(limiter.currentLimit()).toBe(DEFAULT_ONDEMAND_LIMIT);
 
-    // DB comes up.
-    await getDb();
-    const repo = new WorkerConfigRepo((await getDb()).collection('worker_config') as never);
-    await repo.upsert('preview', {
-      concurrency: 6,
-      maxAttempts: 5,
-      paused: false,
-      last_seen_target_version: 3,
-    });
+    // The pool comes up (startup finished, or a request arrived after it did).
+    using live = await createLiveTestDatabase();
+    setPreviewConcurrency(live.db, 6);
 
     await limiter.run(async () => {}); // should now seed for real
     expect(limiter.currentLimit()).toBe(6);
-
-    await closeDb().catch(() => {});
   });
 });

@@ -2,66 +2,36 @@
  * Screenshot routing for the backup-ingest route.
  *
  * A screenshot detected at ingest (by the device-reported filename) lands in
- * `<year>/Screenshot` and seeds `is_screenshot: true` on the row, so the asset
+ * `<year>/Screenshot` and seeds `is_screenshot` on the row, so the asset
  * matches its on-disk home before the EXIF stage runs. Split into its own file
  * to keep the 600-LOC budget on `backup-ingest.test.ts` clear.
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), with the library rooted at a per-test tmp directory.
  */
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { ObjectId } from 'mongodb';
-import { authedHandle } from './helpers/authed-handle.ts';
-import { foldersCollection, assetsCollection, uploadSessionsCollection } from '../src/db/client.ts';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
+import { authedHandle } from './helpers/authed-handle.ts';
+import { findAssetIdByMapleId, readAsset, readLocations } from './helpers/sqlite-fixtures.ts';
+import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
-const libId = new ObjectId();
 const deviceId = 'test-device-screenshot';
-let tmpLib: string;
 
-beforeAll(async () => {
-  tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-ingest-screenshot-'));
-  const f = await foldersCollection();
-  await f.insertOne({
-    _id: libId,
-    path: tmpLib,
-    label: 'screenshot-test',
-    created_at: new Date(),
-    file_count: 0,
-  } as any);
-  const a = await assetsCollection();
-  await a.deleteMany({ 'phasset_links.device_id': deviceId });
-  const u = await uploadSessionsCollection();
-  await u.deleteMany({ device_id: deviceId });
-});
+const suite = setupBackupIngestSuite();
+beforeEach(suite.setup);
+afterEach(suite.teardown);
 
-afterAll(async () => {
-  try {
-    const a = await assetsCollection();
-    await a.deleteMany({
-      $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': deviceId }],
-    });
-    const f = await foldersCollection();
-    await f.deleteMany({ _id: libId });
-    const u = await uploadSessionsCollection();
-    await u.deleteMany({ library_id: libId });
-  } catch {
-    // Best-effort teardown — never mask a test failure with a cleanup error.
-  }
-  if (tmpLib) {
-    try {
-      await fs.rm(tmpLib, { recursive: true, force: true });
-    } catch {
-      // Teardown is best-effort; the OS will reclaim the tmpdir.
-    }
-  }
-});
+const ingest = makeIngestRequest(suite.handle);
 
-function ingest(body: Buffer, headers: Record<string, string>): Request {
-  return new Request(`http://localhost/api/libraries/${libId.toHexString()}/backup/ingest`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body: new Uint8Array(body),
-  });
+/** The asset's single location row and its `is_screenshot` flag, by content id. */
+function ingested(mapleId: string): { path: unknown; isScreenshot: unknown } {
+  const assetId = findAssetIdByMapleId(suite.handle.db, mapleId);
+  if (assetId === null) throw new Error(`no asset for maple_id ${mapleId}`);
+  return {
+    path: readLocations(suite.handle.db, assetId)[0]?.path,
+    isScreenshot: readAsset(suite.handle.db, assetId)?.is_screenshot,
+  };
 }
 
 describe('backup-ingest screenshot routing', () => {
@@ -86,14 +56,15 @@ describe('backup-ingest screenshot routing', () => {
     const body = await res.json();
     expect(body.target_rel_path).toBe('2024/Screenshot/Screenshot 2024-03-15 at 10.04.32.png');
 
-    const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: '0282e60066a2de261b6653bcdda90d1c' });
-    expect(doc?.fileinfo?.[0].path).toBe('2024/Screenshot');
-    expect(doc?.is_screenshot).toBe(true);
+    const row = ingested('0282e60066a2de261b6653bcdda90d1c');
+    expect(row.path).toBe('2024/Screenshot');
+    expect(row.isScreenshot).toBe(1);
 
     // And the bytes really landed there on disk.
     expect(
-      await fs.readFile(path.join(tmpLib, '2024/Screenshot/Screenshot 2024-03-15 at 10.04.32.png')),
+      await fs.readFile(
+        path.join(suite.handle.tmpLib, '2024/Screenshot/Screenshot 2024-03-15 at 10.04.32.png'),
+      ),
     ).toHaveLength(64);
   });
 
@@ -114,10 +85,9 @@ describe('backup-ingest screenshot routing', () => {
     const body = await res.json();
     expect(body.target_rel_path).toBe('2024/Misc/IMG_2024.HEIC');
 
-    const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: '0269a8aa01fe5537076d023dd5e9cc42' });
-    expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
-    expect(doc?.is_screenshot).toBe(false);
+    const row = ingested('0269a8aa01fe5537076d023dd5e9cc42');
+    expect(row.path).toBe('2024/Misc');
+    expect(row.isScreenshot).toBe(0);
   });
 
   test('a Screenshot-named VIDEO is not routed to <year>/Screenshot (#2325)', async () => {
@@ -140,14 +110,13 @@ describe('backup-ingest screenshot routing', () => {
     const body = await res.json();
     expect(body.target_rel_path).toBe('2024/Misc/Screenshot_20240315_103000.mp4');
 
-    const a = await assetsCollection();
-    const doc = await a.findOne({ maple_id: '0259712afe2eaf516245979e4a802972' });
-    expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
-    expect(doc?.is_screenshot).toBe(false);
+    const row = ingested('0259712afe2eaf516245979e4a802972');
+    expect(row.path).toBe('2024/Misc');
+    expect(row.isScreenshot).toBe(0);
 
     // And the bytes really landed outside the Screenshot folder.
     expect(
-      await fs.readFile(path.join(tmpLib, '2024/Misc/Screenshot_20240315_103000.mp4')),
+      await fs.readFile(path.join(suite.handle.tmpLib, '2024/Misc/Screenshot_20240315_103000.mp4')),
     ).toHaveLength(64);
   });
 });

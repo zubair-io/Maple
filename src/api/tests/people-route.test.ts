@@ -1,136 +1,74 @@
 /**
- * /api/people/* route tests. Mounts the route without `requireAuth`
- * (mirrors `tests/enrichment-route.test.ts`); skip-passes when Mongo is
- * unreachable.
+ * /api/people/* route tests, against SQLite (#3787).
+ *
+ * Mounts the route without `requireAuth` (mirrors `tests/enrichment-route.test.ts`)
+ * and drives it with `app.handle`, so every handler reaches `sqliteDb()` with no
+ * override — hence `createLiveTestDatabase`, which installs the database as the
+ * process-wide handle for the file.
+ *
+ * ## Why this file holds one database rather than one per test
+ *
+ * `POST /api/people/cluster` is the exception that decides it. The clustering
+ * pass hands the database's *path* to its worker (`people.cluster-pool.ts`), so
+ * it reaches the pool rather than the installed test handle and cannot run
+ * against an in-memory database at all. So the file opens one file-backed
+ * database, opens the real pool on the same file, and clears the fixture tables
+ * between tests.
+ *
+ * The denormalised `PersonDoc.face_count` the Mongo version had to reconcile by
+ * hand after every seed is gone: the count is derived from the `faces` rows, so
+ * inserting a face *is* the update (`people.face-count.ts`).
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import type { AssetDoc, AssetFaceDoc } from '../src/db/schema.ts';
-import { withTestDb } from '../src/db/test-db.test-helpers.ts';
+import { closeSqlitePool, openSqlitePool } from '../src/db/sqlite/index.ts';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { shutdownClusterPool } from '../src/db/sqlite/repos/people.cluster-pool.ts';
+import { nearAxis } from '../src/db/sqlite/repos/people.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { createPerson } from '../src/people/people.repo.ts';
+import { peopleRoutes } from '../src/routes/people.ts';
+import {
+  clearPeopleFixtures,
+  coverAssetId,
+  faceState,
+  insertAssetWithFaces,
+  type FaceSeed,
+} from './helpers/people-fixtures.ts';
 
-const TEST_DB = withTestDb(`maple_test_people_route_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let app: Pick<Elysia, 'handle'> | null = null;
-
-const DIM = 512;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
-// Shared library so `getPerson`'s abs_path resolution finds a real
-// root — see comment on `insertAssetWithFaces`.
-const LIBRARY_ID = new ObjectId();
+let live: LiveTestDatabase;
+let libraryId: string;
+const app = new Elysia().use(peopleRoutes);
 
 beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[people-route.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
-    await db.createCollection(name).catch(() => undefined);
-  }
-  await db.collection('folders').insertOne({
-    _id: LIBRARY_ID,
-    path: '/lib',
-    label: 'lib',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  } as never);
-  const { closeDb, ensureIndexes } = await import('../src/db/client.ts');
-  await closeDb();
-  await ensureIndexes();
-  // Invalidate the process-wide libraries cache so this suite sees the
-  // folder seeded above rather than reusing a sibling-suite entry.
-  const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
-  invalidateLibraryRoots();
-  const { peopleRoutes } = await import('../src/routes/people.ts');
-  app = new Elysia().use(peopleRoutes);
+  live = await createLiveTestDatabase('file');
+  // The clustering worker opens this same file read-only and sends its writes
+  // back to the pool's single writer; see the module comment.
+  await openSqlitePool({ path: live.path, readers: 1 });
+  libraryId = insertFolder(live.db, { path: '/lib', slug: 'lib' });
 });
 
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('people').deleteMany({});
-  await db!.collection('assets').deleteMany({});
+beforeEach(() => {
+  clearPeopleFixtures(live.db);
 });
 
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../src/db/client.ts');
-  await closeDb();
+afterAll(() => {
+  shutdownClusterPool();
+  closeSqlitePool();
+  live.close();
 });
 
-function nearAxis(axis: number, jitter: number): number[] {
-  const v = new Array<number>(DIM).fill(0);
-  v[axis] = 1 - jitter;
-  v[(axis + 1) % DIM] = jitter / 2;
-  v[(axis + 2) % DIM] = jitter / 2;
-  return v;
-}
-
-async function insertAssetWithFaces(faces: AssetFaceDoc[]): Promise<ObjectId> {
-  // Use the shared LIBRARY_ID so `getPerson`'s `assetAbsPath` lookup
-  // resolves through the seeded folder — otherwise random per-row
-  // library_ids would not be in the libraries cache and `getPerson`
-  // would skip every face row (post drop-abs-path-2026-05-21).
-  const doc: AssetDoc = {
-    fileinfo: [
-      {
-        path: '',
-        filename: `${Math.random().toString(36).slice(2, 8)}.jpg`,
-        library_id: LIBRARY_ID,
-        deleted_at: null,
-      },
-    ],
-    size: 1024,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    faces,
-  };
-  const res = await db!.collection('assets').insertOne(doc as AssetDoc);
-  // These tests seed faces directly with `person_id` already set, bypassing
-  // the maintained write paths (assign / hide / merge) that keep the
-  // denormalized `PersonDoc.face_count` in sync. Reconcile the field the same
-  // way production does on boot — the idempotent `backfillPersonFaceCount`
-  // migration primitive — so `listPeople` (which now reads `face_count`)
-  // reflects the seeded faces.
-  const { backfillPersonFaceCount } = await import('../src/db/migrations.ts');
-  await backfillPersonFaceCount(db!);
-  return res.insertedId;
+function seedFaces(faces: readonly FaceSeed[]): string {
+  return insertAssetWithFaces(live.db, libraryId, faces);
 }
 
 async function get(path: string): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(new Request(`http://localhost${path}`));
+  const res = await app.handle(new Request(`http://localhost${path}`));
   return { status: res.status, body: res.status === 204 ? null : await res.json() };
 }
 
@@ -138,7 +76,7 @@ async function post(
   path: string,
   body?: Record<string, unknown>,
 ): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(
+  const res = await app.handle(
     new Request(`http://localhost${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -152,7 +90,7 @@ async function put(
   path: string,
   body: Record<string, unknown>,
 ): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(
+  const res = await app.handle(
     new Request(`http://localhost${path}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -162,23 +100,27 @@ async function put(
   return { status: res.status, body: res.status === 204 ? null : await res.json() };
 }
 
+/** `POST /api/people`, returning the new person's id. */
+async function createPersonVia(name: string): Promise<string> {
+  const created = await post('/api/people', { name });
+  expect(created.status).toBe(200);
+  return (created.body as { id: string }).id;
+}
+
 describe('POST /api/people', () => {
   it('creates a person', async () => {
-    if (!mongoReachable) return;
     const r = await post('/api/people', { name: 'Alpha' });
     expect(r.status).toBe(200);
     expect((r.body as { name: string }).name).toBe('Alpha');
   });
 
   it('dedupes by name (case-insensitive)', async () => {
-    if (!mongoReachable) return;
     const a = await post('/api/people', { name: 'Beta' });
     const b = await post('/api/people', { name: 'beta' });
     expect((a.body as { id: string }).id).toBe((b.body as { id: string }).id);
   });
 
   it('rejects empty name', async () => {
-    if (!mongoReachable) return;
     const r = await post('/api/people', { name: '   ' });
     expect(r.status).toBe(400);
   });
@@ -186,16 +128,13 @@ describe('POST /api/people', () => {
   // #2877: the search `people` filter param is comma-separated, so a comma
   // in a name would split into names that resolve to nobody.
   it('rejects a name containing a comma', async () => {
-    if (!mongoReachable) return;
     const r = await post('/api/people', { name: 'Doe, Jane' });
     expect(r.status).toBe(400);
     expect((r.body as { error: string }).error).toMatch(/comma/);
   });
 
   it('rejects a rename to a name containing a comma', async () => {
-    if (!mongoReachable) return;
-    const created = await post('/api/people', { name: 'Comma Free' });
-    const id = (created.body as { id: string }).id;
+    const id = await createPersonVia('Comma Free');
     const r = await put(`/api/people/${id}`, { name: 'Free, Comma' });
     expect(r.status).toBe(400);
     expect((r.body as { error: string }).error).toMatch(/comma/);
@@ -204,9 +143,7 @@ describe('POST /api/people', () => {
 
 describe('PUT /api/people/:id', () => {
   it('renames', async () => {
-    if (!mongoReachable) return;
-    const created = await post('/api/people', { name: 'Gamma' });
-    const id = (created.body as { id: string }).id;
+    const id = await createPersonVia('Gamma');
     const r = await put(`/api/people/${id}`, { name: 'Gam' });
     expect(r.status).toBe(200);
     expect((r.body as { name: string }).name).toBe('Gam');
@@ -214,17 +151,14 @@ describe('PUT /api/people/:id', () => {
   });
 
   it('merges on collision and reports merged_from', async () => {
-    if (!mongoReachable) return;
-    const a = await post('/api/people', { name: 'Delta' });
-    const b = await post('/api/people', { name: 'DeltaBis' });
-    const aId = (a.body as { id: string }).id;
-    const bId = (b.body as { id: string }).id;
+    const aId = await createPersonVia('Delta');
+    const bId = await createPersonVia('DeltaBis');
     // Rename b to "Delta" — collides with a.
     const r = await put(`/api/people/${bId}`, { name: 'Delta' });
     expect(r.status).toBe(200);
     const body = r.body as { id: string; merged_from: string | null };
     expect(body.merged_from).not.toBeNull();
-    // Survivor must be the older _id (lexicographic).
+    // Survivor must be the older id (lexicographic).
     const survivor = aId < bId ? aId : bId;
     const orphan = aId < bId ? bId : aId;
     expect(body.id).toBe(survivor);
@@ -232,15 +166,11 @@ describe('PUT /api/people/:id', () => {
   });
 
   it('404 for unknown id', async () => {
-    if (!mongoReachable) return;
-    const r = await put(`/api/people/${new ObjectId().toHexString()}`, {
-      name: 'Epsilon',
-    });
+    const r = await put(`/api/people/${newObjectIdHex()}`, { name: 'Epsilon' });
     expect(r.status).toBe(404);
   });
 
   it('400 for malformed id', async () => {
-    if (!mongoReachable) return;
     const r = await put(`/api/people/not-an-id`, { name: 'Zeta' });
     expect(r.status).toBe(400);
   });
@@ -248,96 +178,62 @@ describe('PUT /api/people/:id', () => {
 
 describe('GET /api/people', () => {
   it('returns face counts and excludes merged people', async () => {
-    if (!mongoReachable) return;
-    const a = await post('/api/people', { name: 'Helen' });
-    const b = await post('/api/people', { name: 'Ivy' });
-    const aId = (a.body as { id: string }).id;
-    const bId = (b.body as { id: string }).id;
-    const asset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: aId, confidence: 0.9 },
-      { bbox: { x: 1, y: 0, w: 1, h: 1 }, person_id: aId, confidence: 0.9 },
-      { bbox: { x: 2, y: 0, w: 1, h: 1 }, person_id: bId, confidence: 0.9 },
+    const aId = await createPersonVia('Helen');
+    const bId = await createPersonVia('Ivy');
+    seedFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, personId: aId },
+      { bbox: { x: 1, y: 0, w: 1, h: 1 }, personId: aId },
+      { bbox: { x: 2, y: 0, w: 1, h: 1 }, personId: bId },
     ]);
-    expect(asset).toBeInstanceOf(ObjectId);
     const r = await get('/api/people');
     expect(r.status).toBe(200);
     const list = r.body as Array<{ name: string; face_count: number }>;
     expect(list).toHaveLength(2);
-    const helen = list.find((p) => p.name === 'Helen');
-    const ivy = list.find((p) => p.name === 'Ivy');
-    expect(helen?.face_count).toBe(2);
-    expect(ivy?.face_count).toBe(1);
+    expect(list.find((p) => p.name === 'Helen')?.face_count).toBe(2);
+    expect(list.find((p) => p.name === 'Ivy')?.face_count).toBe(1);
   });
 
   it('self-heals missing cover_asset_id from assigned faces', async () => {
-    if (!mongoReachable) return;
-    // Legacy shape: a person doc with faces assigned but no cover_asset_id —
+    // Legacy shape: a person with faces assigned but no cover_asset_id —
     // mirrors what we see on installs clustered before commit 1f32022.
-    // POST /api/people creates the doc without seeding cover_asset_id; the
-    // face is assigned out-of-band via insertAssetWithFaces, exactly the
-    // gap that the opportunistic backfill is supposed to close.
-    const created = await post('/api/people', { name: 'Nora' });
-    const personId = (created.body as { id: string }).id;
-    const lowConf = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: personId, confidence: 0.5 },
-    ]);
-    const highConf = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: personId, confidence: 0.95 },
-    ]);
+    // POST /api/people creates the row without a cover; the faces are assigned
+    // out of band, exactly the gap the opportunistic backfill closes.
+    const personId = await createPersonVia('Nora');
+    const lowConf = seedFaces([{ personId, confidence: 0.5 }]);
+    const highConf = seedFaces([{ personId, confidence: 0.95 }]);
     // Sanity: cover is null before the GET.
-    const before = await db!.collection('people').findOne({ _id: new ObjectId(personId) });
-    expect(before?.cover_asset_id ?? null).toBeNull();
+    expect(coverAssetId(live.db, personId)).toBeNull();
     const r = await get('/api/people');
     expect(r.status).toBe(200);
     const list = r.body as Array<{ id: string; cover_asset_id: string | null }>;
     const nora = list.find((p) => p.id === personId);
-    expect(nora?.cover_asset_id).toBe(highConf.toHexString());
+    expect(nora?.cover_asset_id).toBe(highConf);
     // The lower-confidence face must not be picked.
-    expect(nora?.cover_asset_id).not.toBe(lowConf.toHexString());
+    expect(nora?.cover_asset_id).not.toBe(lowConf);
   });
 });
 
 describe('GET /api/people/:id', () => {
   it('returns the person + recent faces', async () => {
-    if (!mongoReachable) return;
-    const created = await post('/api/people', { name: 'Jack' });
-    const id = (created.body as { id: string }).id;
-    await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: id, confidence: 0.95 },
-    ]);
+    const id = await createPersonVia('Jack');
+    seedFaces([{ bbox: { x: 0, y: 0, w: 10, h: 10 }, personId: id, confidence: 0.95 }]);
     const r = await get(`/api/people/${id}`);
     expect(r.status).toBe(200);
     const body = r.body as {
       faces: Array<{ asset_id: string; face_index: number; bbox: { w: number } }>;
     };
     expect(body.faces).toHaveLength(1);
-    expect(body.faces[0].face_index).toBe(0);
-    expect(body.faces[0].bbox.w).toBe(10);
+    expect(body.faces[0]!.face_index).toBe(0);
+    expect(body.faces[0]!.bbox.w).toBe(10);
   });
 });
 
 describe('POST /api/people/cluster', () => {
   it('assigns close faces to one cluster and creates new for far face', async () => {
-    if (!mongoReachable) return;
-    await insertAssetWithFaces([
-      {
-        bbox: { x: 0, y: 0, w: 1, h: 1 },
-        person_id: null,
-        confidence: 0.9,
-        embedding: nearAxis(0, 0.05),
-      },
-      {
-        bbox: { x: 1, y: 0, w: 1, h: 1 },
-        person_id: null,
-        confidence: 0.9,
-        embedding: nearAxis(0, 0.1),
-      },
-      {
-        bbox: { x: 2, y: 0, w: 1, h: 1 },
-        person_id: null,
-        confidence: 0.9,
-        embedding: nearAxis(50, 0.05),
-      },
+    seedFaces([
+      { bbox: { x: 0, y: 0, w: 1, h: 1 }, embedding: nearAxis(0, 0.05) },
+      { bbox: { x: 1, y: 0, w: 1, h: 1 }, embedding: nearAxis(0, 0.1) },
+      { bbox: { x: 2, y: 0, w: 1, h: 1 }, embedding: nearAxis(50, 0.05) },
     ]);
     const r = await post('/api/people/cluster', {});
     expect(r.status).toBe(200);
@@ -350,47 +246,36 @@ describe('POST /api/people/cluster', () => {
 
 describe('POST /api/people/assign', () => {
   it('assigns then unassigns a face', async () => {
-    if (!mongoReachable) return;
-    const created = await post('/api/people', { name: 'Kate' });
-    const id = (created.body as { id: string }).id;
-    const asset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: null, confidence: 0.9 },
-    ]);
+    const id = await createPersonVia('Kate');
+    const asset = seedFaces([{ bbox: { x: 0, y: 0, w: 1, h: 1 } }]);
     let r = await post('/api/people/assign', {
-      asset_id: asset.toHexString(),
+      asset_id: asset,
       face_index: 0,
       person_id: id,
     });
     expect(r.status).toBe(200);
-    let row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
-    expect(row?.faces?.[0]?.person_id).toBe(id);
+    expect(faceState(live.db, asset, 0)?.personId).toBe(id);
     r = await post('/api/people/assign', {
-      asset_id: asset.toHexString(),
+      asset_id: asset,
       face_index: 0,
       person_id: null,
     });
     expect(r.status).toBe(200);
-    row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
-    expect(row?.faces?.[0]?.person_id).toBeNull();
+    expect(faceState(live.db, asset, 0)?.personId).toBeNull();
   });
 });
 
 describe('POST /api/people/:id/hide + /unhide', () => {
   it('hide keeps faces assigned, drops the person from the list, surfaces it on /hidden', async () => {
-    if (!mongoReachable) return;
-    const created = await post('/api/people', { name: 'Lex' });
-    const id = (created.body as { id: string }).id;
-    const asset = await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: id, confidence: 0.9 },
-    ]);
+    const id = await createPersonVia('Lex');
+    const asset = seedFaces([{ bbox: { x: 0, y: 0, w: 1, h: 1 }, personId: id }]);
 
     const hide = await post(`/api/people/${id}/hide`);
     expect(hide.status).toBe(200);
     expect((hide.body as { ok: true }).ok).toBe(true);
 
     // Faces stay assigned — soft-hide is not a delete.
-    const row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
-    expect(row?.faces?.[0]?.person_id).toBe(id);
+    expect(faceState(live.db, asset, 0)?.personId).toBe(id);
 
     // Gone from the normal list…
     const list = await get('/api/people');
@@ -415,7 +300,6 @@ describe('POST /api/people/:id/hide + /unhide', () => {
   });
 
   it('400 on invalid person id', async () => {
-    if (!mongoReachable) return;
     const r = await post('/api/people/not-a-hex/hide');
     expect(r.status).toBe(400);
   });
@@ -423,13 +307,11 @@ describe('POST /api/people/:id/hide + /unhide', () => {
 
 describe('POST /api/people/hide', () => {
   it('removes the face from the person panel and prevents re-clustering', async () => {
-    if (!mongoReachable) return;
-    const created = await post('/api/people', { name: 'Mira' });
-    const id = (created.body as { id: string }).id;
-    const asset = await insertAssetWithFaces([
+    const id = await createPersonVia('Mira');
+    const asset = seedFaces([
       {
         bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
-        person_id: id,
+        personId: id,
         confidence: 0.95,
         embedding: nearAxis(60, 0.05),
       },
@@ -438,10 +320,7 @@ describe('POST /api/people/hide', () => {
     let detail = await get(`/api/people/${id}`);
     expect((detail.body as { faces: unknown[] }).faces).toHaveLength(1);
     // Hide it.
-    const hide = await post('/api/people/hide', {
-      asset_id: asset.toHexString(),
-      face_index: 0,
-    });
+    const hide = await post('/api/people/hide', { asset_id: asset, face_index: 0 });
     expect(hide.status).toBe(200);
     expect((hide.body as { ok: true }).ok).toBe(true);
     // Disappears from the detail panel.
@@ -450,17 +329,11 @@ describe('POST /api/people/hide', () => {
     // Re-running clustering does not pull the hidden face back.
     const cluster = await post('/api/people/cluster', {});
     expect((cluster.body as { assigned: number }).assigned).toBe(0);
-    const row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
-    expect(row?.faces?.[0]?.hidden).toBe(true);
-    expect(row?.faces?.[0]?.person_id).toBeNull();
+    expect(faceState(live.db, asset, 0)).toEqual({ personId: null, hidden: true });
   });
 
   it("400 on invalid asset_id, 404 when asset doesn't exist", async () => {
-    if (!mongoReachable) return;
-    let r = await post('/api/people/hide', {
-      asset_id: 'not-a-hex',
-      face_index: 0,
-    });
+    let r = await post('/api/people/hide', { asset_id: 'not-a-hex', face_index: 0 });
     expect(r.status).toBe(400);
     r = await post('/api/people/hide', {
       asset_id: 'deadbeefdeadbeefdeadbeef',
@@ -472,12 +345,10 @@ describe('POST /api/people/hide', () => {
 
 describe('POST /api/people/merge', () => {
   it('folds sources into the target and returns counts', async () => {
-    if (!mongoReachable) return;
-    const { createPerson } = await import('../src/people/people.repo.ts');
     const target = await createPerson('Alice');
     const src = await createPerson('Person 1');
-    await insertAssetWithFaces([
-      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: src._id.toHexString(), confidence: 0.9 },
+    seedFaces([
+      { bbox: { x: 0, y: 0, w: 10, h: 10 }, personId: src._id.toHexString(), confidence: 0.9 },
     ]);
 
     const r = await post('/api/people/merge', {
@@ -485,11 +356,7 @@ describe('POST /api/people/merge', () => {
       source_ids: [src._id.toHexString()],
     });
     expect(r.status).toBe(200);
-    const body = r.body as {
-      id: string;
-      name: string;
-      merged_count: number;
-    };
+    const body = r.body as { id: string; name: string; merged_count: number };
     expect(body.id).toBe(target._id.toHexString());
     expect(body.name).toBe('Alice');
     expect(body.merged_count).toBe(1);
@@ -500,7 +367,6 @@ describe('POST /api/people/merge', () => {
   });
 
   it('400s on an invalid target id', async () => {
-    if (!mongoReachable) return;
     const r = await post('/api/people/merge', {
       target_id: 'not-an-id',
       source_ids: ['0123456789abcdef01234567'],
@@ -509,17 +375,14 @@ describe('POST /api/people/merge', () => {
   });
 
   it('404s on an unknown target', async () => {
-    if (!mongoReachable) return;
     const r = await post('/api/people/merge', {
-      target_id: new ObjectId().toHexString(),
-      source_ids: [new ObjectId().toHexString()],
+      target_id: newObjectIdHex(),
+      source_ids: [newObjectIdHex()],
     });
     expect(r.status).toBe(404);
   });
 
   it('400s when source_ids dedup to empty (only the target)', async () => {
-    if (!mongoReachable) return;
-    const { createPerson } = await import('../src/people/people.repo.ts');
     const target = await createPerson('Alice');
     const r = await post('/api/people/merge', {
       target_id: target._id.toHexString(),
@@ -531,16 +394,8 @@ describe('POST /api/people/merge', () => {
 
 describe('cover_bbox surface', () => {
   it('list response includes cover_bbox once clustering has run', async () => {
-    if (!mongoReachable) return;
     const bbox = { x: 0.3, y: 0.2, w: 0.4, h: 0.5 };
-    await insertAssetWithFaces([
-      {
-        bbox,
-        person_id: null,
-        confidence: 0.9,
-        embedding: nearAxis(70, 0.05),
-      },
-    ]);
+    seedFaces([{ bbox, embedding: nearAxis(70, 0.05) }]);
     await post('/api/people/cluster', {});
     const list = await get('/api/people');
     const rows = list.body as Array<{
@@ -548,6 +403,6 @@ describe('cover_bbox surface', () => {
       cover_bbox: { x: number; y: number; w: number; h: number } | null;
     }>;
     expect(rows).toHaveLength(1);
-    expect(rows[0].cover_bbox).toEqual(bbox);
+    expect(rows[0]!.cover_bbox).toEqual(bbox);
   });
 });

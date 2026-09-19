@@ -1,8 +1,10 @@
 /**
- * Tests for `GET /api/map/clusters` (#2825 — Map T1).
+ * Tests for `GET /api/map/clusters` (#2825 — Map T1), against SQLite (#3787).
  *
- * Bare-Elysia `app.handle` style; mirrors `tests/search/facets.test.ts`.
- * Skip-passes if MongoDB is unreachable.
+ * Bare-Elysia `app.handle` style; mirrors `tests/search/facets.test.ts`. The
+ * database is a real in-memory SQLite installed as the process-wide handle for
+ * the file, so the handler reaches it through `sqliteDb()` exactly as it does in
+ * production.
  *
  * Fixture geography, all at zoom=4 (cellSizeDeg = 360/2^4 = 22.5°):
  *   - `nyc-1` (40.0, -74.0)   + `nyc-2` (41.0, -73.0)  → SAME cell (1,-4)
@@ -21,29 +23,14 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId } from 'mongodb';
-import { fmtAuth, seedFolders, tryConnect } from '../search/_setup.ts';
-
-const TEST_DB = `maple_test_map_clusters_${process.pid}`;
-
-/** Captured and installed inside `beforeAll`, restored in `afterAll` —
- * deliberately NOT at module scope. `bun test` imports every file into one
- * process and its file order varies between runs, so an import-time
- * `process.env.MAPLE_MONGO_DB = …` is live from the moment this file is
- * loaded until the moment its `afterAll` runs, which can span other
- * files' tests. The `getDb` singleton latches the env pair it first
- * observes, so a stray override outside this suite's own window is how a
- * different suite ends up reading the wrong database (the root cause
- * behind the preview-ETag flake, #2783 / PR #2814). Confining the
- * mutation to the hooks keeps the window exactly this suite's runtime. */
-let priorMongoDb: string | undefined;
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-const folderA = new ObjectId();
-// `seedFolders` inserts two distinct folder docs; every fixture asset below
-// lives under `folderA` — `folderB` is registered but unused.
-const folderB = new ObjectId();
+import { fmtAuth, seedLibraries } from '../search/_setup.ts';
+import { newObjectIdHex } from '../../src/db/sqlite/object-id.ts';
+import { seedSearchAsset, type SeedAsset } from '../../src/db/sqlite/repos/search.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../../src/indexer/libraries.cache.ts';
 
 interface ClusterCell {
   lat: number;
@@ -57,187 +44,130 @@ interface ClustersResponse {
   cells: ClusterCell[];
 }
 
-function fileinfo(filename: string) {
-  return [{ library_id: folderA, path: '', filename, deleted_at: null }];
-}
+let live: LiveTestDatabase;
 
-function baseFields() {
-  return {
-    size: 1024,
-    mtime: Date.now(),
-    rating: 0,
-    flag: 0 as const,
-    color_label: '',
-    indexed_at: new Date().toISOString(),
-    hidden: false,
-    deleted_at: null,
-  };
-}
+const NYC_1_ID = newObjectIdHex();
+const NYC_2_ID = newObjectIdHex();
+const LONDON_1_ID = newObjectIdHex();
+const PARIS_1_ID = newObjectIdHex();
+const ALASKA_1_ID = newObjectIdHex();
+const TOKYO_1_ID = newObjectIdHex();
+const SYDNEY_A_ID = newObjectIdHex();
+const SYDNEY_B_ID = newObjectIdHex();
 
-const NYC_1_ID = new ObjectId();
-const NYC_2_ID = new ObjectId();
-const LONDON_1_ID = new ObjectId();
-const PARIS_1_ID = new ObjectId();
-const ALASKA_1_ID = new ObjectId();
-const TOKYO_1_ID = new ObjectId();
-const SYDNEY_A_ID = new ObjectId();
-const SYDNEY_B_ID = new ObjectId();
+/** Every fixture lives directly under its library root, so `thumbKey` is
+ * `<root>/<filename>` and the assertions below stay readable. */
+const FIXTURES: SeedAsset[] = [
+  {
+    id: NYC_1_ID,
+    filename: 'nyc1.dng',
+    path: '',
+    cameraMake: 'Canon',
+    cameraModel: 'EOS R5',
+    gps: { lat: 40.0, lng: -74.0 },
+    locality: 'New York',
+    region: 'New York',
+    countryCode: 'us',
+    searchBlob: 'new york brooklyn bridge',
+  },
+  {
+    id: NYC_2_ID,
+    filename: 'nyc2.dng',
+    path: '',
+    cameraMake: 'Nikon',
+    cameraModel: 'Z9',
+    gps: { lat: 41.0, lng: -73.0 },
+    region: 'New York',
+    countryCode: 'us',
+    searchBlob: 'new york hudson valley',
+  },
+  {
+    id: LONDON_1_ID,
+    filename: 'london1.dng',
+    path: '',
+    cameraMake: 'Canon',
+    cameraModel: 'R6',
+    gps: { lat: 51.5, lng: -0.12 },
+    region: 'England',
+    countryCode: 'gb',
+    searchBlob: 'london england thames',
+  },
+  {
+    id: PARIS_1_ID,
+    filename: 'paris1.dng',
+    path: '',
+    cameraMake: 'Sony',
+    cameraModel: 'A7R V',
+    gps: { lat: 48.85, lng: 2.35 },
+    locality: 'Paris',
+    region: 'Île-de-France',
+    countryCode: 'fr',
+    searchBlob: 'paris france seine',
+  },
+  {
+    id: ALASKA_1_ID,
+    filename: 'alaska1.dng',
+    path: '',
+    cameraMake: 'Sony',
+    cameraModel: 'A1',
+    gps: { lat: 64.0, lng: -150.0 },
+    countryCode: 'us',
+  },
+  {
+    id: TOKYO_1_ID,
+    filename: 'tokyo1.dng',
+    path: '',
+    cameraMake: 'Fujifilm',
+    cameraModel: 'X-T5',
+    gps: { lat: 35.68, lng: 139.69 },
+    locality: 'Tokyo',
+    region: 'Tokyo',
+    countryCode: 'jp',
+  },
+  // Two Sydney "twins" 0.001° apart — closer together than a world-bbox
+  // clamped cell (5.625°) but ~3 zoom-20 cells apart (0.00034° each). They are
+  // what makes the grid cap observable: separate cells under a tight viewport,
+  // one merged cell under a whole-world viewport at the same zoom. Far enough
+  // south that every other test's bbox excludes them.
+  {
+    id: SYDNEY_A_ID,
+    filename: 'sydneyA.dng',
+    path: '',
+    cameraMake: 'Canon',
+    cameraModel: 'R5',
+    gps: { lat: -33.86, lng: 151.21 },
+    locality: 'Sydney',
+    region: 'New South Wales',
+    countryCode: 'au',
+  },
+  {
+    id: SYDNEY_B_ID,
+    filename: 'sydneyB.dng',
+    path: '',
+    cameraMake: 'Canon',
+    cameraModel: 'R5',
+    gps: { lat: -33.86, lng: 151.211 },
+    locality: 'Sydney',
+    region: 'New South Wales',
+    countryCode: 'au',
+  },
+];
 
 beforeAll(async () => {
-  priorMongoDb = process.env.MAPLE_MONGO_DB;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[map/clusters.test] skipping: MongoDB unreachable');
-    return;
-  }
-  const db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  await seedFolders(db, folderA, folderB);
-  // Mirrors the production `search_blob_text` index (see `ensureIndexes`).
-  // Needed by the placeQuery case below: `buildFilter` turns placeQuery
-  // into a `$text` predicate, and Mongo rejects `$text` outright without a
-  // text index — so without this the test would pass for the wrong reason.
-  await db.collection('assets').createIndex(
-    { search_blob: 'text' },
-    {
-      name: 'search_blob_text',
-      default_language: 'english',
-      partialFilterExpression: {
-        deleted_at: null,
-        search_blob: { $type: 'string', $gt: '' },
-      },
-    },
-  );
-  await db.collection('assets').insertMany([
-    {
-      _id: NYC_1_ID,
-      ...baseFields(),
-      fileinfo: fileinfo('nyc1.dng'),
-      exif: {
-        captured_at: null,
-        camera_make: 'Canon',
-        camera_model: 'EOS R5',
-        gps: { lat: 40.0, lng: -74.0 },
-      },
-      place: { rollups: { locality: 'New York', region: 'New York', country_code: 'us' } },
-      search_blob: 'new york brooklyn bridge',
-    },
-    {
-      _id: NYC_2_ID,
-      ...baseFields(),
-      fileinfo: fileinfo('nyc2.dng'),
-      exif: {
-        captured_at: null,
-        camera_make: 'Nikon',
-        camera_model: 'Z9',
-        gps: { lat: 41.0, lng: -73.0 },
-      },
-      place: { rollups: { locality: null, region: 'New York', country_code: 'us' } },
-      search_blob: 'new york hudson valley',
-    },
-    {
-      _id: LONDON_1_ID,
-      ...baseFields(),
-      fileinfo: fileinfo('london1.dng'),
-      exif: {
-        captured_at: null,
-        camera_make: 'Canon',
-        camera_model: 'R6',
-        gps: { lat: 51.5, lng: -0.12 },
-      },
-      place: { rollups: { locality: null, region: 'England', country_code: 'gb' } },
-      search_blob: 'london england thames',
-    },
-    {
-      _id: PARIS_1_ID,
-      ...baseFields(),
-      fileinfo: fileinfo('paris1.dng'),
-      exif: {
-        captured_at: null,
-        camera_make: 'Sony',
-        camera_model: 'A7R V',
-        gps: { lat: 48.85, lng: 2.35 },
-      },
-      place: { rollups: { locality: 'Paris', region: 'Île-de-France', country_code: 'fr' } },
-      search_blob: 'paris france seine',
-    },
-    {
-      _id: ALASKA_1_ID,
-      ...baseFields(),
-      fileinfo: fileinfo('alaska1.dng'),
-      exif: {
-        captured_at: null,
-        camera_make: 'Sony',
-        camera_model: 'A1',
-        gps: { lat: 64.0, lng: -150.0 },
-      },
-      place: { rollups: { locality: null, region: null, country_code: 'us' } },
-    },
-    {
-      _id: TOKYO_1_ID,
-      ...baseFields(),
-      fileinfo: fileinfo('tokyo1.dng'),
-      exif: {
-        captured_at: null,
-        camera_make: 'Fujifilm',
-        camera_model: 'X-T5',
-        gps: { lat: 35.68, lng: 139.69 },
-      },
-      place: { rollups: { locality: 'Tokyo', region: 'Tokyo', country_code: 'jp' } },
-    },
-    // Two Sydney "twins" 0.001° apart — closer together than a
-    // world-bbox clamped cell (5.625°) but ~3 zoom-20 cells apart
-    // (0.00034° each). They are what makes the grid cap observable:
-    // separate cells under a tight viewport, one merged cell under a
-    // whole-world viewport at the same zoom. Far enough south that every
-    // other test's bbox excludes them.
-    {
-      _id: SYDNEY_A_ID,
-      ...baseFields(),
-      fileinfo: fileinfo('sydneyA.dng'),
-      exif: {
-        captured_at: null,
-        camera_make: 'Canon',
-        camera_model: 'R5',
-        gps: { lat: -33.86, lng: 151.21 },
-      },
-      place: { rollups: { locality: 'Sydney', region: 'New South Wales', country_code: 'au' } },
-    },
-    {
-      _id: SYDNEY_B_ID,
-      ...baseFields(),
-      fileinfo: fileinfo('sydneyB.dng'),
-      exif: {
-        captured_at: null,
-        camera_make: 'Canon',
-        camera_model: 'R5',
-        gps: { lat: -33.86, lng: 151.211 },
-      },
-      place: { rollups: { locality: 'Sydney', region: 'New South Wales', country_code: 'au' } },
-    },
-  ]);
-
-  const { closeDb } = await import('../../src/db/client.ts');
-  await closeDb();
+  live = await createLiveTestDatabase();
+  // `seedLibraries` registers `/lib-a` and `/lib-b`; every fixture below lives
+  // under `folderA` — `folderB` exists so the library ids are not unique by
+  // accident.
+  const libraries = seedLibraries(live.db);
+  for (const fixture of FIXTURES) seedSearchAsset(live.db, libraries.folderA, fixture);
+  // The library-root cache is process-wide and may already hold another file's
+  // roots; `thumbKey` resolution reads it.
+  invalidateLibraryRoots();
 });
 
-afterAll(async () => {
-  if (mongo && mongoReachable) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {}
-    try {
-      await mongo.close();
-    } catch {}
-  }
-  try {
-    const { closeDb } = await import('../../src/db/client.ts');
-    await closeDb();
-  } catch {}
-  if (priorMongoDb === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = priorMongoDb;
+afterAll(() => {
+  live.close();
+  invalidateLibraryRoots();
 });
 
 async function get(qs: string): Promise<{ status: number; body: ClustersResponse }> {
@@ -267,7 +197,6 @@ const NYC_LONDON_PARIS_BBOX = 'bbox=-80,30,20,60';
 
 describe('GET /api/map/clusters', () => {
   it('grid-buckets GPS points into correct cell counts + centroids', async () => {
-    if (!mongoReachable) return;
     const { status, body } = await get(`${NYC_LONDON_PARIS_BBOX}&zoom=4`);
     expect(status).toBe(200);
     expect(body.cells.length).toBe(3);
@@ -281,14 +210,13 @@ describe('GET /api/map/clusters', () => {
     expect(london.count).toBe(1);
     expect(london.lat).toBeCloseTo(51.5, 5);
     expect(london.lng).toBeCloseTo(-0.12, 5);
-    expect(london.representativeAssetId).toBe(LONDON_1_ID.toHexString());
+    expect(london.representativeAssetId).toBe(LONDON_1_ID);
 
     const paris = findCell(body.cells, 48.85, 2.35);
     expect(paris.count).toBe(1);
   });
 
   it('excludes out-of-viewport points via bbox', async () => {
-    if (!mongoReachable) return;
     // Tight bbox around NYC only — London/Paris/Alaska/Tokyo must not appear.
     const { status, body } = await get('bbox=-80,35,-60,45&zoom=4');
     expect(status).toBe(200);
@@ -308,7 +236,6 @@ describe('GET /api/map/clusters', () => {
   });
 
   it('composes with search filters (camera)', async () => {
-    if (!mongoReachable) return;
     // Canon-only: keeps nyc-1 (drops nyc-2/Nikon) and london-1; drops
     // paris-1 (Sony) entirely.
     const { status, body } = await get(`${NYC_LONDON_PARIS_BBOX}&zoom=4&camera=Canon`);
@@ -318,22 +245,21 @@ describe('GET /api/map/clusters', () => {
       expect(cell.count).toBe(1);
     }
     const nyc = findCell(body.cells, 40.0, -74.0);
-    expect(nyc.representativeAssetId).toBe(NYC_1_ID.toHexString());
+    expect(nyc.representativeAssetId).toBe(NYC_1_ID);
   });
 
-  // `placeQuery` is the one filter that reaches Mongo as `$text`, which has
-  // placement rules the other predicates don't (illegal under `$or`, and the
-  // partial text index only applies when the planner can prove the query
-  // implies it). It is therefore the case that proves the handler's `$and`
-  // composition is legal, not just collision-safe.
+  // `placeQuery` is the one filter that changes the statement's *shape* rather
+  // than adding a predicate to it: the grouping leads with `assets_fts` and
+  // joins `assets` through `asset_search`. It is therefore the case that proves
+  // the handler composes the viewport with a full-text query correctly, rather
+  // than only that the two do not collide.
   it('composes with the placeQuery text filter', async () => {
-    if (!mongoReachable) return;
     const { status, body } = await get(`${NYC_LONDON_PARIS_BBOX}&zoom=4&placeQuery=thames`);
     expect(status).toBe(200);
     // Only london-1's blob mentions the Thames.
     expect(body.cells.length).toBe(1);
     expect(body.cells[0]!.count).toBe(1);
-    expect(body.cells[0]!.representativeAssetId).toBe(LONDON_1_ID.toHexString());
+    expect(body.cells[0]!.representativeAssetId).toBe(LONDON_1_ID);
 
     // And the bbox still applies on top of the text match: 'new york'
     // matches both NYC rows, which share a cell.
@@ -343,7 +269,6 @@ describe('GET /api/map/clusters', () => {
   });
 
   it('carries thumbKey only on single-count cells', async () => {
-    if (!mongoReachable) return;
     const { body } = await get(`${NYC_LONDON_PARIS_BBOX}&zoom=4`);
 
     const nyc = findCell(body.cells, 40.5, -73.5);
@@ -360,7 +285,6 @@ describe('GET /api/map/clusters', () => {
   });
 
   it('falls back placeLabel: locality -> region -> country_code', async () => {
-    if (!mongoReachable) return;
     const { body } = await get(`${NYC_LONDON_PARIS_BBOX}&zoom=4`);
 
     // nyc-1 (representative of the multi-asset NYC cell) has a locality.
@@ -383,20 +307,18 @@ describe('GET /api/map/clusters', () => {
   });
 
   it('rejects a missing bbox', async () => {
-    if (!mongoReachable) return;
     const { status, body } = await get('zoom=4');
     expect(status).toBe(400);
     expect((body as unknown as { error: string }).error).toContain('bbox');
   });
 
-  // The grid cap is what keeps the `$group` (and the response) O(viewport)
-  // rather than O(library): `bbox` and `zoom` are independent params, so
+  // The grid cap is what keeps the grouping (and the response) O(viewport)
+  // rather than O(library): `bbox` and `zoom` arrive as independent params, so
   // "whole world at zoom 20" would otherwise put every asset in its own
   // cell. The Sydney twins sit 0.001° apart — ~3 cells apart on a
   // zoom-20 grid (0.00034°/cell), but well inside one cell once the cap
   // coarsens a world viewport to 360/64 = 5.625°.
   it('resolves the zoom-20 grid when the viewport is tight enough to afford it', async () => {
-    if (!mongoReachable) return;
     const { status, body } = await get('bbox=151.2,-33.87,151.22,-33.85&zoom=20');
     expect(status).toBe(200);
     // Tight bbox: 0.02° / 64 = 0.0003125° minimum cell, finer than the
@@ -418,7 +340,6 @@ describe('GET /api/map/clusters', () => {
   // ever render. Asserted end-to-end through the route rather than against the
   // private grid helper, so it pins the behaviour a client actually observes.
   it('returns a real grid at the whole-world view a client opens on (#2856)', async () => {
-    if (!mongoReachable) return;
     // zoom=0 is what `zoomLevel` yields for the 360°-wide default camera.
     const { status, body } = await get('bbox=-180,-90,180,90&zoom=0');
     expect(status).toBe(200);
@@ -428,7 +349,6 @@ describe('GET /api/map/clusters', () => {
   });
 
   it('emits a thumbnail-pin cell for an isolated photo at the default zoom (#2856)', async () => {
-    if (!mongoReachable) return;
     const { status, body } = await get('bbox=-180,-90,180,90&zoom=0');
     expect(status).toBe(200);
     // Tokyo is thousands of km from every other fixture, so at a sane grid it
@@ -440,7 +360,6 @@ describe('GET /api/map/clusters', () => {
   });
 
   it('reveals more cells as the viewport zooms in on a dense area (#2856)', async () => {
-    if (!mongoReachable) return;
     // Same NYC pair, two viewport widths. Tightening the viewport must resolve
     // a finer grid; previously both requests returned exactly one cell because
     // the cell tracked the viewport width.
@@ -463,13 +382,11 @@ describe('GET /api/map/clusters', () => {
   // MAX_CELLS_PER_AXIS / MIN_CELLS_PER_AXIS, and degenerately when a bbox has
   // zero span. Both paths have to stay safe and keep honouring `zoom`.
   it('survives a degenerate point bbox instead of dividing by zero (#2856)', async () => {
-    if (!mongoReachable) return;
     // south == north and west == east pass validation (only south > north is
     // rejected), so a client mid-gesture can legitimately send this. A zero
-    // cell size reaches `$divide` and fails the aggregation — but ONLY once a
-    // document matches, since Mongo evaluates the expression per-document. So
-    // the bbox is pinned exactly on the Tokyo fixture: an empty point bbox
-    // would pass this test for the wrong reason.
+    // cell size would reach the grid division and fail the query. The bbox is
+    // pinned exactly on the Tokyo fixture: an empty point bbox would pass this
+    // test for the wrong reason.
     const { status, body } = await get('bbox=139.69,35.68,139.69,35.68&zoom=10');
     expect(status).toBe(200);
     expect(body.cells.length).toBe(1);
@@ -477,7 +394,6 @@ describe('GET /api/map/clusters', () => {
   });
 
   it('still honours zoom on a skewed viewport (#2856)', async () => {
-    if (!mongoReachable) return;
     // lat span 14, lng span 120 — an 8.5:1 viewport, past the point where the
     // min/max window collapses. Pinning such a view to the cost ceiling would
     // make zoom a no-op there, so a coarse zoom must still yield a coarser
@@ -490,7 +406,6 @@ describe('GET /api/map/clusters', () => {
   });
 
   it('caps grid resolution so a whole-world bbox cannot emit one cell per asset', async () => {
-    if (!mongoReachable) return;
     const { status, body } = await get('bbox=-180,-90,180,90&zoom=20');
     expect(status).toBe(200);
 

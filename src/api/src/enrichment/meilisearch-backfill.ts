@@ -1,46 +1,60 @@
-import type { Collection, ObjectId } from 'mongodb';
-import { assetsCollection, getDb } from '../db/client.ts';
+/**
+ * The Meilisearch vector backfill's cursor pass.
+ *
+ * Storage lives in two repository modules —
+ * `db/sqlite/repos/meilisearch-backfill.repo.ts` for the resume state, and
+ * `db/sqlite/repos/assets.meilisearch.ts` for the asset scan — so everything
+ * here is the policy around them: which generation is current, what a batch
+ * does with the rows, and how a failed write is retried.
+ *
+ * The cursor is the asset's hex id, and the scan is a keyed range over it. The
+ * `remaining` counter is maintained rather than recounted, which is what keeps
+ * a batch from paying for a full count of the library on every tick.
+ */
+
 import { child as childLogger } from '../log.ts';
+import {
+  advanceBackfillState,
+  deleteBackfillState,
+  insertBackfillState,
+  readBackfillState,
+  recordBackfillRetry,
+  setBackfillRemaining,
+  clearBackfillRetry,
+  type BackfillStateRow,
+} from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
+import {
+  countMeiliAssetsAfter,
+  hasMeiliAssetsAfter,
+  loadMeiliAssetsAfter,
+} from '../db/sqlite/repos/assets.meilisearch.ts';
 import { loadNamedPeople, peopleNamesForFaces } from '../workers/stages/meili.ts';
 import { meilisearchClient } from './meilisearch-client.ts';
 import { ASSET_DOC_SHAPE_VERSION } from './meilisearch-embedder-template.ts';
 import { withMeilisearchBackfillLease } from './meilisearch-backfill-lease.ts';
 import {
-  ROW_PROJECTION,
   commitBatch,
   composeDocument,
   liveLocation,
   recordFailure,
+  toBackfillRows,
   type BackfillRow,
   type ComposedEntry,
+  type WriteOutcome,
 } from './meilisearch-backfill-compose.ts';
 import { redriveMeilisearchBackfillFailures } from './meilisearch-backfill-redrive.ts';
 import { withEmbedderPolicyGate } from './meilisearch-embedding-gate.ts';
 
 const log = childLogger('enrichment:meilisearch-backfill');
-const STATE_ID = 'assets';
 const MAX_TRANSIENT_RETRIES = 5;
 
-export interface BackfillState {
-  _id: string;
-  cursor: ObjectId | null;
-  scanned: number;
-  upserted: number;
-  tombstoned?: number;
-  skipped: number;
-  errors: number;
-  remaining?: number;
-  retry_attempts?: number;
-  retry_error?: string | null;
-  blocked_at?: string | null;
-  started_at: string;
-  updated_at: string;
-  completed_at: string | null;
-  /** `ASSET_DOC_SHAPE_VERSION` this generation's documents were written for.
-   * A completed run only means "the index is current" for the shape it ran
-   * under; see `loadState`. Absent on states written before #2384. */
-  doc_shape_version?: number;
-}
+/**
+ * The stored resume point as the rest of the codebase reads it.
+ *
+ * Structurally the table's row: the admin status route renders the counters and
+ * the timestamps, and nothing outside this module looks at the cursor.
+ */
+export type BackfillState = BackfillStateRow;
 
 interface PreparedBatch {
   scanned: number;
@@ -48,7 +62,7 @@ interface PreparedBatch {
   errors: number;
   docs: ComposedEntry[];
   tombstoneIds: string[];
-  lastCursor: ObjectId | null;
+  lastCursor: string | null;
 }
 
 export interface BackfillResult {
@@ -76,26 +90,6 @@ export interface BackfillResult {
   } | null;
 }
 
-function freshState(now: string, remaining: number): BackfillState {
-  return {
-    _id: STATE_ID,
-    cursor: null,
-    scanned: 0,
-    upserted: 0,
-    tombstoned: 0,
-    skipped: 0,
-    errors: 0,
-    remaining,
-    retry_attempts: 0,
-    retry_error: null,
-    blocked_at: null,
-    started_at: now,
-    updated_at: now,
-    completed_at: null,
-    doc_shape_version: ASSET_DOC_SHAPE_VERSION,
-  };
-}
-
 /**
  * Whether a stored generation still describes the documents we would write.
  *
@@ -116,8 +110,8 @@ function generationIsCurrent(state: BackfillState | null): boolean {
 
 /** Drop a stored generation belonging to a superseded document shape. Returns
  * the state to resume, or `null` when a fresh generation must be started. */
-async function currentGeneration(states: Collection<BackfillState>): Promise<BackfillState | null> {
-  const stored = await states.findOne({ _id: STATE_ID });
+async function currentGeneration(): Promise<BackfillState | null> {
+  const stored = await readBackfillState();
   if (generationIsCurrent(stored)) return stored;
   if (stored) {
     log.info(
@@ -128,70 +122,40 @@ async function currentGeneration(states: Collection<BackfillState>): Promise<Bac
       },
       'meilisearch backfill: document shape changed — starting a new generation',
     );
-    await states.deleteOne({ _id: STATE_ID });
+    await deleteBackfillState();
   }
   return null;
 }
 
-async function loadState(
-  states: Collection<BackfillState>,
-  reset: boolean,
-): Promise<BackfillState> {
-  if (reset) await states.deleteOne({ _id: STATE_ID });
-  const state = await currentGeneration(states);
+async function loadState(reset: boolean): Promise<BackfillState> {
+  if (reset) await deleteBackfillState();
+  const state = await currentGeneration();
   if (state) {
-    if (typeof state.remaining !== 'number' && !state.completed_at) {
-      state.remaining = await countRowsAfter(state.cursor);
-      await states.updateOne({ _id: STATE_ID }, { $set: { remaining: state.remaining } });
+    if (state.remaining === null && !state.completed_at) {
+      state.remaining = await countMeiliAssetsAfter(state.cursor);
+      await setBackfillRemaining(state.remaining);
     }
     return state;
   }
-  const created = freshState(new Date().toISOString(), await countRowsAfter(null));
-  await states.insertOne(created);
+  await insertBackfillState({
+    remaining: await countMeiliAssetsAfter(null),
+    startedAt: new Date().toISOString(),
+    docShapeVersion: ASSET_DOC_SHAPE_VERSION,
+  });
+  const created = await readBackfillState();
+  if (created === null) throw new Error('meilisearch backfill: state row vanished after insert');
   return created;
-}
-
-function rowsAfter(cursor: ObjectId | null): Record<string, unknown> {
-  const filter: Record<string, unknown> = { maple_id: { $type: 'string', $ne: '' } };
-  if (cursor) filter._id = { $gt: cursor };
-  return filter;
-}
-
-async function loadRows(state: BackfillState, batchSize: number): Promise<BackfillRow[]> {
-  const coll = await assetsCollection();
-  return (await coll
-    .find(rowsAfter(state.cursor) as Parameters<typeof coll.find>[0], {
-      projection: ROW_PROJECTION,
-    })
-    .sort({ _id: 1 })
-    .limit(batchSize)
-    .toArray()) as unknown as BackfillRow[];
-}
-
-async function countRowsAfter(cursor: ObjectId | null): Promise<number> {
-  const coll = await assetsCollection();
-  return coll.countDocuments(rowsAfter(cursor) as Parameters<typeof coll.countDocuments>[0]);
 }
 
 /** Remaining cursor work for the generic migration progress surface. */
 export async function countMeilisearchBackfillRemaining(): Promise<number> {
-  const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
-  const state = await states.findOne({ _id: STATE_ID });
+  const state = await readBackfillState();
   if (state?.completed_at) return 0;
-  if (typeof state?.remaining === 'number') return state.remaining;
-  return countRowsAfter(state?.cursor ?? null);
+  if (state !== null && state.remaining !== null) return state.remaining;
+  return countMeiliAssetsAfter(state?.cursor ?? null);
 }
 
-async function hasRowsAfter(cursor: ObjectId | null): Promise<boolean> {
-  const coll = await assetsCollection();
-  return (
-    (await coll.findOne(rowsAfter(cursor) as Parameters<typeof coll.findOne>[0], {
-      projection: { _id: 1 },
-    })) !== null
-  );
-}
-
-async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promise<PreparedBatch> {
+async function prepareBatch(rows: BackfillRow[], cursor: string | null): Promise<PreparedBatch> {
   const prepared: PreparedBatch = {
     scanned: 0,
     skipped: 0,
@@ -209,7 +173,7 @@ async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promi
     // is safe because the end-of-run redrive pass (`redriveMeilisearchBackfillFailures`,
     // triggered once the cursor pass completes) re-attempts every row parked
     // in `meilisearch_backfill_failures` regardless of where the cursor is.
-    prepared.lastCursor = row._id;
+    prepared.lastCursor = row.id;
     const mapleId = row.maple_id;
     if (!mapleId) {
       prepared.skipped += 1;
@@ -236,35 +200,22 @@ async function prepareBatch(rows: BackfillRow[], cursor: ObjectId | null): Promi
 }
 
 async function saveProgress(
-  states: Collection<BackfillState>,
   state: BackfillState,
   batch: PreparedBatch,
-  writes: { upserted: number; errors: number; assetIds: ObjectId[] },
+  writes: WriteOutcome,
   complete: boolean,
-): Promise<{ complete: boolean; updatedAt: string }> {
-  const updatedAt = new Date().toISOString();
-  await states.updateOne(
-    { _id: STATE_ID },
-    {
-      $set: {
-        cursor: batch.lastCursor,
-        updated_at: updatedAt,
-        completed_at: complete ? updatedAt : null,
-        remaining: complete ? 0 : Math.max(0, (state.remaining ?? batch.scanned) - batch.scanned),
-        retry_attempts: 0,
-        retry_error: null,
-        blocked_at: null,
-      },
-      $inc: {
-        scanned: batch.scanned,
-        upserted: writes.upserted,
-        tombstoned: batch.tombstoneIds.length,
-        skipped: batch.skipped,
-        errors: batch.errors + writes.errors,
-      },
-    },
-  );
-  return { complete, updatedAt };
+): Promise<void> {
+  await advanceBackfillState({
+    cursor: batch.lastCursor,
+    updatedAt: new Date().toISOString(),
+    complete,
+    remaining: complete ? 0 : Math.max(0, (state.remaining ?? batch.scanned) - batch.scanned),
+    scanned: batch.scanned,
+    upserted: writes.upserted,
+    tombstoned: batch.tombstoneIds.length,
+    skipped: batch.skipped,
+    errors: batch.errors + writes.errors,
+  });
 }
 
 function completedResult(state: BackfillState): BackfillResult {
@@ -279,62 +230,34 @@ function completedResult(state: BackfillState): BackfillResult {
     blocked: false,
     complete: true,
     nextCursor: null,
-    cumulative: {
-      scanned: state.scanned,
-      upserted: state.upserted,
-      tombstoned: state.tombstoned ?? 0,
-      skipped: state.skipped,
-      errors: state.errors,
-      startedAt: state.started_at,
-      updatedAt: state.updated_at,
-    },
+    cumulative: cumulativeResult(state),
   };
 }
 
 async function saveRetryFailure(
-  states: Collection<BackfillState>,
   state: BackfillState,
   error: string,
-): Promise<{ attempts: number; blocked: boolean; updatedAt: string }> {
-  const attempts = (state.retry_attempts ?? 0) + 1;
+): Promise<{ attempts: number; blocked: boolean }> {
+  const attempts = state.retry_attempts + 1;
   const blocked = attempts >= MAX_TRANSIENT_RETRIES;
   const updatedAt = new Date().toISOString();
-  await states.updateOne(
-    { _id: STATE_ID },
-    {
-      $set: {
-        retry_attempts: attempts,
-        retry_error: error,
-        blocked_at: blocked ? updatedAt : null,
-        updated_at: updatedAt,
-      },
-    },
-  );
-  return { attempts, blocked, updatedAt };
+  await recordBackfillRetry({
+    attempts,
+    error,
+    blockedAt: blocked ? updatedAt : null,
+    updatedAt,
+  });
+  return { attempts, blocked };
 }
 
 /** Clear only the retry circuit; the durable cursor and progress are preserved. */
 export async function clearMeilisearchBackfillRetryState(): Promise<void> {
-  const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
-  await states.updateOne(
-    { _id: STATE_ID },
-    {
-      $set: {
-        retry_attempts: 0,
-        retry_error: null,
-        blocked_at: null,
-        updated_at: new Date().toISOString(),
-      },
-    },
-  );
+  await clearBackfillRetry(new Date().toISOString());
 }
 
 /** Reset durable progress without racing an active admin or migration batch. */
 export async function resetMeilisearchBackfillState(): Promise<void> {
-  await withMeilisearchBackfillLease(async () => {
-    const db = await getDb();
-    await db.collection<BackfillState>('meilisearch_backfill_state').deleteOne({ _id: STATE_ID });
-  });
+  await withMeilisearchBackfillLease(() => deleteBackfillState());
 }
 
 function cumulativeResult(state: BackfillState | null): BackfillResult['cumulative'] {
@@ -342,7 +265,7 @@ function cumulativeResult(state: BackfillState | null): BackfillResult['cumulati
   return {
     scanned: state.scanned,
     upserted: state.upserted,
-    tombstoned: state.tombstoned ?? 0,
+    tombstoned: state.tombstoned,
     skipped: state.skipped,
     errors: state.errors,
     startedAt: state.started_at,
@@ -351,7 +274,6 @@ function cumulativeResult(state: BackfillState | null): BackfillResult['cumulati
 }
 
 async function handleCommitFailure(
-  states: Collection<BackfillState>,
   state: BackfillState,
   batch: PreparedBatch,
   error: unknown,
@@ -360,7 +282,7 @@ async function handleCommitFailure(
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 2000);
-  const retry = await saveRetryFailure(states, state, retryableError);
+  const retry = await saveRetryFailure(state, retryableError);
   log.warn(
     {
       err: retryableError,
@@ -382,25 +304,24 @@ async function handleCommitFailure(
     retryableError,
     blocked: retry.blocked,
     complete: false,
-    nextCursor: state.cursor?.toHexString() ?? null,
-    cumulative: cumulativeResult(await states.findOne({ _id: STATE_ID })),
+    nextCursor: state.cursor,
+    cumulative: cumulativeResult(await readBackfillState()),
   };
 }
 
 async function finishCommittedBatch(
-  states: Collection<BackfillState>,
   state: BackfillState,
-  rows: BackfillRow[],
+  rowCount: number,
   batch: PreparedBatch,
-  writes: { upserted: number; errors: number; assetIds: ObjectId[] },
+  writes: WriteOutcome,
   batchSize: number,
 ): Promise<BackfillResult> {
   // A short batch is final without another query. Exact-size batches use a
   // one-row existence check instead of repeatedly counting the whole suffix.
   const complete =
-    rows.length < batchSize ||
-    (batch.lastCursor !== null && !(await hasRowsAfter(batch.lastCursor)));
-  await saveProgress(states, state, batch, writes, complete);
+    rowCount < batchSize ||
+    (batch.lastCursor !== null && !(await hasMeiliAssetsAfter(batch.lastCursor)));
+  await saveProgress(state, batch, writes, complete);
   return {
     scanned: batch.scanned,
     upserted: writes.upserted,
@@ -411,8 +332,8 @@ async function finishCommittedBatch(
     retryableError: null,
     blocked: false,
     complete,
-    nextCursor: complete ? null : (batch.lastCursor?.toHexString() ?? null),
-    cumulative: cumulativeResult(await states.findOne({ _id: STATE_ID })),
+    nextCursor: complete ? null : batch.lastCursor,
+    cumulative: cumulativeResult(await readBackfillState()),
   };
 }
 
@@ -424,10 +345,9 @@ async function runBackfillBatch(batchSize: number, reset: boolean): Promise<Back
     );
   }
   await client.ensureIndex();
-  const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
-  const state = await loadState(states, reset);
+  const state = await loadState(reset);
   if (state.completed_at) return completedResult(state);
-  const rows = await loadRows(state, batchSize);
+  const rows = toBackfillRows(await loadMeiliAssetsAfter(state.cursor, batchSize));
   const batch = await prepareBatch(rows, state.cursor);
   try {
     // Embedder admission gate (#3315): a policy-rejected embedder pauses the
@@ -436,10 +356,10 @@ async function runBackfillBatch(batchSize: number, reset: boolean): Promise<Back
     // circuit engaged — instead of holding Meilisearch's task queue for the
     // minutes it takes to fail the batch on its own.
     const writes = await withEmbedderPolicyGate(client, () => commitBatch(client, batch));
-    const result = await finishCommittedBatch(states, state, rows, batch, writes, batchSize);
+    const result = await finishCommittedBatch(state, rows.length, batch, writes, batchSize);
     // The cursor pass just reached the end of the library — redrive every row
     // parked in `meilisearch_backfill_failures` (paging `batchSize` rows at a
-    // time until the collection drains or a page makes no progress) while
+    // time until the list drains or a page makes no progress) while
     // still holding this call's backfill lease, so a transient failure gets a
     // same-run retry instead of sitting silently until an operator notices.
     // Best-effort: a redrive failure never turns this already-successful batch
@@ -448,7 +368,7 @@ async function runBackfillBatch(batchSize: number, reset: boolean): Promise<Back
     if (result.complete) await redriveMeilisearchBackfillFailures(client, batchSize);
     return result;
   } catch (error) {
-    return handleCommitFailure(states, state, batch, error);
+    return handleCommitFailure(state, batch, error);
   }
 }
 
@@ -461,6 +381,5 @@ export async function runMeilisearchBackfill(
 
 /** Test-only: exercise generation selection without a live Meilisearch. */
 export async function loadBackfillStateForTests(reset: boolean): Promise<BackfillState> {
-  const states = (await getDb()).collection<BackfillState>('meilisearch_backfill_state');
-  return loadState(states, reset);
+  return loadState(reset);
 }

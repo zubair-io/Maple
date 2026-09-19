@@ -14,19 +14,16 @@
  * `maple_id` at insert time.
  */
 import * as fs from 'node:fs/promises';
-import type { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import { readExif } from '../../indexer/exif.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 import { deriveId } from '../../indexer/id.ts';
-import {
-  assetAbsPath,
-  assetPrimaryFileInfo,
-  updateLiveLocationCount,
-} from '../../indexer/images.repo.ts';
-import { assetsCollection } from '../../db/client.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { findMapleIdHolder, mergeIntoSurvivor } from '../../db/sqlite/repos/assets.merge.ts';
+import { exifPatchStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import type { AssetExif, FileInfo } from '../../db/schema.ts';
-import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
+import type { AssetExif } from '../../db/schema.ts';
+import { recordAndPublishAssetChange } from '../../db/sqlite/repos/changes.repo.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
@@ -82,7 +79,7 @@ const exifStage = defineStage({
     // null case — all fileinfo entries soft-deleted (every on-disk location
     // gone) — is the genuinely-orphaned one: the runner stamps
     // `missing_since` on that skip instead of marking the stage done, so the
-    // missing-reaper sees it. See run-stage.ts (`hasOnlySoftDeletedFileInfo`).
+    // missing-reaper sees it. See run-stage.ts.
     const libs = await loadLibraryRoots();
     const absPath = assetAbsPath(image, libs);
     if (!absPath) {
@@ -111,12 +108,8 @@ const exifStage = defineStage({
     }
 
     const exif = await readExif(absPath);
-
-    const patch: Record<string, unknown> = {
-      exif,
-      // Heuristic screenshot seed — describe stage refines this later.
-      is_screenshot: isLikelyScreenshot(absPath, exif?.camera_make ?? null),
-    };
+    // Heuristic screenshot seed — describe stage refines this later.
+    const isScreenshot = isLikelyScreenshot(absPath, exif?.camera_make ?? null);
 
     // Upgrade maple_id to primary form if capturedAt is available.
     if (exif?.captured_at) {
@@ -147,16 +140,22 @@ const exifStage = defineStage({
         // row.
         const merged = await tryMergeWithExistingPrimary(image, id.hex, {
           exif,
-          is_screenshot: patch.is_screenshot as boolean,
+          is_screenshot: isScreenshot,
         });
         if (merged) {
           return { skip: `merged-into-${merged.toHexString()}` };
         }
-        patch.maple_id = id.hex;
+        return {
+          patch: exifPatchStatements(image._id.toHexString(), {
+            exif,
+            isScreenshot,
+            mapleId: id.hex,
+          }),
+        };
       }
     }
 
-    return { patch };
+    return { patch: exifPatchStatements(image._id.toHexString(), { exif, isScreenshot }) };
   },
 });
 
@@ -172,200 +171,104 @@ interface LoserExifContribution {
 }
 
 /**
- * Other-row owns `newMapleId`. Merge it with the loser passed in and delete
- * whichever loses the survivor pick. Returns the survivor's `_id` on a
- * merge, `null` when no other row exists and the caller should proceed with
- * the normal upgrade.
+ * Another row already owns `newMapleId`. Merge it with the row this run is
+ * processing and delete whichever loses the survivor pick. Returns the
+ * survivor's id on a merge, `null` when the id is free and the caller should
+ * proceed with the normal upgrade.
  *
- * Behaviour mirrors `mergeDuplicateAssets` in `db/migrations.ts`:
- *   - Survivor is the row with the earliest `indexed_at` (ties: _id ascending).
- *   - `fileinfo[]` unions both rows, deduped by `(library_id, path, filename)`,
- *     with live entries preferred over tombstones.
- *   - User-mutable fields (rating, flag, color_label) are carried from
- *     non-survivor into survivor when the survivor still holds defaults,
- *     so a rating set on the loser between discover and exif isn't lost.
- *   - The freshly-computed exif/is_screenshot from this stage run are
- *     written onto the survivor when it lacks them — otherwise the parse
- *     work is discarded along with the deleted row.
+ * The rules are the ones `mergeDuplicateAssets` established:
+ *   - Survivor is the row with the earliest `indexed_at` (ties: id ascending).
+ *   - The loser's locations move onto the survivor.
+ *   - User-mutable fields (rating, flag, color_label) are carried from the
+ *     condemned row into the survivor when the survivor still holds defaults,
+ *     so a rating set between discover and exif isn't lost.
+ *   - The freshly-computed exif / is_screenshot from this run are written onto
+ *     the survivor when it lacks them — otherwise the parse work is discarded
+ *     along with the deleted row.
  *
- * The merge is non-atomic (updateOne then deleteOne). Crash between the
- * two writes leaves both rows alive with overlapping fileinfo; the next
- * retry re-enters this function, finds the same survivor, and the dedup
- * keys make the re-merge idempotent. The boot-time migration is also
- * idempotent for the same reason.
+ * ## What the rows fixed
  *
- * Change feed: publishes a `delete` event for the deleted row and an
- * `update` event for the survivor so File Provider / SSE consumers see
- * the merge instead of going stale.
+ * On Mongo this was four unrelated writes and was explicitly non-atomic,
+ * healing only because a retry re-entered it and the dedup keys made it
+ * idempotent. `mergeIntoSurvivor` commits all of it in one transaction, which
+ * removes three hazards at once: the id claim no longer has to be ordered
+ * strictly after the delete to dodge a unique-index collision (a crash in that
+ * window left the survivor stranded on its fallback id), the "entry already
+ * present on the survivor" case cannot arise because a location's
+ * `(library, path, filename)` is UNIQUE table-wide, and `live_location_count`
+ * is maintained by a trigger rather than recomputed by hand. See
+ * `db/sqlite/repos/assets.merge.ts`.
+ *
+ * Change feed: publishes a `delete` event for the removed row and an `update`
+ * for the survivor, so File Provider and SSE consumers see the merge instead of
+ * going stale. Deliberately after the transaction and best-effort — a publish
+ * failure must not undo a merge that has already committed.
  */
 async function tryMergeWithExistingPrimary(
   loser: ImageDoc,
   newMapleId: string,
   loserContribution: LoserExifContribution,
 ): Promise<ObjectId | null> {
-  const assets = await assetsCollection();
-  const other = await assets.findOne(
-    { maple_id: newMapleId, _id: { $ne: loser._id } },
-    {
-      projection: {
-        _id: 1,
-        fileinfo: 1,
-        indexed_at: 1,
-        rating: 1,
-        flag: 1,
-        color_label: 1,
-        exif: 1,
-        is_screenshot: 1,
-      },
-    },
-  );
+  const loserId = loser._id.toHexString();
+  const other = await findMapleIdHolder(newMapleId, loserId);
   if (!other) return null;
 
-  const otherIndexedAt = (other.indexed_at as string | undefined) ?? '';
+  const otherIndexedAt = other.indexed_at;
   const loserIndexedAt = (loser.indexed_at as string | undefined) ?? '';
   const otherIsOlder =
-    otherIndexedAt < loserIndexedAt ||
-    (otherIndexedAt === loserIndexedAt && other._id.toString() < loser._id.toString());
-  const survivor = otherIsOlder ? other : loser;
-  const condemned = otherIsOlder ? loser : other;
+    otherIndexedAt < loserIndexedAt || (otherIndexedAt === loserIndexedAt && other.id < loserId);
 
-  // Non-fileinfo carry-over: single $set on the survivor. fileinfo gets
-  // merged separately (per-entry) below to avoid clobbering concurrent
-  // $pushes from discover / other merge workers.
-  const survivorPatch: Record<string, unknown> = {};
-  const condemnedRating = (condemned as { rating?: number }).rating ?? 0;
-  const condemnedFlag = (condemned as { flag?: number }).flag ?? 0;
-  const condemnedColor = (condemned as { color_label?: string }).color_label ?? '';
-  const survivorRating = (survivor as { rating?: number }).rating ?? 0;
-  const survivorFlag = (survivor as { flag?: number }).flag ?? 0;
-  const survivorColor = (survivor as { color_label?: string }).color_label ?? '';
-  if (survivorRating === 0 && condemnedRating !== 0) survivorPatch.rating = condemnedRating;
-  if (survivorFlag === 0 && condemnedFlag !== 0) survivorPatch.flag = condemnedFlag;
-  if (survivorColor === '' && condemnedColor !== '') survivorPatch.color_label = condemnedColor;
-  const survivorExif = (survivor as { exif?: AssetExif | null }).exif;
-  if (!survivorExif && loserContribution.exif) {
-    survivorPatch.exif = loserContribution.exif;
-    survivorPatch.is_screenshot = loserContribution.is_screenshot;
-  }
-  // NOTE: `maple_id` is deliberately NOT part of `survivorPatch`. When the
-  // survivor is the loser we must claim `newMapleId` for it, but the
-  // condemned row still holds that id until we delete it below. Writing it
-  // onto the survivor here would collide with the condemned row on the
-  // unique `maple_id_gt_1` partial index (E11000) — the exact failure that
-  // dead-lettered duplicate uploads. The id upgrade therefore happens AFTER
-  // `deleteOne(condemned)` frees the key. See the post-delete block below.
-  if (Object.keys(survivorPatch).length > 0) {
-    await assets.updateOne({ _id: survivor._id }, { $set: survivorPatch });
-  }
+  const loserSide = {
+    id: loserId,
+    rating: (loser as { rating?: number }).rating ?? 0,
+    flag: (loser as { flag?: number }).flag ?? 0,
+    colorLabel: (loser as { color_label?: string }).color_label ?? '',
+    hasExif: Boolean((loser as { exif?: AssetExif | null }).exif),
+    fileinfo: loser.fileinfo ?? [],
+  };
+  const otherSide = {
+    id: other.id,
+    rating: other.rating,
+    flag: other.flag,
+    colorLabel: other.color_label,
+    hasExif: other.hasExif,
+    fileinfo: other.fileinfo,
+  };
+  const survivor = otherIsOlder ? otherSide : loserSide;
+  const condemned = otherIsOlder ? loserSide : otherSide;
 
-  // Per-entry fileinfo merge. Each entry from `condemned.fileinfo` is
-  // either pushed onto the survivor (conditionally — no-op if a concurrent
-  // worker already pushed the same key triple) or, if the survivor already
-  // has that entry tombstoned and ours is live, flipped to live via
-  // arrayFilters. Mirrors the discover dedup-append pattern in
-  // handle-event.ts so concurrent discover $pushes can't be clobbered by a
-  // wholesale fileinfo replacement.
-  //
-  // Done BEFORE the delete (and from the in-memory `condemned.fileinfo`) so a
-  // crash between the merge and the delete leaves both rows alive with
-  // overlapping fileinfo — the idempotent re-merge on the next retry heals it.
-  for (const entry of (condemned.fileinfo ?? []) as FileInfo[]) {
-    await mergeFileinfoEntry(assets, survivor._id, entry);
-  }
-  await assets.deleteOne({ _id: condemned._id });
+  await mergeIntoSurvivor({
+    survivorId: survivor.id,
+    condemnedId: condemned.id,
+    mapleId: newMapleId,
+    carryOver: {
+      ...(survivor.rating === 0 && condemned.rating !== 0 ? { rating: condemned.rating } : {}),
+      ...(survivor.flag === 0 && condemned.flag !== 0 ? { flag: condemned.flag } : {}),
+      ...(survivor.colorLabel === '' && condemned.colorLabel !== ''
+        ? { colorLabel: condemned.colorLabel }
+        : {}),
+      ...(!survivor.hasExif && loserContribution.exif
+        ? { exif: loserContribution.exif, isScreenshot: loserContribution.is_screenshot }
+        : {}),
+    },
+  });
 
-  // Now that the condemned row is gone the primary id is free. If the
-  // survivor is the LOSER (we're keeping this stage's row) it still carries
-  // the fallback id and needs the upgrade, since the orchestrator's `skip`
-  // writeback won't apply our handler patch. Setting it here — strictly
-  // after the delete — cannot collide on the unique index.
-  //
-  // Crash-safety: a crash between the delete and this update leaves the
-  // survivor on its fallback id with the condemned row already gone; the next
-  // exif retry re-derives `newMapleId`, finds no other holder, and the normal
-  // upgrade path (handler `patch.maple_id`) completes it.
-  if (!otherIsOlder) {
-    await assets.updateOne({ _id: survivor._id }, { $set: { maple_id: newMapleId } });
-  }
-
-  // Publish change events so File Provider / SSE clients don't go stale.
-  // Best-effort — recordAndPublishAssetChange swallows its own errors so a
-  // publish failure won't undo the merge writes above.
-  const condemnedPrimary = assetPrimaryFileInfo(condemned as never);
+  const condemnedPrimary = assetPrimaryFileInfo({ fileinfo: condemned.fileinfo });
+  const folderId = condemnedPrimary?.library_id ?? null;
   await recordAndPublishAssetChange({
     kind: 'delete',
-    asset_id: condemned._id,
-    folder_id: condemnedPrimary?.library_id ?? null,
+    asset_id: new ObjectId(condemned.id),
+    folder_id: folderId,
     abs_path: null,
   });
   await recordAndPublishAssetChange({
     kind: 'update',
-    asset_id: survivor._id,
-    folder_id: condemnedPrimary?.library_id ?? null,
+    asset_id: new ObjectId(survivor.id),
+    folder_id: folderId,
     abs_path: null,
   });
 
-  return survivor._id;
-}
-
-/**
- * Add or refresh a single fileinfo entry on the survivor without
- * clobbering concurrent $pushes from other writers. Two-step:
- *   1. Conditional $push — only when no entry with the same
- *      `(library_id, path, filename)` triple is present.
- *   2. If the conditional $push found a match (modifiedCount === 0)
- *      AND our entry is live, clear any tombstone on the matching
- *      survivor entry via arrayFilters.
- *
- * Idempotent: re-running on the same input is a no-op the second time.
- */
-async function mergeFileinfoEntry(
-  assets: Awaited<ReturnType<typeof assetsCollection>>,
-  survivorId: ObjectId,
-  entry: FileInfo,
-): Promise<void> {
-  const pushResult = await assets.updateOne(
-    {
-      _id: survivorId,
-      fileinfo: {
-        $not: {
-          $elemMatch: {
-            library_id: entry.library_id,
-            path: entry.path,
-            filename: entry.filename,
-          },
-        },
-      },
-    },
-    { $push: { fileinfo: entry as never } },
-  );
-  if (pushResult.modifiedCount > 0) {
-    // Pushed a new entry — recompute live count.
-    await updateLiveLocationCount(assets, survivorId);
-    return;
-  }
-  // Entry already present on the survivor. If ours is live, surface that
-  // over any tombstone the survivor was holding. (If ours is tombstoned
-  // too, keep the survivor's first-seen entry — same as the boot-time
-  // mergeDuplicateAssets first-wins behaviour.)
-  if (entry.deleted_at == null) {
-    await assets.updateOne(
-      { _id: survivorId },
-      { $set: { 'fileinfo.$[entry].deleted_at': null } },
-      {
-        arrayFilters: [
-          {
-            'entry.library_id': entry.library_id,
-            'entry.path': entry.path,
-            'entry.filename': entry.filename,
-            'entry.deleted_at': { $ne: null },
-          },
-        ],
-      },
-    );
-    // Recompute live count: clearing deleted_at may revive the entry.
-    await updateLiveLocationCount(assets, survivorId);
-  }
+  return new ObjectId(survivor.id);
 }
 
 export default exifStage;
@@ -374,7 +277,7 @@ export async function startExifStage(): Promise<RunStageHandle> {
   return runStage(exifStage);
 }
 
-// Test-only surface: exported so the merge-on-collision path can be
-// exercised against a real Mongo without driving a full handler pass
-// (which requires a fixture with EXIF DateTimeOriginal).
+// Test-only surface: exported so the merge-on-collision path can be exercised
+// against a real database without driving a full handler pass (which requires
+// a fixture with EXIF DateTimeOriginal).
 export const __exifTestInternals = { tryMergeWithExistingPrimary };

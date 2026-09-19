@@ -1,9 +1,14 @@
 /**
- * enrichment-config repo tests — pure resolver logic + real-Mongo round-trip.
+ * enrichment-config repo tests — pure resolver logic + real-SQLite round-trip.
+ *
+ * The settings document moved to `app_settings` behind `readAppSettings` /
+ * `patchAppSettings` (#3787). Neither `loadEnrichmentConfig` nor
+ * `saveEnrichmentConfig` takes a database argument, so the round-trip block
+ * installs a database per test with `createLiveTestDatabase` — a fresh one IS
+ * the reset that block used to spell as `deleteMany({})` on the collection.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, type Db } from 'mongodb';
+import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import {
   DEFAULT_DESCRIBE_MODELS,
   DEFAULT_MEILISEARCH_EMBEDDER_MODEL,
@@ -15,7 +20,10 @@ import {
   saveEnrichmentConfig,
 } from './enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from './enrichment-config.resolve.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 
 describe('DESCRIBE_VISION_OLLAMA_TAG — pinned literal', () => {
   // Hyphen vs no-hyphen burned us once (PR #182 follow-up) for the qwen2.5
@@ -29,57 +37,6 @@ describe('DESCRIBE_VISION_OLLAMA_TAG — pinned literal', () => {
   it('is the default for the Ollama provider', () => {
     expect(DEFAULT_DESCRIBE_MODELS.ollama).toBe(DESCRIBE_VISION_OLLAMA_TAG);
   });
-});
-
-const TEST_DB = withTestDb(`maple_test_enrichment_cfg_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
-beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[enrichment-config.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!mongoReachable) return;
-  await db!.collection('app_settings').deleteMany({});
-});
-
-afterAll(async () => {
-  if (mongo) {
-    await mongo.db(TEST_DB).dropDatabase();
-    await mongo.close();
-  }
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
 });
 
 describe('resolveEnrichmentConfig — pure logic', () => {
@@ -408,15 +365,23 @@ describe('resolveEnrichmentConfig — pure logic', () => {
   });
 });
 
-describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () => {
+describe('saveEnrichmentConfig + loadEnrichmentConfig — SQLite round-trip', () => {
+  let live: LiveTestDatabase;
+
+  beforeEach(async () => {
+    live = await createLiveTestDatabase();
+  });
+
+  afterEach(() => {
+    live.close();
+  });
+
   it('returns null before any save', async () => {
-    if (!mongoReachable) return;
     const c = await loadEnrichmentConfig();
     expect(c).toBeNull();
   });
 
   it('save then load round-trips fields', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       nominatim_url: 'http://nominatim.test:8080',
       geocode_worker_enabled: true,
@@ -436,7 +401,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('partial save preserves existing fields', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       nominatim_url: 'http://a.test',
       geocode_worker_enabled: true,
@@ -448,7 +412,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('can clear the URL by saving null', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       nominatim_url: 'http://x',
       geocode_worker_enabled: true,
@@ -459,7 +422,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('partial save persists rate-limit and preserves URL', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       nominatim_url: 'http://saved.lan',
       geocode_worker_enabled: true,
@@ -471,7 +433,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('can clear the rate limit by saving null', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       nominatim_url: 'http://saved.lan',
       geocode_worker_enabled: true,
@@ -483,13 +444,11 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('meilisearch task timeout round-trips through save/load', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({ meilisearch_task_timeout_seconds: 900 });
     expect((await loadEnrichmentConfig())!.meilisearch_task_timeout_seconds).toBe(900);
   });
 
   it('semantic search settings round-trip through save/load', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       meilisearch_semantic_enabled: true,
       meilisearch_embedder_model: 'custom-embedder',
@@ -503,7 +462,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('maps legacy face_retinaface_* / face_mobilefacenet_* onto new keys at write time', async () => {
-    if (!mongoReachable) return;
     // Operator UI still POSTs the v1 names. Without the remap, the new
     // keys would stay unset and the resolver's fallback would pick the
     // legacy field at read time — but it still wouldn't show up in
@@ -523,7 +481,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('new keys take precedence when both legacy and new are in one save', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       face_detector_url: 'http://new.lan/scrfd_10g.onnx',
       face_retinaface_url: 'http://legacy.lan/scrfd_10g.onnx',
@@ -536,7 +493,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('face_min_detection_size round-trips through save/load', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       nominatim_url: null,
       geocode_worker_enabled: true,
@@ -547,7 +503,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () 
   });
 
   it('can clear face_min_detection_size back to null', async () => {
-    if (!mongoReachable) return;
     await saveEnrichmentConfig({
       nominatim_url: null,
       geocode_worker_enabled: true,

@@ -25,7 +25,7 @@ import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import type { XmpMetadataInput } from '../xmp/metadata-input.ts';
-import { coll } from '../indexer/images.repo.ts';
+import { rearmStageByFilenames } from '../db/sqlite/repos/stage-state.repo.ts';
 import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -112,18 +112,7 @@ async function markSidecarMetadataIndexDirtyBatch(absPaths: string[]): Promise<v
   const filenames = [...new Set(absPaths.map((p) => path.basename(p)).filter(Boolean))];
   if (filenames.length === 0) return;
 
-  const images = await coll();
-  const stagePath = `stages.${SIDECAR_METADATA_INDEX_STAGE_NAME}`;
-  await images.updateMany(
-    { 'fileinfo.filename': { $in: filenames } },
-    {
-      $set: {
-        [`${stagePath}.version`]: 0,
-        [`${stagePath}.dead`]: false,
-        [`${stagePath}.attempts`]: 0,
-      },
-    },
-  );
+  await rearmStageByFilenames(SIDECAR_METADATA_INDEX_STAGE_NAME, filenames);
 }
 
 // ---------------------------------------------------------------------------

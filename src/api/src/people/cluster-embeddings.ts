@@ -1,11 +1,11 @@
 /**
  * Pure-function clustering core. Extracted from `clustering-job.ts` so the
  * face-clustering quality harness (`src/scripts/test_face_clustering.sh`)
- * can score the algorithm on a labelled fixture set without standing up
- * MongoDB.
+ * can score the algorithm on a labelled fixture set without standing up a
+ * database.
  *
  * The DB-backed `runOnlineClustering` (in `clustering-job.ts`) is a thin
- * wrapper that loads centroids from Mongo, calls into here, and writes
+ * wrapper that loads centroids from the database, calls into here, and writes
  * the results. Splitting the math out keeps clustering-job.ts under the
  * 600-LOC budget and lets the harness import this module directly.
  *
@@ -24,7 +24,7 @@
 export const DEFAULT_SIMILARITY_THRESHOLD = 0.5;
 
 /** Embedding dimensionality from MobileFaceNet — used as a sanity-check
- * downstream when reading embeddings from Mongo or the fixture JSONL. */
+ * downstream when reading embeddings from the database or the fixture JSONL. */
 export const EMBEDDING_DIM = 512;
 
 // ---------------------------------------------------------------------------
@@ -115,8 +115,8 @@ export interface OnlineClusterResult {
  * `similarityThreshold`, otherwise opens a new cluster seeded by the
  * embedding.
  *
- * No side effects, no Mongo, no logging. The DB-backed `runOnlineClustering`
- * wraps this and applies the assignments to asset/person documents.
+ * No side effects, no database, no logging. The DB-backed `runOnlineClustering`
+ * wraps this and applies the assignments to the asset and person rows.
  */
 export function clusterEmbeddings(
   embeddings: Float32Array[],

@@ -11,9 +11,13 @@
  */
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { refreshTokensCollection, usersCollection } from '../db/client.ts';
-import { signAccessToken, hashRefreshToken } from '../auth/tokens.ts';
-import { userFileAccess } from '../auth/permissions.ts';
+import { findUserById } from '../db/sqlite/repos/auth.users.repo.ts';
+// The persistent-credential proof below is the one device-session question
+// `auth/refresh_store.ts` does not re-export — it is a read of the *primary*
+// login's token, asked while minting a paired-device family.
+import { hasLivePrimaryRefreshToken } from '../db/sqlite/repos/auth.device-sessions.repo.ts';
+import { signAccessToken } from '../auth/tokens.ts';
+import { accessClaimsFor } from '../auth/permissions.ts';
 import {
   issueRefreshToken,
   listDeviceSessions,
@@ -45,38 +49,21 @@ export const authDeviceSessionRoutes = new Elysia({ prefix: '/api/auth/device-se
       // marker): a paired device's own credential cannot mint further device
       // sessions, so pairing authority stays with fully-authenticated primary
       // clients (jules review, PR #2076).
-      const c = await refreshTokensCollection();
       // family_revoked_at guards the logout-race artifact: a grace-window
       // re-mint can insert a live-looking row (revoked_at null, no per-row
       // family marker) into a family that logout just killed — the proof must
       // require the whole family to be alive, not just the presented row.
-      const proof = await c.findOne({
-        token_hash: hashRefreshToken(body.refresh_token),
-        user_id: userId,
-        revoked_at: null,
-        family_revoked_at: { $exists: false },
-        expires_at: { $gt: new Date() },
-        platform: { $exists: false },
-      });
-      if (!proof) {
+      if (!(await hasLivePrimaryRefreshToken(userId, body.refresh_token))) {
         set.status = 403;
         return { error: 'refresh-token proof invalid' };
       }
-      const user = await (await usersCollection()).findOne({ _id: userId });
+      const user = await findUserById(userId);
       if (!user) {
         set.status = 401;
         return { error: 'user gone' };
       }
       const minted = await issueRefreshToken(userId, body.label, { platform: body.platform });
-      const access_token = await signAccessToken(
-        {
-          sub: userId.toHexString(),
-          email: user.email,
-          role: user.role,
-          file_access: userFileAccess(user),
-        },
-        jwtSecret(),
-      );
+      const access_token = await signAccessToken(accessClaimsFor(user), jwtSecret());
       return { id: minted.familyId.toHexString(), access_token, refresh_token: minted.raw };
     },
     {

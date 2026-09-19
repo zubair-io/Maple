@@ -42,7 +42,7 @@
  * quiescence with `flushPendingMirrorOps`.
  *
  * Durability: in production the sink (`workers/mirror/sink.ts`) enqueues each
- * failed *replication* into the `mirror_queue` collection, and the mirror copy
+ * failed *replication* into the `mirror_queue` table, and the mirror copy
  * worker retries it with backoff + dead-letter. The mirror-scan detector
  * independently enqueues any drift it finds. So a failed mirror write is
  * retried, not merely logged — the default (no sink installed) just logs.

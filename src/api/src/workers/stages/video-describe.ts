@@ -68,6 +68,7 @@ import {
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { loadWorkerConfigSafe } from '../worker-config.repo.ts';
 import type { VideoDescriptionMeta } from '../../db/schema.ts';
+import { videoDescriptionStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
@@ -214,7 +215,7 @@ export async function videoDescribeHandler(
 ): Promise<StageResult> {
   const primary = assetPrimaryFileInfo(image);
   if (!primary || !isVideoFilename(primary.filename)) {
-    // Defensive — `claimFilter` already restricts claims to video filenames.
+    // Defensive — `claimResidual` already restricts claims to video assets.
     return { skip: 'not-video' };
   }
 
@@ -276,7 +277,7 @@ export async function videoDescribeHandler(
   };
 
   return {
-    patch: { video_description: description, video_description_meta: meta },
+    patch: videoDescriptionStatements(image._id.toHexString(), description, meta),
     // search_blob folds in the summary + scene text (enrichment/search-blob.ts) —
     // re-arm meili in the same atomic write so a fresh video description is
     // searchable without waiting for an unrelated meili re-run.
@@ -293,8 +294,15 @@ const videoDescribeStage = defineStage({
   // extraction.
   dependsOn: ['preview'],
   // Never sweeps the (much larger) photo library — mirrors `transcribe`'s
-  // claim-filter narrowing.
-  claimFilter: { media_kind: 'video' },
+  // claim-residual narrowing. An `EXISTS` over `assets` rather than a join,
+  // because the claim scans `stage_state` and this has to stay a probe per
+  // candidate row; `media_kind` has a partial index over exactly the two
+  // minority kinds (#3492), so the probe is a seek.
+  claimResidual: {
+    sql: `EXISTS (SELECT 1 FROM assets
+                   WHERE id = stage_state.asset_id AND media_kind = ?)`,
+    params: ['video'],
+  },
   defaults: {
     concurrency: 1,
     maxAttempts: 5,

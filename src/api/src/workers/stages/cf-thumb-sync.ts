@@ -17,10 +17,12 @@
  * IS the backfill, not a separate mechanism from the ongoing sync.
  *
  * `dependsOn: [{ name: 'thumb', minVersion: 2 }]` — needs the on-disk
- * thumbnail to exist. `thumb.ts` resets this stage's version back to 0 on
- * every rewrite (including a `targetVersion` bump like the v2 orientation
- * fix), so a re-rendered thumbnail always gets re-uploaded rather than
- * leaving a stale copy cached at the edge.
+ * thumbnail to exist. `thumb.ts` names this stage in its `invalidates`, so
+ * every rewrite (including a `targetVersion` bump like the v2 orientation fix)
+ * resets this stage's version back to 0 in the same transaction as the thumb
+ * stage's own success row: a re-rendered thumbnail always gets re-uploaded
+ * rather than leaving a stale copy cached at the edge, and the re-arm can no
+ * longer be lost independently of the bytes landing on disk.
  *
  * Hidden assets are excluded (`{ skip: 'hidden' }`) — a Cloudflare Worker
  * edge cache has no per-request visibility check beyond bearer-token
@@ -48,6 +50,7 @@ import {
 import { uploadThumbToR2 } from '../../cloudflare/r2-client.ts';
 import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
 import { cleanupR2ThumbForHiddenAsset } from '../../cloudflare/hidden-cleanup.ts';
+import { cfThumbSyncedStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 /** Bounds a single upload attempt's wall-clock — `run-stage.ts` retries the
@@ -119,7 +122,10 @@ const cfThumbSyncStage = defineStage({
       'image/avif',
       AbortSignal.timeout(CF_UPLOAD_TIMEOUT_MS),
     );
-    return { patch: { cf_thumb_synced_at: new Date().toISOString() } };
+    // The stamp is a statement the runner commits in the same transaction as
+    // this stage's success row, so "uploaded" and "recorded as uploaded" cannot
+    // land apart from one another.
+    return { patch: cfThumbSyncedStatements(image._id.toHexString()) };
   },
 });
 

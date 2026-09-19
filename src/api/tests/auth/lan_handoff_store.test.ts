@@ -1,38 +1,37 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
-import { ObjectId } from 'mongodb';
+/**
+ * `auth/lan_handoff_store.ts` reaches the SQLite store (#3787).
+ *
+ * The single-use guarantee and the refusal of an expired or unknown code are
+ * covered against the repository in
+ * `db/sqlite/repos/auth.sessions.repo.test.ts`. This file covers the module
+ * `routes/auth-lan-handoff.ts` imports: that both operations still resolve and
+ * now write to SQLite.
+ */
+
+import { describe, it, expect } from 'bun:test';
 import { issueLanHandoffCode, redeemLanHandoffCode } from '../../src/auth/lan_handoff_store.ts';
-import { lanHandoffCodesCollection } from '../../src/db/client.ts';
+import { insertUser } from '../../src/db/sqlite/repos/auth.users.repo.ts';
+import { createLiveTestDatabase } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-const userId = new ObjectId();
+describe('LAN handoff codes through the auth module', () => {
+  it('issues a code the same browser can spend once on the LAN address', async () => {
+    using live = await createLiveTestDatabase();
+    const userId = await insertUser(
+      {
+        email: 'owner@maple.test',
+        role: 'owner',
+        created_at: new Date().toISOString(),
+        last_seen_at: null,
+      },
+      live.handle,
+    );
 
-beforeEach(async () => {
-  const c = await lanHandoffCodesCollection();
-  await c.deleteMany({});
-});
-
-describe('LAN handoff code store', () => {
-  it('issues a code and redeems it', async () => {
     const { code } = await issueLanHandoffCode({ userId, deviceLabel: 'Local network session' });
-    const r = await redeemLanHandoffCode(code);
-    expect(r).not.toBeNull();
-    expect(r!.userId.toHexString()).toBe(userId.toHexString());
-    expect(r!.deviceLabel).toBe('Local network session');
-  });
+    const redeemed = await redeemLanHandoffCode(code);
+    expect(redeemed?.deviceLabel).toBe('Local network session');
+    expect(redeemed?.userId.toHexString()).toBe(userId.toHexString());
 
-  it('is single-use: a second redeem returns null', async () => {
-    const { code } = await issueLanHandoffCode({ userId, deviceLabel: 'Local network session' });
-    expect(await redeemLanHandoffCode(code)).not.toBeNull();
     expect(await redeemLanHandoffCode(code)).toBeNull();
-  });
-
-  it('rejects an expired code', async () => {
-    const { code } = await issueLanHandoffCode({ userId, deviceLabel: 'Local network session' });
-    const c = await lanHandoffCodesCollection();
-    await c.updateMany({}, { $set: { expires_at: new Date(Date.now() - 1000) } });
-    expect(await redeemLanHandoffCode(code)).toBeNull();
-  });
-
-  it('rejects an unknown code', async () => {
     expect(await redeemLanHandoffCode('no-such-code')).toBeNull();
   });
 });

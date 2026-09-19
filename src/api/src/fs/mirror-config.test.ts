@@ -1,6 +1,6 @@
 /**
- * loadMirrorConfig tests — verifies the Mongo-backed `FolderDoc.mirrors` config
- * is hydrated into the in-memory registry the mirror-aware fs shim consults.
+ * loadMirrorConfig tests — verifies the persisted `FolderDoc.mirrors` config is
+ * hydrated into the in-memory registry the mirror-aware fs shim consults.
  *
  * This is the call the worker tier was missing: without it `isMirroringActive()`
  * is false in the worker process, so every mirror-aware write there (backup-
@@ -9,81 +9,54 @@
  * drift is itself gated off. A regression here would re-break worker-side
  * mirroring, so it is worth a direct test.
  *
- * Integration test against a real Mongo (skip-pass when unreachable).
+ * `loadMirrorConfig` reaches the process-wide handle with no override, so the
+ * database is installed as that handle for the duration of each test.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { MongoClient, type Db } from 'mongodb';
+import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { clearMirrorRoots, isMirroringActive, snapshotMirrorRoots } from './mirror-registry.ts';
+import { loadMirrorConfig } from './mirror-config.ts';
 
-const TEST_DB = withTestDb(`maple_test_mirrorcfg_${process.pid}`);
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+let live: LiveTestDatabase;
 
-let mongo: MongoClient | null = null;
-let reachable = false;
-let db: Db | null = null;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {
-      /* ignore */
-    }
-    return null;
-  }
+/** Register a library with one mirror, enabled or not. */
+function libraryWithMirror(enabled: boolean): { primary: string; mirror: string } {
+  const primary = mkdtempSync(join(tmpdir(), 'cfg-primary-'));
+  const mirror = mkdtempSync(join(tmpdir(), 'cfg-mirror-'));
+  const id = insertFolder(live.db, { path: primary });
+  run(
+    live.db,
+    `UPDATE folders SET mirrors = ? WHERE id = ?`,
+    JSON.stringify([{ path: mirror, enabled }]),
+    id,
+  );
+  return { primary, mirror };
 }
 
-beforeAll(async () => {
-  mongo = await tryConnect();
-  reachable = mongo !== null;
-  if (!reachable) {
-    console.log('[mirror-config.test] skipping: MongoDB unreachable');
-    return;
-  }
-  db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  // Pin the app's getDb() singleton to OUR test DB, then force a reconnect so
-  // loadMirrorConfig() reads the fixtures we write here.
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  const { closeDb } = await import('../db/client.ts');
-  await closeDb();
-});
-
-beforeEach(async () => {
-  if (!reachable || !db) return;
-  await db.collection('folders').deleteMany({});
-  const { clearMirrorRoots } = await import('./mirror-registry.ts');
-  clearMirrorRoots();
-});
-
-afterAll(async () => {
-  if (mongo) await mongo.close();
-});
-
 describe('loadMirrorConfig', () => {
-  it('hydrates enabled mirror roots into the registry', async () => {
-    if (!reachable) return;
-    const primary = mkdtempSync(join(tmpdir(), 'cfg-primary-'));
-    const mirror = mkdtempSync(join(tmpdir(), 'cfg-mirror-'));
-    await db!.collection('folders').insertOne({
-      path: primary,
-      label: 'lib',
-      mirrors: [{ path: mirror, enabled: true }],
-    } as Record<string, unknown>);
+  beforeEach(async () => {
+    live = await createLiveTestDatabase();
+    clearMirrorRoots();
+  });
 
-    const { isMirroringActive, snapshotMirrorRoots } = await import('./mirror-registry.ts');
+  afterEach(() => {
+    clearMirrorRoots();
+    live.close();
+  });
+
+  it('hydrates enabled mirror roots into the registry', async () => {
+    const { primary, mirror } = libraryWithMirror(true);
     expect(isMirroringActive()).toBe(false); // nothing loaded yet
 
-    const { loadMirrorConfig } = await import('./mirror-config.ts');
     await loadMirrorConfig();
 
     expect(isMirroringActive()).toBe(true);
@@ -91,19 +64,20 @@ describe('loadMirrorConfig', () => {
   });
 
   it('excludes disabled mirrors', async () => {
-    if (!reachable) return;
-    const primary = mkdtempSync(join(tmpdir(), 'cfg-primary2-'));
-    const mirror = mkdtempSync(join(tmpdir(), 'cfg-mirror2-'));
-    await db!.collection('folders').insertOne({
-      path: primary,
-      label: 'lib',
-      mirrors: [{ path: mirror, enabled: false }],
-    } as Record<string, unknown>);
+    libraryWithMirror(false);
 
-    const { loadMirrorConfig } = await import('./mirror-config.ts');
     await loadMirrorConfig();
 
-    const { isMirroringActive } = await import('./mirror-registry.ts');
+    expect(isMirroringActive()).toBe(false);
+  });
+
+  it('ignores a library whose mirror list is empty', async () => {
+    const primary = mkdtempSync(join(tmpdir(), 'cfg-primary-'));
+    const id = insertFolder(live.db, { path: primary });
+    run(live.db, `UPDATE folders SET mirrors = ? WHERE id = ?`, '[]', id);
+
+    await loadMirrorConfig();
+
     expect(isMirroringActive()).toBe(false);
   });
 });

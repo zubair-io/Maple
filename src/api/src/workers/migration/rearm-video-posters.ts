@@ -33,12 +33,16 @@
  * loop forever. Bump `VIDEO_POSTER_REARM_VERSION` to sweep again.
  */
 
-import type { Filter } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-import { assetsCollection } from '../../db/client.ts';
+import {
+  countCandidates,
+  listCandidateIds,
+  rearmStagesAndStamp,
+  unstamped,
+  LIVE_VIDEO,
+  type CandidateScope,
+} from '../../db/sqlite/repos/assets.migrations.ts';
 import { child as childLogger } from '../../log.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
-import { liveVideoAssetFilter } from './video-selectors.ts';
 
 import type { Migration, MigrationBatchResult } from './types.ts';
 
@@ -82,36 +86,8 @@ const REARMED_STAGES = [
  * version yet. Deliberately NOT filtered on backup origin (unlike
  * `backfill-video-exif`) — any indexed video wants a poster, however it
  * arrived. */
-function candidateFilter(): Filter<AssetDoc> {
-  return {
-    ...liveVideoAssetFilter(),
-    video_poster_rearm_version: { $ne: VIDEO_POSTER_REARM_VERSION },
-  } as Filter<AssetDoc>;
-}
-
-/**
- * The `$set` that re-queues one asset: every re-armed stage back to
- * unprocessed, plus the done-marker.
- *
- * The full five-field reset (`version`/`attempts`/`last_error`/`processed_at`/
- * `dead`) matches `reArmCacheStages()` in `workers/dedupe.helpers.ts` rather
- * than resetting `version` alone. Clearing the rest matters: an asset that
- * previously dead-lettered would stay `dead: true` and never be claimed, and a
- * stale `last_error` would keep showing in Settings → Workers for a stage
- * that's about to be retried clean.
- */
-function rearmUpdate(): Record<string, unknown> {
-  const set: Record<string, unknown> = {
-    video_poster_rearm_version: VIDEO_POSTER_REARM_VERSION,
-  };
-  for (const name of REARMED_STAGES) {
-    set[`stages.${name}.version`] = 0;
-    set[`stages.${name}.attempts`] = 0;
-    set[`stages.${name}.last_error`] = null;
-    set[`stages.${name}.processed_at`] = null;
-    set[`stages.${name}.dead`] = false;
-  }
-  return set;
+function candidateScope(): CandidateScope {
+  return unstamped({ sql: LIVE_VIDEO }, 'video_poster_rearm_version', VIDEO_POSTER_REARM_VERSION);
 }
 
 export const rearmVideoPosters: Migration = {
@@ -124,9 +100,8 @@ export const rearmVideoPosters: Migration = {
     'no ffmpeg installed this waits rather than running, and starts on its own once one ' +
     'appears — no restart needed. One-time; idempotent per video.',
 
-  async countRemaining(): Promise<number> {
-    const coll = await assetsCollection();
-    return coll.countDocuments(candidateFilter());
+  countRemaining(): Promise<number> {
+    return countCandidates(candidateScope());
   },
 
   async runBatch(batchSize: number): Promise<MigrationBatchResult> {
@@ -157,30 +132,23 @@ export const rearmVideoPosters: Migration = {
     }
     warnedNoFfmpeg = false;
 
-    const coll = await assetsCollection();
-
-    // Pure Mongo — no file I/O, no decode. This migration only moves stage
-    // bookkeeping; the actual poster rendering is done by the stage workers on
-    // their own schedule, under their own concurrency limits, once these rows
-    // become claimable again. So a whole batch is one `updateMany` rather than
-    // the per-document loop the file-moving migrations need.
-    const ids = await coll
-      .find(candidateFilter(), { projection: { _id: 1 } })
-      .limit(batchSize)
-      .toArray();
-
+    // No file I/O, no decode. This migration only moves stage bookkeeping; the
+    // actual poster rendering is done by the stage workers on their own
+    // schedule, under their own concurrency limits, once these rows become
+    // claimable again. So a whole batch is one transaction rather than the
+    // per-asset loop the file-moving migrations need.
+    const ids = await listCandidateIds(candidateScope(), batchSize);
     if (ids.length === 0) return { processed: 0, errors: 0 };
 
     try {
-      const res = await coll.updateMany(
-        { _id: { $in: ids.map((d) => d._id) } },
-        { $set: rearmUpdate() },
+      const modified = await rearmStagesAndStamp(
+        ids,
+        REARMED_STAGES,
+        'video_poster_rearm_version',
+        VIDEO_POSTER_REARM_VERSION,
       );
-      log.info(
-        { matched: res.matchedCount, modified: res.modifiedCount },
-        're-armed video posters',
-      );
-      return { processed: res.modifiedCount, errors: 0 };
+      log.info({ modified }, 're-armed video posters');
+      return { processed: modified, errors: 0 };
     } catch (err) {
       // Left unstamped, so the next tick retries this same batch.
       log.error(

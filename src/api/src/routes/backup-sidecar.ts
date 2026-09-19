@@ -25,11 +25,13 @@
  *   404 — library not found, or no prior upload (neither maple_id nor device+phasset matched)
  *   413 — body exceeds 256 KB
  */
-import { backupId } from './backup-id.ts';
+import { backupId, backupLibrary, backupLibraryId } from './backup-id.ts';
 import { atomicMove } from '../backup/fs-util.ts';
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
-import { assetsCollection, foldersCollection } from '../db/client.ts';
+import {
+  findLiveAssetIdByMapleId,
+  findLiveAssetIdByPhassetLink,
+} from '../db/sqlite/repos/assets.repo.ts';
 import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the sidecar publish (atomicMove → rename/copyFile)
 // replicates to the library's backup root(s).
@@ -58,14 +60,8 @@ function isSafeRelPath(relPath: string): boolean {
 export const backupSidecarRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/sidecar',
   async ({ params, headers, body, set }) => {
-    // Validate library id.
-    let libraryId: ObjectId;
-    try {
-      libraryId = new ObjectId(params.libraryId);
-    } catch {
-      set.status = 400;
-      return { error: 'invalid library id' };
-    }
+    const libraryId = backupLibraryId(params.libraryId);
+    if (libraryId instanceof Response) return libraryId;
 
     // Extract + validate required headers.
     const deviceId = headers['x-maple-device-id'];
@@ -87,47 +83,33 @@ export const backupSidecarRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
-    if (!folder) {
-      set.status = 404;
-      return { error: 'library not found' };
-    }
+    const folder = await backupLibrary(libraryId);
+    if (folder instanceof Response) return folder;
 
     // Verify prior asset upload — sidecar without prior upload is an error.
-    // Scope by a LIVE `fileinfo` entry for this library, not the retired
-    // top-level `folder_id` (dropped in drop-abs-path-2026-05-21). The
-    // `deleted_at: null` element guard ensures we don't accept a sidecar
-    // write against a soft-deleted (trashed) location. backup-ingest writes
-    // the on-disk pointer onto `fileinfo[].library_id`; querying the legacy
-    // `folder_id` matched nothing for a freshly-ingested asset and 404'd the
-    // sidecar even though the original bytes landed. Mirrors the rendered
-    // route's `fileinfo.library_id` scoping.
+    // Scope by a LIVE location in this library, not the retired top-level
+    // `folder_id` (dropped in drop-abs-path-2026-05-21). The live guard
+    // ensures we don't accept a sidecar write against a soft-deleted
+    // (trashed) location. backup-ingest writes the on-disk pointer as a
+    // location row; querying the legacy `folder_id` matched nothing for a
+    // freshly-ingested asset and 404'd the sidecar even though the original
+    // bytes landed. Mirrors the rendered route's library scoping.
     //
     // PRIMARY lookup: by `maple_id` (content-hash dedup key) when the client
     // sent `X-Maple-Id`. A content-duplicate photo (already uploaded by another
     // device, or re-imported under a new PHAsset local id) won't carry THIS
-    // device's `phasset_link`, so the device+phasset query below misses and
+    // device's phasset link, so the device+phasset query below misses and
     // 404s even though the asset + bytes exist (#698). The maple_id is stable
     // across devices, so it resolves the dedup case.
-    const liveFileinfo = { $elemMatch: { library_id: libraryId, deleted_at: null } };
-    const a = await assetsCollection();
-    let asset = null;
-    if (mapleId) {
-      asset = await a.findOne({
-        maple_id: mapleId,
-        fileinfo: liveFileinfo,
-      });
-    }
-    // FALLBACK: by (device_id, phasset_local_id). Used when the client is an
-    // older build that doesn't send `X-Maple-Id`, or when the maple_id lookup
-    // missed. Preserves backwards compatibility.
-    if (!asset) {
-      asset = await a.findOne({
-        fileinfo: liveFileinfo,
-        'phasset_links.device_id': deviceId,
-        'phasset_links.phasset_local_id': phid,
-      });
-    }
+    //
+    // FALLBACK: by (device_id, phasset_local_id) — for an older client that
+    // doesn't send `X-Maple-Id`, or when the maple_id lookup missed. Both
+    // columns belong to one link row, so an asset linked to (deviceA, id1) and
+    // (deviceB, id2) can no longer answer a lookup for (deviceA, id2) the way
+    // the two dotted paths this replaces allowed.
+    const asset =
+      (mapleId ? await findLiveAssetIdByMapleId(mapleId, libraryId) : null) ??
+      (await findLiveAssetIdByPhassetLink(deviceId, phid, libraryId));
     if (!asset) {
       set.status = 404;
       return { error: 'no prior upload for this device and phasset' };

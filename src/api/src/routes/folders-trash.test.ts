@@ -5,8 +5,10 @@
  * The orchestration itself is covered exhaustively by
  * `library/folder-trash.test.ts`; this file just proves the HTTP wiring —
  * header validation, folder lookup, and the summary JSON shape — matches
- * `/mkdir` and `/move`'s conventions. Requires a running MongoDB (skips
- * gracefully if unreachable).
+ * `/mkdir` and `/move`'s conventions.
+ *
+ * The handlers reach `sqliteDb()` with no override, so each test installs its
+ * own database as the process-wide handle for the block.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -14,74 +16,42 @@ import { Elysia } from 'elysia';
 import { mkdtemp, rm, mkdir, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { closeDb } from '../db/client.ts';
+import { ObjectId } from 'mongodb';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { foldersTrashRoutes } from './folders-trash.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_folders_trash_route_test_${process.pid}`;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
 describe('POST /api/folders/:id/trash-folder + /restore-folder', () => {
-  let mongo: MongoClient | null = null;
-  let db: Db | null = null;
-  let folderId: ObjectId | null = null;
-  let folderPath: string | null = null;
+  let live: LiveTestDatabase;
+  let folderId: string;
+  let folderPath: string;
 
   beforeEach(async () => {
-    mongo = await tryConnect();
-    if (!mongo) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    await closeDb();
-    db = mongo.db(TEST_DB);
-    await db.dropDatabase();
+    live = await createLiveTestDatabase();
     folderPath = await mkdtemp(nodePath.join(tmpdir(), 'maple-folder-trash-route-test-'));
-    folderId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: folderId,
-      path: folderPath,
-      slug: 'folder-trash-route-test',
-      label: 'folder-trash-route-test',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
+    folderId = insertFolder(live.db, { path: folderPath, slug: 'folder-trash-route-test' });
+    // The library-roots cache is process-wide and keyed on nothing but the
+    // folders table, so a previous test's roots would otherwise answer this
+    // one's path resolution.
     invalidateLibraryRoots();
   });
 
   afterEach(async () => {
-    if (db) await db.dropDatabase().catch(() => {});
-    if (mongo) await mongo.close().catch(() => {});
-    if (folderPath) await rm(folderPath, { recursive: true, force: true }).catch(() => {});
-    await closeDb();
-    db = null;
-    mongo = null;
-    folderId = null;
-    folderPath = null;
+    live.close();
+    invalidateLibraryRoots();
+    await rm(folderPath, { recursive: true, force: true }).catch(() => {});
   });
 
   function call(action: 'trash-folder' | 'restore-folder', target: string): Promise<Response> {
     const app = new Elysia().use(fakeAuth()).use(foldersTrashRoutes);
-    const url = `http://localhost/api/folders/${folderId!.toHexString()}/${action}`;
+    const url = `http://localhost/api/folders/${folderId}/${action}`;
     return app.handle(
       new Request(url, {
         method: 'POST',
@@ -90,29 +60,26 @@ describe('POST /api/folders/:id/trash-folder + /restore-folder', () => {
     );
   }
 
-  it('trashes every asset under the target subfolder and reports a summary', async () => {
-    if (!mongo || !db || !folderId || !folderPath) {
-      console.log('[folders-trash.test] MongoDB unreachable — skipping');
-      return;
-    }
+  /** The asset row's soft-delete stamp, read straight off the table. */
+  function deletedAt(assetId: string): string | null {
+    const row = live.db.query(`SELECT deleted_at FROM assets WHERE id = ?`).get(assetId) as {
+      deleted_at: string | null;
+    } | null;
+    return row?.deleted_at ?? null;
+  }
 
+  it('trashes every asset under the target subfolder and reports a summary', async () => {
     const absDir = nodePath.join(folderPath, 'sub');
     await mkdir(absDir, { recursive: true });
     await writeFile(nodePath.join(absDir, 'IMG_1.dng'), 'pixels');
 
-    const assetId = new ObjectId();
-    await db.collection('assets').insertOne({
-      _id: assetId,
-      fileinfo: [{ path: 'sub', filename: 'IMG_1.dng', library_id: folderId, deleted_at: null }],
-      size: 6,
-      mtime: 1_700_000_000_000,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-01-01T00:00:00Z',
-      has_xmp: false,
-      deleted_at: null,
-    } as never);
+    const assetId = insertAsset(live.db);
+    insertLocation(live.db, {
+      assetId,
+      libraryId: folderId,
+      path: 'sub',
+      filename: 'IMG_1.dng',
+    });
 
     const res = await call('trash-folder', 'sub');
     expect(res.status).toBe(200);
@@ -122,8 +89,7 @@ describe('POST /api/folders/:id/trash-folder + /restore-folder', () => {
     expect(body.failed).toBe(0);
 
     await expect(stat(nodePath.join(absDir, 'IMG_1.dng'))).rejects.toThrow();
-    const trashedRow = await db.collection('assets').findOne({ _id: assetId });
-    expect((trashedRow as unknown as { deleted_at: string | null })?.deleted_at).not.toBeNull();
+    expect(deletedAt(assetId)).not.toBeNull();
 
     const restoreRes = await call('restore-folder', 'sub');
     expect(restoreRes.status).toBe(200);
@@ -133,25 +99,16 @@ describe('POST /api/folders/:id/trash-folder + /restore-folder', () => {
 
     const restoredStat = await stat(nodePath.join(absDir, 'IMG_1.dng'));
     expect(restoredStat.isFile()).toBe(true);
-    const restoredRow = await db.collection('assets').findOne({ _id: assetId });
-    expect((restoredRow as unknown as { deleted_at: string | null })?.deleted_at).toBeNull();
+    expect(deletedAt(assetId)).toBeNull();
   });
 
   it('rejects a hostile X-Maple-Target-Path with 400, same as /mkdir and /move', async () => {
-    if (!mongo || !db || !folderId) {
-      console.log('[folders-trash.test] MongoDB unreachable — skipping');
-      return;
-    }
     const res = await call('trash-folder', '../../etc');
     expect(res.status).toBe(400);
   });
 
   it('404s for an unknown folder id', async () => {
-    if (!mongo || !db) {
-      console.log('[folders-trash.test] MongoDB unreachable — skipping');
-      return;
-    }
-    folderId = new ObjectId(); // unregistered id
+    folderId = new ObjectId().toHexString(); // unregistered id
     const res = await call('trash-folder', 'sub');
     expect(res.status).toBe(404);
   });

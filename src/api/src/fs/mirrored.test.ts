@@ -1,5 +1,5 @@
 /**
- * mirrored.ts + mirror-registry.ts integration tests — real temp dirs, no Mongo.
+ * mirrored.ts + mirror-registry.ts integration tests — real temp dirs, no database.
  *
  * Validates the drop-in fan-out: durable writes/moves/deletes under a primary
  * library root replicate to the configured mirror root, temp files and

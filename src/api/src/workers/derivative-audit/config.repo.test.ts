@@ -1,21 +1,19 @@
 import { describe, expect, it } from 'bun:test';
-import { setupAuditMongo } from './test-support.ts';
+import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import {
   loadDerivativeAuditConfig,
   saveDerivativeAuditConfig,
   DEFAULT_DERIVATIVE_AUDIT_CONFIG,
 } from './config.repo.ts';
 
-const h = setupAuditMongo(`maple_derivative_audit_config_test_${process.pid}`);
-
 describe('derivative-audit config repo', () => {
   it('returns defaults when no doc exists', async () => {
-    if (!h.mongoReachable) return;
+    using _live = await createLiveTestDatabase();
     expect(await loadDerivativeAuditConfig()).toMatchObject(DEFAULT_DERIVATIVE_AUDIT_CONFIG);
   });
 
   it('round-trips a partial patch, leaving other fields at default', async () => {
-    if (!h.mongoReachable) return;
+    using _live = await createLiveTestDatabase();
     await saveDerivativeAuditConfig({ enabled: false, max_resets_per_pass: 25 });
     const cfg = await loadDerivativeAuditConfig();
     expect(cfg.enabled).toBe(false);

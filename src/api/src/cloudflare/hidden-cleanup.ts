@@ -27,8 +27,8 @@
  * best-effort contract in `workers/stages/thumb.ts`).
  */
 
-import type { Collection, ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
+import type { ObjectId } from 'mongodb';
+import { clearCfThumbSyncedAt } from '../db/sqlite/repos/assets.mutations.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
@@ -40,7 +40,6 @@ import {
 } from './cloudflare-config.repo.ts';
 import { deleteThumbFromR2, type ResolvedCloudflareConfig } from './r2-client.ts';
 import { thumbR2Key } from './thumb-key.ts';
-import type { AssetDoc } from '../db/schema.ts';
 
 const log = childLogger('cloudflare:hidden-cleanup');
 
@@ -63,7 +62,6 @@ async function deleteOne(
   asset: HidableAsset,
   config: ResolvedCloudflareConfig,
   idToSlug: ReadonlyMap<string, string>,
-  assets: Collection<AssetDoc>,
 ): Promise<void> {
   // Deliberately UNCONDITIONAL on `asset.cf_thumb_synced_at` — that field on
   // the passed-in `asset` is a snapshot from whenever the calling stage
@@ -84,7 +82,7 @@ async function deleteOne(
   const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
   try {
     await deleteThumbFromR2(config, key, AbortSignal.timeout(CF_DELETE_TIMEOUT_MS));
-    await assets.updateOne({ _id: asset._id }, { $set: { cf_thumb_synced_at: null } });
+    await clearCfThumbSyncedAt(asset._id);
   } catch (err) {
     log.warn(
       { assetId: asset._id.toHexString(), key, err: err instanceof Error ? err.message : err },
@@ -104,15 +102,14 @@ async function deleteOne(
  * function's callers (the describe / sidecar-metadata-index stage handlers)
  * `await` it unwrapped, trusting the "never throws" contract above — a
  * transient failure resolving config or the library-slug map (both real
- * Mongo reads) must not propagate and fail the calling stage run. */
+ * database reads) must not propagate and fail the calling stage run. */
 export async function cleanupR2ThumbForHiddenAsset(asset: HidableAsset): Promise<void> {
   try {
     const dbConfig = await loadCloudflareConfig();
     const config = resolveCloudflareConfig(dbConfig);
     if (!hasCloudflareCredentials(config)) return;
     const idToSlug = await loadLibraryIdToSlug();
-    const assets = await assetsCollection();
-    await deleteOne(asset, config, idToSlug, assets);
+    await deleteOne(asset, config, idToSlug);
   } catch (err) {
     log.warn(
       { assetId: asset._id.toHexString(), err: err instanceof Error ? err.message : err },
@@ -132,8 +129,7 @@ export async function cleanupR2ThumbsForHiddenAssets(hidden: HidableAsset[]): Pr
     const config = resolveCloudflareConfig(dbConfig);
     if (!hasCloudflareCredentials(config)) return;
     const idToSlug = await loadLibraryIdToSlug();
-    const assets = await assetsCollection();
-    await Promise.all(hidden.map((asset) => deleteOne(asset, config, idToSlug, assets)));
+    await Promise.all(hidden.map((asset) => deleteOne(asset, config, idToSlug)));
   } catch (err) {
     log.warn(
       { count: hidden.length, err: err instanceof Error ? err.message : err },

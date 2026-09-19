@@ -52,6 +52,7 @@ import { backupNotifyDeletedRoutes } from './backup-notify-deleted.ts';
 import { changesRoutes } from './changes.ts';
 import { mirrorRoutes } from './mirror.ts';
 import { derivativeAuditRoutes } from './derivative-audit.ts';
+import { changeLogGcRoutes } from './change-log-gc.ts';
 import { assetsListRoutes } from './assets-list.ts';
 import { photosRoutes } from './photos.ts';
 import { displayRoutes } from './display.ts';
@@ -126,6 +127,7 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   .use(changesRoutes)
   .use(mirrorRoutes)
   .use(derivativeAuditRoutes)
+  .use(changeLogGcRoutes)
   .use(workerRoutes())
   .use(generatedSearchConfigRoutes)
   .use(aiRoutes);

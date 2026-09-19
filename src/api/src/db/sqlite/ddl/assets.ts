@@ -1,0 +1,330 @@
+/**
+ * The `assets` table — the narrow grid-and-filter row.
+ *
+ * This table is the whole performance argument for the migration, so its width
+ * is a deliberate design constraint rather than an accident. On production
+ * MongoDB the asset documents average 8 KB (p90 28 KB, max 261 KB) and occupy
+ * 8.8 GB against a 1.5 GB cache, which is why counting the collection costs
+ * about five seconds whether the cache is warm or cold. Copying that document
+ * into one JSON column per row would reproduce the problem exactly.
+ *
+ * So three rules apply here, and a reviewer should push back when one is
+ * broken:
+ *
+ *  1. **A field that a query filters, sorts or groups on is a column.** Either
+ *     a stored column or a `GENERATED ALWAYS AS (json_extract(...)) VIRTUAL`
+ *     column with an index — an indexed generated column materialises its value
+ *     inside the index, so a facet or a sort never decodes the JSON at all.
+ *  2. **A payload that is only ever read back whole lives somewhere else.**
+ *     `vision`, `transcript`, `video_description`, `ocr_text` and friends are
+ *     detail-view data; they live in `asset_detail` (see `./asset-detail.ts`)
+ *     so they are not dragged through the page cache by a grid query.
+ *  3. **The two JSON columns that stay (`exif`, `place`) are declared last.**
+ *     SQLite reads a row's columns in declaration order and stops once it has
+ *     what the statement asked for, so a query that selects only the narrow
+ *     leading columns never follows the overflow pages these two can spill on
+ *     to.
+ *
+ * Arrays are gone: `fileinfo[]`, `faces[]` and `phasset_links[]` are their own
+ * tables, and the per-stage bookkeeping under `stages.<name>` is one
+ * `stage_state` table. See the sibling modules.
+ */
+
+/**
+ * Why `id` is TEXT and not an `INTEGER PRIMARY KEY` rowid alias.
+ *
+ * `db/assets.transform.ts` puts `doc._id.toHexString()` and the folder's hex id
+ * straight into the DTOs the HTTP API returns, so those 24-character strings
+ * are already part of the public contract. Apple, Web and Windows clients hold
+ * them, compare them and derive cache keys from them — `trash.service.ts` on
+ * web still has a `resolveMongoId()` path. The migration's stated non-goal is
+ * that clients change, so the identifiers survive unchanged. Rowid aliases are
+ * cheaper and are used freely by the internal tables whose ids never reach a
+ * client.
+ */
+export const ASSETS_TABLE_DDL = `
+CREATE TABLE assets (
+  id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
+
+  -- stat + provenance
+  size        INTEGER NOT NULL,
+  mtime       INTEGER NOT NULL,
+  indexed_at  TEXT    NOT NULL,
+
+  -- sidecar-owned grid fields
+  rating       INTEGER NOT NULL DEFAULT 0  CHECK (rating BETWEEN 0 AND 5),
+  flag         INTEGER NOT NULL DEFAULT 0  CHECK (flag IN (-1, 0, 1)),
+  color_label  TEXT    NOT NULL DEFAULT '',
+  has_xmp      INTEGER NOT NULL DEFAULT 0  CHECK (has_xmp IN (0, 1)),
+  sidecar_ver  INTEGER NOT NULL DEFAULT 0,
+
+  media_kind TEXT NOT NULL DEFAULT 'image' CHECK (media_kind IN ('image', 'video', 'audio')),
+
+  -- visibility
+  hidden         INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1)),
+  hidden_reason  TEXT CHECK (
+                   hidden_reason IS NULL
+                   OR hidden_reason IN ('manual', 'nudity', 'nudity-burst', 'folder')
+                 ),
+  hidden_ack     INTEGER NOT NULL DEFAULT 0 CHECK (hidden_ack IN (0, 1)),
+  -- Nullable on purpose, and the only tri-state in this table (#3761).
+  -- AssetDetailDto.is_screenshot is typed boolean | null and emitted as
+  -- doc.is_screenshot ?? null, so three states are already on the wire:
+  -- never classified, classified as not a screenshot, classified as one. The
+  -- describe stage is what makes that distinction — a NOT NULL DEFAULT 0
+  -- column would report "not a screenshot" for every asset the stage has not
+  -- reached yet, which is a wire-contract change dressed as a default.
+  --
+  -- hidden and hidden_ack above stay NOT NULL DEFAULT 0 although their DTO
+  -- keys are optional too, because their filter semantics are already
+  -- two-valued: every query spells the exclusion hidden: { $ne: true },
+  -- which matches absent and false identically, and an absent key reads as
+  -- false at every client. Nothing distinguishes the two states, and making
+  -- them nullable would force (hidden = 0 OR hidden IS NULL) into the
+  -- predicate of every browse, search and facet query — losing the index.
+  is_screenshot  INTEGER CHECK (is_screenshot IS NULL OR is_screenshot IN (0, 1)),
+
+  -- soft delete
+  deleted_at      TEXT,
+  deleted_reason  TEXT CHECK (deleted_reason IS NULL OR deleted_reason = 'reaped'),
+  original_path   TEXT,
+
+  -- "damaged file" tag. Flattened out of the 'damaged' subdocument because
+  -- 'damaged.since' is a claim-query gate on EVERY stage: it has to be a real
+  -- column, and the other two fields are three bytes of company.
+  damaged_since   TEXT,
+  damaged_stage   TEXT,
+  damaged_reason  TEXT,
+
+  -- content identity. The empty string is refused rather than filtered out of
+  -- the index below — see assets_maple_id for why that distinction decides
+  -- whether the dedup probe uses an index at all.
+  maple_id   TEXT CHECK (maple_id IS NULL OR maple_id <> ''),
+  sha1_head  TEXT,
+
+  -- liveness roll-up. Number of asset_locations rows for this asset with
+  -- neither deleted_at nor missing_since set, maintained by the triggers in
+  -- ./asset-locations.ts. See that module for why a derived column beat an
+  -- EXISTS sub-select here.
+  live_location_count INTEGER NOT NULL DEFAULT 0,
+
+  -- backup / mirror bookkeeping
+  deleted_from_photos          INTEGER NOT NULL DEFAULT 0 CHECK (deleted_from_photos IN (0, 1)),
+  apple_rendered_path          TEXT,
+  cf_thumb_synced_at           TEXT,
+  semantic_vector_fingerprint  TEXT,
+
+  -- one-shot migration generation markers ({ $ne: N } sweeps)
+  backup_layout_version            INTEGER,
+  legacy_daydir_version            INTEGER,
+  video_meta_version               INTEGER,
+  video_poster_rearm_version       INTEGER,
+  video_screenshot_clear_version   INTEGER,
+  preview_missing_redrive_version  INTEGER,
+  geo_backfill_skipped             TEXT CHECK (
+                                     geo_backfill_skipped IS NULL
+                                     OR geo_backfill_skipped IN ('no-donor', 'skip')
+                                   ),
+
+  -- JSON payloads, declared last so a narrow SELECT stops reading before them.
+  exif   TEXT CHECK (exif IS NULL OR json_valid(exif)),
+  place  TEXT CHECK (place IS NULL OR json_valid(place)),
+
+  -- Generated columns over the JSON paths that queries actually touch. VIRTUAL
+  -- costs no storage; the indexes below materialise the values they need.
+  captured_at         TEXT    GENERATED ALWAYS AS (json_extract(exif, '$.captured_at')) VIRTUAL,
+  captured_year       INTEGER GENERATED ALWAYS AS (json_extract(exif, '$.captured_year')) VIRTUAL,
+  captured_month      INTEGER GENERATED ALWAYS AS (json_extract(exif, '$.captured_month')) VIRTUAL,
+  camera_make         TEXT    GENERATED ALWAYS AS (json_extract(exif, '$.camera_make')) VIRTUAL,
+  camera_model        TEXT    GENERATED ALWAYS AS (json_extract(exif, '$.camera_model')) VIRTUAL,
+  camera_serial       TEXT    GENERATED ALWAYS AS (json_extract(exif, '$.camera_serial')) VIRTUAL,
+  lens                TEXT    GENERATED ALWAYS AS (json_extract(exif, '$.lens')) VIRTUAL,
+  iso                 INTEGER GENERATED ALWAYS AS (json_extract(exif, '$.iso')) VIRTUAL,
+  gps_lat             REAL    GENERATED ALWAYS AS (json_extract(exif, '$.gps.lat')) VIRTUAL,
+  gps_lng             REAL    GENERATED ALWAYS AS (json_extract(exif, '$.gps.lng')) VIRTUAL,
+  place_country_code  TEXT    GENERATED ALWAYS AS (json_extract(place, '$.rollups.country_code')) VIRTUAL,
+  place_region        TEXT    GENERATED ALWAYS AS (json_extract(place, '$.rollups.region')) VIRTUAL,
+  place_locality      TEXT    GENERATED ALWAYS AS (json_extract(place, '$.rollups.locality')) VIRTUAL,
+  geocoder_version    INTEGER GENERATED ALWAYS AS (json_extract(place, '$.geocoder_version')) VIRTUAL
+);
+`;
+
+/**
+ * "Live" in the sense every browse, search and facet surface means it: not
+ * soft-deleted, and holding at least one location whose file is still there.
+ *
+ * Repeated verbatim in each partial index's `WHERE` clause because SQLite only
+ * uses a partial index when the query's own `WHERE` provably implies the
+ * index's. Repo modules must spell the predicate exactly this way.
+ */
+export const LIVE_ASSET_PREDICATE = 'deleted_at IS NULL AND live_location_count > 0';
+
+/**
+ * Why `hidden` is the last column of almost every index below.
+ *
+ * Every browse, search and facet request carries one filter nobody asked for:
+ * hidden assets are excluded unless the caller opts in, so `buildFilter` emits
+ * `hidden: { $ne: true }` on literally every query and the SQLite translation
+ * emits `hidden = 0`. An index that omits the column therefore serves the group
+ * key and then has to fetch each candidate row to test it, which turns an
+ * index-only scan into a read of the whole `assets` table — the one thing this
+ * schema exists to avoid.
+ *
+ * Measured on 60,000 generated assets (#3750), shipped queries against the
+ * indexes as first written:
+ *
+ * | query                       | without `hidden` | with it |
+ * | --------------------------- | ---------------- | ------- |
+ * | count live assets           | 18.3 ms          | 1.0 ms  |
+ * | facet: camera make + model  | 57.6 ms          | 2.5 ms  |
+ *
+ * It goes last rather than first because it is not a group key: appending it
+ * leaves the leading columns in the order each `GROUP BY` wants, so the scan
+ * stays index-only *and* streams its groups. Putting it in the partial index's
+ * `WHERE` instead would be smaller on disk and wrong — `hidden=only` and
+ * `hidden=all` are real wire values, and both would lose the index entirely.
+ */
+export const ASSETS_INDEX_DDL = `
+-- Default search/browse sort: newest capture first, id breaking ties so
+-- pagination is stable across pages of burst frames. Replaces
+-- { 'fileinfo.library_id': 1, 'exif.captured_at': -1, _id: 1 } — the library
+-- scope is now a semi-join against asset_locations, which under a LIMIT costs
+-- one index probe per returned row instead of leading the compound key.
+-- The hidden column trails the sort key so the MIN/MAX capture-range facet is
+-- index-only; a grid page reads its row anyway, for the projection.
+CREATE INDEX assets_live_captured
+  ON assets (captured_at DESC, id, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+-- Plain "how many live assets" count. Keyed on live_location_count rather than
+-- on id: an index over the TEXT primary key duplicates the implicit unique
+-- index and the planner prefers a table scan to it, whereas this one answers
+-- the count as a 'live_location_count > 0' range seek over a partial index.
+CREATE INDEX assets_live
+  ON assets (live_location_count, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+-- "Is this asset live", answered for a known id without reading its row.
+-- Every per-asset liveness probe — the per-person face count is the one that
+-- does it hundreds of thousands of times — joins to assets on the primary key
+-- and then tests the predicate. Against the implicit primary-key index that
+-- costs a seek to find the rowid plus a read of the whole asset row; with the
+-- predicate folded into a partial index keyed on id, the probe is index-only
+-- and the row is never touched. Measured on a generated 335,377-asset library
+-- (335,028 faces, ~251k assigned): the whole-library face count goes from
+-- 591 ms to 175 ms.
+CREATE INDEX assets_live_id
+  ON assets (id)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+-- Facet group-bys. The group keys ARE the index columns, and the hidden filter
+-- rides along, so these answer from the index without reading an asset row.
+-- EXPLAIN QUERY PLAN says "SCAN assets USING INDEX ..." rather than "USING
+-- COVERING INDEX", because SQLite does not label an index over a generated
+-- column as covering; measured, they behave like one (about 45 ns per row at
+-- 40,000 assets, against 1.1 us when the row has to be fetched to test hidden).
+CREATE INDEX assets_facet_camera
+  ON assets (camera_make, camera_model, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+CREATE INDEX assets_facet_lens
+  ON assets (lens, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+-- Country -> region -> locality, for the geographic drill-down.
+CREATE INDEX assets_facet_place
+  ON assets (place_country_code, place_region, place_locality, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+-- The places facet groups by (locality, region) — the pair the wire label is
+-- built from — which the country-leading key above cannot serve.
+CREATE INDEX assets_facet_place_label
+  ON assets (place_locality, place_region, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+CREATE INDEX assets_facet_screenshot
+  ON assets (is_screenshot, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+-- Timeline buckets: $group by { captured_year, captured_month }.
+CREATE INDEX assets_live_captured_ym
+  ON assets (captured_year DESC, captured_month DESC, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+
+-- Meilisearch live-vector coverage: countDocuments(LIVE_ASSET_FILTER +
+-- semantic_vector_fingerprint). Unindexed on Mongo today, so this is new.
+CREATE INDEX assets_vector_fingerprint
+  ON assets (semantic_vector_fingerprint)
+  WHERE ${LIVE_ASSET_PREDICATE} AND semantic_vector_fingerprint IS NOT NULL;
+
+-- Trash GC sweep: deleted_at < cutoff. Partial so the index holds only the
+-- trashed rows, exactly like the deleted_at_1 partial index it replaces.
+CREATE INDEX assets_trashed
+  ON assets (deleted_at)
+  WHERE deleted_at IS NOT NULL;
+
+-- Content-dedup key. UNIQUE + partial mirrors maple_id_gt_1: skeleton rows
+-- carry a null maple_id and must not collide with each other.
+--
+-- The predicate is IS NOT NULL alone, and the non-empty half is a CHECK on
+-- the column instead, because a partial index is only used when the query's
+-- own WHERE provably implies the index's. maple_id = ? implies IS NOT NULL;
+-- it does not imply <> '', since the bound value is not known at planning
+-- time. With AND maple_id <> '' in here the dedup probe planned as
+-- SCAN assets — a full scan per discovered file, which is the exact cost
+-- this schema exists to remove.
+--
+-- Mongo learned the same lesson on the same column: maple_id_1 carried
+-- partialFilterExpression: { maple_id: { $type: 'string' } }, which the
+-- planner would not match against a literal-string equality either, and
+-- swap-maple-id-partial-filter-2026-05-23 rebuilt it as { $gt: '' } to fix
+-- it (see the comment on ensureIndexes in db/client.ts). $gt: '' is the
+-- Mongo spelling of "present and non-empty"; its SQLite equivalent is this
+-- pair, because SQLite's implication test is textual where Mongo's is
+-- value-based. The indexed set is identical either way: writers store either
+-- NULL on a skeleton row or a 32-character hex string on a hashed one, and the
+-- CHECK now makes that a schema guarantee rather than a convention.
+CREATE UNIQUE INDEX assets_maple_id
+  ON assets (maple_id)
+  WHERE maple_id IS NOT NULL;
+
+-- Secondary dedup fallback when the maple_id lookup misses. Not unique —
+-- legacy rows can share a head hash.
+CREATE INDEX assets_sha1_head
+  ON assets (sha1_head)
+  WHERE sha1_head IS NOT NULL;
+
+-- Damaged tag: the /api/workers damaged list and count. The claim query's
+-- exclusion (damaged_since IS NULL) is served by the partial stage indexes.
+CREATE INDEX assets_damaged
+  ON assets (damaged_since)
+  WHERE damaged_since IS NOT NULL;
+
+-- "Newly hidden, not yet acknowledged" review list and its badge count.
+CREATE INDEX assets_hidden_pending
+  ON assets (hidden_ack)
+  WHERE hidden = 1;
+
+-- Video/audio claim filters and the media-scoped migrations. Partial over the
+-- minority kinds, so image rows never enter the index (#3492).
+CREATE INDEX assets_media_kind_av
+  ON assets (media_kind)
+  WHERE media_kind IN ('video', 'audio');
+
+-- Map clusters: a bbox range on both coordinates.
+CREATE INDEX assets_gps_bbox
+  ON assets (gps_lat, gps_lng)
+  WHERE gps_lat IS NOT NULL;
+
+-- apply-video-geo-backfill donor lookup: a ±15 minute capture-time window
+-- among GPS-bearing assets.
+CREATE INDEX assets_gps_captured
+  ON assets (captured_at, gps_lat)
+  WHERE gps_lat IS NOT NULL;
+
+-- One-shot refile-backups sweep ({ $ne: BACKUP_LAYOUT_VERSION } over
+-- backup-origin assets). Droppable once that cleanup finishes library-wide,
+-- same as the Mongo index it replaces.
+CREATE INDEX assets_backup_layout
+  ON assets (backup_layout_version);
+`;

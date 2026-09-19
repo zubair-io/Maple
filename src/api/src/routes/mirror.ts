@@ -28,11 +28,12 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { child as childLogger } from '../log.ts';
-import { foldersCollection } from '../db/client.ts';
+import { findFolderById, setFolderMirrors } from '../db/sqlite/repos/folders.repo.ts';
+import { safeObjectId } from '../db/safe-object-id.ts';
+import type { FolderWithId } from '../db/schema.ts';
 import { validateRoot } from '../fs/root.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { mirrorQueueCounts, retryDeadMirrorCopies } from '../fs/mirror-queue.repo.ts';
@@ -82,33 +83,33 @@ async function aliases(a: string, b: string): Promise<boolean> {
   return pathsOverlap(await real(a), await real(b));
 }
 
+/**
+ * The library whose mirrors a request addresses, or the response to send.
+ *
+ * Both handlers here opened the same way. It is a third copy of a shape
+ * `routes/folders.ts` also has twice, and it stays separate from those on
+ * purpose: all three answer different strings — `invalid folder id` here,
+ * `Invalid folder id` there, `Invalid folderId` on the scan routes — and every
+ * one of them is on the wire.
+ */
+async function mirrorFolder(rawId: string): Promise<FolderWithId | Response> {
+  const id = safeObjectId(rawId);
+  if (id === null) return Response.json({ error: 'invalid folder id' }, { status: 400 });
+  const folder = await findFolderById(id);
+  return folder ?? Response.json({ error: 'folder not found' }, { status: 404 });
+}
+
 export const mirrorRoutes = new Elysia()
-  .get('/api/folders/:id/mirror', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'invalid folder id' };
-    }
-    const coll = await foldersCollection();
-    const folder = await coll.findOne({ _id: new ObjectId(params.id) });
-    if (!folder) {
-      set.status = 404;
-      return { error: 'folder not found' };
-    }
+  .get('/api/folders/:id/mirror', async ({ params }) => {
+    const folder = await mirrorFolder(params.id);
+    if (folder instanceof Response) return folder;
     return { mirrors: folder.mirrors ?? [] };
   })
   .put(
     '/api/folders/:id/mirror',
     async ({ params, body, set }) => {
-      if (!ObjectId.isValid(params.id)) {
-        set.status = 400;
-        return { error: 'invalid folder id' };
-      }
-      const coll = await foldersCollection();
-      const folder = await coll.findOne({ _id: new ObjectId(params.id) });
-      if (!folder) {
-        set.status = 404;
-        return { error: 'folder not found' };
-      }
+      const folder = await mirrorFolder(params.id);
+      if (folder instanceof Response) return folder;
 
       // Validate + de-dupe the requested mirror roots.
       const seen = new Set<string>();
@@ -143,7 +144,7 @@ export const mirrorRoutes = new Elysia()
         mirrors.push({ path: resolved, enabled: m.enabled });
       }
 
-      await coll.updateOne({ _id: folder._id }, { $set: { mirrors } });
+      await setFolderMirrors(folder._id, mirrors);
       await loadMirrorConfig(); // refresh the in-memory registry — no restart
       log.info({ folder: folder.path, mirrors: mirrors.length }, 'updated library mirrors');
       return { ok: true, mirrors };

@@ -2,7 +2,7 @@
 /**
  * Describe-provider abstraction. The slow-tier `describe` worker delegates the
  * actual JPEG-bytes → caption call to one of these providers; everything else
- * (claim/lease, retries, cost cap, Mongo writes) lives in the worker.
+ * (claim/lease, retries, cost cap, database writes) lives in the worker.
  *
  * Each implementation lives in its own file under `describe-providers/` and
  * shares this contract:
@@ -55,7 +55,8 @@ export interface DescribeResult {
    * provider's published per-token / per-char rates. */
   cost_usd: number;
   /** Per-provider diagnostic blob. Stored on `asset.description_meta` for
-   * triage. Always strings so Mongo doesn't infer mixed types per field. */
+   * triage. Always strings: the blob is stored and read back as JSON, and a
+   * field whose type varies by provider is a trap for every reader of it. */
   provider_info: Record<string, string>;
 }
 

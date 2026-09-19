@@ -18,16 +18,10 @@
  * spread through — every field is copied by name.
  */
 
-import type { Filter } from 'mongodb';
-import type { AssetDoc } from '../../db/schema.ts';
-import { personIdsToDrop } from '../../people/people.repo.ts';
-import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
-import {
-  buildFilter,
-  extractDatesFromQuery,
-  peopleNames,
-  type SearchQuery,
-} from '../../routes/search/query.ts';
+import { personIdsToDrop } from '../../db/sqlite/repos/people.visibility.ts';
+import { personIdsForNames } from '../../db/sqlite/repos/people.search-filter.ts';
+import { buildSearchWhere, type SearchWhere } from '../../db/sqlite/repos/search.where.ts';
+import { extractDatesFromQuery, peopleNames, type SearchQuery } from '../../routes/search/query.ts';
 import type { GeneratedQuery } from './validate.ts';
 
 /**
@@ -58,29 +52,36 @@ export function toSearchQuery(stored: GeneratedQuery, libraryId: string): Search
 }
 
 /**
- * Resolve a live query all the way to a Mongo filter, the way
- * `GET /api/search` does: pull natural-language dates out of `placeQuery`,
- * resolve the person ids to drop and the person names to match, then
- * `buildFilter`.
+ * Resolve a live query into the `WHERE` clause and bound values every search
+ * surface runs on, the way `GET /api/search` does: pull natural-language dates
+ * out of `placeQuery`, resolve the person ids to drop and the person names to
+ * match, then `buildSearchWhere`.
  *
  * Takes an already-forced `SearchQuery` rather than a stored `GeneratedQuery`,
- * so the forcing in `toSearchQuery` happens exactly once at each call site
+ * so the forcing in {@link toSearchQuery} happens exactly once at each call site
  * instead of being re-applied here and relying on it being idempotent.
  *
- * Shared by the worker (measuring a candidate) and the read API (rendering a
- * saved one). Keeping it in one function is what stops the two from drifting
- * — a collection measured at 40 photos must not render with four.
+ * Keeping the sequence in one function is what stops the worker's measurement
+ * and a consumer's render from drifting — a collection measured at 40 photos
+ * must not appear on a widget with four. The two person-id lists in particular
+ * are resolved per execution and never read out of the stored document, which is
+ * what keeps a doc written by an older worker from surfacing a soft-hidden
+ * person on an unattended screen.
+ *
+ * Note that the live gate is not applied here and does not need to be: it is
+ * part of the SQL `searchWhereSql` emits, where the Mongo path needed a separate
+ * `applyLiveFilter` wrapper that each caller had to remember.
  */
-export async function resolveLiveFilter(
+export async function resolveSearchWhere(
   query: SearchQuery,
-): Promise<{ resolved: SearchQuery; filter: Filter<AssetDoc> } | { error: string }> {
+): Promise<{ resolved: SearchQuery; where: SearchWhere } | { error: string }> {
   const resolved = extractDatesFromQuery(query);
   const [dropIds, peopleIds] = await Promise.all([
     personIdsToDrop(resolved.excludeHiddenPeople),
     personIdsForNames(peopleNames(resolved.people)),
   ]);
 
-  const filterOrError = buildFilter(resolved, dropIds, peopleIds);
-  if ('error' in filterOrError) return { error: filterOrError.error };
-  return { resolved, filter: filterOrError };
+  const whereOrError = buildSearchWhere(resolved, dropIds, peopleIds ?? null);
+  if ('error' in whereOrError) return { error: whereOrError.error };
+  return { resolved, where: whereOrError };
 }

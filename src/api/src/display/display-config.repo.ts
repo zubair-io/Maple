@@ -1,6 +1,5 @@
-import { getDb } from '../db/client.ts';
+import { patchAppSettings, readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
 
-const COLL = 'app_settings';
 const DOC_ID = 'display';
 
 export interface DisplayConfig {
@@ -14,8 +13,7 @@ interface DisplayConfigDoc {
 
 export async function loadDisplayConfig(): Promise<DisplayConfig> {
   try {
-    const db = await getDb();
-    const doc = await db.collection<DisplayConfigDoc>(COLL).findOne({ _id: DOC_ID });
+    const doc = await readAppSettings<DisplayConfigDoc>(DOC_ID);
     if (doc) {
       return {
         show_hidden_images: !!doc.show_hidden_images,
@@ -28,12 +26,5 @@ export async function loadDisplayConfig(): Promise<DisplayConfig> {
 }
 
 export async function saveDisplayConfig(config: DisplayConfig): Promise<void> {
-  const db = await getDb();
-  await db
-    .collection<DisplayConfigDoc>(COLL)
-    .updateOne(
-      { _id: DOC_ID },
-      { $set: { show_hidden_images: config.show_hidden_images } },
-      { upsert: true },
-    );
+  await patchAppSettings(DOC_ID, { show_hidden_images: config.show_hidden_images });
 }

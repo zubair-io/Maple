@@ -2,105 +2,67 @@
  * Integration tests for `trashAssetById` / `restoreAssetById` (#2630),
  * covering two rounds of the #2695 review:
  *
- *   1. The plain "first non-deleted" fileinfo pick is unsafe when an
+ *   1. The plain "first non-deleted" location pick is unsafe when an
  *      earlier entry is missing-tagged but not deleted — it targets the
  *      stale/offline copy instead of the live one (same bug class fixed
  *      for `relocateAsset` via `activeFileInfo`).
  *   2. A follow-up round caught that the FIRST fix was incomplete: the
  *      selector (`activeFileInfo`) picked the right entry, but the
- *      no-`opts.entry` derivation of `libraryId`/`assetFolderId` still
- *      came from the asset's globally-primary `info.folder_id` — a
- *      SEPARATE computation (`resolvePrimary` in `assets.transform.ts`)
- *      that can disagree with `activeFileInfo` when no fileinfo entry is
- *      simultaneously live AND not-missing-tagged (both then fall back,
- *      but to different elements — `resolvePrimary` falls back to the
- *      literal `fileinfo[0]`, `activeFileInfo` falls back to the first
- *      merely-live one). The fix (`resolveEntrySpec`) collapses both
- *      functions onto ONE entry-resolution call so the library used for
- *      the file move, DB repoint, and folder-root lookup can never
- *      disagree with the entry actually acted on again.
+ *      no-`opts.entry` derivation of `libraryId`/`assetFolderId` still came
+ *      from the asset's globally-primary library — a SEPARATE computation
+ *      that can disagree with `activeFileInfo` when no entry is
+ *      simultaneously live AND not-missing-tagged. The fix
+ *      (`resolveEntrySpec`) collapses both onto ONE entry-resolution call so
+ *      the library used for the file move, the DB repoint and the
+ *      folder-root lookup can never disagree with the entry actually acted
+ *      on again.
  *
  * The tests below construct that exact divergence with TWO distinct
- * libraries, and assert the file physically lands under the SECONDARY
- * library's root — not merely that some downstream event references the
- * right id, which wouldn't have caught the incompleteness (see #2695).
+ * libraries on TWO distinct roots, and assert the file physically lands
+ * under the SECONDARY library's root — and that nothing at all appears
+ * under the other one — rather than merely that some downstream event
+ * references the right id, which wouldn't have caught the incompleteness.
  *
- * Real temp directories + real files AND a real MongoDB, same
- * connect-or-skip-gracefully pattern as the sibling `library/*.test.ts`
- * files.
+ * Real temp directories + real files, and one real SQLite database per test
+ * (#3787) installed as the process-wide handle so the module's own
+ * repository calls reach it. No external service, so nothing to skip on.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import type { Database } from 'bun:sqlite';
+import { ObjectId } from 'mongodb';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { closeDb } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { trashAssetById, restoreAssetById } from './asset-trash.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-const TEST_DB = `maple_asset_trash_test_${process.pid}`;
-const ORIGINAL_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const ORIGINAL_MONGO_URI = process.env.MAPLE_MONGO_URI;
+/** A residual watcher tag: the entry is not deleted, but its file has not
+ * been seen lately. What makes the naive "first non-deleted" pick wrong. */
+const MISSING_SINCE = '2026-02-01T00:00:00.000Z';
 
-let client: MongoClient | null = null;
-let db: Db | null = null;
 let root: string;
-let folderId: ObjectId;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+/** A SECOND library root, for the cross-library tests. Registered in
+ * `folders` (the schema's foreign key requires it) but deliberately left
+ * empty on disk: a regression that derived the library from the retired
+ * entry would move bytes under here, and the tests assert it stays empty. */
+let otherRoot: string;
 
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'asset-trash-'));
-  client = await tryConnect();
-  if (!client) return;
-  await closeDb();
-  process.env.MAPLE_MONGO_URI = MONGO_URI;
-  process.env.MAPLE_MONGO_DB = TEST_DB;
-  db = client.db(TEST_DB);
-  await db.dropDatabase();
-
-  folderId = new ObjectId();
-  await db.collection('folders').insertOne({
-    _id: folderId,
-    path: root,
-    slug: 'asset-trash-test',
-    label: 'asset-trash-test',
-    last_scan: null,
-    file_count: 0,
-    created_at: new Date().toISOString(),
-  } as never);
-  invalidateLibraryRoots();
+  otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'asset-trash-other-'));
 });
 
 afterEach(async () => {
   await fs.rm(root, { recursive: true, force: true });
-});
-
-afterAll(async () => {
-  if (db) await db.dropDatabase();
-  if (client) await client.close();
-  if (ORIGINAL_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-  else process.env.MAPLE_MONGO_DB = ORIGINAL_MONGO_DB;
-  if (ORIGINAL_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
-  else process.env.MAPLE_MONGO_URI = ORIGINAL_MONGO_URI;
-  await closeDb();
+  await fs.rm(otherRoot, { recursive: true, force: true });
 });
 
 async function write(rel: string, content: string): Promise<string> {
@@ -121,46 +83,84 @@ async function read(rel: string): Promise<string> {
   return fs.readFile(path.join(root, ...rel.split('/')), 'utf8');
 }
 
-type AssetRow = {
-  fileinfo: Array<{
-    path: string;
-    filename: string;
-    library_id: ObjectId;
-    deleted_at?: string | null;
-    missing_since?: Date | string | null;
-  }>;
-  deleted_at: string | null;
-};
+/** Register one library root and return its id, dropping the roots cache so
+ * the next read picks the new row up. */
+function registerLibrary(db: Database, dir: string, slug: string): ObjectId {
+  const id = insertFolder(db, { path: dir, slug });
+  invalidateLibraryRoots();
+  return new ObjectId(id);
+}
 
-async function fetchAssetRow(d: Db, id: ObjectId): Promise<AssetRow> {
-  return (await d.collection('assets').findOne({ _id: id })) as unknown as AssetRow;
+interface LocationEntry {
+  libraryId: string;
+  path: string;
+  filename: string;
+  deletedAt?: string | null;
+  missingSince?: string | null;
+}
+
+/** One asset with the given locations, in array order. */
+function seedAsset(
+  db: Database,
+  entries: readonly LocationEntry[],
+  overrides: { deletedAt?: string; originalPath?: string; deletedReason?: string } = {},
+): ObjectId {
+  const id = insertAsset(db, { deletedAt: overrides.deletedAt ?? null });
+  entries.forEach((entry, ordinal) => insertLocation(db, { assetId: id, ordinal, ...entry }));
+  if (overrides.originalPath !== undefined) {
+    run(db, `UPDATE assets SET original_path = ? WHERE id = ?`, overrides.originalPath, id);
+  }
+  if (overrides.deletedReason !== undefined) {
+    run(db, `UPDATE assets SET deleted_reason = ? WHERE id = ?`, overrides.deletedReason, id);
+  }
+  return new ObjectId(id);
+}
+
+/** The `asset_locations` rows behind what used to be `doc.fileinfo[]`, in
+ * the same array order. */
+interface LocationRow {
+  library_id: string;
+  path: string;
+  filename: string;
+  deleted_at: string | null;
+  missing_since: string | null;
+}
+
+function locations(db: Database, id: ObjectId): LocationRow[] {
+  return db
+    .query(
+      `SELECT library_id, path, filename, deleted_at, missing_since
+         FROM asset_locations WHERE asset_id = ? ORDER BY ordinal`,
+    )
+    .all(id.toHexString()) as LocationRow[];
+}
+
+function assetRow(
+  db: Database,
+  id: ObjectId,
+): { deleted_at: string | null; original_path: string | null } {
+  return db
+    .query(`SELECT deleted_at, original_path FROM assets WHERE id = ?`)
+    .get(id.toHexString()) as { deleted_at: string | null; original_path: string | null };
 }
 
 describe('trashAssetById / restoreAssetById — multi-location selector', () => {
   test('trash: targets the live entry, not a missing-tagged one (same library)', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
+    const libraryId = registerLibrary(live.db, root, 'asset-trash-test');
     await write('live/IMG_9.dng', 'pixels');
-    const id = new ObjectId();
-    // Same shape as relocate-asset.test.ts's regression fixture: the
-    // FIRST fileinfo entry is missing-tagged (stale/offline location),
-    // the SECOND is live. The plain "first non-deleted" pick would target
-    // the stale one.
-    await db.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [
-        {
-          path: 'stale',
-          filename: 'IMG_9.dng',
-          library_id: folderId,
-          deleted_at: null,
-          missing_since: new Date(),
-        },
-        { path: 'live', filename: 'IMG_9.dng', library_id: folderId, deleted_at: null },
-      ],
-      size: 6,
-      mtime: 1_700_000_000_000,
-      deleted_at: null,
-    } as never);
+    // Same shape as relocate-asset.test.ts's regression fixture: the FIRST
+    // entry is missing-tagged (stale/offline location), the SECOND is live.
+    // The plain "first non-deleted" pick would target the stale one.
+    const id = seedAsset(live.db, [
+      {
+        libraryId: libraryId.toHexString(),
+        path: 'stale',
+        filename: 'IMG_9.dng',
+        missingSince: MISSING_SINCE,
+      },
+      { libraryId: libraryId.toHexString(), path: 'live', filename: 'IMG_9.dng' },
+    ]);
 
     const outcome = await trashAssetById(id);
     expect(outcome.kind).toBe('ok');
@@ -170,215 +170,177 @@ describe('trashAssetById / restoreAssetById — multi-location selector', () => 
     expect(await exists('live/IMG_9.dng')).toBe(false);
     expect(await read('.maple/trash/live/IMG_9.dng')).toBe('pixels');
 
-    const row = await fetchAssetRow(db, id);
-    expect(row.deleted_at).not.toBeNull();
-    const staleEntry = row.fileinfo.find((f) => f.path === 'stale');
-    const liveEntry = row.fileinfo.find((f) => f.path.startsWith('.maple/trash'));
-    expect(staleEntry).toBeTruthy(); // untouched
-    expect(liveEntry?.path).toBe('.maple/trash/live');
+    expect(assetRow(live.db, id).deleted_at).not.toBeNull();
+    const rows = locations(live.db, id);
+    expect(rows.find((row) => row.path === 'stale')).toBeTruthy(); // untouched
+    expect(rows.find((row) => row.path.startsWith('.maple/trash'))?.path).toBe('.maple/trash/live');
   });
 
   test('restore: targets the trashed (formerly-live) entry, not a missing-tagged one (same library)', async () => {
-    if (!db) return;
+    using live = await createLiveTestDatabase();
+    const libraryId = registerLibrary(live.db, root, 'asset-trash-test');
     await write('live/IMG_9.dng', 'pixels');
-    const id = new ObjectId();
-    await db.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [
-        {
-          path: 'stale',
-          filename: 'IMG_9.dng',
-          library_id: folderId,
-          deleted_at: null,
-          missing_since: new Date(),
-        },
-        { path: 'live', filename: 'IMG_9.dng', library_id: folderId, deleted_at: null },
-      ],
-      size: 6,
-      mtime: 1_700_000_000_000,
-      deleted_at: null,
-    } as never);
+    const id = seedAsset(live.db, [
+      {
+        libraryId: libraryId.toHexString(),
+        path: 'stale',
+        filename: 'IMG_9.dng',
+        missingSince: MISSING_SINCE,
+      },
+      { libraryId: libraryId.toHexString(), path: 'live', filename: 'IMG_9.dng' },
+    ]);
 
     const trashOutcome = await trashAssetById(id);
     expect(trashOutcome.kind).toBe('ok');
 
-    // After trash, BOTH fileinfo entries are missing_since-free (only the
-    // trashed one's path/filename changed) — restoreAssetById must not
-    // fall back to the naive "first non-deleted" pick, which would target
-    // the still-stale-tagged `stale` entry instead of the trashed one.
+    // The trashed entry is the only one that is both live and untagged now
+    // (trash rewrote it and cleared its watcher tags), so restore must pick
+    // it rather than falling back to the naive "first non-deleted" pick,
+    // which would target the still-stale-tagged `stale` entry.
     const restoreOutcome = await restoreAssetById(id);
     expect(restoreOutcome.kind).toBe('ok');
 
     expect(await read('live/IMG_9.dng')).toBe('pixels');
-    const row = await fetchAssetRow(db, id);
-    expect(row.deleted_at).toBeNull();
-    const staleEntry = row.fileinfo.find((f) => f.path === 'stale');
-    const restoredEntry = row.fileinfo.find((f) => f.path === 'live');
-    expect(staleEntry).toBeTruthy(); // still untouched
-    expect(restoredEntry).toBeTruthy();
+    expect(assetRow(live.db, id).deleted_at).toBeNull();
+    const rows = locations(live.db, id);
+    expect(rows.find((row) => row.path === 'stale')).toBeTruthy(); // still untouched
+    expect(rows.find((row) => row.path === 'live')).toBeTruthy();
   });
 });
 
 describe('trashAssetById / restoreAssetById — cross-library derivation (#2695 second review round)', () => {
-  // `resolvePrimary` (assets.transform.ts, backs `info.folder_id`) and
-  // `activeFileInfo` (this module's selector) can disagree specifically
-  // when NO fileinfo entry is simultaneously live-and-not-missing:
-  // `resolvePrimary` then falls back to the literal `fileinfo[0]`, while
-  // `activeFileInfo` falls back to the first merely-live entry. Putting
-  // the two entries in DIFFERENT libraries makes a wrong derivation
-  // observable as a hard failure (or worse, a write to the wrong
-  // library's root) rather than something that happens to still work by
-  // coincidence.
+  // The asset's globally-primary location and this module's own selector can
+  // disagree specifically when NO entry is simultaneously live-and-not-
+  // missing: the primary falls back to the literal first entry, while
+  // `activeFileInfo` falls back to the first merely-live one. Putting the two
+  // entries in DIFFERENT libraries, on different roots, makes a wrong
+  // derivation observable as bytes landing under the wrong root rather than
+  // as something that happens to still work by coincidence.
   //
-  // `staleLibraryId` is deliberately NEVER registered in `folders` — the
-  // fixed code must never look it up at all. If a regression reintroduces
-  // `libraryId = info.folder_id`, this asserts against exactly what that
-  // would do: resolve to the unregistered library and fail outright,
-  // rather than silently writing there (there is nothing on disk under it
-  // to fail either way, but the assertions below on `root` pin down where
-  // the file actually must land).
+  // `otherRoot` is registered (the `asset_locations.library_id` foreign key
+  // requires a real `folders` row) but is never written to by these tests, so
+  // every assertion that it is still empty is an assertion that the retired
+  // entry's library was never used to resolve anything.
 
   test('trash: the file lands under the SECONDARY (active) library root, not the primary', async () => {
-    if (!db) return;
-    const staleLibraryId = new ObjectId(); // never registered
+    using live = await createLiveTestDatabase();
+    const libraryId = registerLibrary(live.db, root, 'asset-trash-test');
+    const staleLibraryId = registerLibrary(live.db, otherRoot, 'asset-trash-stale');
     await write('sub/IMG.dng', 'pixels');
-    const id = new ObjectId();
-    await db.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [
-        // fileinfo[0]: retired entry in a DIFFERENT, unregistered library.
-        // `resolvePrimary`'s naive fallback (`fileinfo[0]`) would pick
-        // this one if the fixed derivation regressed.
-        {
-          path: 'old',
-          filename: 'IMG.dng',
-          library_id: staleLibraryId,
-          deleted_at: '2020-01-01T00:00:00Z',
-        },
-        // fileinfo[1]: the ACTUAL active entry, live but missing-tagged —
-        // `activeFileInfo`'s fallback (first merely-live entry) correctly
-        // picks this one.
-        {
-          path: 'sub',
-          filename: 'IMG.dng',
-          library_id: folderId,
-          deleted_at: null,
-          missing_since: new Date(),
-        },
-      ],
-      size: 6,
-      mtime: 1_700_000_000_000,
-      deleted_at: null,
-    } as never);
+    const id = seedAsset(live.db, [
+      // The retired entry in a DIFFERENT library, on its own root. A
+      // derivation that regressed to "the asset's primary library" would
+      // pick this one.
+      {
+        libraryId: staleLibraryId.toHexString(),
+        path: 'old',
+        filename: 'IMG.dng',
+        deletedAt: '2020-01-01T00:00:00Z',
+      },
+      // The ACTUAL active entry, live but missing-tagged — `activeFileInfo`'s
+      // fallback (first merely-live entry) correctly picks this one.
+      {
+        libraryId: libraryId.toHexString(),
+        path: 'sub',
+        filename: 'IMG.dng',
+        missingSince: MISSING_SINCE,
+      },
+    ]);
 
     const outcome = await trashAssetById(id);
     expect(outcome.kind).toBe('ok');
     if (outcome.kind === 'ok') {
-      expect(outcome.folderId.equals(folderId)).toBe(true);
+      expect(outcome.folderId.equals(libraryId)).toBe(true);
       expect(outcome.folderId.equals(staleLibraryId)).toBe(false);
     }
 
-    // The file physically moved under `root` — folderId's (the secondary
-    // library's) root — not merely that some event/return value claims so.
+    // The file physically moved under `root` — the active entry's library
+    // root — not merely that some event/return value claims so.
     expect(await exists('sub/IMG.dng')).toBe(false);
     expect(await read('.maple/trash/sub/IMG.dng')).toBe('pixels');
+    expect(await fs.readdir(otherRoot)).toEqual([]);
 
-    const row = await fetchAssetRow(db, id);
-    const retiredEntry = row.fileinfo.find((f) => f.library_id.equals(staleLibraryId));
-    const trashedEntry = row.fileinfo.find((f) => f.library_id.equals(folderId));
-    expect(retiredEntry?.path).toBe('old'); // completely untouched
-    expect(trashedEntry?.path).toBe('.maple/trash/sub');
+    const rows = locations(live.db, id);
+    expect(rows.find((row) => row.library_id === staleLibraryId.toHexString())?.path).toBe('old');
+    expect(rows.find((row) => row.library_id === libraryId.toHexString())?.path).toBe(
+      '.maple/trash/sub',
+    );
   });
 
   test('restore: the file lands back under the SECONDARY (active) library root, not the primary', async () => {
-    if (!db) return;
-    const staleLibraryId = new ObjectId(); // never registered
+    using live = await createLiveTestDatabase();
+    const libraryId = registerLibrary(live.db, root, 'asset-trash-test');
+    const staleLibraryId = registerLibrary(live.db, otherRoot, 'asset-trash-stale');
     await write('.maple/trash/sub/IMG.dng', 'pixels');
-    const id = new ObjectId();
     const originalAbsPath = path.join(root, 'sub', 'IMG.dng');
-    await db.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [
+    const id = seedAsset(
+      live.db,
+      [
         {
+          libraryId: staleLibraryId.toHexString(),
           path: 'old',
           filename: 'IMG.dng',
-          library_id: staleLibraryId,
-          deleted_at: '2020-01-01T00:00:00Z',
+          deletedAt: '2020-01-01T00:00:00Z',
         },
         // The already-trashed entry — seeded directly with a residual
-        // `missing_since` (plausible: a watcher `removed` event could
-        // have tagged it before it was trashed) so NEITHER entry is
-        // simultaneously live-and-not-missing, forcing both selectors
-        // into their fallback branches.
+        // `missing_since` (plausible: a watcher `removed` event could have
+        // tagged it before it was trashed) so NEITHER entry is
+        // simultaneously live-and-not-missing, forcing both selectors into
+        // their fallback branches.
         {
+          libraryId: libraryId.toHexString(),
           path: '.maple/trash/sub',
           filename: 'IMG.dng',
-          library_id: folderId,
-          deleted_at: null,
-          missing_since: new Date(),
+          missingSince: MISSING_SINCE,
         },
       ],
-      size: 6,
-      mtime: 1_700_000_000_000,
-      deleted_at: '2026-01-01T00:00:00Z',
-      original_path: originalAbsPath,
-    } as never);
+      { deletedAt: '2026-01-01T00:00:00Z', originalPath: originalAbsPath },
+    );
 
     const outcome = await restoreAssetById(id);
     expect(outcome.kind).toBe('ok');
     if (outcome.kind === 'ok') {
-      expect(outcome.folderId.equals(folderId)).toBe(true);
+      expect(outcome.folderId.equals(libraryId)).toBe(true);
       expect(outcome.folderId.equals(staleLibraryId)).toBe(false);
     }
 
-    // The file physically landed back under `root` (folderId's root).
+    // The file physically landed back under `root`.
     expect(await exists('.maple/trash/sub/IMG.dng')).toBe(false);
     expect(await read('sub/IMG.dng')).toBe('pixels');
+    expect(await fs.readdir(otherRoot)).toEqual([]);
 
-    const row = await fetchAssetRow(db, id);
-    const retiredEntry = row.fileinfo.find((f) => f.library_id.equals(staleLibraryId));
-    const restoredEntry = row.fileinfo.find((f) => f.library_id.equals(folderId));
-    expect(retiredEntry?.path).toBe('old'); // completely untouched
-    expect(restoredEntry?.path).toBe('sub');
+    const rows = locations(live.db, id);
+    expect(rows.find((row) => row.library_id === staleLibraryId.toHexString())?.path).toBe('old');
+    expect(rows.find((row) => row.library_id === libraryId.toHexString())?.path).toBe('sub');
   });
 });
 
 describe('reaped rows (#2977)', () => {
   test('restore of a reaped asset fails cleanly without touching disk', async () => {
-    if (!client) return;
+    using live = await createLiveTestDatabase();
+    const libraryId = registerLibrary(live.db, root, 'asset-trash-test');
     // A reaped row: soft-deleted by the missing-reaper, no trashed copy.
     // The file quietly RETURNED to the stored path — restore must still
     // refuse (revive is discover's job) and must not move/unlink anything.
-    const abs = await write('sub/back.dng', 'returned-bytes');
-    const id = new ObjectId();
-    await db!.collection('assets').insertOne({
-      _id: id,
-      fileinfo: [
+    await write('sub/back.dng', 'returned-bytes');
+    const id = seedAsset(
+      live.db,
+      [
         {
+          libraryId: libraryId.toHexString(),
           path: 'sub',
           filename: 'back.dng',
-          library_id: folderId,
-          deleted_at: null,
-          missing_since: '2026-08-01T00:00:00.000Z',
+          missingSince: '2026-08-01T00:00:00.000Z',
         },
       ],
-      deleted_at: '2026-08-10T00:00:00.000Z',
-      deleted_reason: 'reaped',
-      size: 1,
-      mtime: 0,
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: '2026-08-01T00:00:00.000Z',
-    } as never);
+      { deletedAt: '2026-08-10T00:00:00.000Z', deletedReason: 'reaped' },
+    );
 
     const outcome = await restoreAssetById(id);
     expect(outcome.kind).toBe('error');
     expect((outcome as { error?: string }).error).toContain('removed from disk');
     // Row untouched, file untouched.
-    const row = await fetchAssetRow(db!, id);
-    expect(row.deleted_at).toBe('2026-08-10T00:00:00.000Z');
+    expect(assetRow(live.db, id).deleted_at).toBe('2026-08-10T00:00:00.000Z');
     expect(await read('sub/back.dng')).toBe('returned-bytes');
-    void abs;
   });
 });

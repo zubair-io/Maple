@@ -52,6 +52,7 @@ import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { MirrorSettingsComponent } from './mirror-settings.component';
 import { DerivativeAuditSettingsComponent } from './derivative-audit-settings.component';
+import { ChangeLogGcSettingsComponent } from './change-log-gc-settings.component';
 import { GeneratedSearchSettingsComponent } from './generated-search-settings.component';
 import { GpuLiveRenderSettingsComponent } from './gpu-live-render-settings.component';
 import { CanvasColorSpaceSettingsComponent } from './canvas-color-space-settings.component';
@@ -99,6 +100,7 @@ import {
     MuiInputComponent,
     MirrorSettingsComponent,
     DerivativeAuditSettingsComponent,
+    ChangeLogGcSettingsComponent,
     GeneratedSearchSettingsComponent,
     GpuLiveRenderSettingsComponent,
     CanvasColorSpaceSettingsComponent,

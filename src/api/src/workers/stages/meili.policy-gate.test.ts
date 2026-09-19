@@ -19,8 +19,14 @@ import {
   _configureEmbeddingGateForTests,
 } from '../../enrichment/meilisearch-embedding-gate.ts';
 import { EMBEDDING_POLICY_KEY } from '../../enrichment/meilisearch-embedding-policy.ts';
-import { _test, type ImageDoc, type StageState } from '../run-stage.ts';
-import { makeConfigMock, makeImagesMock } from '../run-stage.test-helpers.ts';
+import { runOnce, type ImageDoc, type StageState } from '../run-stage.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import meiliStage, { meiliHandler, setMeilisearchClientForTests } from './meili.ts';
 
 const rejected =
@@ -158,31 +164,57 @@ describe('meiliHandler — embedder policy gate (#3315)', () => {
   });
 
   it('through the runner: the asset keeps a retryable attempt and is never stamped done', async () => {
+    using live = await createLiveTestDatabase();
     const pauses = recordPauses();
     const { client } = semanticClient(rejectedStatus);
     setMeilisearchClientForTests(client);
-    const images = makeImagesMock([fakeDoc()]);
-    const config = {
+
+    // One claimable asset with its upstream stages done, so the claim hands it
+    // to this handler. `maple_id` matters: without one the handler skips before
+    // it ever reaches the gate.
+    const libraryId = insertFolder(live.db);
+    const assetId = insertAsset(live.db);
+    run(live.db, `UPDATE assets SET maple_id = ? WHERE id = ?`, 'maple-policy-1', assetId);
+    insertLocation(live.db, { assetId, libraryId });
+    for (const [stage, version] of [
+      ['exif', 99],
+      ['thumb', 99],
+      ['meili', 0],
+    ] as const) {
+      run(
+        live.db,
+        `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, ?, ?)`,
+        assetId,
+        stage,
+        version,
+      );
+    }
+
+    await runOnce(meiliStage, {
       concurrency: 2,
       maxAttempts: 5,
       paused: false,
       last_seen_target_version: meiliStage.targetVersion,
-    };
+    });
 
-    await _test.runOnce(meiliStage, config, images, makeConfigMock());
-
-    const doc = (await images.find({}).toArray())[0] as unknown as ImageDoc & {
-      search_blob?: string;
-    };
-    const state = doc.stages?.meili;
-    // Below target — a version stamp is what "done" means to the claim
-    // query, and it must not appear.
-    expect(state?.version ?? 0).toBeLessThan(meiliStage.targetVersion);
-    expect(state?.attempts).toBe(1);
-    expect(state?.dead).toBe(false);
-    expect(state?.last_error).toContain(EMBEDDING_POLICY_KEY);
-    // No `{ patch }` reached the doc.
-    expect(doc.search_blob).toBeUndefined();
+    const state = live.db
+      .query(
+        `SELECT version, attempts, dead, last_error FROM stage_state
+               WHERE asset_id = ? AND stage = 'meili'`,
+      )
+      .get(assetId) as { version: number; attempts: number; dead: number; last_error: string };
+    // Below target — a version stamp is what "done" means to the claim query,
+    // and it must not appear.
+    expect(state.version).toBeLessThan(meiliStage.targetVersion);
+    expect(state.attempts).toBe(1);
+    expect(state.dead).toBe(0);
+    expect(state.last_error).toContain(EMBEDDING_POLICY_KEY);
+    // No `{ patch }` reached the database: the blob row is the patch's whole
+    // effect, so its absence is the assertion the Mongo version made against
+    // an unset `search_blob` field.
+    expect(
+      live.db.query(`SELECT COUNT(*) AS n FROM asset_search WHERE asset_id = ?`).get(assetId),
+    ).toEqual({ n: 0 });
     expect(pauses).toHaveLength(1);
   });
 });

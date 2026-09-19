@@ -1,16 +1,40 @@
+/**
+ * POST /api/assets/:id/restore — move a trashed file back and revive its row.
+ *
+ * Drives the composed app, so the database has to be the process-wide one:
+ * `createLiveTestDatabase()` installs a private in-memory SQLite database for
+ * the file and puts the previous handle back on the way out (#3787). Real
+ * files in a private temp directory; no external service, so nothing to skip
+ * on.
+ */
+
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { pendingEnrichment } from '../src/db/schema.ts';
 import { signAccessToken } from '../src/auth/tokens.ts';
+import { newObjectIdHex } from '../src/db/sqlite/object-id.ts';
+import { setMeilisearchClientForTests } from '../src/enrichment/meilisearch-client.ts';
 import {
-  setMeilisearchClientForTests,
-  type MeilisearchClient,
-  type MeilisearchAssetDoc,
-} from '../src/enrichment/meilisearch-client.ts';
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { insertDetail } from '../src/db/sqlite/repos/assets.test-helpers.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
+import {
+  assetRow,
+  capturingMeili,
+  failingMeili,
+  locationRows,
+  primaryAbsPath,
+  registerLibrary,
+  seedRouteAsset,
+} from './helpers/assets-route-fixtures.ts';
 
+// JWT bootstrap MUST run before any module that touches `requireAuth`, which
+// rules out `withTestEnv` here: its write happens in `beforeAll`, and the
+// token below is signed while this module body runs.
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const BEARER =
   'Bearer ' +
@@ -21,103 +45,48 @@ const BEARER =
       email: 'tester@maple.local',
       role: 'owner',
     },
-    process.env.MAPLE_JWT_SECRET!,
+    process.env.MAPLE_JWT_SECRET,
   ));
 
-const TEST_DB = `maple_test_fp3_restore_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const ROOT = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'maple-fp3-restore-')));
+withTestEnv('MAPLE_ROOTS', ROOT);
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let tmpRoot: string;
-let realTmpRoot: string;
-let folderId: ObjectId;
+/** Where a trashed `2024/<name>` copy lives. */
+const TRASH_REL = path.join('.maple', 'trash', '2024');
 
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, { serverSelectionTimeoutMS: 1500, connectTimeoutMS: 1500 });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+let live: LiveTestDatabase;
+let folderId: string;
 
+/**
+ * An asset in the state the trash route leaves behind: bytes under
+ * `.maple/trash/2024/`, the catalog location pointing there, `deleted_at`
+ * stamped and `original_path` remembering where it came from.
+ */
 async function trashedAsset(
   filename: string,
   opts?: { mapleId?: string; description?: string },
-): Promise<{ assetId: ObjectId; originalPath: string; trashPath: string; mapleId: string | null }> {
-  const originalPath = path.join(realTmpRoot, '2024', filename);
-  const trashPath = path.join(realTmpRoot, '.maple', 'trash', '2024', filename);
+): Promise<{ assetId: string; originalPath: string; trashPath: string }> {
+  const originalPath = path.join(ROOT, '2024', filename);
+  const trashPath = path.join(ROOT, TRASH_REL, filename);
   await fs.mkdir(path.dirname(originalPath), { recursive: true });
   await fs.mkdir(path.dirname(trashPath), { recursive: true });
   await fs.writeFile(trashPath, 'raw');
-  const assetId = new ObjectId();
-  const mapleId = opts?.mapleId ?? null;
-  // Post drop-abs-path-2026-05-21: the canonical on-disk pointer is
-  // `fileinfo[0]`. For a trashed row the entry points at the trash
-  // subdirectory under the library root — the route's `assetAbsPath`
-  // composes that back into the absolute path the test asserts on.
-  const doc: Record<string, unknown> = {
-    _id: assetId,
-    fileinfo: [
-      {
-        library_id: folderId,
-        path: path.relative(realTmpRoot, path.dirname(trashPath)),
-        filename,
-        deleted_at: null,
-      },
-    ],
-    size: 3,
-    mtime: Date.now(),
-    indexed_at: new Date().toISOString(),
-    deleted_at: new Date().toISOString(),
-    original_path: originalPath,
-    enrichment: pendingEnrichment(),
-  };
-  if (mapleId) doc.maple_id = mapleId;
-  if (opts?.description) doc.description = opts.description;
-  await db!.collection('assets').insertOne(doc as never);
-  return { assetId, originalPath, trashPath, mapleId };
+  const assetId = seedRouteAsset(live.db, {
+    libraryId: folderId,
+    path: '.maple/trash/2024',
+    filename,
+    deletedAt: new Date().toISOString(),
+    originalPath,
+    mapleId: opts?.mapleId ?? null,
+  });
+  if (opts?.description !== undefined) {
+    insertDetail(live.db, assetId, { description: opts.description });
+  }
+  return { assetId, originalPath, trashPath };
 }
 
-interface CapturingMeili extends MeilisearchClient {
-  tombstones: string[];
-  upserts: MeilisearchAssetDoc[];
-}
-
-function capturingMeili(): CapturingMeili {
-  const tombstones: string[] = [];
-  const upserts: MeilisearchAssetDoc[] = [];
-  return {
-    tombstones,
-    upserts,
-    isConfigured: () => true,
-    semanticConfigured: () => false,
-    health: async () => true,
-    ensureIndex: async () => {},
-    upsert: async (doc) => {
-      upserts.push(doc);
-    },
-    upsertOrThrow: async (doc) => {
-      upserts.push(doc);
-    },
-    tombstone: async (id) => {
-      tombstones.push(id);
-    },
-    search: async () => ({ ids: [], estimatedTotal: 0 }),
-  };
-}
-
-function jsonReq(url: string, body: Record<string, unknown>): Request {
-  return new Request(url, {
+function restoreReq(assetId: string, body: Record<string, unknown>): Request {
+  return new Request(`http://localhost/api/assets/${assetId}/restore`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: BEARER },
     body: JSON.stringify(body),
@@ -126,50 +95,14 @@ function jsonReq(url: string, body: Record<string, unknown>): Request {
 
 describe('POST /api/assets/:id/restore', () => {
   beforeAll(async () => {
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) return;
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-fp3-restore-'));
-    realTmpRoot = await fs.realpath(tmpRoot);
-    process.env.MAPLE_ROOTS = realTmpRoot;
-    folderId = new ObjectId();
-    await db.collection('folders').insertOne({
-      _id: folderId,
-      path: realTmpRoot,
-      label: 'test',
-      created_at: new Date().toISOString(),
-      file_count: 0,
-    } as never);
-    // Invalidate the process-wide library cache so the route's
-    // `loadLibraryRoots` picks up the just-seeded folder rather than
-    // stale entries from a sibling test suite.
-    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
-    invalidateLibraryRoots();
+    live = await createLiveTestDatabase();
+    folderId = registerLibrary(live.db, ROOT, 'restore-suite');
   });
 
   afterAll(async () => {
-    // Close the APP DB client first so it doesn't leak across tests
-    // (the routes import the `getDb()` singleton). Pattern mirrors
-    // assets-xmp-delete.test.ts.
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    if (mongo) {
-      try {
-        await mongo.db(TEST_DB).dropDatabase();
-      } catch {}
-      await mongo.close();
-    }
-    if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true });
+    live.close();
     setMeilisearchClientForTests(null);
-    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
-    if (PRIOR_MAPLE_ROOTS === undefined) delete process.env.MAPLE_ROOTS;
-    else process.env.MAPLE_ROOTS = PRIOR_MAPLE_ROOTS;
+    await fs.rm(ROOT, { recursive: true, force: true });
   });
 
   beforeEach(() => {
@@ -177,59 +110,40 @@ describe('POST /api/assets/:id/restore', () => {
   });
 
   test('restores to original_path; clears deleted_at + original_path', async () => {
-    if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
     const { assetId, originalPath, trashPath } = await trashedAsset('IMG_R1.ARW');
 
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
-    );
+    const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { abs_path: string };
     expect(body.abs_path).toBe(originalPath);
 
     await fs.stat(originalPath);
     await expect(fs.stat(trashPath)).rejects.toThrow();
-    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
-      string,
-      unknown
-    >;
-    expect(doc.deleted_at).toBeNull();
-    expect(doc.original_path).toBeNull();
-    // Post drop-abs-path-2026-05-21 the canonical path is composed
-    // from `fileinfo[0]` (library root + relDir + filename); assert on
-    // that shape rather than the dropped top-level `abs_path`.
-    const fi0 = (doc.fileinfo as Array<{ path: string; filename: string }>)[0]!;
-    const composedAbs = path.join(realTmpRoot, fi0.path, fi0.filename);
-    expect(composedAbs).toBe(originalPath);
+    const row = assetRow(live.db, assetId);
+    expect(row!.deleted_at).toBeNull();
+    expect(row!.original_path).toBeNull();
+    expect(primaryAbsPath(live.db, ROOT, assetId)).toBe(originalPath);
   });
 
   test('restores to body-supplied target_relative_path', async () => {
-    if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
     const { assetId } = await trashedAsset('IMG_R2.ARW');
     const target = 'elsewhere/IMG_R2.ARW';
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
-        target_relative_path: target,
-      }),
-    );
+    const res = await app.handle(restoreReq(assetId, { target_relative_path: target }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { abs_path: string };
-    expect(body.abs_path).toBe(path.join(realTmpRoot, target));
+    expect(body.abs_path).toBe(path.join(ROOT, target));
     await fs.stat(body.abs_path);
   });
 
   test('.restored suffix appended on collision', async () => {
-    if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
     const { assetId, originalPath } = await trashedAsset('IMG_R3.ARW');
     // Create a new file at the original path so restore must rename.
     await fs.writeFile(originalPath, 'occupier');
 
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
-    );
+    const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       abs_path: string;
@@ -246,54 +160,42 @@ describe('POST /api/assets/:id/restore', () => {
     expect(body.size).toBe(3); // "raw"
     // Wire contract: `mtime` is an ISO-8601 string so the Swift
     // `RestoreResponse.mtime: Date` decoder (RemoteCatalog.swift) accepts
-    // it. The DB column stays epoch-ms — see assertion below.
+    // it. The DB column stays epoch-ms — see the assertion below.
     expect(typeof body.mtime).toBe('string');
     expect(body.mtime).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(Number.isFinite(Date.parse(body.mtime))).toBe(true);
-    // Doc must carry the renamed filename so future re-uploads at the
-    // OLD basename don't collide on the maple_id-based content-addressed
-    // path. Post drop-abs-path-2026-05-21 the filename lives on
-    // `fileinfo[0].filename`, not the dropped top-level `filename`.
-    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
-      string,
-      unknown
-    >;
-    const fi0 = (doc.fileinfo as Array<{ filename: string }>)[0]!;
-    expect(fi0.filename).toBe('IMG_R3.restored.ARW');
-    expect(doc.size).toBe(3);
-    // DB stays epoch-ms (number) — only the wire response is ISO.
-    expect(typeof doc.mtime).toBe('number');
-    expect(Number.isFinite(doc.mtime as number)).toBe(true);
+    // The location must carry the renamed filename so future re-uploads at
+    // the OLD basename don't collide on the content-addressed path.
+    expect(locationRows(live.db, assetId)[0]!.filename).toBe('IMG_R3.restored.ARW');
+    const row = assetRow(live.db, assetId);
+    expect(row!.size).toBe(3);
+    // The column stays epoch-ms (number) — only the wire response is ISO.
+    expect(typeof row!.mtime).toBe('number');
+    expect(Number.isFinite(row!.mtime)).toBe(true);
   });
 
   // Regression for #166: a restored asset's mtime must persist as a
-  // number in Mongo so the assets-list serialiser (`Math.floor(r.mtime
-  // / 1000)`) doesn't yield NaN, AND must surface as an ISO-8601 string
-  // on the restore wire so the Swift `RestoreResponse.mtime: Date`
-  // decoder accepts it. Previously the restore handler wrote an ISO
-  // string into the DB, which broke the Swift client's
-  // contentModificationDate downstream via GET /api/assets.
+  // number so the assets-list serialiser (`Math.floor(r.mtime / 1000)`)
+  // doesn't yield NaN, AND must surface as an ISO-8601 string on the
+  // restore wire so the Swift `RestoreResponse.mtime: Date` decoder
+  // accepts it. Previously the restore handler wrote an ISO string into
+  // the catalog, which broke the Swift client's contentModificationDate
+  // downstream via GET /api/assets.
   test('restored mtime is ISO on wire, number in DB, finite seconds via GET /api/assets', async () => {
-    if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
     const { assetId } = await trashedAsset('IMG_R166.ARW');
 
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
-    );
+    const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { mtime: unknown };
     // Wire: ISO-8601 string (Swift decoder expects Date).
     expect(typeof body.mtime).toBe('string');
     expect(Number.isFinite(Date.parse(body.mtime as string))).toBe(true);
 
-    // DB: epoch-ms number.
-    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
-      string,
-      unknown
-    >;
-    expect(typeof doc.mtime).toBe('number');
-    expect(Number.isFinite(doc.mtime as number)).toBe(true);
+    // Column: epoch-ms number.
+    const row = assetRow(live.db, assetId);
+    expect(typeof row!.mtime).toBe('number');
+    expect(Number.isFinite(row!.mtime)).toBe(true);
 
     // Round-trip through GET /api/assets: must yield a finite integer in
     // seconds for the restored asset (not NaN).
@@ -304,7 +206,7 @@ describe('POST /api/assets/:id/restore', () => {
     );
     expect(listRes.status).toBe(200);
     const listBody = (await listRes.json()) as { assets: Array<{ id: string; mtime: number }> };
-    const restored = listBody.assets.find((a) => a.id === assetId.toHexString());
+    const restored = listBody.assets.find((a) => a.id === assetId);
     expect(restored).toBeTruthy();
     expect(typeof restored!.mtime).toBe('number');
     expect(Number.isNaN(restored!.mtime)).toBe(false);
@@ -315,105 +217,58 @@ describe('POST /api/assets/:id/restore', () => {
   // move uses the asset's ORIGINAL folder root; restoring into a
   // different library would silently land in the wrong place.
   test("400 when target_folder_id != asset's folder_id (cross-library guard)", async () => {
-    if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
     const { assetId } = await trashedAsset('IMG_XLIB.ARW');
-    const otherFolderId = new ObjectId().toHexString();
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
-        target_folder_id: otherFolderId,
-      }),
-    );
+    const res = await app.handle(restoreReq(assetId, { target_folder_id: newObjectIdHex() }));
     expect(res.status).toBe(400);
-    // Doc unchanged.
-    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
-      string,
-      unknown
-    >;
-    expect(doc.deleted_at).toBeTruthy();
+    // Row unchanged.
+    expect(assetRow(live.db, assetId)!.deleted_at).toBeTruthy();
   });
 
   test("200 when target_folder_id matches asset's folder_id", async () => {
-    if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
     const { assetId } = await trashedAsset('IMG_XLIB_OK.ARW');
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {
-        target_folder_id: folderId.toHexString(),
-      }),
-    );
+    const res = await app.handle(restoreReq(assetId, { target_folder_id: folderId }));
     expect(res.status).toBe(200);
   });
 
   // Cat A4-restore: watcher race — if the discover watcher beat the
-  // route handler and upserted a fresh asset row at the restored
-  // abs_path, the route used to fail on the {folder_id, filename}
-  // unique index. Now we delete the watcher's transient row before
-  // updating.
-  test('restore wins over a watcher-inserted ghost row at the same abs_path', async () => {
-    if (!mongoReachable) return;
+  // route handler and inserted a fresh asset at the restored address, the
+  // repoint would collide with `asset_locations_lib_path_name`. The
+  // restore drops the watcher's transient row inside the same
+  // transaction.
+  test('restore wins over a watcher-inserted ghost row at the same address', async () => {
     const { app } = await import('../src/index.ts');
     const { assetId, originalPath } = await trashedAsset('IMG_WATCHER.ARW');
-    // Simulate the watcher: insert a transient row at the restore target.
-    // Post drop-abs-path-2026-05-21 the watcher writes `fileinfo[]`
-    // only — the route's restoreFromTrash matches the ghost via
-    // `(library_id, path, filename)` on the primary entry.
-    const ghostId = new ObjectId();
-    const relDir = path.relative(realTmpRoot, path.dirname(originalPath));
-    await db!.collection('assets').insertOne({
-      _id: ghostId,
-      fileinfo: [
-        {
-          library_id: folderId,
-          path: relDir,
-          filename: 'IMG_WATCHER.ARW',
-          deleted_at: null,
-        },
-      ],
+    const ghostId = seedRouteAsset(live.db, {
+      libraryId: folderId,
+      path: '2024',
+      filename: 'IMG_WATCHER.ARW',
       size: 99,
-      mtime: Date.now(),
-      indexed_at: new Date().toISOString(),
-      deleted_at: null,
-    } as never);
+    });
 
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
-    );
+    const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(200);
     // Ghost is gone, original asset row is now live at the restored path.
-    const ghost = await db!.collection('assets').findOne({ _id: ghostId });
-    expect(ghost).toBeNull();
-    const restored = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
-      string,
-      unknown
-    >;
-    expect(restored.deleted_at).toBeNull();
-    const restoredFi = (restored.fileinfo as Array<{ path: string; filename: string }>)[0]!;
-    expect(path.join(realTmpRoot, restoredFi.path, restoredFi.filename)).toBe(originalPath);
+    expect(assetRow(live.db, ghostId)).toBeNull();
+    expect(assetRow(live.db, assetId)!.deleted_at).toBeNull();
+    expect(primaryAbsPath(live.db, ROOT, assetId)).toBe(originalPath);
   });
 
   test('409 when asset is not trashed', async () => {
-    if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
-    const assetId = new ObjectId();
-    await db!.collection('assets').insertOne({
-      _id: assetId,
-      folder_id: folderId,
+    const assetId = seedRouteAsset(live.db, {
+      libraryId: folderId,
+      path: '',
       filename: 'live.ARW',
-      abs_path: path.join(realTmpRoot, 'live.ARW'),
       size: 0,
-      mtime: 0,
-      indexed_at: new Date().toISOString(),
-      deleted_at: null,
-    } as never);
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
-    );
+      mtimeMs: 0,
+    });
+    const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(409);
   });
 
   test('restore re-indexes the asset in Meilisearch with deletedAt=null', async () => {
-    if (!mongoReachable) return;
     const meili = capturingMeili();
     setMeilisearchClientForTests(meili);
     const { app } = await import('../src/index.ts');
@@ -423,16 +278,14 @@ describe('POST /api/assets/:id/restore', () => {
       description: 'a sunset over the river',
     });
 
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
-    );
+    const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(200);
 
     expect(meili.upserts.length).toBe(1);
     const upserted = meili.upserts[0]!;
     expect(upserted.id).toBe(mapleId);
     expect(upserted.deletedAt).toBeNull();
-    expect(upserted.folderId).toBe(folderId.toHexString());
+    expect(upserted.folderId).toBe(folderId);
     expect(upserted.description).toBe('a sunset over the river');
     // searchBlob is a sorted, deduped token bag — the description tokens
     // are present in some order.
@@ -444,63 +297,34 @@ describe('POST /api/assets/:id/restore', () => {
   });
 
   test('restore skips Meilisearch when maple_id is absent (legacy row)', async () => {
-    if (!mongoReachable) return;
     const meili = capturingMeili();
     setMeilisearchClientForTests(meili);
     const { app } = await import('../src/index.ts');
     const { assetId } = await trashedAsset('IMG_RM2.ARW');
 
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
-    );
+    const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(200);
     expect(meili.upserts).toEqual([]);
   });
 
   test('restore returns 200 even when Meilisearch throws', async () => {
-    if (!mongoReachable) return;
-    const failing: MeilisearchClient = {
-      isConfigured: () => true,
-      semanticConfigured: () => false,
-      health: async () => true,
-      ensureIndex: async () => {},
-      upsert: async () => {
-        throw new Error('meili down');
-      },
-      upsertOrThrow: async () => {
-        throw new Error('meili down');
-      },
-      tombstone: async () => {},
-      search: async () => ({ ids: [], estimatedTotal: 0 }),
-    };
-    setMeilisearchClientForTests(failing);
+    setMeilisearchClientForTests(failingMeili(['upsert']));
     const { app } = await import('../src/index.ts');
     const { assetId, originalPath } = await trashedAsset('IMG_RM3.ARW', { mapleId: 'xyz789' });
 
-    const res = await app.handle(
-      jsonReq(`http://localhost/api/assets/${assetId.toHexString()}/restore`, {}),
-    );
+    const res = await app.handle(restoreReq(assetId, {}));
     expect(res.status).toBe(200);
-    // Mongo restored and file moved despite Meili failure.
-    const doc = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
-      string,
-      unknown
-    >;
-    expect(doc.deleted_at).toBeNull();
-    expect(doc.original_path).toBeNull();
-    // Post drop-abs-path-2026-05-21 the doc carries fileinfo[] not the
-    // top-level abs_path; compose the resolved path back from the
-    // primary fileinfo entry + library root.
-    const fi0 = (doc.fileinfo as Array<{ path: string; filename: string }>)[0]!;
-    expect(path.join(realTmpRoot, fi0.path, fi0.filename)).toBe(originalPath);
+    // Catalog restored and file moved despite the Meilisearch failure.
+    const row = assetRow(live.db, assetId);
+    expect(row!.deleted_at).toBeNull();
+    expect(row!.original_path).toBeNull();
+    expect(primaryAbsPath(live.db, ROOT, assetId)).toBe(originalPath);
     await fs.stat(originalPath);
   });
 
   test('404 on unknown asset id', async () => {
-    if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
-    const otherId = new ObjectId().toHexString();
-    const res = await app.handle(jsonReq(`http://localhost/api/assets/${otherId}/restore`, {}));
+    const res = await app.handle(restoreReq(newObjectIdHex(), {}));
     expect(res.status).toBe(404);
   });
 });

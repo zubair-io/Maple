@@ -1,9 +1,9 @@
 /**
  * Filesystem copy primitives for the Imports worker (ticket #742).
  *
- * Pure FS — no Mongo — so the atomic-copy + collision-resolution logic is
+ * Pure FS — no database — so the atomic-copy + collision-resolution logic is
  * unit-testable on a temp dir. The content-dedup lookup against the `assets`
- * collection lives in `imports/repo.ts` (the worker wires the two together).
+ * table lives in `imports/repo.ts` (the worker wires the two together).
  *
  * Copy, never move: the source is always left untouched (non-destructive
  * invariant). Writes go to a temp sibling then `rename()` into place so a

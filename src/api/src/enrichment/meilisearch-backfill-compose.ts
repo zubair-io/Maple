@@ -6,8 +6,16 @@
  * between the two pass-driving modules.
  */
 
+// Type-only: `fileinfo[].library_id` is still an `ObjectId` on the wire, and
+// `toFileInfo` is what mints it. No query in this module uses the driver.
 import type { ObjectId } from 'mongodb';
-import { getDb } from '../db/client.ts';
+import { recordBackfillFailure } from '../db/sqlite/repos/meilisearch-backfill.repo.ts';
+import type {
+  MeiliAssetBatch,
+  MeiliAssetRow,
+  MeiliFaceRow,
+} from '../db/sqlite/repos/assets.meilisearch.ts';
+import { toFileInfo } from '../db/sqlite/repos/assets.rows.ts';
 import type { AssetFaceDoc, FileInfo, Place, TranscriptDoc, VisionDoc } from '../db/schema.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';
@@ -19,19 +27,11 @@ import type { MeilisearchAssetDoc, MeilisearchClient } from './meilisearch-clien
 
 const log = childLogger('enrichment:meilisearch-backfill');
 
-export interface BackfillFailure {
-  _id: ObjectId;
-  maple_id: string;
-  error: string;
-  attempts: number;
-  updated_at: string;
-}
-
 export interface BackfillRow {
-  _id: ObjectId;
+  /** The asset's 24-character hex id — the key of both the cursor and the
+   * dead-letter work list. */
+  id: string;
   maple_id?: string;
-  folder_id?: ObjectId;
-  filename?: string;
   fileinfo?: FileInfo[];
   exif?: { captured_at?: string | null; captured_month?: number | null } | null;
   place?: Place | null;
@@ -45,26 +45,51 @@ export interface BackfillRow {
   hidden?: boolean;
 }
 
-/** Mongo projection shared by every row loader (main cursor pass + redrive
- * re-fetch) so the two stay in lockstep with what `composeDocument` reads. */
-export const ROW_PROJECTION = {
-  _id: 1,
-  maple_id: 1,
-  folder_id: 1,
-  filename: 1,
-  fileinfo: 1,
-  'exif.captured_at': 1,
-  'exif.captured_month': 1,
-  place: 1,
-  description: 1,
-  ocr_text: 1,
-  transcript: 1,
-  vision: 1,
-  is_screenshot: 1,
-  faces: 1,
-  deleted_at: 1,
-  hidden: 1,
-} as const;
+/** A JSON column as the value it encodes, or `null` when it was never written. */
+function decode<T>(text: string | null): T | null {
+  return text === null ? null : (JSON.parse(text) as T);
+}
+
+/**
+ * One face row as the type the people-name lookup accepts.
+ *
+ * Only `person_id` is read downstream; the geometry is carried because
+ * `AssetFaceDoc` declares it, and selecting the real columns beats inventing
+ * placeholder values to satisfy a type.
+ */
+function toFaceDoc(row: MeiliFaceRow): AssetFaceDoc {
+  return {
+    bbox: { x: row.bbox_x, y: row.bbox_y, w: row.bbox_w, h: row.bbox_h },
+    person_id: row.person_id,
+    confidence: row.confidence,
+  };
+}
+
+/**
+ * One batch row as the shape `composeDocument` reads.
+ *
+ * This is where the tables become the document again: the location rows rebuild
+ * the `fileinfo[]` array `liveLocation` walks, the two JSON columns decode back
+ * into their objects, and SQLite's 0/1 integers become the booleans the search
+ * document carries.
+ */
+export function toBackfillRows(batch: MeiliAssetBatch): BackfillRow[] {
+  return batch.rows.map((row: MeiliAssetRow) => ({
+    id: row.id,
+    maple_id: row.maple_id ?? undefined,
+    fileinfo: toFileInfo(batch.locations.get(row.id) ?? []),
+    exif: { captured_at: row.captured_at, captured_month: row.captured_month },
+    place: decode<Place>(row.place),
+    description: row.description,
+    ocr_text: row.ocr_text,
+    transcript: decode<TranscriptDoc>(row.transcript),
+    vision: decode<VisionDoc>(row.vision),
+    is_screenshot: row.is_screenshot === null ? null : row.is_screenshot === 1,
+    faces: (batch.faces.get(row.id) ?? []).map(toFaceDoc),
+    deleted_at: row.deleted_at,
+    hidden: row.hidden === 1,
+  }));
+}
 
 export interface ComposedEntry {
   row: BackfillRow;
@@ -79,15 +104,20 @@ export interface WriteBatch {
   tombstoneIds: string[];
 }
 
+/** What a write reported: the totals, and the asset ids whose documents landed. */
+export interface WriteOutcome {
+  upserted: number;
+  errors: number;
+  /** Hex asset ids, for the vector-coverage stamp and the redrive's clear-up. */
+  assetIds: string[];
+}
+
 export function liveLocation(row: BackfillRow): { folderId: ObjectId; filename: string } | null {
   if (row.deleted_at != null) return null;
-  if (row.fileinfo && row.fileinfo.length > 0) {
-    const primary = row.fileinfo.find(
-      (entry) => entry.deleted_at == null && entry.missing_since == null,
-    );
-    return primary ? { folderId: primary.library_id, filename: primary.filename } : null;
-  }
-  return row.folder_id && row.filename ? { folderId: row.folder_id, filename: row.filename } : null;
+  const primary = row.fileinfo?.find(
+    (entry) => entry.deleted_at == null && entry.missing_since == null,
+  );
+  return primary ? { folderId: primary.library_id, filename: primary.filename } : null;
 }
 
 function nullIfMissing<T>(value: T | null | undefined): T | null {
@@ -149,9 +179,9 @@ export function composeDocument(
   };
 }
 
-/** Dead-letter a row that failed to compose or write. Upserts by asset `_id`
+/** Dead-letter a row that failed to compose or write. Keyed on the asset id
  * (not a generated id) so a repeat failure for the same row increments
- * `attempts` on the same document instead of piling up duplicates — the
+ * `attempts` on the same row instead of piling up duplicates — the
  * redrive pass relies on this to tell a first-time failure from a repeat. */
 export async function recordFailure(
   row: BackfillRow,
@@ -159,15 +189,12 @@ export async function recordFailure(
   error: unknown,
 ): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
-  const failures = (await getDb()).collection<BackfillFailure>('meilisearch_backfill_failures');
-  await failures.updateOne(
-    { _id: row._id },
-    {
-      $set: { maple_id: mapleId, error: message, updated_at: new Date().toISOString() },
-      $inc: { attempts: 1 },
-    },
-    { upsert: true },
-  );
+  await recordBackfillFailure({
+    assetId: row.id,
+    mapleId,
+    error: message,
+    updatedAt: new Date().toISOString(),
+  });
   log.warn({ mapleId, err: message }, 'backfill row dead-lettered');
 }
 
@@ -187,7 +214,7 @@ function isPermanentDocumentFailure(error: unknown): boolean {
 async function writeDocuments(
   client: MeilisearchClient,
   entries: ComposedEntry[],
-): Promise<{ upserted: number; errors: number; assetIds: ObjectId[] }> {
+): Promise<WriteOutcome> {
   if (entries.length === 0) return { upserted: 0, errors: 0, assetIds: [] };
   try {
     if (client.upsertBatchOrThrow) {
@@ -198,7 +225,7 @@ async function writeDocuments(
     return {
       upserted: entries.length,
       errors: 0,
-      assetIds: entries.map((entry) => entry.row._id),
+      assetIds: entries.map((entry) => entry.row.id),
     };
   } catch (error) {
     if (!isPermanentDocumentFailure(error)) throw error;
@@ -225,7 +252,7 @@ async function writeDocuments(
 export async function commitBatch(
   client: MeilisearchClient,
   batch: WriteBatch,
-): Promise<{ upserted: number; errors: number; assetIds: ObjectId[] }> {
+): Promise<WriteOutcome> {
   const writes = await writeDocuments(client, batch.docs);
 
   if (client.tombstoneBatchOrThrow) await client.tombstoneBatchOrThrow(batch.tombstoneIds);

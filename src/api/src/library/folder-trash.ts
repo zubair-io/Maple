@@ -33,8 +33,11 @@ import type { ObjectId } from 'mongodb';
 // surface) rather than a direct `node:fs/promises` import, per the oxlint
 // fs-import guardrail.
 import { readdir, rmdir } from '../fs/mirrored.ts';
-import { assetsCollection } from '../db/client.ts';
-import type { AssetWithId, FileInfo } from '../db/schema.ts';
+import {
+  listLiveAssetLocationsUnderFolder,
+  listTrashedAssetLocationsUnderFolder,
+  type FolderLocationMatch,
+} from '../db/sqlite/repos/assets.locations.repo.ts';
 import { trashAssetById, restoreAssetById } from './asset-trash.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -52,84 +55,6 @@ export interface FolderBatchSummary {
   succeeded: number;
   failed: number;
   items: FolderBatchItemResult[];
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/** True when `entryPath` (a fileinfo entry's directory, relative to its
- * library root) is `relPath` itself or a descendant of it. Shared shape
- * between the Mongo query below and the in-memory entry pick per matched
- * doc — `^relPath(/|$)` matches `relPath` exactly (the `$` branch) or any
- * `relPath/...` descendant (the `/` branch) without false-matching a
- * sibling whose name merely starts with the same characters (e.g.
- * `photos` must not match `photos2`). */
-function underRelPath(entryPath: string, relPath: string): boolean {
-  return entryPath === relPath || entryPath.startsWith(relPath + '/');
-}
-
-/** Find the fileinfo entry (if any) that makes `doc` live under
- * `(folderId, relPath)` — the entry the Mongo query below matched on. */
-function pickFolderEntry(
-  doc: Pick<AssetWithId, 'fileinfo'>,
-  folderId: ObjectId,
-  relPath: string,
-): FileInfo | null {
-  const list = doc.fileinfo ?? [];
-  return (
-    list.find(
-      (e) => e.library_id.equals(folderId) && !e.deleted_at && underRelPath(e.path, relPath),
-    ) ?? null
-  );
-}
-
-/** Every live asset with a fileinfo entry under `(folderId, relPath)`,
- * recursively (the regex's `(/|$)` branch covers arbitrary depth). */
-async function findLiveAssetsUnderFolder(
-  folderId: ObjectId,
-  relPath: string,
-): Promise<AssetWithId[]> {
-  const coll = await assetsCollection();
-  const pathRegex = new RegExp(`^${escapeRegExp(relPath)}(/|$)`);
-  return coll
-    .find({
-      fileinfo: {
-        $elemMatch: {
-          library_id: folderId,
-          deleted_at: null,
-          path: { $regex: pathRegex },
-        },
-      },
-      // Live filter — mirrors `db/migrations.ts`'s legacy-tolerant "not
-      // trashed" predicate: live rows write `deleted_at: null` explicitly,
-      // but pre-backfill legacy rows may lack the field entirely.
-      $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }],
-    })
-    .toArray();
-}
-
-/** Every trashed asset whose recorded `original_path` was under the
- * absolute folder path `folderRoot/relPath`, and that still carries a
- * fileinfo entry for `folderId` (the entry `moveToTrash` repointed). */
-async function findTrashedAssetsUnderFolder(
-  folderId: ObjectId,
-  folderRoot: string,
-  relPath: string,
-): Promise<AssetWithId[]> {
-  const coll = await assetsCollection();
-  const absFolderPath = relPath === '' ? folderRoot : path.join(folderRoot, relPath);
-  const prefixRegex = new RegExp(`^${escapeRegExp(absFolderPath)}(/|$)`);
-  return coll
-    .find({
-      'fileinfo.library_id': folderId,
-      // Mirrors `buildTrashListFilter`'s `$type: 'string'` — required for
-      // the `deleted_at_1` partial index to be provably usable by the
-      // planner (see that function's doc comment in `routes/folders.ts`).
-      deleted_at: { $type: 'string' },
-      original_path: { $regex: prefixRegex },
-    })
-    .toArray();
 }
 
 /** Best-effort: remove directories left empty after every asset under them
@@ -217,40 +142,27 @@ function summarize(items: FolderBatchItemResult[]): FolderBatchSummary {
 }
 
 /**
- * Drive one asset-op (`trashAssetById` / `restoreAssetById`) over every doc
- * in `docs`, recording each outcome via `recordOutcome`. The single loop
- * `trashFolderRecursive` and `restoreFolderRecursive` both funnel through
- * — they differ only in how they find the doc's relevant fileinfo entry
- * (`findEntry`) and which op + success kinds they run (`runOp`/`okKinds`),
- * which is exactly what's parameterised here.
+ * Drive one asset-op (`trashAssetById` / `restoreAssetById`) over every match,
+ * recording each outcome via `recordOutcome`. The single loop
+ * `trashFolderRecursive` and `restoreFolderRecursive` both funnel through —
+ * they differ only in which op they run and which kinds count as success,
+ * which is exactly what is parameterised here.
+ *
+ * There is no longer a "matched the query but the entry could not be
+ * re-derived" branch to guard. Each match arrives carrying the location the
+ * query matched on, so the predicate is applied once instead of twice and the
+ * two copies of it cannot disagree.
  */
-async function processFolderBatchDocs(
-  docs: AssetWithId[],
-  findEntry: (doc: AssetWithId) => FileInfo | null,
-  runOp: (assetId: ObjectId, entry: FileInfo) => Promise<AssetOpOutcome>,
+async function processFolderBatch(
+  matches: readonly FolderLocationMatch[],
+  runOp: (match: FolderLocationMatch) => Promise<AssetOpOutcome>,
   okKinds: readonly string[],
   ctx: { folderId: ObjectId; relPath: string; verb: string },
 ): Promise<FolderBatchItemResult[]> {
   const items: FolderBatchItemResult[] = [];
-  for (const doc of docs) {
-    const entry = findEntry(doc);
-    const filename = entry?.filename ?? doc.fileinfo?.[0]?.filename ?? '';
-    if (!entry) {
-      // Matched the query but the in-memory re-derivation found nothing —
-      // shouldn't happen (same predicate), but fail this one asset rather
-      // than throw the whole batch.
-      recordOutcome(
-        items,
-        doc._id,
-        filename,
-        { kind: 'no-entry', error: 'no matching fileinfo entry' },
-        [],
-        ctx,
-      );
-      continue;
-    }
-    const outcome = await runOp(doc._id, entry);
-    recordOutcome(items, doc._id, filename, outcome, okKinds, ctx);
+  for (const match of matches) {
+    const outcome = await runOp(match);
+    recordOutcome(items, match.assetId, match.filename, outcome, okKinds, ctx);
   }
   return items;
 }
@@ -272,13 +184,12 @@ export async function trashFolderRecursive(
   folderRoot: string,
   relPath: string,
 ): Promise<FolderBatchSummary> {
-  const docs = await findLiveAssetsUnderFolder(folderId, relPath);
-  const items = await processFolderBatchDocs(
-    docs,
-    (doc) => pickFolderEntry(doc, folderId, relPath),
-    (assetId, entry) =>
-      trashAssetById(assetId, {
-        entry: { libraryId: folderId, path: entry.path, filename: entry.filename },
+  const matches = await listLiveAssetLocationsUnderFolder(folderId, relPath);
+  const items = await processFolderBatch(
+    matches,
+    (match) =>
+      trashAssetById(match.assetId, {
+        entry: { libraryId: folderId, path: match.path, filename: match.filename },
       }),
     ['ok', 'already-trashed'],
     { folderId, relPath, verb: 'folder-trash' },
@@ -304,13 +215,12 @@ export async function restoreFolderRecursive(
   folderRoot: string,
   relPath: string,
 ): Promise<FolderBatchSummary> {
-  const docs = await findTrashedAssetsUnderFolder(folderId, folderRoot, relPath);
-  const items = await processFolderBatchDocs(
-    docs,
-    (doc) => (doc.fileinfo ?? []).find((e) => e.library_id.equals(folderId)) ?? null,
-    (assetId, entry) =>
-      restoreAssetById(assetId, {
-        entry: { libraryId: folderId, path: entry.path, filename: entry.filename },
+  const matches = await listTrashedAssetLocationsUnderFolder(folderId, folderRoot, relPath);
+  const items = await processFolderBatch(
+    matches,
+    (match) =>
+      restoreAssetById(match.assetId, {
+        entry: { libraryId: folderId, path: match.path, filename: match.filename },
       }),
     ['ok'],
     { folderId, relPath, verb: 'folder-restore' },

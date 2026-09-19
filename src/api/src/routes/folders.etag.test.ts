@@ -1,74 +1,34 @@
+/**
+ * `GET /api/folders` — body-hash ETag and the If-None-Match short-circuit the
+ * File Provider extension revalidates against on a cold Finder open.
+ *
+ * The handler reaches `sqliteDb()` with no override, so each test installs its
+ * own database as the process-wide handle for the block.
+ */
+
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { closeDb } from '../db/client.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { foldersRoutes } from './folders.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
-// Shared DB name across all etag tests in this process so the
-// module-cached MongoClient (which is keyed on the env var read at first
-// connect) never points at a stale DB when tests interleave.
-const TEST_DB = `maple_etag_test_${process.pid}`;
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1_500,
-    connectTimeoutMS: 1_500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
-
 describe('GET /api/folders — ETag', () => {
-  let client: MongoClient | null = null;
-  let db: Db | null = null;
+  let live: LiveTestDatabase;
 
   beforeEach(async () => {
-    client = await tryConnect();
-    if (!client) return;
-    process.env.MAPLE_MONGO_URI = MONGO_URI;
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    // Reset the API's module-cached MongoClient so the next route call
-    // picks up MAPLE_MONGO_DB fresh. Without this, a previous test in the
-    // same process may have locked the cached _db to a different name.
-    await closeDb();
-    db = client.db(TEST_DB);
-    await db.dropDatabase();
-    await db.collection('folders').insertOne({
-      _id: new ObjectId(),
-      path: '/srv/p',
-      label: 'p',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
+    live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/srv/p', slug: 'p' });
   });
 
-  // afterEach (not afterAll) so each `beforeEach` re-create has its
-  // counterpart cleanup. afterAll would leak every iteration except
-  // the last and keep MongoClient connections (and module-cached DB
-  // pool) alive longer than needed.
-  afterEach(async () => {
-    if (db) await db.dropDatabase().catch(() => {});
-    if (client) await client.close().catch(() => {});
-    await closeDb();
-    db = null;
-    client = null;
+  afterEach(() => {
+    live.close();
   });
 
   it('returns ETag header on 200', async () => {
-    if (!client) {
-      console.log('[folders.etag.test] MongoDB unreachable — skipping');
-      return;
-    }
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const res = await app.handle(new Request('http://localhost/api/folders'));
     expect(res.status).toBe(200);
@@ -76,7 +36,6 @@ describe('GET /api/folders — ETag', () => {
   });
 
   it('returns 304 when If-None-Match matches', async () => {
-    if (!client) return;
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const first = await app.handle(new Request('http://localhost/api/folders'));
     const etag = first.headers.get('ETag')!;
@@ -91,18 +50,10 @@ describe('GET /api/folders — ETag', () => {
   });
 
   it('returns 200 with a new ETag when folders change', async () => {
-    if (!client || !db) return;
     const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
     const first = await app.handle(new Request('http://localhost/api/folders'));
     const etag1 = first.headers.get('ETag')!;
-    await db.collection('folders').insertOne({
-      _id: new ObjectId(),
-      path: '/srv/q',
-      label: 'q',
-      last_scan: null,
-      file_count: 0,
-      created_at: new Date().toISOString(),
-    } as never);
+    insertFolder(live.db, { path: '/srv/q', slug: 'q' });
     const second = await app.handle(
       new Request('http://localhost/api/folders', {
         headers: { 'If-None-Match': etag1 },

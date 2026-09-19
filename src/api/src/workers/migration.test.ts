@@ -1,50 +1,57 @@
 /**
  * Migration worker tests.
  *
- *  - Registration / control surface: no DB needed (loadPaused tolerates an
- *    unreachable Mongo and defaults to running).
- *  - Enable-transition: pure logic, no DB.
- *  - End-to-end runBatch: seeds a backup-origin asset + a real temp file and
- *    drives one tick. Skips when MongoDB is unreachable (mirrors smoke.test).
+ *  - Registration / control surface: the worker's registry entry and its
+ *    pause/resume round trip.
+ *  - Enable-transition: pure logic, no database.
+ *  - End-to-end `runMigrationTickOnce`: seeds a backup-origin asset and a real
+ *    temp file, drives one tick, and checks both the on-disk move and the
+ *    worker's own persisted progress.
+ *
+ * Everything here runs against a real SQLite database installed as the
+ * process-wide handle: per-migration state lives in the `migration` row of
+ * `app_settings`, reached through `readAppSettings` / `patchAppSettings`, and
+ * the refile migration reads and writes `assets` / `asset_locations` through the
+ * repositories under `db/sqlite/repos/`. Pruning of unregistered migration ids
+ * is a property of that settings row and is covered by
+ * `migration-config.repo.test.ts`, so it is not repeated here.
  */
-import { describe, it, test, expect, afterAll, beforeAll, beforeEach, afterEach } from 'bun:test';
-import type { Db } from 'mongodb';
+import { describe, it, test, expect, afterEach, beforeEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { Database } from 'bun:sqlite';
 import { stageRegistry } from './registry.ts';
 import { startMigration, MIGRATION_WORKER_NAME, runMigrationTickOnce } from './migration.ts';
-import { computeEnabledTransition, defaultMigrationState } from './migration-config.repo.ts';
-import type { getDb as GetDbFn } from '../db/client.ts';
-import { withTestDb } from '../db/test-db.test-helpers.ts';
+import {
+  computeEnabledTransition,
+  defaultMigrationState,
+  loadMigrationState,
+  resetMigrationState,
+  setMigrationEnabled,
+} from './migration-config.repo.ts';
+import {
+  createLiveTestDatabase,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+  run,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 
-// Own per-pid database + explicit close — the repo-wide suite convention
-// (#2835): otherwise this file operates on whatever database MAPLE_MONGO_DB
-// happens to name (the real `maple` dev DB when it runs first) and leaks its
-// singleton connection into later suites (the #2783 flake class).
-withTestDb(`maple_test_migration_worker_${process.pid}`);
+let live: LiveTestDatabase;
 
-// Captured here, not re-resolved in afterAll: withTestDb restores
-// MAPLE_MONGO_DB before this suite's teardown runs.
-let suiteDb: Db | null = null;
-
-beforeAll(async () => {
-  const { closeDb, getDb } = await import('../db/client.ts');
-  // Force the singleton to reconnect under this file's TEST_DB even when
-  // an earlier suite left it connected.
-  await closeDb();
-  suiteDb = await getDb().catch(() => null);
+beforeEach(async () => {
+  live = await createLiveTestDatabase();
 });
 
-afterAll(async () => {
-  const { closeDb } = await import('../db/client.ts');
-  if (suiteDb) await suiteDb.dropDatabase();
-  await closeDb();
+afterEach(() => {
+  stageRegistry._resetForTests();
+  live.close();
 });
 
 describe('startMigration — registration & control', () => {
-  beforeEach(() => stageRegistry._resetForTests());
-
   it('registers under the migration name and reports idle by default', () => {
     const handle = startMigration({ intervalMs: 60_000 });
     try {
@@ -103,240 +110,140 @@ describe('computeEnabledTransition', () => {
   });
 });
 
-// ── Mongo-gated end-to-end ──────────────────────────────────────────────────
+// ── End-to-end ──────────────────────────────────────────────────────────────
 
-describe('migration end-to-end (restructure)', () => {
-  let dir: string | null = null;
+/**
+ * A backup-origin asset with one live location, which is what
+ * `REFILE_BACKUP_SCOPE` selects on: at least one PHAsset link, at least one
+ * location carrying neither tombstone.
+ */
+function seedBackupAsset(
+  db: Database,
+  args: { libraryId: string; relDir: string; filename: string; stages?: readonly string[] },
+): string {
+  const assetId = insertAsset(db);
+  insertLocation(db, {
+    assetId,
+    libraryId: args.libraryId,
+    path: args.relDir,
+    filename: args.filename,
+  });
+  run(
+    db,
+    `INSERT INTO asset_phasset_links (asset_id, device_id, phasset_local_id, first_seen)
+     VALUES (?, ?, ?, ?)`,
+    assetId,
+    'dev',
+    assetId,
+    new Date().toISOString(),
+  );
+  for (const stage of args.stages ?? []) {
+    run(db, `INSERT INTO stage_state (asset_id, stage, version) VALUES (?, ?, 1)`, assetId, stage);
+  }
+  return assetId;
+}
 
-  afterEach(async () => {
-    if (dir) await fs.rm(dir, { recursive: true, force: true });
-    dir = null;
-    stageRegistry._resetForTests();
+/** The live location an asset now claims, as `<path>/<filename>`. */
+function locationOf(db: Database, assetId: string): string {
+  const row = db
+    .query(
+      `SELECT path, filename FROM asset_locations
+        WHERE asset_id = ? AND deleted_at IS NULL AND missing_since IS NULL`,
+    )
+    .get(assetId) as { path: string; filename: string } | null;
+  if (row === null) throw new Error(`asset ${assetId} has no live location`);
+  return `${row.path}/${row.filename}`;
+}
+
+function stageVersion(db: Database, assetId: string, stage: string): number {
+  const row = db
+    .query(`SELECT version FROM stage_state WHERE asset_id = ? AND stage = ?`)
+    .get(assetId, stage) as { version: number } | null;
+  return row?.version ?? -1;
+}
+
+describe('migration end-to-end (refile-backups)', () => {
+  let dir: string;
+  let libraryId: string;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'migration-e2e-'));
+    libraryId = insertFolder(live.db, { path: dir });
+    setLibraryRootsForTests(new Map([[libraryId, dir]]));
   });
 
-  it('moves a backup-origin asset out of the MM-DD folder and repoints fileinfo', async () => {
-    let getDb: typeof GetDbFn;
-    try {
-      ({ getDb } = await import('../db/client.ts'));
-      await getDb();
-    } catch {
-      console.log('MongoDB unreachable — skipping migration end-to-end');
-      return;
-    }
-    const { ObjectId } = await import('mongodb');
-    const { setLibraryRootsForTests } = await import('../indexer/libraries.cache.ts');
-    const { setMigrationEnabled, resetMigrationState } = await import('./migration-config.repo.ts');
+  afterEach(async () => {
+    setLibraryRootsForTests(null);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
 
-    const db = await getDb();
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'migration-e2e-'));
-    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
-
-    // Real file in the OLD layout + a sidecar.
+  it('moves a backup-origin asset out of the MM-DD folder and repoints its location', async () => {
     const oldRel = '2024/Tokyo/03-15';
     await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
     await fs.writeFile(path.join(dir, oldRel, 'IMG_E2E.HEIC'), 'pixels');
     await fs.writeFile(path.join(dir, oldRel, 'IMG_E2E.xmp'), 'edits');
 
-    const _id = new ObjectId();
-    await assets.insertOne({
-      _id,
-      maple_id: 'e2e-maple-id',
-      fileinfo: [
-        {
-          path: oldRel,
-          filename: 'IMG_E2E.HEIC',
-          library_id: libId,
-          deleted_at: null,
-        },
-      ],
-      phasset_links: [{ device_id: 'dev', phasset_local_id: 'ph', first_seen: new Date() }],
-      size: 6,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
-      stages: { thumb: { version: 1 }, preview: { version: 1 } },
-    } as never);
+    const assetId = seedBackupAsset(live.db, {
+      libraryId,
+      relDir: oldRel,
+      filename: 'IMG_E2E.HEIC',
+      stages: ['thumb', 'preview'],
+    });
 
-    try {
-      await resetMigrationState('refile-backups');
-      await setMigrationEnabled('refile-backups', true, new Date().toISOString());
-      await runMigrationTickOnce(50, new Date().toISOString());
+    await resetMigrationState('refile-backups');
+    await setMigrationEnabled('refile-backups', true, new Date().toISOString());
+    await runMigrationTickOnce(50, new Date().toISOString());
 
-      const doc = (await assets.findOne({ _id })) as {
-        fileinfo?: { path: string; filename: string }[];
-        stages?: Record<string, { version: number }>;
-      } | null;
-      expect(doc?.fileinfo?.[0].path).toBe('2024/Misc');
-      expect(doc?.fileinfo?.[0].filename).toBe('IMG_E2E.HEIC');
-      // Cache stage versions reset so workers regenerate at the new path.
-      expect(doc?.stages?.thumb.version).toBe(0);
-      expect(doc?.stages?.preview.version).toBe(0);
+    expect(locationOf(live.db, assetId)).toBe('2024/Misc/IMG_E2E.HEIC');
+    // The path-keyed caches were dropped with the move, so their stages are
+    // re-armed and the workers regenerate at the new path.
+    expect(stageVersion(live.db, assetId, 'thumb')).toBe(0);
+    expect(stageVersion(live.db, assetId, 'preview')).toBe(0);
 
-      // File + sidecar moved; old day-folder reclaimed.
-      expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.HEIC'), 'utf8')).toBe('pixels');
-      expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.xmp'), 'utf8')).toBe('edits');
-      await expect(fs.stat(path.join(dir, oldRel))).rejects.toThrow();
+    // File + sidecar moved; old day-folder reclaimed.
+    expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.HEIC'), 'utf8')).toBe('pixels');
+    expect(await fs.readFile(path.join(dir, '2024/Misc/IMG_E2E.xmp'), 'utf8')).toBe('edits');
+    await expect(fs.stat(path.join(dir, oldRel))).rejects.toThrow();
 
-      // The worker persists `remaining` as it goes (#3491) — the Workers page
-      // reads that instead of running countRemaining() on every load. One
-      // candidate, moved in this batch → remaining 0, migration done.
-      const { loadMigrationState } = await import('./migration-config.repo.ts');
-      const state = await loadMigrationState('refile-backups');
-      expect(state.status).toBe('done');
-      expect(state.remaining).toBe(0);
-      expect(typeof state.remaining_at).toBe('string');
-    } finally {
-      await assets.deleteOne({ _id });
-      await resetMigrationState('refile-backups');
-      setLibraryRootsForTests(null);
-    }
+    // The worker persists `remaining` as it goes (#3491) — the Workers page
+    // reads that instead of running countRemaining() on every load. One
+    // candidate, moved in this batch → remaining 0, migration done.
+    const state = await loadMigrationState('refile-backups');
+    expect(state.status).toBe('done');
+    expect(state.remaining).toBe(0);
+    expect(typeof state.remaining_at).toBe('string');
   });
 
-  it('collision: two same-name assets from different day-folders → one renamed, both fileinfo correct, no loss', async () => {
-    let getDb: typeof GetDbFn;
-    try {
-      ({ getDb } = await import('../db/client.ts'));
-      await getDb();
-    } catch {
-      console.log('MongoDB unreachable — skipping migration collision e2e');
-      return;
-    }
-    const { ObjectId } = await import('mongodb');
-    const { setLibraryRootsForTests } = await import('../indexer/libraries.cache.ts');
-    const { setMigrationEnabled, resetMigrationState } = await import('./migration-config.repo.ts');
-
-    const db = await getDb();
-    const assets = db.collection('assets');
-    const libId = new ObjectId();
-
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'migration-collide-'));
-    setLibraryRootsForTests(new Map([[libId.toHexString(), dir]]));
-
-    // Same filename, DIFFERENT content, different MM-DD → both collapse to 2024/Tokyo.
-    const idA = new ObjectId();
-    const idB = new ObjectId();
+  it('collision: two same-name assets from different day-folders → one renamed, both correct, no loss', async () => {
+    // Same filename, DIFFERENT content, different MM-DD → both collapse to
+    // 2024/Misc, so one of them has to be renamed rather than overwritten.
     await fs.mkdir(path.join(dir, '2024/Tokyo/03-15'), { recursive: true });
     await fs.mkdir(path.join(dir, '2024/Tokyo/03-16'), { recursive: true });
     await fs.writeFile(path.join(dir, '2024/Tokyo/03-15/DUP.HEIC'), 'content-A');
     await fs.writeFile(path.join(dir, '2024/Tokyo/03-16/DUP.HEIC'), 'content-B');
-    const mk = (id: InstanceType<typeof ObjectId>, rel: string) => ({
-      _id: id,
-      maple_id: `mid-${id.toHexString()}`,
-      fileinfo: [
-        {
-          path: rel,
-          filename: 'DUP.HEIC',
-          library_id: libId,
-          deleted_at: null,
-        },
-      ],
-      phasset_links: [
-        {
-          device_id: 'd',
-          phasset_local_id: id.toHexString(),
-          first_seen: new Date(),
-        },
-      ],
-      size: 9,
-      mtime: Date.now(),
-      rating: 0,
-      flag: 0,
-      color_label: '',
-      indexed_at: new Date().toISOString(),
+
+    const idA = seedBackupAsset(live.db, {
+      libraryId,
+      relDir: '2024/Tokyo/03-15',
+      filename: 'DUP.HEIC',
     });
-    await assets.insertOne(mk(idA, '2024/Tokyo/03-15') as never);
-    await assets.insertOne(mk(idB, '2024/Tokyo/03-16') as never);
+    const idB = seedBackupAsset(live.db, {
+      libraryId,
+      relDir: '2024/Tokyo/03-16',
+      filename: 'DUP.HEIC',
+    });
 
-    try {
-      await resetMigrationState('refile-backups');
-      await setMigrationEnabled('refile-backups', true, new Date().toISOString());
-      await runMigrationTickOnce(50, new Date().toISOString());
+    await resetMigrationState('refile-backups');
+    await setMigrationEnabled('refile-backups', true, new Date().toISOString());
+    await runMigrationTickOnce(50, new Date().toISOString());
 
-      const docs = await assets
-        .find<{ fileinfo: { path: string; filename: string }[] }>({ _id: { $in: [idA, idB] } })
-        .toArray();
-      // Both now live under 2024/Misc; filenames are DUP.HEIC and DUP.1.HEIC.
-      for (const d of docs) expect(d.fileinfo[0].path).toBe('2024/Misc');
-      const names = docs.map((d) => d.fileinfo[0].filename).sort();
-      expect(names).toEqual(['DUP.1.HEIC', 'DUP.HEIC']);
+    const located = [locationOf(live.db, idA), locationOf(live.db, idB)].sort();
+    expect(located).toEqual(['2024/Misc/DUP.1.HEIC', '2024/Misc/DUP.HEIC']);
 
-      // Both files present at their recorded paths; neither content lost.
-      const contents = await Promise.all(
-        docs.map((d) => fs.readFile(path.join(dir!, '2024/Misc', d.fileinfo[0].filename), 'utf8')),
-      );
-      expect(contents.sort()).toEqual(['content-A', 'content-B']);
-      // No overwrite: distinct bytes preserved at distinct names.
-    } finally {
-      await assets.deleteMany({ _id: { $in: [idA, idB] } });
-      await resetMigrationState('refile-backups');
-      setLibraryRootsForTests(null);
-    }
-  });
-});
-
-describe('pruneUnknownMigrationStates', () => {
-  it('drops persisted state for ids no longer in the registry, keeps the rest', async () => {
-    let getDb: typeof GetDbFn;
-    try {
-      ({ getDb } = await import('../db/client.ts'));
-      await getDb();
-    } catch {
-      console.log('MongoDB unreachable — skipping prune e2e');
-      return;
-    }
-    const { pruneUnknownMigrationStates, loadAllMigrationStates } =
-      await import('./migration-config.repo.ts');
-    const { MIGRATIONS } = await import('./migration/index.ts');
-    const db = await getDb();
-    const settings = db.collection<{
-      _id: string;
-      migrations?: Record<string, unknown>;
-    }>('app_settings');
-    const DEAD_A = 'zz-test-dead-a';
-    const DEAD_B = 'zz-test-dead-b';
-    const KEEP = 'zz-test-keep';
-
-    // Seed one sentinel that survives + two orphans that should be pruned.
-    await settings.updateOne(
-      { _id: 'migration' },
-      {
-        $set: {
-          [`migrations.${KEEP}`]: { enabled: true, status: 'running' },
-          [`migrations.${DEAD_A}`]: { enabled: true, status: 'running' },
-          [`migrations.${DEAD_B}`]: { enabled: false, status: 'done' },
-        },
-      },
-      { upsert: true },
+    // Both files present at their recorded paths; neither content lost.
+    const contents = await Promise.all(
+      located.map((rel) => fs.readFile(path.join(dir, rel), 'utf8')),
     );
-
-    try {
-      // Known set = the live registry PLUS our sentinel, so real migration state
-      // is never touched even if this runs against a populated DB.
-      const known = [...MIGRATIONS.map((m) => m.id), KEEP];
-      const pruned = await pruneUnknownMigrationStates(known);
-      expect(pruned).toContain(DEAD_A);
-      expect(pruned).toContain(DEAD_B);
-
-      const all = await loadAllMigrationStates();
-      expect(all[DEAD_A]).toBeUndefined();
-      expect(all[DEAD_B]).toBeUndefined();
-      expect(all[KEEP]).toBeDefined();
-    } finally {
-      await settings.updateOne(
-        { _id: 'migration' },
-        {
-          $unset: {
-            [`migrations.${KEEP}`]: '',
-            [`migrations.${DEAD_A}`]: '',
-            [`migrations.${DEAD_B}`]: '',
-          },
-        },
-      );
-    }
+    expect(contents.sort()).toEqual(['content-A', 'content-B']);
   });
 });

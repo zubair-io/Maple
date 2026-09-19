@@ -2,112 +2,75 @@
  * Tests for GET /api/search/facets — aggregation buckets for FE dropdowns.
  *
  * Bare-Elysia `app.handle` style; mirrors `tests/auth/enforcement.test.ts`.
- * Skip-passes if MongoDB is unreachable.
+ * Real SQLite, installed as the process-wide handle for the file.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { Elysia } from 'elysia';
-import { MongoClient, ObjectId } from 'mongodb';
-import { baseSeeds, fmtAuth, seedFolders, tryConnect } from './_setup.ts';
-import { withTestDb } from '../../src/db/test-db.test-helpers.ts';
+import { fmtAuth, seedBaseLibrary, type SeededLibraries } from './_setup.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-const TEST_DB = withTestDb(`maple_test_search_facets_${process.pid}`);
-
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-const folderA = new ObjectId();
-const folderB = new ObjectId();
+let live: LiveTestDatabase;
+let libraries: SeededLibraries;
 
 beforeAll(async () => {
-  mongo = await tryConnect();
-  mongoReachable = mongo !== null;
-  if (!mongoReachable) {
-    console.log('[search/facets.test] skipping: MongoDB unreachable');
-    return;
-  }
-  const db = mongo!.db(TEST_DB);
-  await db.dropDatabase();
-  await seedFolders(db, folderA, folderB);
-  await db.collection('assets').insertMany(baseSeeds(folderA, folderB));
-
-  const { closeDb } = await import('../../src/db/client.ts');
-  await closeDb();
+  live = await createLiveTestDatabase();
+  libraries = seedBaseLibrary(live.db);
 });
 
-afterAll(async () => {
-  if (mongo && mongoReachable) {
-    try {
-      await mongo.db(TEST_DB).dropDatabase();
-    } catch {}
-    try {
-      await mongo.close();
-    } catch {}
-  }
-  try {
-    const { closeDb } = await import('../../src/db/client.ts');
-    await closeDb();
-  } catch {}
+afterAll(() => {
+  live.close();
 });
+
+async function facets(qs = ''): Promise<{ status: number; body: Record<string, unknown> }> {
+  const { searchRoutes } = await import('../../src/routes/search.ts');
+  const { requireAuth } = await import('../../src/auth/middleware.ts');
+  const app = new Elysia().use(requireAuth).use(searchRoutes);
+  const r = await app.handle(
+    new Request(`http://localhost/api/search/facets${qs}`, { headers: fmtAuth() }),
+  );
+  return { status: r.status, body: (await r.json()) as Record<string, unknown> };
+}
 
 describe('/api/search/facets', () => {
   it('aggregates camera + lens + ext + iso + capture range', async () => {
-    if (!mongoReachable) return;
-    const { searchRoutes } = await import('../../src/routes/search.ts');
-    const { requireAuth } = await import('../../src/auth/middleware.ts');
-    const app = new Elysia().use(requireAuth).use(searchRoutes);
+    const { status, body } = await facets();
+    expect(status).toBe(200);
+    const cameras = body.cameras as Array<{ make: string | null; model: string | null }>;
+    const lenses = body.lenses as Array<{ value: string | null }>;
+    const extensions = body.extensions as Array<{ value: string }>;
+    const isoRange = body.iso_range as { min: number; max: number };
+    const captureRange = body.capture_range as { from: string; to: string };
 
-    const r = await app.handle(
-      new Request('http://localhost/api/search/facets', { headers: fmtAuth() }),
-    );
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as {
-      total: number;
-      cameras: Array<{
-        make: string | null;
-        model: string | null;
-        count: number;
-      }>;
-      lenses: Array<{ value: string | null; count: number }>;
-      extensions: Array<{ value: string; count: number }>;
-      iso_range: { min: number; max: number } | null;
-      capture_range: { from: string; to: string } | null;
-    };
     expect(body.total).toBe(4);
     // Three cameras with EXIF + one null group for the JPG without EXIF.
-    expect(body.cameras.length).toBeGreaterThanOrEqual(3);
-    const makes = new Set(body.cameras.map((c) => c.make));
+    expect(cameras.length).toBeGreaterThanOrEqual(3);
+    const makes = new Set(cameras.map((c) => c.make));
     expect(makes.has('Hasselblad')).toBe(true);
     expect(makes.has('Canon')).toBe(true);
     expect(makes.has('Sony')).toBe(true);
     // Lens facets.
-    const lensValues = new Set(body.lenses.map((l) => l.value));
+    const lensValues = new Set(lenses.map((l) => l.value));
     expect(lensValues.has('Hasselblad 24mm f/1.5')).toBe(true);
     // Extensions cover dng/cr3/arw/jpg.
-    const exts = new Set(body.extensions.map((e) => e.value));
+    const exts = new Set(extensions.map((e) => e.value));
     expect(exts.has('dng')).toBe(true);
     expect(exts.has('cr3')).toBe(true);
     expect(exts.has('arw')).toBe(true);
     expect(exts.has('jpg')).toBe(true);
     // ISO range spans 100..1600.
-    expect(body.iso_range!.min).toBe(100);
-    expect(body.iso_range!.max).toBe(1600);
+    expect(isoRange.min).toBe(100);
+    expect(isoRange.max).toBe(1600);
     // Capture range covers the seeded ISO 8601 strings.
-    expect(body.capture_range!.from <= body.capture_range!.to).toBe(true);
+    expect(captureRange.from <= captureRange.to).toBe(true);
   });
 
   it('respects libraryId scope', async () => {
-    if (!mongoReachable) return;
-    const { searchRoutes } = await import('../../src/routes/search.ts');
-    const { requireAuth } = await import('../../src/auth/middleware.ts');
-    const app = new Elysia().use(requireAuth).use(searchRoutes);
-
-    const r = await app.handle(
-      new Request(`http://localhost/api/search/facets?libraryId=${folderA.toHexString()}`, {
-        headers: fmtAuth(),
-      }),
-    );
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as { total: number; cameras: unknown[] };
+    const { status, body } = await facets(`?libraryId=${libraries.folderA}`);
+    expect(status).toBe(200);
     expect(body.total).toBe(2);
   });
 });

@@ -27,7 +27,6 @@ function inject(overrides: Record<string, unknown> = {}): void {
     ensureWhisperModel: async () => '/model.bin',
     wavByteLength: async () => 44,
     assertReadable: async () => {},
-    persistTranscript: async () => {},
     transcribeWav: async () => ({
       text: 'hello there',
       language: 'en',
@@ -45,11 +44,18 @@ describe('transcribe stage', () => {
   });
 
   it('claims only video/audio assets (no photo sweep) by the indexed media_kind (#3492)', () => {
-    // The claim query is narrowed so the stage never sweeps the photo library
-    // stamping not-media skips. An equality on the denormalised `media_kind`
-    // (partial index `media_kind_av`) replaced the filename regex, which a
-    // multikey index can never filter — it fetched the whole library.
-    expect(transcribeStage.claimFilter).toEqual({ media_kind: { $in: ['video', 'audio'] } });
+    // The claim is narrowed so the stage never sweeps the photo library stamping
+    // not-media skips. The predicate reads the denormalised `media_kind` column,
+    // which has a partial index over exactly the two minority kinds — it
+    // replaced a filename regex that no multikey index could ever filter, so
+    // the claim fetched the whole library to evaluate it.
+    //
+    // Asserted as text because the claim builder interpolates this fragment
+    // verbatim: a predicate that stopped naming `stage_state.asset_id` would
+    // still type-check and would silently correlate against nothing.
+    expect(transcribeStage.claimResidual?.params).toEqual(['video', 'audio']);
+    expect(transcribeStage.claimResidual?.sql).toContain('id = stage_state.asset_id');
+    expect(transcribeStage.claimResidual?.sql).toContain('media_kind IN (?, ?)');
   });
 
   it('skips non-media and silent video', async () => {
@@ -64,14 +70,36 @@ describe('transcribe stage', () => {
   });
 
   it('stores transcript and rearms search', async () => {
-    let stored: { text: string } | null = null;
-    inject({
-      persistTranscript: async (_id: unknown, transcript: { text: string }) =>
-        void (stored = transcript),
+    inject();
+    const doc = asset('voice.m4a');
+    const result = (await transcribeStage.handler(doc as never, {} as never)) as {
+      patch: readonly { sql: string; params: unknown[] }[];
+      invalidates: readonly string[];
+    };
+
+    // The re-arm is declared, not written: the runner commits it in the same
+    // transaction as this stage's success row, where the Mongo handler wrote
+    // five `stages.meili.*` keys itself and could crash between them.
+    expect(result.invalidates).toEqual(['meili']);
+    expect(result.patch).toHaveLength(1);
+    expect(result.patch[0]!.sql).toContain('INSERT INTO asset_detail');
+    expect(result.patch[0]!.params[1]).toBe(doc._id.toHexString());
+    expect(JSON.parse(result.patch[0]!.params[0] as string)).toMatchObject({
+      text: 'hello there',
+      model: 'medium.en',
     });
-    const result = await transcribeStage.handler(asset('voice.m4a') as never, {} as never);
-    expect(result).toEqual({ wrote: true });
-    expect(stored).toMatchObject({ text: 'hello there' });
+  });
+
+  it('writes the transcript through a statement the foreign key cannot reject', async () => {
+    inject();
+    const result = (await transcribeStage.handler(asset('voice.m4a') as never, {} as never)) as {
+      patch: readonly { sql: string }[];
+    };
+    // `SELECT … FROM assets WHERE id = ?` rather than a bare VALUES: an asset
+    // deleted between the claim and the writeback must be a no-op, the way the
+    // Mongo `updateOne` on a missing `_id` was, and not a foreign-key failure
+    // that rolls back the whole tick's batch.
+    expect(result.patch[0]!.sql).toContain('FROM assets WHERE id = ?');
   });
 
   it('propagates a real ENOENT before probing media', async () => {

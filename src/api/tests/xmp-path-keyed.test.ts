@@ -5,51 +5,39 @@
  *   POST   /api/xmp?path=…
  *   DELETE /api/xmp?path=…
  *
- * The handler does NO asset-collection lookup: it validates that the
- * caller-supplied absolute path lives inside a registered library
- * root, resolves the `.xmp` sibling, and reads / writes / deletes
- * directly. Tests round-trip against real temp directories — no
- * mocks. We also pin down the deprecation signal on the legacy
- * id-keyed route.
+ * The handler does NO asset lookup: it validates that the caller-supplied
+ * absolute path lives inside a registered library root, resolves the `.xmp`
+ * sibling, and reads / writes / deletes directly. Tests round-trip against real
+ * temp directories — no mocks. We also pin down the deprecation signal on the
+ * legacy id-keyed route.
+ *
+ * Real SQLite installed as the process-wide handle for the file (#3787): the
+ * library root the jail authorises against is a `folders` row, and the
+ * deprecation case resolves a real asset.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { pendingEnrichment } from '../src/db/schema.ts';
+import { seedIndexedAsset } from './helpers/fs-route-fixtures.ts';
+import {
+  createLiveTestDatabase,
+  insertFolder,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { withTestEnv } from '../src/test-support/env.test-helpers.ts';
 
-const TEST_DB = `maple_test_xmp_path_${process.pid}`;
-const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
-const PRIOR_MAPLE_ROOTS = process.env.MAPLE_ROOTS;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const ROOT = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'maple-xmp-path-')));
+// A second tmpdir that is NOT registered as a library root — used to assert the
+// auth boundary rejects out-of-tree paths. Constraining the FS jail to ONLY the
+// library root is what makes that check meaningful.
+const OUTSIDE = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'maple-xmp-path-outside-')));
+withTestEnv('MAPLE_ROOTS', ROOT);
 
-let mongo: MongoClient | null = null;
-let mongoReachable = false;
-let db: Db | null = null;
-let tmpRoot: string;
-let realTmpRoot: string;
-let outsideRoot: string;
-let realOutsideRoot: string;
-let libraryId: ObjectId;
-
-async function tryConnect(): Promise<MongoClient | null> {
-  const c = new MongoClient(MONGO_URI, {
-    serverSelectionTimeoutMS: 1500,
-    connectTimeoutMS: 1500,
-  });
-  try {
-    await c.connect();
-    await c.db('admin').command({ ping: 1 });
-    return c;
-  } catch {
-    try {
-      await c.close();
-    } catch {}
-    return null;
-  }
-}
+let live: LiveTestDatabase;
+let libraryId: string;
 
 function url(absPath: string): string {
   return `http://test/api/xmp?path=${encodeURIComponent(absPath)}`;
@@ -57,75 +45,31 @@ function url(absPath: string): string {
 
 describe('path-keyed /api/xmp', () => {
   beforeAll(async () => {
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    process.env.MAPLE_MONGO_DB = TEST_DB;
-    mongo = await tryConnect();
-    mongoReachable = mongo !== null;
-    if (!mongoReachable) return;
-
-    db = mongo!.db(TEST_DB);
-    await db.dropDatabase();
-
-    tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-xmp-path-'));
-    realTmpRoot = await fs.realpath(tmpRoot);
-    // A second tmpdir that is NOT registered as a library root — used
-    // to assert the auth boundary rejects out-of-tree paths.
-    outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-xmp-path-outside-'));
-    realOutsideRoot = await fs.realpath(outsideRoot);
-
-    // Constrain the FS jail to ONLY the library root — the outside dir
-    // must therefore fail the auth check.
-    process.env.MAPLE_ROOTS = realTmpRoot;
-
-    libraryId = new ObjectId();
-    const now = new Date().toISOString();
-    await db.collection('folders').insertOne({
-      _id: libraryId,
-      path: realTmpRoot,
-      label: 'test',
-      created_at: now,
-      file_count: 0,
-    } as never);
+    live = await createLiveTestDatabase();
+    libraryId = insertFolder(live.db, { path: ROOT, slug: 'xmp-path-test' });
     const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
     invalidateLibraryRoots();
   });
 
   afterAll(async () => {
-    const { closeDb } = await import('../src/db/client.ts');
-    await closeDb();
-    if (mongo) {
-      try {
-        await db?.dropDatabase();
-      } catch {}
-      await mongo.close();
-    }
-    try {
-      await fs.rm(tmpRoot, { recursive: true, force: true });
-    } catch {}
-    try {
-      await fs.rm(outsideRoot, { recursive: true, force: true });
-    } catch {}
-    if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
-    else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
-    if (PRIOR_MAPLE_ROOTS === undefined) delete process.env.MAPLE_ROOTS;
-    else process.env.MAPLE_ROOTS = PRIOR_MAPLE_ROOTS;
+    live.close();
+    const { invalidateLibraryRoots } = await import('../src/indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+    await fs.rm(ROOT, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(OUTSIDE, { recursive: true, force: true }).catch(() => {});
   });
 
   beforeEach(async () => {
-    if (!mongoReachable) return;
-    // Clean the library root between tests so paths from a previous
-    // test don't leak in.
-    const ents = await fs.readdir(realTmpRoot);
-    for (const e of ents) {
-      await fs.rm(path.join(realTmpRoot, e), { recursive: true, force: true });
+    // Clean the library root between tests so paths from a previous test don't
+    // leak in.
+    for (const entry of await fs.readdir(ROOT)) {
+      await fs.rm(path.join(ROOT, entry), { recursive: true, force: true });
     }
   });
 
   it('GET returns 200 + body when the sidecar exists', async () => {
-    if (!mongoReachable) return;
-    const rawPath = path.join(realTmpRoot, 'IMG_GET.ARW');
-    const xmpPath = path.join(realTmpRoot, 'IMG_GET.xmp');
+    const rawPath = path.join(ROOT, 'IMG_GET.ARW');
+    const xmpPath = path.join(ROOT, 'IMG_GET.xmp');
     await fs.writeFile(rawPath, 'raw');
     const xml = '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF/></x:xmpmeta>';
     await fs.writeFile(xmpPath, xml);
@@ -137,8 +81,7 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('GET returns 404 when no sidecar exists', async () => {
-    if (!mongoReachable) return;
-    const rawPath = path.join(realTmpRoot, 'IMG_404.ARW');
+    const rawPath = path.join(ROOT, 'IMG_404.ARW');
     await fs.writeFile(rawPath, 'raw');
     const { xmpPathRoutes } = await import('../src/routes/xmp.ts');
     const res = await xmpPathRoutes.handle(new Request(url(rawPath), { method: 'GET' }));
@@ -146,9 +89,8 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('POST writes the sidecar and GET reads it back (roundtrip)', async () => {
-    if (!mongoReachable) return;
-    const rawPath = path.join(realTmpRoot, 'IMG_RT.ARW');
-    const xmpPath = path.join(realTmpRoot, 'IMG_RT.xmp');
+    const rawPath = path.join(ROOT, 'IMG_RT.ARW');
+    const xmpPath = path.join(ROOT, 'IMG_RT.xmp');
     await fs.writeFile(rawPath, 'raw');
     const xml =
       '<?xml version="1.0"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta>';
@@ -170,9 +112,8 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('DELETE removes the sidecar (204), follow-up DELETE is 404', async () => {
-    if (!mongoReachable) return;
-    const rawPath = path.join(realTmpRoot, 'IMG_DEL.ARW');
-    const xmpPath = path.join(realTmpRoot, 'IMG_DEL.xmp');
+    const rawPath = path.join(ROOT, 'IMG_DEL.ARW');
+    const xmpPath = path.join(ROOT, 'IMG_DEL.xmp');
     await fs.writeFile(rawPath, 'raw');
     await fs.writeFile(xmpPath, '<x:xmpmeta/>');
     const { xmpPathRoutes } = await import('../src/routes/xmp.ts');
@@ -188,8 +129,7 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('rejects paths outside any indexed library root with 403', async () => {
-    if (!mongoReachable) return;
-    const outsidePath = path.join(realOutsideRoot, 'IMG_OUT.ARW');
+    const outsidePath = path.join(OUTSIDE, 'IMG_OUT.ARW');
     await fs.writeFile(outsidePath, 'raw');
     const { xmpPathRoutes } = await import('../src/routes/xmp.ts');
     const res = await xmpPathRoutes.handle(new Request(url(outsidePath), { method: 'GET' }));
@@ -197,29 +137,23 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('rejects classic traversal attempts (?path=/etc/passwd)', async () => {
-    if (!mongoReachable) return;
     const { xmpPathRoutes } = await import('../src/routes/xmp.ts');
-    // /etc lives outside MAPLE_ROOTS (which is realTmpRoot here), so
-    // the root check rejects with 403 well before any filesystem
-    // touch.
-    const res = await xmpPathRoutes.handle(
-      new Request(url('/etc/passwd'), { method: 'GET' }),
-    );
+    // /etc lives outside MAPLE_ROOTS (which is ROOT here), so the root check
+    // rejects with 403 well before any filesystem touch.
+    const res = await xmpPathRoutes.handle(new Request(url('/etc/passwd'), { method: 'GET' }));
     expect(res.status).toBe(403);
   });
 
   it('rejects `..` traversal that escapes the library root', async () => {
-    if (!mongoReachable) return;
     const { xmpPathRoutes } = await import('../src/routes/xmp.ts');
-    // path.resolve flattens `..` lexically — anything outside
-    // realTmpRoot lands outside any root and 403s.
-    const sneaky = `${realTmpRoot}/../../../etc/passwd`;
+    // path.resolve flattens `..` lexically — anything outside ROOT lands
+    // outside any root and 403s.
+    const sneaky = `${ROOT}/../../../etc/passwd`;
     const res = await xmpPathRoutes.handle(new Request(url(sneaky), { method: 'GET' }));
     expect(res.status).toBe(403);
   });
 
   it('rejects missing or relative path query', async () => {
-    if (!mongoReachable) return;
     const { xmpPathRoutes } = await import('../src/routes/xmp.ts');
     const missing = await xmpPathRoutes.handle(
       new Request('http://test/api/xmp', { method: 'GET' }),
@@ -233,12 +167,11 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('two distinct paths get independent sidecars even with the same maple_id', async () => {
-    if (!mongoReachable) return;
-    // The handler doesn't touch the asset collection — but the design
-    // contract is "two paths → two sidecars". Round-trip independently
-    // and confirm they don't bleed.
-    const a = path.join(realTmpRoot, 'sub_a', 'IMG.ARW');
-    const b = path.join(realTmpRoot, 'sub_b', 'IMG.ARW');
+    // The handler doesn't touch the asset catalogue — but the design contract
+    // is "two paths → two sidecars". Round-trip independently and confirm they
+    // don't bleed.
+    const a = path.join(ROOT, 'sub_a', 'IMG.ARW');
+    const b = path.join(ROOT, 'sub_b', 'IMG.ARW');
     await fs.mkdir(path.dirname(a), { recursive: true });
     await fs.mkdir(path.dirname(b), { recursive: true });
     // Identical bytes — same content hash / maple_id.
@@ -250,10 +183,18 @@ describe('path-keyed /api/xmp', () => {
 
     const { xmpPathRoutes } = await import('../src/routes/xmp.ts');
     await xmpPathRoutes.handle(
-      new Request(url(a), { method: 'POST', headers: { 'content-type': 'text/plain' }, body: xmlA }),
+      new Request(url(a), {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain' },
+        body: xmlA,
+      }),
     );
     await xmpPathRoutes.handle(
-      new Request(url(b), { method: 'POST', headers: { 'content-type': 'text/plain' }, body: xmlB }),
+      new Request(url(b), {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain' },
+        body: xmlB,
+      }),
     );
 
     const gotA = await xmpPathRoutes.handle(new Request(url(a), { method: 'GET' }));
@@ -263,14 +204,12 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('symlinks: RAW-level symlink → independent sidecars (sibling of each stem)', async () => {
-    if (!mongoReachable) return;
-    // Two paths whose RAWs alias via a symlink, but whose `.xmp`
-    // siblings live next to the user-facing stem. The handler
-    // operates on the supplied path *lexically* (no realpath), so
-    // each path keeps its own sidecar — matches the design spec
-    // intent that XMP is keyed on user-facing path, not on the
-    // underlying content.
-    const dir = path.join(realTmpRoot, 'symtest-raw');
+    // Two paths whose RAWs alias via a symlink, but whose `.xmp` siblings live
+    // next to the user-facing stem. The handler operates on the supplied path
+    // *lexically* (no realpath), so each path keeps its own sidecar — matching
+    // the design spec's intent that XMP is keyed on user-facing path, not on
+    // the underlying content.
+    const dir = path.join(ROOT, 'symtest-raw');
     await fs.mkdir(dir, { recursive: true });
     const realRaw = path.join(dir, 'real.ARW');
     await fs.writeFile(realRaw, 'raw');
@@ -294,16 +233,14 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('symlinks: sidecar-level symlink → two paths share the underlying bytes', async () => {
-    if (!mongoReachable) return;
-    // The design comment on #193 calls out this case explicitly:
-    // "if two paths resolve to the same `.xmp` via a symlink, they
-    // share (matches user intent — one underlying file, one
-    // sidecar). Don't normalize-away in the API."
+    // The design comment on #193 calls out this case explicitly: "if two paths
+    // resolve to the same `.xmp` via a symlink, they share (matches user intent
+    // — one underlying file, one sidecar). Don't normalize-away in the API."
     //
-    // We don't *invent* sharing — but if the user (or a future
-    // shadow-copy UI) has already symlinked the `.xmp` siblings, the
-    // handler must surface that natural sharing via plain file I/O.
-    const dir = path.join(realTmpRoot, 'symtest-sidecar');
+    // We don't *invent* sharing — but if the user (or a future shadow-copy UI)
+    // has already symlinked the `.xmp` siblings, the handler must surface that
+    // natural sharing via plain file I/O.
+    const dir = path.join(ROOT, 'symtest-sidecar');
     await fs.mkdir(dir, { recursive: true });
     const shared = path.join(dir, 'shared.xmp');
     await fs.writeFile(shared, '<x:xmpmeta shared="1"/>');
@@ -319,24 +256,15 @@ describe('path-keyed /api/xmp', () => {
   });
 
   it('legacy id-keyed route emits a Deprecation header pointing at the successor', async () => {
-    if (!mongoReachable) return;
     // Seed an asset row so the id-keyed handler resolves a real path.
     const filename = 'IMG_DEPR.ARW';
-    const rawPath = path.join(realTmpRoot, filename);
-    await fs.writeFile(rawPath, 'raw');
-    const assetId = new ObjectId();
-    await db!.collection('assets').insertOne({
-      _id: assetId,
-      fileinfo: [{ library_id: libraryId, path: '', filename, deleted_at: null }],
-      size: 3,
-      mtime: new Date().toISOString(),
-      indexed_at: new Date().toISOString(),
-      enrichment: pendingEnrichment(),
-    } as never);
+    await fs.writeFile(path.join(ROOT, filename), 'raw');
+    const assetId = seedIndexedAsset(live.db, { libraryId, filename });
     const { assetsRoutes } = await import('../src/routes/assets.ts');
     const res = await assetsRoutes.handle(
-      new Request(`http://test/api/assets/${assetId.toHexString()}/xmp`, { method: 'GET' }),
+      new Request(`http://test/api/assets/${assetId}/xmp`, { method: 'GET' }),
     );
+    expect(res.status).toBe(200);
     expect(res.headers.get('deprecation')).toBe('true');
     expect(res.headers.get('link') ?? '').toContain('rel="successor-version"');
     expect(res.headers.get('link') ?? '').toContain('/api/xmp?path=');

@@ -14,24 +14,24 @@
  *      re-mint (benign retry, NOT a logout) — #858
  *   6. After logout revokes the family, replaying it → 401 (genuine reuse
  *      rejected; logout actually logs out) — #858
+ *
+ * Runs against a private SQLite database installed as the process-wide handle
+ * for each test (#3787), so "fresh, unclaimed server" is the literal state of
+ * the database rather than something a delete pass has to reconstruct — the
+ * ownership sentinel included.
  */
 
 process.env.MAPLE_RP_ID = 'localhost';
 process.env.MAPLE_ORIGIN = 'http://localhost:3000';
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { authRoutes } from '../../src/routes/auth.ts';
 import {
-  usersCollection,
-  credentialsCollection,
-  invitesCollection,
-  refreshTokensCollection,
-  challengesCollection,
-  serverStateCollection,
-} from '../../src/db/client.ts';
-import { OWNER_CLAIM_ID } from '../../src/auth/server_claim.ts';
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { buildRegistrationResponse } from './helpers/soft-authn.ts';
 
 const app = new Elysia().use(authRoutes);
@@ -39,18 +39,14 @@ const app = new Elysia().use(authRoutes);
 const RP_ID = 'localhost';
 const ORIGIN = 'http://localhost:3000';
 
+let live: LiveTestDatabase;
+
 beforeEach(async () => {
-  for (const c of [
-    usersCollection,
-    credentialsCollection,
-    invitesCollection,
-    refreshTokensCollection,
-    challengesCollection,
-  ]) {
-    await (await c()).deleteMany({});
-  }
-  // #865: clear the ownership-claim sentinel so the claim ceremony starts fresh.
-  await (await serverStateCollection()).deleteOne({ _id: OWNER_CLAIM_ID });
+  live = await createLiveTestDatabase();
+});
+
+afterEach(() => {
+  live.close();
 });
 
 async function postJson(path: string, body: unknown, cookie?: string): Promise<Response> {
@@ -124,11 +120,9 @@ describe('WebAuthn end-to-end', () => {
     expect(regRefresh.length).toBeGreaterThan(20);
 
     // Sanity: persisted credential matches the soft-authenticator id.
-    const persisted = await (
-      await credentialsCollection()
-    ).findOne({
-      credential_id: authenticator.credentialId,
-    });
+    const persisted = live.db
+      .query(`SELECT id FROM credentials WHERE credential_id = ?`)
+      .get(authenticator.credentialId);
     expect(persisted).not.toBeNull();
 
     // 3a. Login options (pure passkey — no email; #1377).

@@ -22,7 +22,7 @@
  */
 
 import type { ObjectId } from 'mongodb';
-import { assetsCollection } from '../db/client.ts';
+import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
 import { activeFileInfo, relocateAsset, type RelocateAssetInput } from './relocate-asset.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { extensionChanged, renderTemplatedName, splitStemExt } from './filename-template.ts';
@@ -68,7 +68,7 @@ export interface BatchRenamePreviewItem {
 }
 
 /** Render one item's new name against its live `fileinfo`, without any
- * filesystem or Mongo write — shared by `previewBatchRename` and
+ * filesystem or database write — shared by `previewBatchRename` and
  * `batchRenameAssets` so preview and apply always agree on what a given
  * `(template, index)` produces for a given asset. */
 async function renderItemName(
@@ -80,11 +80,10 @@ async function renderItemName(
   | { kind: 'not-found' }
   | { kind: 'error'; error: string }
 > {
-  const c = await assetsCollection();
-  const doc = await c.findOne({ _id: id });
-  if (!doc) return { kind: 'not-found' };
+  const view = await loadAssetLocationView(id);
+  if (!view) return { kind: 'not-found' };
 
-  const primary = activeFileInfo(doc);
+  const primary = activeFileInfo(view);
   if (!primary) return { kind: 'error', error: 'asset has no live location' };
 
   const { stem, ext } = splitStemExt(primary.filename);
@@ -92,7 +91,7 @@ async function renderItemName(
     template: input.template,
     originalStem: stem,
     ext,
-    capturedAtIso: doc.exif?.captured_at ?? null,
+    capturedAtIso: view.capturedAt,
     sequenceStart: input.sequenceStart,
     index,
     sequencePadWidth: input.sequencePadWidth,
