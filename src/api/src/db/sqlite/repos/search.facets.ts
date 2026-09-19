@@ -24,7 +24,7 @@
  * today, and what keeps a facet total and a grid page from disagreeing.
  */
 
-import { facetStatements, type BoundStatement, type FacetName } from './search.sql.ts';
+import { facetStatements, type BoundStatement, type FacetName } from './search.facets.sql.ts';
 import type { SearchWhere } from './search.where.ts';
 import { assetsDb, type SqliteDb } from './db-handle.ts';
 import type { SqlRow } from '../protocol.ts';
