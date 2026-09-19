@@ -52,7 +52,7 @@
  * and the gap was two orders of magnitude. #3768 closed it, with the evidence
  * the schema declined to assume: this table now carries `asset_live` and
  * `asset_hidden`, mirrored from the asset by trigger, and the two indexes below
- * are rebuilt over them by `0002-facet-state`. See `./facet-state.ts` — the
+ * are rebuilt over them by `0003-facet-state`. See `./facet-state.ts` — the
  * columns are added there rather than here, because this table's
  * `CREATE TABLE` shipped at the cutover and a shipped migration is frozen.
  */
@@ -105,7 +105,7 @@ export const ASSET_DETAIL_INDEX_DDL = `
 -- Superseded by ./facet-state.ts, which drops and rebuilds both over the
 -- mirrored liveness columns. They are still created here because this is what
 -- 0001-initial-schema declared and that migration is frozen; a fresh install
--- builds them once and rebuilds them in 0002.
+-- builds them once and rebuilds them in 0003.
 --
 -- Partial, and the facet query has to spell the predicate: a bare
 -- 'GROUP BY vision_scene_type' does not imply 'vision_scene_type IS NOT NULL',

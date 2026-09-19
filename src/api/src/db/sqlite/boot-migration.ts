@@ -15,7 +15,7 @@
  * Step 2 is not the same thing as step 3, and conflating them is the failure
  * this boot had to grow out of. The cutover marker says the library's data is
  * here; it says nothing about the schema, which moves on its own from
- * `0002-facet-state` onwards. See {@link applySchemaMigrations}.
+ * `0003-facet-state` onwards. See {@link applySchemaMigrations}.
  *
  * For the production library — roughly 335,000 assets — step 3 is single-digit
  * minutes. That is the downtime, it happens once, and it is in the log rather
@@ -129,7 +129,7 @@ function readCutoverMarker(path: string): string | null {
  *
  * The cutover marker says the library's *data* is here; it says nothing about
  * the schema, and the two move independently now that the freeze has started.
- * Without this, a database that cut over before `0002-facet-state` shipped
+ * Without this, a database that cut over before `0003-facet-state` shipped
  * would boot with the marker set, skip the import, open the pool and fail on
  * the first query naming a column the migration was meant to add — which is a
  * server that starts and then answers nothing, the hardest kind of failure to
@@ -138,7 +138,7 @@ function readCutoverMarker(path: string): string | null {
  *
  * `busy_timeout` is raised well above the schema default because a migration
  * is the one statement that legitimately holds the write lock for a long time:
- * `0002` rewrites every `asset_detail` row on a 335,000-asset library, which is
+ * `0003` rewrites every `asset_detail` row on a 335,000-asset library, which is
  * about fifteen seconds. Three process roles boot against the same file, and
  * `BEGIN IMMEDIATE` serialises them — with the default five seconds the two
  * that lose would fail the boot rather than wait for the one that is working.
