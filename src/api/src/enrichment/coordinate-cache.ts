@@ -14,7 +14,7 @@
  * Spec: `docs/indexer-enrichment.md` §4.3.
  */
 
-import { getCachedPlace, setCachedPlace } from '../db/sqlite/repos/geocode-cache.repo.ts';
+import { getCachedPlace, setCachedPlace } from '../db/repos/geocode-cache.repo.ts';
 import type { Place } from '../db/schema.ts';
 
 /** Decimal places to round lat/lon to before keying the cache.

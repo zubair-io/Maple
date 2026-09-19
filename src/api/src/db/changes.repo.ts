@@ -2,8 +2,8 @@
  * Change journal — the import surface the poll route, the SSE route, the
  * tailer, the file operations and several worker stages already name.
  *
- * The bodies moved to `sqlite/repos/changes.repo.ts` at the cutover (#3787).
- * This file stays so the cutover merge reverts as one unit (#3752).
+ * The bodies live in `repos/changes.repo.ts`; this file is the import surface
+ * its callers name.
  *
  * Every re-export is named. On this module in particular that is not a style
  * preference — three of its symbols do not survive a blanket forward, and a
@@ -37,7 +37,7 @@
  * counter. What changed is only the types — the return is the named
  * `ChangeCursorAge` rather than an inline `{ tooOld, current }` (structurally
  * identical, so callers are unaffected), and the first parameter is a
- * `SqliteDb`. The case table lives in `sqlite/repos/changes.repo.test.ts` and
+ * `SqliteDb`. The case table lives in `repos/changes.repo.test.ts` and
  * covers the five situations #3784 enumerates, so a later change to the guard
  * has to move a test rather than slip through.
  *
@@ -60,4 +60,4 @@ export {
   highestCursor,
   isChangeCursorTooOld,
   type ListChangesQuery,
-} from './sqlite/repos/changes.repo.ts';
+} from './repos/changes.repo.ts';

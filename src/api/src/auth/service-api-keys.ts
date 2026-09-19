@@ -1,7 +1,7 @@
 /**
  * Service API keys: the key format, and four operations on the keys table.
  *
- * The storage moved to `db/sqlite/repos/auth.service-api-keys.repo.ts` at the
+ * The storage moved to `db/repos/auth.service-api-keys.repo.ts` at the
  * cutover (#3787); the format did not. Minting a key, hashing its secret and
  * comparing that hash in constant time are this module's job and stay here —
  * a second copy of a timing-safe comparison inside a database module would be
@@ -19,10 +19,10 @@ import {
   insertServiceApiKey,
   listServiceApiKeyRows,
   markServiceApiKeyUsed,
-} from '../db/sqlite/repos/auth.service-api-keys.repo.ts';
+} from '../db/repos/auth.service-api-keys.repo.ts';
 import type { ServiceApiKeyDoc, ServiceApiScope } from '../db/schema.ts';
 
-export { revokeServiceApiKey } from '../db/sqlite/repos/auth.service-api-keys.repo.ts';
+export { revokeServiceApiKey } from '../db/repos/auth.service-api-keys.repo.ts';
 
 const KEY_PREFIX = 'maple_sk';
 const KEY_ID_BYTES = 8;

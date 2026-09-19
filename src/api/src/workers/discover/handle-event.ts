@@ -10,7 +10,7 @@
  * Lifted out of `index.ts` to keep the entry-point thin. Exported so
  * integration tests can drive events directly. See `discover.test.ts`.
  *
- * Every database verb below lives in `db/sqlite/repos/assets.discover.ts`; this
+ * Every database verb below lives in `db/repos/assets.discover.ts`; this
  * module owns the decisions and the filesystem confirmations, which is what the
  * chokepoint guards are about.
  */
@@ -27,13 +27,13 @@ import {
   renameLocation,
   tagLocationMissing,
   type LocationKey,
-} from '../../db/sqlite/repos/assets.discover.ts';
+} from '../../db/repos/assets.discover.ts';
 import {
   findAssetForContent,
   insertDiscoveredAsset,
   isMapleIdConflict,
   type DedupRefresh,
-} from '../../db/sqlite/repos/assets.discover.dedup.ts';
+} from '../../db/repos/assets.discover.dedup.ts';
 import { appendOrRefreshLocation } from './dedup-location.ts';
 import { hashFileForId } from '../../indexer/id.ts';
 import { directoryHasKeepFile } from '../../fs/duplicates.ts';

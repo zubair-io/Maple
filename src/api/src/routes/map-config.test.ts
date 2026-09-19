@@ -26,7 +26,7 @@ import { Elysia } from 'elysia';
 
 import { mapConfigRoutes } from './map-config.ts';
 import { DEFAULT_MAP_TILE_URL } from '../map/map-config.repo.ts';
-import { readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
+import { readAppSettings } from '../db/repos/app-settings.repo.ts';
 import type { MapConfig } from '../map/map-config.repo.ts';
 import {
   createLiveTestDatabase,

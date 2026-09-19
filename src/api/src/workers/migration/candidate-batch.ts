@@ -24,8 +24,8 @@
  * visible instead of masquerading as a clean "batch complete".
  */
 
-import { listCandidates, type CandidateScope } from '../../db/sqlite/repos/assets.migrations.ts';
-import type { MigrationCandidate } from '../../db/sqlite/repos/assets.migrations.ts';
+import { listCandidates, type CandidateScope } from '../../db/repos/assets.migrations.ts';
+import type { MigrationCandidate } from '../../db/repos/assets.migrations.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { Logger } from 'pino';
 import type { MigrationBatchResult } from './types.ts';

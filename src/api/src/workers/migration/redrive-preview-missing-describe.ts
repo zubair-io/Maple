@@ -35,7 +35,7 @@ import {
   rearmStagesAndStamp,
   unstamped,
   type CandidateScope,
-} from '../../db/sqlite/repos/assets.migrations.ts';
+} from '../../db/repos/assets.migrations.ts';
 import { child as childLogger } from '../../log.ts';
 
 import { runRowBatch } from './row-batch.ts';

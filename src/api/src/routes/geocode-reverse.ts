@@ -23,7 +23,7 @@
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9, §20.
  */
 import { Elysia, t } from 'elysia';
-import { findCachedPlace } from '../db/sqlite/repos/geocode-cache.repo.ts';
+import { findCachedPlace } from '../db/repos/geocode-cache.repo.ts';
 import { quantizedKey, DEFAULT_QUANTIZATION_DECIMALS } from '../enrichment/coordinate-cache.ts';
 
 export const geocodeReverseRoutes = new Elysia().get(

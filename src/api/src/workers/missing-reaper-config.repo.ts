@@ -10,7 +10,7 @@
  * env stays a fallback so existing deployments behave before any row is written.
  */
 
-import { patchAppSettings, readAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
+import { patchAppSettings, readAppSettings } from '../db/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const DOC_ID = 'missing-reaper';

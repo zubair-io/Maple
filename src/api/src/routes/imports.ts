@@ -18,7 +18,7 @@ import { ObjectId } from '../db/object-id.ts';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { ImportFileEntry, ImportStatus, ImportWithId } from '../db/schema.ts';
-import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
+import { findFolderById } from '../db/repos/folders.repo.ts';
 import { browseRoots, isUnderRoot } from '../fs/browse.ts';
 import { scanFolder, buildImportFiles } from '../imports/scan.ts';
 import { isSafeLabel } from '../imports/dest.ts';

@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { buildSearchWhere } from '../../db/sqlite/repos/search.where.ts';
+import { buildSearchWhere } from '../../db/repos/search.where.ts';
 import type { SearchQuery } from './query.ts';
 
 const MONTH_CLAUSE = 'assets.captured_month = ?';

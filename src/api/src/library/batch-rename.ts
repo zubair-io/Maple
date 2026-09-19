@@ -22,7 +22,7 @@
  */
 
 import type { ObjectId } from '../db/object-id.ts';
-import { loadAssetLocationView } from '../db/sqlite/repos/assets.locations.repo.ts';
+import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
 import { activeFileInfo, relocateAsset, type RelocateAssetInput } from './relocate-asset.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { extensionChanged, renderTemplatedName, splitStemExt } from './filename-template.ts';

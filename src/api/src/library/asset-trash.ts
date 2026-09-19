@@ -27,18 +27,18 @@ import * as path from 'node:path';
 // direct `node:fs/promises` import, per the oxlint fs-import guardrail.
 import { stat } from '../fs/mirrored.ts';
 import type { ObjectId } from '../db/object-id.ts';
-import { findFolderById } from '../db/sqlite/repos/folders.repo.ts';
+import { findFolderById } from '../db/repos/folders.repo.ts';
 import { moveToTrash, moveOutOfTrash } from '../fs/trash.ts';
 import { composeSearchBlob } from '../enrichment/search-blob.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
-import { recordAndPublishAssetChange } from '../db/sqlite/repos/changes.repo.ts';
+import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
   findCoreInfoById,
   markSoftDeleted,
   restoreFromTrash,
-} from '../db/sqlite/repos/assets.repo.ts';
-import type { AssetCoreInfo } from '../db/sqlite/repos/assets.repo.ts';
+} from '../db/repos/assets.repo.ts';
+import type { AssetCoreInfo } from '../db/repos/assets.repo.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 

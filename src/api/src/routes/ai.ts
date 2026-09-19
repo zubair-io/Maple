@@ -15,7 +15,7 @@ import {
 } from '../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { listProviderModels, handleAiTestConnection } from '../enrichment/ai-providers.service.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
 import type { WorkerConfig } from '../workers/stage-config.ts';

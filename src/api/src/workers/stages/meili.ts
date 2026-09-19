@@ -33,8 +33,8 @@ import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { placeTextForIndex, transcriptForIndex } from '../../enrichment/asset-doc-fields.ts';
 import { ASSET_DOC_SHAPE_VERSION } from '../../enrichment/meilisearch-embedder-template.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { searchBlobStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
-import { indexableNamesForPersonIds } from '../../db/sqlite/repos/people.search-filter.ts';
+import { searchBlobStatements } from '../../db/repos/assets.stage-patches.ts';
+import { indexableNamesForPersonIds } from '../../db/repos/people.search-filter.ts';
 import type { AssetFaceDoc, FileInfo, VisionDoc } from '../../db/schema.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
 

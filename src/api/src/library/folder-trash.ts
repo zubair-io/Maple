@@ -37,7 +37,7 @@ import {
   listLiveAssetLocationsUnderFolder,
   listTrashedAssetLocationsUnderFolder,
   type FolderLocationMatch,
-} from '../db/sqlite/repos/assets.locations.repo.ts';
+} from '../db/repos/assets.locations.repo.ts';
 import { trashAssetById, restoreAssetById } from './asset-trash.ts';
 import { child as childLogger } from '../log.ts';
 

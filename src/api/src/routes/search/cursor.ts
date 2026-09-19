@@ -35,7 +35,7 @@
  * (`v: string` vs `v: null`) and the predicate built from it spans the
  * boundary exactly once.
  *
- * That predicate is `seekPredicate` in `db/sqlite/repos/search.sql.ts`,
+ * That predicate is `seekPredicate` in `db/repos/search.sql.ts`,
  * beside the page statement whose `ORDER BY` it has to agree with — this
  * module owns the cursor's *shape* and its validation, not the SQL. Both
  * engines happen to put the undated group in the same place, MongoDB

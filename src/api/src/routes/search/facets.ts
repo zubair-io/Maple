@@ -3,7 +3,7 @@
  *
  * Twelve aggregations sharing the one translated query, so a faceted UI shows
  * "cameras within the current scope" rather than the global universe. The
- * aggregations themselves live in `db/sqlite/repos/search.facets.ts`, where
+ * aggregations themselves live in `db/repos/search.facets.ts`, where
  * each one groups a partial index whose keys are its own group keys — the
  * reason this route no longer needs a ten-second timeout to stay up.
  *
@@ -15,7 +15,7 @@
 
 import { Elysia } from 'elysia';
 import { ObjectId } from '../../db/object-id.ts';
-import { searchFacets } from '../../db/sqlite/repos/search.repo.ts';
+import { searchFacets } from '../../db/repos/search.repo.ts';
 import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
 import { resolveSearchScope } from './scope.ts';

@@ -24,7 +24,7 @@ import {
   insertPreset,
   isPresetNameConflict,
   listPresets,
-} from '../db/sqlite/repos/presets.repo.ts';
+} from '../db/repos/presets.repo.ts';
 import type { PresetDoc, PresetWithId } from '../db/schema.ts';
 import {
   isStorableKey,

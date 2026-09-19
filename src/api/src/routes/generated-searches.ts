@@ -21,15 +21,15 @@ import { ObjectId } from '../db/object-id.ts';
 import {
   findGeneratedSearchById,
   listGeneratedSearches,
-} from '../db/sqlite/repos/generated-searches.repo.ts';
+} from '../db/repos/generated-searches.repo.ts';
 import type { GeneratedSearchDoc } from '../workers/generated-search/repo.ts';
-import { buildSearchWhere } from '../db/sqlite/repos/search.where.ts';
-import { searchCount, searchPage } from '../db/sqlite/repos/search.page.ts';
+import { buildSearchWhere } from '../db/repos/search.where.ts';
+import { searchCount, searchPage } from '../db/repos/search.page.ts';
 import { toSearchQuery } from '../workers/generated-search/execute.ts';
 import { loadLibraryRoots, loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import { clampInt, extractDatesFromQuery, peopleNames } from './search/query.ts';
-import { personIdsToDrop } from '../db/sqlite/repos/people.visibility.ts';
-import { personIdsForNames } from '../db/sqlite/repos/people.search-filter.ts';
+import { personIdsToDrop } from '../db/repos/people.visibility.ts';
+import { personIdsForNames } from '../db/repos/people.search-filter.ts';
 import { meiliPage } from './search/list-meili.ts';
 import { projectAsset } from './search/project.ts';
 

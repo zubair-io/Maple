@@ -3,9 +3,9 @@
  * PhotoKit backup progress, so a device can render "X% done from this device"
  * without scanning the assets table.
  *
- * The body moved to `sqlite/repos/backup-sessions.repo.ts` at the cutover
- * (#3787). This file stays as the import surface, so the cutover merge reverts
- * as one unit (#3752). See `assets.repo.ts` for why the re-export is named.
+ * The body lives in `repos/backup-sessions.repo.ts`; this file is the import
+ * surface its callers name. See `assets.repo.ts` for why the re-export is
+ * named rather than a star.
  *
  * Both methods gained an optional `dbOverride` tail parameter, which no
  * production caller passes. `findOne` now returns a `BackupSessionDoc | null`
@@ -18,4 +18,4 @@
  * "unknown — show the counters", so the two are equivalent at the call sites.
  */
 
-export { backupSessionsRepo } from './sqlite/repos/backup-sessions.repo.ts';
+export { backupSessionsRepo } from './repos/backup-sessions.repo.ts';

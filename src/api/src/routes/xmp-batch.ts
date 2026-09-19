@@ -25,7 +25,7 @@ import { xmpSidecarPath, writeXmpAtomic } from '../fs/xmp.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import type { XmpMetadataInput } from '../xmp/metadata-input.ts';
-import { rearmStageByFilenames } from '../db/sqlite/repos/stage-state.repo.ts';
+import { rearmStageByFilenames } from '../db/repos/stage-state.repo.ts';
 import { SIDECAR_METADATA_INDEX_STAGE_NAME } from '../workers/stages/sidecar-metadata-index.ts';
 import { child as childLogger } from '../log.ts';
 

@@ -22,7 +22,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runMissingReaperOnce } from './missing-reaper.ts';
-import { insertStageState, stageState } from '../db/sqlite/repos/assets.test-helpers.ts';
+import { insertStageState, stageState } from '../db/repos/assets.test-helpers.ts';
 import {
   createLiveTestDatabase,
   insertAsset,

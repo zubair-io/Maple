@@ -20,7 +20,7 @@
  * be a behaviour change dressed up as a cleanup.
  */
 
-import { searchCount, type SearchWhere } from '../../db/sqlite/repos/search.repo.ts';
+import { searchCount, type SearchWhere } from '../../db/repos/search.repo.ts';
 import type { SearchQuery } from './query.ts';
 
 const TOTAL_CACHE_TTL_MS = 30_000;

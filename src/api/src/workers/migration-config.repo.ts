@@ -25,7 +25,7 @@ import {
   readAppSettings,
   unsetAppSettings,
   type SettingsValue,
-} from '../db/sqlite/repos/app-settings.repo.ts';
+} from '../db/repos/app-settings.repo.ts';
 import { child as childLogger } from '../log.ts';
 import { BACKFILL_MEILISEARCH_VECTORS_ID } from './migration/ids.ts';
 

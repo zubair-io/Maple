@@ -19,7 +19,7 @@ import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import { parseAddressPath, resolveAddress } from '../../library/address.ts';
-import { listDirectoryAssets } from '../../db/sqlite/repos/assets.address.ts';
+import { listDirectoryAssets } from '../../db/repos/assets.address.ts';
 import { child as childLogger } from '../../log.ts';
 import {
   IMAGE_EXTENSIONS_SET,

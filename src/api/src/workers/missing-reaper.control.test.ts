@@ -17,8 +17,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runMissingReaperOnce, startMissingReaper, MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { stageRegistry } from './registry.ts';
-import { claimStageBatch } from '../db/sqlite/repos/stage-claim.ts';
-import { insertStageState } from '../db/sqlite/repos/assets.test-helpers.ts';
+import { claimStageBatch } from '../db/repos/stage-claim.ts';
+import { insertStageState } from '../db/repos/assets.test-helpers.ts';
 import {
   createLiveTestDatabase,
   createTestDatabase,

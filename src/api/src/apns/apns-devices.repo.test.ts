@@ -1,7 +1,7 @@
 /**
  * `normalizeDeviceToken` is the only thing left in this module that is not a
  * re-export: the database verbs moved to
- * `db/sqlite/repos/apns-devices.repo.ts` (#3787) and are covered, case for
+ * `db/repos/apns-devices.repo.ts` (#3787) and are covered, case for
  * case, by that module's own suite. Keeping a second copy of those tests here
  * would only assert that a re-export forwards.
  */

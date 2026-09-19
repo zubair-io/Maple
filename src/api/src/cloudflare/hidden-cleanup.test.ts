@@ -12,7 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { ObjectId } from '../db/object-id.ts';
 import { cleanupR2ThumbForHiddenAsset, cleanupR2ThumbsForHiddenAssets } from './hidden-cleanup.ts';
-import { patchAppSettings } from '../db/sqlite/repos/app-settings.repo.ts';
+import { patchAppSettings } from '../db/repos/app-settings.repo.ts';
 import {
   createLiveTestDatabase,
   insertAsset,

@@ -12,8 +12,8 @@
  * case, and `normaliseEnrichment` is what makes an absent row read as pending
  * rather than as a hole in the DTO.
  *
- * Callers: `db/assets.transform.ts`, `db/sqlite/repos/assets.dto.ts` and
- * `db/sqlite/repos/stage-documents.repo.ts`.
+ * Callers: `db/assets.transform.ts`, `db/repos/assets.dto.ts` and
+ * `db/repos/stage-documents.repo.ts`.
  */
 
 import { describe, expect, test } from 'bun:test';

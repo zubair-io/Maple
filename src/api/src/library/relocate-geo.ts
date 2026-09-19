@@ -33,7 +33,7 @@
  * mid-move. There is no such call any more and nothing replaced it: on SQLite
  * the UNIQUE index over `(library_id, path, filename)` means the second entry
  * cannot be written in the first place, so the race is prevented rather than
- * repaired. See `db/sqlite/repos/assets.refile.ts`.
+ * repaired. See `db/repos/assets.refile.ts`.
  */
 import type { WithId } from '../db/object-id.ts';
 import * as path from 'node:path';
@@ -43,7 +43,7 @@ import { filesIdentical } from '../backup/fs-util.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import * as fs from '../fs/mirrored.ts';
 import { relocateAsset } from './relocate-asset.ts';
-import { repointAssetLocation } from '../db/sqlite/repos/assets.relocate.repo.ts';
+import { repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
 import { finalize } from '../workers/migration/restructure-fs.ts';
 
 const log = childLogger('library/relocate-geo');

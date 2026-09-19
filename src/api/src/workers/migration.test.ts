@@ -12,7 +12,7 @@
  * process-wide handle: per-migration state lives in the `migration` row of
  * `app_settings`, reached through `readAppSettings` / `patchAppSettings`, and
  * the refile migration reads and writes `assets` / `asset_locations` through the
- * repositories under `db/sqlite/repos/`. Pruning of unregistered migration ids
+ * repositories under `db/repos/`. Pruning of unregistered migration ids
  * is a property of that settings row and is covered by
  * `migration-config.repo.test.ts`, so it is not repeated here.
  */

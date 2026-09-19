@@ -13,10 +13,10 @@
 import { describe, expect, test } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { createTestDatabase } from './test-sqlite.test-helpers.ts';
-import { testDb } from './repos/people.test-helpers.ts';
+import { testDb } from '../repos/people.test-helpers.ts';
 import { createWorkerDb, serveWorkerDbRequests, type MessageChannelLike } from './worker-db.ts';
 import type { SqlStatement, SqlWriteResult } from './protocol.ts';
-import type { SqliteDb } from './repos/db-handle.ts';
+import type { SqliteDb } from '../repos/db-handle.ts';
 
 /** One end of a two-way channel: what it sends goes to the other end's listeners. */
 class FakeEnd implements MessageChannelLike {

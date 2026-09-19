@@ -43,11 +43,11 @@
 
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isLiveFileInfo } from '../indexer/images.repo.ts';
-import { recordAndPublishAssetChange } from '../db/sqlite/repos/changes.repo.ts';
+import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import {
   listDuplicateCandidates,
   type DuplicateCandidate,
-} from '../db/sqlite/repos/assets.sweeps.ts';
+} from '../db/repos/assets.sweeps.ts';
 import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';

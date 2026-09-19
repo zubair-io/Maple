@@ -26,7 +26,7 @@ import { child as childLogger } from '../log.ts';
 // The SQLite repo (#3787). It resolves the process-wide handle itself, so
 // there is no database to open and no collection to name here — the two reads
 // below are the whole of this module's storage surface.
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 
 const log = childLogger('describe:capacity');
 

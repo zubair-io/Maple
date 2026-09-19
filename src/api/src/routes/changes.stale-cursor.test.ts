@@ -37,8 +37,8 @@ import {
   allocatedCursor,
   recordAssetChange,
   recordAssetChangeRow,
-} from '../db/sqlite/repos/changes.repo.ts';
-import { pruneChangesBatch } from '../db/sqlite/repos/changes.retention.ts';
+} from '../db/repos/changes.repo.ts';
+import { pruneChangesBatch } from '../db/repos/changes.retention.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,

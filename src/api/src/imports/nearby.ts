@@ -5,7 +5,7 @@
  * budget (see `CONTRIBUTING.md`) — this is a single self-contained query, not
  * part of the `imports` claim/lease/progress accessor surface.
  *
- * The query itself moved to `db/sqlite/repos/assets.locations.repo.ts` at the
+ * The query itself moved to `db/repos/assets.locations.repo.ts` at the
  * cutover (#3787); what stays here is the one thing that is not a database
  * concern — telling the operator when the candidate window was truncated, which
  * is a judgement about this feature rather than about the rows.
@@ -15,8 +15,8 @@ import type { ObjectId } from '../db/object-id.ts';
 import {
   loadNearbyAssetCandidateRows as loadCandidates,
   NEARBY_CANDIDATE_CAP,
-} from '../db/sqlite/repos/assets.locations.repo.ts';
-import type { NearbyAssetCandidate } from '../db/sqlite/repos/assets.locations.repo.ts';
+} from '../db/repos/assets.locations.repo.ts';
+import type { NearbyAssetCandidate } from '../db/repos/assets.locations.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('import-nearby');

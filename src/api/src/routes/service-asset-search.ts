@@ -5,7 +5,7 @@
  * SQLite cutover (#3787): it is a separate service, and only the database
  * half of this route moved. What moved is the fallback that runs when the
  * sidecar is absent, unconfigured or failing — `serviceLexicalSearch` in
- * `db/sqlite/repos/search.service.ts`, an exact-filename pass followed by a
+ * `db/repos/search.service.ts`, an exact-filename pass followed by a
  * ranked FTS5 pass.
  *
  * The fallback answers two questions better than the query it replaces.
@@ -19,7 +19,7 @@
 
 import { Elysia } from 'elysia';
 import { authenticateServiceApiKey, type ServiceApiIdentity } from '../auth/service-api-keys.ts';
-import { serviceLexicalSearch } from '../db/sqlite/repos/search.repo.ts';
+import { serviceLexicalSearch } from '../db/repos/search.repo.ts';
 import {
   MeilisearchSearchError,
   meilisearchClient,

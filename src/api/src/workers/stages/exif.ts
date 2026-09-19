@@ -19,11 +19,11 @@ import { readExif } from '../../indexer/exif.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 import { deriveId } from '../../indexer/id.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { findMapleIdHolder, mergeIntoSurvivor } from '../../db/sqlite/repos/assets.merge.ts';
-import { exifPatchStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { findMapleIdHolder, mergeIntoSurvivor } from '../../db/repos/assets.merge.ts';
+import { exifPatchStatements } from '../../db/repos/assets.stage-patches.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { AssetExif } from '../../db/schema.ts';
-import { recordAndPublishAssetChange } from '../../db/sqlite/repos/changes.repo.ts';
+import { recordAndPublishAssetChange } from '../../db/repos/changes.repo.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
@@ -197,7 +197,7 @@ interface LoserExifContribution {
  * present on the survivor" case cannot arise because a location's
  * `(library, path, filename)` is UNIQUE table-wide, and `live_location_count`
  * is maintained by a trigger rather than recomputed by hand. See
- * `db/sqlite/repos/assets.merge.ts`.
+ * `db/repos/assets.merge.ts`.
  *
  * Change feed: publishes a `delete` event for the removed row and an `update`
  * for the survivor, so File Provider and SSE consumers see the merge instead of

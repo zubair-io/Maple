@@ -19,9 +19,9 @@
  */
 
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
-import { capturedYearCounts } from '../../db/sqlite/repos/assets.sweeps.ts';
-import { recentGeneratedSearchThemes } from '../../db/sqlite/repos/generated-searches.repo.ts';
-import { indexableRosterNames } from '../../db/sqlite/repos/people.search-filter.ts';
+import { capturedYearCounts } from '../../db/repos/assets.sweeps.ts';
+import { recentGeneratedSearchThemes } from '../../db/repos/generated-searches.repo.ts';
+import { indexableRosterNames } from '../../db/repos/people.search-filter.ts';
 import { credibleYears } from './digest.ts';
 import type { PromptDigest } from './prompt.ts';
 

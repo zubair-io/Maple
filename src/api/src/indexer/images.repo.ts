@@ -6,13 +6,13 @@
  * bytes are. Those helpers describe the document shape rather than any
  * database, so they survived the SQLite cutover (#3787) untouched — the DTO
  * layer rebuilds the same `fileinfo[]` from `asset_locations` rows
- * (`db/sqlite/repos/assets.rows.ts`).
+ * (`db/repos/assets.rows.ts`).
  *
  * What did not survive is the storage. The skeleton upsert moved to
- * `db/sqlite/repos/assets.upsert.ts`, and `findByMapleId` / `softDelete` /
+ * `db/repos/assets.upsert.ts`, and `findByMapleId` / `softDelete` /
  * `listExpiredDeletions` / `hardDelete` went with the collection: none had a
  * caller left, and the trash workflows they predate live in
- * `db/sqlite/repos/assets.trash.ts`.
+ * `db/repos/assets.trash.ts`.
  *
  * Nothing here opens a collection any more. What is left is the document
  * helpers — the ones that read a `fileinfo` array and answer a question about

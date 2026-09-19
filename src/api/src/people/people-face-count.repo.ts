@@ -18,7 +18,7 @@
  * `recomputePersonFaceCount` keeps its name and signature because
  * `routes/admin-purge-subthreshold-faces.ts` still calls it, but it is now a
  * read: it returns the count and writes nothing. See
- * `db/sqlite/repos/people.face-count.ts` for the full argument.
+ * `db/repos/people.face-count.ts` for the full argument.
  */
 
-export { recomputePersonFaceCount } from '../db/sqlite/repos/people.face-count.ts';
+export { recomputePersonFaceCount } from '../db/repos/people.face-count.ts';

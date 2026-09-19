@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { buildSearchWhere } from '../../db/sqlite/repos/search.where.ts';
+import { buildSearchWhere } from '../../db/repos/search.where.ts';
 import type { SearchQuery } from './query.ts';
 
 /** The clauses a query compiles to, joined so a case can look for a fragment. */

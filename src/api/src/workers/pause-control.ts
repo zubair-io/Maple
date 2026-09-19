@@ -18,7 +18,7 @@
 
 import type { Logger } from 'pino';
 import { stageRegistry } from './registry.ts';
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 
 export interface PausableWorkerOptions {
   /** Registry / `worker_config` key, e.g. `deduplicate`. */

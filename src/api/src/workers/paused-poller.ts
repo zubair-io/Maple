@@ -7,7 +7,7 @@
  * effect without IPC, and without a read on every tick.
  */
 
-import { WorkerConfigRepo } from '../db/sqlite/repos/worker-config.repo.ts';
+import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 
 /**
  * Returns a per-worker function answering the current paused state.

@@ -69,7 +69,7 @@ import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.reso
 import { loadWorkerConfigSafe } from '../worker-config.repo.ts';
 import type { VideoDescriptionMeta } from '../../db/schema.ts';
 import { STAGE_STATE_VIDEO_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
-import { videoDescriptionStatements } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { videoDescriptionStatements } from '../../db/repos/assets.stage-patches.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';

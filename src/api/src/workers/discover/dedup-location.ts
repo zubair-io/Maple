@@ -3,7 +3,7 @@
  * records a `(library_id, path, filename)` location on an existing row for the
  * same content, used by both the main dedup branch and the race-loser fallback.
  *
- * The body moved to `db/sqlite/repos/assets.discover.ts` at the cutover
+ * The body moved to `db/repos/assets.discover.ts` at the cutover
  * (#3787), where it sits beside the lookups that feed it and the insert it is
  * the alternative to. Two things it used to do by hand are now properties of
  * the schema rather than code: the conditional `$push` that made a concurrent
@@ -16,4 +16,4 @@
  * the name explicitly rather than with `export *` so a changed shape fails to
  * compile here instead of being swapped silently.
  */
-export { appendOrRefreshLocation } from '../../db/sqlite/repos/assets.discover.dedup.ts';
+export { appendOrRefreshLocation } from '../../db/repos/assets.discover.dedup.ts';

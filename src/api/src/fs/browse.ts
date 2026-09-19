@@ -11,8 +11,8 @@ import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 import type { OpResult } from './root.ts';
 import { ObjectId } from '../db/object-id.ts';
-import { findListingAssetsByFilenames } from '../db/sqlite/repos/assets.by-filename.ts';
-import { listFolders } from '../db/sqlite/repos/folders.repo.ts';
+import { findListingAssetsByFilenames } from '../db/repos/assets.by-filename.ts';
+import { listFolders } from '../db/repos/folders.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import {

@@ -68,7 +68,7 @@ import {
   type SqlStatement,
   type SqlWriteResult,
 } from './protocol.ts';
-import type { SqliteDb } from './repos/db-handle.ts';
+import type { SqliteDb } from '../repos/db-handle.ts';
 
 /** A request from the worker asking the host to run statements on the writer. */
 interface WorkerDbRequest {

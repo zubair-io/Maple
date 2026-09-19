@@ -13,8 +13,8 @@
  * caller returns it unchanged.
  */
 
-import { buildSearchWhere } from '../../db/sqlite/repos/search.repo.ts';
-import type { SearchWhere } from '../../db/sqlite/repos/search.where.ts';
+import { buildSearchWhere } from '../../db/repos/search.repo.ts';
+import type { SearchWhere } from '../../db/repos/search.where.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
 import { peopleNames, type SearchQuery } from './query.ts';

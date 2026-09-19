@@ -6,7 +6,7 @@
  * surface with no business logic, so the routes, the worker and the tests share
  * one set of names and cannot drift on them.
  *
- * Every operation moved to `db/sqlite/repos/imports.repo.ts` at the cutover
+ * Every operation moved to `db/repos/imports.repo.ts` at the cutover
  * (#3787), which was written function-for-function against this module — same
  * names, same parameters, same return types, plus the optional trailing
  * `dbOverride` every repository in that directory takes and no caller here
@@ -38,6 +38,6 @@ export {
   requestImportCancel,
   setImportFiles,
   updateImportProgress,
-} from '../db/sqlite/repos/imports.repo.ts';
+} from '../db/repos/imports.repo.ts';
 
-export type { ClaimedImport } from '../db/sqlite/repos/imports.repo.ts';
+export type { ClaimedImport } from '../db/repos/imports.repo.ts';

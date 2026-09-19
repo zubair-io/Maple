@@ -7,7 +7,7 @@ import { transcribeWav } from '../../audio/whisper-cli.ts';
 import { ensureWhisperModel, type WhisperTier } from '../../audio/whisper-model.ts';
 import type { TranscriptResult } from '../../audio/whisper-parse.ts';
 import { STAGE_STATE_MEDIA_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
-import { transcriptStatement } from '../../db/sqlite/repos/assets.stage-patches.ts';
+import { transcriptStatement } from '../../db/repos/assets.stage-patches.ts';
 import type { TranscriptDoc } from '../../db/schema.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';

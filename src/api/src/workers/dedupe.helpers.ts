@@ -135,6 +135,6 @@ export function selectKeeper(liveEntries: FileInfo[]): FileInfo {
 // The cache-stage re-arm that used to live here — the `$set` fragment zeroing
 // `stages.thumb` / `stages.preview` when the cache anchor moved to the kept
 // copy — is now `stageRearmStatements(assetId, RELOCATE_CACHE_STAGES)` in
-// `db/sqlite/repos/assets.stage-rearm.ts`. It was one of four hand-written
+// `db/repos/assets.stage-rearm.ts`. It was one of four hand-written
 // copies of the same five-field reset; the repository builds the statements
 // once so a stage cannot be re-armed with `dead` or `last_error` left behind.

@@ -23,7 +23,7 @@ import { xmpPathRoutes } from './xmp.ts';
 import {
   __resetChangeFolderPathCacheForTests,
   listChangesSince,
-} from '../db/sqlite/repos/changes.repo.ts';
+} from '../db/repos/changes.repo.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../tests/helpers/assets-route-fixtures.ts';
 import {

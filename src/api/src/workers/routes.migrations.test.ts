@@ -11,7 +11,7 @@ import { describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { workerRoutes } from './routes.ts';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { readStatusCountsDemand } from '../db/sqlite/repos/worker-status.repo.ts';
+import { readStatusCountsDemand } from '../db/repos/worker-status.repo.ts';
 
 const app = new Elysia().use(workerRoutes());
 

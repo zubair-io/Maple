@@ -10,15 +10,15 @@
  * hand. What that removed is described on `reconcileSurvivor` below.
  */
 
-import { recordAndPublishAssetChange } from '../db/sqlite/repos/changes.repo.ts';
+import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import {
   reapAsset,
   reconcileLocations,
   type LocationAddress,
   type MissingTaggedAsset,
-} from '../db/sqlite/repos/assets.sweeps.ts';
-import { stageRearmStatements } from '../db/sqlite/repos/assets.stage-rearm.ts';
+} from '../db/repos/assets.sweeps.ts';
+import { stageRearmStatements } from '../db/repos/assets.stage-rearm.ts';
 import { cleanPreviewsCacheForLocation } from '../fs/preview-cache-cleanup.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { hasLiveEntry, type MissingReaperSummary } from './missing-reaper.helpers.ts';
