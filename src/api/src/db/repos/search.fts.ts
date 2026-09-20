@@ -199,9 +199,8 @@ export function toTextFilter(raw: string): TextFilter {
  * The relevance score, under the name a row carries it back as.
  *
  * Aliased rather than inlined into the `ORDER BY` so the value can also be
- * selected and asserted on — the relevance comparison in
- * `scripts/sqlite-bench/search-compare.ts` reads it to rank FTS5's answers
- * against MongoDB's.
+ * selected and asserted on — the relevance comparison previously in
+ * `search-compare.ts` read it to rank FTS5's answers against MongoDB's.
  */
 export const FTS_RANK_SQL = 'bm25(assets_fts) AS rank';
 
