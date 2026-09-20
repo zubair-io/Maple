@@ -1,9 +1,9 @@
 // FeatureFlags.swift — Feature flag gates for Maple Cloud and Panorama stitching.
 //
 // App Store preparation (#3773):
-// Features that depend on the Maple Cloud backend (Map view, Cloud server
+// Features that depend on the Maple Cloud backend (Timeline, Map view, Cloud server
 // browsing/sources, PhotoKit backup, Files/Finder integration, Cloud search,
-// the Generated Search widget) and Panorama stitching are hidden by default
+// Observability, the Generated Search widget) and Panorama stitching are hidden by default
 // in release builds (App Store & TestFlight).
 //
 // Scope: the gate closes every entry point, not only the chrome. Settings
@@ -53,7 +53,7 @@ public enum FeatureFlags {
 
   // MARK: - Public Feature Gates
 
-  /// Whether Maple Cloud features (Map view, Cloud server sources, Backup, Files integration, Cloud search) are enabled.
+  /// Whether Maple Cloud features (Timeline, Map view, Cloud server sources, Backup, Files integration, Cloud search, Observability) are enabled.
   public static var isMapleCloudEnabled: Bool {
     if let env = ProcessInfo.processInfo.environment[cloudEnvVar] {
       if env == "1" { return true }

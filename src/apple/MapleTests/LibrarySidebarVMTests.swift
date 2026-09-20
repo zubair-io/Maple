@@ -112,6 +112,11 @@ final class LibrarySidebarVMTests: XCTestCase {
 
   // MARK: - Feature Flag Gating
 
+  func testShowsTimelineRowHonoursCloudFlag() {
+    XCTAssertTrue(LibrarySidebarVM.showsTimelineRow(cloudEnabled: true))
+    XCTAssertFalse(LibrarySidebarVM.showsTimelineRow(cloudEnabled: false))
+  }
+
   func testShowsMapRowHonoursCloudFlag() {
     XCTAssertTrue(LibrarySidebarVM.showsMapRow(cloudEnabled: true))
     XCTAssertFalse(LibrarySidebarVM.showsMapRow(cloudEnabled: false))
