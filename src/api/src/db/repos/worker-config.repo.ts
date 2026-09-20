@@ -2,13 +2,12 @@
  * `worker_config` — the SQLite port of the per-worker operator settings every
  * row on Settings → Workers reads and writes (#3751).
  *
- * Covers both Mongo modules that own this collection, because both own the
- * same *row*: `workers/worker-config.repo.ts` (every `runStage` stage, plus
- * the three interval workers that borrow its `paused` flag) and
- * `workers/discover/discover-config.repo.ts` (the discover sweeper, under
- * `name = 'discover'`). Splitting them again here would put two modules'
- * statements on one table, which is the thing worth avoiding: the discover
- * row and a stage row differ only in which columns they fill in.
+ * Covers two sets of callers, because both own the same *row*: every
+ * `runStage` stage plus the three interval workers that borrow its `paused`
+ * flag, and `workers/discover/discover-config.repo.ts` (the discover sweeper,
+ * under `name = 'discover'`). Splitting them again here would put two modules'
+ * statements on one table, which is the thing worth avoiding: the discover row
+ * and a stage row differ only in which columns they fill in.
  *
  * ## This file overlaps ticket #3748
  *

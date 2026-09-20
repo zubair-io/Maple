@@ -1,6 +1,11 @@
 /**
  * The shape of a stored worker-config document, and the projection that puts
  * it on the wire. No database dependencies in it.
+ *
+ * One copy, deliberately. {@link sanitizeWorkerConfig} decides which fields
+ * `GET /api/workers/status` exposes, so a second copy would be a second set of
+ * omissions to keep in step — and the omissions are the part that is actually
+ * on the wire. Call this; do not reimplement it next to a new caller.
  */
 
 import type { WorkerConfig } from './run-stage.ts';
