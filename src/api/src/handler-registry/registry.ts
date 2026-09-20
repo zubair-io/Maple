@@ -14,6 +14,9 @@
 
 import { listEnabledStageHandlers } from '../db/repos/stage-handlers.repo.ts';
 import type { StageHandlerDoc } from '../db/schema.ts';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('handler-registry');
 
 /**
  * Pipeline stage identifiers used by the handler registry.
@@ -79,7 +82,19 @@ async function load(): Promise<void> {
   try {
     for (const row of await listEnabledStageHandlers()) {
       const resolved = project(row);
-      if (resolved) state.byStage.set(resolved.stage, resolved);
+      if (!resolved) {
+        // A row for a stage this build no longer knows, or an `http` row with
+        // no url. Dropping it is right — there is nothing to dispatch to — but
+        // dropping it silently is not: retiring a name from {@link Stage}
+        // (#3808 retired `mongo`) turns every persisted row carrying it into a
+        // handler that stops being honoured with no trace of why.
+        log.warn(
+          { stage: row.stage, impl: row.impl },
+          'stage_handlers row ignored — unknown stage, or an http handler with no url',
+        );
+        continue;
+      }
+      state.byStage.set(resolved.stage, resolved);
     }
   } catch {
     // Database unavailable: leave the map empty and proceed with builtins.

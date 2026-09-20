@@ -24,7 +24,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { Glob } from 'bun';
 
 /** Every import statement in a file, with whether it was `import type`. */
@@ -101,6 +101,32 @@ describe('#3785 — MongoDB is gone', () => {
 
     expect(definitions.filter((file) => !IDENTIFIER_MODULE.test(file))).toEqual([]);
     expect(definitions).toHaveLength(1);
+  });
+
+  test('the client trees say nothing about MongoDB, in prose or in names', () => {
+    // #3808 took `src/web` and `src/cloudflare` to zero occurrences by hand:
+    // `resolveMongoId`, `MONGO_ID_BY_ADDRESS`, "stored in Mongo" comments, a
+    // README naming a collection and an `_id`. Nothing kept them there, so
+    // this is what keeps them gone. The rules above gate imports and declared
+    // dependencies, which is why none of them saw a single one of those.
+    //
+    // Both trees are at zero today, so the assertion is the whole file set
+    // rather than a budget. A hit is not necessarily wrong — it is a sentence
+    // somebody should have written differently, and the message names it.
+    const roots = ['../web/projects', '../cloudflare/src'];
+    for (const root of roots) {
+      // A moved or renamed tree must fail loudly rather than pass by scanning
+      // nothing: a ratchet that silently covers zero files is worse than none.
+      expect(existsSync(root), `${root} not found — this rule is scanning nothing`).toBe(true);
+    }
+
+    const offenders = roots
+      .flatMap((root) =>
+        [...new Glob('**/*.{ts,html,scss,md,jsonc}').scanSync(root)].map((f) => `${root}/${f}`),
+      )
+      .filter((file) => /mongo/i.test(readFileSync(file, 'utf8')));
+
+    expect([...new Set(offenders)].sort()).toEqual([]);
   });
 
   test('nothing outside tests imports db/client.ts', () => {

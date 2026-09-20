@@ -67,8 +67,13 @@ interface ChildStatus {
 
 /**
  * Synthesise a complete IndexerStatus snapshot from the supervisor's
- * in-process state. All legacy stage keys (discover/hash/exif/thumb/ai)
- * are always populated so the Angular UI never sees missing keys.
+ * in-process state. Every key in {@link LEGACY_STAGES} is always populated so
+ * a client can index them without a presence check.
+ *
+ * The set itself is not frozen: `mongo` was in it until #3808 retired the
+ * stage, so the guarantee is "every key listed here is present", not "these
+ * keys are forever". A client that hard-codes one of them will read
+ * `undefined` the day it is retired — iterate the object instead.
  */
 async function fetchStatus(): Promise<ChildStatus | null> {
   try {
