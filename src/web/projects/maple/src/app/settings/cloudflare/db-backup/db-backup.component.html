@@ -1,0 +1,89 @@
+<section class="settings-form set-record-form" aria-labelledby="database-backups-heading">
+  <h2 id="database-backups-heading">Database backups</h2>
+  <p class="field-hint set-record-field-hint">
+    Back up library metadata, accounts, and settings to a private R2 bucket using the saved
+    credentials above. Photo originals and sidecars need their own backup. Use a bucket dedicated to
+    this Maple server; never enable public access.
+  </p>
+  @if (error()) {
+    <p class="banner-error set-banner-error-record" role="alert">{{ error() }}</p>
+  }
+  @if (policy(); as policy) {
+    <div class="field-row set-record-field-row">
+      <label for="db-backup-enabled">Automatic daily backup</label>
+      <mui-checkbox
+        inputId="db-backup-enabled"
+        ariaLabel="Automatic daily database backup"
+        [checked]="policy.enabled"
+        (checkedChange)="edit({ enabled: $event })"
+      />
+    </div>
+    <div class="field-row set-record-field-row">
+      <label for="db-backup-bucket">Private backup bucket</label>
+      <mui-input
+        inputId="db-backup-bucket"
+        ariaLabel="Private database backup bucket"
+        [value]="policy.bucket"
+        (valueChange)="edit({ bucket: $event })"
+      />
+    </div>
+    @for (field of counts; track field.key) {
+      <div class="field-row set-record-field-row">
+        <label [for]="'db-backup-' + field.key">{{ field.label }} (0–{{ field.max }})</label>
+        <mui-input
+          [inputId]="'db-backup-' + field.key"
+          [ariaLabel]="field.label"
+          variant="numeric"
+          [min]="0"
+          [max]="field.max"
+          [value]="number(policy[field.key])"
+          (valueChange)="editCount(field.key, $event)"
+        />
+      </div>
+    }
+    <p class="field-hint set-record-field-hint">
+      Retention keeps the newest backup in each UTC calendar period, plus the latest backup at all
+      times. Zero disables that retention tier.
+    </p>
+    <div class="actions">
+      <mui-button [disabled]="busy() || !!settings()?.running" (pressed)="save()"
+        >Save backup settings</mui-button
+      >
+      <mui-button
+        [disabled]="busy() || !!settings()?.running || !settings()?.policy?.bucket"
+        (pressed)="start()"
+        >Back up now</mui-button
+      >
+    </div>
+    <p role="status">{{ notice() }}</p>
+  } @else {
+    <p>Loading backup settings…</p>
+  }
+  @if (settings(); as settings) {
+    <p>Last successful backup: {{ (settings.last_success_at | date: 'medium') ?? 'Never' }}</p>
+    @if (settings.status; as status) {
+      <p role="status">
+        {{
+          settings.running
+            ? 'Backup running'
+            : status.state === 'running'
+              ? 'Previous backup was interrupted'
+              : status.state
+        }}
+        · {{ status.started_at | date: 'medium' }}
+      </p>
+      @if (status.compressed_bytes) {
+        <p>Uploaded: {{ status.compressed_bytes | number }} bytes</p>
+      }
+      @if (status.key) {
+        <p class="backup-key">{{ status.key }}</p>
+      }
+      @if (status.error) {
+        <p role="alert">{{ status.error }}</p>
+      }
+      @if (status.retention_error) {
+        <p role="alert">Backup verified; retention cleanup failed: {{ status.retention_error }}</p>
+      }
+    }
+  }
+</section>

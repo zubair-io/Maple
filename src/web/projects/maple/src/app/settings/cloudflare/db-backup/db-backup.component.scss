@@ -1,0 +1,11 @@
+:host {
+  display: block;
+}
+.backup-key {
+  overflow-wrap: anywhere;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}

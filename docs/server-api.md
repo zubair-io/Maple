@@ -336,3 +336,24 @@ The server verifies hashes when storing and reading imported bytes. GridFS retai
 ## Not mounted
 
 `routes/enrichment-admin.ts` defines `GET`, `GET /groups`, and `POST /reset` under `/api/enrichment/dead-letter`, but nothing imports the plugin, so those paths are not reachable on a running server. Per-stage dead-letter inspection is served by `/api/workers/:name/dead` instead.
+
+### SQLite database backups
+
+All `/api/admin/backup/db` routes require an authenticated **owner**.
+
+| Method | Path                          | Result                                                                                                                                             |
+| ------ | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/admin/backup/db`        | `{ policy, status, last_success_at, running }`; credentials are never returned                                                                     |
+| PUT    | `/api/admin/backup/db/config` | Save a complete policy: `enabled`, `bucket`, `hour` (0–23 server-local), `daily`, `weekly`, `monthly`, `yearly` (integer 0–1000); returns settings |
+| POST   | `/api/admin/backup/db`        | Start an asynchronous snapshot using saved settings; `202 { accepted: true }`, `409` if already running, `400` if R2 is unconfigured               |
+
+Defaults: automatic backups disabled, no backup bucket, hour 3, retention
+7/4/12/5. A manual backup works with automatic backups disabled. Poll GET for
+completion. `status` contains `state`, `started_at`, and on completion
+`finished_at`, `key`, `bytes`, `compressed_bytes`, or `error`. A successful backup
+can include `retention_error` when cleanup failed. `running: false` with a stored
+`state: running` means the previous process was interrupted. Policy updates
+return 409 while a backup runs. Backups use the saved Cloudflare credentials and
+the private backup bucket specified in this policy; thumbnail mirroring need not
+be enabled. See [disaster recovery](architecture.md#sqlite-offsite-backups-3816)
+for credentials provisioning, storage requirements, and the offline restore CLI.

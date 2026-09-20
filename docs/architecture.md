@@ -208,3 +208,58 @@ Per-asset background work is modelled as _stages_, not jobs: `exif`, `thumb`, `p
 The server has no external dependencies at all: its database is a local file it creates for itself on first boot, and if that file cannot be opened or brought up to the current schema the process exits rather than serve. Everything else is optional and off unless configured. Meilisearch adds typo-tolerant and semantic search; a Nominatim instance drives reverse geocoding; Cloudflare R2 plus the thumbnail Worker put thumbnails on the edge; an OTLP/HTTP endpoint receives traces and logs from the server, the Angular apps, and `MapleCore`.
 
 Read next: [caching](caching.md) for what is cached where and what invalidates it, [best-practices](best-practices.md) for the coding standards each layer follows.
+
+### SQLite offsite backups (#3816)
+
+Settings → Cloudflare → Database backups configures an opt-in daily snapshot
+(default 03:00 in the server's local timezone), a **private R2 bucket dedicated to
+this server**, and GFS retention (7 daily, 4 weekly, 12 monthly, 5 yearly). Saved
+Cloudflare credentials are reused; the backup toggle is independent of thumbnail
+mirroring. Grant those credentials object read/write/list/delete access to the
+backup bucket. Never expose that bucket through a public domain, R2.dev, or the
+thumbnail Worker: it contains accounts, settings, and secrets. Do not share the
+backup prefix with another Maple server or apply a shorter R2 lifecycle policy.
+
+The API process owns the scheduler and permits one backup at a time. A dedicated
+Bun worker opens a read-only SQLite connection and runs parameterized `VACUUM
+INTO`, capturing committed WAL contents without copying a live database file or
+occupying the pool's writer queue. Hashing, integrity checks, and streaming gzip
+compression also run outside the HTTP event loop. Large uploads use multipart
+S3 requests with bounded buffers. A full download, decompression, SHA-256, size,
+and SQLite integrity check must succeed before a `.verified` companion marker
+is published and retention runs. Listings and retention consider only marked
+snapshots, so interrupted or unverified uploads can never displace a known-good
+backup. Unmarked objects and abandoned multipart uploads may be removed manually
+after confirming no backup is running. Temporary files
+live in a private OS temp directory and are removed on success or failure; allow
+space for two uncompressed snapshots plus the gzip. A forcibly killed process
+can leave its `maple-db-backup-*` temporary directory for manual removal.
+
+Settings and last-run status persist in `app_settings` under `db-backups`.
+Failures retry hourly when automatic backups are enabled. Startup catches up
+once the configured local hour has passed; missed days are not replayed. An
+interrupted run is shown as interrupted in Settings. Retention chooses the newest
+snapshot per UTC calendar day, Monday-based week, month, and year within the
+configured windows, unions those selections, and always retains the newest
+snapshot. Unknown keys and future-dated keys are never pruned. Retention failures
+are reported separately from a successful, verified upload.
+
+For recovery, keep R2 credentials outside the host being protected in a secure
+JSON file with `account_id`, `bucket`, `access_key_id`, and `secret_access_key`
+(use the backup bucket). Restrict this file to the operator, for example with
+`chmod 600`. Stop Maple and its workers, preserve the old database and any
+`-wal` / `-shm` files together, then run from `src/api`:
+
+```sh
+bun scripts/restore-sqlite-r2.ts /secure/r2.json --list
+bun scripts/restore-sqlite-r2.ts /secure/r2.json 'backups/sqlite/maple-backup-2026-09-20T03:00:00.000Z-0004-stage-state-asset-claimable.db.gz' /var/lib/maple/maple.db
+```
+
+The optional destination defaults to `MAPLE_SQLITE_PATH` (or the standard
+SQLite path). Its parent directory must already exist. Restore validates
+metadata, checksum, decompression size, schema marker, and database integrity,
+then atomically publishes a mode-0600 file. It refuses an existing destination,
+WAL, or SHM and never overwrites one. Start a compatible Maple version using the
+restored path; normal startup applies pending migrations. These snapshots cover
+the index and settings only: original photos, sidecars, and filesystem derivatives
+require their existing file backup strategy.

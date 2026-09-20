@@ -28,8 +28,8 @@
               >Upload thumbnails to Cloudflare</label
             >
             <span class="field-hint set-record-field-hint">
-              When off, thumbnails are only ever served from this server; no data leaves your
-              library.
+              When off, thumbnails are only ever served from this server; thumbnail uploads stop.
+              Database backups have their own setting below.
             </span>
           </div>
           <div class="field-control set-record-field-control">
@@ -225,5 +225,6 @@
         </div>
       </section>
     }
+    <maple-db-backup-settings />
   </div>
 </maple-settings-shell>

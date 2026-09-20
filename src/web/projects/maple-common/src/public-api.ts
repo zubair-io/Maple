@@ -62,6 +62,7 @@ export * from './lib/export/download-blob';
 
 // #1757 — Cloudflare R2 thumbnail-mirror operator config
 export * from './lib/api/cloudflare.service';
+export * from './lib/api/db-backup.service';
 
 // #713 — Observability (SigNoz / OpenTelemetry). Config model + IndexedDB
 // cache + the SDK-wiring service + the global Angular error handler.
