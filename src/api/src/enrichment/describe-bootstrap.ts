@@ -24,7 +24,7 @@ import {
 } from '../workers/describe-capacity.ts';
 import { loadEnrichmentConfig, asDescribeProvider } from './enrichment-config.repo.ts';
 import { getDescribeProvider } from './describe-providers/index.ts';
-import { loadWorkerConfigSafe } from '../workers/worker-config.repo.ts';
+import { loadWorkerConfigSafe } from '../db/repos/worker-config.repo.ts';
 import {
   resolveEnrichmentConfig,
   type ResolvedEnrichmentConfig,

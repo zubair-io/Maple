@@ -1,7 +1,7 @@
 // Asset grid — justified rows of thumbnail cells.
 //
 // Thumbnail acquisition is delegated to `LibraryStateService.ensureThumbnailUrl`
-// (single source of truth for FS-walk / Mongo-asset / .maple-cache /
+// (single source of truth for FS-walk / server-asset / .maple-cache /
 // decode-fallback paths). The shared `<maple-asset-tile>` component fires
 // that loader on mount, so this file only owns layout + selection.
 
@@ -195,7 +195,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   // asset-grid's `<maple-asset-tile>` and the editor filmstrip's
   // `<maple-asset-thumb>` each fire the loader on mount from their own copy
   // of the same effect. The state service handles the unified address route,
-  // absolute paths resolved to that route, Mongo asset ids, the .maple/ disk
+  // absolute paths resolved to that route, server asset ids, the .maple/ disk
   // cache, and the WASM-decode fallback with write-through.)
 
   // ── Event handlers ────────────────────────────────────────────────────────

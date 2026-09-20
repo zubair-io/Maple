@@ -3,7 +3,7 @@
 // One service, two storage backends behind the same surface:
 //
 //   - LIBRARY_BACKEND 'self-hosted' (maple): HTTP CRUD against the API's
-//     /api/presets routes (Mongo `presets` collection).
+//     /api/presets routes (`presets` table).
 //   - LIBRARY_BACKEND 'hosted' (maple-syrup): IndexedDB via
 //     `createHostedUserPresetStore` — there is no API server to call.
 //

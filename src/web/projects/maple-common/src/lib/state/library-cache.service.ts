@@ -515,7 +515,7 @@ export class LibraryCache {
       }
     }
 
-    // 2. Self-Hosted Mongo asset (older grid mounts that resolved an apiId).
+    // 2. Self-Hosted API asset (older grid mounts that resolved an apiId).
     const apiId = this.store.apiAssetIds.get(asset.id);
     if (!apiId) return;
     if (!this.api) return;

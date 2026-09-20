@@ -992,7 +992,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // and the `.maple/` thumb cache ride along because they live inside
   // it. The DB's `fileinfo` paths are reconciled by the discover watcher
   // (it coalesces the per-file unlink+add into renames), so this route
-  // does not touch MongoDB.
+  // does not touch the database.
   //
   // The File Provider extension calls this when the user renames or
   // moves a folder in Finder (`modifyItem` with `.filename` and/or

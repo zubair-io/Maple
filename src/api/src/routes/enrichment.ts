@@ -25,7 +25,7 @@ import { applyEnrichmentConfig } from '../enrichment/bootstrap.ts';
 import { applyDescribeConfig } from '../enrichment/describe-bootstrap.ts';
 import { NominatimClient, NominatimError } from '../enrichment/nominatim-client.ts';
 import { getFaceModelsStatus, probeFaceModelFiles } from '../enrichment/face-models.ts';
-import { readWorkerStatus } from '../workers/worker-status.repo.ts';
+import { readWorkerStatus } from '../db/repos/worker-status.repo.ts';
 import { validateHttpUrl } from '../observability/observability-config.repo.ts';
 import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
 import { validateDescribePatch } from './enrichment-describe-patch.ts';
@@ -263,7 +263,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       // ── Meilisearch URL validation ────────────────────────────────
       // `undefined` = field omitted (keep existing); `null`/empty = clear
       // back to env-or-disabled. Unlike Nominatim, an unreachable Meili URL
-      // is NOT a save-blocker — search degrades to the Mongo `$text` path —
+      // is NOT a save-blocker — search degrades to the SQLite FTS5 path —
       // so we only validate the URL shape here, not connectivity.
       let meiliUrl: string | null | undefined;
       if (body.meilisearch_url !== undefined) {

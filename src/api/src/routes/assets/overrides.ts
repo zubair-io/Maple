@@ -16,7 +16,7 @@
  * Mounted into `assetsRoutes` (see ./index.ts) which provides the
  * `/api/assets` prefix.
  *
- * Mongo access lives in `src/db/assets.repo.ts`.
+ * Database access lives in `src/db/assets.repo.ts`.
  */
 
 import { Elysia, t } from 'elysia';

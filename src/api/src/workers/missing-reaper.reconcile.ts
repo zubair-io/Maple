@@ -37,13 +37,7 @@ function address(entry: FileInfo): LocationAddress {
  * on locations whose file reappeared, drop the locations confirmed gone, and
  * re-arm any dead original-file stage so it reprocesses.
  *
- * All three land in ONE transaction, and that is the substantive change from
- * the MongoDB version. There, clearing a tag (`$set`) and removing an entry
- * (`$pull`) both addressed the `fileinfo` array and so could not share a single
- * update: the worker issued recover first, then prune, and had to pick one of
- * them for the stage re-arm to ride along with. A crash between the two left an
- * asset half-reconciled — recovered but with its gone sibling still attached, or
- * re-armed for a location that had not been cleared yet. As ordinary rows they
+ * All three land in ONE transaction. As ordinary rows they
  * are just statements in one batch, so the asset is either fully reconciled or
  * untouched, and the roll-up of live locations commits with them (the
  * `asset_locations` triggers maintain it, so there is no follow-up recount).
@@ -109,9 +103,8 @@ async function cleanRemovedLocationsCache(
  * location and is not already soft-deleted, so a discover revive (or a user
  * trash) landing between classification and this write turns the reap into a
  * no-op and `reapAsset` reports false. The guard is one column test here
- * (`live_location_count = 0`) where MongoDB needed a nested `$not`/`$elemMatch`
- * over the `fileinfo` array, because the roll-up the locations maintain answers
- * exactly the question that array had to be re-scanned for.
+ * (`live_location_count = 0`), because the roll-up the locations maintain answers
+ * exactly the question that was previously scanned for.
  *
  * No disk I/O happens here: previews stay for a potential revive (cache-gc
  * reclaims orphans after the trash-gc purge), and the asset keeps its locations

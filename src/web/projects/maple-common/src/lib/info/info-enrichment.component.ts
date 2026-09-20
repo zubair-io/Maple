@@ -140,7 +140,7 @@ export class InfoEnrichmentComponent implements OnDestroy {
   /**
    * How the focused asset's detail is addressed.
    *
-   * Timeline / search assets carry a real Mongo id in `apiAssetIds`. Browse-grid
+   * Timeline / search assets carry a real server id in `apiAssetIds`. Browse-grid
    * assets use a `slug:relPath` address as `Asset.id`, so their detail must be
    * fetched by address instead.
    *
@@ -304,7 +304,7 @@ export class InfoEnrichmentComponent implements OnDestroy {
   }
 
   /** Refetch the detail once after a manual override (no polling — the
-   * field went directly to Mongo, so the next read is enough). */
+   * field went directly to the database, so the next read is enough). */
   private refetchAfterMutation(): void {
     const ref = this.detailRef();
     if (!ref) return;

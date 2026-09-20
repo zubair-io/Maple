@@ -3,7 +3,7 @@
 // sequentially through the server's batch-rename endpoints (#2636). See
 // `docs/superpowers/specs/2026-08-04-file-management-design.md` § "Rename"
 // for the batch semantics (sequential application, self-collision mid-batch)
-// and `batch-rename.service.ts`'s doc for the address→Mongo-id bridge.
+// and `batch-rename.service.ts`'s doc for the address→server-id bridge.
 //
 // One instance handles ONE dialog open→close cycle — mirrors
 // `FolderTreeCrudComponent`'s "mount fresh" convention: the host destroys

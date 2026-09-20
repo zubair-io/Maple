@@ -154,7 +154,7 @@ export interface ApiAssetPage {
 }
 
 // ─── Enrichment / detail-pane shapes ────────────────────────────────────────
-// Mirror the Mongo schema (`src/api/src/db/schema.ts`). Snake_case fields
+// Mirror the server schema (`src/api/src/db/schema.ts`). Snake_case fields
 // because the API ships the documents as-is for fidelity.
 
 /** Axis-aligned bounding box. Coordinate space is set by the producer
@@ -380,7 +380,7 @@ export interface ApiAssetDetail {
 
 /** `ApiAssetDetail` plus the `slug:relPath` address `GET /api/photos/hidden`
  * additionally computes — required by `/api/xmp/batch`, which cannot resolve
- * a plain Mongo id the way `resolveAddressString` expects. `null` when the
+ * a plain server id the way `resolveAddressString` expects. `null` when the
  * asset's library has no registered slug. */
 export interface ApiHiddenPhoto extends ApiAssetDetail {
   address: string | null;
@@ -695,9 +695,9 @@ export class BunApiBackendService {
 
   /**
    * Detail DTO for an asset identified by its `slug:relPath` address rather
-   * than its Mongo id.
+   * than its server id.
    *
-   * Browse-grid assets use `slug:relPath` addresses rather than Mongo ids,
+   * Browse-grid assets use `slug:relPath` addresses rather than server ids,
    * so grid-opened assets are resolved through this endpoint. 404s when the
    * path resolves on disk but isn't indexed.
    */
@@ -760,7 +760,7 @@ export class BunApiBackendService {
   }
 
   /**
-   * Stream an asset's RAW bytes by Mongo asset id.
+   * Stream an asset's RAW bytes by server asset id.
    *
    * The emission contract is unchanged — the observable emits exactly one
    * value, the `ArrayBuffer`, then completes — so `firstValueFrom` callers
@@ -826,15 +826,15 @@ export class BunApiBackendService {
    * the component falls back to the placeholder block in that case.
    */
   getHistogram(assetId: string): Observable<ApiHistogram> {
-    return this.withResolvedAssetId(assetId, (mongoId) =>
-      this.http.get<ApiHistogram>(`${this.base}/assets/${encodeURIComponent(mongoId)}/histogram`),
+    return this.withResolvedAssetId(assetId, (resolvedId) =>
+      this.http.get<ApiHistogram>(`${this.base}/assets/${encodeURIComponent(resolvedId)}/histogram`),
     );
   }
 
   /**
-   * Resolve `assetIdOrAddress` to a Mongo id and run `request` against it —
-   * the "accepts either a Mongo id or a `slug:relPath` address" shape
-   * `getHistogram`, `renameAsset`, and `relocateAsset` all share (a Mongo id
+   * Resolve `assetIdOrAddress` to a server id and run `request` against it —
+   * the "accepts either a server id or a `slug:relPath` address" shape
+   * `getHistogram`, `renameAsset`, and `relocateAsset` all share (a server id
    * is used directly; an address is resolved via `getAssetDetailsByAddress`
    * first, since the browse grid's assets only carry an address). Extracted
    * after `renameAsset` and `relocateAsset` (#2644) were flagged as a
@@ -842,7 +842,7 @@ export class BunApiBackendService {
    */
   private withResolvedAssetId<T>(
     assetIdOrAddress: string,
-    request: (mongoId: string) => Observable<T>,
+    request: (resolvedId: string) => Observable<T>,
   ): Observable<T> {
     return assetIdOrAddress.includes(':')
       ? this.getAssetDetailsByAddress(assetIdOrAddress).pipe(switchMap(({ id }) => request(id)))
@@ -853,8 +853,8 @@ export class BunApiBackendService {
    * Rename a single asset (POST /api/assets/:id/rename, #2636/#2637).
    *
    * `assetIdOrAddress` accepts either form, mirroring `getHistogram`: a
-   * Mongo id is used directly, a `slug:relPath` address is resolved to its
-   * Mongo id first via `getAssetDetailsByAddress` (the browse grid's assets
+   * server id is used directly, a `slug:relPath` address is resolved to its
+   * server id first via `getAssetDetailsByAddress` (the browse grid's assets
    * only carry an address — see that method's doc). `collision` defaults
    * to `'skip'` so a same-name conflict comes back as a `'skipped'` outcome
    * with `reason: 'collision'` instead of silently overwriting.
@@ -868,9 +868,9 @@ export class BunApiBackendService {
     newFilename: string,
     collision: ApiCollisionPolicy = 'skip',
   ): Observable<ApiRenameOutcome> {
-    return this.withResolvedAssetId(assetIdOrAddress, (mongoId) =>
+    return this.withResolvedAssetId(assetIdOrAddress, (resolvedId) =>
       this.http
-        .post<ApiRenameResponseRaw>(`${this.base}/assets/${encodeURIComponent(mongoId)}/rename`, {
+        .post<ApiRenameResponseRaw>(`${this.base}/assets/${encodeURIComponent(resolvedId)}/rename`, {
           new_filename: newFilename,
           collision,
         })
@@ -914,10 +914,10 @@ export class BunApiBackendService {
     destinationPath: string,
     destinationFilename?: string,
   ): Observable<ApiRelocateOutcome> {
-    return this.withResolvedAssetId(assetIdOrAddress, (mongoId) =>
+    return this.withResolvedAssetId(assetIdOrAddress, (resolvedId) =>
       this.http
         .post<ApiRelocateResponseRaw>(
-          `${this.base}/assets/${encodeURIComponent(mongoId)}/relocate`,
+          `${this.base}/assets/${encodeURIComponent(resolvedId)}/relocate`,
           {
             mode,
             collision,
@@ -1453,7 +1453,7 @@ export interface EnrichmentConfigResponse {
    * (normalised [0,1) on the 640-px frame) are dropped before persisting. */
   face_min_detection_size: number;
   /** Meilisearch sidecar URL (DB → env → null). `null` disables the sidecar;
-   * search then falls back to the Mongo `$text` path. */
+   * search then falls back to the server's own full-text search. */
   meilisearch_url: string | null;
   /** Whether a Meilisearch API key is configured (DB or env). The key itself
    * is a secret and is never sent on the wire — only this boolean. */

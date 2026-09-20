@@ -2,8 +2,8 @@
 //
 // The hosted app (maple-syrup) has no API server, so user presets persist
 // in IndexedDB — the same place its thumbnails and folder listings live.
-// Self-hosted (maple) stores presets in the API's Mongo `presets`
-// collection instead and never touches this module.
+// Self-hosted (maple) stores presets in the API's `presets`
+// table instead and never touches this module.
 //
 // Contract + in-memory variant + IDB variant, mirroring the
 // `FolderListingCache` pattern: tests run against `InMemoryUserPresetStore`

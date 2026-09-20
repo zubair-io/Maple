@@ -135,9 +135,9 @@ export class TrashApiService {
    * contract — see file header) so no call site in this UI can silently
    * fall into the wrong branch by forgetting to pass it.
    *
-   * `assetId` MUST be a real Mongo id — the server's `parseAssetId` does
-   * `new ObjectId(id)` and 400s on anything else (#2841). The grid's
-   * `Asset.id` is a `slug:relPath` address, not a Mongo id; resolving that
+   * `assetId` MUST be a real server id — the server's `parseAssetId` validates
+   * the hex format and 400s on anything else (#2841). The grid's
+   * `Asset.id` is a `slug:relPath` address, not a server id; resolving that
    * address is the caller's job (`TrashService.trashAssets` does it via
    * `BunApiBackendService.getAssetDetailsByAddress` before ever reaching
    * this method) — this service stays a thin, capability-agnostic HTTP

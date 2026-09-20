@@ -9,7 +9,7 @@
  *
  * `new_filename` MUST validate through the shared `raw-core` filename
  * engine (`ffi/raw_ffi.ts`'s `validateFilename`, backed by
- * `maple_validate_filename`) before this touches Mongo or the filesystem —
+ * `maple_validate_filename`) before this touches the database or the filesystem —
  * the same Windows-reserved-name / trailing-dot / path-separator rules a
  * batch-rename template's output is checked against, so a rename that would
  * break the Windows client is rejected here rather than shipping a name
@@ -54,7 +54,7 @@ const RenameBodySchema = t.Object({
   ]),
 });
 
-/** Validate `new_filename` before touching Mongo or the filesystem. Returns
+/** Validate `new_filename` before touching the database or the filesystem. Returns
  * `null` when valid, or a `{ status, error }` pair to short-circuit the
  * route with otherwise. FAILS CLOSED: an unavailable engine is a 503, not a
  * silently-passed validation — see this file's module doc. */

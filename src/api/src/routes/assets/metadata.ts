@@ -8,7 +8,7 @@
  * Mounted into `assetsRoutes` (see ./index.ts) which provides the
  * `/api/assets` prefix.
  *
- * Mongo access lives in `src/db/assets.repo.ts`.
+ * Database access lives in `src/db/assets.repo.ts`.
  */
 
 import { Elysia } from 'elysia';
@@ -89,7 +89,7 @@ export const metadataRoutes = new Elysia()
   // Single asset metadata by `slug:relPath` address.
   //
   // The Angular browse grid lists through `/api/fs/dir-fast`, a pure-FS walk
-  // that carries no Mongo id, so its assets only know their address. Without
+  // that carries no database id, so its assets only know their address. Without
   // this route the info pane cannot reach the enrichment fields (description /
   // OCR / transcript / place / faces) for anything opened from the grid.
   //
@@ -131,7 +131,7 @@ export const metadataRoutes = new Elysia()
   // Single asset detail by absolute server path.
   //
   // The cloud FOLDER browse (`/api/fs/dir` → Apple `loadCloudDir`) carries
-  // only each file's absolute path — no Mongo id and no `slug:relPath`
+  // only each file's absolute path — no database id and no `slug:relPath`
   // address (unlike the search projection). Without this route the info pane
   // cannot reach enrichment (description / place / vision / faces / …) for
   // anything opened from the cloud browse grid. Resolves the abs path to its

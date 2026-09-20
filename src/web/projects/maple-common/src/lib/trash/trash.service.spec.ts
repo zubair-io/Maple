@@ -39,7 +39,7 @@ const ASSET_B: Asset = {
 // relPath segment (after the `:`), which is exactly the shape that used to
 // 404 by not matching the server's `DELETE /api/assets/:id` route at all
 // (a plain `slug:relPath` with no subfolder slash merely 400'd, since the
-// unresolved address still isn't a valid Mongo ObjectId).
+// unresolved address still isn't a valid hex asset id).
 const ASSET_C_SUBFOLDER: Asset = {
   id: 'photos:2024/Trip/IMG_1.dng',
   filename: 'IMG_1.dng',
@@ -51,11 +51,11 @@ const ASSET_C_SUBFOLDER: Asset = {
   aspectRatio: 1.5,
 };
 
-/** `ASSET_A`/`ASSET_B`/`ASSET_C_SUBFOLDER`'s resolved Mongo ids, as
+/** `ASSET_A`/`ASSET_B`/`ASSET_C_SUBFOLDER`'s resolved server ids, as
  * `getAssetDetailsByAddress` would return them — asserted against, never
  * equal to the address itself, so a regression that goes back to calling
  * `deleteAsset` with the raw address fails loudly. */
-const MONGO_ID_BY_ADDRESS: Record<string, string> = {
+const API_ID_BY_ADDRESS: Record<string, string> = {
   [ASSET_A.id]: '507f1f77bcf86cd799439011',
   [ASSET_B.id]: '507f1f77bcf86cd799439012',
   [ASSET_C_SUBFOLDER.id]: '507f1f77bcf86cd799439013',
@@ -95,10 +95,10 @@ describe('TrashService', () => {
     selectedAssetIds = signal(new Set<string>());
     selectedFolderIds = signal(new Set<string>());
     // #2841 — resolves a grid selection's `slug:relPath` address to the
-    // Mongo id `TrashApiService.deleteAsset` requires, mirroring what
+    // server id `TrashApiService.deleteAsset` requires, mirroring what
     // `BunApiBackendService.getAssetDetailsByAddress` returns for real.
     getAssetDetailsByAddressSpy = vi.fn((address: string) =>
-      of({ id: MONGO_ID_BY_ADDRESS[address] }),
+      of({ id: API_ID_BY_ADDRESS[address] }),
     );
 
     const fakeApi = {
@@ -194,8 +194,8 @@ describe('TrashService', () => {
       expect(service.busy()).toBe(true);
       await vi.waitFor(() => expect(service.busy()).toBe(false));
       expect(deleteAssetSpy).toHaveBeenCalledTimes(2);
-      expect(deleteAssetSpy).toHaveBeenCalledWith(MONGO_ID_BY_ADDRESS[ASSET_A.id], 'trash');
-      expect(deleteAssetSpy).toHaveBeenCalledWith(MONGO_ID_BY_ADDRESS[ASSET_B.id], 'trash');
+      expect(deleteAssetSpy).toHaveBeenCalledWith(API_ID_BY_ADDRESS[ASSET_A.id], 'trash');
+      expect(deleteAssetSpy).toHaveBeenCalledWith(API_ID_BY_ADDRESS[ASSET_B.id], 'trash');
       expect(service.resultSummary()).toEqual({ total: 2, trashed: 2, failed: [] });
       expect(refreshFolderListingSpy).toHaveBeenCalledWith(LIBRARY_ID);
     });
@@ -206,17 +206,17 @@ describe('TrashService', () => {
     // (`parseAssetId` -> `new ObjectId(id)` throws on a non-hex string); a
     // subfolder address additionally fails to even MATCH the
     // `/api/assets/:id` route once its `/` lands in the URL path, which is
-    // why this asserts against the resolved Mongo id specifically, not just
+    // why this asserts against the resolved server id specifically, not just
     // "some id was passed."
-    it('resolves a slug:relPath address (root and subfolder) to a Mongo id before calling deleteAsset', async () => {
+    it('resolves a slug:relPath address (root and subfolder) to a server id before calling deleteAsset', async () => {
       deleteAssetSpy.mockReturnValue(of({ kind: 'ok' }));
       service.trashAssets([ASSET_A.id, ASSET_C_SUBFOLDER.id], LIBRARY_ID);
       await vi.waitFor(() => expect(service.busy()).toBe(false));
       expect(getAssetDetailsByAddressSpy).toHaveBeenCalledWith(ASSET_A.id);
       expect(getAssetDetailsByAddressSpy).toHaveBeenCalledWith(ASSET_C_SUBFOLDER.id);
-      expect(deleteAssetSpy).toHaveBeenCalledWith(MONGO_ID_BY_ADDRESS[ASSET_A.id], 'trash');
+      expect(deleteAssetSpy).toHaveBeenCalledWith(API_ID_BY_ADDRESS[ASSET_A.id], 'trash');
       expect(deleteAssetSpy).toHaveBeenCalledWith(
-        MONGO_ID_BY_ADDRESS[ASSET_C_SUBFOLDER.id],
+        API_ID_BY_ADDRESS[ASSET_C_SUBFOLDER.id],
         'trash',
       );
       // Never the raw, unresolved address — that's exactly what the server
@@ -226,25 +226,25 @@ describe('TrashService', () => {
       expect(service.resultSummary()).toEqual({ total: 2, trashed: 2, failed: [] });
     });
 
-    // A caller that already holds a genuine Mongo id (no `:` — the Trash
+    // A caller that already holds a genuine server id (no `:` — the Trash
     // panel's own restore/delete flows are like this, though they call
     // `TrashApiService` directly rather than through `trashAssets`; this
     // proves `trashAssets` itself would round-trip one unchanged too, since
     // nothing about the resolve step should assume every id is an address)
     // must reach `deleteAsset` untouched, with no resolution round-trip.
-    it('passes a genuine Mongo id straight through, with no resolution round-trip', async () => {
-      const MONGO_ID = '507f1f77bcf86cd799439099';
+    it('passes a genuine server id straight through, with no resolution round-trip', async () => {
+      const SERVER_ID = '507f1f77bcf86cd799439099';
       deleteAssetSpy.mockReturnValue(of({ kind: 'ok' }));
-      service.trashAssets([MONGO_ID], LIBRARY_ID);
+      service.trashAssets([SERVER_ID], LIBRARY_ID);
       await vi.waitFor(() => expect(service.busy()).toBe(false));
       expect(getAssetDetailsByAddressSpy).not.toHaveBeenCalled();
-      expect(deleteAssetSpy).toHaveBeenCalledWith(MONGO_ID, 'trash');
+      expect(deleteAssetSpy).toHaveBeenCalledWith(SERVER_ID, 'trash');
       expect(service.resultSummary()).toEqual({ total: 1, trashed: 1, failed: [] });
     });
 
     it('reports partial failure without aborting the rest of the batch', async () => {
       deleteAssetSpy.mockImplementation((id: string) =>
-        id === MONGO_ID_BY_ADDRESS[ASSET_A.id]
+        id === API_ID_BY_ADDRESS[ASSET_A.id]
           ? throwError(() => new Error('locked'))
           : of({ kind: 'ok' }),
       );
@@ -262,7 +262,7 @@ describe('TrashService', () => {
     // generic failure, and never a silent success either.
     it('reports a 409 conflict as alreadyTrashed, not a generic failure', async () => {
       deleteAssetSpy.mockImplementation((id: string) =>
-        id === MONGO_ID_BY_ADDRESS[ASSET_A.id]
+        id === API_ID_BY_ADDRESS[ASSET_A.id]
           ? of({ kind: 'conflict', state: 'trashed' })
           : of({ kind: 'ok' }),
       );
@@ -295,7 +295,7 @@ describe('TrashService', () => {
     it('prunes trashed assets from the selection, keeping real failures selected', async () => {
       selectedAssetIds.set(new Set([ASSET_A.id, ASSET_B.id]));
       deleteAssetSpy.mockImplementation((id: string) =>
-        id === MONGO_ID_BY_ADDRESS[ASSET_A.id]
+        id === API_ID_BY_ADDRESS[ASSET_A.id]
           ? throwError(() => new Error('locked'))
           : of({ kind: 'ok' }),
       );

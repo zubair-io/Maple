@@ -234,7 +234,7 @@ export class DragMoveService implements DragMoveCapability {
 
     // Same registered-library lookup `folder-tree-crud.component.ts`'s
     // `resolveLibraryId` uses — `/folders/:id/*` routes address the library
-    // by its Mongo id, not its slug.
+    // by its server id, not its slug.
     const addr = parseAddress(item.folderId);
     const library = this.state
       .registeredFolders()

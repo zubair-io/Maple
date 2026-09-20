@@ -39,8 +39,8 @@ const COUNT_PAGE_SIZE = 100;
 @Injectable({ providedIn: 'root' })
 export class TrashService implements TrashCapability {
   private readonly api = inject(TrashApiService);
-  // Only used by `resolveMongoId` below, to turn a grid selection's
-  // `slug:relPath` address into the Mongo id `TrashApiService.deleteAsset`
+  // Only used by `resolveApiAssetId` below, to turn a grid selection's
+  // `slug:relPath` address into the server id `TrashApiService.deleteAsset`
   // requires (#2841). Same precedent as `BatchRenameService`: injected
   // directly rather than routed through `TrashApiService`, because
   // `TrashService` (unlike `TrashApiService`) is already wired up only from
@@ -124,17 +124,17 @@ export class TrashService implements TrashCapability {
   private readonly _resultSummary = signal<TrashAssetsSummary | null>(null);
   readonly resultSummary = this._resultSummary.asReadonly();
 
-  /** Resolve a grid selection id to the Mongo id `TrashApiService.deleteAsset`
+  /** Resolve a grid selection id to the server id `TrashApiService.deleteAsset`
    * requires. The grid's `Asset.id` is a `slug:relPath` address rather than
-   * a Mongo id (see `BunApiBackendService.getAssetDetailsByAddress`);
+   * a server id (see `BunApiBackendService.getAssetDetailsByAddress`);
    * `runTrashQueue` below is the only
    * caller of `deleteAsset` that ever sees one — the Trash panel's own
-   * restore/purge flows (`TrashPanelComponent`) already pass genuine Mongo
+   * restore/purge flows (`TrashPanelComponent`) already pass genuine server
    * ids straight from the server's trash listing, so those never route
    * through here. Same address detection `BunApiBackendService
    * .withResolvedAssetId` uses: a `:` only ever appears in the
-   * `slug:relPath` form, never in a Mongo ObjectId hex string. */
-  private resolveMongoId(assetId: AssetId): Observable<string> {
+   * `slug:relPath` form, never in a server ID hex string. */
+  private resolveApiAssetId(assetId: AssetId): Observable<string> {
     return assetId.includes(':')
       ? this.bunApi.getAssetDetailsByAddress(assetId).pipe(map(({ id }) => id))
       : of(assetId);
@@ -152,7 +152,7 @@ export class TrashService implements TrashCapability {
 
   /** Same registered-library lookup `folder-tree-crud.component.ts`'s
    * `resolveLibraryId` uses — `/folders/:id/*` routes address the library
-   * by its Mongo id, not the slug the grid's addresses carry. */
+   * by its server id, not the slug the grid's addresses carry. */
   private resolveLibraryId(nodeId: string): string | null {
     const { slug } = parseAddress(nodeId);
     const folder = this.state.registeredFolders().find((f) => f.slug === slug || f.id === slug);
@@ -173,8 +173,8 @@ export class TrashService implements TrashCapability {
   ): Promise<TrashItemFailure | null> {
     try {
       const outcome = await new Promise<TrashDeleteOutcome>((resolve, reject) => {
-        this.resolveMongoId(assetId)
-          .pipe(switchMap((mongoId) => this.api.deleteAsset(mongoId, 'trash')))
+        this.resolveApiAssetId(assetId)
+          .pipe(switchMap((apiId) => this.api.deleteAsset(apiId, 'trash')))
           .subscribe({ next: resolve, error: reject });
       });
       if (outcome.kind === 'ok') return null;

@@ -73,7 +73,7 @@ export function setupFixture(
   const fakeBunApi = {
     getWorkerStatus: vi.fn().mockReturnValue(of({ stages: [] })),
     getAssetDetails: vi.fn().mockReturnValue(of()),
-    // Grid assets carry no Mongo id, so the enrichment pane now resolves their
+    // Grid assets carry no server id, so the enrichment pane now resolves their
     // detail by `slug:relPath` address (#2236). `of()` completes without
     // emitting, leaving the pane empty — what this spec already asserts.
     getAssetDetailsByAddress: vi.fn().mockReturnValue(of()),

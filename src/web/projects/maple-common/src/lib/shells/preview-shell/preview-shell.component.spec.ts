@@ -164,16 +164,16 @@ describe('PreviewShellComponent', () => {
   });
 
   it('resolves a raw (non-address) id passed as the slug, like /library/editor/:id did', () => {
-    // Search/People/Pano/deep-links pass a raw Mongo _id (no ':') via
+    // Search/People/Pano/deep-links pass a raw server _id (no ':') via
     // viewRouteCommands(), which emits it as a single `/view/<id>` segment —
     // it lands in the `:slug` param with no further `**` segments.
     const { comp, selectAsset } = setup({
-      slug: 'raw-mongo-id-123',
+      slug: 'raw-server-id-123',
       segments: [],
-      assets: [{ id: 'raw-mongo-id-123', filename: 'foo/bar.jpg' }],
+      assets: [{ id: 'raw-server-id-123', filename: 'foo/bar.jpg' }],
     });
     expect(comp).toBeTruthy();
-    expect(selectAsset).toHaveBeenCalledWith('raw-mongo-id-123');
+    expect(selectAsset).toHaveBeenCalledWith('raw-server-id-123');
   });
 
   it('hydrates an fs: id as a single-asset open — no slug-addressed folder fetch', () => {

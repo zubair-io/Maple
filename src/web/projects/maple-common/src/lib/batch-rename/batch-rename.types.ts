@@ -6,8 +6,8 @@
 
 /** One file selected for a batch rename, as the caller (grid multi-select)
  * knows it — `address` is the `slug:relPath` id the rest of the app uses;
- * the batch-rename endpoints want a Mongo id instead, so the dialog resolves
- * `address` → Mongo id itself (`BatchRenameService.resolveIds`) before
+ * the batch-rename endpoints want a server asset id instead, so the dialog resolves
+ * `address` → server asset id itself (`BatchRenameService.resolveIds`) before
  * calling preview/apply. */
 export interface BatchRenameSelection {
   address: string;
@@ -22,7 +22,7 @@ export interface BatchRenameTemplateOptions {
   sequencePadWidth: number;
 }
 
-/** One `address` resolved (or not) to the Mongo id the batch-rename
+/** One `address` resolved (or not) to the server asset id the batch-rename
  * endpoints require. `id: null` means resolution failed (e.g. the address
  * no longer names a live asset) — `BatchRenameService` still reports that
  * row in preview/apply results as an error rather than silently dropping

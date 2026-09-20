@@ -66,7 +66,7 @@ import {
   loadEnrichmentConfig,
 } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
-import { loadWorkerConfigSafe } from '../worker-config.repo.ts';
+import { loadWorkerConfigSafe } from '../../db/repos/worker-config.repo.ts';
 import type { VideoDescriptionMeta } from '../../db/schema.ts';
 import { STAGE_STATE_VIDEO_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { videoDescriptionStatements } from '../../db/repos/assets.stage-patches.ts';

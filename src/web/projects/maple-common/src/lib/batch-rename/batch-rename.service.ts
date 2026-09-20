@@ -4,7 +4,7 @@
 // `src/api/src/library/batch-rename.ts`'s module doc for why sequential
 // application matters for self-colliding templates).
 //
-// The endpoints want Mongo ids; the grid only carries `slug:relPath`
+// The endpoints want server asset ids; the grid only carries `slug:relPath`
 // addresses (see `AssetRenameService`'s doc on the same gap for single
 // rename). `resolveIds` bridges that the same way `renameAsset` does for
 // one asset at a time — `BunApiBackendService.getAssetDetailsByAddress` per
@@ -131,7 +131,7 @@ export class BatchRenameService {
   private readonly base = inject(API_BASE_URL);
   private readonly api = inject(BunApiBackendService);
 
-  /** Resolve every `address` to its Mongo id, in the caller's order. Never
+  /** Resolve every `address` to its server asset id, in the caller's order. Never
    * errors as a whole — a single address's resolution failure becomes
    * `id: null` on its row instead of failing the other rows. */
   resolveIds(selections: BatchRenameSelection[]): Observable<ResolvedBatchRenameId[]> {

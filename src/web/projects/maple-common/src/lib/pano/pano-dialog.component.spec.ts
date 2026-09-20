@@ -29,7 +29,7 @@ const MOCK_FOLDER = { id: 'deadbeefdeadbeefdeadbeef', path: '/Volumes/Photos', l
  * Build a mock LibraryStateService.
  *
  * @param folderOverride - null = no registered folder (simulates "no library selected")
- * @param apiIdMap - local assetId → MongoDB hex _id map (empty = not indexed)
+ * @param apiIdMap - local assetId → server hex id map (empty = not indexed)
  * @param absPathMap - local assetId → absolute filesystem path map
  */
 function makeLibraryStateMock(
@@ -245,7 +245,7 @@ describe('PanoDialogComponent', () => {
   it('submits API ids as assetIds when assets have no local path (#1313)', () => {
     // Cloud-hosted style: assets carry API ids but no absolute file path, so
     // the client sends assetIds (and no assetPaths). The library folder id is
-    // MOCK_FOLDER.id. The handler expects MongoDB ObjectId hex strings.
+    // MOCK_FOLDER.id. The handler expects server id hex strings.
     TestBed.resetTestingModule();
     setup(MOCK_FOLDER, { a1: 'aaa', a2: 'bbb', a3: 'ccc' }, {});
     open(false);

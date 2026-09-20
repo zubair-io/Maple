@@ -23,14 +23,14 @@ export interface PanoStitchOptions {
 }
 
 export interface PanoStitchRequest {
-  /** Mongo ObjectId hex strings, sent ONLY for selected assets the client
+  /** Server asset id hex strings, sent ONLY for selected assets the client
    *  cannot reference by absolute path (e.g. cloud-hosted assets with no local
-   *  file path). The server validates each is a well-formed ObjectId and unions
+   *  file path). The server validates each is a well-formed hex id and unions
    *  them with the ids it resolves from `assetPaths`. Disjoint from `assetPaths`
    *  at the asset level — the client never sends both for the same asset. */
   assetIds?: string[];
   /** Absolute server-side filesystem paths — the preferred reference. The server
-   *  resolves each path to its Mongo asset document (indexing on-demand when not
+   *  resolves each path to its server asset row (indexing on-demand when not
    *  yet indexed) after validating it lies under a registered library root.
    *  Across both fields, ≥2 distinct assets must resolve. */
   assetPaths?: string[];

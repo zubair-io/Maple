@@ -19,7 +19,7 @@ import type { StageHandlerDoc } from '../db/schema.ts';
  * Pipeline stage identifiers used by the handler registry.
  * Previously imported from indexer/channel.ts (now deleted).
  */
-export type Stage = 'discover' | 'hash' | 'exif' | 'thumb' | 'ai' | 'mongo';
+export type Stage = 'discover' | 'hash' | 'exif' | 'thumb' | 'ai';
 
 export interface ResolvedHandler {
   stage: Stage;
@@ -52,7 +52,6 @@ function asStage(value: unknown): Stage | null {
     case 'exif':
     case 'thumb':
     case 'ai':
-    case 'mongo':
       return value;
     default:
       return null;

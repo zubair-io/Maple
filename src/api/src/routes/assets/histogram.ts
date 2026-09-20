@@ -10,7 +10,7 @@
  * Closes #633.
  *
  * Pipeline:
- *   1. Resolve `id` → AssetCoreInfo (Mongo ObjectId hex).
+ *   1. Resolve `id` → AssetCoreInfo (asset id hex).
  *   2. Resolve RAW abs-path + (optional) XMP sidecar.
  *   3. Compute the cache key as the tuple `<raw_mtime_ms>-<xmp_mtime_ms_or_none>`
  *      so a re-edit invalidates without a flush. The histogram lives at

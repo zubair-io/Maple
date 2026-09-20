@@ -1,7 +1,7 @@
 /**
  * /api/health route.
  *
- * Returns server liveness + optional MongoDB status.
+ * Returns server liveness + SQLite database status.
  */
 
 import { Elysia } from 'elysia';

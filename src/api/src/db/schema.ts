@@ -339,7 +339,7 @@ export interface VideoDescriptionScene {
  * Multi-frame visual description of a video's whole duration, produced by
  * the `video-describe` stage (#2158) from a bounded set of chronologically
  * ordered, deduplicated frames sent to the vision model in one request.
- * Derived data only — stored in Mongo, never written to XMP. Distinct from
+ * Derived data only — stored in the library database, never written to XMP. Distinct from
  * `vision`/`description`, which remain the single poster-frame caption from
  * the `describe` stage.
  */
@@ -576,12 +576,12 @@ export interface AssetDoc {
    * describe stage from `vision.text_visible`. `null` until the describe
    * stage has run on this asset; empty string when the model saw no text. */
   ocr_text?: string | null;
-  /** Derived speech-to-text data. Stored in Mongo only, never XMP. */
+  /** Derived speech-to-text data. Stored in the library database only, never XMP. */
   transcript?: TranscriptDoc;
   /** Multi-frame visual description of a video's whole duration, from the
    * `video-describe` stage. `null`/absent until the stage has run, or for
    * every non-video asset (the stage's claim filter never claims one).
-   * Stored in Mongo only, never XMP — see `VideoDescriptionDoc`. */
+   * Stored in the library database only, never XMP — see `VideoDescriptionDoc`. */
   video_description?: VideoDescriptionDoc | null;
   /** Provenance of `video_description`. See `VideoDescriptionMeta`. */
   video_description_meta?: VideoDescriptionMeta | null;
@@ -603,8 +603,7 @@ export interface AssetDoc {
   /** Synthesised text-index target. Concatenation of `place.search_blob`,
    * `description`, and `ocr_text` — recomputed atomically inside each
    * worker's `complete()` so the value stays consistent without a
-   * separate write. The Mongo `$text` index lives on this field
-   * (Mongo allows only ONE text index per collection). */
+   * separate write. The full-text search index (FTS5) lives on this field. */
   search_blob?: string;
   /** Fingerprint of the semantic embedder configuration whose Meilisearch
    * task completed for this asset. Used for exact live-vector coverage. */
@@ -1300,11 +1299,9 @@ export interface ImportDoc {
   library_root: string;
   /**
    * LEGACY ONLY — the per-file entries used to live inline here. They now live
-   * one-doc-per-file in the `import_files` collection,
-   * because a folder with tens of thousands of files serialized a single
-   * `imports` document past MongoDB's hard 16 MiB document ceiling (and the
-   * BSON driver's 17 MiB serialization buffer), which threw
-   * `RangeError [ERR_OUT_OF_RANGE]` mid-scan and failed the whole import.
+   * one-doc-per-file in the `import_files` table,
+   * because a folder with tens of thousands of files blew past serialized
+   * size limits when stored in a single document.
    *
    * New imports never set this field; it is read (best-effort) only to keep
    * the detail view of pre-migration imports working. Do not write it.
@@ -1461,7 +1458,7 @@ export interface UploadSessionDoc {
   chunk_size: number;
   /** Sessions older than 7d in "open" get GC'd by the TTL monitor. */
   state: 'open' | 'completed' | 'abandoned';
-  /** TTL — Date (not string) so the Mongo TTL monitor can prune abandoned sessions older than 7d. */
+  /** TTL timestamp used to prune abandoned sessions older than 7d. */
   created_at: Date;
   /** Bumped on every chunk; same TTL semantics as `created_at`. */
   updated_at: Date;

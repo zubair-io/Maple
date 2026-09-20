@@ -68,8 +68,8 @@ once and edit your copy freely, it'll never show up in `git status`.
    npx wrangler r2 bucket create maple-thumbs
    ```
 2. Set the JWT secret. Maple has no UI or API route that echoes it —
-   retrieve it directly from the server (MongoDB `server_state` collection,
-   `_id: "jwt_secret"`, field `value`; see
+   retrieve it directly from the server's library database (the `server_state`
+   table, `id = 'jwt_secret'`, column `value`; see
    `src/api/src/auth/jwt-secret.repo.ts`):
    ```bash
    npx wrangler secret put JWT_SECRET
