@@ -64,10 +64,12 @@
           }
         }
 
-        Section("Observability") {
-          MuiListRow(
-            icon: "waveform.path.ecg", label: "Observability",
-            pressed: { destination = .observability }, trailing: chevron)
+        if FeatureFlags.isMapleCloudEnabled {
+          Section("Observability") {
+            MuiListRow(
+              icon: "waveform.path.ecg", label: "Observability",
+              pressed: { destination = .observability }, trailing: chevron)
+          }
         }
 
         Section("Files") {
@@ -148,9 +150,15 @@
             .navigationBarTitleDisplayMode(.inline)
         }
       case .observability:
-        ObservabilitySettingsTab()
-          .navigationTitle("Observability")
-          .navigationBarTitleDisplayMode(.inline)
+        if FeatureFlags.isMapleCloudEnabled {
+          ObservabilitySettingsTab()
+            .navigationTitle("Observability")
+            .navigationBarTitleDisplayMode(.inline)
+        } else {
+          GeneralSettingsTab()
+            .navigationTitle("General")
+            .navigationBarTitleDisplayMode(.inline)
+        }
       case .sources:
         LibrarySourcesSettingsView()
           .navigationTitle("Sources")

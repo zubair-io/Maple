@@ -193,6 +193,7 @@ struct MapleApp: App {
         }
       }
       .task {
+        guard FeatureFlags.isMapleCloudEnabled else { return }
         // Start telemetry first: reads the disk-cached SigNoz
         // config and bootstraps swift-otel synchronously (no
         // network), then background-refreshes. Never blocks launch.
@@ -400,9 +401,11 @@ struct SettingsView: View {
           .tag(SettingsTab.pano)
           .accessibilityIdentifier("settings.tab.pano")
       }
-      ObservabilitySettingsTab()
-        .tabItem { Label("Observability", systemImage: "waveform.path.ecg") }
-        .tag(SettingsTab.observability)
+      if FeatureFlags.isMapleCloudEnabled {
+        ObservabilitySettingsTab()
+          .tabItem { Label("Observability", systemImage: "waveform.path.ecg") }
+          .tag(SettingsTab.observability)
+      }
       if FeatureFlags.isMapleCloudEnabled {
         #if os(macOS)
           FileProviderSettingsView()
@@ -437,7 +440,7 @@ struct SettingsView: View {
       if let tab = initialTab {
         let panoDisabled = tab == .pano && !FeatureFlags.isPanoramaEnabled
         let cloudDisabled =
-          (tab == .selfHosted || tab == .backup || tab == .finder)
+          (tab == .selfHosted || tab == .backup || tab == .finder || tab == .observability)
           && !FeatureFlags.isMapleCloudEnabled
         if panoDisabled || cloudDisabled {
           selectedTab = .general

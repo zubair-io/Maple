@@ -25,6 +25,11 @@ enum LibrarySidebarVM {
   /// the value explicitly and never touch this.
   static let cloudFlag = FeatureFlags.isMapleCloudEnabled
 
+  /// Whether the Timeline row is displayed in the sidebar (requires cloud backend).
+  static func showsTimelineRow(cloudEnabled: Bool = cloudFlag) -> Bool {
+    cloudEnabled
+  }
+
   /// Whether the Map row is displayed in the sidebar (requires cloud backend).
   static func showsMapRow(cloudEnabled: Bool = cloudFlag) -> Bool {
     cloudEnabled

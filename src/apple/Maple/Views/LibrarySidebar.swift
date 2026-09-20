@@ -210,11 +210,15 @@ struct LibrarySidebar: View {
         // Photos is the deliberate exception; see
         // `LibrarySidebarVM.showsPhotosSection`.
         VStack(alignment: .leading, spacing: 0) {
-          timelineRow
+          if LibrarySidebarVM.showsTimelineRow() {
+            timelineRow
+          }
           if LibrarySidebarVM.showsMapRow() {
             mapRow
           }
-          separator
+          if LibrarySidebarVM.showsTimelineRow() || LibrarySidebarVM.showsMapRow() {
+            separator
+          }
           if LibrarySidebarVM.showsCloudServers() {
             cloudServersSection
             if hasVisibleCloudServers { separator }
