@@ -60,7 +60,11 @@ import { Database } from 'bun:sqlite';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { child as childLogger } from '../../log.ts';
-import { sqliteDatabasePath } from './database-path.ts';
+import {
+  DEFAULT_SQLITE_PATH,
+  sqliteDatabasePath,
+  sqliteDatabasePathIsDefault,
+} from './database-path.ts';
 import { fromBunSqlite, runMigrations } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
 
@@ -125,7 +129,22 @@ export async function ensureSchemaAtBoot(): Promise<SchemaBootOutcome> {
   const db = openForMigration(path);
   try {
     const result = await runMigrations(fromBunSqlite(db), ALL_MIGRATIONS);
-    if (created) {
+    if (created && sqliteDatabasePathIsDefault()) {
+      // The one combination that can destroy a library without erroring: a
+      // first boot on the relative default. In a container that path is inside
+      // the container, so the library it creates is thrown away with it on the
+      // next recreate, and the boot after that creates another empty one — an
+      // operator sees a working server with no photos and no failure to chase.
+      // Bare metal reaches this line too and is fine; the warning names the
+      // container case rather than guessing which one this is.
+      log.warn(
+        { path, variable: 'MAPLE_SQLITE_PATH', default: DEFAULT_SQLITE_PATH },
+        'created a new, empty library at the built-in default path because MAPLE_SQLITE_PATH is ' +
+          'unset. That path is relative, so in a container it resolves inside the container and ' +
+          'this library will be lost on the next recreate, silently. If this server is containerised, ' +
+          'stop it now, set MAPLE_SQLITE_PATH to an absolute path on a mounted volume, and restart.',
+      );
+    } else if (created) {
       log.info({ path, applied: result.applied }, 'new library database created');
     } else if (result.applied.length > 0) {
       log.info({ path, applied: result.applied }, 'schema migrations applied');
