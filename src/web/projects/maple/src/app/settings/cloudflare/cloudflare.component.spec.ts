@@ -37,6 +37,20 @@ describe('CloudflareComponent', () => {
 
   async function load(): Promise<void> {
     fixture.detectChanges(); // ngOnInit → GET config
+    http.expectOne('/api/admin/backup/db').flush({
+      policy: {
+        enabled: false,
+        bucket: '',
+        hour: 3,
+        daily: 7,
+        weekly: 4,
+        monthly: 12,
+        yearly: 5,
+      },
+      status: null,
+      last_success_at: null,
+      running: false,
+    });
     http.expectOne('/api/cloudflare/config').flush(CONFIG);
     fixture.detectChanges();
     await fixture.whenStable();
@@ -113,6 +127,20 @@ describe('CloudflareComponent', () => {
 
   it('shows the load error state when the config fetch fails', () => {
     fixture.detectChanges();
+    http.expectOne('/api/admin/backup/db').flush({
+      policy: {
+        enabled: false,
+        bucket: '',
+        hour: 3,
+        daily: 7,
+        weekly: 4,
+        monthly: 12,
+        yearly: 5,
+      },
+      status: null,
+      last_success_at: null,
+      running: false,
+    });
     http
       .expectOne('/api/cloudflare/config')
       .flush({ error: 'boom' }, { status: 500, statusText: 'Server Error' });

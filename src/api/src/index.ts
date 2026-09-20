@@ -67,6 +67,8 @@ import { lanHandoffIssueRoutes, lanHandoffRedeemRoutes } from './routes/auth-lan
 import { accountRoutes } from './routes/auth-account.ts';
 import { authDeviceSessionRoutes } from './routes/auth-device-sessions.ts';
 import { apnsDeviceRoutes } from './routes/apns-devices.ts';
+import { dbBackupRoutes } from './routes/db-backup.ts';
+import { startDbBackupScheduler, stopDbBackupScheduler } from './cloudflare/db-backup.ts';
 import { cloudflareRoutes } from './routes/cloudflare.ts';
 import { usersRoutes } from './routes/users.ts';
 import { serviceApiKeyAdminRoutes } from './routes/service-api-keys.ts';
@@ -140,6 +142,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // (mirrors authRoutes' /invites sub-tree above), so it sits outside
     // the authedApi gate the same way.
     .use(cloudflareRoutes)
+    .use(dbBackupRoutes)
     // Owner-only user roster + per-user file-access permission (#2893) —
     // self-gates with requireOwner, so it sits outside authedApi too.
     .use(usersRoutes)
@@ -424,6 +427,7 @@ async function start(): Promise<void> {
   // timers are unref'd so it never holds the process open. See
   // `runtime/diag-eventloop.ts`.
   startEventLoopLagMonitor();
+  startDbBackupScheduler();
 
   const server = buildApp();
   // listenOptions wires in TLS_CONFIG (validated at module load) when configured.
@@ -435,6 +439,7 @@ async function start(): Promise<void> {
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, 'shutting down');
   managedHttps.stop();
+  await stopDbBackupScheduler();
   // Stop the event-loop lag probe (no-op if it was never started).
   try {
     stopEventLoopLagMonitor();

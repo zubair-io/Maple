@@ -19,11 +19,11 @@ export interface ResolvedCloudflareConfig {
   secret_access_key: string;
 }
 
-function r2Endpoint(config: ResolvedCloudflareConfig, key: string): string {
+export function r2Endpoint(config: ResolvedCloudflareConfig, key: string): string {
   return `https://${config.account_id}.r2.cloudflarestorage.com/${config.bucket}/${key}`;
 }
 
-function r2Client(config: ResolvedCloudflareConfig): AwsClient {
+export function r2Client(config: ResolvedCloudflareConfig): AwsClient {
   return new AwsClient({
     accessKeyId: config.access_key_id,
     secretAccessKey: config.secret_access_key,
