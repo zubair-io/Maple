@@ -9,7 +9,7 @@
  * Mounted into `assetsRoutes` (see ./index.ts) which provides the
  * `/api/assets` prefix.
  *
- * Mongo access lives in `src/db/assets.repo.ts`.
+ * Database access lives in `src/db/assets.repo.ts`.
  */
 
 import { Elysia, t } from "elysia";
@@ -20,7 +20,7 @@ import {
 } from "../../db/assets.repo.ts";
 
 /** Whitelisted enrichment stage names for the requeue route. Anything else
- * is rejected with 400 so a client can't poke a Mongo path that doesn't
+ * is rejected with 400 so a client can't poke a path that doesn't
  * belong to the enrichment subdoc. */
 const ENRICHMENT_STAGES = ["geocode", "face", "describe"] as const;
 type EnrichmentStageName = (typeof ENRICHMENT_STAGES)[number];

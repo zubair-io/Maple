@@ -146,11 +146,11 @@ export class PanoDialogComponent implements OnDestroy {
     const localIds = this.assetIds();
     if (localIds.length < 2) return;
 
-    // ── Resolve the library ObjectId ──────────────────────────────────────
+    // ── Resolve the library id ──────────────────────────────────────────
     // `selectedSourceId` is `fs:<absPath>` in self-hosted browse mode —
-    // NOT a MongoDB ObjectId. `currentRegisteredFolder()` does a
+    // NOT a server id. `currentRegisteredFolder()` does a
     // longest-prefix match against the registered library roots and returns
-    // the ApiFolder whose `id` IS the hex ObjectId the handler validates.
+    // the ApiFolder whose `id` IS the hex id the handler validates.
     const folder = this.state.currentRegisteredFolder();
     if (!folder) {
       this.errorCode.set('');
@@ -168,7 +168,7 @@ export class PanoDialogComponent implements OnDestroy {
     // negative). The client's `apiIdFor` map is populated from a prior browse
     // fetch and may not reflect recently-indexed files.
     //
-    // We also include any known MongoDB ObjectIds as an optimisation — the
+    // We also include any known server asset ids as an optimisation — the
     // server accepts both and prefers the path for freshness.
     //
     // For self-hosted FS-walk assets the local id is `fs:<absPath>`, so

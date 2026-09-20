@@ -24,7 +24,7 @@ interface SyncJob {
   error: string | null;
 }
 
-/** Mongo owns the target list and ledger; the browser stores only a recovery pointer. */
+/** The server owns the target list and ledger; the browser stores only a recovery pointer. */
 @Injectable({ providedIn: 'root' })
 export class SelfHostedBatchSyncService implements PersistedBatchSync {
   private readonly http = inject(HttpClient);

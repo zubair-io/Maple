@@ -122,8 +122,8 @@ function projectImportSummary(doc: ImportWithId): ImportSummaryView {
 }
 
 async function projectImport(doc: ImportWithId): Promise<ImportView> {
-  // `files` lives in the `import_files` collection now (split out of the
-  // import doc so a huge folder can't exceed MongoDB's 16 MiB doc limit).
+  // `files` lives in the `import_files` table now (split out of the
+  // import doc so a huge folder doesn't inflate a single row).
   //
   // While an Auto Import is still `scan_pending`, the worker hasn't resolved
   // (or is mid-insert of) the file rows — present an empty list rather than a

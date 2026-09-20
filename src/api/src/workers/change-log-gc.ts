@@ -4,7 +4,7 @@
  *
  * Problem (#3741):
  * asset_changes has no retention policy and dominated the database (176M rows,
- * 83% of all index bytes on prod MongoDB).
+ * 83% of all index bytes on the database).
  *
  * Why pruning is safe by design:
  * The cursor counter does not live in the journal. `asset_changes.cursor` is an

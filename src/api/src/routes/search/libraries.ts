@@ -2,24 +2,12 @@
  * The two library maps a search result's projection needs: id → root path, for
  * `abs_path`, and id → slug, for the `slug:relPath` address.
  *
- * ## Why this is not `indexer/libraries.cache.ts`
+ * ## Why this reads `folders` directly
  *
- * That module answers the same two questions and caches the answer for the
- * process lifetime, which is the right shape — folders change rarely and the
- * invalidation hooks already exist. It is also still a MongoDB reader at the
- * time of writing, and it is not this slice's file: roughly twenty callers
- * across the indexer, the workers and the job runner share it, so moving it
- * belongs to whoever owns `indexer/**` rather than to the search routes
- * (#3787). Until that lands, a search response must not be the thing that keeps
- * a Mongo connection alive — and it must not quietly answer with empty
- * `abs_path`s when there is no Mongo to reach, which is what the existing
- * `.catch(() => new Map())` around those calls would have done.
- *
- * So this reads `folders` from SQLite directly, uncached, exactly as
- * `repos/assets.read.ts`'s `loadLibraries` does and for the same reason: one
- * pooled round trip over a table with tens of rows in it, issued alongside the
- * queries that actually cost something. When the cache moves to SQLite this
- * file should collapse into a call to it.
+ * This reads `folders` from SQLite directly, uncached, exactly as
+ * `repos/assets.read.ts`'s `loadLibraries` does: one pooled round trip over a
+ * table with tens of rows in it, issued alongside the queries that actually
+ * cost something.
  */
 
 import { listLibraryRoots } from '../../db/repos/folders.repo.ts';

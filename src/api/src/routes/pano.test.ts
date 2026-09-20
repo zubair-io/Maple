@@ -1,8 +1,7 @@
 /**
  * routes/pano.ts integration tests (#1231).
  *
- * Uses a real MongoDB on :27077 (throwaway — never touches :27017).
- * Skip-passes when Mongo is unreachable (CI without services).
+ * Uses in-memory SQLite via LiveTestDatabase.
  *
  * A fake maple-cli shell script stands in for the real binary so tests
  * never need ML models. The fake:

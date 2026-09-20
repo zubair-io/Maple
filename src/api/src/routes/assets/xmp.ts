@@ -13,7 +13,7 @@
  * Mounted into `assetsRoutes` (see ./index.ts) which provides the
  * `/api/assets` prefix.
  *
- * Mongo access lives in `src/db/assets.repo.ts`.
+ * Database access lives in `src/db/assets.repo.ts`.
  *
  * ## Deprecation (slice 3 of #193)
  *

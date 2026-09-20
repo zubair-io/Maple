@@ -37,14 +37,14 @@ describe('TrashApiService', () => {
 
     // #2841 — this is the direct regression test for the bug: the caller
     // (`TrashService`) is responsible for resolving a grid `slug:relPath`
-    // address to a Mongo id BEFORE calling `deleteAsset`, but this method
+    // address to a server id BEFORE calling `deleteAsset`, but this method
     // still URL-encodes whatever id it's handed as defense in depth — a
-    // real Mongo ObjectId hex string never needs escaping, but nothing here
+    // real hex asset id string never needs escaping, but nothing here
     // should silently mis-route if some future caller ever passed a `/`
     // through unresolved.
     it('URL-encodes an id containing a slash into a single path segment', () => {
       svc.deleteAsset('507f1f77bcf86cd799439011', 'trash').subscribe();
-      // A real Mongo id never needs escaping — asserted here as the normal
+      // A real hex asset id never needs escaping — asserted here as the normal
       // case this method is actually exercised with in production.
       const plain = http.expectOne((r) => r.url === '/api/assets/507f1f77bcf86cd799439011');
       expect(plain.request.method).toBe('DELETE');

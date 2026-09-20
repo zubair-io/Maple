@@ -36,7 +36,7 @@ export interface SearchParams {
    * caption + OCR + people). Natural-language dates ("May 2023") and
    * person-name matching work with or without Meilisearch: NL dates are
    * parsed into `from`/`to` before the backend picks an engine, and people
-   * are folded into `search_blob`, which the Mongo `$text` fallback also
+   * are folded into `search_blob`, which the SQLite FTS5 fallback also
    * matches. When Meilisearch is configured it adds typo-tolerance and
    * semantic (vector) ranking on top. This is what the main search box
    * drives. */
@@ -93,7 +93,7 @@ export interface SearchParams {
   /** Vision activity (open vocab, exact match). */
   activity?: string;
   /** Multi-select subject tags. Sent as a comma-separated `subjects`
-   * param — Mongo does OR within the field, AND against other filters. */
+   * param — The server does OR within the field, AND against other filters. */
   subjects?: string[];
   /** Tri-state screenshot filter: `true` → screenshots only, `false` →
    * photographs only, `undefined` → both. */
