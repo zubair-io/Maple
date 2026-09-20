@@ -214,5 +214,3 @@ describe('seasonForMonth', () => {
     expect(seasonForMonth(1.5)).toBeNull();
   });
 });
-
-

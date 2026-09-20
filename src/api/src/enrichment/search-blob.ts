@@ -137,5 +137,3 @@ export function composeSearchBlob(input: ComposeSearchBlobInput): string {
 
   return [...tokens].sort().join(' ');
 }
-
-
