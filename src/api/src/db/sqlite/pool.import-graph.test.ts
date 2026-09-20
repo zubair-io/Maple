@@ -62,7 +62,7 @@ function show(paths: readonly string[]): string {
 
 describe('the clustering worker import graph', () => {
   test('reaches the pool, which is why the pool may not import a logger', async () => {
-    const worker = resolve(API_ROOT, 'src/db/sqlite/repos/people.cluster.worker.ts');
+    const worker = resolve(API_ROOT, 'src/db/repos/people.cluster.worker.ts');
     const trails = await reachableFrom(worker);
     const pool = resolve(API_ROOT, 'src/db/sqlite/pool.ts');
 
@@ -73,7 +73,7 @@ describe('the clustering worker import graph', () => {
   });
 
   test('pulls in no logger, transitively', async () => {
-    const worker = resolve(API_ROOT, 'src/db/sqlite/repos/people.cluster.worker.ts');
+    const worker = resolve(API_ROOT, 'src/db/repos/people.cluster.worker.ts');
     const trails = await reachableFrom(worker);
     const trail = trails.get(LOGGER);
 
