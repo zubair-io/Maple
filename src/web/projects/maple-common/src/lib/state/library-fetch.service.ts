@@ -3,7 +3,7 @@
 // Coordinates the store (data + id-maps), selection (cursor placement), and
 // cache (file handles + LRU priming) to bring assets into view from any of
 // the three backends (FS Access folder, Self-Hosted FS-walk, Self-Hosted
-// Mongo). Also owns the debounced sidecar write and the `.maple/index.json`
+// database). Also owns the debounced sidecar write and the `.maple/index.json`
 // debounced mirror.
 
 import { HttpErrorResponse } from '@angular/common/http';
@@ -691,7 +691,7 @@ export class LibraryFetch {
    *
    * Non-blocking by contract — the caller has already painted the grid from
    * the filesystem listing. The self-hosted grid is a `/api/fs/dir` walk, so
-   * a moved/new file is *already* visible; what the scan fixes is Mongo-side
+   * a moved/new file is *already* visible; what the scan fixes is server-side
    * (relink → stages resume → thumbnails/previews/apiId enrich). We therefore
    * re-pull the fs listing for the still-selected path on completion so the
    * freshly-relinked rows pick up their server-side ids/state.

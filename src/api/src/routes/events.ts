@@ -48,7 +48,7 @@ export interface StatusFrame {
   ts: number;
 }
 
-const LEGACY_STAGES = ['discover', 'hash', 'exif', 'thumb', 'ai', 'mongo'] as const;
+const LEGACY_STAGES = ['discover', 'hash', 'exif', 'thumb', 'ai'] as const;
 
 const FAST_POLL_MS = 250;
 const SLOW_POLL_MS = 2_000;
@@ -67,7 +67,7 @@ interface ChildStatus {
 
 /**
  * Synthesise a complete IndexerStatus snapshot from the supervisor's
- * in-process state. All six legacy stage keys (discover/hash/exif/thumb/ai/mongo)
+ * in-process state. All legacy stage keys (discover/hash/exif/thumb/ai)
  * are always populated so the Angular UI never sees missing keys.
  */
 async function fetchStatus(): Promise<ChildStatus | null> {

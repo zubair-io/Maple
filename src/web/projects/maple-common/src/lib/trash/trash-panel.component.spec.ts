@@ -50,10 +50,10 @@ describe('TrashPanelComponent', () => {
       deleteAsset: deleteAssetSpy,
     };
     const fakeTrashService = { notifyLibraryMutated: notifyLibraryMutatedSpy };
-    // `libraryId` ('lib-1') is the registered library's Mongo id
+    // `libraryId` ('lib-1') is the registered library's server id
     // (`libraryIdForRootNode`) — deliberately DIFFERENT from its `slug`
     // ('photos', what `selectedSourceId`/folder ids actually use) so a test
-    // that compares the Mongo id directly against `selectedSourceId` would
+    // that compares the server id directly against `selectedSourceId` would
     // fail to match, the same way the real bug did (#2949).
     const fakeLibraryState = {
       selectedSourceId,

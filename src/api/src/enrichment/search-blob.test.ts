@@ -1,11 +1,10 @@
 /**
- * Pure-function tests for `composeSearchBlob` + the shape of the MongoDB
- * aggregation expression that the remaining MongoDB read path still builds.
+ * Pure-function tests for `composeSearchBlob`.
  * These tests cover only the pure logic.
  */
 
 import { describe, it, expect } from 'bun:test';
-import { composeSearchBlob, searchBlobUpdateExpression, seasonForMonth } from './search-blob.ts';
+import { composeSearchBlob, seasonForMonth } from './search-blob.ts';
 import type { Place } from '../db/schema.ts';
 
 function placeWith(blob: string): Place {
@@ -216,93 +215,4 @@ describe('seasonForMonth', () => {
   });
 });
 
-describe('searchBlobUpdateExpression', () => {
-  it('with no overrides, references all three field paths', () => {
-    const expr = searchBlobUpdateExpression();
-    const json = JSON.stringify(expr);
-    // Each source pulls from the row's current value.
-    expect(json).toContain('$place.search_blob');
-    expect(json).toContain('$description');
-    expect(json).toContain('$ocr_text');
-    // Pipeline shape: a $reduce whose input is a $sortArray over a $setUnion.
-    expect(expr).toHaveProperty('$reduce');
-    const reduce = (expr as { $reduce: Record<string, unknown> }).$reduce;
-    expect(reduce.initialValue).toBe('');
-    expect(reduce.input).toHaveProperty('$sortArray');
-    // Tokenisation must handle CRLF/LF/CR/tab — the OCR text frequently
-    // contains newlines, and Mongo `$split` only splits on the literal
-    // delimiter so the expression has to pre-normalise.
-    expect(json).toContain('\\r\\n');
-    expect(json).toContain('\\n');
-    expect(json).toContain('\\t');
-  });
 
-  it('supplied placeSearchBlob override replaces the field path', () => {
-    const expr = searchBlobUpdateExpression({
-      placeSearchBlob: 'custom one two',
-    });
-    const json = JSON.stringify(expr);
-    // Place override is in-line; the path is no longer referenced.
-    expect(json).toContain('custom one two');
-    expect(json).not.toContain('$place.search_blob');
-    // Other two stay as field references.
-    expect(json).toContain('$description');
-    expect(json).toContain('$ocr_text');
-  });
-
-  it('supplied description and ocrText overrides replace those paths', () => {
-    const expr = searchBlobUpdateExpression({
-      description: 'a cat',
-      ocrText: 'TEXT 1',
-    });
-    const json = JSON.stringify(expr);
-    expect(json).toContain('a cat');
-    expect(json).toContain('TEXT 1');
-    expect(json).not.toContain('$description');
-    expect(json).not.toContain('$ocr_text');
-    // Place falls back to field reference.
-    expect(json).toContain('$place.search_blob');
-  });
-
-  it("null override means 'no contribution from this source'", () => {
-    const expr = searchBlobUpdateExpression({
-      ocrText: null,
-      description: null,
-      placeSearchBlob: null,
-    });
-    const json = JSON.stringify(expr);
-    // Field paths must not be referenced — every source is overridden.
-    expect(json).not.toContain('$place.search_blob');
-    expect(json).not.toContain('$description');
-    expect(json).not.toContain('$ocr_text');
-  });
-
-  it('people override folds tokenised names into the union', () => {
-    const expr = searchBlobUpdateExpression({
-      people: ['Greyson', 'Maya Smith'],
-    });
-    const json = JSON.stringify(expr);
-    // Names are tokenised + lowercased and unioned in as a literal array.
-    expect(json).toContain('greyson');
-    expect(json).toContain('maya');
-    expect(json).toContain('smith');
-  });
-
-  // #2992: the aggregation form reads $exif.captured_month directly — there
-  // is no override for it, unlike place/description/ocrText, since no
-  // caller of this expression is ever mid-write on captured_month itself.
-  it('references $exif.captured_month and every season word, with no override', () => {
-    const expr = searchBlobUpdateExpression();
-    const json = JSON.stringify(expr);
-    expect(json).toContain('$exif.captured_month');
-    expect(json).toContain('winter');
-    expect(json).toContain('spring');
-    expect(json).toContain('summer');
-    expect(json).toContain('fall');
-  });
-
-  it('still references $exif.captured_month when other sources are overridden', () => {
-    const expr = searchBlobUpdateExpression({ description: 'a cat', ocrText: null });
-    expect(JSON.stringify(expr)).toContain('$exif.captured_month');
-  });
-});

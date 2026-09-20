@@ -17,14 +17,13 @@ describe("events route — status frame shape", () => {
       type: "status",
       status: {
         paused: false,
-        pools: { discover: 1, hash: 2, exif: 1, thumb: 2, ai: 1, mongo: 2 },
+        pools: { discover: 1, hash: 2, exif: 1, thumb: 2, ai: 1 },
         channels: {
           discover: { depth: 0, capacity: 64 },
           hash: { depth: 1, capacity: 64 },
           exif: { depth: 2, capacity: 64 },
           thumb: { depth: 0, capacity: 64 },
           ai: { depth: 0, capacity: 64 },
-          mongo: { depth: 0, capacity: 64 },
         },
         stages: {
           discover: { inFlight: 0, errors: 0, deadLetter: 0 },
@@ -32,7 +31,6 @@ describe("events route — status frame shape", () => {
           exif: { inFlight: 0, errors: 0, deadLetter: 0 },
           thumb: { inFlight: 0, errors: 0, deadLetter: 0 },
           ai: { inFlight: 0, errors: 0, deadLetter: 0 },
-          mongo: { inFlight: 0, errors: 0, deadLetter: 0 },
         },
       },
       ts: Date.now(),

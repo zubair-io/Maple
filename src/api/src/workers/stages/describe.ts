@@ -53,7 +53,7 @@ import {
 } from '../../enrichment/enrichment-config.repo.ts';
 import { composeDescribePrompt } from '../../enrichment/describe-prompts.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
-import { loadWorkerConfigSafe } from '../worker-config.repo.ts';
+import { loadWorkerConfigSafe } from '../../db/repos/worker-config.repo.ts';
 import {
   parseVisionJson,
   strippedRawFor,

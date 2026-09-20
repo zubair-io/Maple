@@ -7,7 +7,7 @@
  *   2. Reads existing sidecar (creates a stub when none exists).
  *   3. Merges the metadata fields into the sidecar via `mergeMetadataIntoXmp`.
  *   4. Writes the merged sidecar atomically (temp-file + rename).
- *   5. Marks the asset's `sidecar-metadata-index` stage dirty in MongoDB so the
+ *   5. Marks the asset's `sidecar-metadata-index` stage dirty in the database so the
  *      polled stage reconciles `metadata_override` on the next tick.
  *
  * Partial failures are reported per-asset; successes are not rolled back.

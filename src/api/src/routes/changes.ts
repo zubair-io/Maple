@@ -66,7 +66,7 @@ function asPayload(r: AssetChangeWithId): ChangePayload {
     kind: r.kind,
     abs_path: r.abs_path,
     // Old asset_changes rows pre-date this field; default to null
-    // rather than letting Mongo's implicit `undefined` flow through
+    // rather than letting an implicit `undefined` flow through
     // JSON.stringify (which would omit the key entirely).
     relative_path: r.relative_path ?? null,
     at: r.at.toISOString(),
@@ -244,7 +244,7 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
       // Validate `limit` rather than coercing NaN through Math.max — a
       // garbage value like `?limit=abc` would otherwise produce NaN ->
       // Math.max(NaN, 1) === NaN -> Math.min(NaN, 1000) === NaN, and the
-      // Mongo driver throws a 500 deep inside the query.
+      // database query throws a 500 deep inside the query.
       const rawLimit = query.limit;
       let limit = 100;
       if (rawLimit !== undefined) {

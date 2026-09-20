@@ -162,10 +162,10 @@ export class TrashPanelComponent implements OnInit {
    * off-screen folder would be a wasted round trip, so this only fires when
    * the affected folder is the one actually visible.
    *
-   * `libraryId()` is the registered library's Mongo id (`libraryIdForRootNode`
+   * `libraryId()` is the registered library's server id (`libraryIdForRootNode`
    * — see `trash-node.ts`), NOT the `slug` that `selectedSourceId`/folder-tree
    * ids use. Resolve the real slug via `registeredFolders()` before building
-   * `slug:relPath` addresses to compare — comparing against the raw Mongo id
+   * `slug:relPath` addresses to compare — comparing against the raw server id
    * would never match. */
   private refreshVisibleFolderAfterRestore(originalRelativePaths: string[]): void {
     const openId = this.libraryState.selectedSourceId();

@@ -49,7 +49,7 @@ export const PRESET_NAME_MAX = 120;
 export type PresetFields = Record<string, number | string | boolean>;
 
 export interface Preset {
-  /** Stable identity — Mongo hex id (self-hosted), generated UUID (hosted),
+  /** Stable identity — server hex id (self-hosted), generated UUID (hosted),
    *  or the bundled `builtin-*` id. */
   id: string;
   schemaVersion: number;

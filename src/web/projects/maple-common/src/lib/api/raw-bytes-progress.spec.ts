@@ -1,4 +1,4 @@
-// Verifies the download-progress surface on the Self-Hosted Mongo-id byte
+// Verifies the download-progress surface on the Self-Hosted server-id byte
 // fetch (bun-api `/api/assets/:id/raw`) without breaking the existing
 // buffer-only emission contract that `firstValueFrom` callers rely on. The
 // address-keyed twin lives in `HttpLibrarySource.imageBlob` (`/api/image`);

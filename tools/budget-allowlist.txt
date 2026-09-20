@@ -38,8 +38,7 @@ src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts            
 src/web/projects/maple-common/src/lib/components/timeline-view/timeline-view.component.ts  # 760 — timeline view
 
 # --- API (Bun + Elysia) ---
-src/api/src/db/client.ts                                                          # 997  — Mongo client / repo wiring
-src/api/src/db/schema.ts                                                          # 809  — DTO + collection schema
+src/api/src/db/schema.ts                                                          # 809  — DTO + table schema
 src/api/src/routes/folders.ts                                                     # 790  — folders REST routes
 src/api/src/fs/browse.ts                                                          # 635  — filesystem browse adapter
 src/api/src/workers/discover/index.ts                                             # 622  — discover producer; split tracked in #253

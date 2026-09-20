@@ -131,7 +131,7 @@ describe('SearchPageComponent (Self-Hosted) ?q wiring', () => {
     const hit = {
       id: 'fs:/srv/photos/a.jpg',
       address: 'photos:a.jpg',
-      _id: 'mongo1',
+      _id: 'server1',
       folder_id: 'f1',
       abs_path: '/srv/photos/a.jpg',
       filename: 'a.jpg',

@@ -32,7 +32,7 @@ export interface StageRegistryEntry {
   getInFlight: () => number;
   getThroughput: () => number;
   getPaused: () => boolean;
-  /** Re-read worker_config from Mongo and apply to the live config. */
+  /** Re-read worker_config from the database and apply to the live config. */
   reloadConfig: () => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;

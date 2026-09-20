@@ -13,7 +13,7 @@ import {
   publicAiConnections,
   validateAiConnections,
 } from '../enrichment/ai-connections.ts';
-import { loadWorkerConfigSafe } from '../workers/worker-config.repo.ts';
+import { loadWorkerConfigSafe } from '../db/repos/worker-config.repo.ts';
 import { loadGeneratedSearchConfig } from '../workers/generated-search/config.repo.ts';
 import { listProviderModels, handleAiTestConnection } from '../enrichment/ai-providers.service.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';

@@ -303,7 +303,7 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
 
     // `fs:` ids contain ':' but are not MapleAddresses. The FS-walk byte
     // branch behind them (`/api/fs/raw`) was retired in #1325, so with no
-    // Mongo api id the read rejects — it must never be parsed as an address
+    // server api id the read rejects — it must never be parsed as an address
     // and sent to `/api/image`.
     await expect(svc.bytesForAsset('fs:/srv/a.dng' as AssetId)).rejects.toThrow(/no api id/);
     expect(imageBlob).not.toHaveBeenCalled();

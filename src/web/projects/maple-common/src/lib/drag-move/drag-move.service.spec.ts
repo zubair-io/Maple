@@ -48,7 +48,7 @@ const FOLDER_TRIPS: GridFolderItem = {
 };
 
 const REGISTERED_LIBRARY = {
-  id: 'lib-mongo-id',
+  id: 'lib-server-id',
   path: '/photos',
   slug: 'library',
   label: 'Library',
@@ -311,7 +311,7 @@ describe('DragMoveService', () => {
     );
     service.beginMove([], SOURCE_FOLDER_ID, TARGET_NODE, 'move', [FOLDER_TRIPS.id]);
 
-    expect(folderMoveSpy).toHaveBeenCalledWith('lib-mongo-id', '2026/Trips', '2026/France/Trips');
+    expect(folderMoveSpy).toHaveBeenCalledWith('lib-server-id', '2026/Trips', '2026/France/Trips');
     expect(service.resultSummary()).toEqual({
       mode: 'move',
       targetLabel: 'France',

@@ -55,9 +55,9 @@ async function attemptStart(
     const idx = Math.min(attempt, RETRY_BACKOFF_MS.length - 1);
     const delay = RETRY_BACKOFF_MS[idx]!;
     // Pass the raw `err` to pino so its standard serializer expands the
-    // Error object (stack trace + driver-specific fields like MongoDB's
-    // error codes survive). Restores the fix from #25 — a stringified
-    // `err.message` strips structured fields that triage relies on.
+    // Error object (stack trace + driver-specific fields survive). Restores
+    // the fix from #25 — a stringified `err.message` strips structured
+    // fields that triage relies on.
     log.error(
       { stage: name, err, attempt, retryInMs: delay },
       `${name} stage failed to start — retrying`,
