@@ -26,12 +26,12 @@ export function backupRunning(): boolean {
   return running !== null;
 }
 
-export async function backupStorage() {
+export async function backupConfiguration() {
   const { policy } = await loadDbBackupSettings();
   const config = resolveCloudflareConfig(await loadCloudflareConfig());
   if (!hasCloudflareCredentials(config) || !policy.bucket)
     throw new Error('Save R2 credentials and a database backup bucket first');
-  return { policy, storage: new BackupR2({ ...config, bucket: policy.bucket }) };
+  return { policy, config: { ...config, bucket: policy.bucket } };
 }
 
 async function runBackup(): Promise<void> {
@@ -40,7 +40,8 @@ async function runBackup(): Promise<void> {
   try {
     await saveDbBackupStatus({ state: 'running', started_at });
     directory = await mkdtemp(join(tmpdir(), 'maple-db-backup-'));
-    const { policy, storage } = await backupStorage();
+    const { policy, config } = await backupConfiguration();
+    const storage = new BackupR2(config);
     const path = join(directory, 'snapshot.db');
     const info = await createSnapshot(sqlitePool().path, path);
     const key = computeBackupKey(info.schema);
