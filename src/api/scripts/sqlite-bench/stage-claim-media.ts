@@ -34,10 +34,7 @@ import {
   STAGE_STATE_MEDIA_NARROWING,
   STAGE_STATE_VIDEO_NARROWING,
 } from '../../src/db/sqlite/ddl/stage-state.ts';
-import {
-  stagePendingCountSql,
-  stageReadyCountSql,
-} from '../../src/db/repos/stage-backlog.sql.ts';
+import { stagePendingCountSql, stageReadyCountSql } from '../../src/db/repos/stage-backlog.sql.ts';
 import { stageClaimCandidatesSql } from '../../src/db/repos/stage-runtime.sql.ts';
 import {
   benchDbPath,

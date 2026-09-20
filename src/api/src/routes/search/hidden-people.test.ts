@@ -16,14 +16,22 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { buildSearchWhere } from '../../db/repos/search.where.ts';
+import { buildSearchWhere, searchWhereSql } from '../../db/repos/search.where.ts';
 import type { SearchQuery } from './query.ts';
 
-/** The clauses a query compiles to, joined so a case can look for a fragment. */
+/**
+ * The `WHERE` a query compiles to, so a case can look for a fragment.
+ *
+ * Composed through `searchWhereSql` rather than by joining `where.clauses`,
+ * because the always-on visibility filter is not a clause: #3768 lifted it to
+ * the tri-state `where.hidden` field so a facet index can carry `asset_hidden`
+ * as a column. `searchWhereSql` is what every statement calls, so asserting
+ * against it tests the predicate that actually runs.
+ */
 function clausesFor(q: SearchQuery, excludedIds: string[] = []): string {
   const result = buildSearchWhere(q, excludedIds);
   if ('error' in result) throw new Error(`unexpected error: ${result.error}`);
-  return result.clauses.join(' AND ');
+  return searchWhereSql(result).sql;
 }
 
 /** The bound values, in order, for a case that cares which ids were bound. */
