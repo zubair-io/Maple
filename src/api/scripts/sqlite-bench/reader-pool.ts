@@ -32,7 +32,7 @@
 import { availableParallelism } from 'node:os';
 import { SqlitePool } from '../../src/db/sqlite/pool.ts';
 import { defaultReaderCount, readerCountFromEnvironment } from '../../src/db/sqlite/protocol.ts';
-import { stagePendingCountSql } from '../../src/db/sqlite/repos/stage-runtime.sql.ts';
+import { stagePendingCountSql } from '../../src/db/repos/stage-runtime.sql.ts';
 import { BENCH_DIR, buildLibrary, removeDatabase, sizeArgument } from './bench-db.ts';
 
 const DEFAULT_ASSETS = 120_000;

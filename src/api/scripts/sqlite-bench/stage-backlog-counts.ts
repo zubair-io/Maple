@@ -41,10 +41,7 @@
 import { Database } from 'bun:sqlite';
 import { LIVE_ASSET_PREDICATE } from '../../src/db/sqlite/ddl/assets.ts';
 import { SCHEMA_PRAGMAS } from '../../src/db/sqlite/ddl/index.ts';
-import {
-  stagePendingCountSql,
-  stageReadyCountSql,
-} from '../../src/db/sqlite/repos/stage-backlog.sql.ts';
+import { stagePendingCountSql, stageReadyCountSql } from '../../src/db/repos/stage-backlog.sql.ts';
 import { resolveStageDeps } from '../../src/workers/stage-config.ts';
 import { stageManifest } from '../../src/workers/stages/manifest.ts';
 import {

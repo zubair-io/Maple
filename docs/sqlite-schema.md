@@ -817,21 +817,77 @@ magnitude faster.
 ### The same facets through the ported route (#3750, #3768)
 
 The table above times the queries the schema was designed around. These time the
-statements `db/repos/search.sql.ts` actually generates for an unfiltered
-`GET /api/search/facets`, which differ in one way that turned out to matter: they
-all carry the always-on `hidden = 0` filter. At 335,377 assets:
+statements `db/repos/search.facets.sql.ts` actually generates for an
+unfiltered `GET /api/search/facets`, which differ in one way that turned out to
+matter: they all carry the always-on `hidden = 0` filter. Median of five at
+335,377 generated assets, from
 
-The script that produced these numbers, `scripts/sqlite-bench/search-compare.ts`,
-went with the rest of the MongoDB comparison harness (#3785). A SQLite-only
-replacement is tracked by #3807; until it lands these figures cannot be
-re-measured, and a plan regression on any of the six rewritten facets would go
-unnoticed. `scripts/sqlite-bench/run.ts` still covers the five older facets.
+```bash
+cd src/api && bun scripts/sqlite-bench/search-facets-bench.ts 335377
+```
 
-The first seven are the ones every index in this schema was built for, and they
-are where its case lies. The last six each have to leave the `assets` row to
-answer, and none of them has an index that covers what it needs; the schema
-already flagged the scene, activity and ISO cases as unindexed, and the ported
-measurement puts numbers on them. Closing that gap is #3768.
+which prints the plan beside each timing, because a facet's cost is entirely a
+question of which index it reads:
+
+| facet                   | before   | after   | reads now                         |
+| ----------------------- | -------- | ------- | --------------------------------- |
+| total                   | 6.1 ms   | 6.3 ms  | `assets_live`                     |
+| camera make + model     | 16.3 ms  | 17.4 ms | `assets_facet_camera`             |
+| lens                    | 14.0 ms  | 15.9 ms | `assets_facet_lens`               |
+| place locality + region | 17.3 ms  | 17.2 ms | `assets_facet_place_label`        |
+| screenshot              | 9.3 ms   | 9.7 ms  | `assets_facet_screenshot`         |
+| capture range           | 21.0 ms  | 22.1 ms | `assets_live_captured`            |
+| grid page, 200 rows     | 0.15 ms  | 0.14 ms | `assets_live_captured`            |
+| **ISO range**           | 256 ms   | 12.1 ms | `assets_facet_iso`                |
+| **extensions**          | 465 ms   | 16.0 ms | `asset_locations_facet_extension` |
+| **scene type**          | 810 ms   | 13.5 ms | `asset_detail_scene_type`         |
+| **activity**            | 706 ms   | 12.2 ms | `asset_detail_activity`           |
+| **people**              | 643 ms   | 29.9 ms | `faces_facet_person`              |
+| **subjects**            | 1,193 ms | 37.0 ms | `asset_subjects_facet`            |
+
+The route waits for the slowest of the twelve, so it costs 37 ms rather than
+1.2 s — and the pool, which has two reader threads, now does about 210 ms of
+work per faceted search instead of about 4 s. That second number is the one
+that mattered: with two readers, twelve aggregations at up to a second each is
+enough to build a queue on its own.
+
+The six in bold are the ones the mirrored facet state fixed; the argument and
+the storage it costs are in "The mirrored facet state" above. The first seven
+rows are unchanged, which is the point of listing them — every one of them is
+within run-to-run noise of where it was.
+
+**A filtered search still joins**, because a camera, a place, a date or a
+person is a question only `assets` can answer, and the mirror does not help
+with it. Those statements keep the shape they had, with `assets` pinned as the
+outer loop by `CROSS JOIN`, and none of them is slower than before. Measured
+with `rating >= 4`, the worst kind of residual — one no index can serve, so the
+live set has to be walked whatever the plan — with both statements timed in one
+run against one database, which is the only way the two columns can be compared
+at all:
+
+| facet         | before | after  |
+| ------------- | ------ | ------ |
+| extensions    | 151 ms | 155 ms |
+| ISO range     | 136 ms | 135 ms |
+| scene type    | 150 ms | 150 ms |
+| activity      | 151 ms | 149 ms |
+| subjects      | 177 ms | 147 ms |
+| people        | 660 ms | 145 ms |
+| capture range | 548 ms | 148 ms |
+
+Four of them are unchanged, and about 150 ms is what walking the live set costs
+— the residual sets that floor and nothing in this ticket can lower it. Three
+improve. People was led from `faces`, so it probed `assets` once per assigned
+face rather than the other way round. The capture range named
+`assets_live_captured` on every request including filtered ones, which made the
+statement walk the whole live set in the index's order and fetch each row for
+the residual; both range facets now name their index only when the statement
+can be answered from it alone.
+
+A caution about reading any of these against a figure taken on another day:
+the same filtered set measured 25% slower across every row, including one whose
+plan this ticket does not touch, on a machine that had just run the test suite.
+Two numbers are comparable when they come out of the same run.
 
 ## Reproducing the measurements
 
@@ -839,6 +895,9 @@ measurement puts numbers on them. Closing that gap is #3768.
 cd src/api
 bun scripts/sqlite-bench/run.ts                 # 335k, 600k and 1M assets
 bun scripts/sqlite-bench/run.ts 335377 --keep   # one size, leave the file behind
+
+# The ported search and facet queries (#3750, #3768, #3807)
+bun scripts/sqlite-bench/search-facets-bench.ts 335377
 
 # Stage-claim round trips and the media-narrowed claim
 bun scripts/sqlite-bench/stage-claim-roundtrip.ts
