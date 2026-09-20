@@ -33,6 +33,7 @@ import {
   MuiCheckboxComponent,
   MuiInputComponent,
 } from '@maple-common';
+import { DbBackupComponent } from './db-backup/db-backup.component';
 import { SettingsShellComponent } from '../settings-shell.component';
 
 type SaveState =
@@ -52,6 +53,7 @@ type TestState =
   standalone: true,
   imports: [
     RouterLink,
+    DbBackupComponent,
     SettingsShellComponent,
     MuiButtonComponent,
     MuiCheckboxComponent,
