@@ -2,29 +2,30 @@
  * The two library maps a search result's projection needs: id → root path, for
  * `abs_path`, and id → slug, for the `slug:relPath` address.
  *
- * ## Why this reads `folders` directly
+ * ## What is left here, and why it is not nothing (#3810)
  *
- * This reads `folders` from SQLite directly, uncached, exactly as
- * `repos/assets.read.ts`'s `loadLibraries` does: one pooled round trip over a
- * table with tens of rows in it, issued alongside the queries that actually
- * cost something.
+ * `indexer/libraries.cache.ts` answers both questions and caches the answer for
+ * the process lifetime, which every other `fileinfo[]` resolver in the server
+ * already uses. This module used to read `folders` itself, because that cache
+ * was a MongoDB reader and a search response must not have been the thing
+ * keeping a Mongo connection alive. It is not one any more, so the duplicate
+ * read is gone and what remains is the one thing the cache does not do:
  *
- * ## Why this module still exists at all (#3810)
+ * **Failing soft.** `loadCache()` lets a database failure throw. The projection
+ * contract is the opposite — `abs_path` resolves to `''`, `address` to `null`,
+ * and every caller tolerates both, because a search that returns its rows with
+ * unresolved paths is worth more than a 500. The `try/catch` below is that
+ * contract, and it stays *here* rather than inside the cache on purpose: the
+ * cache assigns `cached` only on success, so a transient failure it swallowed
+ * would be memoised as an empty map for the life of the process. Failing out to
+ * this catch leaves the cache cold and the next request re-reads.
  *
- * `indexer/libraries.cache.ts` answers the same two questions and caches the
- * answer for the process lifetime, which is the better shape — folders change
- * rarely and the invalidation hooks already exist. It used to be a MongoDB
- * reader, which is the only reason this file was written separately; it is not
- * any more, so the collapse is owed. It is owed rather than done because three
- * behaviours differ and each needs a decision: the `try/catch` below degrades
- * to empty maps where the cache would let a database failure become a 500; the
- * cache can serve a stale root if any folder write forgets to invalidate it,
- * where an uncached read cannot; and the `slug !== ''` filter below has no
- * counterpart there. #3810 carries all three. Do not collapse this by
- * substitution without reading it.
+ * The `slug !== ''` filter this module used to apply is gone with the read.
+ * `slug` is `NOT NULL UNIQUE` (`db/sqlite/ddl/library.ts`), so it only ever
+ * excluded a value `registerFolder` does not produce.
  */
 
-import { listLibraryRoots } from '../../db/repos/folders.repo.ts';
+import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 
 /** Library id (hex) → root path, and library id (hex) → slug. */
 export interface LibraryMaps {
@@ -33,28 +34,22 @@ export interface LibraryMaps {
 }
 
 /**
- * Both maps from one read.
+ * Both maps, from the shared cache, with a database failure degraded to empty
+ * maps rather than a 500.
  *
- * A failure degrades to empty maps rather than failing the request, which is
- * the contract the projection already has: `abs_path` resolves to `''` and
- * `address` to `null`, and every caller tolerates both. A search that returns
- * its rows with unresolved paths is worth more than a 500.
- *
- * Rows with no slug contribute to `libs` and not to `idToSlug`, so an
- * unregistered library still resolves a path while its assets carry no
- * address — the same split the cache draws.
+ * Awaited in sequence rather than with `Promise.all`, which looks like a missed
+ * parallelisation and is not: both calls go through the same `loadCache()`, and
+ * that function memoises the *result*, not the in-flight read. Two concurrent
+ * misses issue two reads of `folders`; awaiting the first means the second is
+ * served from memory. Concurrent cold callers can still double-read — that is
+ * the cache's behaviour and predates this module, over a table with tens of
+ * rows in it.
  */
 export async function libraryMaps(): Promise<LibraryMaps> {
   try {
-    const roots = await listLibraryRoots();
-    return {
-      libs: new Map(roots.map((root) => [root.id.toHexString(), root.path] as const)),
-      idToSlug: new Map(
-        roots
-          .filter((root) => root.slug !== '')
-          .map((root) => [root.id.toHexString(), root.slug] as const),
-      ),
-    };
+    const libs = await loadLibraryRoots();
+    const idToSlug = await loadLibraryIdToSlug();
+    return { libs, idToSlug };
   } catch {
     return { libs: new Map(), idToSlug: new Map() };
   }

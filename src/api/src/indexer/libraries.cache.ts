@@ -11,6 +11,19 @@
  * the first read after invalidation. There is no TTL — clients that need
  * fresh data after mutating folders must call `invalidateLibraryRoots()`.
  *
+ * That rule currently costs nothing, and it is worth knowing why before
+ * changing the table. Everything cached here — `path`, `slug`, `label` — is
+ * written once, by `registerFolder`, and `routes/folders.ts` invalidates right
+ * after that insert. The only other writers touch `last_scan` and `mirrors`,
+ * neither of which is cached, and there is no unregister or rename path at all.
+ * So nothing that is cached can change under the cache today.
+ *
+ * Adding one changes that. A folder delete, or a rename of `path`/`slug`, or
+ * the `label` edit the DDL's "free to change" comment anticipates, each owes an
+ * `invalidateLibraryRoots()` call — and the blast radius is wider than it looks
+ * since #3810, because search result projection reads its library maps through
+ * here (`routes/search/libraries.ts`) rather than querying `folders` itself.
+ *
  * Extended for M1 unified addressing: the same single DB read also builds a
  * slug → { libraryId, root, label } map so `resolveAddress` can resolve a
  * slug to a library root with zero additional DB round-trips.

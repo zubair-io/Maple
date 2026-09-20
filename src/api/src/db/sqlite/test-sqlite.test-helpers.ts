@@ -35,6 +35,7 @@ import { join } from 'node:path';
 import { SCHEMA_PRAGMAS } from './ddl/index.ts';
 import { fromBunSqlite, runMigrations, type MigrationDb } from './migrate.ts';
 import { ALL_MIGRATIONS } from './migrations/index.ts';
+import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { setSqliteHandleForTests } from './index.ts';
 import { newObjectIdHex } from '../object-id.ts';
 // `protocol.ts` is where `SqlValue` is declared; `migrate.ts` re-exports it so
@@ -409,11 +410,21 @@ export async function createLiveTestDatabase(
   const database = await createTestDatabase(storage);
   const handle = testSqliteDb(database.db);
   const previous = setSqliteHandleForTests(handle);
+  // Swapping the process handle swaps the data underneath every process-wide
+  // cache built from it, and `libraries.cache.ts` is one — it holds `folders`
+  // for the life of the process and only clears on an explicit call. A suite
+  // that seeds folders with `insertFolder` never goes through `registerFolder`,
+  // so nothing would clear a map left over from the previous database, and the
+  // search projection would resolve `abs_path` to `''` against a library it
+  // cannot see. Cleared on the way in and on the way out, because the handle
+  // this installs is wrong for the next test either way.
+  invalidateLibraryRoots();
   let restored = false;
   const close = (): void => {
     if (!restored) {
       restored = true;
       setSqliteHandleForTests(previous);
+      invalidateLibraryRoots();
     }
     database.close();
   };
