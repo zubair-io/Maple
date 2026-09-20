@@ -12,80 +12,84 @@
 // just repeats that dance once per connected server instead of once for a
 // single picked library.
 
-import SwiftUI
-import OSLog
 import MapleCore
+import OSLog
+import SwiftUI
 
-private let allSourcesTimelineOpenLog = Logger(subsystem: "app.justmaple.aperture", category: "AllSourcesTimeline.Open")
+private let allSourcesTimelineOpenLog = Logger(
+  subsystem: "app.justmaple.aperture", category: "AllSourcesTimeline.Open")
 
 @MainActor
 extension AppShell {
-    /// Sidebar TIMELINE row action. Selects `.allSources` immediately (so
-    /// the row highlights and `librarySelection`'s `onChange` tears down
-    /// whatever was previously showing), then asynchronously resolves every
-    /// connected server's libraries and stands up the aggregating VM.
-    @MainActor
-    func openAllSourcesTimeline() {
-        librarySelection = .allSources
-        currentRootBookmark = nil
-        tearDownSearch()
-        browseVM.clear()
-        libraryTitle = "Timeline"
-        mode = .browse
+  /// Sidebar TIMELINE row action. Selects `.allSources` immediately (so
+  /// the row highlights and `librarySelection`'s `onChange` tears down
+  /// whatever was previously showing), then asynchronously resolves every
+  /// connected server's libraries and stands up the aggregating VM.
+  @MainActor
+  func openAllSourcesTimeline() {
+    guard FeatureFlags.isMapleCloudEnabled else { return }
+    librarySelection = .allSources
+    currentRootBookmark = nil
+    tearDownSearch()
+    browseVM.clear()
+    libraryTitle = "Timeline"
+    mode = .browse
 
-        Task { @MainActor in
-            var sources: [AllSourcesTimelineViewModel.ServerSource] = []
-            for serverURL in CloudServerRegistry.shared.servers {
-                // Reuses the sidebar's own folders loader — same sign-in
-                // bootstrap + offline-cache-fallback dance, so a server the
-                // user hasn't gotten around to signing back into yet is
-                // skipped rather than stalling the whole Timeline open.
-                let folders = await loadCloudFoldersFor(serverURL)
-                guard !folders.isEmpty else { continue }
-                let httpClient = makeAuthenticatedHTTPClient(server: serverURL)
-                let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverURL)
-                sources.append(AllSourcesTimelineViewModel.ServerSource(
-                    server: serverURL,
-                    libraryIDs: folders.map(\.id),
-                    searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient),
-                    thumbClient: CloudThumbClient(server: effectiveServer, httpClient: httpClient)
-                ))
-            }
+    Task { @MainActor in
+      var sources: [AllSourcesTimelineViewModel.ServerSource] = []
+      for serverURL in CloudServerRegistry.shared.servers {
+        // Reuses the sidebar's own folders loader — same sign-in
+        // bootstrap + offline-cache-fallback dance, so a server the
+        // user hasn't gotten around to signing back into yet is
+        // skipped rather than stalling the whole Timeline open.
+        let folders = await loadCloudFoldersFor(serverURL)
+        guard !folders.isEmpty else { continue }
+        let httpClient = makeAuthenticatedHTTPClient(server: serverURL)
+        let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverURL)
+        sources.append(
+          AllSourcesTimelineViewModel.ServerSource(
+            server: serverURL,
+            libraryIDs: folders.map(\.id),
+            searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient),
+            thumbClient: CloudThumbClient(server: effectiveServer, httpClient: httpClient)
+          ))
+      }
 
-            if sources.isEmpty {
-                allSourcesTimelineOpenLog.info("no signed-in server has any library — Timeline will show PhotoKit only, if authorized")
-            }
+      if sources.isEmpty {
+        allSourcesTimelineOpenLog.info(
+          "no signed-in server has any library — Timeline will show PhotoKit only, if authorized")
+      }
 
-            // PhotoKit half of the merge. Unlike the single-library Timeline
-            // (`loadCloudLibrary`'s `.timeline` branch), this doesn't gate on
-            // `BackupSettings.isConfigured` — that setting names ONE library
-            // as the backup destination, which has no meaning for a view
-            // that already spans every library. Authorization is the only
-            // gate that still makes sense here.
-            let photoKitMerge: PhotoKitMergeAdapter? = {
-                let status = PhotoKitLibrary.authorizationStatus()
-                guard status == .authorized || status == .limited else { return nil }
-                let adapter = PhotoKitMergeAdapter()
-                Task { await adapter.warmUp() }
-                return adapter
-            }()
+      // PhotoKit half of the merge. Unlike the single-library Timeline
+      // (`loadCloudLibrary`'s `.timeline` branch), this doesn't gate on
+      // `BackupSettings.isConfigured` — that setting names ONE library
+      // as the backup destination, which has no meaning for a view
+      // that already spans every library. Authorization is the only
+      // gate that still makes sense here.
+      let photoKitMerge: PhotoKitMergeAdapter? = {
+        let status = PhotoKitLibrary.authorizationStatus()
+        guard status == .authorized || status == .limited else { return nil }
+        let adapter = PhotoKitMergeAdapter()
+        Task { await adapter.warmUp() }
+        return adapter
+      }()
 
-            // Local saved-Folders half of the merge (#2274, Phase 2 of
-            // #2270). Unconditional — unlike PhotoKit there's no
-            // authorization gate; an empty `SavedFolderStore` just means
-            // `warmUp()` opens nothing and every bucket/assetsForMonth call
-            // returns empty, same as `photoKitMerge == nil` would.
-            let folderMerge = FolderMergeAdapter()
-            Task { await folderMerge.warmUp() }
+      // Local saved-Folders half of the merge (#2274, Phase 2 of
+      // #2270). Unconditional — unlike PhotoKit there's no
+      // authorization gate; an empty `SavedFolderStore` just means
+      // `warmUp()` opens nothing and every bucket/assetsForMonth call
+      // returns empty, same as `photoKitMerge == nil` would.
+      let folderMerge = FolderMergeAdapter()
+      Task { await folderMerge.warmUp() }
 
-            // The user may have navigated away while the above awaited
-            // (folders fetch, sign-in bootstrap) — don't clobber whatever
-            // they've since selected with a stale Timeline VM.
-            guard librarySelection == .allSources else { return }
-            allSourcesTimelineVM = AllSourcesTimelineViewModel(
-                sources: sources, photoKitMerge: photoKitMerge, folderMerge: folderMerge)
-            allSourcesTimelineThumbCache = CloudThumbCache()
-            pruneSessionsForNewAssetList()
-        }
+      // The user may have navigated away while the above awaited
+      // (folders fetch, sign-in bootstrap) — don't clobber whatever
+      // they've since selected with a stale Timeline VM.
+      guard librarySelection == .allSources else { return }
+      allSourcesTimelineVM = AllSourcesTimelineViewModel(
+        sources: sources, photoKitMerge: photoKitMerge, folderMerge: folderMerge)
+      allSourcesTimelineThumbCache = CloudThumbCache()
+      pruneSessionsForNewAssetList()
     }
+  }
 }
