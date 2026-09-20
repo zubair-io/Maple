@@ -97,8 +97,10 @@ describe('toSearchQuery — composed with the search where-builder', () => {
     expect(where.params).toContain(HIDDEN);
 
     // Hidden ASSETS are a separate, always-on filter — an ambient surface
-    // must not show either kind.
-    expect(where.clauses).toContain('assets.hidden = 0');
+    // must not show either kind. It rides on `where.hidden` rather than in
+    // `clauses` since #3768, so that a facet index can carry `asset_hidden`
+    // as a column of its own.
+    expect(where.hidden).toBe(0);
   });
 
   it('produces a month filter that survives into the query', () => {

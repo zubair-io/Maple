@@ -23,11 +23,11 @@ import { describe, expect, test } from 'bun:test';
 import type { Database } from 'bun:sqlite';
 import { createTestDatabase, insertFolder, run, testSqliteDb } from './test-sqlite.test-helpers.ts';
 import { FACET_STATE_RECOMPUTE_SQL } from './ddl/facet-state.ts';
-import { hideAssetsInFolder } from './repos/assets.folder-hidden.ts';
-import { searchFacets } from './repos/search.facets.ts';
-import { buildSearchWhere } from './repos/search.where.ts';
-import { seedSearchAsset } from './repos/search.test-helpers.ts';
-import { toObjectId } from './repos/values.ts';
+import { hideAssetsInFolder } from '../repos/assets.folder-hidden.ts';
+import { searchFacets } from '../repos/search.facets.ts';
+import { buildSearchWhere } from '../repos/search.where.ts';
+import { seedSearchAsset } from '../repos/search.test-helpers.ts';
+import { toObjectId } from '../repos/values.ts';
 import type { SearchQuery } from '../../routes/search/query-schema.ts';
 
 /** Every mirrored row, as `table -> asset -> "live/hidden"`. */

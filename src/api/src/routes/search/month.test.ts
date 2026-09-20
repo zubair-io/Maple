@@ -72,8 +72,12 @@ describe('month', () => {
   });
 
   it('composes with the hidden-image default', () => {
-    const { clauses } = whereFor({ month: '8' });
-    expect(clauses).toContain('assets.hidden = 0');
-    expect(clauses).toContain(MONTH_CLAUSE);
+    // The visibility filter is not a clause — #3768 lifted it to the tri-state
+    // `where.hidden` so a facet index can carry `asset_hidden` as a column —
+    // so the month predicate and the default are asserted in their own places.
+    const result = buildSearchWhere({ month: '8' }, []);
+    if ('error' in result) throw new Error(`unexpected error: ${result.error}`);
+    expect(result.hidden).toBe(0);
+    expect(result.clauses.join(' AND ')).toContain(MONTH_CLAUSE);
   });
 });
