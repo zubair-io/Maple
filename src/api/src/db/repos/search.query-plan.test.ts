@@ -151,7 +151,7 @@ describe('a location filter is a semi-join', () => {
       // assertion above only bites at scale; this one bites immediately if
       // someone rewrites a location filter as a join. The measurement behind
       // the rule — 50.18 ms against 0.07 ms — is reproduced by
-      // `scripts/sqlite-bench/search-compare.ts`.
+      // `scripts/sqlite-bench/search-facets-bench.ts`.
       void db;
       for (const query of [
         { libraryId: library.libraryId },
