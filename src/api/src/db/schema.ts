@@ -1299,9 +1299,13 @@ export interface ImportDoc {
   library_root: string;
   /**
    * LEGACY ONLY — the per-file entries used to live inline here. They now live
-   * one-doc-per-file in the `import_files` table,
-   * because a folder with tens of thousands of files blew past serialized
-   * size limits when stored in a single document.
+   * one row per file in the `import_files` table. The split was forced by
+   * MongoDB: a folder with tens of thousands of files serialized a single
+   * `imports` document past the hard 16 MiB document ceiling (and the BSON
+   * driver's 17 MiB buffer), which threw `RangeError [ERR_OUT_OF_RANGE]`
+   * mid-scan and failed the whole import. SQLite has no comparable per-row
+   * ceiling, so the shape survives on its own merits rather than on that
+   * limit — do not read it as a constraint the current store imposes.
    *
    * New imports never set this field; it is read (best-effort) only to keep
    * the detail view of pre-migration imports working. Do not write it.
@@ -1456,11 +1460,15 @@ export interface UploadSessionDoc {
   total_bytes: number;
   received_bytes: number;
   chunk_size: number;
-  /** Sessions older than 7d in "open" get GC'd by the TTL monitor. */
+  /** Sessions left "open" are swept once their `expires_at` has passed. */
   state: 'open' | 'completed' | 'abandoned';
-  /** TTL timestamp used to prune abandoned sessions older than 7d. */
+  /** When the session was opened. Not a pruning key — see `updated_at`. */
   created_at: Date;
-  /** Bumped on every chunk; same TTL semantics as `created_at`. */
+  /** Bumped on every chunk, and the row's `expires_at` column moves with it.
+   * That column, not this one, is what the sweep deletes by:
+   * `db/repos/auth.expiry.ts` runs `DELETE FROM upload_sessions WHERE
+   * expires_at < ?` against the `upload_sessions_expiry` index. `expires_at`
+   * is a column of the table but is not projected into this DTO. */
   updated_at: Date;
   /** Set on the final chunk; used for dedup against existing AssetDoc rows. */
   maple_id?: string;

@@ -215,10 +215,7 @@ describe('TrashService', () => {
       expect(getAssetDetailsByAddressSpy).toHaveBeenCalledWith(ASSET_A.id);
       expect(getAssetDetailsByAddressSpy).toHaveBeenCalledWith(ASSET_C_SUBFOLDER.id);
       expect(deleteAssetSpy).toHaveBeenCalledWith(API_ID_BY_ADDRESS[ASSET_A.id], 'trash');
-      expect(deleteAssetSpy).toHaveBeenCalledWith(
-        API_ID_BY_ADDRESS[ASSET_C_SUBFOLDER.id],
-        'trash',
-      );
+      expect(deleteAssetSpy).toHaveBeenCalledWith(API_ID_BY_ADDRESS[ASSET_C_SUBFOLDER.id], 'trash');
       // Never the raw, unresolved address — that's exactly what the server
       // 400/404'd on.
       expect(deleteAssetSpy).not.toHaveBeenCalledWith(ASSET_A.id, 'trash');
