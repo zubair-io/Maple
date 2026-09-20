@@ -227,17 +227,17 @@ facet, search, people, worker and backup call sites they serve.
 
 ### Browse, search and the grid
 
-| Call site                            | SQLite                                                                 | Index                                                    |
-| ------------------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------- |
-| `findListItems`                      | live predicate + optional `rating`, `has_xmp`, `captured_at` residuals | `assets_live_captured`                                   |
-| default search sort                  | ordered scan of `assets`, semi-join for the library                    | `assets_live_captured` + `asset_locations_primary_entry` |
-| `name` sort                          | `ORDER BY filename`                                                    | `asset_locations_filename`                               |
-| library scope                        | `EXISTS (… l.library_id = ?)`                                          | `asset_locations_library_live`                           |
-| free-text `q` on filename/path       | `LIKE` over `asset_locations`                                          | `asset_locations_filename` (prefix only)                 |
-| timeline subtree scope               | `l.path = ?` or `substr(l.path, 1, length(?)) = ?`                     | `UNIQUE(asset_id, ordinal)`, `path` a residual           |
-| `scope=people`                       | `EXISTS (SELECT 1 FROM faces …)`                                       | `faces_person` / `faces_unassigned`                      |
-| person filter                        | `EXISTS (… f.person_id IN (…))`                                        | `faces_person`                                           |
-| excluded people                      | `NOT EXISTS (…)`                                                       | `faces_person`                                           |
+| Call site                      | SQLite                                                                 | Index                                                    |
+| ------------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------- |
+| `findListItems`                | live predicate + optional `rating`, `has_xmp`, `captured_at` residuals | `assets_live_captured`                                   |
+| default search sort            | ordered scan of `assets`, semi-join for the library                    | `assets_live_captured` + `asset_locations_primary_entry` |
+| `name` sort                    | `ORDER BY filename`                                                    | `asset_locations_filename`                               |
+| library scope                  | `EXISTS (… l.library_id = ?)`                                          | `asset_locations_library_live`                           |
+| free-text `q` on filename/path | `LIKE` over `asset_locations`                                          | `asset_locations_filename` (prefix only)                 |
+| timeline subtree scope         | `l.path = ?` or `substr(l.path, 1, length(?)) = ?`                     | `UNIQUE(asset_id, ordinal)`, `path` a residual           |
+| `scope=people`                 | `EXISTS (SELECT 1 FROM faces …)`                                       | `faces_person` / `faces_unassigned`                      |
+| person filter                  | `EXISTS (… f.person_id IN (…))`                                        | `faces_person`                                           |
+| excluded people                | `NOT EXISTS (…)`                                                       | `faces_person`                                           |
 
 The grid query is written as a semi-join rather than an inner join. What the
 shape guarantees is which table leads: `EXISTS` gives the planner nothing to
