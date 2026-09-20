@@ -17,8 +17,23 @@
  * else just to learn a path.
  */
 
-const DEFAULT_SQLITE_PATH = './data/maple.sqlite';
+export const DEFAULT_SQLITE_PATH = './data/maple.sqlite';
 
 export function sqliteDatabasePath(): string {
   return process.env.MAPLE_SQLITE_PATH ?? DEFAULT_SQLITE_PATH;
+}
+
+/**
+ * Whether the path above is the built-in default rather than one an operator
+ * chose.
+ *
+ * Worth distinguishing because the default is relative, and a relative path in
+ * a container resolves inside the container. Creating a library there works,
+ * and then the library disappears with the container — so a first boot on the
+ * default is the one case where "created a new database" may mean "silently
+ * lost the old one". {@link ensureSchemaAtBoot} says so out loud; on bare
+ * metal, where the default is a perfectly ordinary choice, it is only a note.
+ */
+export function sqliteDatabasePathIsDefault(): boolean {
+  return process.env.MAPLE_SQLITE_PATH === undefined;
 }
