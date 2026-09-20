@@ -8,13 +8,13 @@
  * that satisfies the StatusFrame type must JSON round-trip cleanly.
  */
 
-import { describe, it, expect } from "bun:test";
-import type { StatusFrame } from "../src/routes/events.ts";
+import { describe, it, expect } from 'bun:test';
+import type { StatusFrame } from '../src/routes/events.ts';
 
-describe("events route — status frame shape", () => {
-  it("StatusFrame round-trips through JSON.stringify/parse", () => {
+describe('events route — status frame shape', () => {
+  it('StatusFrame round-trips through JSON.stringify/parse', () => {
     const frame: StatusFrame = {
-      type: "status",
+      type: 'status',
       status: {
         paused: false,
         pools: { discover: 1, hash: 2, exif: 1, thumb: 2, ai: 1 },
@@ -38,8 +38,8 @@ describe("events route — status frame shape", () => {
 
     const parsed = JSON.parse(JSON.stringify(frame)) as StatusFrame;
 
-    expect(parsed.type).toBe("status");
-    expect(typeof parsed.ts).toBe("number");
+    expect(parsed.type).toBe('status');
+    expect(typeof parsed.ts).toBe('number');
     expect(parsed.status).toBeDefined();
     expect(parsed.status.paused).toBe(false);
   });

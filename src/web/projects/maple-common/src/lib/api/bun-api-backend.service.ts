@@ -827,7 +827,9 @@ export class BunApiBackendService {
    */
   getHistogram(assetId: string): Observable<ApiHistogram> {
     return this.withResolvedAssetId(assetId, (resolvedId) =>
-      this.http.get<ApiHistogram>(`${this.base}/assets/${encodeURIComponent(resolvedId)}/histogram`),
+      this.http.get<ApiHistogram>(
+        `${this.base}/assets/${encodeURIComponent(resolvedId)}/histogram`,
+      ),
     );
   }
 
@@ -870,10 +872,13 @@ export class BunApiBackendService {
   ): Observable<ApiRenameOutcome> {
     return this.withResolvedAssetId(assetIdOrAddress, (resolvedId) =>
       this.http
-        .post<ApiRenameResponseRaw>(`${this.base}/assets/${encodeURIComponent(resolvedId)}/rename`, {
-          new_filename: newFilename,
-          collision,
-        })
+        .post<ApiRenameResponseRaw>(
+          `${this.base}/assets/${encodeURIComponent(resolvedId)}/rename`,
+          {
+            new_filename: newFilename,
+            collision,
+          },
+        )
         .pipe(
           map(
             (r): ApiRenameOutcome =>
