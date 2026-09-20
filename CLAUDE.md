@@ -335,6 +335,14 @@ If a new feature adds allocation inside the render loop, it does not ship. If it
 
   Reserve the JobRunner (`workers/job-runner/`, e.g. `batch_jpeg_export`, `pano_stitch`) for genuinely one-off, user-selected actions bounded to a specific request — export these N chosen photos, stitch this specific panorama — where there's no general "make every asset eventually satisfy this" backlog to keep working through.
 
+## Code commenting & token efficiency
+
+- **Default to writing ZERO inline comments.** Code must be self-documenting through expressive variable, type, and function names.
+- **STRICTLY PROHIBITED:** Line-by-line narration, mechanical restatements (e.g., `// filter users` above `.filter()`), or beginner pseudo-code annotations.
+- **Permitted exceptions:** Include a single-line comment ONLY when the "WHY" is non-obvious—such as an external API quirk, subtle mathematical invariant, concurrency hazard, or performance workaround.
+- **Type definitions and function signatures should convey intent;** do not duplicate parameter types or return descriptions in docstrings unless requested.
+- **Never wrap code blocks in conversational preamble, recaps, or compliance statements.**
+
 ## Notes
 
 - macOS builds use the `My Mac` destination, not a simulator UDID.
