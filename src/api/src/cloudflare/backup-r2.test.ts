@@ -25,7 +25,7 @@ test('ListObjectsV2 follows escaped continuation tokens and filters unrelated ke
         ? `<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>a&amp;b</NextContinuationToken><Contents><Key>${key}.verified</Key></Contents><Contents><Key>${key}</Key></Contents></ListBucketResult>`
         : '<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>thumbs/image</Key></Contents></ListBucketResult>',
     );
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
   expect(await storage.list()).toEqual([key]);
   expect(tokens).toEqual([null, 'a&b']);
 });
@@ -34,7 +34,7 @@ test('listing refuses missing or repeated continuation tokens', async () => {
   globalThis.fetch = (async () =>
     new Response(
       '<ListBucketResult><IsTruncated>true</IsTruncated></ListBucketResult>',
-    )) as typeof fetch;
+    )) as unknown as typeof fetch;
   await expect(storage.list()).rejects.toThrow('continuation');
 });
 
@@ -44,13 +44,14 @@ test('DeleteObjects sends Content-MD5 and detects per-object failures inside HTT
     expect(request.headers.get('content-md5')).toBeTruthy();
     expect(await request.text()).toContain(key);
     return new Response('<DeleteResult><Error><Code>AccessDenied</Code></Error></DeleteResult>');
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
   await expect(storage.delete([key])).rejects.toThrow('expired backups');
   await expect(storage.delete(['thumbs/image'])).rejects.toThrow('non-backup');
 });
 
 test('R2 transport errors contain no credential or response-body secrets', async () => {
-  globalThis.fetch = (async () => new Response('secret response', { status: 403 })) as typeof fetch;
+  globalThis.fetch = (async () =>
+    new Response('secret response', { status: 403 })) as unknown as typeof fetch;
   await expect(storage.download(key)).rejects.toThrow('R2 GET failed (403)');
   await expect(storage.download('backups/sqlite/../../private')).rejects.toThrow('Invalid');
 });

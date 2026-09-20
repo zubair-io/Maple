@@ -1,16 +1,8 @@
-import { createHash } from 'node:crypto';
-
 export interface SnapshotInfo {
   schema: string;
   bytes: number;
   compressed_bytes: number;
   sha256: string;
-}
-
-export async function fileSha256(path: string): Promise<string> {
-  const hash = createHash('sha256');
-  for await (const chunk of Bun.file(path).stream()) hash.update(chunk);
-  return hash.digest('hex');
 }
 
 export function createSnapshot(source: string, target: string): Promise<SnapshotInfo> {

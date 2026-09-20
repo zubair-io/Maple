@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import { loadDbBackupSettings, saveDbBackupPolicy } from '../cloudflare/backup-retain-config.ts';
-import { backupRunning, backupStorage, startDbBackup } from '../cloudflare/db-backup.ts';
+import { backupRunning, backupConfiguration, startDbBackup } from '../cloudflare/db-backup.ts';
 
 const count = () => t.Integer({ minimum: 0, maximum: 1000 });
 export const dbBackupRoutes = new Elysia({ prefix: '/api/admin/backup/db' })
@@ -36,7 +36,7 @@ export const dbBackupRoutes = new Elysia({ prefix: '/api/admin/backup/db' })
   )
   .post('', async ({ set }) => {
     try {
-      await backupStorage();
+      await backupConfiguration();
     } catch (error) {
       set.status = 400;
       return { error: error instanceof Error ? error.message : String(error) };

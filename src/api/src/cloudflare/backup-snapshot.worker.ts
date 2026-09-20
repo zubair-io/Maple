@@ -1,5 +1,11 @@
 import { Database } from 'bun:sqlite';
-import { fileSha256 } from './backup-snapshot.ts';
+import { createHash } from 'node:crypto';
+
+async function fileSha256(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of Bun.file(path).stream()) hash.update(chunk);
+  return hash.digest('hex');
+}
 
 declare const self: Worker;
 self.onmessage = async (event: MessageEvent<{ source: string | null; target: string }>) => {
