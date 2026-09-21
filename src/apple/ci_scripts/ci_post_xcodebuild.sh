@@ -36,7 +36,7 @@ required=(
 	GITHUB_TOKEN
 	AC_KEY_ID
 	AC_ISSUER_ID
-	AC_KEY_BASE64
+	AC_PRIVATE_KEY
 )
 missing=()
 for variable in "${required[@]}"; do
@@ -116,7 +116,7 @@ echo "==> Maple $VERSION ($BUILD_NUMBER), commit ${CI_COMMIT:0:12}, architecture
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 echo "==> Staging notarization credentials"
-printf '%s' "$AC_KEY_BASE64" | openssl base64 -d -A >"$NOTARY_KEY"
+printf '%s' "$AC_PRIVATE_KEY" >"$NOTARY_KEY"
 chmod 600 "$NOTARY_KEY"
 
 echo "==> Notarizing and stapling the Developer ID app"
