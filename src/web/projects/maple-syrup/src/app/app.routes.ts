@@ -63,6 +63,10 @@ const baseRoutes: Routes = [
     loadComponent: () =>
       import('./legal/privacy/privacy.component').then((m) => m.PrivacyComponent),
   },
+  {
+    path: 'support',
+    loadComponent: () => import('./support/support.component').then((m) => m.SupportComponent),
+  },
 ];
 
 export const routes: Routes = [...baseRoutes, { path: '**', redirectTo: '' }];
