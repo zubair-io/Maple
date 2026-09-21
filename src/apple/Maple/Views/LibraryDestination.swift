@@ -14,14 +14,14 @@
 
 #if os(iOS)
 
-import MapleCore
+  import MapleCore
 
-/// One entry on the iPhone Library tab's navigation stack.
-///
-/// `Hashable` (required for `NavigationStack` path values) rides on `AssetRef`'s
-/// own `Hashable` conformance plus the case discriminant, so `.preview(a)` and
-/// `.edit(a)` for the same asset are distinct stack entries.
-enum LibraryDestination: Hashable {
+  /// One entry on the iPhone Library tab's navigation stack.
+  ///
+  /// `Hashable` (required for `NavigationStack` path values) rides on `AssetRef`'s
+  /// own `Hashable` conformance plus the case discriminant, so `.preview(a)` and
+  /// `.edit(a)` for the same asset are distinct stack entries.
+  enum LibraryDestination: Hashable {
     /// The fast static Preview surface (default target of a grid / filmstrip /
     /// cloud-result tap).
     case preview(AssetRef)
@@ -30,10 +30,35 @@ enum LibraryDestination: Hashable {
 
     /// The asset this destination is about — convenient for the resolver.
     var asset: AssetRef {
-        switch self {
-        case .preview(let a), .edit(let a): return a
-        }
+      switch self {
+      case .preview(let a), .edit(let a): return a
+      }
     }
-}
+
+    /// The destinations the iPhone `NavigationStack` actually pushes.
+    /// Preview is rendered by `PreviewHero` above the stack so the grid can
+    /// remain alive beneath it; every other route is a normal stack push.
+    static func pushedDestinations(in path: [LibraryDestination]) -> [LibraryDestination] {
+      path.filter {
+        if case .preview = $0 { return false }
+        return true
+      }
+    }
+
+    /// Whether the Preview hero should be visible and interactive.
+    ///
+    /// The hero remains mounted while the editor is pushed so its paging and
+    /// zoom state survive an Editor -> Preview back navigation. It must still
+    /// become transparent and stop hit-testing while any pushed destination
+    /// is above Preview; otherwise its overlay covers the editor and makes the
+    /// Edit button appear inert (#3819).
+    static func presentsPreviewHero(in path: [LibraryDestination]) -> Bool {
+      let containsPreview = path.contains {
+        if case .preview = $0 { return true }
+        return false
+      }
+      return containsPreview && pushedDestinations(in: path).isEmpty
+    }
+  }
 
 #endif
