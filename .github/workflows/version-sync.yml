@@ -29,7 +29,7 @@ on:
         type: string
   pull_request:
     branches: [main]
-    types: [closed]
+    types: [opened, synchronize, reopened, closed]
 
 permissions:
   contents: write
@@ -40,6 +40,83 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-readiness:
+    name: Release readiness
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Wait for the complete release CI suite
+        run: |
+          set -euo pipefail
+
+          if ! [[ "$HEAD_BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Not a stable release PR; release readiness does not apply."
+            exit 0
+          fi
+
+          expected_workflows=(
+            "API tests"
+            "apple"
+            "cross"
+            "Jules PR Review"
+            "Maple package types"
+            "publish-package"
+            "web"
+            "windows"
+          )
+          deadline=$((SECONDS + 7200))
+
+          while (( SECONDS < deadline )); do
+            runs="$(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100")"
+            waiting=()
+
+            for workflow in "${expected_workflows[@]}"; do
+              run="$(jq -c --arg workflow "$workflow" \
+                '[.workflow_runs[] | select(.name == $workflow)] | first // empty' <<<"$runs")"
+              if [ -z "$run" ]; then
+                waiting+=("$workflow (not started)")
+                continue
+              fi
+
+              status="$(jq -r '.status' <<<"$run")"
+              conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
+              url="$(jq -r '.html_url' <<<"$run")"
+              if [ "$status" != "completed" ]; then
+                waiting+=("$workflow ($status)")
+                continue
+              fi
+
+              case "$conclusion" in
+                success|neutral|skipped)
+                  ;;
+                *)
+                  echo "::error::$workflow completed with $conclusion: $url"
+                  exit 1
+                  ;;
+              esac
+            done
+
+            if [ "${#waiting[@]}" -eq 0 ]; then
+              echo "All release workflows completed successfully for $HEAD_SHA."
+              exit 0
+            fi
+
+            printf 'Waiting for: %s\n' "${waiting[*]}"
+            sleep 30
+          done
+
+          echo "::error::Timed out waiting for release workflows for $HEAD_SHA."
+          exit 1
+
   prepare-release:
     name: Prepare release PR
     if: github.event_name == 'workflow_dispatch'
@@ -117,9 +194,11 @@ jobs:
             -m "chore(release): prepare $TAG" \
             -m "Synchronize committed package, app, Xcode, and distribution versions before tagging. Merging this PR creates $TAG and triggers the native and npm release workflows. Prepared automatically by version-sync.yml (#3825)."
           git push origin "$BRANCH"
-          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+          PR_URL="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
             --title "chore(release): prepare $TAG" \
-            --body "Prepare stable release **$TAG**. This synchronizes the committed package versions, MAPLE_VERSION, Xcode MARKETING_VERSION, and generated src/maple/dist before anything is published. After this PR merges, version-sync.yml will verify the merged tree, create the annotated $TAG tag on that exact revision, and trigger release.yml plus publish-package.yml."
+            --body "Prepare stable release **$TAG**. This synchronizes the committed package versions, MAPLE_VERSION, Xcode MARKETING_VERSION, and generated src/maple/dist before anything is published. After this PR merges, version-sync.yml will verify the merged tree, create the annotated $TAG tag on that exact revision, and trigger release.yml plus publish-package.yml.")"
+          gh pr merge --repo "$GITHUB_REPOSITORY" --auto --rebase \
+            --match-head-commit "$(git rev-parse HEAD)" "$PR_URL"
 
   tag-release:
     name: Tag merged release PR
