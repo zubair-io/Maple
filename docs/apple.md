@@ -104,14 +104,13 @@ Configure the tag-triggered Xcode Cloud workflow as follows:
 - clean builds, as required by Xcode Cloud for external distribution;
 - the following secret environment variables: `GITHUB_TOKEN` (fine-grained
   token scoped to this repository with Contents read/write), `AC_KEY_ID`,
-  `AC_ISSUER_ID`, `AC_KEY_BASE64`, `MACOS_CERT_P12_BASE64`, and
-  `MACOS_CERT_PASSWORD`.
+  `AC_ISSUER_ID`, and `AC_KEY_BASE64`.
 
-The P12 is used only to sign the DMG. Xcode Cloud signs the app with its
-cloud-managed Developer ID identity, whose private key is deliberately not
-available to custom scripts. The DMG may use another valid Developer ID
-Application certificate for the same team. Notarization uses the App Store
-Connect API key. No source compilation happens in the post-build script.
+Xcode Cloud signs the app with its cloud-managed Developer ID identity, whose
+private key is deliberately not available to custom scripts. The script
+notarizes the app and its DMG container with the App Store Connect API key;
+Apple does not require a separate signature on the DMG itself. No source
+compilation happens in the post-build script.
 
 ## The render path
 
