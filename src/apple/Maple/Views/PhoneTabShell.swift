@@ -324,6 +324,13 @@
                 closeRequest: $heroClose,
                 onPhaseChange: { heroPhase = $0 }
               )
+              // `PreviewHero` is an overlay above the NavigationStack. Keep
+              // it mounted so its state survives Editor -> Preview back, but
+              // hide it and release hit testing while the editor is pushed;
+              // otherwise it paints over the editor and swallows every tap.
+              .opacity(presentsPreviewHero ? 1 : 0)
+              .allowsHitTesting(presentsPreviewHero)
+              .accessibilityHidden(!presentsPreviewHero)
               .zIndex(1)
             }
           }
@@ -416,6 +423,10 @@
       return nil
     }
 
+    private var presentsPreviewHero: Bool {
+      LibraryDestination.presentsPreviewHero(in: libraryPath)
+    }
+
     /// The Preview the hero shows once open.
     @ViewBuilder
     private func previewContent(for ref: AssetRef) -> some View {
@@ -458,10 +469,7 @@
     private var pushedLibraryPath: Binding<[LibraryDestination]> {
       Binding(
         get: {
-          libraryPath.filter {
-            if case .preview = $0 { return false }
-            return true
-          }
+          LibraryDestination.pushedDestinations(in: libraryPath)
         },
         set: { pushed in
           let previews = libraryPath.filter {
