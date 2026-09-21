@@ -21,8 +21,14 @@ on:
       - 'CLAUDE.md'
       - 'AGENTS.md'
 
+concurrency:
+  group: jules-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   review:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    timeout-minutes: 80
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -31,13 +37,25 @@ jobs:
       issues: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+
+      - name: Verify and build reviewer
+        working-directory: .github/actions/jules-review
+        run: |
+          npm ci --ignore-scripts
+          npm run typecheck
+          npm test
+          npm run build
 
       - name: Run Jules Reviewer
         if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: sanjay3290/jules-pr-reviewer@432e901b3bc32353e7c75503421c64df4ffccc8b # v1
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        uses: ./.github/actions/jules-review
         with:
           jules_api_key: ${{ secrets.JULES_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

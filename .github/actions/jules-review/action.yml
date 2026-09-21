@@ -1,0 +1,51 @@
+name: 'Jules PR Reviewer'
+description: 'Review pull requests with Google Jules and post the review as a PR comment. Optionally gate merges based on review verdict.'
+author: 'sanjay3290'
+
+branding:
+  icon: 'check-circle'
+  color: 'purple'
+
+inputs:
+  jules_api_key:
+    description: 'Jules API key (create one at jules.google.com).'
+    required: true
+  github_token:
+    description: 'GitHub token with pull-requests:write and statuses:write. Usually the default GITHUB_TOKEN secret.'
+    required: true
+  fail_on:
+    description: 'When to fail the commit status check: never | blocking | any. Default blocking.'
+    required: false
+    default: 'blocking'
+  skip_drafts:
+    description: 'Skip review on draft PRs.'
+    required: false
+    default: 'true'
+  skip_forks:
+    description: 'Skip review on PRs from forks (prompt-injection risk).'
+    required: false
+    default: 'true'
+  bypass_label:
+    description: 'Label that, when applied to a PR, skips the review entirely.'
+    required: false
+    default: 'jules-override'
+  status_context:
+    description: 'Commit status context name.'
+    required: false
+    default: 'jules/review'
+  extra_instructions:
+    description: 'Free-form Markdown appended to the review prompt. Use to add project-specific rules, frameworks, or focus areas directly from the workflow.'
+    required: false
+    default: ''
+  rules_file:
+    description: 'Path (in the repo) to a Markdown file whose contents are injected into the prompt. Default .github/jules-review-rules.md if it exists. Set to empty string to disable.'
+    required: false
+    default: '.github/jules-review-rules.md'
+  timeout_minutes:
+    description: 'How long to wait for Jules to return a review before giving up. Default 30. Real reviews on non-trivial PRs often take 15-25 minutes; do not set below 20 or you will miss legitimate reviews.'
+    required: false
+    default: '30'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
