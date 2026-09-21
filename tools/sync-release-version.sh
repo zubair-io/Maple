@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # sync-release-version.sh — bring every committed version field in line with a
-# release tag (#3486). The tag is the version of record at build time; this
-# script is what the version-sync workflow runs afterwards to open the
-# reconciliation PR, and what a developer runs to do the same by hand.
+# requested release (#3486, #3825). The version-sync workflow runs this before
+# tagging so the reviewed source, generated distribution, and release artifacts
+# all carry the same version. A developer can also run it by hand.
 #
 # Usage:
 #   tools/sync-release-version.sh 0.0.5      # or v0.0.5
