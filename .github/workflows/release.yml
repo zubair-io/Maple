@@ -2,11 +2,11 @@
 #
 # Signed release binaries for the Mac and Windows apps.
 #
-# Deliberately NOT wired to pushes on main: merging is not releasing. A
-# release happens when a `v*` tag is pushed (e.g. `git tag v0.1.0 && git
-# push origin v0.1.0`), which builds, signs, and publishes to a GitHub
-# Release. `workflow_dispatch` runs the same build for a dry run —
-# artifacts land on the workflow run, but no Release is created.
+# Deliberately NOT wired to ordinary pushes on main: merging feature work is
+# not releasing. For stable releases, manually dispatch version-sync.yml; its
+# release PR creates the `v*` tag after merge. That tag builds, signs, and
+# publishes a GitHub Release. `workflow_dispatch` runs the same build for a
+# dry run — artifacts land on the workflow run, but no Release is created.
 #
 # The macOS job runs on a SELF-HOSTED runner (#768/#770, label
 # `maple-release`). It is not a preference — the hosted image never once
