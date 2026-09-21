@@ -304,7 +304,7 @@ jobs:
           # Dist-tag: the release pipeline only ever mints plain numbered tags
           # (v0.1.2), so those land on `latest` and are what a bare
           # `npm install @justmaple/maple` resolves. A prerelease version
-          # (v0.1.2-test.1, always a manual tag push) goes to `next` instead,
+          # (v0.1.2-test.1, always an explicit manual tag) goes to `next` instead,
           # so a hand-pushed test build can never become the default.
           publish_pkg() {
             local dir="$1"
@@ -319,8 +319,8 @@ jobs:
             if [ "$DRY_RUN" = "true" ]; then
               # `npm publish --dry-run` still asks the registry and refuses a
               # version that is already published, which is the normal state
-              # of a PR right after a release (the version-sync PR sets
-              # package.json to the version that just shipped). `npm pack
+              # of a release PR before publishing (version-sync sets
+              # package.json to the version that will ship). `npm pack
               # --dry-run` packs and lists the tarball the same way without
               # touching the registry.
               npm pack "./$dir" --dry-run
