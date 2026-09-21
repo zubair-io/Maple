@@ -37,8 +37,6 @@ required=(
 	AC_KEY_ID
 	AC_ISSUER_ID
 	AC_KEY_BASE64
-	MACOS_CERT_P12_BASE64
-	MACOS_CERT_PASSWORD
 )
 missing=()
 for variable in "${required[@]}"; do
@@ -74,12 +72,9 @@ retry() {
 }
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/maple-release.XXXXXX")"
-KEYCHAIN_PATH="$WORK_DIR/release.keychain-db"
-KEYCHAIN_PASSWORD="$(uuidgen)"
 NOTARY_KEY="$WORK_DIR/AuthKey_${AC_KEY_ID}.p8"
 
 cleanup() {
-	security delete-keychain "$KEYCHAIN_PATH" >/dev/null 2>&1 || true
 	rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
@@ -135,25 +130,7 @@ xcrun notarytool submit "$APP_ZIP" \
 xcrun stapler staple "$APP_PATH"
 xcrun stapler validate "$APP_PATH"
 
-echo "==> Importing the local Developer ID identity for DMG signing"
-printf '%s' "$MACOS_CERT_P12_BASE64" | openssl base64 -d -A >"$WORK_DIR/cert.p12"
-security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-security import "$WORK_DIR/cert.p12" -k "$KEYCHAIN_PATH" \
-	-P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
-security set-key-partition-list -S apple-tool:,apple:,codesign: \
-	-s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-rm "$WORK_DIR/cert.p12"
-
-SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" |
-	awk '/Developer ID Application/{print $2; exit}')"
-if [ -z "$SIGNING_IDENTITY" ]; then
-	echo "ERROR: imported certificate does not contain a Developer ID Application identity" >&2
-	exit 1
-fi
-
-echo "==> Creating, signing, notarizing, and stapling the distribution DMG"
+echo "==> Creating, notarizing, and stapling the distribution DMG"
 DMG_STAGE="$WORK_DIR/dmg"
 mkdir -p "$DMG_STAGE"
 ditto "$APP_PATH" "$DMG_STAGE/Maple.app"
@@ -161,8 +138,6 @@ ln -s /Applications "$DMG_STAGE/Applications"
 
 DMG_PATH="$WORK_DIR/Maple-macOS-$EXPECTED_VERSION.dmg"
 hdiutil create -volname "Maple" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG_PATH"
-codesign --keychain "$KEYCHAIN_PATH" --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
-codesign --verify --verbose=2 "$DMG_PATH"
 hdiutil verify "$DMG_PATH"
 xcrun notarytool submit "$DMG_PATH" \
 	--key "$NOTARY_KEY" \
