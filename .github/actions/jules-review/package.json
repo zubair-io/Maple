@@ -1,0 +1,32 @@
+{
+  "name": "jules-pr-reviewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub Action that uses Google Jules to review pull requests and post review comments.",
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sanjay3290/jules-pr-reviewer.git"
+  },
+  "author": "sanjay3290",
+  "license": "MIT",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/sanjay3290/jules-pr-reviewer/issues"
+  },
+  "homepage": "https://github.com/sanjay3290/jules-pr-reviewer#readme",
+  "dependencies": {
+    "@actions/core": "^3.0.0",
+    "@actions/github": "^9.1.0",
+    "@google/jules-sdk": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@vercel/ncc": "^0.38.4",
+    "typescript": "^6.0.3"
+  }
+}
