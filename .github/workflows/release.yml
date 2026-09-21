@@ -180,8 +180,12 @@ jobs:
           while IFS= read -r prof; do
             found=$((found + 1))
             plist="$RUNNER_TEMP/profile.plist"
-            # A .provisionprofile is CMS-signed; -D gives back the plist.
-            security cms -D -i "$prof" > "$plist"
+            # macOS 27's `security cms` tries to import the embedded signer
+            # certificate into the active CI keychain and fails with a write-
+            # permissions error. OpenSSL verifies the CMS signature and
+            # extracts the plist without touching a keychain (#3823).
+            openssl cms -verify -inform DER -noverify -binary \
+              -in "$prof" -out "$plist"
             uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$plist")"
             name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$plist")"
             expiry="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$plist")"
