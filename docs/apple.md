@@ -82,6 +82,37 @@ Two guards make staleness loud rather than silent:
 
 Xcode Cloud runs `src/apple/ci_scripts/ci_post_clone.sh`, which installs rustup via Homebrew (the `sh.rustup.rs` bootstrap does not resolve on those workers), adds the four Apple targets, installs `cbindgen` pinned to **0.29.2**, and invokes the same script in release. `.github/workflows/apple.yml` pins the identical cbindgen version so the two CIs cannot generate different headers.
 
+### Xcode Cloud distribution
+
+Stable tags use one macOS archive for both distribution channels. The archive
+action prepares the App Store/TestFlight export and a Developer ID export from
+the same compiled `.xcarchive`; it must not configure a second macOS archive
+action. The TestFlight/App Store post-action handles the store copy.
+`ci_post_xcodebuild.sh` consumes `CI_DEVELOPER_ID_SIGNED_APP_PATH`, notarizes and
+staples that app, creates a signed/notarized/stapled universal DMG, and attaches
+it to the tag's draft GitHub Release. The GitHub release workflow publishes the
+draft only after its independently built Windows assets and this DMG are both
+present.
+
+Configure the tag-triggered Xcode Cloud workflow as follows:
+
+- one macOS archive action for the `Maple` scheme, with TestFlight and App Store
+  deployment preparation;
+- Direct Distribution/notarization enabled for that archive so Xcode Cloud
+  provides `CI_DEVELOPER_ID_SIGNED_APP_PATH` from the same archive;
+- the existing TestFlight/App Store distribution post-action;
+- clean builds, as required by Xcode Cloud for external distribution;
+- the following secret environment variables: `GITHUB_TOKEN` (fine-grained
+  token scoped to this repository with Contents read/write), `AC_KEY_ID`,
+  `AC_ISSUER_ID`, `AC_KEY_BASE64`, `MACOS_CERT_P12_BASE64`, and
+  `MACOS_CERT_PASSWORD`.
+
+The P12 is used only to sign the DMG. Xcode Cloud signs the app with its
+cloud-managed Developer ID identity, whose private key is deliberately not
+available to custom scripts. The DMG may use another valid Developer ID
+Application certificate for the same team. Notarization uses the App Store
+Connect API key. No source compilation happens in the post-build script.
+
 ## The render path
 
 An open image is an `EditSession` (`@MainActor`, `@Observable`) holding the `AdjustmentModel`, undo/redo ring, culling state and canvas math. Its behaviour is split across ~20 `EditSession+*.swift` extensions; the scheduler itself lives on `RenderActor`, which owns the decoded-image cache, the FFI decode coalescers, the fast/refine task handles, the debounce timers and a generation counter. A slider write on `session.model` schedules a render; the actor cancels the in-flight pass before spawning the new one. The **fast phase** runs immediately with no debounce (cancel-previous absorbs a drag); the **refine phase** debounces 150 ms, so a continuous drag only ever renders the tail.

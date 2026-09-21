@@ -1,43 +1,19 @@
 # .github/workflows/release.yml
 #
-# Signed release binaries for the Mac and Windows apps.
+# Signed Windows artifacts and coordinated publication of stable releases.
 #
-# Deliberately NOT wired to ordinary pushes on main: merging feature work is
-# not releasing. For stable releases, manually dispatch version-sync.yml; its
-# release PR creates the `v*` tag after merge. That tag builds, signs, and
-# publishes a GitHub Release. `workflow_dispatch` runs the same build for a
-# dry run — artifacts land on the workflow run, but no Release is created.
+# Stable release tags are created by version-sync.yml. Xcode Cloud consumes
+# the same tag and uploads the signed/notarized Mac DMG from its production
+# archive; this workflow builds Windows, maintains the shared draft release,
+# and publishes only after both platforms are present.
 #
-# The macOS job runs on a SELF-HOSTED runner (#768/#770, label
-# `maple-release`). It is not a preference — the hosted image never once
-# completed this archive across five attempts (#3332): the step died
-# silently around ten minutes in, every time, with no exit status and no
-# error, on a 7 GB machine with no swap. `-jobs 1` and `singlefile` each
-# moved the death by a minute and changed nothing else. The same archive
-# takes 17m41s on the release Mac, which also already holds the signing
-# identity, and its cached Rust target dir removes the ~15-minute
-# cross-build from every run.
-#
-# Two consequences of running on real hardware, both handled below:
-# nothing here may `sudo` (a launchd runner has no password to give), and
-# anything this job changes about the machine — notably the keychain
-# search list — must be put back, pass or fail.
-#
-# SECURITY: this workflow triggers on tag pushes and workflow_dispatch
-# only. Do NOT add a `pull_request` trigger while the job targets a
-# self-hosted runner: that would execute a fork's code on the release
-# Mac. The `if: github.repository` guard is a second line of defence, not
-# the first.
-#
-# (#3244, the App ID missing its Push Notifications capability, is fixed —
-# opening the project in Xcode with the team account registered it and
-# minted the macOS profile.)
-
+# workflow_dispatch remains a Windows dry run: its artifacts stay on the
+# workflow run and no GitHub Release is created.
 name: release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -47,455 +23,7 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# Keep in sync with apple.yml / src/apple/ci_scripts/ci_post_clone.sh.
-env:
-  CBINDGEN_VERSION: '0.29.2'
-
 jobs:
-  macos-app:
-    name: macOS (build, sign, notarize)
-    # Self-hosted (#768/#770). The hosted 7 GB runner never once completed
-    # this archive; the same archive takes 17m41s on the release Mac, which
-    # already holds the signing identity too. The repository guard below
-    # keeps a fork from ever reaching this machine — this workflow has no
-    # pull_request trigger, and must not gain one while it runs here.
-    runs-on: [self-hosted, macOS, ARM64, maple-release]
-    timeout-minutes: 120
-    if: github.repository == 'zubair-io/Maple'
-    steps:
-      - uses: actions/checkout@v4
-
-      # Signing material first, before the ~40-minute Rust cross-build: a
-      # missing/bad secret fails the job in seconds, not after the expensive
-      # part (macOS runner minutes bill at 10x). Every secret the later
-      # steps consume is validated here, not just the ones this step uses.
-      - name: Validate macOS signing secrets
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
-          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
-          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
-          MACOS_PROVISIONING_PROFILES_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILES_BASE64 }}
-        run: |
-          set -euo pipefail
-          missing=""
-          for v in APPLE_TEAM_ID MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD \
-                   APPSTORE_KEY_ID APPSTORE_ISSUER_ID APPSTORE_PRIVATE_KEY \
-                   MACOS_PROVISIONING_PROFILES_BASE64; do
-            [ -n "${!v}" ] || missing="$missing $v"
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::Missing repo secret(s):$missing — cannot sign/notarize. See the header comment in release.yml."
-            exit 1
-          fi
-
-      - name: Import Developer ID certificate
-        env:
-          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-        run: |
-          set -euo pipefail
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          KEYCHAIN_PATH="$RUNNER_TEMP/release.keychain-db"
-          # openssl rather than base64(1): flag spelling for decode differs
-          # across BSD/GNU base64 builds, openssl is invariant.
-          printf '%s' "$MACOS_CERT_P12_BASE64" | openssl base64 -d -A > "$RUNNER_TEMP/cert.p12"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN_PATH" \
-            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
-          # `codesign:` must be in the partition list, not just
-          # `apple-tool:,apple:`. Without it the imported key's ACL has no
-          # entry for /usr/bin/codesign, so codesign asks a human instead
-          # of signing: on the hosted VM that is an invisible hang, and on
-          # the self-hosted Mac it is a literal "codesign wants to use the
-          # release keychain" dialog on someone's screen (v0.0.13-test.1).
-          # Neither is answerable by CI.
-          security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          # Carry the keychain to later steps: it can relock between them,
-          # and a locked keychain prompts exactly the same way. The
-          # password is a per-run uuidgen value, masked in the log.
-          echo "::add-mask::$KEYCHAIN_PASSWORD"
-          {
-            echo "KEYCHAIN_PATH=$KEYCHAIN_PATH"
-            echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD"
-          } >> "$GITHUB_ENV"
-          # Remember the machine's own search list before prepending ours.
-          # On a hosted runner the VM is discarded either way; on the
-          # release Mac this is a real user session whose keychain list
-          # must be put back (restored by "Restore keychain search list",
-          # which runs even when the archive fails).
-          security list-keychains -d user | tr -d ' "' > "$RUNNER_TEMP/keychains.before"
-          tr '\n' ' ' < "$RUNNER_TEMP/keychains.before" \
-            | xargs security list-keychains -d user -s "$KEYCHAIN_PATH"
-          rm "$RUNNER_TEMP/cert.p12"
-
-      # Developer ID provisioning profiles, installed by hand.
-      #
-      # A developer-id export needs one profile per signed bundle — the app
-      # and each embedded extension — because the App Group, keychain
-      # sharing and aps-environment entitlements are all restricted and only
-      # a profile authorizes them.
-      #
-      # Xcode cannot mint them here. Minting through an App Store Connect
-      # API key is "cloud signing", and Apple does not support cloud signing
-      # for Developer ID: an Admin key gets
-      #
-      #   error: exportArchive Cloud signing permission error
-      #   "detail": "You haven't been given access to cloud-managed
-      #              distribution certificates..."
-      #
-      # (v0.0.15-test.1). Apple DTS confirms this as a known bug,
-      # FB16835802 — cloud signing works for iOS but not Developer ID — and
-      # names locally installed certificates plus profiles as the
-      # workaround. That is what this step and the manual export below are.
-      #
-      # The other route, letting xcodebuild fall back to a signed-in Xcode
-      # account, is not available either: the build user (`lawrence`) is a
-      # standard account and reports "No Accounts" (v0.0.16).
-      #
-      # These expire with the certificate (2031-09-04 for the current set),
-      # but a revoked or regenerated certificate invalidates them sooner, so
-      # the expiry is checked rather than assumed. Failing here, in seconds,
-      # beats failing in the export after a 17-minute archive.
-      - name: Install Developer ID provisioning profiles
-        env:
-          MACOS_PROVISIONING_PROFILES_BASE64: ${{ secrets.MACOS_PROVISIONING_PROFILES_BASE64 }}
-        run: |
-          set -euo pipefail
-          printf '%s' "$MACOS_PROVISIONING_PROFILES_BASE64" \
-            | openssl base64 -d -A > "$RUNNER_TEMP/profiles.tar.gz"
-          mkdir -p "$RUNNER_TEMP/profiles"
-          tar xzf "$RUNNER_TEMP/profiles.tar.gz" -C "$RUNNER_TEMP/profiles"
-
-          DEST="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$DEST"
-
-          found=0
-          while IFS= read -r prof; do
-            found=$((found + 1))
-            plist="$RUNNER_TEMP/profile.plist"
-            # macOS 27's `security cms` tries to import the embedded signer
-            # certificate into the active CI keychain and fails with a write-
-            # permissions error. OpenSSL verifies the CMS signature and
-            # extracts the plist without touching a keychain (#3823).
-            openssl cms -verify -inform DER -noverify -binary \
-              -in "$prof" -out "$plist"
-            uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$plist")"
-            name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$plist")"
-            expiry="$(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$plist")"
-            # macOS profiles key this as com.apple.application-identifier;
-            # iOS ones use the bare name. Accept either.
-            appid="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$plist" 2>/dev/null \
-                     || /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$plist")"
-            echo "installing '$name' — $appid — expires $expiry"
-            cp "$prof" "$DEST/$uuid.provisionprofile"
-
-            if [ "$(date -j -f '%a %b %d %T %Z %Y' "$expiry" +%s 2>/dev/null || echo 0)" \
-                 -lt "$(date -v+30d +%s)" ]; then
-              echo "::warning::provisioning profile '$name' expires $expiry (under 30 days)"
-            fi
-          done < <(find "$RUNNER_TEMP/profiles" -name '*.provisionprofile')
-
-          if [ "$found" -ne 4 ]; then
-            echo "::error::expected 4 provisioning profiles, found $found — the export signs the app plus three extensions."
-            exit 1
-          fi
-
-      - name: Stage App Store Connect API key
-        env:
-          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
-        run: |
-          printf '%s' "$APPSTORE_PRIVATE_KEY" > "$RUNNER_TEMP/AuthKey.p8"
-
-      # Hosted images ship several Xcodes and default to an older one.
-      # A self-hosted Mac has one, already selected, and `sudo` in a
-      # launchd runner has no password to give.
-      - name: Select newest Xcode
-        if: runner.environment == 'github-hosted'
-        run: |
-          XCODE_APP="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
-          echo "Selecting $XCODE_APP"
-          sudo xcode-select -s "$XCODE_APP"
-          echo "XCODE_APP=$XCODE_APP" >> "$GITHUB_ENV"
-
-      # Disk was never the problem. #3319 theorised disk exhaustion and
-      # deleted GitHub's preinstalled Android SDK — unrelated to this
-      # project, which has no Android target — and the df checkpoint then
-      # showed 53 GB free right before the failure anyway. #3320 went
-      # further and deleted other Xcode bundles, which broke the build
-      # outright: the hosted image shares SDK content between them, so
-      # `xcrun --sdk iphoneos` stopped resolving for the one kept, and the
-      # xcframework compiles iOS slices too (see build-xcframework.sh).
-      # Reverted in #3323.
-      #
-      # Both deletions are gone now: the release Mac is not a disposable
-      # VM, and `sudo` has no password in a launchd runner. The checkpoint
-      # stays, because a number is worth having and costs nothing.
-      - name: Disk usage checkpoint
-        run: |
-          df -h /
-          du -sh /Library/Developer/CoreSimulator 2>/dev/null || true
-
-      - name: Install Rust toolchain (Apple targets)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,aarch64-apple-darwin,x86_64-apple-darwin
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/raw-pipeline -> target
-
-      - name: Cache cbindgen binary
-        id: cbindgen-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cbindgen
-          key: cbindgen-${{ env.CBINDGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
-
-      # Check for the binary, not for a cache hit. A restored cache that
-      # does not actually yield a runnable cbindgen used to skip this step
-      # and fail four minutes later inside build-xcframework.sh with
-      # "ERROR: cbindgen not found — install it first" (first run on the
-      # dedicated build account, v0.0.17-test.1). The cache is an
-      # optimisation; its hit flag is not evidence that the tool is
-      # present, and only the tool being present is.
-      - name: Install cbindgen if missing
-        run: |
-          set -euo pipefail
-          if command -v cbindgen >/dev/null 2>&1 \
-            && [ "$(cbindgen --version | awk '{print $2}')" = "$CBINDGEN_VERSION" ]; then
-            echo "cbindgen $CBINDGEN_VERSION already present: $(command -v cbindgen)"
-            exit 0
-          fi
-          echo "installing cbindgen $CBINDGEN_VERSION"
-          cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
-          command -v cbindgen
-
-      # Same recipe as Xcode Cloud's ci_post_clone.sh: real static libs for
-      # every slice (the ORT iOS dep is vendored in-repo, so this is
-      # self-contained). Release profile is the script default.
-      - name: Build RawPipeline.xcframework (release)
-        run: ./src/apple/scripts/build-xcframework.sh
-
-      - name: Disk usage before archive
-        run: df -h /
-
-      # One universal (arm64 + x86_64) archive, in one invocation.
-      #
-      # The per-architecture split this replaces (#3330/#3331) existed
-      # only to halve peak memory on the 7 GB hosted runner, and it never
-      # worked: five hosted attempts died in the archive regardless
-      # (#3332). On the release Mac the same universal archive builds in
-      # ~18 minutes, so the workaround buys nothing — and it actively
-      # broke the build here, because `lipo` cannot merge a slice that is
-      # the same architecture in both archives:
-      #
-      #   fatal error: lipo: .../libswiftCompatibilitySpan.dylib and
-      #   .../libswiftCompatibilitySpan.dylib have the same architectures
-      #
-      # That Swift back-deployment shim ships as one architecture in both
-      # per-arch archives, so there is nothing to fatten. Building both
-      # slices in a single pass lets Xcode assemble them correctly and
-      # deletes the whole merge stage.
-      #
-      # The memory sampler stays: it is what finally identified the
-      # hosted failure, and it costs one background loop.
-      - name: Archive (universal)
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
-          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
-        run: |
-          # Unlock immediately before signing: the keychain relocks on its
-          # own timeout, and a locked keychain prompts for a password the
-          # same way a missing ACL entry does.
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          (while true; do
-            { date; vm_stat | grep -E "Pages free|Pages occupied by compressor";
-              ps -Ao rss,comm | sort -rn | head -4; echo; } >> "$RUNNER_TEMP/memlog.txt"
-            sleep 5
-          done) &
-          MEMLOG_PID=$!
-
-          # The tag is the version of record (#3486): stamp it into every
-          # target in the archive (app + embedded extensions, which Apple
-          # requires to match) instead of trusting the MARKETING_VERSION
-          # committed in the project. A dispatch run keeps the project value.
-          VERSION_ARGS=()
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            VERSION_ARGS=(MARKETING_VERSION="${GITHUB_REF_NAME#v}")
-          fi
-
-          set +e
-          xcodebuild -project src/apple/Maple.xcodeproj \
-            -scheme "Maple" \
-            -destination 'generic/platform=macOS' \
-            -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
-            archive \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
-            -authenticationKeyID "$APPSTORE_KEY_ID" \
-            -authenticationKeyIssuerID "$APPSTORE_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            "${VERSION_ARGS[@]}"
-          STATUS=$?
-          kill "$MEMLOG_PID" 2>/dev/null
-
-          echo "=== xcodebuild exit status: $STATUS"
-          exit $STATUS
-
-      - name: Upload memory logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: archive-memlogs
-          path: ${{ runner.temp }}/memlog.txt
-          if-no-files-found: ignore
-
-      # developer-id export re-signs the archive with the Developer ID
-      # Application identity imported above; -allowProvisioningUpdates lets
-      # Xcode mint Developer ID provisioning profiles for the app +
-      # embedded extensions (File Provider, QuickLook).
-      - name: Export with Developer ID
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          # This step is the full codesigning pass, so it needs the
-          # keychain unlocked just as much as the archive does.
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          # Which identities xcodebuild can actually see. An export that
-          # cannot find "Developer ID Application" fails with a message that
-          # does not say whether the certificate is absent, in a locked
-          # keychain, or ambiguous — this line distinguishes all three.
-          security find-identity -v -p codesigning
-
-          # Manual signing, naming a profile per bundle. Automatic would
-          # send xcodebuild back to cloud signing, which is the thing Apple
-          # does not support for Developer ID.
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>developer-id</string>
-            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>signingCertificate</key><string>Developer ID Application</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>app.justmaple.aperture</key><string>Maple DevID App</string>
-              <key>app.justmaple.aperture.FileProvider</key><string>Maple DevID FileProvider</string>
-              <key>app.justmaple.aperture.QuickLook</key><string>Maple DevID QuickLook</string>
-              <key>app.justmaple.aperture.Widget</key><string>Maple DevID Widget</string>
-            </dict>
-            <key>destination</key><string>export</string>
-          </dict>
-          </plist>
-          EOF
-          # No -authenticationKey* and no -allowProvisioningUpdates: both
-          # only matter when xcodebuild is allowed to fetch or mint signing
-          # assets, and everything it needs is already on disk — the
-          # certificate in the keychain built above, the profiles installed
-          # two steps up. The archive keeps the key, and notarytool needs it.
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/Maple.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export"
-
-      # Notarize twice, on purpose: once for the app, once for the disk
-      # image that carries it.
-      #
-      # Stapling the app means a copy dragged out of the DMG carries its own
-      # notarization ticket and opens offline. Stapling the DMG means the
-      # download itself is clean the moment it mounts. Only doing the second
-      # leaves the extracted app depending on a Gatekeeper network check,
-      # which is exactly the first-run failure a signed build is meant to
-      # avoid. Each submission is a few minutes and they are sequential
-      # because the DMG must contain the already-stapled app.
-      - name: Notarize, package as DMG, and staple
-        env:
-          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
-          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
-        run: |
-          set -euo pipefail
-          # codesign for the DMG needs the identity, same as the export did.
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          APP_PATH="$(find "$RUNNER_TEMP/export" -maxdepth 1 -name '*.app' | head -1)"
-          [ -n "$APP_PATH" ] || { echo "::error::no .app in the export"; exit 1; }
-
-          echo "Notarizing $APP_PATH"
-          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-            --key "$RUNNER_TEMP/AuthKey.p8" \
-            --key-id "$APPSTORE_KEY_ID" \
-            --issuer "$APPSTORE_ISSUER_ID" \
-            --wait
-          xcrun stapler staple "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
-
-          VERSION="${GITHUB_REF_NAME#v}"
-          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev-${GITHUB_SHA::8}"
-          mkdir -p "$RUNNER_TEMP/out"
-          DMG="$RUNNER_TEMP/out/Maple-macOS-$VERSION.dmg"
-
-          # The staging folder is the whole window contents: the app, and a
-          # symlink to /Applications so the install is a drag across it.
-          STAGE="$RUNNER_TEMP/dmg"
-          rm -rf "$STAGE"
-          mkdir -p "$STAGE"
-          ditto "$APP_PATH" "$STAGE/$(basename "$APP_PATH")"
-          ln -s /Applications "$STAGE/Applications"
-
-          hdiutil create -volname "Maple" -srcfolder "$STAGE" \
-            -ov -format UDZO "$DMG"
-
-          # A DMG is signed as its own artifact; the app inside keeps the
-          # signature the export gave it.
-          codesign --sign "Developer ID Application" --timestamp "$DMG"
-          codesign --verify --verbose=2 "$DMG"
-
-          echo "Notarizing $DMG"
-          xcrun notarytool submit "$DMG" \
-            --key "$RUNNER_TEMP/AuthKey.p8" \
-            --key-id "$APPSTORE_KEY_ID" \
-            --issuer "$APPSTORE_ISSUER_ID" \
-            --wait
-          xcrun stapler staple "$DMG"
-          xcrun stapler validate "$DMG"
-
-          # What a user's Mac will conclude about this download.
-          spctl -a -t open --context context:primary-signature -vv "$DMG"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-app
-          path: ${{ runner.temp }}/out/*.dmg
-          if-no-files-found: error
-
-      # The release Mac is a real user session, not a VM that gets thrown
-      # away, so put its keychain search list back however the job ended.
-      # `always()` is the point: a failed archive must not leave the
-      # machine altered.
-      - name: Restore keychain search list
-        if: always() && runner.environment == 'self-hosted'
-        run: |
-          if [ -s "$RUNNER_TEMP/keychains.before" ]; then
-            tr '\n' ' ' < "$RUNNER_TEMP/keychains.before" \
-              | xargs security list-keychains -d user -s
-          fi
-
   windows-app:
     name: Windows x64 (build, sign)
     runs-on: windows-latest
@@ -523,7 +51,7 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
 
       - name: Resolve version
         id: version
@@ -619,34 +147,68 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
-    # Dry runs (workflow_dispatch) stop at artifacts — no Release.
-    # needs windows-app only while macos-app is disabled (see header
-    # comment) — a skipped job in `needs` would otherwise skip this too.
     if: github.ref_type == 'tag'
-    needs: [macos-app, windows-app]
+    needs: [windows-app]
     runs-on: ubuntu-latest
+    timeout-minutes: 210
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
 
-      # Name what ships. Without a pattern this downloads every artifact
-      # the run produced, and `dist/*` then uploads them all — which is how
-      # `memlog.txt`, the archive memory sampler, became a public download
-      # on v0.0.2 (#3367). Diagnostics stay on the workflow run.
       - uses: actions/download-artifact@v4
         with:
           path: dist
-          pattern: '*-app'
+          pattern: windows-app
           merge-multiple: true
 
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Create or reuse draft release
         run: |
           set -euo pipefail
-          PRERELEASE_FLAG=""
-          case "$GITHUB_REF_NAME" in *-*) PRERELEASE_FLAG="--prerelease";; esac
-          gh release create "$GITHUB_REF_NAME" \
-            --title "Maple $GITHUB_REF_NAME" \
-            --generate-notes \
-            $PRERELEASE_FLAG \
-            dist/*
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            RELEASE_ARGS=(
+              "$GITHUB_REF_NAME"
+              --repo "$REPOSITORY"
+              --draft
+              --title "Maple $GITHUB_REF_NAME"
+              --generate-notes
+            )
+            case "$GITHUB_REF_NAME" in *-*) RELEASE_ARGS+=(--prerelease);; esac
+            gh release create "${RELEASE_ARGS[@]}" \
+              || gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" >/dev/null
+          fi
+
+      - name: Upload Windows assets
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --repo "$REPOSITORY" --clobber
+
+      - name: Wait for Xcode Cloud Mac asset
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          EXPECTED_ASSET="Maple-macOS-$VERSION.dmg"
+          DEADLINE=$((SECONDS + 10800))
+
+          while (( SECONDS < DEADLINE )); do
+            if gh release view "$GITHUB_REF_NAME" --repo "$REPOSITORY" \
+                --json assets --jq ".assets[].name" | grep -Fxq "$EXPECTED_ASSET"; then
+              echo "Found $EXPECTED_ASSET"
+              exit 0
+            fi
+            echo "Waiting for Xcode Cloud to upload $EXPECTED_ASSET"
+            sleep 30
+          done
+
+          echo "::error::Timed out waiting for $EXPECTED_ASSET. The release remains a draft."
+          exit 1
+
+      - name: Publish complete release
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$REPOSITORY" \
+              --draft=false --prerelease=true
+          else
+            gh release edit "$GITHUB_REF_NAME" --repo "$REPOSITORY" \
+              --draft=false --prerelease=false --latest
+          fi
