@@ -3,6 +3,8 @@ import { isWithinRoot, safeWriteAllowed } from '../fs/root.ts';
 import { parseRootList } from '../fs/root-list.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { listLibraryRoots } from '../db/repos/folders.repo.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
 import { parseSyncPayload } from './handlers/batch-sync-payload.ts';
 
@@ -16,11 +18,15 @@ async function canonicalRoot(root: string): Promise<string> {
 }
 
 /** Canonical registered roots form an atomic uniqueness fence across clients. */
-export async function batchScopes(payload: Record<string, unknown>): Promise<string[]> {
+export async function batchScopes(
+  payload: Record<string, unknown>,
+  dbOverride?: SqliteDb,
+): Promise<string[]> {
+  const libraryRoots = dbOverride
+    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
+    : [...(await loadLibraryRoots()).values()];
   const roots = await Promise.all(
-    [...(await loadLibraryRoots()).values(), ...parseRootList(process.env.MAPLE_ROOTS)].map(
-      canonicalRoot,
-    ),
+    [...libraryRoots, ...parseRootList(process.env.MAPLE_ROOTS)].map(canonicalRoot),
   );
   const targets = (() => {
     try {
@@ -32,7 +38,7 @@ export async function batchScopes(payload: Record<string, unknown>): Promise<str
   const scopes = new Set<string>();
   const sidecars = new Set<string>();
   for (const target of targets) {
-    const path = await resolveAndAuthorizePath(target.path);
+    const path = await resolveAndAuthorizePath(target.path, dbOverride);
     if (!path.ok) throw new BatchScopeError(path.error);
     const sidecar = await safeWriteAllowed(xmpSidecarPath(path.data));
     if (!sidecar.ok || !sidecar.data)
