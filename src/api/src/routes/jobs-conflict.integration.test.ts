@@ -132,42 +132,63 @@ describe('job creation conflicts', () => {
     expect((await response.json()).error).toContain('share a sidecar');
   });
 
-  isolatedIt('reports a typed conflict when an identity belongs to a different payload', async () => {
-    const requestId = new ObjectId().toHexString();
-    await createJob({ kind: 'batch_jpeg_export', payload: { quality: 90 }, requestId }, undefined, db);
-    await expect(
-      createJob({ kind: 'batch_jpeg_export', payload: { quality: 80 }, requestId }, undefined, db),
-    ).rejects.toBeInstanceOf(JobConflictError);
-  });
+  isolatedIt(
+    'reports a typed conflict when an identity belongs to a different payload',
+    async () => {
+      const requestId = new ObjectId().toHexString();
+      await createJob(
+        { kind: 'batch_jpeg_export', payload: { quality: 90 }, requestId },
+        undefined,
+        db,
+      );
+      await expect(
+        createJob(
+          { kind: 'batch_jpeg_export', payload: { quality: 80 }, requestId },
+          undefined,
+          db,
+        ),
+      ).rejects.toBeInstanceOf(JobConflictError);
+    },
+  );
 
-  isolatedIt('returns 409 for a different payload or kind while preserving the original job', async () => {
-    const requestId = new ObjectId().toHexString();
-    const original = { kind: 'batch_jpeg_export', payload: { quality: 90 }, requestId };
-    expect((await post('', original)).status).toBe(201);
-    for (const body of [
-      { ...original, payload: { quality: 80 } },
-      { kind: 'batch_adjustment_sync', payload: batchPayload(), requestId },
-    ]) {
-      const response = await post('', body);
-      expect(response.status).toBe(409);
-      expect((await response.json()).error).toContain('different job');
-    }
-    expect((await getJob(new ObjectId(requestId), db))?.payload).toEqual(original.payload);
-    expect((await post('', original)).status).toBe(201);
-  });
+  isolatedIt(
+    'returns 409 for a different payload or kind while preserving the original job',
+    async () => {
+      const requestId = new ObjectId().toHexString();
+      const original = { kind: 'batch_jpeg_export', payload: { quality: 90 }, requestId };
+      expect((await post('', original)).status).toBe(201);
+      for (const body of [
+        { ...original, payload: { quality: 80 } },
+        { kind: 'batch_adjustment_sync', payload: batchPayload(), requestId },
+      ]) {
+        const response = await post('', body);
+        expect(response.status).toBe(409);
+        expect((await response.json()).error).toContain('different job');
+      }
+      expect((await getJob(new ObjectId(requestId), db))?.payload).toEqual(original.payload);
+      expect((await post('', original)).status).toBe(201);
+    },
+  );
 
-  isolatedIt('returns 409 for an active library conflict and accepts the submission after cancellation', async () => {
-    const active = await createJob({
-      kind: 'batch_adjustment_sync',
-      payload: batchPayload('active'),
-    }, undefined, db);
-    const body = { kind: 'batch_adjustment_sync', payload: batchPayload('later') };
-    const blocked = await post('', body);
-    expect(blocked.status).toBe(409);
-    expect((await blocked.json()).error).toContain('active in this library');
-    await markCancelled(active._id, null, undefined, undefined, db);
-    expect((await post('', body)).status).toBe(201);
-  });
+  isolatedIt(
+    'returns 409 for an active library conflict and accepts the submission after cancellation',
+    async () => {
+      const active = await createJob(
+        {
+          kind: 'batch_adjustment_sync',
+          payload: batchPayload('active'),
+        },
+        undefined,
+        db,
+      );
+      const body = { kind: 'batch_adjustment_sync', payload: batchPayload('later') };
+      const blocked = await post('', body);
+      expect(blocked.status).toBe(409);
+      expect((await blocked.json()).error).toContain('active in this library');
+      await markCancelled(active._id, null, undefined, undefined, db);
+      expect((await post('', body)).status).toBe(201);
+    },
+  );
 
   isolatedIt('fences active batches submitted through aliased library registrations', async () => {
     const alias = join(dirname(root), `${basename(root)}-alias`);
@@ -176,7 +197,11 @@ describe('job creation conflicts', () => {
     insertFolder(database.db, { path: alias, slug: 'conflicts-alias' });
     invalidateLibraryRoots();
     try {
-      await createJob({ kind: 'batch_adjustment_sync', payload: batchPayload('canonical') }, undefined, db);
+      await createJob(
+        { kind: 'batch_adjustment_sync', payload: batchPayload('canonical') },
+        undefined,
+        db,
+      );
       const response = await post('', {
         kind: 'batch_adjustment_sync',
         payload: {
@@ -205,25 +230,32 @@ describe('job creation conflicts', () => {
 
   isolatedIt('returns 409 when a retry overlaps an active library batch', async () => {
     const { previous } = await failedBatch();
-    await createJob({ kind: 'batch_adjustment_sync', payload: batchPayload('active') }, undefined, db);
+    await createJob(
+      { kind: 'batch_adjustment_sync', payload: batchPayload('active') },
+      undefined,
+      db,
+    );
     const response = await post(`/${previous._id}/retry-failed`, {});
     expect(response.status).toBe(409);
     expect((await response.json()).error).toContain('active in this library');
   });
 
-  isolatedIt('recovers a lost retry response with one job and its original prepared patch', async () => {
-    const { previous, payload, frozenPatch } = await failedBatch();
-    const requestId = new ObjectId().toHexString();
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const response = await post(`/${previous._id}/retry-failed`, { requestId });
-      expect(response.status).toBe(201);
-      expect(await response.json()).toEqual({ id: requestId });
-    }
-    const created = await getJob(new ObjectId(requestId), db);
-    expect(created?.payload.targets).toEqual([{ ...payload.targets[0], patch: frozenPatch }]);
-    expect(created?.payload).not.toHaveProperty('relativeWhiteBalance');
-    expect(jobCount()).toBe(2);
-  });
+  isolatedIt(
+    'recovers a lost retry response with one job and its original prepared patch',
+    async () => {
+      const { previous, payload, frozenPatch } = await failedBatch();
+      const requestId = new ObjectId().toHexString();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await post(`/${previous._id}/retry-failed`, { requestId });
+        expect(response.status).toBe(201);
+        expect(await response.json()).toEqual({ id: requestId });
+      }
+      const created = await getJob(new ObjectId(requestId), db);
+      expect(created?.payload.targets).toEqual([{ ...payload.targets[0], patch: frozenPatch }]);
+      expect(created?.payload).not.toHaveProperty('relativeWhiteBalance');
+      expect(jobCount()).toBe(2);
+    },
+  );
 
   isolatedIt('preserves unrelated database failures as 500 on both creation routes', async () => {
     const { previous, payload } = await failedBatch();

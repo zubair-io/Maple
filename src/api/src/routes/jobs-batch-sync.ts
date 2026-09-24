@@ -47,76 +47,79 @@ function retryPayload(previous: JobDoc | null) {
 
 export function createBatchSyncJobRoutes(dbOverride?: SqliteDb) {
   return new Elysia()
-  .get(
-    '/batch-baseline',
-    async ({ query, set }) => {
-      const path = await resolveAndAuthorizePath(query.path);
-      if (!path.ok) {
-        set.status = path.status;
-        return { error: path.error };
-      }
-      const allowed = await safeWriteAllowed(path.data);
-      if (!allowed.ok) {
-        set.status = 403;
-        return { error: allowed.error };
-      }
-      try {
-        return await cameraBaseline(path.data);
-      } catch (error) {
-        set.status = 422;
-        return {
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    },
-    { query: t.Object({ path: t.String() }) },
-  )
-  .post('/:id/resume', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid job id' };
-    }
-    if (!(await resumeBatchJob(new ObjectId(params.id)))) {
-      set.status = 409;
-      return { error: 'Only an interrupted batch can be resumed' };
-    }
-    return { id: params.id };
-  })
-  .post(
-    '/:id/retry-failed',
-    async ({ params, body, set }) => {
+    .get(
+      '/batch-baseline',
+      async ({ query, set }) => {
+        const path = await resolveAndAuthorizePath(query.path);
+        if (!path.ok) {
+          set.status = path.status;
+          return { error: path.error };
+        }
+        const allowed = await safeWriteAllowed(path.data);
+        if (!allowed.ok) {
+          set.status = 403;
+          return { error: allowed.error };
+        }
+        try {
+          return await cameraBaseline(path.data);
+        } catch (error) {
+          set.status = 422;
+          return {
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+      { query: t.Object({ path: t.String() }) },
+    )
+    .post('/:id/resume', async ({ params, set }) => {
       if (!ObjectId.isValid(params.id)) {
         set.status = 400;
         return { error: 'Invalid job id' };
       }
-      const id = new ObjectId(params.id);
-      const previous = await getJob(id, dbOverride);
-      if (previous?.kind === 'batch_adjustment_sync') {
-        return createdJobResponse(
-          () => createRetryFailedJob(id, body?.requestId, dbOverride),
-          set,
-        );
-      }
-      const retry = retryPayload(previous);
-      if (typeof retry === 'string') {
+      if (!(await resumeBatchJob(new ObjectId(params.id)))) {
         set.status = 409;
-        return { error: retry };
+        return { error: 'Only an interrupted batch can be resumed' };
       }
-      const created = await createJobResponse({
-        ...retry,
-        requestId: body?.requestId,
-      }, dbOverride);
-      set.status = created.status;
-      return created.body;
-    },
-    {
-      body: t.Optional(
-        t.Object({
-          requestId: t.Optional(t.String({ pattern: '^[a-f0-9]{24}$' })),
-        }),
-      ),
-    },
-  );
+      return { id: params.id };
+    })
+    .post(
+      '/:id/retry-failed',
+      async ({ params, body, set }) => {
+        if (!ObjectId.isValid(params.id)) {
+          set.status = 400;
+          return { error: 'Invalid job id' };
+        }
+        const id = new ObjectId(params.id);
+        const previous = await getJob(id, dbOverride);
+        if (previous?.kind === 'batch_adjustment_sync') {
+          return createdJobResponse(
+            () => createRetryFailedJob(id, body?.requestId, dbOverride),
+            set,
+          );
+        }
+        const retry = retryPayload(previous);
+        if (typeof retry === 'string') {
+          set.status = 409;
+          return { error: retry };
+        }
+        const created = await createJobResponse(
+          {
+            ...retry,
+            requestId: body?.requestId,
+          },
+          dbOverride,
+        );
+        set.status = created.status;
+        return created.body;
+      },
+      {
+        body: t.Optional(
+          t.Object({
+            requestId: t.Optional(t.String({ pattern: '^[a-f0-9]{24}$' })),
+          }),
+        ),
+      },
+    );
 }
 
 export const batchSyncJobRoutes = createBatchSyncJobRoutes();

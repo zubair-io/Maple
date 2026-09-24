@@ -75,15 +75,19 @@ export async function createRetryFailedJob(
   if (targets.length === 0) {
     throw new JobConflictError('This batch has no failures to retry');
   }
-  return createJob({
-    kind: 'batch_adjustment_sync',
-    payload: {
-      targets,
-      patch: payload.patch,
-      ...(payload.relativeWhiteBalance
-        ? { relativeWhiteBalance: payload.relativeWhiteBalance }
-        : {}),
+  return createJob(
+    {
+      kind: 'batch_adjustment_sync',
+      payload: {
+        targets,
+        patch: payload.patch,
+        ...(payload.relativeWhiteBalance
+          ? { relativeWhiteBalance: payload.relativeWhiteBalance }
+          : {}),
+      },
+      requestId,
     },
-    requestId,
-  }, undefined, dbOverride);
+    undefined,
+    dbOverride,
+  );
 }
