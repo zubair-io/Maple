@@ -1,15 +1,16 @@
 /** Shared creation responses keep first submissions and failed-only retries consistent. */
-import type { ObjectId } from '../db/object-id.ts';
-import type { JobWithId } from '../db/schema.ts';
-import type { CreateJobInput } from '../job-runner/jobs.repo.ts';
+import type { ObjectId } from "../db/object-id.ts";
+import type { SqliteDb } from "../db/repos/db-handle.ts";
+import type { JobWithId } from "../db/schema.ts";
+import type { CreateJobInput } from "../job-runner/jobs.repo.ts";
 import {
   createJob,
   getJob,
   JobConflictError,
   jobConflictMessage,
-} from '../job-runner/jobs.repo.ts';
-import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
-import { BatchScopeError } from '../job-runner/batch-scope.ts';
+} from "../job-runner/jobs.repo.ts";
+import { parseSyncPayload } from "../job-runner/handlers/batch-adjustment-sync.ts";
+import { BatchScopeError } from "../job-runner/batch-scope.ts";
 
 export async function createdJobResponse(
   create: () => Promise<JobWithId>,
@@ -33,33 +34,47 @@ export async function createdJobResponse(
 
 /** Preserve the established export retry response shape while sharing the
  * same request-identity and active-library conflict mapping as batch sync. */
-export async function createJobResponse(input: CreateJobInput) {
+export async function createJobResponse(
+  input: CreateJobInput,
+  dbOverride?: SqliteDb,
+) {
   try {
-    const job = await createJob(input);
+    const job = await createJob(input, undefined, dbOverride);
     return { status: 201, body: { id: job._id.toHexString() } };
   } catch (error) {
-    if (error instanceof BatchScopeError) return { status: 400, body: { error: error.message } };
+    if (error instanceof BatchScopeError)
+      return { status: 400, body: { error: error.message } };
     const message = jobConflictMessage(error);
     if (!message) throw error;
     return { status: 409, body: { error: message } };
   }
 }
 
-export async function createRetryFailedJob(id: ObjectId, requestId?: string): Promise<JobWithId> {
-  const previous = await getJob(id);
+export async function createRetryFailedJob(
+  id: ObjectId,
+  requestId?: string,
+  dbOverride?: SqliteDb,
+): Promise<JobWithId> {
+  const previous = await getJob(id, dbOverride);
   if (
     !previous ||
-    previous.kind !== 'batch_adjustment_sync' ||
-    !['done', 'cancelled', 'failed'].includes(previous.status)
+    previous.kind !== "batch_adjustment_sync" ||
+    !["done", "cancelled", "failed"].includes(previous.status)
   ) {
-    throw new JobConflictError('Wait for the batch to stop before retrying failures');
+    throw new JobConflictError(
+      "Wait for the batch to stop before retrying failures",
+    );
   }
   const payload = parseSyncPayload(previous.payload);
-  const entries = previous.checkpoint?.['failed'];
-  const failed = new Set(Array.isArray(entries) ? entries.map((entry) => entry.id) : []);
-  const ledger = previous.checkpoint?.['entries'];
+  const entries = previous.checkpoint?.["failed"];
+  const failed = new Set(
+    Array.isArray(entries) ? entries.map((entry) => entry.id) : [],
+  );
+  const ledger = previous.checkpoint?.["entries"];
   const prepared = new Map(
-    Array.isArray(ledger) ? ledger.filter(Boolean).map((entry) => [entry.id, entry.patch]) : [],
+    Array.isArray(ledger)
+      ? ledger.filter(Boolean).map((entry) => [entry.id, entry.patch])
+      : [],
   );
   const targets = payload.targets
     .filter((target) => failed.has(target.id))
@@ -68,17 +83,21 @@ export async function createRetryFailedJob(id: ObjectId, requestId?: string): Pr
       return { ...target, ...(patch ? { patch } : {}) };
     });
   if (targets.length === 0) {
-    throw new JobConflictError('This batch has no failures to retry');
+    throw new JobConflictError("This batch has no failures to retry");
   }
-  return createJob({
-    kind: 'batch_adjustment_sync',
-    payload: {
-      targets,
-      patch: payload.patch,
-      ...(payload.relativeWhiteBalance
-        ? { relativeWhiteBalance: payload.relativeWhiteBalance }
-        : {}),
+  return createJob(
+    {
+      kind: "batch_adjustment_sync",
+      payload: {
+        targets,
+        patch: payload.patch,
+        ...(payload.relativeWhiteBalance
+          ? { relativeWhiteBalance: payload.relativeWhiteBalance }
+          : {}),
+      },
+      requestId,
     },
-    requestId,
-  });
+    undefined,
+    dbOverride,
+  );
 }

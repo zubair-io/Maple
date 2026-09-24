@@ -6,10 +6,12 @@
  * a circular dependency.
  */
 
-import * as path from 'node:path';
-import { parseRootList } from '../fs/root-list.ts';
-import { isWithinRoot } from '../fs/root.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import * as path from "node:path";
+import { parseRootList } from "../fs/root-list.ts";
+import { isWithinRoot } from "../fs/root.ts";
+import { loadLibraryRoots } from "../indexer/libraries.cache.ts";
+import { listLibraryRoots } from "../db/repos/folders.repo.ts";
+import type { SqliteDb } from "../db/repos/db-handle.ts";
 
 /**
  * Resolve and validate a caller-supplied path.
@@ -24,27 +26,36 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
  */
 export async function resolveAndAuthorizePath(
   raw: string | undefined,
-): Promise<{ ok: true; data: string } | { ok: false; status: number; error: string }> {
-  if (typeof raw !== 'string' || raw.length === 0) {
-    return { ok: false, status: 400, error: 'Missing required path' };
+  dbOverride?: SqliteDb,
+): Promise<
+  { ok: true; data: string } | { ok: false; status: number; error: string }
+> {
+  if (typeof raw !== "string" || raw.length === 0) {
+    return { ok: false, status: 400, error: "Missing required path" };
   }
   let decoded = raw;
   try {
     if (/%[0-9A-Fa-f]{2}/.test(raw)) decoded = decodeURIComponent(raw);
   } catch {
-    return { ok: false, status: 400, error: 'Path is not a valid URL-encoded string' };
+    return {
+      ok: false,
+      status: 400,
+      error: "Path is not a valid URL-encoded string",
+    };
   }
   if (!path.isAbsolute(decoded)) {
-    return { ok: false, status: 400, error: 'Path must be absolute' };
+    return { ok: false, status: 400, error: "Path must be absolute" };
   }
-  if (decoded.indexOf('\x00') !== -1) {
-    return { ok: false, status: 400, error: 'Path contains NUL byte' };
+  if (decoded.indexOf("\x00") !== -1) {
+    return { ok: false, status: 400, error: "Path contains NUL byte" };
   }
 
   const normalized = path.resolve(decoded);
 
   const envRoots = parseRootList(process.env.MAPLE_ROOTS);
-  const libRoots = [...(await loadLibraryRoots()).values()];
+  const libRoots = dbOverride
+    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
+    : [...(await loadLibraryRoots()).values()];
   // Normalize each root with path.resolve (strips any trailing separator,
   // cross-platform) so the containment check below is separator-correct.
   const allRoots = [...envRoots, ...libRoots].map((r) => path.resolve(r));
@@ -53,7 +64,7 @@ export async function resolveAndAuthorizePath(
     return {
       ok: false,
       status: 403,
-      error: 'No library roots registered; cannot authorise any path',
+      error: "No library roots registered; cannot authorise any path",
     };
   }
 
@@ -65,6 +76,6 @@ export async function resolveAndAuthorizePath(
   return {
     ok: false,
     status: 403,
-    error: 'Path is not inside any registered library root',
+    error: "Path is not inside any registered library root",
   };
 }
