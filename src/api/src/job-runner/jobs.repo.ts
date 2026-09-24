@@ -22,19 +22,15 @@
  * lazy creator was the MongoDB client this change deletes.
  */
 
-import { batchScopes } from "./batch-scope.ts";
-import type { JobWithId } from "../db/schema.ts";
-import {
-  createJob as createJobRow,
-  getJob as getJobRow,
-  type CreateJobInput,
-} from "../db/repos/jobs.repo.ts";
-import type { SqliteDb } from "../db/repos/db-handle.ts";
+import { batchScopes } from './batch-scope.ts';
+import type { JobWithId } from '../db/schema.ts';
+import { createJob as createJobRow, type CreateJobInput } from '../db/repos/jobs.repo.ts';
 
 export {
   claimJob,
   completeJob,
   failJob,
+  getJob,
   isCancelRequested,
   JobConflictError,
   jobConflictMessage,
@@ -44,15 +40,8 @@ export {
   resumeBatchJob,
   saveJobCheckpoint,
   updateProgress,
-} from "../db/repos/jobs.repo.ts";
-export type { CreateJobInput } from "../db/repos/jobs.repo.ts";
-
-export async function getJob(
-  id: Parameters<typeof getJobRow>[0],
-  dbOverride?: SqliteDb,
-) {
-  return getJobRow(id, dbOverride);
-}
+} from '../db/repos/jobs.repo.ts';
+export type { CreateJobInput } from '../db/repos/jobs.repo.ts';
 
 /**
  * Insert a queued job. Returns the new row with all defaults.
@@ -64,11 +53,8 @@ export async function getJob(
 export async function createJob(
   input: CreateJobInput,
   now: () => Date = () => new Date(),
-  dbOverride?: SqliteDb,
 ): Promise<JobWithId> {
   const scopes =
-    input.kind === "batch_adjustment_sync"
-      ? await batchScopes(input.payload, dbOverride)
-      : undefined;
-  return createJobRow(input, now, scopes, dbOverride);
+    input.kind === 'batch_adjustment_sync' ? await batchScopes(input.payload) : undefined;
+  return createJobRow(input, now, scopes);
 }
