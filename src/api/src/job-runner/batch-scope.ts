@@ -27,7 +27,11 @@ export async function batchScopes(
     ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
     : [...(await loadLibraryRoots()).values()];
   const roots = dbOverride
-    ? await Promise.all(libraryRoots.map((root) => realpath(root).catch(() => resolve(root))))
+    ? await Promise.all(
+        [...libraryRoots, ...parseRootList(process.env.MAPLE_ROOTS)].map((root) =>
+          realpath(root).catch(() => resolve(root)),
+        ),
+      )
     : await Promise.all(
         [...libraryRoots, ...parseRootList(process.env.MAPLE_ROOTS)].map(canonicalRoot),
       );

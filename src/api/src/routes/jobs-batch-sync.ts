@@ -75,7 +75,7 @@ export function createBatchSyncJobRoutes(dbOverride?: SqliteDb) {
         set.status = 400;
         return { error: 'Invalid job id' };
       }
-      if (!(await resumeBatchJob(new ObjectId(params.id)))) {
+      if (!(await resumeBatchJob(new ObjectId(params.id), dbOverride))) {
         set.status = 409;
         return { error: 'Only an interrupted batch can be resumed' };
       }
