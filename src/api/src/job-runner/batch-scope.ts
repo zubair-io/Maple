@@ -1,4 +1,4 @@
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { isWithinRoot, safeWriteAllowed } from '../fs/root.ts';
 import { parseRootList } from '../fs/root-list.ts';
@@ -6,7 +6,7 @@ import { xmpSidecarPath } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
-import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
+import { resolveAndAuthorizePath, safeWriteAllowedForPath } from '../routes/xmp-path-auth.ts';
 import { parseSyncPayload } from './handlers/batch-sync-payload.ts';
 
 export class BatchScopeError extends Error {
@@ -16,17 +16,6 @@ export class BatchScopeError extends Error {
 async function canonicalRoot(root: string): Promise<string> {
   const marker = await safeWriteAllowed(join(root, '.maple-batch-scope'));
   return marker.ok && marker.data ? dirname(marker.data) : resolve(root);
-}
-
-async function safeWriteAllowedInRoots(
-  filePath: string,
-  roots: readonly string[],
-): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
-  const parent = await realpath(dirname(filePath)).catch(() => resolve(dirname(filePath)));
-  const destination = resolve(parent, basename(filePath));
-  const resolved = await realpath(destination).catch(() => destination);
-  if (roots.some((root) => isWithinRoot(root, resolved))) return { ok: true, data: resolved };
-  return { ok: false, error: 'Photo is outside registered libraries' };
 }
 
 /** Canonical registered roots form an atomic uniqueness fence across clients. */
@@ -54,9 +43,7 @@ export async function batchScopes(
   for (const target of targets) {
     const path = await resolveAndAuthorizePath(target.path, dbOverride);
     if (!path.ok) throw new BatchScopeError(path.error);
-    const sidecar = dbOverride
-      ? await safeWriteAllowedInRoots(xmpSidecarPath(path.data), roots)
-      : await safeWriteAllowed(xmpSidecarPath(path.data));
+    const sidecar = await safeWriteAllowedForPath(xmpSidecarPath(path.data), dbOverride);
     if (!sidecar.ok)
       throw new BatchScopeError(sidecar.error ?? 'Photo is outside registered libraries');
     if (!sidecar.data) throw new BatchScopeError('Photo is outside registered libraries');
