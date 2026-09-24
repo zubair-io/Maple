@@ -7,9 +7,12 @@
  */
 
 import * as path from 'node:path';
+import { basename, dirname } from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { parseRootList } from '../fs/root-list.ts';
 import { isWithinRoot } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { safeWriteAllowed } from '../fs/root.ts';
 import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 
@@ -72,4 +75,21 @@ export async function resolveAndAuthorizePath(
     status: 403,
     error: 'Path is not inside any registered library root',
   };
+}
+
+export async function safeWriteAllowedForPath(filePath: string, dbOverride?: SqliteDb) {
+  if (!dbOverride) return safeWriteAllowed(filePath);
+  const roots = [
+    ...parseRootList(process.env.MAPLE_ROOTS),
+    ...(await listLibraryRoots(dbOverride)).map((root) => root.path),
+  ];
+  const parent = await realpath(dirname(filePath)).catch(() => path.resolve(dirname(filePath)));
+  const destination = path.resolve(parent, basename(filePath));
+  const resolved = await realpath(destination).catch(() => destination);
+  const normalizedRoots = await Promise.all(
+    roots.map((root) => realpath(root).catch(() => path.resolve(root))),
+  );
+  return normalizedRoots.some((root) => isWithinRoot(root, resolved))
+    ? { ok: true as const, data: resolved }
+    : { ok: false as const, error: 'Photo is outside registered libraries' };
 }
