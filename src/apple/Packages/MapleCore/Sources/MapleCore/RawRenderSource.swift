@@ -6,6 +6,10 @@ import Foundation
 actor RawRenderSource {
   private let originalAsset: AssetRef?
   private var pending: Task<StagedFile, Error>?
+  // Keep an owner-side cleanup handle as well as the task result. A completed
+  // Task can retain its result briefly after the actor is released, so relying
+  // only on StagedFile.deinit makes session teardown nondeterministic.
+  private var stagedDirectory: URL?
 
   init(asset: AssetRef? = nil) { originalAsset = asset }
 
@@ -27,7 +31,9 @@ actor RawRenderSource {
     }
     pending = task
     do {
-      return try await task.value.url
+      let file = try await task.value
+      stagedDirectory = file.directory
+      return file.url
     } catch {
       pending = nil
       throw error
@@ -52,7 +58,12 @@ actor RawRenderSource {
     return try Data(contentsOf: url, options: .mappedIfSafe)
   }
 
-  deinit { pending?.cancel() }
+  deinit {
+    pending?.cancel()
+    if let stagedDirectory {
+      try? FileManager.default.removeItem(at: stagedDirectory)
+    }
+  }
 
   /// Ownership follows the task result, including a completion after teardown.
   /// Releasing the session releases its staged copy; the original is untouched.
