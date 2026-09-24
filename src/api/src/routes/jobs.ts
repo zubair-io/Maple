@@ -11,33 +11,27 @@
  * §9, §11 for the design context.
  */
 
-import { Elysia, t } from "elysia";
-import type { SqliteDb } from "../db/repos/db-handle.ts";
-import { ObjectId } from "../db/object-id.ts";
-import type { JobKind, JobStatus, JobWithId } from "../db/schema.ts";
-import {
-  createJob,
-  getJob,
-  listJobs,
-  requestCancel,
-} from "../job-runner/jobs.repo.ts";
+import { Elysia, t } from 'elysia';
+import { ObjectId } from '../db/object-id.ts';
+import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
+import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 
-import { parseExportPayload } from "../export/export-payload.ts";
-import { parseSyncPayload } from "../job-runner/handlers/batch-adjustment-sync.ts";
-import { createBatchSyncJobRoutes } from "./jobs-batch-sync.ts";
-import { createdJobResponse } from "./jobs-create.ts";
+import { parseExportPayload } from '../export/export-payload.ts';
+import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
+import { batchSyncJobRoutes } from './jobs-batch-sync.ts';
+import { createdJobResponse } from './jobs-create.ts';
 
 const KNOWN_KINDS: ReadonlySet<JobKind> = new Set([
-  "batch_jpeg_export",
-  "batch_adjustment_sync",
-  "batch_recipe_export",
+  'batch_jpeg_export',
+  'batch_adjustment_sync',
+  'batch_recipe_export',
 ]);
 const KNOWN_STATUSES: ReadonlySet<JobStatus> = new Set([
-  "queued",
-  "running",
-  "done",
-  "failed",
-  "cancelled",
+  'queued',
+  'running',
+  'done',
+  'failed',
+  'cancelled',
 ]);
 
 interface JobView {
@@ -63,11 +57,11 @@ function projectJob(doc: JobWithId, compact = false): JobView {
     ...(doc.checkpoint
       ? {
           checkpoint: {
-            applied: doc.checkpoint["applied"],
-            failed: doc.checkpoint["failed"],
-            remaining: doc.checkpoint["remaining"],
-            skipped: doc.checkpoint["skipped"],
-            outputs: doc.checkpoint["outputs"],
+            applied: doc.checkpoint['applied'],
+            failed: doc.checkpoint['failed'],
+            remaining: doc.checkpoint['remaining'],
+            skipped: doc.checkpoint['skipped'],
+            outputs: doc.checkpoint['outputs'],
           },
         }
       : {}),
@@ -83,7 +77,7 @@ function projectJob(doc: JobWithId, compact = false): JobView {
 const CreateBody = t.Object({
   kind: t.String(),
   payload: t.Record(t.String(), t.Unknown()),
-  requestId: t.Optional(t.String({ pattern: "^[a-f0-9]{24}$" })),
+  requestId: t.Optional(t.String({ pattern: '^[a-f0-9]{24}$' })),
 });
 
 const ListQuery = t.Object({
@@ -92,18 +86,13 @@ const ListQuery = t.Object({
   limit: t.Optional(t.String()),
 });
 
-function parseListFilter(query: {
-  status?: string;
-  kind?: string;
-  limit?: string;
-}) {
+function parseListFilter(query: { status?: string; kind?: string; limit?: string }) {
   for (const [key, allowed] of [
-    ["status", KNOWN_STATUSES],
-    ["kind", KNOWN_KINDS],
+    ['status', KNOWN_STATUSES],
+    ['kind', KNOWN_KINDS],
   ] as const) {
     const value = query[key];
-    if (value && !(allowed as ReadonlySet<string>).has(value))
-      return `Unknown ${key}: ${value}`;
+    if (value && !(allowed as ReadonlySet<string>).has(value)) return `Unknown ${key}: ${value}`;
   }
   const requestedLimit = query.limit ? Number(query.limit) : 50;
   if (!Number.isFinite(requestedLimit) || requestedLimit < 1)
@@ -115,93 +104,77 @@ function parseListFilter(query: {
   };
 }
 
-export function createJobsRoutes(dbOverride?: SqliteDb) {
-  return new Elysia({ prefix: "/api/jobs" })
-    .post(
-      "/",
-      async ({ body, set }) => {
-        if (!KNOWN_KINDS.has(body.kind as JobKind)) {
-          set.status = 400;
-          return { error: `Unknown job kind: ${body.kind}` };
-        }
-        if (
-          body.kind === "batch_adjustment_sync" ||
-          body.kind === "batch_recipe_export"
-        ) {
-          try {
-            if (body.kind === "batch_recipe_export")
-              parseExportPayload(body.payload);
-            else parseSyncPayload(body.payload);
-          } catch (error) {
-            set.status = 400;
-            return {
-              error: error instanceof Error ? error.message : String(error),
-            };
-          }
-        }
-        return createdJobResponse(
-          () =>
-            createJob(
-              {
-                kind: body.kind as JobKind,
-                payload: body.payload,
-                requestId: body.requestId,
-              },
-              undefined,
-              dbOverride,
-            ),
-          set,
-        );
-      },
-      { body: CreateBody },
-    )
-
-    .get(
-      "/",
-      async ({ query, set }) => {
-        // Existing import/job route validation is parallel, but the DTOs and repositories differ.
-        // fallow-ignore-next-line code-duplication
-        const filter = parseListFilter(query);
-        if (typeof filter === "string") {
-          set.status = 400;
-          return { error: filter };
-        }
-        const docs = await listJobs(filter, dbOverride);
-        return { jobs: docs.map((doc) => projectJob(doc)) };
-      },
-      { query: ListQuery },
-    )
-
-    .get("/:id", async ({ params, query, set }) => {
-      if (!ObjectId.isValid(params.id)) {
+export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
+  .post(
+    '/',
+    async ({ body, set }) => {
+      if (!KNOWN_KINDS.has(body.kind as JobKind)) {
         set.status = 400;
-        return { error: "Invalid job id" };
+        return { error: `Unknown job kind: ${body.kind}` };
       }
-      const doc = await getJob(new ObjectId(params.id), dbOverride);
-      if (!doc) {
-        set.status = 404;
-        return { error: "Job not found" };
+      if (body.kind === 'batch_adjustment_sync' || body.kind === 'batch_recipe_export') {
+        try {
+          if (body.kind === 'batch_recipe_export') parseExportPayload(body.payload);
+          else parseSyncPayload(body.payload);
+        } catch (error) {
+          set.status = 400;
+          return {
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
       }
-      return projectJob(doc, query.summary === "1");
-    })
-
-    .post("/:id/cancel", async ({ params, set }) => {
-      if (!ObjectId.isValid(params.id)) {
-        set.status = 400;
-        return { error: "Invalid job id" };
-      }
-      const ok = await requestCancel(
-        new ObjectId(params.id),
-        undefined,
-        dbOverride,
+      return createdJobResponse(
+        () =>
+          createJob({
+            kind: body.kind as JobKind,
+            payload: body.payload,
+            requestId: body.requestId,
+          }),
+        set,
       );
-      if (!ok) {
-        set.status = 404;
-        return { error: "Job not found" };
-      }
-      return { ok: true };
-    })
-    .use(createBatchSyncJobRoutes(dbOverride));
-}
+    },
+    { body: CreateBody },
+  )
 
-export const jobsRoutes = createJobsRoutes();
+  .get(
+    '/',
+    async ({ query, set }) => {
+      // Existing import/job route validation is parallel, but the DTOs and repositories differ.
+      // fallow-ignore-next-line code-duplication
+      const filter = parseListFilter(query);
+      if (typeof filter === 'string') {
+        set.status = 400;
+        return { error: filter };
+      }
+      const docs = await listJobs(filter);
+      return { jobs: docs.map((doc) => projectJob(doc)) };
+    },
+    { query: ListQuery },
+  )
+
+  .get('/:id', async ({ params, query, set }) => {
+    if (!ObjectId.isValid(params.id)) {
+      set.status = 400;
+      return { error: 'Invalid job id' };
+    }
+    const doc = await getJob(new ObjectId(params.id));
+    if (!doc) {
+      set.status = 404;
+      return { error: 'Job not found' };
+    }
+    return projectJob(doc, query.summary === '1');
+  })
+
+  .post('/:id/cancel', async ({ params, set }) => {
+    if (!ObjectId.isValid(params.id)) {
+      set.status = 400;
+      return { error: 'Invalid job id' };
+    }
+    const ok = await requestCancel(new ObjectId(params.id));
+    if (!ok) {
+      set.status = 404;
+      return { error: 'Job not found' };
+    }
+    return { ok: true };
+  })
+  .use(batchSyncJobRoutes);
