@@ -24,13 +24,17 @@
 
 import { batchScopes } from './batch-scope.ts';
 import type { JobWithId } from '../db/schema.ts';
-import { createJob as createJobRow, type CreateJobInput } from '../db/repos/jobs.repo.ts';
+import {
+  createJob as createJobRow,
+  getJob as getJobRow,
+  type CreateJobInput,
+} from '../db/repos/jobs.repo.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 
 export {
   claimJob,
   completeJob,
   failJob,
-  getJob,
   isCancelRequested,
   JobConflictError,
   jobConflictMessage,
@@ -43,6 +47,10 @@ export {
 } from '../db/repos/jobs.repo.ts';
 export type { CreateJobInput } from '../db/repos/jobs.repo.ts';
 
+export async function getJob(id: Parameters<typeof getJobRow>[0], dbOverride?: SqliteDb) {
+  return getJobRow(id, dbOverride);
+}
+
 /**
  * Insert a queued job. Returns the new row with all defaults.
  *
@@ -53,8 +61,11 @@ export type { CreateJobInput } from '../db/repos/jobs.repo.ts';
 export async function createJob(
   input: CreateJobInput,
   now: () => Date = () => new Date(),
+  dbOverride?: SqliteDb,
 ): Promise<JobWithId> {
   const scopes =
-    input.kind === 'batch_adjustment_sync' ? await batchScopes(input.payload) : undefined;
-  return createJobRow(input, now, scopes);
+    input.kind === 'batch_adjustment_sync'
+      ? await batchScopes(input.payload, dbOverride)
+      : undefined;
+  return createJobRow(input, now, scopes, dbOverride);
 }

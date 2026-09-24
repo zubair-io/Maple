@@ -1,5 +1,6 @@
 /** Resume preserves the ledger; retry creates a fresh job containing failures only. */
 import { Elysia, t } from 'elysia';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { getJob, resumeBatchJob } from '../job-runner/jobs.repo.ts';
 import { parseExportPayload } from '../export/export-payload.ts';
@@ -44,7 +45,8 @@ function retryPayload(previous: JobDoc | null) {
   }
 }
 
-export const batchSyncJobRoutes = new Elysia()
+export function createBatchSyncJobRoutes(dbOverride?: SqliteDb) {
+  return new Elysia()
   .get(
     '/batch-baseline',
     async ({ query, set }) => {
@@ -88,9 +90,12 @@ export const batchSyncJobRoutes = new Elysia()
         return { error: 'Invalid job id' };
       }
       const id = new ObjectId(params.id);
-      const previous = await getJob(id);
+      const previous = await getJob(id, dbOverride);
       if (previous?.kind === 'batch_adjustment_sync') {
-        return createdJobResponse(() => createRetryFailedJob(id, body?.requestId), set);
+        return createdJobResponse(
+          () => createRetryFailedJob(id, body?.requestId, dbOverride),
+          set,
+        );
       }
       const retry = retryPayload(previous);
       if (typeof retry === 'string') {
@@ -100,7 +105,7 @@ export const batchSyncJobRoutes = new Elysia()
       const created = await createJobResponse({
         ...retry,
         requestId: body?.requestId,
-      });
+      }, dbOverride);
       set.status = created.status;
       return created.body;
     },
@@ -112,3 +117,6 @@ export const batchSyncJobRoutes = new Elysia()
       ),
     },
   );
+}
+
+export const batchSyncJobRoutes = createBatchSyncJobRoutes();

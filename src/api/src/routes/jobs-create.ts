@@ -1,5 +1,6 @@
 /** Shared creation responses keep first submissions and failed-only retries consistent. */
 import type { ObjectId } from '../db/object-id.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import type { JobWithId } from '../db/schema.ts';
 import type { CreateJobInput } from '../job-runner/jobs.repo.ts';
 import {
@@ -33,9 +34,9 @@ export async function createdJobResponse(
 
 /** Preserve the established export retry response shape while sharing the
  * same request-identity and active-library conflict mapping as batch sync. */
-export async function createJobResponse(input: CreateJobInput) {
+export async function createJobResponse(input: CreateJobInput, dbOverride?: SqliteDb) {
   try {
-    const job = await createJob(input);
+    const job = await createJob(input, undefined, dbOverride);
     return { status: 201, body: { id: job._id.toHexString() } };
   } catch (error) {
     if (error instanceof BatchScopeError) return { status: 400, body: { error: error.message } };
@@ -45,8 +46,12 @@ export async function createJobResponse(input: CreateJobInput) {
   }
 }
 
-export async function createRetryFailedJob(id: ObjectId, requestId?: string): Promise<JobWithId> {
-  const previous = await getJob(id);
+export async function createRetryFailedJob(
+  id: ObjectId,
+  requestId?: string,
+  dbOverride?: SqliteDb,
+): Promise<JobWithId> {
+  const previous = await getJob(id, dbOverride);
   if (
     !previous ||
     previous.kind !== 'batch_adjustment_sync' ||
@@ -80,5 +85,5 @@ export async function createRetryFailedJob(id: ObjectId, requestId?: string): Pr
         : {}),
     },
     requestId,
-  });
+  }, undefined, dbOverride);
 }

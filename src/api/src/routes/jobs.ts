@@ -12,13 +12,14 @@
  */
 
 import { Elysia, t } from 'elysia';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { ObjectId } from '../db/object-id.ts';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 
 import { parseExportPayload } from '../export/export-payload.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
-import { batchSyncJobRoutes } from './jobs-batch-sync.ts';
+import { createBatchSyncJobRoutes } from './jobs-batch-sync.ts';
 import { createdJobResponse } from './jobs-create.ts';
 
 const KNOWN_KINDS: ReadonlySet<JobKind> = new Set([
@@ -104,7 +105,8 @@ function parseListFilter(query: { status?: string; kind?: string; limit?: string
   };
 }
 
-export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
+export function createJobsRoutes(dbOverride?: SqliteDb) {
+  return new Elysia({ prefix: '/api/jobs' })
   .post(
     '/',
     async ({ body, set }) => {
@@ -129,7 +131,7 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
             kind: body.kind as JobKind,
             payload: body.payload,
             requestId: body.requestId,
-          }),
+          }, undefined, dbOverride),
         set,
       );
     },
@@ -146,7 +148,7 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
         set.status = 400;
         return { error: filter };
       }
-      const docs = await listJobs(filter);
+      const docs = await listJobs(filter, dbOverride);
       return { jobs: docs.map((doc) => projectJob(doc)) };
     },
     { query: ListQuery },
@@ -157,7 +159,7 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
       set.status = 400;
       return { error: 'Invalid job id' };
     }
-    const doc = await getJob(new ObjectId(params.id));
+    const doc = await getJob(new ObjectId(params.id), dbOverride);
     if (!doc) {
       set.status = 404;
       return { error: 'Job not found' };
@@ -170,11 +172,14 @@ export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
       set.status = 400;
       return { error: 'Invalid job id' };
     }
-    const ok = await requestCancel(new ObjectId(params.id));
+    const ok = await requestCancel(new ObjectId(params.id), undefined, dbOverride);
     if (!ok) {
       set.status = 404;
       return { error: 'Job not found' };
     }
     return { ok: true };
   })
-  .use(batchSyncJobRoutes);
+  .use(createBatchSyncJobRoutes(dbOverride));
+}
+
+export const jobsRoutes = createJobsRoutes();

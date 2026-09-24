@@ -10,6 +10,8 @@ import * as path from 'node:path';
 import { parseRootList } from '../fs/root-list.ts';
 import { isWithinRoot } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { listLibraryRoots } from '../db/repos/folders.repo.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 
 /**
  * Resolve and validate a caller-supplied path.
@@ -24,6 +26,7 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
  */
 export async function resolveAndAuthorizePath(
   raw: string | undefined,
+  dbOverride?: SqliteDb,
 ): Promise<{ ok: true; data: string } | { ok: false; status: number; error: string }> {
   if (typeof raw !== 'string' || raw.length === 0) {
     return { ok: false, status: 400, error: 'Missing required path' };
@@ -44,7 +47,9 @@ export async function resolveAndAuthorizePath(
   const normalized = path.resolve(decoded);
 
   const envRoots = parseRootList(process.env.MAPLE_ROOTS);
-  const libRoots = [...(await loadLibraryRoots()).values()];
+  const libRoots = dbOverride
+    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
+    : [...(await loadLibraryRoots()).values()];
   // Normalize each root with path.resolve (strips any trailing separator,
   // cross-platform) so the containment check below is separator-correct.
   const allRoots = [...envRoots, ...libRoots].map((r) => path.resolve(r));

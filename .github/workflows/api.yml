@@ -55,10 +55,7 @@ jobs:
         working-directory: src/api
         env:
           MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
-        # SQLite route tests install a process-wide test handle and library
-        # root cache. Run test cases serially so another file cannot swap that
-        # state while an integration test is resolving its registered root.
-        run: bun test --max-concurrency=1 --timeout 30000
+        run: bun test --timeout 30000
       - name: Verify real Meilisearch task and search compatibility
         working-directory: src/api
         env:
