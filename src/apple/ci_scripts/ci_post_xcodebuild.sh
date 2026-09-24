@@ -73,8 +73,10 @@ retry() {
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/maple-release.XXXXXX")"
 NOTARY_KEY="$WORK_DIR/AuthKey_${AC_KEY_ID}.p8"
+DMG_MOUNT_POINT="$WORK_DIR/dmg-mount"
 
 cleanup() {
+	hdiutil detach "$DMG_MOUNT_POINT" >/dev/null 2>&1 || true
 	rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
@@ -146,14 +148,23 @@ xcrun notarytool submit "$DMG_PATH" \
 	--wait --timeout 2h
 xcrun stapler staple "$DMG_PATH"
 xcrun stapler validate "$DMG_PATH"
-spctl -a -t open --context context:primary-signature -vv "$DMG_PATH"
+
+# The app is Developer ID signed by Xcode Cloud. The DMG itself is notarized
+# and stapled above, but its signing identity/private key is not exposed to
+# custom Xcode Cloud scripts, so assess the signed app from the final mounted
+# artifact rather than treating the unsigned container as a code signature.
+mkdir -p "$DMG_MOUNT_POINT"
+hdiutil attach "$DMG_PATH" -nobrowse -readonly -mountpoint "$DMG_MOUNT_POINT" >/dev/null
+spctl -a -t exec --context context:primary-signature -vv \
+	"$DMG_MOUNT_POINT/Maple.app"
+hdiutil detach "$DMG_MOUNT_POINT" >/dev/null
 
 echo "==> Uploading $(basename "$DMG_PATH") to the draft GitHub release"
 export GH_TOKEN="$GITHUB_TOKEN"
 REPOSITORY="${GITHUB_REPOSITORY:-zubair-io/Maple}"
 if ! command -v gh >/dev/null 2>&1; then
 	export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-	retry brew install gh
+	HOMEBREW_NO_AUTO_UPDATE=1 retry brew install gh
 fi
 
 if ! gh release view "$CI_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then

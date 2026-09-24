@@ -89,10 +89,12 @@ action prepares the App Store/TestFlight export and a Developer ID export from
 the same compiled `.xcarchive`; it must not configure a second macOS archive
 action. The TestFlight/App Store post-action handles the store copy.
 `ci_post_xcodebuild.sh` consumes `CI_DEVELOPER_ID_SIGNED_APP_PATH`, notarizes and
-staples that app, creates a signed/notarized/stapled universal DMG, and attaches
-it to the tag's draft GitHub Release. The GitHub release workflow publishes the
-draft only after its independently built Windows assets and this DMG are both
-present.
+staples that app, creates a notarized/stapled universal DMG containing the
+signed app, and attaches it to the tag's draft GitHub Release. The script
+validates the signed app from the mounted final DMG because Xcode Cloud does
+not expose the Developer ID private key needed to sign the DMG container. The
+GitHub release workflow publishes the draft only after its independently built
+Windows assets and this DMG are both present.
 
 Configure the tag-triggered Xcode Cloud workflow as follows:
 
@@ -109,8 +111,8 @@ Configure the tag-triggered Xcode Cloud workflow as follows:
 Xcode Cloud signs the app with its cloud-managed Developer ID identity, whose
 private key is deliberately not available to custom scripts. The script
 notarizes the app and its DMG container with the App Store Connect API key;
-Apple does not require a separate signature on the DMG itself. No source
-compilation happens in the post-build script.
+the final Gatekeeper check assesses the signed app inside the mounted DMG. No
+source compilation happens in the post-build script.
 
 ## The render path
 
