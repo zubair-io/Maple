@@ -268,6 +268,7 @@
         // Batch scope validation uses realpath for a read-only symlink check;
         // it never performs a durable filesystem write.
         "src/job-runner/batch-scope.ts",
+        "src/routes/xmp-path-auth.ts",
 
         // #3787. Four reads-only / temp-path callers, three of them scaffolding
         // split out of a file already on this list when a suite outgrew the

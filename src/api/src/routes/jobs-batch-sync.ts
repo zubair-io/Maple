@@ -7,8 +7,7 @@ import { parseExportPayload } from '../export/export-payload.ts';
 import type { JobDoc } from '../db/schema.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
 import { cameraBaseline } from '../job-runner/handlers/batch-white-balance.ts';
-import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
-import { safeWriteAllowed } from '../fs/root.ts';
+import { resolveAndAuthorizePath, safeWriteAllowedForPath } from './xmp-path-auth.ts';
 import { createdJobResponse, createJobResponse, createRetryFailedJob } from './jobs-create.ts';
 
 function retrySource(previous: JobDoc) {
@@ -50,12 +49,12 @@ export function createBatchSyncJobRoutes(dbOverride?: SqliteDb) {
     .get(
       '/batch-baseline',
       async ({ query, set }) => {
-        const path = await resolveAndAuthorizePath(query.path);
+        const path = await resolveAndAuthorizePath(query.path, dbOverride);
         if (!path.ok) {
           set.status = path.status;
           return { error: path.error };
         }
-        const allowed = await safeWriteAllowed(path.data);
+        const allowed = await safeWriteAllowedForPath(path.data, dbOverride);
         if (!allowed.ok) {
           set.status = 403;
           return { error: allowed.error };
