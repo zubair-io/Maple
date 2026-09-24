@@ -3,7 +3,7 @@
 # Signed Windows artifacts and coordinated publication of stable releases.
 #
 # Stable release tags are created by version-sync.yml. Xcode Cloud consumes
-# the same tag and uploads the signed/notarized Mac DMG from its production
+# the same tag and uploads the notarized Mac DMG from its production
 # archive; this workflow builds Windows, maintains the shared draft release,
 # and publishes only after both platforms are present.
 #
