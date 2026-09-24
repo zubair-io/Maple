@@ -265,6 +265,10 @@
         "src/db/sqlite/test-sqlite.test-helpers.ts",
         "src/db/sqlite/test-sqlite.test-helpers.test.ts",
 
+        // Batch scope validation uses realpath for a read-only symlink check;
+        // it never performs a durable filesystem write.
+        "src/job-runner/batch-scope.ts",
+
         // #3787. Four reads-only / temp-path callers, three of them scaffolding
         // split out of a file already on this list when a suite outgrew the
         // 600-line budget during the cutover. The cutover guard reads source
