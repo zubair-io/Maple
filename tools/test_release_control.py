@@ -46,7 +46,7 @@ class ReleaseTests(GitFixture):
                 )
                 return "https://example.test/issues/42"
             if args[:3] == ("gh", "issue", "edit"):
-                return ""
+                raise AssertionError("Release must not require project assignment")
             if args[:3] == ("gh", "pr", "create"):
                 if self.fail_pr:
                     raise subprocess.CalledProcessError(1, args)
@@ -142,12 +142,19 @@ class ReleaseTests(GitFixture):
             control.release("owner/repo", "")
         self.assertFalse(any(args[:2] == ("git", "push") for args in self.calls))
 
-    def test_project_access_failure_prevents_release_side_effects(self):
+    def test_release_reuses_issue_without_project_access(self):
+        self.issues = [{"number": 42, "title": "Start development after v1.2.3"}]
+        control.release("owner/repo", "")
+        self.assertEqual(len(self.issues), 1)
+        self.assertEqual(len(self.prs), 1)
+        self.assertFalse(any("--add-project" in args for args in self.calls))
+
+    def test_issue_creation_failure_prevents_release_side_effects(self):
         with (
             patch.object(
                 control,
                 "handoff_issue",
-                side_effect=RuntimeError("Project access missing"),
+                side_effect=RuntimeError("Issue creation failed"),
             ),
             self.assertRaises(RuntimeError),
         ):
