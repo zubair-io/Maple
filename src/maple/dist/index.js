@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 // src/version.ts
-var MAPLE_VERSION = "0.1.2";
+var MAPLE_VERSION = "0.1.3";
 // src/platform.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
