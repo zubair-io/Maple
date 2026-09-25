@@ -1,3 +1,7 @@
+// This standalone benchmark intentionally keeps its reporting and cleanup
+// scaffolding local so it remains runnable in isolation.
+// fallow-ignore-file code-duplication
+
 /**
  * Unfiltered /api/search facets and query plans benchmark (#3750, #3768, #3807).
  *
@@ -267,6 +271,8 @@ function canonical(rows: unknown[]): string[] {
   return rows.map((r) => JSON.stringify(r)).sort();
 }
 
+// Keep mismatch diagnostics specific to each result shape.
+// fallow-ignore-next-line complexity
 function assertAgreement(before: Map<string, TimedResult>, after: Map<string, TimedResult>): void {
   for (const [key, afterRes] of after) {
     const beforeRes = before.get(key);
