@@ -17,13 +17,13 @@ For example, when main contains `0.1.3`:
    commit ID before the tagging job can run. Also validate that committed
    package, source, distribution, and Apple versions all say `0.1.3`, and that
    main's remaining CI is successful.
-2. Create/reuse the KTLO issue, then prepare `release/next-v0.1.3` with only the version changes for `0.1.4`.
+2. Create/reuse the tracking issue, then prepare `release/next-v0.1.3` with only the version changes for `0.1.4`.
    This branch is also the durable handoff marker. It does not change main.
 3. Refresh `release-handoff-complete` on **all** open PR heads to hold merges.
    Verify main has not moved.
 4. Create annotated tag `v0.1.3` on that exact main commit. The existing release,
    npm, and Xcode Cloud production workflows consume the tag independently.
-5. Open a ready next-version PR, linked to an issue on KTLO. Only this exact
+5. Open a ready next-version PR, linked to the tracking issue. Only this exact
    version-only commit passes the handoff gate (statuses are per commit, so
    another PR with the identical commit receives the same status); it must also pass Release
    readiness, which waits for the complete release PR CI suite.
@@ -45,7 +45,8 @@ First run **release-handoff** manually to seed statuses on open PR heads, then
 add the requirement. The release dispatcher refuses to create a release if
 this requirement is absent. A PAT/GitHub App credential in `VERSION_SYNC_TOKEN`
 (fallback: existing `JULES_GH`) needs contents, PRs, issues and statuses write,
-Actions/rules read, and access to the KTLO project. The credential must trigger
+Actions/rules read. Project-board assignment is not part of release orchestration
+and requires no Projects permission. The credential must trigger
 downstream workflows; the ordinary `GITHUB_TOKEN` is not used for release pushes.
 
 At rollout, main still says `0.1.2` and `v0.1.2` already exists on an older

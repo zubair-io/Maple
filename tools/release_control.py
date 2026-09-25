@@ -244,7 +244,6 @@ def handoff_issue(repo, tag):
             f"Advance all product versions after releasing {tag}; keep TestFlight on the next development version.",
         ).rsplit("/", 1)[-1]
     )
-    run("gh", "issue", "edit", issue, "--repo", repo, "--add-project", "KTLO")
     return issue
 
 
