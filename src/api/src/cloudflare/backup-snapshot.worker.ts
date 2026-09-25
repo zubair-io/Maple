@@ -1,10 +1,21 @@
 import { Database } from 'bun:sqlite';
 import { createHash } from 'node:crypto';
+import { open } from 'node:fs/promises';
 
 async function fileSha256(path: string): Promise<string> {
   const hash = createHash('sha256');
   for await (const chunk of Bun.file(path).stream()) hash.update(chunk);
   return hash.digest('hex');
+}
+
+async function gzipFile(source: string, target: string): Promise<void> {
+  const file = await open(target, 'w', 0o600);
+  try {
+    const gzip = Bun.file(source).stream().pipeThrough(new CompressionStream('gzip'));
+    for await (const chunk of gzip) await file.write(chunk);
+  } finally {
+    await file.close();
+  }
 }
 
 declare const self: Worker;
@@ -36,11 +47,7 @@ self.onmessage = async (event: MessageEvent<{ source: string | null; target: str
       }
     })();
     const sha256 = await fileSha256(target);
-    if (source)
-      await Bun.write(
-        `${target}.gz`,
-        new Response(Bun.file(target).stream().pipeThrough(new CompressionStream('gzip'))),
-      );
+    if (source) await gzipFile(target, `${target}.gz`);
     self.postMessage({
       result: {
         schema,

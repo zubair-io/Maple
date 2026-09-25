@@ -283,7 +283,8 @@
         // #3816: private snapshot temp files and offline database recovery, not library assets.
         "src/cloudflare/db-backup.ts",
         "src/cloudflare/db-backup.test.ts",
-        "src/cloudflare/backup-restore.ts"
+        "src/cloudflare/backup-restore.ts",
+        "src/cloudflare/backup-snapshot.worker.ts"
       ],
       "rules": {
         "eslint/no-restricted-imports": "off"
