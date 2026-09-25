@@ -16,6 +16,9 @@
     "scripts/sqlite-bench/stage-claim-roundtrip.ts",
     "scripts/sqlite-bench/stage-claim-media.ts",
 
+    // #3807 — standalone facets benchmark, invoked directly with Bun.
+    "scripts/sqlite-bench/search-facets-bench.ts",
+
     // #3804 — what one Workers-page refresh costs, both count spellings
     // against one generated library. Same reason as the blocks above.
     "scripts/sqlite-bench/stage-backlog-counts.ts",
