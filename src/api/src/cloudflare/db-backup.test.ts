@@ -137,6 +137,19 @@ test('corrupt download prevents pruning and restore publication', async () => {
   expect(await Bun.file(target).exists()).toBe(false);
 });
 
+test('malformed compressed backup fails restore without hanging', async () => {
+  const target = join(directory, 'malformed.db');
+  const response = new Response(new Uint8Array([0, 1, 2, 3]), {
+    headers: {
+      'x-amz-meta-sha256': '0'.repeat(64),
+      'x-amz-meta-uncompressed-size': '1',
+      'x-amz-meta-schema-version': '0001-test',
+    },
+  });
+  await expect(restoreBackup(response, target)).rejects.toThrow();
+  expect(await Bun.file(target).exists()).toBe(false);
+});
+
 test('restore refuses existing database and orphan WAL', async () => {
   await Bun.write(join(directory, 'target.db-wal'), 'preserve');
   await expect(restoreBackup(new Response('unused'), join(directory, 'target.db'))).rejects.toThrow(
