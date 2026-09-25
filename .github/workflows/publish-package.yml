@@ -7,6 +7,16 @@
 name: publish-package
 
 on:
+  workflow_call:
+    outputs:
+      validated_sha:
+        description: 'Revision that passed native builds, packaging, and Node acceptance'
+        value: ${{ jobs.validation-result.outputs.sha }}
+    inputs:
+      dry_run:
+        description: 'Reusable validation must never publish packages'
+        type: boolean
+        default: true
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -25,6 +35,15 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
+  validation-result:
+    needs: [build-linux, build-macos, build-windows, publish, node-22-acceptance]
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - id: revision
+        run: echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
   build-linux:
     name: build-linux (${{ matrix.pkg_name }})
     runs-on: ubuntu-latest
@@ -280,11 +299,12 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           DRY_RUN_INPUT: ${{ inputs.dry_run || '' }}
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           set -euo pipefail
 
           DRY_RUN="false"
-          if [ "$EVENT_NAME" = "pull_request" ] || [ "$DRY_RUN_INPUT" = "true" ]; then
+          if [ "$EVENT_NAME" != "push" ] || [ "$REF_TYPE" != "tag" ] || [ "$DRY_RUN_INPUT" = "true" ]; then
             DRY_RUN="true"
           fi
 

@@ -105,6 +105,16 @@ class GitFixture(unittest.TestCase):
         }
 
     def api(self, repo, endpoint, payload=None):
+        if endpoint.startswith("commits/") and "/status?" in endpoint:
+            sha = endpoint.split("/")[1]
+            previous = next(
+                (item for head, item in reversed(self.statuses) if head == sha), None
+            )
+            return {
+                "statuses": [{**previous, "creator": {"login": "github-actions[bot]"}}]
+                if previous
+                else []
+            }
         if endpoint.startswith("statuses/"):
             self.statuses.append((endpoint.split("/")[1], payload))
             return {}
@@ -171,6 +181,57 @@ class VersionTests(GitFixture):
 
 
 class GateTests(GitFixture):
+    def test_unchanged_status_is_not_posted_again(self):
+        self.prs = [self.pr(self.main)]
+        control.refresh_gate("owner/repo")
+        control.refresh_gate("owner/repo")
+        self.assertEqual(len(self.statuses), 1)
+
+    def test_failed_head_does_not_prevent_later_updates_but_fails_release(self):
+        self.prs = [self.pr("a" * 40), self.pr(self.main)]
+        real_status = control.status
+
+        def sometimes_fails(repo, pr, state, description):
+            if pr["head"]["sha"] == "a" * 40:
+                raise RuntimeError("GitHub status limit")
+            real_status(repo, pr, state, description)
+
+        with (
+            patch.object(control, "status", side_effect=sometimes_fails),
+            self.assertRaisesRegex(RuntimeError, "incomplete"),
+        ):
+            control.refresh_gate("owner/repo")
+        self.assertEqual(self.statuses[-1][0], self.main)
+
+    def test_status_lookup_paginates_and_ignores_other_contexts(self):
+        matching = {
+            "context": policy.CONTEXT,
+            "state": "success",
+            "description": "ready",
+            "creator": {"login": "github-actions[bot]"},
+        }
+        pages = [
+            {"statuses": [{"context": f"check-{index}"} for index in range(100)]},
+            {"statuses": [matching]},
+        ]
+        with patch.object(control, "api", side_effect=pages) as request:
+            control.status("owner/repo", self.pr(self.main), "success", "ready")
+        self.assertEqual(request.call_count, 2)
+        self.assertIn("page=2", request.call_args.args[1])
+
+    def test_status_from_another_actor_is_replaced(self):
+        matching = {
+            "context": policy.CONTEXT,
+            "state": "success",
+            "description": "ready",
+            "creator": {"login": "some-user"},
+        }
+        with patch.object(
+            control, "api", side_effect=[{"statuses": [matching]}, {}]
+        ) as request:
+            control.status("owner/repo", self.pr(self.main), "success", "ready")
+        self.assertEqual(request.call_count, 2)
+
     def test_no_handoff_all_prs_pass_including_forks(self):
         self.prs = [self.pr(self.main), self.pr(self.main, repo="fork/repo")]
         control.refresh_gate("owner/repo")

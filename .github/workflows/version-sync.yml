@@ -97,8 +97,24 @@ jobs:
           echo "::error::Timed out waiting for release workflows for $HEAD_SHA."
           exit 1
 
+  validate-apple:
+    name: Validate pinned Apple revision
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/apple.yml
+
+  validate-packages:
+    name: Validate pinned native packages
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/publish-package.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      dry_run: true
+
   create-release:
     name: Tag current version and open next-version PR
+    needs: [validate-apple, validate-packages]
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -114,6 +130,8 @@ jobs:
       NEXT_VERSION: ${{ inputs.next_version }}
       ADVANCE_ONLY: ${{ inputs.advance_only }}
       RELEASE_SHA: ${{ github.sha }}
+      VALIDATED_APPLE_SHA: ${{ needs.validate-apple.outputs.validated_sha }}
+      VALIDATED_PACKAGES_SHA: ${{ needs.validate-packages.outputs.validated_sha }}
     steps:
       - name: Require a downstream-triggering token
         run: |

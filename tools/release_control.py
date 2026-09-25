@@ -87,11 +87,30 @@ def remote_tag(tag):
 
 def status(repo, pr, state, description):
     payload = {"state": state, "context": CONTEXT, "description": description}
+    sha = pr["head"]["sha"]
+    # The combined endpoint returns the latest status for each context. Do not
+    # consume GitHub's 1,000-status allowance merely to change the run URL.
+    page = 1
+    while True:
+        current = api(repo, f"commits/{sha}/status?per_page=100&page={page}")
+        previous = next(
+            (item for item in current["statuses"] if item["context"] == CONTEXT), None
+        )
+        if previous or len(current["statuses"]) < 100:
+            break
+        page += 1
+    if (
+        previous
+        and previous["state"] == state
+        and previous.get("description") == description
+        and previous.get("creator", {}).get("login") == "github-actions[bot]"
+    ):
+        return
     if os.environ.get("GITHUB_RUN_ID"):
         payload["target_url"] = (
             f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
         )
-    api(repo, f"statuses/{pr['head']['sha']}", payload)
+    api(repo, f"statuses/{sha}", payload)
 
 
 def refresh_gate(repo):
@@ -126,15 +145,22 @@ def refresh_gate(repo):
         sha = pr["head"]["sha"]
         previous = decisions.get(sha, (pr, True))[1]
         decisions[sha] = (pr, previous and allowed)
+    failures = []
     for pr, allowed in decisions.values():
-        status(
-            repo,
-            pr,
-            "success" if allowed else "pending",
-            "Handoff complete or approved version bump"
-            if allowed
-            else f"Waiting for the next-version PR after v{current}",
-        )
+        try:
+            status(
+                repo,
+                pr,
+                "success" if allowed else "pending",
+                "Handoff complete or approved version bump"
+                if allowed
+                else f"Waiting for the next-version PR after v{current}",
+            )
+        except (subprocess.CalledProcessError, ValueError, RuntimeError) as error:
+            failures.append(pr["head"]["sha"])
+            print(f"Status refresh failed for {failures[-1]}: {error}")
+    if failures:
+        raise RuntimeError(f"Handoff status refresh incomplete: {', '.join(failures)}")
 
 
 def require_gate(repo):
@@ -151,7 +177,15 @@ def require_gate(repo):
         )
 
 
+def require_release_validation(sha):
+    for name in ("VALIDATED_APPLE_SHA", "VALIDATED_PACKAGES_SHA"):
+        if os.environ.get(name) != sha:
+            raise ValueError(f"{name} must attest successful validation of {sha}")
+
+
 def require_green_main(repo, sha):
+    # Apple and native-package validation run as pinned reusable prerequisites
+    # of create-release; these are the remaining main-push checks.
     pages = json.loads(
         run(
             "gh",
@@ -258,6 +292,7 @@ def release(repo, requested, advance_only=False, release_sha=None):
             f"{tag} already exists on another commit. Merge a next-version migration PR first; never move the tag."
         )
     validate_versions(main)
+    require_release_validation(main)
     require_green_main(repo, main)
     issue = handoff_issue(repo, tag)
     name = branch(current)

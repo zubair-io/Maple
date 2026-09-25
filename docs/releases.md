@@ -11,8 +11,12 @@ empty for a patch increment, or supply a higher stable `X.Y.Z` version. Leave
 
 For example, when main contains `0.1.3`:
 
-1. Validate that the committed package, source, distribution, and Apple versions
-   all say `0.1.3`, and that main's CI is successful.
+1. Run Apple compile/regression gates and the complete native-package build,
+   test, packaging and Node acceptance workflow on the pinned release commit.
+   Package validation is dry-run only. Both must return that exact validated
+   commit ID before the tagging job can run. Also validate that committed
+   package, source, distribution, and Apple versions all say `0.1.3`, and that
+   main's remaining CI is successful.
 2. Create/reuse the KTLO issue, then prepare `release/next-v0.1.3` with only the version changes for `0.1.4`.
    This branch is also the durable handoff marker. It does not change main.
 3. Refresh `release-handoff-complete` on **all** open PR heads to hold merges.
@@ -73,6 +77,9 @@ original main SHA and refuses to silently select newer main commits.
 - A cancelled status refresh can be recovered with **release-handoff → Run
   workflow**. Every refresh reads current main and updates every open PR, so
   coalesced events do not leave only the event's PR updated.
+  Unchanged statuses are not reposted. A failed update does not prevent other
+  PRs from being refreshed, but the overall refresh still fails and prevents
+  the release dispatcher from publishing a new tag.
 
 This is an asynchronous merge guard, not an atomic branch lock. An already
 in-flight merge can race the first status refresh; the final main-SHA check
