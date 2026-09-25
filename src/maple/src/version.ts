@@ -3,4 +3,4 @@
  * (in publish-package.yml before the bundle is built, and by the version-sync
  * PR on main afterwards) — do not edit by hand. Must equal package.json.
  */
-export const MAPLE_VERSION = '0.1.2';
+export const MAPLE_VERSION = '0.1.3';
