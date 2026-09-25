@@ -23,6 +23,8 @@ and Apple EditSession lifecycle, shared state and existing test boundaries.
 
 [Export recipes and batch delivery](export-recipes.md) documents saved recipes, supported encoders, Web/Windows/CLI/API consumers, and recovery.
 
+[Stable releases](releases.md) covers tagging the current version, the next-version PR, TestFlight handoff, and recovery.
+
 ## Core and pipeline
 
 | Doc                                                | Covers                                                                                                                                                                                                 |
