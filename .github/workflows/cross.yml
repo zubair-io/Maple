@@ -48,6 +48,16 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  release-handoff-tests:
+    name: Release handoff regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m unittest discover -s tools -p 'test_release_*.py'
+
   format-check:
     name: format-check (prettier)
     runs-on: ubuntu-latest

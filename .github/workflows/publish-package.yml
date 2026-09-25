@@ -319,8 +319,7 @@ jobs:
             if [ "$DRY_RUN" = "true" ]; then
               # `npm publish --dry-run` still asks the registry and refuses a
               # version that is already published, which is the normal state
-              # of a release PR before publishing (version-sync sets
-              # package.json to the version that will ship). `npm pack
+              # of an ordinary PR on an already-tagged version. `npm pack
               # --dry-run` packs and lists the tarball the same way without
               # touching the registry.
               npm pack "./$dir" --dry-run
