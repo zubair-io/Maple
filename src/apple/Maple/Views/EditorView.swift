@@ -24,7 +24,10 @@ struct EditorView: View {
       EditorSurface(
         state: state, onDismiss: onDismiss, onInfo: onInfo,
         filmstripAssets: filmstripAssets, onSelectAsset: onSelectAsset,
-        filmstripSource: filmstripSource, usesPhoneControls: layout.usesPhoneControls
+        filmstripSource: filmstripSource, usesPhoneControls: layout.usesPhoneControls,
+        usesDuoToolRail: MapleShellKind.currentIdiom == .phone
+          && horizontalSizeClass == .regular
+          && geometry.size.width > geometry.size.height
       )
       .environment(\.mapleLayout, layout.density)
     }
@@ -43,6 +46,7 @@ struct EditorSurface: View {
   var filmstripSource: (any ImageSource)? = nil
 
   let usesPhoneControls: Bool
+  let usesDuoToolRail: Bool
 
   @Environment(\.mapleLayout) private var layout
 
@@ -143,7 +147,9 @@ struct EditorSurface: View {
             .ignoresSafeArea(edges: .bottom)
           }
         } else {
-          EditorControls(state: state, onPresetsTap: { presetsOpen = true })
+          EditorControls(
+            state: state, onPresetsTap: { presetsOpen = true },
+            usesSystemToolRail: usesDuoToolRail)
         }
       }
       .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
@@ -236,9 +242,14 @@ struct EditorSurface: View {
       // (EditorView leaves the view hierarchy and its modifier disappears).
       .toolbar(.hidden, for: .windowToolbar)
     #elseif os(iOS)
-      // The editor supplies its own header. A retained Browse navigation
-      // bar can intercept these buttons on iPad, especially after rotation.
-      .toolbar(.hidden, for: .navigationBar)
+      .toolbar(usesDuoToolRail ? .visible : .hidden, for: .navigationBar)
+      .toolbarBackground(.hidden, for: .navigationBar)
+      .navigationBarBackButtonHidden(usesDuoToolRail)
+      .toolbar {
+        if usesDuoToolRail {
+          EditorDuoToolRail(state: state, onPresetsTap: { presetsOpen = true })
+        }
+      }
     #endif
     // Editor key commands (arrows, compare, nudge, filmstrip navigation)
     // are routed by one shared scope so a focused slider or text field can

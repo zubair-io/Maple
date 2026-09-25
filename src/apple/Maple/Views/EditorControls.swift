@@ -6,6 +6,7 @@ import SwiftUI
 struct EditorControls: View {
   @Bindable var state: EditorState
   let onPresetsTap: () -> Void
+  var usesSystemToolRail = false
   @Environment(\.mapleLayout) private var layout
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -31,14 +32,19 @@ struct EditorControls: View {
             )
             .frame(maxHeight: isBottom ? nil : .infinity)
 
-          ToolDock(
-            state: state, onPresetsTap: onPresetsTap,
-            horizontal: isBottom,
-            onGroupTap: { group in scroll(proxy, to: "group-\(group.rawValue)") })
+          if !usesSystemToolRail {
+            ToolDock(
+              state: state, onPresetsTap: onPresetsTap,
+              horizontal: isBottom,
+              onGroupTap: { group in scroll(proxy, to: "group-\(group.rawValue)") })
+          }
         }
         // Report only the fixed controls footprint. The following outer
         // alignment frame fills the editor and must never exclude its canvas.
-        .frame(width: isBottom ? nil : 396, height: isBottom ? bottomPanelHeight + 80 : nil)
+        .frame(
+          width: isBottom ? nil : (usesSystemToolRail ? 320 : 396),
+          height: isBottom ? bottomPanelHeight + 80 : nil
+        )
         // The inspector is scrollable for every tool; the dock scrolls too.
         // Wheel events over either must reach that surface, never the canvas.
         .reportsWheelExclusion(in: "editorCanvas", active: true)

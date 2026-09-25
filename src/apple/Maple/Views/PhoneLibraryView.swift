@@ -22,10 +22,10 @@
 
 #if os(iOS)
 
-import SwiftUI
-import MapleCore
+  import SwiftUI
+  import MapleCore
 
-struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
+  struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
     let selectedSession: EditSession?
@@ -96,60 +96,59 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     var clipboard: AdjustmentClipboard? = nil
 
     var body: some View {
-        AppShellIPhoneShell(
-            isDrawerOpen: $isDrawerOpen,
-            mode: mode,
-            selectedSession: selectedSession,
-            libraryTitle: libraryTitle,
-            cloudTimelineVM: cloudTimelineVM,
-            cloudTimelineThumbClient: cloudTimelineThumbClient,
-            cloudTimelineThumbCache: cloudTimelineThumbCache,
-            allSourcesTimelineVM: allSourcesTimelineVM,
-            allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
-            mapVM: mapVM,
-            mapThumbClient: mapThumbClient,
-            mapThumbCache: mapThumbCache,
-            mapUnavailableReason: mapUnavailableReason,
-            browseDisplayMode: $browseDisplayMode,
-            browseVM: browseVM,
-            sessions: $sessions,
-            toolbarContent: toolbarContent,
-            onSelectCloudAsset: onSelectCloudAsset,
-            onSelectMapPlace: onSelectMapPlace,
-            onSelectLocalAsset: onSelectLocalAsset,
-            onGrantPhotosAccess: onGrantPhotosAccess,
-            onNavigateFolder: onNavigateFolder,
-            onOpenEditor: onOpenEditor,
-            onOpenTile: onOpenTile,
-            onPrimeSession: onPrimeSession,
-            onFullImageFallback: onFullImageFallback,
-            onSelectedTileFrameChange: onSelectedTileFrameChange,
-            hiddenTileID: hiddenTileID,
-            onMergePanorama: onMergePanorama,
-            onEditMetadata: onEditMetadata,
-            onBatchRename: onBatchRename,
-            onTrashAssets: onTrashAssets,
-            clipboard: clipboard
-        )
-        // Fast Preview epic §1: a grid / cloud-result tap puts `.preview`
-        // in `libraryPath` and Preview's Edit pushes `.edit` on top. Only
-        // `.edit` reaches the stack (`PhoneTabShell.pushedLibraryPath`);
-        // `.preview` is drawn by the hero overlay below, with the grid live
-        // beneath it. The tab bar hides for both (#625/#791).
-        .navigationDestination(for: LibraryDestination.self) { destination in
-            Group {
-                switch destination {
-                case .preview:
-                    // Never pushed — see `PhoneTabShell.pushedLibraryPath`.
-                    EmptyView()
-                case .edit(let ref):
-                    EditorDestination(asset: ref, sessions: $sessions)
-                }
-            }
-            .toolbar(.hidden, for: .tabBar)
-            .toolbar(.hidden, for: .navigationBar)
+      AppShellIPhoneShell(
+        isDrawerOpen: $isDrawerOpen,
+        mode: mode,
+        selectedSession: selectedSession,
+        libraryTitle: libraryTitle,
+        cloudTimelineVM: cloudTimelineVM,
+        cloudTimelineThumbClient: cloudTimelineThumbClient,
+        cloudTimelineThumbCache: cloudTimelineThumbCache,
+        allSourcesTimelineVM: allSourcesTimelineVM,
+        allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+        mapVM: mapVM,
+        mapThumbClient: mapThumbClient,
+        mapThumbCache: mapThumbCache,
+        mapUnavailableReason: mapUnavailableReason,
+        browseDisplayMode: $browseDisplayMode,
+        browseVM: browseVM,
+        sessions: $sessions,
+        toolbarContent: toolbarContent,
+        onSelectCloudAsset: onSelectCloudAsset,
+        onSelectMapPlace: onSelectMapPlace,
+        onSelectLocalAsset: onSelectLocalAsset,
+        onGrantPhotosAccess: onGrantPhotosAccess,
+        onNavigateFolder: onNavigateFolder,
+        onOpenEditor: onOpenEditor,
+        onOpenTile: onOpenTile,
+        onPrimeSession: onPrimeSession,
+        onFullImageFallback: onFullImageFallback,
+        onSelectedTileFrameChange: onSelectedTileFrameChange,
+        hiddenTileID: hiddenTileID,
+        onMergePanorama: onMergePanorama,
+        onEditMetadata: onEditMetadata,
+        onBatchRename: onBatchRename,
+        onTrashAssets: onTrashAssets,
+        clipboard: clipboard
+      )
+      // Fast Preview epic §1: a grid / cloud-result tap puts `.preview`
+      // in `libraryPath` and Preview's Edit pushes `.edit` on top. Only
+      // `.edit` reaches the stack (`PhoneTabShell.pushedLibraryPath`);
+      // `.preview` is drawn by the hero overlay below, with the grid live
+      // beneath it. The tab bar hides for both (#625/#791).
+      .navigationDestination(for: LibraryDestination.self) { destination in
+        Group {
+          switch destination {
+          case .preview:
+            // Never pushed — see `PhoneTabShell.pushedLibraryPath`.
+            EmptyView()
+          case .edit(let ref):
+            EditorDestination(asset: ref, sessions: $sessions)
+          }
         }
+        .toolbar(.hidden, for: .tabBar)
+      }
     }
-}
+  }
 
 #endif
