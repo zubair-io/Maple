@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # sync-release-version.sh — bring every committed version field in line with a
-# requested release (#3486, #3825). The version-sync workflow runs this before
-# tagging so the reviewed source, generated distribution, and release artifacts
-# all carry the same version. A developer can also run it by hand.
+# requested development version. The release handoff uses this on a separate
+# branch after selecting the current release revision; main changes only when
+# the next-version PR merges. A developer can also run it by hand.
 #
 # Usage:
 #   tools/sync-release-version.sh 0.0.5      # or v0.0.5
@@ -17,8 +17,8 @@ set -euo pipefail
 VERSION="${1:-}"
 VERSION="${VERSION#v}"
 if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
-  echo "Usage: $0 <semver>   (got '${1:-}')" >&2
-  exit 1
+	echo "Usage: $0 <semver>   (got '${1:-}')" >&2
+	exit 1
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

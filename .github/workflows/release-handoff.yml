@@ -1,0 +1,38 @@
+# Only trusted main code runs here. PR content is read as Git data, never executed.
+name: release-handoff
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, closed, edited]
+  push:
+    branches: [main, 'release/next-v*']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: release-handoff
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh release handoff statuses
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refresh all open PR heads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh auth setup-git
+          python3 tools/release_control.py gate
