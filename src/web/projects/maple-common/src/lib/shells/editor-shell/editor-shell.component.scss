@@ -243,3 +243,38 @@
   border-radius: 50%;
   transition: transform 0.15s ease;
 }
+
+// Sketch VNext's phone duo uses a full-width file bar and reserves the
+// floating glass treatment for the control card and dock.
+@media (max-width: 767px) {
+  .editor-top-bar {
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: none;
+    height: 52px;
+    transform: none;
+    border-radius: 0;
+    border-top: 0;
+    border-right: 0;
+    border-left: 0;
+    padding-left: max(8px, var(--safe-area-inset-left));
+    padding-right: max(8px, var(--safe-area-inset-right));
+    background: color-mix(in srgb, var(--pro-glass-bg-heavy) 92%, transparent);
+  }
+
+  .editor-top-bar [data-testid='editor-shell-commands'],
+  .editor-top-bar [data-testid='editor-shell-scopes'],
+  .editor-top-bar [data-testid='editor-shell-auto'],
+  .editor-top-bar [data-testid='editor-shell-reset'],
+  .editor-top-bar [data-testid='editor-shell-info'] {
+    display: none;
+  }
+
+  .phone-card-anchor {
+    right: max(8px, var(--safe-area-inset-right));
+    bottom: calc(76px + var(--safe-area-inset-bottom));
+    left: max(8px, var(--safe-area-inset-left));
+  }
+}

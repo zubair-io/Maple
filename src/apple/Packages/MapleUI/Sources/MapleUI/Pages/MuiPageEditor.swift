@@ -80,6 +80,12 @@ public struct MuiPageEditor: View {
                 .padding(MuiTokens.spacingSm)
         } center: {
             VStack(spacing: 0) {
+                MuiPageHeader(
+                    title: photos.first(where: { $0.id == activePhotoId })?.alt ?? "Editor",
+                    showBack: false
+                )
+                MuiDivider()
+
                 MuiImageCanvas(url: activePhotoUrl, cropMode: Self.cropModeActive(toolId: activeToolId), cropRect: $cropRect)
                     .frame(maxHeight: .infinity)
 
