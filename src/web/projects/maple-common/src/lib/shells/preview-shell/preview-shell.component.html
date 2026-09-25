@@ -1,7 +1,7 @@
 <div class="flex h-full w-full flex-row">
   <div class="preview-main relative min-w-0 flex-1">
     <div
-      class="absolute top-[14px] left-1/2 z-10 flex h-11 max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-2 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 [backdrop-filter:var(--pro-glass-blur)]"
+      class="preview-top-bar absolute top-[14px] left-1/2 z-10 flex h-11 max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-2 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 [backdrop-filter:var(--pro-glass-blur)]"
     >
       <button
         class="flex shrink-0 items-center gap-1 rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-white/5 px-2 py-1 outline-none transition-colors duration-[120ms] ease-out appearance-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
@@ -16,6 +16,23 @@
         class="max-w-[min(200px,40vw)] shrink overflow-hidden text-[12px] text-ellipsis whitespace-nowrap text-[color:var(--pro-text)]"
         >{{ assetName() }}</span
       >
+      <div class="preview-top-actions ml-auto flex items-center gap-1">
+        <button
+          class="preview-top-edit flex h-[30px] w-[30px] items-center justify-center rounded-md border-none bg-transparent text-[color:var(--pro-text-muted)] outline-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-[color:var(--pro-accent)]"
+          aria-label="Edit"
+          (click)="edit()"
+        >
+          <maple-icon name="edit" [size]="16" />
+        </button>
+        <button
+          class="preview-top-info flex h-[30px] w-[30px] items-center justify-center rounded-md border-none bg-transparent text-[color:var(--pro-text-muted)] outline-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-[color:var(--pro-accent)]"
+          aria-label="Info"
+          [attr.aria-pressed]="infoOpen()"
+          (click)="toggleInfo()"
+        >
+          <maple-icon name="info" [size]="16" />
+        </button>
+      </div>
     </div>
 
     <div
@@ -68,13 +85,13 @@
     </div>
 
     <div
-      class="absolute top-[74px] bottom-[82px] left-3 z-10 w-[110px] overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] pointer-events-auto shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
+      class="preview-filmstrip-rail absolute top-[74px] bottom-[82px] left-3 z-10 w-[110px] overflow-hidden rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg-heavy)] pointer-events-auto shadow-[var(--pro-glass-shadow)] [backdrop-filter:var(--pro-glass-blur-heavy)]"
     >
       <editor-filmstrip routeMode="view" />
     </div>
 
     <div
-      class="action-bar absolute bottom-[14px] left-1/2 z-10 flex h-[52px] -translate-x-1/2 items-center gap-1 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 [backdrop-filter:var(--pro-glass-blur)]"
+      class="preview-action-bar action-bar absolute bottom-[14px] left-1/2 z-10 flex h-[52px] -translate-x-1/2 items-center gap-1 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 [backdrop-filter:var(--pro-glass-blur)]"
       role="toolbar"
       aria-label="Preview actions"
     >
