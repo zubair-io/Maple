@@ -37,55 +37,59 @@
 // existing `mode`-flip behavior untouched.
 
 #if DEBUG
-import SwiftUI
-import MapleCore
+  import SwiftUI
+  import MapleCore
 
-@MainActor
-extension AppShell {
+  @MainActor
+  extension AppShell {
     /// Returns `true` if a UITest fixture URL was present and consumed —
     /// caller should short-circuit and skip the normal source restore.
     /// Returns `false` when no fixture is configured (the normal app path).
     func loadUITestFixtureIfPresent() async -> Bool {
-        guard let fixtureURL = MapleApp.uitestFixtureURL else { return false }
-        // The fixture path deliberately skips `restoreLastSource()`, and with
-        // it the `RenderedPreviewCache.configure(folderURL:)` call every real
-        // folder-open path in `AppShell+FolderActions` makes. So the harness
-        // has always run with `cacheDir == nil` — the cross-session rendered-
-        // preview cache switched OFF — which is exactly why the cache-
-        // poisoning regression of #1801 was structurally invisible to every
-        // gate (#1805).
-        //
-        // Opt-in rather than unconditional: the golden and seam harnesses
-        // point at the shared `test-fixtures/raws/` tree, and writing a
-        // `.maple/previews/` store there would let one run's preview seed the
-        // next one's canvas. Only the upgrade-scenario gate, which stages its
-        // own throwaway directory, asks for the cache.
-        if ProcessInfo.processInfo.environment["MAPLE_UITEST_PREVIEW_CACHE"] == "1" {
-            await RenderedPreviewCache.shared.configure(
-                folderURL: fixtureURL.deletingLastPathComponent())
-        }
-        browseVM.loadSingleAsset(url: fixtureURL)
-        if let asset = browseVM.assets.first {
-            let session = EditSession(asset: asset)
-            sessions[asset.id] = session
-            await session.loadSidecar()
-            browseVM.selectedID = asset.id
-            #if os(iOS)
-            if MapleShellKind.current == .phoneTab {
-                // Phone navigates purely by `libraryPath`. Leave `mode`
-                // alone: production never flips it on this shell, and
-                // `AppShellIPhoneToolbar` gates the browse-only sources
-                // hamburger on it — flipping it here would hide the
-                // hamburger once the stack pops back to the grid.
-                libraryPath = [.preview(asset), .edit(asset)]
-            } else {
-                mode = .editing
-            }
-            #else
+      guard let fixtureURL = MapleApp.uitestFixtureURL else { return false }
+      // The fixture path deliberately skips `restoreLastSource()`, and with
+      // it the `RenderedPreviewCache.configure(folderURL:)` call every real
+      // folder-open path in `AppShell+FolderActions` makes. So the harness
+      // has always run with `cacheDir == nil` — the cross-session rendered-
+      // preview cache switched OFF — which is exactly why the cache-
+      // poisoning regression of #1801 was structurally invisible to every
+      // gate (#1805).
+      //
+      // Opt-in rather than unconditional: the golden and seam harnesses
+      // point at the shared `test-fixtures/raws/` tree, and writing a
+      // `.maple/previews/` store there would let one run's preview seed the
+      // next one's canvas. Only the upgrade-scenario gate, which stages its
+      // own throwaway directory, asks for the cache.
+      if ProcessInfo.processInfo.environment["MAPLE_UITEST_PREVIEW_CACHE"] == "1" {
+        await RenderedPreviewCache.shared.configure(
+          folderURL: fixtureURL.deletingLastPathComponent())
+      }
+      browseVM.loadSingleAsset(url: fixtureURL)
+      if let asset = browseVM.assets.first {
+        let session = EditSession(asset: asset)
+        sessions[asset.id] = session
+        await session.loadSidecar()
+        browseVM.selectedID = asset.id
+        #if os(iOS)
+          if MapleShellKind.current == .phoneTab {
+            // Phone navigates purely by `libraryPath`. Leave `mode`
+            // alone: production never flips it on this shell, and
+            // `AppShellIPhoneToolbar` gates the browse-only sources
+            // hamburger on it — flipping it here would hide the
+            // hamburger once the stack pops back to the grid.
+            let start = ProcessInfo.processInfo.environment["MAPLE_UITEST_START"]
+            libraryPath =
+              start == "preview"
+              ? [.preview(asset)]
+              : start == "browse" ? [] : [.preview(asset), .edit(asset)]
+          } else {
             mode = .editing
-            #endif
-        }
-        return true
+          }
+        #else
+          mode = .editing
+        #endif
+      }
+      return true
     }
-}
+  }
 #endif

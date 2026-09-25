@@ -9,6 +9,7 @@ import SwiftUI
 /// inspector. iPhone keeps its compact control family in both orientations.
 struct EditorView: View {
   @Bindable var state: EditorState
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let onDismiss: () -> Void
   let onInfo: () -> Void
   var filmstripAssets: [AssetRef] = []
@@ -18,7 +19,8 @@ struct EditorView: View {
   var body: some View {
     GeometryReader { geometry in
       let layout = EditorLayout(
-        width: geometry.size.width, idiom: MapleShellKind.currentIdiom)
+        width: geometry.size.width, idiom: MapleShellKind.currentIdiom,
+        regularHorizontalSizeClass: horizontalSizeClass == .regular)
       EditorSurface(
         state: state, onDismiss: onDismiss, onInfo: onInfo,
         filmstripAssets: filmstripAssets, onSelectAsset: onSelectAsset,
@@ -118,12 +120,14 @@ struct EditorSurface: View {
           .padding(
             .leading,
             EditorCropGeometry.filmstripLeadingPadding + FilmstripRail.railWidth
-              + EditorCropGeometry.filmstripLeadingPadding)
+              + EditorCropGeometry.filmstripLeadingPadding
+          )
           .padding(.top, 60)
       }
 
-      // Device identity selects the control family once. Width only reflows
-      // the shared iPad/Mac inspector; it never replaces the phone controls.
+      // A Duo's regular-width inner display uses the floating inspector;
+      // its compact outer display (and ordinary iPhone landscape) keeps the
+      // phone controls. EditorState stays owned by the host during reflow.
       Group {
         if usesPhoneControls {
           GeometryReader { geometry in
