@@ -1,9 +1,12 @@
 import { dirname, join, resolve } from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { isWithinRoot, safeWriteAllowed } from '../fs/root.ts';
 import { parseRootList } from '../fs/root-list.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
+import { listLibraryRoots } from '../db/repos/folders.repo.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
+import { resolveAndAuthorizePath, safeWriteAllowedForPath } from '../routes/xmp-path-auth.ts';
 import { parseSyncPayload } from './handlers/batch-sync-payload.ts';
 
 export class BatchScopeError extends Error {
@@ -16,12 +19,22 @@ async function canonicalRoot(root: string): Promise<string> {
 }
 
 /** Canonical registered roots form an atomic uniqueness fence across clients. */
-export async function batchScopes(payload: Record<string, unknown>): Promise<string[]> {
-  const roots = await Promise.all(
-    [...(await loadLibraryRoots()).values(), ...parseRootList(process.env.MAPLE_ROOTS)].map(
-      canonicalRoot,
-    ),
-  );
+export async function batchScopes(
+  payload: Record<string, unknown>,
+  dbOverride?: SqliteDb,
+): Promise<string[]> {
+  const libraryRoots = dbOverride
+    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
+    : [...(await loadLibraryRoots()).values()];
+  const roots = dbOverride
+    ? await Promise.all(
+        [...libraryRoots, ...parseRootList(process.env.MAPLE_ROOTS)].map((root) =>
+          realpath(root).catch(() => resolve(root)),
+        ),
+      )
+    : await Promise.all(
+        [...libraryRoots, ...parseRootList(process.env.MAPLE_ROOTS)].map(canonicalRoot),
+      );
   const targets = (() => {
     try {
       return parseSyncPayload(payload).targets;
@@ -32,11 +45,12 @@ export async function batchScopes(payload: Record<string, unknown>): Promise<str
   const scopes = new Set<string>();
   const sidecars = new Set<string>();
   for (const target of targets) {
-    const path = await resolveAndAuthorizePath(target.path);
+    const path = await resolveAndAuthorizePath(target.path, dbOverride);
     if (!path.ok) throw new BatchScopeError(path.error);
-    const sidecar = await safeWriteAllowed(xmpSidecarPath(path.data));
-    if (!sidecar.ok || !sidecar.data)
+    const sidecar = await safeWriteAllowedForPath(xmpSidecarPath(path.data), dbOverride);
+    if (!sidecar.ok)
       throw new BatchScopeError(sidecar.error ?? 'Photo is outside registered libraries');
+    if (!sidecar.data) throw new BatchScopeError('Photo is outside registered libraries');
     const sidecarPath = sidecar.data;
     if (sidecars.has(sidecarPath))
       throw new BatchScopeError('Photos in this batch share a sidecar');

@@ -47,8 +47,9 @@
         Self Hosted deployments can optionally enable OpenTelemetry-based diagnostics, which send
         performance traces and error logs to an endpoint the operator configures. This is off by
         default and stays dormant until an operator sets it up; Just Maple does not receive this
-        data. Maple Hosted and the native apps report crashes and errors only to help us fix bugs,
-        and never include your photos or file names.
+        data. Maple Hosted and the native apps do not send diagnostics directly to Just Maple. On
+        Apple platforms, Apple may provide crash reports when a user has chosen to share diagnostics
+        with app developers; Apple controls that collection and sharing under its own privacy terms.
       </p>
     </section>
 
@@ -101,8 +102,8 @@
       <h2 class="mt-0 mb-3 text-[20px] font-semibold text-[#292524]">Contact</h2>
       <p>
         Questions about this policy? Reach us at
-        <a class="text-[#993629] underline" href="mailto:support&#64;justmaple.app"
-          >support&#64;justmaple.app</a
+        <a class="text-[#993629] underline" href="mailto:help&#64;justmaple.app"
+          >help&#64;justmaple.app</a
         >.
       </p>
     </section>

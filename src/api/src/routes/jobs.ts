@@ -12,13 +12,14 @@
  */
 
 import { Elysia, t } from 'elysia';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { ObjectId } from '../db/object-id.ts';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 
 import { parseExportPayload } from '../export/export-payload.ts';
 import { parseSyncPayload } from '../job-runner/handlers/batch-adjustment-sync.ts';
-import { batchSyncJobRoutes } from './jobs-batch-sync.ts';
+import { createBatchSyncJobRoutes } from './jobs-batch-sync.ts';
 import { createdJobResponse } from './jobs-create.ts';
 
 const KNOWN_KINDS: ReadonlySet<JobKind> = new Set([
@@ -104,77 +105,85 @@ function parseListFilter(query: { status?: string; kind?: string; limit?: string
   };
 }
 
-export const jobsRoutes = new Elysia({ prefix: '/api/jobs' })
-  .post(
-    '/',
-    async ({ body, set }) => {
-      if (!KNOWN_KINDS.has(body.kind as JobKind)) {
-        set.status = 400;
-        return { error: `Unknown job kind: ${body.kind}` };
-      }
-      if (body.kind === 'batch_adjustment_sync' || body.kind === 'batch_recipe_export') {
-        try {
-          if (body.kind === 'batch_recipe_export') parseExportPayload(body.payload);
-          else parseSyncPayload(body.payload);
-        } catch (error) {
+export function createJobsRoutes(dbOverride?: SqliteDb) {
+  return new Elysia({ prefix: '/api/jobs' })
+    .post(
+      '/',
+      async ({ body, set }) => {
+        if (!KNOWN_KINDS.has(body.kind as JobKind)) {
           set.status = 400;
-          return {
-            error: error instanceof Error ? error.message : String(error),
-          };
+          return { error: `Unknown job kind: ${body.kind}` };
         }
-      }
-      return createdJobResponse(
-        () =>
-          createJob({
-            kind: body.kind as JobKind,
-            payload: body.payload,
-            requestId: body.requestId,
-          }),
-        set,
-      );
-    },
-    { body: CreateBody },
-  )
+        if (body.kind === 'batch_adjustment_sync' || body.kind === 'batch_recipe_export') {
+          try {
+            if (body.kind === 'batch_recipe_export') parseExportPayload(body.payload);
+            else parseSyncPayload(body.payload);
+          } catch (error) {
+            set.status = 400;
+            return {
+              error: error instanceof Error ? error.message : String(error),
+            };
+          }
+        }
+        return createdJobResponse(
+          () =>
+            createJob(
+              {
+                kind: body.kind as JobKind,
+                payload: body.payload,
+                requestId: body.requestId,
+              },
+              undefined,
+              dbOverride,
+            ),
+          set,
+        );
+      },
+      { body: CreateBody },
+    )
 
-  .get(
-    '/',
-    async ({ query, set }) => {
-      // Existing import/job route validation is parallel, but the DTOs and repositories differ.
-      // fallow-ignore-next-line code-duplication
-      const filter = parseListFilter(query);
-      if (typeof filter === 'string') {
+    .get(
+      '/',
+      async ({ query, set }) => {
+        // Existing import/job route validation is parallel, but the DTOs and repositories differ.
+        // fallow-ignore-next-line code-duplication
+        const filter = parseListFilter(query);
+        if (typeof filter === 'string') {
+          set.status = 400;
+          return { error: filter };
+        }
+        const docs = await listJobs(filter, dbOverride);
+        return { jobs: docs.map((doc) => projectJob(doc)) };
+      },
+      { query: ListQuery },
+    )
+
+    .get('/:id', async ({ params, query, set }) => {
+      if (!ObjectId.isValid(params.id)) {
         set.status = 400;
-        return { error: filter };
+        return { error: 'Invalid job id' };
       }
-      const docs = await listJobs(filter);
-      return { jobs: docs.map((doc) => projectJob(doc)) };
-    },
-    { query: ListQuery },
-  )
+      const doc = await getJob(new ObjectId(params.id), dbOverride);
+      if (!doc) {
+        set.status = 404;
+        return { error: 'Job not found' };
+      }
+      return projectJob(doc, query.summary === '1');
+    })
 
-  .get('/:id', async ({ params, query, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid job id' };
-    }
-    const doc = await getJob(new ObjectId(params.id));
-    if (!doc) {
-      set.status = 404;
-      return { error: 'Job not found' };
-    }
-    return projectJob(doc, query.summary === '1');
-  })
+    .post('/:id/cancel', async ({ params, set }) => {
+      if (!ObjectId.isValid(params.id)) {
+        set.status = 400;
+        return { error: 'Invalid job id' };
+      }
+      const ok = await requestCancel(new ObjectId(params.id), undefined, dbOverride);
+      if (!ok) {
+        set.status = 404;
+        return { error: 'Job not found' };
+      }
+      return { ok: true };
+    })
+    .use(createBatchSyncJobRoutes(dbOverride));
+}
 
-  .post('/:id/cancel', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid job id' };
-    }
-    const ok = await requestCancel(new ObjectId(params.id));
-    if (!ok) {
-      set.status = 404;
-      return { error: 'Job not found' };
-    }
-    return { ok: true };
-  })
-  .use(batchSyncJobRoutes);
+export const jobsRoutes = createJobsRoutes();

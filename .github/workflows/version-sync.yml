@@ -1,115 +1,189 @@
 # .github/workflows/version-sync.yml
 #
-# After a release tag has shipped, open a PR that brings the committed
-# version fields back in line with it (#3486).
+# Prepare stable releases before creating their tags (#3825).
 #
-# The tag is the version of record: release.yml stamps it into the macOS
-# archive and the Windows build, publish-package.yml stamps it into the npm
-# packages. None of that touches main, so package.json and the Xcode project
-# drift behind what was actually shipped. This workflow runs once BOTH of
-# those workflows have succeeded for the same tag, runs the same sync by
-# hand (tools/sync-release-version.sh), rebuilds the committed dist/, and opens
-# `chore(release): sync versions to vX.Y.Z`. It is a no-op when there is
-# nothing to change or the PR already exists, and it never runs for a
-# prerelease tag (v1.2.3-test.1): main should not claim a test version.
+# Manually run this workflow with vX.Y.Z. It creates release/vX.Y.Z, syncs
+# every committed version field, rebuilds the committed src/maple/dist, and
+# opens a PR. Merging that PR verifies the merged tree and creates an
+# annotated vX.Y.Z tag on the exact merged revision. The tag then triggers
+# release.yml and publish-package.yml, so source, binaries, and packages all
+# describe the same version.
 #
-# TOKEN: a PR opened with the default GITHUB_TOKEN triggers no CI, and main
-# requires jules/review + api-tests, so the PR could never merge. Set the
-# repository secret VERSION_SYNC_TOKEN (a fine-grained PAT or GitHub App
-# token with contents:write + pull-requests:write) and it is used instead.
+# Prereleases remain an explicit manual-tag path. This workflow accepts only
+# stable vX.Y.Z versions so main never accidentally claims a test version.
+#
+# TOKEN: pushes made with the default GITHUB_TOKEN do not trigger downstream
+# workflows. Prefer a dedicated VERSION_SYNC_TOKEN when configured; otherwise
+# reuse the repository's existing JULES_GH credential. The selected PAT or
+# GitHub App token needs contents:write + pull-requests:write and is used to
+# push both the release branch and the final tag.
 
 name: version-sync
 
 on:
-  workflow_run:
-    workflows: [release, publish-package]
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable release version (vX.Y.Z)'
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, closed]
 
 permissions:
   contents: write
   pull-requests: write
-  actions: read
 
 concurrency:
-  group: version-sync-${{ github.event.workflow_run.head_branch }}
+  group: version-sync-${{ github.event_name }}-${{ github.event.inputs.version || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
-  open-pr:
-    name: Open version-sync PR
-    # workflow_run fires for every completion of either workflow; only a
-    # successful run of a tag push (head_branch is the tag name) matters.
-    if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      startsWith(github.event.workflow_run.head_branch, 'v') &&
-      !contains(github.event.workflow_run.head_branch, '-')
+  release-readiness:
+    name: Release readiness
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
     env:
-      GH_TOKEN: ${{ secrets.VERSION_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.event.workflow_run.head_branch }}
-      TAG_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      # Both workflows must have succeeded for this tag. Each completion
-      # triggers this job, so whichever finishes second sees both green;
-      # the earlier one exits here.
-      - name: Require release and publish-package to have both succeeded
-        id: gate
+      - name: Wait for the complete release CI suite
         run: |
           set -euo pipefail
-          for wf in release.yml publish-package.yml; do
-            conclusion="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$wf" --event push \
-              --json headSha,status,conclusion \
-              --jq "[.[] | select(.headSha == \"$TAG_SHA\")] | first | if . then \"\(.status):\(.conclusion)\" else \"none\" end")"
-            echo "$wf for $TAG ($TAG_SHA): ${conclusion:-no run}"
-            if [ "$conclusion" != "completed:success" ]; then
-              echo "waiting=true" >> "$GITHUB_OUTPUT"
+
+          if ! [[ "$HEAD_BRANCH" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Not a stable release PR; release readiness does not apply."
+            exit 0
+          fi
+
+          expected_workflows=(
+            "API tests"
+            "apple"
+            "cross"
+            "Jules PR Review"
+            "Maple package types"
+            "publish-package"
+            "web"
+            "windows"
+          )
+          deadline=$((SECONDS + 7200))
+
+          while (( SECONDS < deadline )); do
+            runs="$(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100")"
+            waiting=()
+
+            for workflow in "${expected_workflows[@]}"; do
+              run="$(jq -c --arg workflow "$workflow" \
+                '[.workflow_runs[] | select(.name == $workflow)] | first // empty' <<<"$runs")"
+              if [ -z "$run" ]; then
+                waiting+=("$workflow (not started)")
+                continue
+              fi
+
+              status="$(jq -r '.status' <<<"$run")"
+              conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
+              url="$(jq -r '.html_url' <<<"$run")"
+              if [ "$status" != "completed" ]; then
+                waiting+=("$workflow ($status)")
+                continue
+              fi
+
+              case "$conclusion" in
+                success|neutral|skipped)
+                  ;;
+                *)
+                  echo "::error::$workflow completed with $conclusion: $url"
+                  exit 1
+                  ;;
+              esac
+            done
+
+            if [ "${#waiting[@]}" -eq 0 ]; then
+              echo "All release workflows completed successfully for $HEAD_SHA."
               exit 0
             fi
-          done
-          echo "waiting=false" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if the sync PR already exists
-        if: steps.gate.outputs.waiting == 'false'
-        id: existing
+            printf 'Waiting for: %s\n' "${waiting[*]}"
+            sleep 30
+          done
+
+          echo "::error::Timed out waiting for release workflows for $HEAD_SHA."
+          exit 1
+
+  prepare-release:
+    name: Prepare release PR
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.VERSION_SYNC_TOKEN || secrets.JULES_GH }}
+      REQUESTED_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Validate request and token
+        id: release
         run: |
           set -euo pipefail
-          BRANCH="chore/version-sync-${TAG#v}"
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
-          n="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state all --json number --jq 'length')"
-          echo "exists=$([ "$n" != "0" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::VERSION_SYNC_TOKEN or JULES_GH is required so branch and tag pushes can trigger CI."
+            exit 1
+          fi
+
+          VERSION="${REQUESTED_VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must be a stable semantic version such as v0.1.2 (got '$REQUESTED_VERSION')."
+            exit 1
+          fi
+
+          TAG="v$VERSION"
+          BRANCH="release/$TAG"
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "branch=$BRANCH"
+          } >> "$GITHUB_OUTPUT"
+
+          if git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists. Choose the next release version."
+            exit 1
+          fi
+          if git ls-remote --exit-code --heads "https://github.com/$GITHUB_REPOSITORY.git" "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "::error::Branch $BRANCH already exists. Finish or remove its existing release PR before retrying."
+            exit 1
+          fi
 
       - uses: actions/checkout@v4
-        if: steps.gate.outputs.waiting == 'false' && steps.existing.outputs.exists == 'false'
         with:
           ref: main
-          token: ${{ secrets.VERSION_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.VERSION_SYNC_TOKEN || secrets.JULES_GH }}
 
       - uses: oven-sh/setup-bun@v2
-        if: steps.gate.outputs.waiting == 'false' && steps.existing.outputs.exists == 'false'
         with:
           bun-version: latest
 
-      - name: Sync committed versions to the tag
-        if: steps.gate.outputs.waiting == 'false' && steps.existing.outputs.exists == 'false'
-        id: sync
+      - name: Sync versions and rebuild committed distribution
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
           tools/sync-release-version.sh "$TAG"
-          # dist/ is committed (src/api consumes it), so it has to carry the
-          # new MAPLE_VERSION too or main's bundle would still print the old one.
+          # src/api consumes this committed bundle, so it must carry the same
+          # MAPLE_VERSION as the source and packages in the release PR.
           (cd src/maple && bun install && bun run build)
-          if git diff --quiet; then
-            echo "Committed versions already match $TAG; nothing to do."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+          if [ -z "$(git status --porcelain -- src/maple/package.json src/maple/npm src/maple/src/version.ts src/maple/dist src/apple/Maple.xcodeproj/project.pbxproj)" ]; then
+            echo "::error::Committed versions already match $TAG; there is no release PR to open."
+            exit 1
           fi
 
-      - name: Open the PR
-        if: steps.sync.outputs.changed == 'true'
+      - name: Push release branch and open PR
         env:
-          BRANCH: ${{ steps.existing.outputs.branch }}
+          BRANCH: ${{ steps.release.outputs.branch }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -117,11 +191,86 @@ jobs:
           git checkout -b "$BRANCH"
           git add src/maple/package.json src/maple/npm/*/package.json src/maple/src/version.ts src/maple/dist src/apple/Maple.xcodeproj/project.pbxproj
           git commit \
-            -m "chore(release): sync versions to $TAG" \
-            -m "Release $TAG shipped from $TAG_SHA with the tag stamped into every artifact; this brings the committed version fields in line with it. Opened automatically by version-sync.yml (#3486)."
-          # --force: an earlier run may have pushed the branch and died before
-          # `gh pr create`; the PR check above already established no PR uses it.
-          git push --force origin "$BRANCH"
-          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
-            --title "chore(release): sync versions to $TAG" \
-            --body "Release [$TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) shipped from $TAG_SHA with the tag stamped into the macOS archive, the Windows build and the npm packages. This PR brings the committed version fields (src/maple package.json files, Xcode MARKETING_VERSION) in line with what shipped. Opened automatically by version-sync.yml; part of #3486."
+            -m "chore(release): prepare $TAG" \
+            -m "Synchronize committed package, app, Xcode, and distribution versions before tagging. Merging this PR creates $TAG and triggers the native and npm release workflows. Prepared automatically by version-sync.yml (#3825)."
+          git push origin "$BRANCH"
+          PR_URL="$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "chore(release): prepare $TAG" \
+            --body "Prepare stable release **$TAG**. This synchronizes the committed package versions, MAPLE_VERSION, Xcode MARKETING_VERSION, and generated src/maple/dist before anything is published. After this PR merges, version-sync.yml will verify the merged tree, create the annotated $TAG tag on that exact revision, and trigger release.yml plus publish-package.yml.")"
+          gh pr merge --repo "$GITHUB_REPOSITORY" --auto --rebase \
+            --match-head-commit "$(git rev-parse HEAD)" "$PR_URL"
+
+  tag-release:
+    name: Tag merged release PR
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release/v')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.VERSION_SYNC_TOKEN || secrets.JULES_GH }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+      MERGED_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - name: Validate merged release PR and token
+        id: release
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::VERSION_SYNC_TOKEN or JULES_GH is required so the tag push can trigger release workflows."
+            exit 1
+          fi
+
+          TAG="${HEAD_BRANCH#release/}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release branch must be named release/vX.Y.Z (got '$HEAD_BRANCH')."
+            exit 1
+          fi
+          if [ "$PR_TITLE" != "chore(release): prepare $TAG" ]; then
+            echo "::error::Release PR title must be 'chore(release): prepare $TAG'."
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists; refusing to move or replace it."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.VERSION_SYNC_TOKEN || secrets.JULES_GH }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Verify merged release contents
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$MERGED_SHA"
+          tools/sync-release-version.sh "$TAG"
+          (cd src/maple && bun install && bun run build)
+          if [ -n "$(git status --porcelain -- src/maple/package.json src/maple/npm src/maple/src/version.ts src/maple/dist src/apple/Maple.xcodeproj/project.pbxproj)" ]; then
+            echo "::error::The merged tree is not fully synchronized for $TAG. Refusing to create the release tag."
+            git status --short -- src/maple/package.json src/maple/npm src/maple/src/version.ts src/maple/dist src/apple/Maple.xcodeproj/project.pbxproj
+            exit 1
+          fi
+
+      - name: Create annotated release tag
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$MERGED_SHA" -m "Maple $TAG"
+          git push origin "refs/tags/$TAG"
+          echo "### Created $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "The tag points to \`$MERGED_SHA\` and has triggered \`release.yml\` and \`publish-package.yml\`." >> "$GITHUB_STEP_SUMMARY"

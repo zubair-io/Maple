@@ -7,9 +7,13 @@
  */
 
 import * as path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { parseRootList } from '../fs/root-list.ts';
 import { isWithinRoot } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { safeWriteAllowed } from '../fs/root.ts';
+import { listLibraryRoots } from '../db/repos/folders.repo.ts';
+import type { SqliteDb } from '../db/repos/db-handle.ts';
 
 /**
  * Resolve and validate a caller-supplied path.
@@ -24,6 +28,7 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
  */
 export async function resolveAndAuthorizePath(
   raw: string | undefined,
+  dbOverride?: SqliteDb,
 ): Promise<{ ok: true; data: string } | { ok: false; status: number; error: string }> {
   if (typeof raw !== 'string' || raw.length === 0) {
     return { ok: false, status: 400, error: 'Missing required path' };
@@ -44,7 +49,9 @@ export async function resolveAndAuthorizePath(
   const normalized = path.resolve(decoded);
 
   const envRoots = parseRootList(process.env.MAPLE_ROOTS);
-  const libRoots = [...(await loadLibraryRoots()).values()];
+  const libRoots = dbOverride
+    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
+    : [...(await loadLibraryRoots()).values()];
   // Normalize each root with path.resolve (strips any trailing separator,
   // cross-platform) so the containment check below is separator-correct.
   const allRoots = [...envRoots, ...libRoots].map((r) => path.resolve(r));
@@ -67,4 +74,22 @@ export async function resolveAndAuthorizePath(
     status: 403,
     error: 'Path is not inside any registered library root',
   };
+}
+
+export async function safeWriteAllowedForPath(filePath: string, dbOverride?: SqliteDb) {
+  if (!dbOverride) return safeWriteAllowed(filePath);
+  const roots = [
+    ...parseRootList(process.env.MAPLE_ROOTS),
+    ...(await listLibraryRoots(dbOverride)).map((root) => root.path),
+  ];
+  const destination = path.resolve(filePath);
+  const parent = await realpath(path.dirname(destination)).catch(() => path.dirname(destination));
+  const candidate = path.resolve(parent, path.basename(destination));
+  const resolved = await realpath(candidate).catch(() => candidate);
+  const normalizedRoots = await Promise.all(
+    roots.map((root) => realpath(root).catch(() => path.resolve(root))),
+  );
+  return normalizedRoots.some((root) => isWithinRoot(root, resolved))
+    ? { ok: true as const, data: resolved }
+    : { ok: false as const, error: 'Photo is outside registered libraries' };
 }
