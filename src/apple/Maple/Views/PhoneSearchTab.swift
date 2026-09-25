@@ -26,11 +26,11 @@
 
 #if os(iOS)
 
-import SwiftUI
-import MapleCore
-import UIKit
+  import SwiftUI
+  import MapleCore
+  import UIKit
 
-struct PhoneSearchTab: View {
+  struct PhoneSearchTab: View {
     @Binding var sessions: [AssetRef.ID: EditSession]
     /// Live query text, bound to the host's `.searchable` search field.
     @Binding var query: String
@@ -76,89 +76,90 @@ struct PhoneSearchTab: View {
     @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
-        NavigationStack(path: $path) {
-            content
-                .navigationTitle("Search")
-                .navigationBarTitleDisplayMode(.inline)
-                // Mirrors `PhoneLibraryView`'s resolution (Fast Preview §1):
-                // `.preview` → the fast static surface, `.edit` → the editor.
-                // Both hide the tab bar + system nav bar; each ships its own
-                // 44pt header with a back button.
-                .navigationDestination(for: LibraryDestination.self) { destination in
-                    Group {
-                        switch destination {
-                        case .preview(let ref):
-                            PreviewDestination(
-                                asset: ref,
-                                // The result's containing folder (#3551), once
-                                // listed; the tapped asset alone until then and
-                                // whenever the listing doesn't contain it.
-                                assets: previewAssets.contains(ref) ? previewAssets : [ref],
-                                source: previewSource,
-                                sessions: $sessions,
-                                onClose: popPreview,
-                                onEdit: { path.append(.edit($0)) },
-                                // A sibling became the shown asset: give it a
-                                // real session so Edit on it persists to the
-                                // server. The search grid keeps its own
-                                // selection state.
-                                onSelectionChanged: onPrimeSession
-                            )
-                        case .edit(let ref):
-                            EditorDestination(asset: ref, sessions: $sessions)
-                        }
-                    }
-                    .toolbar(.hidden, for: .tabBar)
-                    .toolbar(.hidden, for: .navigationBar)
-                }
-        }
-        // The native search field for the `Tab(role: .search)` this view
-        // lives in — its text drives the same `query` the content reads.
-        .searchable(text: $query, prompt: "Search your library")
-        .searchFocused($searchFieldFocused)
-        // Focus the search field the moment the Search tab is entered (Apple
-        // Photos drops you straight into typing). Deferred one runloop so the
-        // searchable field is in the hierarchy before focus moves to it; only
-        // when nothing is pushed on top.
-        .onAppear {
-            if path.isEmpty {
-                Task { @MainActor in searchFieldFocused = true }
+      NavigationStack(path: $path) {
+        content
+          .navigationTitle("Search")
+          .navigationBarTitleDisplayMode(.inline)
+          // Mirrors `PhoneLibraryView`'s resolution (Fast Preview §1):
+          // `.preview` → the fast static surface, `.edit` → the editor.
+          // Both hide the tab bar and ship their own back control.
+          // Preview hides the native nav bar; EditorView restores it
+          // only for the open Duo's landscape tool rail.
+          .navigationDestination(for: LibraryDestination.self) { destination in
+            Group {
+              switch destination {
+              case .preview(let ref):
+                PreviewDestination(
+                  asset: ref,
+                  // The result's containing folder (#3551), once
+                  // listed; the tapped asset alone until then and
+                  // whenever the listing doesn't contain it.
+                  assets: previewAssets.contains(ref) ? previewAssets : [ref],
+                  source: previewSource,
+                  sessions: $sessions,
+                  onClose: popPreview,
+                  onEdit: { path.append(.edit($0)) },
+                  // A sibling became the shown asset: give it a
+                  // real session so Edit on it persists to the
+                  // server. The search grid keeps its own
+                  // selection state.
+                  onSelectionChanged: onPrimeSession
+                )
+                .toolbar(.hidden, for: .navigationBar)
+              case .edit(let ref):
+                EditorDestination(asset: ref, sessions: $sessions)
+              }
             }
+            .toolbar(.hidden, for: .tabBar)
+          }
+      }
+      // The native search field for the `Tab(role: .search)` this view
+      // lives in — its text drives the same `query` the content reads.
+      .searchable(text: $query, prompt: "Search your library")
+      .searchFocused($searchFieldFocused)
+      // Focus the search field the moment the Search tab is entered (Apple
+      // Photos drops you straight into typing). Deferred one runloop so the
+      // searchable field is in the hierarchy before focus moves to it; only
+      // when nothing is pushed on top.
+      .onAppear {
+        if path.isEmpty {
+          Task { @MainActor in searchFieldFocused = true }
         }
-        // Build the account-wide session once per resolved account. Guard on
-        // the existing session's own server so a tab re-appearance KEEPS the
-        // current view model — and its results — instead of rebuilding an
-        // empty one. Rebuild only when the account changes, or none exists yet.
-        .task(id: serverKey) {
-            guard let key = serverKey else {
-                session = nil
-                didLoad = true
-                return
-            }
-            // Same account as the current session — keep it (and its results).
-            if session?.server.absoluteString == key {
-                didLoad = true
-                applySeedIfNeeded()
-                return
-            }
-            // Account changed: clear the stale session so the loading state
-            // shows (not the previous account's results) while the new one
-            // builds.
-            session = nil
-            didLoad = false
-            let newSession = await makeSession()
-            // `.task(id:)` cancels this when serverKey changes again; don't let
-            // a superseded build overwrite a newer session.
-            guard !Task.isCancelled else { return }
-            session = newSession
-            didLoad = true
-            applySeedIfNeeded()
+      }
+      // Build the account-wide session once per resolved account. Guard on
+      // the existing session's own server so a tab re-appearance KEEPS the
+      // current view model — and its results — instead of rebuilding an
+      // empty one. Rebuild only when the account changes, or none exists yet.
+      .task(id: serverKey) {
+        guard let key = serverKey else {
+          session = nil
+          didLoad = true
+          return
         }
-        // Covers the already-mounted case: the session exists (built by the
-        // `.task` above on an earlier appearance) and a NEW seed arrives
-        // while this tab is already alive — `.task(id:)` won't re-run since
-        // `serverKey` hasn't changed.
-        .onChange(of: pendingSeed) { _, _ in applySeedIfNeeded() }
+        // Same account as the current session — keep it (and its results).
+        if session?.server.absoluteString == key {
+          didLoad = true
+          applySeedIfNeeded()
+          return
+        }
+        // Account changed: clear the stale session so the loading state
+        // shows (not the previous account's results) while the new one
+        // builds.
+        session = nil
+        didLoad = false
+        let newSession = await makeSession()
+        // `.task(id:)` cancels this when serverKey changes again; don't let
+        // a superseded build overwrite a newer session.
+        guard !Task.isCancelled else { return }
+        session = newSession
+        didLoad = true
+        applySeedIfNeeded()
+      }
+      // Covers the already-mounted case: the session exists (built by the
+      // `.task` above on an earlier appearance) and a NEW seed arrives
+      // while this tab is already alive — `.task(id:)` won't re-run since
+      // `serverKey` hasn't changed.
+      .onChange(of: pendingSeed) { _, _ in applySeedIfNeeded() }
     }
 
     /// Apply a pending deep-link/Map-pin seed (#3163). Two halves, split
@@ -179,80 +180,82 @@ struct PhoneSearchTab: View {
     ///     whichever side (seed arrival, session readiness) resolves second
     ///     is the one that completes it.
     private func applySeedIfNeeded() {
-        guard let seed = pendingSeed else { return }
-        query = seed.placeQuery
-        guard let session else { return }
-        pendingSeed = nil
-        // Pop any pushed Preview/editor so the user lands on the fresh
-        // results, mirroring `PhoneTabShell.searchFor(_:)`'s `libraryPath = []`
-        // for the face-chip text-seed case.
-        path = []
-        session.vm.params = seed
-        Task { await session.vm.submit() }
+      guard let seed = pendingSeed else { return }
+      query = seed.placeQuery
+      guard let session else { return }
+      pendingSeed = nil
+      // Pop any pushed Preview/editor so the user lands on the fresh
+      // results, mirroring `PhoneTabShell.searchFor(_:)`'s `libraryPath = []`
+      // for the face-chip text-seed case.
+      path = []
+      session.vm.params = seed
+      Task { await session.vm.submit() }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let session {
-            SearchView(
-                viewModel: session.vm,
-                thumbClient: session.thumbClient,
-                thumbCache: session.thumbCache,
-                query: $query,
-                onSelectAsset: { asset in
-                    let resolved = resolveAsset(asset, session.server)
-                    previewSource = resolved.source
-                    previewAssets = [resolved.ref]
-                    path.append(.preview(resolved.ref))
-                    let server = session.server
-                    Task { @MainActor in
-                        let siblings = await loadSiblingAssets(resolved.ref, server)
-                        // Still previewing the result this listing was for —
-                        // not a later tap's, and not popped back to the grid.
-                        guard case .preview(let shown)? = path.first, shown.id == resolved.ref.id
-                        else { return }
-                        previewAssets = siblings
-                    }
-                }
-            )
-        } else if !didLoad {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(MapleTokens.bg.ignoresSafeArea())
-        } else {
-            PhoneSearchEmptyState()
-        }
+      if let session {
+        SearchView(
+          viewModel: session.vm,
+          thumbClient: session.thumbClient,
+          thumbCache: session.thumbCache,
+          query: $query,
+          onSelectAsset: { asset in
+            let resolved = resolveAsset(asset, session.server)
+            previewSource = resolved.source
+            previewAssets = [resolved.ref]
+            path.append(.preview(resolved.ref))
+            let server = session.server
+            Task { @MainActor in
+              let siblings = await loadSiblingAssets(resolved.ref, server)
+              // Still previewing the result this listing was for —
+              // not a later tap's, and not popped back to the grid.
+              guard case .preview(let shown)? = path.first, shown.id == resolved.ref.id
+              else { return }
+              previewAssets = siblings
+            }
+          }
+        )
+      } else if !didLoad {
+        ProgressView()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .background(MapleTokens.bg.ignoresSafeArea())
+      } else {
+        PhoneSearchEmptyState()
+      }
     }
 
     /// Pop Preview with the stack's own transition (Preview no longer fakes
     /// its own close animation). Same helper as `PhoneLibraryView.popPreview`.
     private func popPreview() {
-        guard case .preview? = path.last else { return }
-        _ = path.removeLast()
+      guard case .preview? = path.last else { return }
+      _ = path.removeLast()
     }
-}
+  }
 
-/// Shown when no Maple Cloud account is connected/signed-in.
-private struct PhoneSearchEmptyState: View {
+  /// Shown when no Maple Cloud account is connected/signed-in.
+  private struct PhoneSearchEmptyState: View {
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 40))
-                .foregroundStyle(MapleTokens.textMuted)
-            Text("Search your cloud account")
-                .font(MapleTokens.Typography.sheetTitle)
-                .foregroundStyle(MapleTokens.textMain)
-            Text("Connect a Maple Cloud account to search your photos by place, person, camera, and more.")
-                .font(MapleTokens.Typography.rowLabel)
-                .foregroundStyle(MapleTokens.textMuted)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MapleTokens.bg.ignoresSafeArea())
-        .accessibilityIdentifier("search-empty-no-account")
+      VStack(spacing: 12) {
+        Image(systemName: "magnifyingglass")
+          .font(.system(size: 40))
+          .foregroundStyle(MapleTokens.textMuted)
+        Text("Search your cloud account")
+          .font(MapleTokens.Typography.sheetTitle)
+          .foregroundStyle(MapleTokens.textMain)
+        Text(
+          "Connect a Maple Cloud account to search your photos by place, person, camera, and more."
+        )
+        .font(MapleTokens.Typography.rowLabel)
+        .foregroundStyle(MapleTokens.textMuted)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 320)
+      }
+      .padding(24)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(MapleTokens.bg.ignoresSafeArea())
+      .accessibilityIdentifier("search-empty-no-account")
     }
-}
+  }
 
 #endif

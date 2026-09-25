@@ -101,39 +101,9 @@ private struct GroupDockButton: View {
   private var isSelected: Bool { state.armedGroup == group }
 
   /// Dot shown when any tool in the group has a non-neutral value.
-  private var isModified: Bool {
-    Tool.tools(in: group).contains { tool in
-      // Film (#2683) has a catalog pick with no sub-param of its
-      // own — only its Strength scalar is a sub-param — so the dot
-      // must also light whenever a look is chosen, independent of
-      // whether Strength itself has moved off 100.
-      if tool == .filmLook, !state.session.model.filmLook.isEmpty {
-        return true
-      }
-      guard tool.isWired else { return false }
-      let subs = tool.subParams
-      if !subs.isEmpty {
-        return subs.contains { sub in
-          abs(state.session.model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
-        }
-      }
-      guard ToolValueMapping.displayRange(for: tool) != nil else { return false }
-      let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
-      let neutral = ToolValueMapping.defaultDisplayValue(for: tool)
-      return abs(v - neutral) > 1e-6
-    }
-  }
+  private var isModified: Bool { group.hasEdits(in: state.session.model) }
 
   /// SF Symbols approximations for group icons (no per-group glyph spec yet).
-  private var symbol: String {
-    switch group {
-    case .light: return "sun.max"
-    case .color: return "paintpalette"
-    case .effects: return "sparkles"
-    case .detail: return "camera.aperture"
-    }
-  }
-
   var body: some View {
     Button {
       withAnimation(MapleTokens.Motion.groupSwap) { state.arm(group: group) }
@@ -155,7 +125,7 @@ private struct GroupDockButton: View {
             )
             .frame(width: 36, height: 36)
 
-          Image(systemName: symbol)
+          Image(systemName: group.dockSymbol)
             .font(.system(size: 14, weight: .regular))
             .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.text)
 
@@ -179,6 +149,34 @@ private struct GroupDockButton: View {
     .accessibilityLabel(group.displayName)
     .accessibilityAddTraits(isSelected ? .isSelected : [])
     .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
+  }
+}
+
+extension ToolGroup {
+  var dockSymbol: String {
+    switch self {
+    case .light: "sun.max"
+    case .color: "paintpalette"
+    case .effects: "sparkles"
+    case .detail: "camera.aperture"
+    }
+  }
+
+  func hasEdits(in model: AdjustmentModel) -> Bool {
+    Tool.tools(in: self).contains { tool in
+      // Film's catalog selection is an edit even at neutral Strength.
+      if tool == .filmLook, !model.filmLook.isEmpty { return true }
+      guard tool.isWired else { return false }
+      let subs = tool.subParams
+      if !subs.isEmpty {
+        return subs.contains { sub in
+          abs(model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
+        }
+      }
+      guard ToolValueMapping.displayRange(for: tool) != nil else { return false }
+      let value = ToolValueMapping.currentDisplayValue(model, tool: tool)
+      return abs(value - ToolValueMapping.defaultDisplayValue(for: tool)) > 1e-6
+    }
   }
 }
 
