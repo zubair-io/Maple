@@ -11,8 +11,15 @@ struct FloatingImageHeader<Trailing: View>: View {
   @ViewBuilder let trailing: () -> Trailing
 
   @Environment(\.mapleLayout) private var layout
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  private var isCompact: Bool { layout == .phone }
+  private var isCompact: Bool {
+    #if os(iOS)
+      horizontalSizeClass != .regular
+    #else
+      layout == .phone
+    #endif
+  }
 
   var body: some View {
     HStack(spacing: 10) {

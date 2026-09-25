@@ -66,9 +66,10 @@ struct InfoPanelView: View {
   /// the parent tab bar already labels the panel "Info".
   let isInsideSheet: Bool
 
-  /// Preview can present metadata without editor-only culling and histogram
-  /// controls. Other InfoPanel consumers keep the full inspector by default.
-  var showsCullingAndHistogram: Bool = true
+  /// Preview keeps rating and flag editing but can omit the live histogram,
+  /// which belongs to the develop surface and would be wasteful to start for
+  /// a fast cached-preview navigation session.
+  var showsHistogram: Bool = true
 
   /// Phone-only dismiss callback for the sheet's close X. Ignored when
   /// `isInsideSheet == false`. Defaults to a no-op so the desktop slot
@@ -97,8 +98,8 @@ struct InfoPanelView: View {
           InfoSheetHeader(onClose: onClose)
         }
         AssetFilenameRow(session: session)
-        if showsCullingAndHistogram {
-          RatingFlagsRow(session: session)
+        RatingFlagsRow(session: session)
+        if showsHistogram {
           HistogramBlock(session: session)
         }
         CameraLocationGrid(

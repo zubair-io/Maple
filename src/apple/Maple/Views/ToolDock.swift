@@ -1,5 +1,5 @@
 // ToolDock.swift — the same tools at every MapleLayout (#3252).
-// Compact: horizontal bottom rail. Tablet/desktop: vertical trailing rail.
+// Bottom inspector: horizontal rail. Trailing inspector: vertical rail.
 // The entry order, selection, actions and accessibility identifiers agree.
 
 import MapleCore
@@ -8,16 +8,15 @@ import SwiftUI
 struct ToolDock: View {
   @Bindable var state: EditorState
   var onPresetsTap: () -> Void = {}
+  let horizontal: Bool
   var onGroupTap: (ToolGroup) -> Void = { _ in }
-  @Environment(\.mapleLayout) private var layout
 
-  private var isCompact: Bool { layout == .phone }
   private var arrangement: AnyLayout {
-    isCompact ? AnyLayout(HStackLayout(spacing: 4)) : AnyLayout(VStackLayout(spacing: 4))
+    horizontal ? AnyLayout(HStackLayout(spacing: 4)) : AnyLayout(VStackLayout(spacing: 4))
   }
 
   var body: some View {
-    ScrollView(isCompact ? .horizontal : .vertical, showsIndicators: false) {
+    ScrollView(horizontal ? .horizontal : .vertical, showsIndicators: false) {
       arrangement {
         // ── Group buttons ────────────────────────────────────────────
         ForEach(ToolGroup.allCases, id: \.self) { group in
@@ -26,7 +25,7 @@ struct ToolDock: View {
 
         Rectangle()
           .fill(ProTokens.border)
-          .frame(width: isCompact ? 1 : 40, height: isCompact ? 40 : 1)
+          .frame(width: horizontal ? 1 : 40, height: horizontal ? 40 : 1)
           .padding(4)
 
         // ── Special tool buttons ──────────────────────────────────────
@@ -78,10 +77,10 @@ struct ToolDock: View {
           onPresetsTap: onPresetsTap
         )
       }
-      .padding(isCompact ? .horizontal : .vertical, 10)
+      .padding(horizontal ? .horizontal : .vertical, 10)
     }
-    .frame(width: isCompact ? nil : 64, height: isCompact ? 72 : nil)
-    .frame(maxWidth: isCompact ? .infinity : nil, maxHeight: isCompact ? nil : 520)
+    .frame(width: horizontal ? nil : 64, height: horizontal ? 72 : nil)
+    .frame(maxWidth: horizontal ? .infinity : nil, maxHeight: horizontal ? nil : 520)
     .background(ProTokens.bg.opacity(ProGlass.opacity), in: RoundedRectangle(cornerRadius: 14))
     .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
     .accessibilityElement(children: .contain)
