@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -63,6 +64,22 @@ class ReleaseTests(GitFixture):
         self.green = patch.object(control, "require_green_main")
         self.green.start()
         self.addCleanup(self.green.stop)
+        self.validated = patch.object(control, "require_release_validation")
+        self.validated.start()
+        self.addCleanup(self.validated.stop)
+
+    def test_missing_validation_aborts_before_remote_writes(self):
+        self.validated.stop()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaisesRegex(ValueError, "VALIDATED_APPLE_SHA"),
+        ):
+            control.release("owner/repo", "")
+        self.assertEqual(self.issues, [])
+        self.assertEqual(self.prs, [])
+        self.assertEqual(self.statuses, [])
+        self.assertFalse(any(args[:2] == ("git", "push") for args in self.calls))
+        self.assertIsNone(control.remote_tag("v1.2.3"))
 
     def test_release_tags_current_commit_then_opens_bump(self):
         control.release("owner/repo", "")
@@ -192,7 +209,7 @@ class ReleaseTests(GitFixture):
         self.prs = [self.pr(self.main)]
         with (
             patch.object(control, "status", side_effect=RuntimeError("API outage")),
-            self.assertRaisesRegex(RuntimeError, "API outage"),
+            self.assertRaisesRegex(RuntimeError, "Handoff status refresh incomplete"),
         ):
             control.release("owner/repo", "")
         self.assertIsNone(control.remote_tag("v1.2.3"))
@@ -228,6 +245,34 @@ class ReleaseTests(GitFixture):
 
 
 class MainCITests(GitFixture):
+    def test_release_requires_both_validated_shas_to_match(self):
+        for apple, packages in [
+            (None, None),
+            (self.main, None),
+            (None, self.main),
+            ("a" * 40, self.main),
+            (self.main, "a" * 40),
+        ]:
+            env = {
+                name: value
+                for name, value in [
+                    ("VALIDATED_APPLE_SHA", apple),
+                    ("VALIDATED_PACKAGES_SHA", packages),
+                ]
+                if value
+            }
+            with (
+                self.subTest(env=env),
+                patch.dict(os.environ, env, clear=True),
+                self.assertRaises(ValueError),
+            ):
+                control.require_release_validation(self.main)
+        with patch.dict(
+            os.environ,
+            {"VALIDATED_APPLE_SHA": self.main, "VALIDATED_PACKAGES_SHA": self.main},
+        ):
+            control.require_release_validation(self.main)
+
     def workflow(self, name, conclusion="success", status="completed"):
         return {
             "name": name,
