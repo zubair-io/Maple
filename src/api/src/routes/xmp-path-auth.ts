@@ -7,7 +7,6 @@
  */
 
 import * as path from 'node:path';
-import { basename, dirname } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { parseRootList } from '../fs/root-list.ts';
 import { isWithinRoot } from '../fs/root.ts';
@@ -83,9 +82,10 @@ export async function safeWriteAllowedForPath(filePath: string, dbOverride?: Sql
     ...parseRootList(process.env.MAPLE_ROOTS),
     ...(await listLibraryRoots(dbOverride)).map((root) => root.path),
   ];
-  const parent = await realpath(dirname(filePath)).catch(() => path.resolve(dirname(filePath)));
-  const destination = path.resolve(parent, basename(filePath));
-  const resolved = await realpath(destination).catch(() => destination);
+  const destination = path.resolve(filePath);
+  const parent = await realpath(path.dirname(destination)).catch(() => path.dirname(destination));
+  const candidate = path.resolve(parent, path.basename(destination));
+  const resolved = await realpath(candidate).catch(() => candidate);
   const normalizedRoots = await Promise.all(
     roots.map((root) => realpath(root).catch(() => path.resolve(root))),
   );
