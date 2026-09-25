@@ -1,4 +1,4 @@
-import { chmod, link, mkdtemp, rm, access } from 'node:fs/promises';
+import { chmod, link, mkdtemp, rm, access, open } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { inspectSnapshot } from './backup-snapshot.ts';
 
@@ -16,17 +16,17 @@ export async function verifyBackup(response: Response, target: string): Promise<
     throw new Error('Backup metadata is missing or invalid');
   }
   let bytes = 0;
-  const limited = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
+  const file = await open(target, 'w', 0o600);
+  try {
+    const decompressed = response.body.pipeThrough(new DecompressionStream('gzip'));
+    for await (const chunk of decompressed) {
       bytes += chunk.byteLength;
       if (bytes > size) throw new Error('Backup exceeds declared size');
-      controller.enqueue(chunk);
-    },
-  });
-  await Bun.write(
-    target,
-    new Response(response.body.pipeThrough(new DecompressionStream('gzip')).pipeThrough(limited)),
-  );
+      await file.write(chunk);
+    }
+  } finally {
+    await file.close();
+  }
   await chmod(target, 0o600);
   const info = await inspectSnapshot(target);
   if (bytes !== size || info.sha256 !== checksum)
