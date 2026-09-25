@@ -202,16 +202,24 @@ describe('bounded Bun worker admission', () => {
         refs.push(new WeakRef(input));
         return outcome(callNative('rasterProbeMetadataBuf', [input]));
       });
-      const collect = async () => {
-        // WeakRef targets stay alive through the current job; cross a turn
-        // before forcing collection, including after inspecting the refs.
-        await new Promise<void>((resolve) => setImmediate(resolve));
-        Bun.gc(true);
-        await new Promise<void>((resolve) => setImmediate(resolve));
-        Bun.gc(true);
+      const collectUntil = async (expectedBytes: number) => {
+        // GC can retain transient VM roots beyond a single collection. Keep
+        // the exact retention budget, but allow bounded collection turns.
+        // Each deref also keeps its target alive for the current JS job.
+        for (let attempt = 0; attempt < 20; attempt++) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          Bun.gc(true);
+          const bytes = await new Promise<number>((resolve) =>
+            setImmediate(() => {
+              Bun.gc(true);
+              resolve(refs.filter((ref) => ref.deref() !== undefined).length * bytesPerInput);
+            }),
+          );
+          if (bytes === expectedBytes) return bytes;
+        }
+        return refs.filter((ref) => ref.deref() !== undefined).length * bytesPerInput;
       };
-      await collect();
-      const retainedBytes = refs.filter((ref) => ref.deref() !== undefined).length * bytesPerInput;
+      const retainedBytes = await collectUntil(2 * bytesPerInput);
       expect(retainedBytes).toBe(2 * bytesPerInput);
       if (completion === 'shutdown') {
         shutdownMaplePool();
@@ -226,9 +234,7 @@ describe('bounded Bun worker admission', () => {
       expect(
         results.filter((result) => result instanceof MapleWorkerPoolOverloadedError),
       ).toHaveLength(62);
-      await collect();
-      const afterCompletionBytes =
-        refs.filter((ref) => ref.deref() !== undefined).length * bytesPerInput;
+      const afterCompletionBytes = await collectUntil(0);
       expect(afterCompletionBytes).toBe(0);
       console.info(
         `Worker admission: 256 MiB submitted, ${retainedBytes / 1024 / 1024} MiB retained, ${afterCompletionBytes} bytes after ${completion}`,
