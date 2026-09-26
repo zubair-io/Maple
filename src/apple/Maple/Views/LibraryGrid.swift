@@ -133,12 +133,14 @@
             // above the images (#3099) — the same `FolderTile` the desktop
             // BrowseGrid renders. Order stays reversed per #782 so the
             // first-level folders read newest/last-first on the phone.
-            if !vm.isSelecting && !vm.subfolders.isEmpty {
+            if !vm.subfolders.isEmpty {
               FolderTileSection {
                 ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
                   FolderTile(url: url) { onNavigateFolder(url) }
                 }
               }
+              .allowsHitTesting(!vm.isSelecting)
+              .accessibilityHidden(vm.isSelecting)
             }
             PhotoGrid(
               data: vm.assets,
@@ -157,6 +159,7 @@
               isHidden: { $0.id == hiddenTileID },
               onTap: { asset, frame in
                 if vm.isSelecting {
+                  lastTappedID = asset.id
                   vm.selectedID = asset.id
                   vm.toggleSelected(asset.id)
                   return
