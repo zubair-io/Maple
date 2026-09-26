@@ -10,11 +10,14 @@
 
 #if os(iOS)
 
-import SwiftUI
-import MapleCore
+  import SwiftUI
+  import MapleCore
 
-struct EditorDestination: View {
+  struct EditorDestination: View {
     let asset: AssetRef
+    let filmstripAssets: [AssetRef]
+    let filmstripSource: (any ImageSource)?
+    let onSelectAsset: (AssetRef) -> Void
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Environment(\.dismiss) private var dismiss
 
@@ -43,75 +46,78 @@ struct EditorDestination: View {
     @Environment(\.assetRename) private var assetRename
 
     var body: some View {
-        Group {
-            if let state {
-                EditorView(
-                    state: state,
-                    onDismiss: { dismiss() },
-                    onInfo: { showInfo.toggle() }
-                )
-                .sheet(isPresented: $showInfo) {
-                    NavigationStack {
-                        DetailPanel(session: state.session)
-                            .navigationTitle("Info")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar {
-                                ToolbarItem(placement: .topBarTrailing) {
-                                    Button("Done") { showInfo = false }
-                                }
-                            }
-                    }
-                    .environment(\.cloudAssetDetailClient, detailClient)
-                    .environment(\.cloudHistogramClient, histogramClient)
-                    .environment(\.revealFolderAction, revealFolder)
-                    .environment(\.searchForText, searchForText)
-                    .environment(\.assetRename, assetRename)
-                    .presentationDetents([.medium, .large])
+      Group {
+        if let state {
+          EditorView(
+            state: state,
+            onDismiss: { dismiss() },
+            onInfo: { showInfo.toggle() },
+            filmstripAssets: filmstripAssets,
+            onSelectAsset: onSelectAsset,
+            filmstripSource: filmstripSource
+          )
+          .sheet(isPresented: $showInfo) {
+            NavigationStack {
+              DetailPanel(session: state.session)
+                .navigationTitle("Info")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                  ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { showInfo = false }
+                  }
                 }
-            } else {
-                Color.clear
             }
+            .environment(\.cloudAssetDetailClient, detailClient)
+            .environment(\.cloudHistogramClient, histogramClient)
+            .environment(\.revealFolderAction, revealFolder)
+            .environment(\.searchForText, searchForText)
+            .environment(\.assetRename, assetRename)
+            .presentationDetents([.medium, .large])
+          }
+        } else {
+          Color.clear
         }
-        .stackBackSwipe(onBack: { dismiss() })
-        .task(id: asset.id) {
-            // Build (or reuse) the EditSession + EditorState. `EditSession.init`
-            // is synchronous — sidecar / as-shot WB load lazily on first render
-            // via `loadSidecar()` / `ensureRenderStarted()`, NOT during init —
-            // so this closure has no real await. (The stale comment + spurious
-            // `await` here triggered Swift's "no async operations occur within
-            // await" warning.)
-            // Keep ONLY the active asset's session resident. Each EditSession
-            // holds its GPU live buffers + decoded/developed cache — roughly one
-            // large RAW's worth — and the `sessions` dict (AppShell @State) is
-            // otherwise never pruned, so switching between two 100 MP images kept
-            // both resident and jetsam-killed iOS at the ~6 GB limit (#1660).
-            // Dropping the others here frees that memory BEFORE the new decode
-            // runs. The RAW handle (RawImageCache, single-entry) is already
-            // evicted on switch, so switching back re-decodes regardless.
-            if let existing = sessions[asset.id] {
-                if sessions.count > 1 { sessions = [asset.id: existing] }
-                self.state = EditorState(session: existing)
-                return
-            }
-            sessions = [:]
-            let session = EditSession(asset: asset)
-            sessions[asset.id] = session
-            self.state = EditorState(session: session)
+      }
+      .stackBackSwipe(onBack: { dismiss() })
+      .task(id: asset.id) {
+        // Build (or reuse) the EditSession + EditorState. `EditSession.init`
+        // is synchronous — sidecar / as-shot WB load lazily on first render
+        // via `loadSidecar()` / `ensureRenderStarted()`, NOT during init —
+        // so this closure has no real await. (The stale comment + spurious
+        // `await` here triggered Swift's "no async operations occur within
+        // await" warning.)
+        // Keep ONLY the active asset's session resident. Each EditSession
+        // holds its GPU live buffers + decoded/developed cache — roughly one
+        // large RAW's worth — and the `sessions` dict (AppShell @State) is
+        // otherwise never pruned, so switching between two 100 MP images kept
+        // both resident and jetsam-killed iOS at the ~6 GB limit (#1660).
+        // Dropping the others here frees that memory BEFORE the new decode
+        // runs. The RAW handle (RawImageCache, single-entry) is already
+        // evicted on switch, so switching back re-decodes regardless.
+        if let existing = sessions[asset.id] {
+          if sessions.count > 1 { sessions = [asset.id: existing] }
+          self.state = EditorState(session: existing)
+          return
         }
-        .onDisappear {
-            // Per S5 spec risk #4b — flush pending XMP write before tear-down
-            // so an undo-then-leave persists the right value, not the stale
-            // pre-undo value sitting in the debounce window.
-            if let session = state?.session {
-                // #2009 — persist the developed `<filename>.avif` on exit
-                // (GPU readback + any pending idle-debounce frame). Strong
-                // `session` capture so the write lands even if the popped
-                // destination's session is released right after.
-                Task { await session.persistDisplayPreviewOnExit() }
-                Task.detached { await session.flushPendingSidecarWrite() }
-            }
+        sessions = [:]
+        let session = EditSession(asset: asset)
+        sessions[asset.id] = session
+        self.state = EditorState(session: session)
+      }
+      .onDisappear {
+        // Per S5 spec risk #4b — flush pending XMP write before tear-down
+        // so an undo-then-leave persists the right value, not the stale
+        // pre-undo value sitting in the debounce window.
+        if let session = state?.session {
+          // #2009 — persist the developed `<filename>.avif` on exit
+          // (GPU readback + any pending idle-debounce frame). Strong
+          // `session` capture so the write lands even if the popped
+          // destination's session is released right after.
+          Task { await session.persistDisplayPreviewOnExit() }
+          Task.detached { await session.flushPendingSidecarWrite() }
         }
+      }
     }
-}
+  }
 
 #endif

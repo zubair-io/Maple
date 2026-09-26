@@ -34,10 +34,10 @@
 // NavigationStack.
 
 #if os(iOS)
-import SwiftUI
-import MapleCore
+  import SwiftUI
+  import MapleCore
 
-struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
+  struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     /// Drawer-snapped state; the hamburger writes this with a spring
     /// animation, the drawer reads it to decide rest-state.
     @Binding var isDrawerOpen: Bool
@@ -77,6 +77,7 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     /// Pre-built shared toolbar content — composed alongside the iPhone-
     /// only hamburger + Info items inside the NavigationStack's `.toolbar`.
     let toolbarContent: () -> ToolbarContentT
+    var showsBrowseToolbar = true
 
     // Center-column callbacks — all forward into AppShell action methods.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
@@ -106,77 +107,83 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     /// #2653: Delete key / "Move to Trash" context-menu item, forwarded
     /// through to BrowseGrid via AppShellCenterColumn.
     var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
+    var onExport: (([AssetRef]) -> Void)? = nil
+    var onMove: (([AssetRef.ID]) -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via AppShellCenterColumn.
     var clipboard: AdjustmentClipboard? = nil
 
     var body: some View {
-        // The LIBRARY drawer is hosted one level up, in `PhoneTabShell`, so it
-        // overlays the whole tab view (footer + top bar) at full device height
-        // (#692). This struct just renders the Library tab's center column +
-        // its toolbar; the surrounding `PhoneTabShell` provides the per-tab
-        // NavigationStack and the drawer.
-        iPhoneMain
-        // Settings sheet dropped in responsive-program S1a (#597) — Settings
-        // is now a top-level tab in PhoneTabShell.
+      // The LIBRARY drawer is hosted one level up, in `PhoneTabShell`, so it
+      // overlays the whole tab view (footer + top bar) at full device height
+      // (#692). This struct just renders the Library tab's center column +
+      // its toolbar; the surrounding `PhoneTabShell` provides the per-tab
+      // NavigationStack and the drawer.
+      iPhoneMain
+      // Settings sheet dropped in responsive-program S1a (#597) — Settings
+      // is now a top-level tab in PhoneTabShell.
     }
 
     @ViewBuilder
     private var iPhoneMain: some View {
-        AppShellCenterColumn(
-            // Always Browse — see the file header. `AppShellCenterColumn`'s
-            // Preview / editor branches are unreachable from this shell.
-            isFullImage: false,
-            selectedSession: selectedSession,
-            cloudTimelineVM: cloudTimelineVM,
-            cloudTimelineThumbClient: cloudTimelineThumbClient,
-            cloudTimelineThumbCache: cloudTimelineThumbCache,
-            allSourcesTimelineVM: allSourcesTimelineVM,
-            allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
-            mapVM: mapVM,
-            mapThumbClient: mapThumbClient,
-            mapThumbCache: mapThumbCache,
-            mapUnavailableReason: mapUnavailableReason,
-            // The iPhone shell never shows the mac/iPad search overlay
-            // (#3163) — its search surface is the Search tab
-            // (`PhoneSearchTab`, wired one level up in `PhoneTabShell`).
-            isSearchActive: false,
-            searchVM: nil,
-            searchThumbClient: nil,
-            searchThumbCache: nil,
-            browseDisplayMode: $browseDisplayMode,
-            browseVM: browseVM,
-            sessions: $sessions,
-            onSelectCloudAsset: onSelectCloudAsset,
-            onSelectMapPlace: onSelectMapPlace,
-            // `isSearchActive` is always false above, so `CloudSearchView`
-            // never mounts here and never calls this — required by
-            // `AppShellCenterColumn`'s init but otherwise dead on iPhone.
-            onCloseSearch: {},
-            onSelectLocalAsset: onSelectLocalAsset,
-            onGrantPhotosAccess: onGrantPhotosAccess,
-            onNavigateFolder: onNavigateFolder,
-            onSelectedTileFrameChange: onSelectedTileFrameChange,
-            hiddenTileID: hiddenTileID,
-            onOpenEditor: onOpenEditor,
-            onOpenTile: onOpenTile,
-            onPrimeSession: onPrimeSession,
-            onFullImageFallback: onFullImageFallback,
-            onMergePanorama: onMergePanorama,
-            onEditMetadata: onEditMetadata,
-            onBatchRename: onBatchRename,
-            onTrashAssets: onTrashAssets,
-            clipboard: clipboard
-        )
-        .navigationTitle(libraryTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            AppShellIPhoneToolbar(
-                isBrowse: mode == .browse,
-                isDrawerOpen: $isDrawerOpen
-            )
-            toolbarContent()
+      AppShellCenterColumn(
+        // Always Browse — see the file header. `AppShellCenterColumn`'s
+        // Preview / editor branches are unreachable from this shell.
+        isFullImage: false,
+        selectedSession: selectedSession,
+        cloudTimelineVM: cloudTimelineVM,
+        cloudTimelineThumbClient: cloudTimelineThumbClient,
+        cloudTimelineThumbCache: cloudTimelineThumbCache,
+        allSourcesTimelineVM: allSourcesTimelineVM,
+        allSourcesTimelineThumbCache: allSourcesTimelineThumbCache,
+        mapVM: mapVM,
+        mapThumbClient: mapThumbClient,
+        mapThumbCache: mapThumbCache,
+        mapUnavailableReason: mapUnavailableReason,
+        // The iPhone shell never shows the mac/iPad search overlay
+        // (#3163) — its search surface is the Search tab
+        // (`PhoneSearchTab`, wired one level up in `PhoneTabShell`).
+        isSearchActive: false,
+        searchVM: nil,
+        searchThumbClient: nil,
+        searchThumbCache: nil,
+        browseDisplayMode: $browseDisplayMode,
+        browseVM: browseVM,
+        sessions: $sessions,
+        onSelectCloudAsset: onSelectCloudAsset,
+        onSelectMapPlace: onSelectMapPlace,
+        // `isSearchActive` is always false above, so `CloudSearchView`
+        // never mounts here and never calls this — required by
+        // `AppShellCenterColumn`'s init but otherwise dead on iPhone.
+        onCloseSearch: {},
+        onSelectLocalAsset: onSelectLocalAsset,
+        onGrantPhotosAccess: onGrantPhotosAccess,
+        onNavigateFolder: onNavigateFolder,
+        onSelectedTileFrameChange: onSelectedTileFrameChange,
+        hiddenTileID: hiddenTileID,
+        onOpenEditor: onOpenEditor,
+        onOpenTile: onOpenTile,
+        onPrimeSession: onPrimeSession,
+        onFullImageFallback: onFullImageFallback,
+        onMergePanorama: onMergePanorama,
+        onEditMetadata: onEditMetadata,
+        onBatchRename: onBatchRename,
+        onTrashAssets: onTrashAssets,
+        onExport: onExport,
+        onMove: onMove,
+        clipboard: clipboard
+      )
+      .navigationTitle(libraryTitle)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        if showsBrowseToolbar {
+          AppShellIPhoneToolbar(
+            isBrowse: mode == .browse,
+            isDrawerOpen: $isDrawerOpen
+          )
+          toolbarContent()
         }
+      }
     }
-}
+  }
 #endif

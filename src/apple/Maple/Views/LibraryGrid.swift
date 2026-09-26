@@ -57,6 +57,9 @@
     var onEditMetadata: (() -> Void)? = nil
     var onBatchRename: (() -> Void)? = nil
     var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
+    var onExport: (([AssetRef]) -> Void)? = nil
+    var onMove: (([AssetRef.ID]) -> Void)? = nil
+    var clipboard: AdjustmentClipboard? = nil
 
     /// Local-only thumbnail provider.
     @State private var provider = ThumbnailProvider.local()
@@ -106,17 +109,12 @@
         } else {
           grid
         }
-        if vm.isSelecting {
-          PhoneSelectionBar(
-            vm: vm,
-            onMergePanorama: onMergePanorama,
-            onEditMetadata: onEditMetadata,
-            onBatchRename: onBatchRename,
-            onTrashAssets: onTrashAssets
-          )
-          .padding(.leading, 12)
-          .padding(.bottom, 12)
-        }
+        PhoneSelectionControls(
+          vm: vm, clipboard: clipboard,
+          onMergePanorama: onMergePanorama, onEditMetadata: onEditMetadata,
+          onBatchRename: onBatchRename, onTrashAssets: onTrashAssets,
+          onExport: onExport, onMove: onMove
+        )
       }
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("library-grid")

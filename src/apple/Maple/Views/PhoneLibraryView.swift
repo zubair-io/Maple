@@ -91,6 +91,8 @@
     /// #2653: Delete key / "Move to Trash" context-menu item, forwarded
     /// through to BrowseGrid via AppShellIPhoneShell.
     var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
+    var onExport: (([AssetRef]) -> Void)? = nil
+    var onMove: (([AssetRef.ID]) -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via AppShellIPhoneShell.
     var clipboard: AdjustmentClipboard? = nil
@@ -114,6 +116,7 @@
         browseVM: browseVM,
         sessions: $sessions,
         toolbarContent: toolbarContent,
+        showsBrowseToolbar: !LibraryDestination.presentsPreviewHero(in: libraryPath),
         onSelectCloudAsset: onSelectCloudAsset,
         onSelectMapPlace: onSelectMapPlace,
         onSelectLocalAsset: onSelectLocalAsset,
@@ -129,6 +132,8 @@
         onEditMetadata: onEditMetadata,
         onBatchRename: onBatchRename,
         onTrashAssets: onTrashAssets,
+        onExport: onExport,
+        onMove: onMove,
         clipboard: clipboard
       )
       // Fast Preview epic §1: a grid / cloud-result tap puts `.preview`
@@ -143,7 +148,20 @@
             // Never pushed — see `PhoneTabShell.pushedLibraryPath`.
             EmptyView()
           case .edit(let ref):
-            EditorDestination(asset: ref, sessions: $sessions)
+            EditorDestination(
+              asset: ref,
+              filmstripAssets: browseVM.assets.contains(ref)
+                ? browseVM.assets : timelinePreviewSiblingAssets(ref),
+              filmstripSource: browseVM.currentSource ?? cloudPreviewSource,
+              onSelectAsset: { sibling in
+                guard sibling.id != ref.id else { return }
+                browseVM.selectedID = sibling.id
+                onPrimeSession(sibling)
+                libraryPath = LibraryDestination.replacingAsset(in: libraryPath, with: sibling)
+              },
+              sessions: $sessions
+            )
+            .id(ref.id)
           }
         }
         .toolbar(.hidden, for: .tabBar)
