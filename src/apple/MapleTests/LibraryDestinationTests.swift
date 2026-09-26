@@ -34,6 +34,15 @@
         LibraryDestination.pushedDestinations(in: [.preview(asset), .edit(asset)]),
         [.edit(asset)])
     }
+
+    func testEditorFilmstripSwitchKeepsPreviewAndEditorOnSamePhoto() {
+      let first = AssetRef.preview(displayName: "IMG_0001.dng")
+      let second = AssetRef.preview(displayName: "IMG_0002.dng")
+
+      XCTAssertEqual(
+        LibraryDestination.replacingAsset(in: [.preview(first), .edit(first)], with: second),
+        [.preview(second), .edit(second)])
+    }
   }
 
 #endif

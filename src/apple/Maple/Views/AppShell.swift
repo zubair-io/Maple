@@ -231,6 +231,9 @@ struct AppShell: View {
     /// render. Default-internal (not `private`) so `openEditor` /
     /// `consumePendingDeepLink` / `consumePendingOpenedDocument` can append.
     @State var libraryPath: [LibraryDestination] = []
+    @State var phoneBatchExportAssets: [AssetRef] = []
+    @State var showsPhoneBatchExport = false
+    @State var phoneMoveRequest: PhoneAssetMoveRequest?
   #endif
 
   /// Set when the user selects a cloud library in Timeline view mode;
@@ -1330,6 +1333,8 @@ struct AppShell: View {
         onBatchRename: { openBatchRename() },
         // #2653: grid Delete-key/context-menu trash.
         onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
+        onExport: { assets in beginPhoneBatchExport(assets) },
+        onMove: canOfferPhoneMove ? { ids in beginPhoneAssetMove(ids) } : nil,
         clipboard: adjustmentClipboard
       )
       // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
@@ -1364,6 +1369,27 @@ struct AppShell: View {
       // presented over the tab shell instead of the pane shell.
       .sheet(item: $batchRenameVM) { vm in
         BatchRenameSheet(vm: vm, onDismiss: { batchRenameVM = nil })
+      }
+      .sheet(isPresented: $showsPhoneBatchExport) {
+        BatchExportPanel(assets: phoneBatchExportAssets) { asset in
+          ensureSession(for: asset)
+          guard let session = sessions[asset.id] else {
+            throw FileOperationError.unsupportedSource("Could not prepare this photo for export.")
+          }
+          return session
+        }
+      }
+      .sheet(item: $phoneMoveRequest) { request in
+        PhoneAssetMovePicker(
+          assets: request.assets,
+          source: request.source,
+          listCloudDirectory: { server, path in
+            await listCloudDirFor(server: server, absPath: path)
+          },
+          onConfirm: { ids, destination in
+            handleAssetDrop(ids: Set(ids), destination: destination, copy: false)
+          }
+        )
       }
       // #2646: same collision ask-flow + end-of-batch report as Mac/iPad,
       // reachable here via a source-tree row's "Move/Copy Selected Here"

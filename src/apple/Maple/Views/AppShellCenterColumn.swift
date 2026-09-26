@@ -150,6 +150,8 @@ struct AppShellCenterColumn: View {
   /// Delete key / "Move to Trash" context-menu item on BrowseGrid (#2653).
   /// nil disables both.
   var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
+  var onExport: (([AssetRef]) -> Void)? = nil
+  var onMove: (([AssetRef.ID]) -> Void)? = nil
   /// App-level copy/paste/sync-adjustments clipboard (#944). nil hides the
   /// selection bar's paste/sync buttons and disables the ⌘C/⌘V shortcuts
   /// (e.g. previews).
@@ -284,7 +286,10 @@ struct AppShellCenterColumn: View {
               onMergePanorama: onMergePanorama,
               onEditMetadata: onEditMetadata,
               onBatchRename: onBatchRename,
-              onTrashAssets: onTrashAssets
+              onTrashAssets: onTrashAssets,
+              onExport: onExport,
+              onMove: onMove,
+              clipboard: clipboard
             )
           } else {
             BrowseGrid(
