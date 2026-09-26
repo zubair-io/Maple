@@ -14,307 +14,315 @@
 // struct that wraps this view). The struct does not know about cloud-
 // tokens, security-scope, or sidebar callbacks.
 
-import SwiftUI
 import MapleCore
+import SwiftUI
 
 struct AppShellCenterColumn: View {
-    /// Layout density signal from AppShell. The iPhone shell renders the
-    /// responsive S2 `LibraryGrid`; iPad / Mac keep the mature
-    /// `BrowseGrid` (folders, error banner, keyboard shortcuts) to avoid
-    /// regressing desktop behaviour in this PR.
-    @Environment(\.mapleLayout) private var layout
+  /// Layout density signal from AppShell. The iPhone shell renders the
+  /// responsive S2 `LibraryGrid`; iPad / Mac keep the mature
+  /// `BrowseGrid` (folders, error banner, keyboard shortcuts) to avoid
+  /// regressing desktop behaviour in this PR.
+  @Environment(\.mapleLayout) private var layout
 
-    /// True iff an image is open (either the Fast Preview surface or the S5
-    /// editor). The view renders an image surface in that case; otherwise it
-    /// renders the explorer grid (or the cloud timeline, when one is active).
-    /// Always `false` on the iPhone shell, which pushes `PreviewDestination` /
-    /// `EditorDestination` onto its own `NavigationStack` instead of routing
-    /// through this flag.
-    let isFullImage: Bool
-    /// When true (and `isFullImage`) the image surface is the fast static
-    /// `PreviewView` (Fast Preview §1) rather than the S5 editor. Unlike the
-    /// editor, Preview keys off `browseVM.selectedAsset` (an `AssetRef`) and
-    /// does NOT require a resolved `selectedSession` — it mounts no render
-    /// pipeline. Defaults to `false`; only the Mac/iPad pane shell sets it
-    /// (the iPhone shell pushes `PreviewDestination` onto its own
-    /// NavigationStack instead).
-    var usePreview: Bool = false
-    let selectedSession: EditSession?
-    let cloudTimelineVM: CloudTimelineViewModel?
-    let cloudTimelineThumbClient: CloudThumbClient?
-    let cloudTimelineThumbCache: CloudThumbCache?
-    /// Non-nil while the sidebar's TIMELINE row (`.allSources`, #2271/#2273)
-    /// is selected — takes precedence over `cloudTimelineVM` (mutually
-    /// exclusive in practice; `librarySelection`'s `onChange` in `AppShell`
-    /// nils whichever one isn't current).
-    let allSourcesTimelineVM: AllSourcesTimelineViewModel?
-    let allSourcesTimelineThumbCache: CloudThumbCache?
-    /// Non-nil while the sidebar's MAP row (#2830, `.map` selection) is
-    /// current — takes precedence over the Timeline/grid branches below,
-    /// same mutual-exclusion discipline as `allSourcesTimelineVM`. The
-    /// sidebar (`AppShellSidebar`/`LibrarySidebar`) is shared by the
-    /// Mac/iPad pane shell and the iPhone drawer alike (#2886), so both the
-    /// `AppShellMacLayout` and `AppShellIPhoneShell` call sites thread these
-    /// through; the default lets other call sites (e.g. Preview) omit them.
-    var mapVM: MapViewModel? = nil
-    var mapThumbClient: CloudThumbClient? = nil
-    var mapThumbCache: CloudThumbCache? = nil
-    /// Why `.map` has no `mapVM` to render yet (#2848) — non-nil whenever
-    /// `.map` is the current selection but `mapVM`/`mapThumbClient`/
-    /// `mapThumbCache` aren't all ready (no cloud account, sign-in
-    /// required, or still bootstrapping one). Drives the `MapEmptyState`
-    /// branch below instead of the fallthrough to
-    /// Timeline/BrowseGrid/LibraryGrid a `nil` `mapVM` used to produce
-    /// silently. `nil` both when the map is ready (`mapVM` non-nil) and
-    /// when `.map` isn't selected at all — see `AppShell.mapUnavailableReason`.
-    var mapUnavailableReason: MapUnavailableReason? = nil
-    /// When true (and the search VM + thumb client/cache are present) the
-    /// center column renders `CloudSearchView` instead of the grid /
-    /// timeline. Takes precedence over the timeline branch but not the
-    /// full-image editor.
-    let isSearchActive: Bool
-    let searchVM: SearchViewModel?
-    let searchThumbClient: CloudThumbClient?
-    let searchThumbCache: CloudThumbCache?
-    @Binding var browseDisplayMode: GridDisplayMode
-    let browseVM: BrowseViewModel
-    @Binding var sessions: [AssetRef.ID: EditSession]
+  /// True iff an image is open (either the Fast Preview surface or the S5
+  /// editor). The view renders an image surface in that case; otherwise it
+  /// renders the explorer grid (or the cloud timeline, when one is active).
+  /// Always `false` on the iPhone shell, which pushes `PreviewDestination` /
+  /// `EditorDestination` onto its own `NavigationStack` instead of routing
+  /// through this flag.
+  let isFullImage: Bool
+  /// When true (and `isFullImage`) the image surface is the fast static
+  /// `PreviewView` (Fast Preview §1) rather than the S5 editor. Unlike the
+  /// editor, Preview keys off `browseVM.selectedAsset` (an `AssetRef`) and
+  /// does NOT require a resolved `selectedSession` — it mounts no render
+  /// pipeline. Defaults to `false`; only the Mac/iPad pane shell sets it
+  /// (the iPhone shell pushes `PreviewDestination` onto its own
+  /// NavigationStack instead).
+  var usePreview: Bool = false
+  let selectedSession: EditSession?
+  let cloudTimelineVM: CloudTimelineViewModel?
+  let cloudTimelineThumbClient: CloudThumbClient?
+  let cloudTimelineThumbCache: CloudThumbCache?
+  /// Non-nil while the sidebar's TIMELINE row (`.allSources`, #2271/#2273)
+  /// is selected — takes precedence over `cloudTimelineVM` (mutually
+  /// exclusive in practice; `librarySelection`'s `onChange` in `AppShell`
+  /// nils whichever one isn't current).
+  let allSourcesTimelineVM: AllSourcesTimelineViewModel?
+  let allSourcesTimelineThumbCache: CloudThumbCache?
+  /// Non-nil while the sidebar's MAP row (#2830, `.map` selection) is
+  /// current — takes precedence over the Timeline/grid branches below,
+  /// same mutual-exclusion discipline as `allSourcesTimelineVM`. The
+  /// sidebar (`AppShellSidebar`/`LibrarySidebar`) is shared by the
+  /// Mac/iPad pane shell and the iPhone drawer alike (#2886), so both the
+  /// `AppShellMacLayout` and `AppShellIPhoneShell` call sites thread these
+  /// through; the default lets other call sites (e.g. Preview) omit them.
+  var mapVM: MapViewModel? = nil
+  var mapThumbClient: CloudThumbClient? = nil
+  var mapThumbCache: CloudThumbCache? = nil
+  /// Why `.map` has no `mapVM` to render yet (#2848) — non-nil whenever
+  /// `.map` is the current selection but `mapVM`/`mapThumbClient`/
+  /// `mapThumbCache` aren't all ready (no cloud account, sign-in
+  /// required, or still bootstrapping one). Drives the `MapEmptyState`
+  /// branch below instead of the fallthrough to
+  /// Timeline/BrowseGrid/LibraryGrid a `nil` `mapVM` used to produce
+  /// silently. `nil` both when the map is ready (`mapVM` non-nil) and
+  /// when `.map` isn't selected at all — see `AppShell.mapUnavailableReason`.
+  var mapUnavailableReason: MapUnavailableReason? = nil
+  /// When true (and the search VM + thumb client/cache are present) the
+  /// center column renders `CloudSearchView` instead of the grid /
+  /// timeline. Takes precedence over the timeline branch but not the
+  /// full-image editor.
+  let isSearchActive: Bool
+  let searchVM: SearchViewModel?
+  let searchThumbClient: CloudThumbClient?
+  let searchThumbCache: CloudThumbCache?
+  @Binding var browseDisplayMode: GridDisplayMode
+  let browseVM: BrowseViewModel
+  @Binding var sessions: [AssetRef.ID: EditSession]
 
-    // Center-column callbacks — forward into AppShell action methods.
-    let onSelectCloudAsset: (SearchAsset, URL) -> Void
-    /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
-    /// the resolved target (a place name, or the has-GPS scope fallback).
-    /// Defaults to a no-op — unused wherever `mapVM` is never set (e.g.
-    /// Preview's fast-static call site).
-    var onSelectMapPlace: (MapPlaceSearchTarget) -> Void = { _ in }
-    /// Dismiss the cloud search UI.
-    let onCloseSearch: () -> Void
-    let onSelectLocalAsset: (ImageRef) -> Void
-    let onGrantPhotosAccess: () -> Void
-    let onNavigateFolder: (URL) -> Void
-    /// iPhone only: live window-space frame of the Library grid's selected
-    /// tile, for the Preview hero (`PhoneLibraryView`).
-    var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil
-    /// iPhone only: the photo whose tile is blanked while the Preview hero
-    /// carries it.
-    var hiddenTileID: AssetRef.ID? = nil
-    /// Security-scope bookmark for the currently-browsed local folder,
-    /// forwarded to `BrowseGrid`'s folder tiles as drop targets (#2779).
-    /// `nil` outside a local-folder browse (PhotoKit/SMB/Cloud) — see
-    /// `BrowseGrid.currentRootBookmark`'s doc comment.
-    var currentRootBookmark: Data? = nil
-    /// Drop-onto-folder-tile (#2779), forwarded to `BrowseGrid`. `nil`
-    /// disables it (e.g. previews).
-    var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
-    let onOpenEditor: (AssetRef) -> Void
-    /// iPhone only: a Library tile tap with the tile's window-space frame,
-    /// for the Preview hero to grow out of. Mac / iPad surfaces keep
-    /// `onOpenEditor`.
-    var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
-    let onPrimeSession: (AssetRef) -> Void
-    /// Recover from a vanished selection by flipping back to Browse.
-    let onFullImageFallback: () -> Void
-    /// S5 EditorView dismiss (back to browse). Only used when `isFullImage`
-    /// is true and `usePreview` is false; defaults to no-op so the iPhone
-    /// shell needn't supply it. #815.
-    var onEditorDismiss: () -> Void = {}
-    /// S5 EditorView Info affordance (reveals the DetailPanel column). Only
-    /// used when `isFullImage` is true and `usePreview` is false; defaults to
-    /// no-op. #815.
-    var onEditorInfo: () -> Void = {}
-    /// S5 EditorView filmstrip-rail tap (#3402) — switch the edited asset IN
-    /// PLACE, `mode` staying `.editing`. Deliberately distinct from
-    /// `onOpenEditor`, which is the grid's open and lands on Preview
-    /// (`imageOpenMode`). Only used when `isFullImage` is true and
-    /// `usePreview` is false; defaults to no-op so the iPhone shell (which
-    /// never reaches that branch) needn't supply it.
-    var onEditorSelectAsset: (AssetRef) -> Void = { _ in }
-    /// Preview's Edit button — flip the pane shell into the editor
-    /// (`mode = .editing`). Only used when `usePreview` is true; defaults to
-    /// no-op. Fast Preview §1.
-    var onPreviewEdit: (AssetRef) -> Void = { _ in }
-    /// Preview's back button — return to the browse grid (`mode = .browse`).
-    /// Distinct from `onEditorDismiss` (which returns the EDITOR to Preview,
-    /// per the spec's `grid → Preview → Editor` back stack). Only used when
-    /// `usePreview` is true. Fast Preview §1.
-    var onPreviewDismiss: () -> Void = {}
-    /// Called when the user taps "Merge to Panorama…" from the BrowseGrid
-    /// multi-select action bar (M2, #1236). nil suppresses the bar.
-    var onMergePanorama: (() -> Void)? = nil
-    /// Called when the user taps "Edit Metadata…" from the BrowseGrid
-    /// multi-select action bar (M4, #1629). nil hides the button.
-    var onEditMetadata: (() -> Void)? = nil
-    /// Called when the user taps "Batch Rename…" from the BrowseGrid
-    /// multi-select action bar (#2641). nil hides the button.
-    var onBatchRename: (() -> Void)? = nil
-    /// Delete key / "Move to Trash" context-menu item on BrowseGrid (#2653).
-    /// nil disables both.
-    var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
-    /// App-level copy/paste/sync-adjustments clipboard (#944). nil hides the
-    /// selection bar's paste/sync buttons and disables the ⌘C/⌘V shortcuts
-    /// (e.g. previews).
-    var clipboard: AdjustmentClipboard? = nil
+  // Center-column callbacks — forward into AppShell action methods.
+  let onSelectCloudAsset: (SearchAsset, URL) -> Void
+  /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
+  /// the resolved target (a place name, or the has-GPS scope fallback).
+  /// Defaults to a no-op — unused wherever `mapVM` is never set (e.g.
+  /// Preview's fast-static call site).
+  var onSelectMapPlace: (MapPlaceSearchTarget) -> Void = { _ in }
+  /// Dismiss the cloud search UI.
+  let onCloseSearch: () -> Void
+  let onSelectLocalAsset: (ImageRef) -> Void
+  let onGrantPhotosAccess: () -> Void
+  let onNavigateFolder: (URL) -> Void
+  /// iPhone only: live window-space frame of the Library grid's selected
+  /// tile, for the Preview hero (`PhoneLibraryView`).
+  var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil
+  /// iPhone only: the photo whose tile is blanked while the Preview hero
+  /// carries it.
+  var hiddenTileID: AssetRef.ID? = nil
+  /// Security-scope bookmark for the currently-browsed local folder,
+  /// forwarded to `BrowseGrid`'s folder tiles as drop targets (#2779).
+  /// `nil` outside a local-folder browse (PhotoKit/SMB/Cloud) — see
+  /// `BrowseGrid.currentRootBookmark`'s doc comment.
+  var currentRootBookmark: Data? = nil
+  /// Drop-onto-folder-tile (#2779), forwarded to `BrowseGrid`. `nil`
+  /// disables it (e.g. previews).
+  var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
+  let onOpenEditor: (AssetRef) -> Void
+  /// iPhone only: a Library tile tap with the tile's window-space frame,
+  /// for the Preview hero to grow out of. Mac / iPad surfaces keep
+  /// `onOpenEditor`.
+  var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
+  let onPrimeSession: (AssetRef) -> Void
+  /// Recover from a vanished selection by flipping back to Browse.
+  let onFullImageFallback: () -> Void
+  /// S5 EditorView dismiss (back to browse). Only used when `isFullImage`
+  /// is true and `usePreview` is false; defaults to no-op so the iPhone
+  /// shell needn't supply it. #815.
+  var onEditorDismiss: () -> Void = {}
+  /// S5 EditorView Info affordance (reveals the DetailPanel column). Only
+  /// used when `isFullImage` is true and `usePreview` is false; defaults to
+  /// no-op. #815.
+  var onEditorInfo: () -> Void = {}
+  /// S5 EditorView filmstrip-rail tap (#3402) — switch the edited asset IN
+  /// PLACE, `mode` staying `.editing`. Deliberately distinct from
+  /// `onOpenEditor`, which is the grid's open and lands on Preview
+  /// (`imageOpenMode`). Only used when `isFullImage` is true and
+  /// `usePreview` is false; defaults to no-op so the iPhone shell (which
+  /// never reaches that branch) needn't supply it.
+  var onEditorSelectAsset: (AssetRef) -> Void = { _ in }
+  /// Preview's Edit button — flip the pane shell into the editor
+  /// (`mode = .editing`). Only used when `usePreview` is true; defaults to
+  /// no-op. Fast Preview §1.
+  var onPreviewEdit: (AssetRef) -> Void = { _ in }
+  /// Preview's back button — return to the browse grid (`mode = .browse`).
+  /// Distinct from `onEditorDismiss` (which returns the EDITOR to Preview,
+  /// per the spec's `grid → Preview → Editor` back stack). Only used when
+  /// `usePreview` is true. Fast Preview §1.
+  var onPreviewDismiss: () -> Void = {}
+  /// Called when the user taps "Merge to Panorama…" from the BrowseGrid
+  /// multi-select action bar (M2, #1236). nil suppresses the bar.
+  var onMergePanorama: (() -> Void)? = nil
+  /// Called when the user taps "Edit Metadata…" from the BrowseGrid
+  /// multi-select action bar (M4, #1629). nil hides the button.
+  var onEditMetadata: (() -> Void)? = nil
+  /// Called when the user taps "Batch Rename…" from the BrowseGrid
+  /// multi-select action bar (#2641). nil hides the button.
+  var onBatchRename: (() -> Void)? = nil
+  /// Delete key / "Move to Trash" context-menu item on BrowseGrid (#2653).
+  /// nil disables both.
+  var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
+  /// App-level copy/paste/sync-adjustments clipboard (#944). nil hides the
+  /// selection bar's paste/sync buttons and disables the ⌘C/⌘V shortcuts
+  /// (e.g. previews).
+  var clipboard: AdjustmentClipboard? = nil
 
-    var body: some View {
-        // The center column switches between the explorer grid (browse
-        // mode) and the full-image surface (Preview or the S5 editor). Per
-        // the mockup, these are two different center views — not a
-        // side-by-side. Double-click on a thumbnail flips the mode.
-        if isFullImage {
-            if usePreview {
-                // Fast static Preview surface (Fast Preview §1). Keys off the
-                // browse VM's selected AssetRef — NOT a resolved session — so
-                // it never boots a render. Prev/next + filmstrip drive
-                // `browseVM.selectedID` only — `mode` stays `.preview`
-                // (#3402); Edit flips the shell to `.editing`.
-                if let previewAsset = browseVM.selectedAsset {
-                    PreviewView(
-                        asset: previewAsset,
-                        assets: browseVM.assets,
-                        source: browseVM.currentSource,
-                        sessions: $sessions,
-                        onDismiss: onPreviewDismiss,
-                        onEdit: onPreviewEdit,
-                        onSelectAsset: { asset in browseVM.selectedID = asset.id }
-                    )
-                } else {
-                    Color.clear.onAppear { onFullImageFallback() }
-                }
-            } else if let session = selectedSession {
-                // S5 EditorView in the Mac/iPad pane shell (#815). Hosted by
-                // `EditorSessionHost` so the `EditorState` lives in `@State`
-                // for the editor's lifetime — building it inline would reset
-                // armed-tool / fine-mode on every SwiftUI re-render. The
-                // filmstrip is wired from the browse VM's current asset list
-                // so siblings are tappable, and a sibling tap stays in the
-                // editor (`onEditorSelectAsset`, #3402) — NOT `onOpenEditor`,
-                // whose Preview landing used to eject the user mid-edit.
-                EditorSessionHost(
-                    session: session,
-                    filmstripAssets: browseVM.assets,
-                    filmstripSource: browseVM.currentSource,
-                    onDismiss: onEditorDismiss,
-                    onInfo: onEditorInfo,
-                    onSelectAsset: onEditorSelectAsset
-                )
-            } else {
-                // Fallback — if the session vanished while editing,
-                // drop back to browse.
-                Color.clear.onAppear { onFullImageFallback() }
-            }
-        } else if isSearchActive,
-                  let svm = searchVM,
-                  let thumbClient = searchThumbClient,
-                  let thumbCache = searchThumbCache {
-            CloudSearchView(
-                vm: svm,
-                thumbClient: thumbClient,
-                thumbCache: thumbCache,
-                displayMode: browseDisplayMode,
-                onSelectAsset: { asset in onSelectCloudAsset(asset, svm.server) },
-                onClose: onCloseSearch
-            )
+  var body: some View {
+    // The center column switches between the explorer grid (browse
+    // mode) and the full-image surface (Preview or the S5 editor). Per
+    // the mockup, these are two different center views — not a
+    // side-by-side. Double-click on a thumbnail flips the mode.
+    if isFullImage {
+      if usePreview {
+        // Fast static Preview surface (Fast Preview §1). Keys off the
+        // browse VM's selected AssetRef — NOT a resolved session — so
+        // it never boots a render. Prev/next + filmstrip drive
+        // `browseVM.selectedID` only — `mode` stays `.preview`
+        // (#3402); Edit flips the shell to `.editing`.
+        if let previewAsset = browseVM.selectedAsset {
+          PreviewView(
+            asset: previewAsset,
+            assets: browseVM.assets,
+            source: browseVM.currentSource,
+            sessions: $sessions,
+            onDismiss: onPreviewDismiss,
+            onEdit: onPreviewEdit,
+            onSelectAsset: { asset in browseVM.selectedID = asset.id }
+          )
         } else {
-            if let mvm = mapVM,
-               let thumbClient = mapThumbClient,
-               let thumbCache = mapThumbCache {
-                MapView(
-                    vm: mvm,
-                    thumbClient: thumbClient,
-                    thumbCache: thumbCache,
-                    host: mvm.server.cacheHostKey,
-                    onSelectPlace: onSelectMapPlace
-                )
-            } else if let reason = mapUnavailableReason {
-                // `.map` is selected but not ready — a real empty state
-                // (#2848) instead of falling through to the Timeline/grid
-                // branches below, which would otherwise render silently
-                // under a "Map" title with nothing explaining why.
-                MapEmptyState(reason: reason)
-            } else if let allVM = allSourcesTimelineVM,
-               let thumbCache = allSourcesTimelineThumbCache {
-                AllSourcesTimelineView(
-                    vm: allVM,
-                    thumbCache: thumbCache,
-                    displayMode: browseDisplayMode,
-                    onSelectAsset: onSelectCloudAsset,
-                    onSelectLocalAsset: onSelectLocalAsset
-                )
-            } else if let vm = cloudTimelineVM,
-               let thumbClient = cloudTimelineThumbClient,
-               let thumbCache = cloudTimelineThumbCache {
-                CloudTimelineView(
-                    vm: vm,
-                    thumbClient: thumbClient,
-                    thumbCache: thumbCache,
-                    displayMode: browseDisplayMode,
-                    onSelectAsset: { asset in onSelectCloudAsset(asset, vm.server) },
-                    onSelectLocalAsset: onSelectLocalAsset
-                )
-            } else {
-                // Responsive-program S2 (#623): on phone, the Library tab
-                // renders the new responsive 3-col edge-bleed grid with
-                // filter chips. iPad / Mac keep BrowseGrid for now to
-                // preserve folder navigation, the error banner, and the
-                // existing keyboard-cull shortcuts. The two share the
-                // `LibraryCell` thumbnail component so visual chrome stays
-                // consistent. A follow-up will unify the tablet / desktop
-                // paths onto `LibraryGrid`.
-                #if os(iOS)
-                if layout == .phone {
-                    LibraryGrid(
-                        vm: browseVM,
-                        source: browseVM.currentSource,
-                        sessions: $sessions,
-                        displayMode: $browseDisplayMode,
-                        onOpenEditor: onOpenTile,
-                        onPrimeSession: onPrimeSession,
-                        onNavigateFolder: onNavigateFolder,
-                        // #2924: the phone branch used to drop this on the
-                        // floor, leaving the Photos permission panel with a
-                        // dead Connect button (and, before the empty state
-                        // itself landed, no panel at all).
-                        onGrantPhotosAccess: onGrantPhotosAccess,
-                        onSelectedFrameChange: onSelectedTileFrameChange,
-                        hiddenTileID: hiddenTileID
-                    )
-                } else {
-                    BrowseGrid(
-                        vm: browseVM,
-                        sessions: $sessions,
-                        displayMode: $browseDisplayMode,
-                        onGrantPhotosAccess: onGrantPhotosAccess,
-                        onNavigateFolder: onNavigateFolder,
-                        currentRootBookmark: currentRootBookmark,
-                        onDropAssetsOnFolder: onDropAssetsOnFolder,
-                        onOpenEditor: onOpenEditor,
-                        onPrimeSession: onPrimeSession,
-                        onMergePanorama: onMergePanorama,
-                        onEditMetadata: onEditMetadata,
-                        onBatchRename: onBatchRename,
-                        onTrashAssets: onTrashAssets,
-                        clipboard: clipboard
-                    )
-                }
-                #else
-                BrowseGrid(
-                    vm: browseVM,
-                    sessions: $sessions,
-                    displayMode: $browseDisplayMode,
-                    onGrantPhotosAccess: onGrantPhotosAccess,
-                    onNavigateFolder: onNavigateFolder,
-                    currentRootBookmark: currentRootBookmark,
-                    onDropAssetsOnFolder: onDropAssetsOnFolder,
-                    onOpenEditor: onOpenEditor,
-                    onPrimeSession: onPrimeSession,
-                    onMergePanorama: onMergePanorama,
-                    onEditMetadata: onEditMetadata,
-                    onBatchRename: onBatchRename,
-                    onTrashAssets: onTrashAssets,
-                    clipboard: clipboard
-                )
-                #endif
-            }
+          Color.clear.onAppear { onFullImageFallback() }
         }
+      } else if let session = selectedSession {
+        // S5 EditorView in the Mac/iPad pane shell (#815). Hosted by
+        // `EditorSessionHost` so the `EditorState` lives in `@State`
+        // for the editor's lifetime — building it inline would reset
+        // armed-tool / fine-mode on every SwiftUI re-render. The
+        // filmstrip is wired from the browse VM's current asset list
+        // so siblings are tappable, and a sibling tap stays in the
+        // editor (`onEditorSelectAsset`, #3402) — NOT `onOpenEditor`,
+        // whose Preview landing used to eject the user mid-edit.
+        EditorSessionHost(
+          session: session,
+          filmstripAssets: browseVM.assets,
+          filmstripSource: browseVM.currentSource,
+          onDismiss: onEditorDismiss,
+          onInfo: onEditorInfo,
+          onSelectAsset: onEditorSelectAsset
+        )
+      } else {
+        // Fallback — if the session vanished while editing,
+        // drop back to browse.
+        Color.clear.onAppear { onFullImageFallback() }
+      }
+    } else if isSearchActive,
+      let svm = searchVM,
+      let thumbClient = searchThumbClient,
+      let thumbCache = searchThumbCache
+    {
+      CloudSearchView(
+        vm: svm,
+        thumbClient: thumbClient,
+        thumbCache: thumbCache,
+        displayMode: browseDisplayMode,
+        onSelectAsset: { asset in onSelectCloudAsset(asset, svm.server) },
+        onClose: onCloseSearch
+      )
+    } else {
+      if let mvm = mapVM,
+        let thumbClient = mapThumbClient,
+        let thumbCache = mapThumbCache
+      {
+        MapView(
+          vm: mvm,
+          thumbClient: thumbClient,
+          thumbCache: thumbCache,
+          host: mvm.server.cacheHostKey,
+          onSelectPlace: onSelectMapPlace
+        )
+      } else if let reason = mapUnavailableReason {
+        // `.map` is selected but not ready — a real empty state
+        // (#2848) instead of falling through to the Timeline/grid
+        // branches below, which would otherwise render silently
+        // under a "Map" title with nothing explaining why.
+        MapEmptyState(reason: reason)
+      } else if let allVM = allSourcesTimelineVM,
+        let thumbCache = allSourcesTimelineThumbCache
+      {
+        AllSourcesTimelineView(
+          vm: allVM,
+          thumbCache: thumbCache,
+          displayMode: browseDisplayMode,
+          onSelectAsset: onSelectCloudAsset,
+          onSelectLocalAsset: onSelectLocalAsset
+        )
+      } else if let vm = cloudTimelineVM,
+        let thumbClient = cloudTimelineThumbClient,
+        let thumbCache = cloudTimelineThumbCache
+      {
+        CloudTimelineView(
+          vm: vm,
+          thumbClient: thumbClient,
+          thumbCache: thumbCache,
+          displayMode: browseDisplayMode,
+          onSelectAsset: { asset in onSelectCloudAsset(asset, vm.server) },
+          onSelectLocalAsset: onSelectLocalAsset
+        )
+      } else {
+        // Responsive-program S2 (#623): on phone, the Library tab
+        // renders the new responsive 3-col edge-bleed grid with
+        // filter chips. iPad / Mac keep BrowseGrid for now to
+        // preserve folder navigation, the error banner, and the
+        // existing keyboard-cull shortcuts. The two share the
+        // `LibraryCell` thumbnail component so visual chrome stays
+        // consistent. A follow-up will unify the tablet / desktop
+        // paths onto `LibraryGrid`.
+        #if os(iOS)
+          if layout == .phone {
+            LibraryGrid(
+              vm: browseVM,
+              source: browseVM.currentSource,
+              sessions: $sessions,
+              displayMode: $browseDisplayMode,
+              onOpenEditor: onOpenTile,
+              onPrimeSession: onPrimeSession,
+              onNavigateFolder: onNavigateFolder,
+              // #2924: the phone branch used to drop this on the
+              // floor, leaving the Photos permission panel with a
+              // dead Connect button (and, before the empty state
+              // itself landed, no panel at all).
+              onGrantPhotosAccess: onGrantPhotosAccess,
+              onSelectedFrameChange: onSelectedTileFrameChange,
+              hiddenTileID: hiddenTileID,
+              onMergePanorama: onMergePanorama,
+              onEditMetadata: onEditMetadata,
+              onBatchRename: onBatchRename,
+              onTrashAssets: onTrashAssets
+            )
+          } else {
+            BrowseGrid(
+              vm: browseVM,
+              sessions: $sessions,
+              displayMode: $browseDisplayMode,
+              onGrantPhotosAccess: onGrantPhotosAccess,
+              onNavigateFolder: onNavigateFolder,
+              currentRootBookmark: currentRootBookmark,
+              onDropAssetsOnFolder: onDropAssetsOnFolder,
+              onOpenEditor: onOpenEditor,
+              onPrimeSession: onPrimeSession,
+              onMergePanorama: onMergePanorama,
+              onEditMetadata: onEditMetadata,
+              onBatchRename: onBatchRename,
+              onTrashAssets: onTrashAssets,
+              clipboard: clipboard
+            )
+          }
+        #else
+          BrowseGrid(
+            vm: browseVM,
+            sessions: $sessions,
+            displayMode: $browseDisplayMode,
+            onGrantPhotosAccess: onGrantPhotosAccess,
+            onNavigateFolder: onNavigateFolder,
+            currentRootBookmark: currentRootBookmark,
+            onDropAssetsOnFolder: onDropAssetsOnFolder,
+            onOpenEditor: onOpenEditor,
+            onPrimeSession: onPrimeSession,
+            onMergePanorama: onMergePanorama,
+            onEditMetadata: onEditMetadata,
+            onBatchRename: onBatchRename,
+            onTrashAssets: onTrashAssets,
+            clipboard: clipboard
+          )
+        #endif
+      }
     }
+  }
 }
