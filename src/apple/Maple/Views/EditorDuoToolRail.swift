@@ -1,6 +1,5 @@
-// The Duo system toolbar places four adjustment groups in its side rail and
-// the seven direct tools across the top. A single tall custom item overflows
-// above the clock and across the inspector, so leave placement to the system.
+// Keep each custom-glyph tool eligible for the Duo's vertical system rail.
+// The system handles the available height and moves excess items to overflow.
 
 #if os(iOS)
 
@@ -18,7 +17,18 @@
     var body: some ToolbarContent {
       ToolbarItemGroup(placement: .topBarTrailing) {
         ForEach(ToolGroup.allCases, id: \.self) { group in groupButton(group) }
-        ForEach(specialTools, id: \.self) { tool in toolButton(tool) }
+      }
+      ForEach(specialTools, id: \.self) { tool in
+        if #available(iOS 27.1, *) {
+          ToolbarItem(placement: .topBarTrailing) {
+            toolButton(tool)
+          }
+          .axisBehavior(.verticalPreferred)
+        } else {
+          ToolbarItem(placement: .topBarTrailing) {
+            toolButton(tool)
+          }
+        }
       }
     }
 
