@@ -45,6 +45,19 @@
       }
     }
 
+    /// Switching an editor-filmstrip photo must update the Preview beneath
+    /// it too, so Back shows the newly edited photo rather than the old one.
+    static func replacingAsset(
+      in path: [LibraryDestination], with asset: AssetRef
+    ) -> [LibraryDestination] {
+      path.map { destination in
+        switch destination {
+        case .preview: return .preview(asset)
+        case .edit: return .edit(asset)
+        }
+      }
+    }
+
     /// Whether the Preview hero should be visible and interactive.
     ///
     /// The hero remains mounted while the editor is pushed so its paging and

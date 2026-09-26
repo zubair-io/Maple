@@ -183,6 +183,8 @@
     /// #2653: Delete key / "Move to Trash" context-menu item, forwarded
     /// through to BrowseGrid via PhoneLibraryView / AppShellIPhoneShell.
     var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
+    var onExport: (([AssetRef]) -> Void)? = nil
+    var onMove: (([AssetRef.ID]) -> Void)? = nil
     /// #944: app-level copy/paste/sync-adjustments clipboard, forwarded
     /// through to BrowseGrid via PhoneLibraryView / AppShellIPhoneShell.
     var clipboard: AdjustmentClipboard? = nil
@@ -303,9 +305,16 @@
               onEditMetadata: onEditMetadata,
               onBatchRename: onBatchRename,
               onTrashAssets: onTrashAssets,
+              onExport: onExport,
+              onMove: onMove,
               clipboard: clipboard
             )
           }
+          .toolbar(presentsPreviewHero ? .hidden : .visible, for: .navigationBar)
+          // PreviewHero is drawn above the live grid. Keep the grid mounted
+          // for its close transition, but never expose its controls behind
+          // the preview to VoiceOver or UI automation.
+          .accessibilityHidden(presentsPreviewHero)
           .overlay {
             if let hero {
               PreviewHero(
@@ -355,7 +364,9 @@
           }
         }
 
-        if FeatureFlags.isMapleCloudEnabled {
+        // Selection owns the action surface. Remove the floating Search tab
+        // until Done so it cannot overlap the selection controls on Duo.
+        if FeatureFlags.isMapleCloudEnabled && !browseVM.isSelecting {
           Tab("Search", systemImage: "magnifyingglass", value: "search", role: .search) {
             PhoneSearchTab(
               sessions: $sessions,

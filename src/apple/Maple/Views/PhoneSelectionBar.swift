@@ -11,7 +11,55 @@
     let onEditMetadata: (() -> Void)?
     let onBatchRename: (() -> Void)?
     let onTrashAssets: (([AssetRef.ID]) -> Void)?
+    /// The caller owns rendering, destination selection, and error reporting.
+    /// Omitted until a real batch export route is connected.
+    var onExport: (([AssetRef]) -> Void)? = nil
+    /// The caller presents a destination picker, then uses AppShell's existing
+    /// relocation flow (including collision and partial-failure sheets).
+    var onMove: (([AssetRef.ID]) -> Void)? = nil
+    var onPasteSettings: (() -> Void)? = nil
+    var onSyncSettings: (() -> Void)? = nil
+    var canPasteSettings = false
+    var canSyncSettings = false
     @State private var showingTrashConfirmation = false
+    @State private var pendingTrashIDs: [AssetRef.ID] = []
+
+    private var selectedAssets: [AssetRef] { vm.selectedAssets }
+
+    private var hasSelection: Bool { !selectedAssets.isEmpty }
+
+    /// Batch metadata's current writer only writes local XMP sidecars.
+    private var canEditMetadata: Bool {
+      hasSelection && selectedAssets.allSatisfy { $0.primaryURL != nil }
+    }
+
+    private var canRenameOrMove: Bool {
+      guard hasSelection,
+        !(vm.currentSource is PhotoKitSource),
+        !selectedAssets.contains(where: { $0.thumbnailProvenance == .photoKit })
+      else { return false }
+      return selectedAssets.allSatisfy { $0.primaryURL != nil }
+        || selectedAssets.allSatisfy { $0.catalog != nil }
+        || (vm.currentSource is SMBSource
+          && selectedAssets.allSatisfy {
+            $0.primaryURL == nil && $0.catalog == nil && $0.thumbnailProvenance == .smb
+          })
+    }
+
+    private var canExport: Bool {
+      hasSelection && selectedAssets.allSatisfy { !$0.isVideo && !$0.isAudio && !$0.isStub }
+    }
+
+    private var canTransferSettings: Bool {
+      hasSelection && selectedAssets.allSatisfy { $0.adjustmentTransferTarget != nil }
+    }
+
+    private var hasSyncSourceAndTarget: Bool {
+      guard let sourceID = vm.selectedID,
+        vm.selectedAsset?.adjustmentTransferTarget != nil
+      else { return false }
+      return vm.selectedIDs.contains { $0 != sourceID }
+    }
 
     private var allSelected: Bool {
       !vm.assets.isEmpty && vm.assets.allSatisfy { vm.selectedIDs.contains($0.id) }
@@ -23,9 +71,7 @@
     }
 
     private var canTrash: Bool {
-      !vm.selectedIDs.isEmpty
-        && vm.selectedAssets.allSatisfy { $0.thumbnailProvenance != .photoKit }
-        && !(vm.currentSource is PhotoKitSource)
+      canRenameOrMove
     }
 
     var body: some View {
@@ -53,26 +99,66 @@
             .padding(.horizontal, 12)
             .background(.ultraThinMaterial, in: Capsule())
             .accessibilityIdentifier("phone-selection-count")
+
+          Button("Clear") { vm.clearSelection() }
+            .disabled(!hasSelection)
+            .frame(minHeight: 44)
+            .padding(.horizontal, 12)
+            .background(.ultraThinMaterial, in: Capsule())
+            .accessibilityIdentifier("phone-selection-clear")
         }
 
         HStack(spacing: 8) {
+          if let onExport {
+            Button("Export…", systemImage: "square.and.arrow.up") {
+              onExport(selectedAssets)
+            }
+            .disabled(!canExport)
+            .frame(minHeight: 44)
+            .padding(.horizontal, 12)
+            .background(.ultraThinMaterial, in: Capsule())
+            .accessibilityIdentifier("phone-selection-export")
+          }
+
+          if let onMove {
+            Button("Move to…", systemImage: "folder") {
+              onMove(selectedAssets.map(\.id))
+            }
+            .disabled(!canRenameOrMove)
+            .frame(minHeight: 44)
+            .padding(.horizontal, 12)
+            .background(.ultraThinMaterial, in: Capsule())
+            .accessibilityIdentifier("phone-selection-move")
+          }
+
           Menu {
             if let onEditMetadata {
               Button(
                 "Edit Metadata…", systemImage: "pencil.and.list.clipboard", action: onEditMetadata
               )
-              .disabled(vm.selectedIDs.isEmpty)
+              .disabled(!canEditMetadata)
             }
             if let onBatchRename {
               Button("Batch Rename…", systemImage: "textformat", action: onBatchRename)
-                .disabled(vm.selectedIDs.isEmpty)
+                .disabled(!canRenameOrMove)
+            }
+            if let onSyncSettings {
+              Button(
+                "Sync Settings…", systemImage: "arrow.triangle.2.circlepath", action: onSyncSettings
+              )
+              .disabled(!canTransferSettings || !hasSyncSourceAndTarget || !canSyncSettings)
+            }
+            if let onPasteSettings {
+              Button("Paste Settings…", systemImage: "doc.on.clipboard", action: onPasteSettings)
+                .disabled(!canTransferSettings || !canPasteSettings)
             }
             if FeatureFlags.isPanoramaEnabled, let onMergePanorama {
               Button("Merge to Panorama…", systemImage: "photo.stack", action: onMergePanorama)
-                .disabled(!vm.canMergePanorama)
+                .disabled(!vm.canMergePanorama || !canExport)
             }
             if onTrashAssets != nil {
               Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                pendingTrashIDs = selectedAssets.map(\.id)
                 showingTrashConfirmation = true
               }
               .disabled(!canTrash)
@@ -83,25 +169,19 @@
               .padding(.horizontal, 12)
           }
           .background(.ultraThinMaterial, in: Capsule())
-          .disabled(vm.selectedIDs.isEmpty)
+          .disabled(!hasSelection)
           .accessibilityIdentifier("phone-selection-more")
-
-          Button("Clear") { vm.clearSelection() }
-            .disabled(vm.selectedIDs.isEmpty)
-            .frame(minHeight: 44)
-            .padding(.horizontal, 16)
-            .background(.ultraThinMaterial, in: Capsule())
-            .accessibilityIdentifier("phone-selection-clear")
         }
       }
       .buttonStyle(.borderless)
       .confirmationDialog(
-        "Move \(vm.selectedIDs.count) selected photos to Trash?",
+        "Move \(pendingTrashIDs.count) selected photos to Trash?",
         isPresented: $showingTrashConfirmation,
         titleVisibility: .visible
       ) {
         Button("Move to Trash", role: .destructive) {
-          onTrashAssets?(vm.selectedAssets.map(\.id))
+          onTrashAssets?(pendingTrashIDs)
+          pendingTrashIDs = []
         }
       }
       .accessibilityElement(children: .contain)

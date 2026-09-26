@@ -23,8 +23,8 @@
 //   ┌──────────────────────────────────────────────┐
 //   │  ‹  filename                Edit       Info    │  ← one floating header
 //   │  ┌──────┐                                     │
-//   │  │ film │            FIT IMAGE                │  ← body + left `FilmstripRail`
-//   │  │ rail │                                     │    (regular — the editor's rail, #3402)
+//   │  │ film │            FIT IMAGE                │  ← body + Preview rail
+//   │  │ rail │                                     │    (larger widths; list toggle)
 //   │  └──────┘                                     │
 //   └──────────────────────────────────────────────┘
 // On compact displays the filmstrip is the horizontal `FilmstripView` below
@@ -77,14 +77,13 @@ struct PreviewView: View {
   /// parent updates its selection + navigation state and re-renders Preview
   /// with the new `asset`.
   let onSelectAsset: (AssetRef) -> Void
-  @Environment(\.horizontalSizeClass) private var hSizeClass
 
   /// Info bottom sheet presentation — compact ONLY. Deliberately always
   /// starts closed regardless of the persisted preference (spec #2405: a
   /// sheet covering the photo on every Preview open is the wrong default
   /// for the surface whose whole purpose is showing the photo).
   @State private var showInfo = false
-  /// Info inspector column presentation — regular (tablet+) ONLY. Persists
+  /// Info inspector column presentation — roomy widths ONLY. Persists
   /// across Preview opens under `cm.preview.infoOpen`, defaulting to open,
   /// mirroring the editor's `DetailPanel` inspector.
   @AppStorage("cm.preview.infoOpen") private var infoPaneOpenPreference = true
@@ -93,15 +92,32 @@ struct PreviewView: View {
   /// `body`, so opening Preview to look at a photo costs nothing when the
   /// pane is closed.
   @State private var infoSession: EditSession?
+  /// Kept above the adaptive rail so folding to compact and reopening does
+  /// not reset its mode or either scroll position.
+  @State private var showsNavigationList = false
+  @State private var railThumbnailPosition: AssetRef.ID?
+  @State private var railListPosition: AssetRef.ID?
   /// Finger travel of the pull-down (iPhone) — the still follows it.
   @State private var plainPullTranslation: CGSize = .zero
   @State private var isPlainPullDismissing = false
-  private var isRegular: Bool { hSizeClass == .regular }
+  /// The open Duo can retain a compact size class. Use available width for
+  /// Preview's rail/Info adaptation, not the size class or reference pixels.
+  private func usesWideLayout(_ width: CGFloat) -> Bool {
+    #if os(iOS)
+      width >= 600
+    #else
+      true
+    #endif
+  }
 
-  /// The compact filmstrip occupies the bottom edge; actions live together
-  /// in the floating image header on both displays.
-  private var bottomChromeHeight: CGFloat {
-    isRegular ? 0 : FilmstripView.height
+  private func usesInfoInspector(_ width: CGFloat) -> Bool {
+    #if os(iOS)
+      // An open portrait Duo has room for the rail OR an inspector beside
+      // the photo, not both. Keep Info in a sheet until landscape width.
+      width >= 900
+    #else
+      true
+    #endif
   }
 
   private var orderedIDs: [AssetRef.ID] { assets.map(\.id) }
@@ -114,18 +130,25 @@ struct PreviewView: View {
   }
 
   var body: some View {
+    GeometryReader { geometry in
+      previewContent(
+        isWide: usesWideLayout(geometry.size.width),
+        hasInspector: usesInfoInspector(geometry.size.width)
+      )
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  private func previewContent(isWide: Bool, hasInspector: Bool) -> some View {
     ZStack {
       MapleTokens.bg
         .opacity(PreviewViewVM.plainPullBackdropOpacity(translationY: plainPullTranslation.height))
         .ignoresSafeArea()
 
-      // Body: fit-to-screen still. On regular (iPad/Mac) the SAME
-      // vertical `FilmstripRail` the editor mounts on its leading
-      // edge floats over the image here too (#3402) — one rail
-      // component, one placement, so tapping Edit doesn't move the
-      // strip and a sibling tap on either surface stays on that
-      // surface. On compact (iPhone) the horizontal `FilmstripView`
-      // occupies the bottom band.
+      // Body: fit-to-screen still. Larger widths use Preview's vertical
+      // navigation rail (thumbnail/list modes); compact widths use the
+      // horizontal `FilmstripView` at the bottom. A sibling tap remains
+      // in Preview on both surfaces.
       //
       // The strips are OVERLAYS on the still, not stacked siblings, and
       // the still is inset by the compact strip's fixed height —
@@ -144,16 +167,18 @@ struct PreviewView: View {
       ZStack {
         imageBody
           .background(photoAreaReporter)
-          .padding(.horizontal, isRegular ? 16 : 8)
+          .padding(.horizontal, isWide ? 16 : 8)
           .scaleEffect(PreviewViewVM.plainPullScale(translationY: plainPullTranslation.height))
           .offset(plainPullTranslation)
 
-        if isRegular {
-          FilmstripRail(
+        if isWide {
+          PreviewNavigationRail(
             assets: assets,
             activeID: asset.id,
             source: source,
-            identifierPrefix: "preview",
+            showsList: $showsNavigationList,
+            thumbnailPosition: $railThumbnailPosition,
+            listPosition: $railListPosition,
             onSelect: onSelectAsset
           )
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -161,7 +186,16 @@ struct PreviewView: View {
           .opacity(chromeOpacity)
         }
       }
-      .padding(.bottom, bottomChromeHeight)
+      .padding(.bottom, isWide ? 0 : FilmstripView.height)
+    }
+    .onChange(of: hasInspector) { wasInspector, nowInspector in
+      // Carry Info's open/closed state across the sheet ↔ inspector swap.
+      // Only one presentation is mounted for the new width.
+      if nowInspector {
+        infoPaneOpenPreference = showInfo
+      } else if wasInspector {
+        showInfo = infoPaneOpenPreference
+      }
     }
     .onChange(of: asset.id) { _, _ in
       // A committed pull is tied to the photo it started on.
@@ -169,7 +203,7 @@ struct PreviewView: View {
     }
     .overlay(alignment: .bottom) {
       VStack(spacing: 0) {
-        if !isRegular {
+        if !isWide {
           FilmstripView(
             assets: assets,
             activeID: asset.id,
@@ -199,7 +233,7 @@ struct PreviewView: View {
         .accessibilityIdentifier("preview-edit")
 
         Button {
-          isInfoPresented.wrappedValue.toggle()
+          infoPresented(hasInspector: hasInspector).wrappedValue.toggle()
         } label: {
           Image(systemName: "info.circle")
             .frame(minWidth: 44, minHeight: 44)
@@ -207,7 +241,9 @@ struct PreviewView: View {
         .buttonStyle(.plain)
         .foregroundStyle(ProTokens.text)
         .accessibilityLabel("Photo information")
-        .accessibilityAddTraits(isInfoPresented.wrappedValue ? .isSelected : [])
+        .accessibilityAddTraits(
+          infoPresented(hasInspector: hasInspector).wrappedValue ? .isSelected : []
+        )
         .accessibilityIdentifier("preview-info")
       }
       .padding(.top, 8)
@@ -219,7 +255,7 @@ struct PreviewView: View {
     // target; the arrow handlers move selection through the folder. (The
     // touch prev/next swipe is attached to `imageBody` above, not here, so
     // it doesn't steal either filmstrip's scroll.)
-    .focusable(isRegular)
+    .focusable(isWide)
     .onKeyPress(.leftArrow) {
       stepPrevious()
       return .handled
@@ -241,14 +277,20 @@ struct PreviewView: View {
     // `needsSessionPriming` before touching `sessions`. This keeps the
     // write out of `body` (the hazard the comments above call out) while
     // covering the case the old tap-only priming could not.
-    .task(id: InfoPrimeTrigger(assetID: asset.id, isOpen: isInfoPresented.wrappedValue)) {
+    .task(
+      id: InfoPrimeTrigger(
+        assetID: asset.id, isOpen: infoPresented(hasInspector: hasInspector).wrappedValue)
+    ) {
       guard
         PreviewViewVM.needsSessionPriming(
-          isPaneOpen: isInfoPresented.wrappedValue,
+          isPaneOpen: infoPresented(hasInspector: hasInspector).wrappedValue,
           hasSession: infoSession != nil
         )
       else { return }
-      infoSession = ensureInfoSession()
+      let requestedID = asset.id
+      let session = await ensureInfoSession()
+      guard !Task.isCancelled, requestedID == asset.id else { return }
+      infoSession = session
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("preview-view")
@@ -257,8 +299,8 @@ struct PreviewView: View {
     // Info inspector.
     .modifier(
       InfoPresentation(
-        isPresented: isInfoPresented,
-        isRegular: isRegular,
+        isPresented: infoPresented(hasInspector: hasInspector),
+        isRegular: hasInspector,
         session: infoSession
       )
     )
@@ -273,16 +315,16 @@ struct PreviewView: View {
   /// decision — OR'd with `showInfo` (which `infoPaneShouldOpen` always
   /// reports closed for compact, since it never reads the persisted
   /// preference there) so a compact tap-to-open still works.
-  private var isInfoPresented: Binding<Bool> {
+  private func infoPresented(hasInspector: Bool) -> Binding<Bool> {
     Binding(
       get: {
         PreviewViewVM.infoPaneShouldOpen(
-          isRegular: isRegular,
+          isRegular: hasInspector,
           storedPreference: infoPaneOpenPreference
-        ) || (!isRegular && showInfo)
+        ) || (!hasInspector && showInfo)
       },
       set: { newValue in
-        if isRegular {
+        if hasInspector {
           infoPaneOpenPreference = newValue
         } else {
           showInfo = newValue
@@ -341,14 +383,14 @@ struct PreviewView: View {
   /// Info doesn't boot the pipeline Preview exists to avoid. Writes go
   /// back into `sessions` so the grid badges + a later editor open share
   /// the same instance.
-  private func ensureInfoSession() -> EditSession {
+  private func ensureInfoSession() async -> EditSession? {
     if let existing = sessions[asset.id] { return existing }
-    // Only local/library Preview reaches here today; a session-local
-    // EditSession persists flag/rating in-memory and (for filesystem
-    // assets) to the .xmp sidecar via EditSession's own store wiring.
+    // A sourceless asset needs the host's injected remote sidecar store.
+    // Do not create a new session-local fallback with enabled controls.
+    guard asset.primaryURL != nil else { return nil }
     let session = EditSession(asset: asset)
     sessions[asset.id] = session
-    Task { await session.loadSidecar() }
+    await session.loadSidecar()
     return session
   }
 

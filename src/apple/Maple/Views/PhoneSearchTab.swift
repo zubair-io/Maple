@@ -107,7 +107,18 @@
                 )
                 .toolbar(.hidden, for: .navigationBar)
               case .edit(let ref):
-                EditorDestination(asset: ref, sessions: $sessions)
+                EditorDestination(
+                  asset: ref,
+                  filmstripAssets: previewAssets.contains(ref) ? previewAssets : [ref],
+                  filmstripSource: previewSource,
+                  onSelectAsset: { sibling in
+                    guard sibling.id != ref.id else { return }
+                    onPrimeSession(sibling)
+                    path = LibraryDestination.replacingAsset(in: path, with: sibling)
+                  },
+                  sessions: $sessions
+                )
+                .id(ref.id)
               }
             }
             .toolbar(.hidden, for: .tabBar)

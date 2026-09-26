@@ -27,11 +27,18 @@ import XCTest
       XCTAssertTrue(tile.waitForExistence(timeout: 10))
       select.tap()
       XCTAssertTrue(app.otherElements["phone-selection-bar"].waitForExistence(timeout: 5))
+      XCTAssertFalse(app.buttons["phone-selection-export"].isEnabled)
+      XCTAssertFalse(app.buttons["phone-selection-more"].isEnabled)
       XCTAssertTrue(tile.label.contains("not selected"))
       tile.tap()
       XCTAssertTrue(tile.label.contains("selected"))
       XCTAssertTrue(app.staticTexts["phone-selection-count"].label.contains("1"))
       XCTAssertFalse(app.otherElements["preview-view"].exists)
+      XCTAssertTrue(app.buttons["phone-selection-export"].isEnabled)
+      app.buttons["phone-selection-export"].tap()
+      XCTAssertTrue(app.navigationBars["Export Photos"].waitForExistence(timeout: 5))
+      app.buttons["batch-export-cancel"].tap()
+      XCTAssertTrue(app.buttons["phone-selection-more"].waitForExistence(timeout: 5))
 
       let closedScreenshot = XCTAttachment(screenshot: app.screenshot())
       closedScreenshot.name = "Duo Browse selection closed"
