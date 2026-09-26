@@ -32,7 +32,7 @@ import XCTest
           app.descendants(matching: .any)
             .matching(identifier: "editor-iphone-controls")
             .firstMatch.exists, "Neither the Duo rail nor compact controls appeared")
-        XCTAssertFalse(app.buttons["editor-more-tools"].exists)
+        XCTAssertFalse(app.buttons["editor-dock-tool-crop"].exists)
         return
       }
       XCTAssertFalse(
@@ -45,6 +45,7 @@ import XCTest
       for group in ["light", "color", "effects", "detail"] {
         let button = app.buttons["editor-dock-group-\(group)"]
         XCTAssertTrue(button.exists, "Missing \(group) in the system rail")
+        XCTAssertTrue(button.isHittable, "\(group) is hidden or clipped")
         button.tap()
         XCTAssertTrue(
           app.descendants(matching: .any)
@@ -52,11 +53,11 @@ import XCTest
             .firstMatch.waitForExistence(timeout: 5))
       }
 
-      let more = app.buttons["editor-more-tools"]
-      XCTAssertTrue(more.exists)
-      more.tap()
-      XCTAssertTrue(app.buttons["editor-dock-tool-crop"].waitForExistence(timeout: 5))
-      XCTAssertTrue(app.buttons["editor-dock-tool-presets"].exists)
+      for tool in ["crop", "toneCurve", "filmLook", "geometry", "mask", "presets", "heal"] {
+        let button = app.buttons["editor-dock-tool-\(tool)"]
+        XCTAssertTrue(button.exists, "Missing \(tool) in the system rail")
+        XCTAssertTrue(button.isHittable, "\(tool) is hidden or clipped")
+      }
 
       let attachment = XCTAttachment(screenshot: app.screenshot())
       attachment.name = "Open Duo editor system rail"

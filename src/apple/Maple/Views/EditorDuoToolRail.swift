@@ -1,6 +1,6 @@
 // The open Duo's landscape editor uses the system's vertical toolbar rail.
-// The four adjustment groups stay at its top; less-frequent tools remain
-// reachable from the bottom without covering the photo or inspector.
+// The adjustment groups stay at its top; direct special-tool buttons occupy
+// the bottom, like the action stack on other Duo apps.
 
 #if os(iOS)
 
@@ -40,26 +40,28 @@
         }
       }
 
-      ToolbarItem(placement: .bottomBar) {
-        Menu {
-          ForEach(specialTools, id: \.self) { tool in
-            Button {
-              state.arm(tool: tool)
-              if tool == .presets { onPresetsTap() }
-            } label: {
-              if state.armedTool == tool {
-                Label(tool.displayName, systemImage: "checkmark")
-              } else {
-                Text(tool.displayName)
+      ToolbarItemGroup(placement: .bottomBar) {
+        ForEach(specialTools, id: \.self) { tool in
+          Button {
+            state.arm(tool: tool)
+            if tool == .presets { onPresetsTap() }
+          } label: {
+            ToolGlyph.icon(for: tool, size: 20)
+              .foregroundStyle(state.armedTool == tool ? ProTokens.accent : ProTokens.text)
+              .overlay(alignment: .bottomTrailing) {
+                if tool.hasEdits(in: state.session.model) {
+                  Circle()
+                    .fill(ProTokens.accent)
+                    .frame(width: 5, height: 5)
+                    .offset(x: 4, y: 4)
+                }
               }
-            }
-            .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
           }
-        } label: {
-          Image(systemName: "ellipsis.circle")
+          .tint(state.armedTool == tool ? ProTokens.accent : ProTokens.text)
+          .accessibilityLabel(tool.displayName)
+          .accessibilityAddTraits(state.armedTool == tool ? .isSelected : [])
+          .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
         }
-        .accessibilityLabel("More editor tools")
-        .accessibilityIdentifier("editor-more-tools")
       }
     }
   }
