@@ -1,5 +1,5 @@
-// Open-Duo landscape gate: the adjustment groups live in the native rail,
-// while every special tool remains reachable without a floating dock.
+// Open-Duo landscape gate: every editor destination is visible in the
+// fixed rail beneath the system clock, and taps select the inspector state.
 
 import XCTest
 
@@ -25,7 +25,7 @@ import XCTest
       defer { app.terminate() }
 
       // A Duo closed (or an ordinary iPhone) keeps compact bottom controls.
-      // The open landscape inner display uses the native vertical rail.
+      // The open landscape inner display uses the fixed vertical rail.
       let light = app.buttons["editor-dock-group-light"]
       if !light.waitForExistence(timeout: 10) {
         XCTAssertTrue(
@@ -33,18 +33,21 @@ import XCTest
             .matching(identifier: "editor-iphone-controls")
             .firstMatch.exists, "Neither the Duo rail nor compact controls appeared")
         XCTAssertFalse(app.buttons["editor-dock-tool-crop"].exists)
-        return
+        throw XCTSkip("Open the Duo in Device Hub to exercise the landscape tool rail")
       }
       XCTAssertFalse(
         app.descendants(matching: .any)
           .matching(identifier: "editor-tool-dock").firstMatch.exists)
       XCTAssertTrue(
         app.descendants(matching: .any)
+          .matching(identifier: "editor-duo-tool-rail").firstMatch.exists)
+      XCTAssertTrue(
+        app.descendants(matching: .any)
           .matching(identifier: "editor-adjustments-panel").firstMatch.exists)
 
       for group in ["light", "color", "effects", "detail"] {
         let button = app.buttons["editor-dock-group-\(group)"]
-        XCTAssertTrue(button.exists, "Missing \(group) in the system rail")
+        XCTAssertTrue(button.exists, "Missing \(group) in the Duo rail")
         XCTAssertTrue(button.isHittable, "\(group) is hidden or clipped")
         button.tap()
         XCTAssertTrue(
@@ -55,12 +58,21 @@ import XCTest
 
       for tool in ["crop", "toneCurve", "filmLook", "geometry", "mask", "presets", "heal"] {
         let button = app.buttons["editor-dock-tool-\(tool)"]
-        XCTAssertTrue(button.exists, "Missing \(tool) in the system rail")
+        XCTAssertTrue(button.exists, "Missing \(tool) in the Duo rail")
         XCTAssertTrue(button.isHittable, "\(tool) is hidden or clipped")
       }
 
+      let crop = app.buttons["editor-dock-tool-crop"]
+      crop.tap()
+      XCTAssertTrue(crop.isSelected, "Crop tap did not select its panel")
+      XCTAssertTrue(app.buttons["editor-crop-done"].waitForExistence(timeout: 5))
+
+      let mask = app.buttons["editor-dock-tool-mask"]
+      mask.tap()
+      XCTAssertTrue(mask.isSelected, "Mask tap did not select its panel")
+
       let attachment = XCTAttachment(screenshot: app.screenshot())
-      attachment.name = "Open Duo editor system rail"
+      attachment.name = "Open Duo editor tool rail"
       attachment.lifetime = .keepAlways
       add(attachment)
     }
