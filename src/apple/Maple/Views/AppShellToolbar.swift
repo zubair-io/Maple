@@ -47,7 +47,7 @@ struct AppShellToolbar: ToolbarContent {
   /// Tapped when the user hits the Settings gear (also ⌘, on macOS).
   let onSettings: () -> Void
   /// True when BrowseViewModel is in multi-select mode (M1, #1236).
-  /// Drives the "Select" / "Done" toolbar toggle.
+  /// Drives the checkbox / compact completion-icon toolbar toggle.
   var isSelecting: Bool = false
   /// Tapped when the user hits the "Select" / "Done" multi-select toggle.
   /// nil hides the button (edit mode).
@@ -76,7 +76,7 @@ struct AppShellToolbar: ToolbarContent {
       }
     }
     // Multi-select toggle (M1, #1236) — Browse mode only, not in edit.
-    // Shows a checkbox icon ("Select") when idle, "Done" when active. The
+    // Shows a checkbox icon ("Select") when idle, a checkmark when active. The
     // checkbox glyph (checkmark.square) matches the Material
     // select_check_box semantics requested in the design spec. Only
     // rendered when the parent provides the `onToggleSelect` closure.
@@ -86,7 +86,8 @@ struct AppShellToolbar: ToolbarContent {
           onToggleSelect()
         } label: {
           if isSelecting {
-            Text("Done")
+            Image(systemName: "checkmark")
+              .foregroundStyle(MapleTokens.textMuted)
           } else {
             Image(systemName: "checkmark.square")
               .foregroundStyle(MapleTokens.textMuted)
