@@ -213,6 +213,23 @@ for (const viewport of VIEWPORTS) {
     }, testInfo) => {
       await openEditor(page);
       await expectPrimaryActionsReachable(page);
+      if (!viewport.dockColumn) {
+        const card = await page.locator('[data-editor-region="tool-controls"]').boundingBox();
+        const dock = await page.locator('[data-editor-region="tools"]').boundingBox();
+        expect(card, 'phone adjustment card has a box').not.toBeNull();
+        expect(dock, 'phone tool dock has a box').not.toBeNull();
+        expect(card!.y + card!.height, 'phone card clears the dock').toBeLessThanOrEqual(
+          dock!.y - 4,
+        );
+        await page.evaluate(() =>
+          document.documentElement.style.setProperty('--safe-area-inset-top', '24px'),
+        );
+        const back = await page.getByRole('button', { name: 'Back to Library' }).boundingBox();
+        expect(back!.y, 'phone header clears the top safe area').toBeGreaterThanOrEqual(24);
+        await page.evaluate(() =>
+          document.documentElement.style.removeProperty('--safe-area-inset-top'),
+        );
+      }
       // Panels open inside the viewport too.
       await page.getByRole('button', { name: 'Scopes', exact: true }).click();
       await expectInViewport(page.getByRole('region', { name: 'Scopes' }), 'scopes panel');
@@ -334,6 +351,23 @@ for (const viewport of VIEWPORTS) {
       // come back are that group's, not Light's.
       await page.getByRole('button', { name: 'Back to Library', exact: true }).click();
       await expect(page).toHaveURL(/\/view\//);
+      if (!viewport.dockColumn) {
+        const header = page.locator('.preview-top-bar');
+        const flag = header.getByRole('button', { name: 'Flag' });
+        await expectInViewport(flag, 'Preview Flag');
+        await expectInViewport(header.getByRole('button', { name: 'Edit' }), 'Preview Edit');
+        await expectInViewport(header.getByRole('button', { name: 'Info' }), 'Preview Info');
+        await flag.click();
+        const popover = await page.locator('#preview-flag-popover').boundingBox();
+        const filmstrip = await page.locator('.preview-filmstrip-rail').boundingBox();
+        expect(popover, 'Preview flag popover has a box').not.toBeNull();
+        expect(filmstrip, 'Preview filmstrip has a box').not.toBeNull();
+        expect(
+          popover!.y + popover!.height,
+          'flag controls clear the filmstrip',
+        ).toBeLessThanOrEqual(filmstrip!.y - 4);
+        await flag.click();
+      }
       await page.getByRole('button', { name: 'Edit', exact: true }).click();
       await expect(page).toHaveURL(/\/edit\//);
       await expect(dock.getByRole('button', { name: 'Color', exact: true })).toHaveAttribute(

@@ -22,12 +22,14 @@
     right: 0;
     width: 100%;
     max-width: none;
-    height: 52px;
+    height: calc(52px + var(--safe-area-inset-top));
+    translate: none;
     transform: none;
     border-radius: 0;
     border-top: 0;
     border-right: 0;
     border-left: 0;
+    padding-top: var(--safe-area-inset-top);
     padding-left: max(8px, var(--safe-area-inset-left));
     padding-right: max(8px, var(--safe-area-inset-right));
   }
@@ -48,5 +50,9 @@
 
   .preview-action-bar {
     display: none;
+  }
+
+  .flag-popover {
+    bottom: calc(96px + var(--safe-area-inset-bottom));
   }
 }

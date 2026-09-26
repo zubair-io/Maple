@@ -18,6 +18,15 @@
       >
       <div class="preview-top-actions ml-auto flex items-center gap-1">
         <button
+          class="flex h-[30px] w-[30px] items-center justify-center rounded-md border-none bg-transparent text-[color:var(--pro-text-muted)] outline-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-[color:var(--pro-accent)]"
+          aria-label="Flag"
+          [attr.aria-expanded]="flagOpen()"
+          aria-controls="preview-flag-popover"
+          (click)="flagOpen.set(!flagOpen())"
+        >
+          <maple-icon name="flag" [size]="16" />
+        </button>
+        <button
           class="preview-top-edit flex h-[30px] w-[30px] items-center justify-center rounded-md border-none bg-transparent text-[color:var(--pro-text-muted)] outline-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-[color:var(--pro-accent)]"
           aria-label="Edit"
           (click)="edit()"
