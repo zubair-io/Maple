@@ -1,13 +1,13 @@
-// The open Duo's landscape editor uses the system's vertical toolbar rail.
-// The adjustment groups stay at its top; direct special-tool buttons occupy
-// the bottom, like the action stack on other Duo apps.
+// The open Duo keeps every editor destination in one fixed rail below the
+// system clock. A toolbar splits these buttons between its top and bottom
+// placements and can turn taps into overflow scrolling.
 
 #if os(iOS)
 
   import MapleCore
   import SwiftUI
 
-  struct EditorDuoToolRail: ToolbarContent {
+  struct EditorDuoToolRail: View {
     @Bindable var state: EditorState
     let onPresetsTap: () -> Void
 
@@ -15,54 +15,86 @@
       .crop, .toneCurve, .filmLook, .geometry, .mask, .presets, .heal,
     ]
 
-    var body: some ToolbarContent {
-      ToolbarItemGroup(placement: .topBarTrailing) {
+    var body: some View {
+      VStack(spacing: 2) {
         ForEach(ToolGroup.allCases, id: \.self) { group in
           Button {
             withAnimation(MapleTokens.Motion.groupSwap) {
               state.arm(group: group)
             }
           } label: {
-            Image(systemName: group.dockSymbol)
-              .overlay(alignment: .bottomTrailing) {
-                if group.hasEdits(in: state.session.model) {
-                  Circle()
-                    .fill(ProTokens.accent)
-                    .frame(width: 5, height: 5)
-                    .offset(x: 4, y: 4)
-                }
-              }
+            VStack(spacing: 1) {
+              Image(systemName: group.dockSymbol)
+                .font(.system(size: 18))
+              Text(group.displayName)
+                .font(.system(size: 8, weight: .medium))
+                .lineLimit(1)
+            }
+            .frame(width: 50, height: 44)
+            .modifier(
+              DuoToolAppearance(
+                selected: state.armedGroup == group,
+                modified: group.hasEdits(in: state.session.model)))
           }
-          .tint(state.armedGroup == group ? ProTokens.accent : ProTokens.text)
+          .buttonStyle(.plain)
           .accessibilityLabel(group.displayName)
           .accessibilityAddTraits(state.armedGroup == group ? .isSelected : [])
           .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
         }
-      }
+        Rectangle()
+          .fill(ProTokens.border)
+          .frame(width: 28, height: 1)
+          .padding(.vertical, 2)
 
-      ToolbarItemGroup(placement: .bottomBar) {
         ForEach(specialTools, id: \.self) { tool in
           Button {
             state.arm(tool: tool)
             if tool == .presets { onPresetsTap() }
           } label: {
-            ToolGlyph.icon(for: tool, size: 20)
-              .foregroundStyle(state.armedTool == tool ? ProTokens.accent : ProTokens.text)
-              .overlay(alignment: .bottomTrailing) {
-                if tool.hasEdits(in: state.session.model) {
-                  Circle()
-                    .fill(ProTokens.accent)
-                    .frame(width: 5, height: 5)
-                    .offset(x: 4, y: 4)
-                }
-              }
+            VStack(spacing: 1) {
+              ToolGlyph.icon(for: tool, size: 18)
+              Text(tool.displayName)
+                .font(.system(size: 8, weight: .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            }
+            .frame(width: 50, height: 44)
+            .modifier(
+              DuoToolAppearance(
+                selected: state.armedTool == tool,
+                modified: tool.hasEdits(in: state.session.model)))
           }
-          .tint(state.armedTool == tool ? ProTokens.accent : ProTokens.text)
+          .buttonStyle(.plain)
           .accessibilityLabel(tool.displayName)
           .accessibilityAddTraits(state.armedTool == tool ? .isSelected : [])
           .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
         }
       }
+      .padding(5)
+      .background(ProTokens.bg.opacity(ProGlass.opacity), in: Capsule())
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Editor tools")
+      .accessibilityIdentifier("editor-duo-tool-rail")
+    }
+  }
+
+  private struct DuoToolAppearance: ViewModifier {
+    let selected: Bool
+    let modified: Bool
+
+    func body(content: Content) -> some View {
+      content
+        .foregroundStyle(selected ? ProTokens.accent : ProTokens.text)
+        .background(selected ? ProTokens.accent(0x28) : .clear, in: Circle())
+        .overlay(alignment: .bottomTrailing) {
+          if modified {
+            Circle()
+              .fill(ProTokens.accent)
+              .frame(width: 5, height: 5)
+              .offset(x: -3, y: -3)
+          }
+        }
+        .contentShape(Rectangle())
     }
   }
 
