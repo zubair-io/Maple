@@ -46,22 +46,43 @@ struct InfoPresentation: ViewModifier {
 
   func body(content: Content) -> some View {
     if isRegular {
-      content
-        .inspector(isPresented: $isPresented) {
-          InfoPanelView(
-            session: session,
-            isInsideSheet: false,
-            showsHistogram: false
-          )
-          .environment(\.cloudAssetDetailClient, detailClient)
-          .environment(\.cloudHistogramClient, histogramClient)
-          .environment(\.revealFolderAction, revealFolder)
-          .environment(\.searchForText, searchForText)
-          .environment(\.assetRename, assetRename)
-          // Same clamps `AppShellMacLayout` applies to the
-          // editor's `DetailPanel` inspector.
-          .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+      #if os(iOS)
+        // A native inspector changes the measured width of the Preview it
+        // modifies. At Duo widths that can cross the sheet/pane breakpoint,
+        // causing the Info surface to close as soon as it opens. Keep the
+        // pane inside the fixed outer geometry instead.
+        HStack(spacing: 0) {
+          content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+          if isPresented {
+            InfoPanelView(session: session, isInsideSheet: false, showsHistogram: false)
+              .environment(\.cloudAssetDetailClient, detailClient)
+              .environment(\.cloudHistogramClient, histogramClient)
+              .environment(\.revealFolderAction, revealFolder)
+              .environment(\.searchForText, searchForText)
+              .environment(\.assetRename, assetRename)
+              .frame(width: 280)
+              .frame(maxHeight: .infinity)
+          }
         }
+      #else
+        content
+          .inspector(isPresented: $isPresented) {
+            InfoPanelView(
+              session: session,
+              isInsideSheet: false,
+              showsHistogram: false
+            )
+            .environment(\.cloudAssetDetailClient, detailClient)
+            .environment(\.cloudHistogramClient, histogramClient)
+            .environment(\.revealFolderAction, revealFolder)
+            .environment(\.searchForText, searchForText)
+            .environment(\.assetRename, assetRename)
+            // Same clamps `AppShellMacLayout` applies to the
+            // editor's `DetailPanel` inspector.
+            .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+          }
+      #endif
     } else {
       #if os(iOS)
         content.sheet(isPresented: $isPresented) {
