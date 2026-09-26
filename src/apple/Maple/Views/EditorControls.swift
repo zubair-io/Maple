@@ -64,10 +64,15 @@ struct EditorControls: View {
     }
   }
 
-  /// The panel only ever holds the armed group, so the armed tool's row is
-  /// always present; scrolling it to the top is enough to reveal it.
+  /// A group tap selects its first tool, but should reveal the group heading,
+  /// not jump the floating panel down to the first slider. Dedicated tool
+  /// panels and other slider selections still reveal their own controls.
   private func revealArmedTool(_ proxy: ScrollViewProxy) {
-    scroll(proxy, to: state.armedTool.rawValue)
+    let firstTool = Tool.tools(in: state.armedGroup).first
+    let target =
+      state.armedTool == firstTool
+      ? "group-\(state.armedGroup.rawValue)" : state.armedTool.rawValue
+    scroll(proxy, to: target)
   }
 
   private func scroll<ID: Hashable>(_ proxy: ScrollViewProxy, to id: ID) {

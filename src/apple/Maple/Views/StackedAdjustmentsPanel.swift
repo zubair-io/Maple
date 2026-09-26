@@ -1,10 +1,8 @@
 // StackedAdjustmentsPanel.swift — shared Apple adjustments inspector (#3252).
-// One group at a time: the section for `state.armedGroup`, which the dock's
-// group buttons and the ↑/↓ group keys switch (#3538). Stacking all four
-// groups into one scroll view made the panel one long undifferentiated list
-// and left the dock's selection with no visible effect. The host repositions
-// this same instance next to the vertical dock or above the horizontal
-// compact dock.
+// One group at a time, or one dedicated tool panel when Crop, Tone Curve,
+// Film, Geometry, Mask, or Heal is armed. The dock buttons and ↑/↓ group
+// keys switch the surface. The host repositions this same inspector beside
+// the vertical dock or above the compact horizontal dock.
 
 import MapleCore
 import SwiftUI
@@ -25,10 +23,10 @@ struct StackedAdjustmentsPanel: View {
           if state.armedTool == .crop {
             CropToolbar(state: state)
               .id(Tool.crop.rawValue)
-            Divider()
+          } else {
+            groupSection(state.armedGroup)
+              .id("group-\(state.armedGroup.rawValue)")
           }
-          groupSection(state.armedGroup)
-            .id("group-\(state.armedGroup.rawValue)")
         }
       }
     }
@@ -65,7 +63,7 @@ struct StackedAdjustmentsPanel: View {
   private func groupSection(_ group: ToolGroup) -> some View {
     VStack(spacing: 0) {
       HStack(spacing: 6) {
-        Text(group.displayName.uppercased())
+        Text(sectionTitle(for: group).uppercased())
         Spacer(minLength: 0)
         let count = modifiedCount(in: group)
         if count > 0 { Text("\(count) edited").foregroundStyle(ProTokens.accent) }
@@ -75,7 +73,7 @@ struct StackedAdjustmentsPanel: View {
       .padding(.horizontal, 14)
       .frame(minHeight: 44)
       .accessibilityElement(children: .combine)
-      .accessibilityLabel("\(group.displayName) section")
+      .accessibilityLabel("\(sectionTitle(for: group)) section")
       .accessibilityIdentifier("editor-panel-section-\(group.rawValue)")
 
       groupSectionBody(group)
@@ -89,7 +87,13 @@ struct StackedAdjustmentsPanel: View {
           && ToolValueMapping.displayRange(for: $0) != nil
       }
     return VStack(spacing: 12) {
-      if group == .detail && state.armedTool == .mask {
+      if group == .light && state.armedTool == .toneCurve {
+        ToneCurveSection(state: state).id(Tool.toneCurve.rawValue)
+      } else if group == .effects && state.armedTool == .filmLook {
+        FilmSection(state: state).id(Tool.filmLook.rawValue)
+      } else if group == .detail && state.armedTool == .geometry {
+        GeometrySection(state: state).id(Tool.geometry.rawValue)
+      } else if group == .detail && state.armedTool == .mask {
         MaskPanel(state: state).id(Tool.mask.rawValue)
       } else if group == .detail && state.armedTool == .heal {
         // Heal (#3409) replaces the Detail stack the same way Mask does:
@@ -143,6 +147,15 @@ struct StackedAdjustmentsPanel: View {
       }
     }
     .padding(.bottom, 12)
+  }
+
+  private func sectionTitle(for group: ToolGroup) -> String {
+    switch state.armedTool {
+    case .toneCurve, .filmLook, .geometry, .mask, .heal:
+      return state.armedTool.displayName
+    default:
+      return group.displayName
+    }
   }
 
   private func toolSection<Content: View>(
