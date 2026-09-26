@@ -21,13 +21,23 @@ struct EditorView: View {
       let layout = EditorLayout(
         width: geometry.size.width, idiom: MapleShellKind.currentIdiom,
         regularHorizontalSizeClass: horizontalSizeClass == .regular)
+      // The closed Duo reserves a wide trailing safe-area rail beneath the
+      // clock. Its horizontal size class is compact, so size class alone
+      // cannot distinguish it from an ordinary iPhone portrait screen.
+      // A conventional iPhone's landscape sensor inset is smaller than the
+      // Duo's dedicated control rail; don't move its group tabs by mistake.
+      let hasSideRail =
+        geometry.safeAreaInsets.trailing
+        > geometry.safeAreaInsets.leading + 72
+      let usesDuoToolRail =
+        MapleShellKind.currentIdiom == .phone
+        && (hasSideRail
+          || (horizontalSizeClass == .regular && geometry.size.width > geometry.size.height))
       EditorSurface(
         state: state, onDismiss: onDismiss, onInfo: onInfo,
         filmstripAssets: filmstripAssets, onSelectAsset: onSelectAsset,
         filmstripSource: filmstripSource, usesPhoneControls: layout.usesPhoneControls,
-        usesDuoToolRail: MapleShellKind.currentIdiom == .phone
-          && horizontalSizeClass == .regular
-          && geometry.size.width > geometry.size.height
+        usesDuoToolRail: usesDuoToolRail
       )
       .environment(\.mapleLayout, layout.density)
     }
@@ -129,9 +139,9 @@ struct EditorSurface: View {
           .padding(.top, 60)
       }
 
-      // A Duo's regular-width inner display uses the floating inspector;
-      // its compact outer display (and ordinary iPhone landscape) keeps the
-      // phone controls. EditorState stays owned by the host during reflow.
+      // The open landscape Duo uses the floating inspector. Its closed
+      // display keeps the compact slider controls but moves group selection
+      // into the system rail. EditorState survives either reflow.
       Group {
         if usesPhoneControls {
           GeometryReader { geometry in
@@ -139,7 +149,8 @@ struct EditorSurface: View {
               Spacer(minLength: 0)
               IPhoneControlBar(
                 state: state, onPresetsTap: { presetsOpen = true },
-                maximumPanelHeight: min(300, geometry.size.height * 0.4)
+                maximumPanelHeight: min(300, geometry.size.height * 0.4),
+                showsGroupTabs: !usesDuoToolRail
               )
               .reportsWheelExclusion(in: "editorCanvas", active: true)
             }
@@ -248,7 +259,9 @@ struct EditorSurface: View {
       .navigationBarBackButtonHidden(usesDuoToolRail)
       .toolbar {
         if usesDuoToolRail {
-          EditorDuoToolRail(state: state, onPresetsTap: { presetsOpen = true })
+          EditorDuoToolRail(
+            state: state, onPresetsTap: { presetsOpen = true },
+            showsSpecialTools: !usesPhoneControls)
         }
       }
     #endif
