@@ -1,5 +1,5 @@
-// Open-Duo landscape gate: every editor destination is visible in the
-// fixed rail beneath the system clock, and taps select the inspector state.
+// Open-Duo landscape gate: primary editor destinations fit in the native
+// rail beneath the clock, and taps select the inspector state.
 
 import XCTest
 
@@ -25,7 +25,7 @@ import XCTest
       defer { app.terminate() }
 
       // A Duo closed (or an ordinary iPhone) keeps compact bottom controls.
-      // The open landscape inner display uses the fixed vertical rail.
+      // The open landscape inner display uses the native vertical toolbar.
       let light = app.buttons["editor-dock-group-light"]
       if !light.waitForExistence(timeout: 10) {
         XCTAssertTrue(
@@ -53,7 +53,9 @@ import XCTest
             .firstMatch.waitForExistence(timeout: 5))
       }
 
-      for tool in ["crop", "toneCurve", "filmLook", "geometry", "mask", "presets", "heal"] {
+      // On the reference Duo, Heal is the eleventh item and the system places
+      // it in overflow. Toolbar height and overflow vary with device posture.
+      for tool in ["crop", "toneCurve", "filmLook", "geometry", "mask", "presets"] {
         let button = app.buttons["editor-dock-tool-\(tool)"]
         XCTAssertTrue(button.exists, "Missing \(tool) in the Duo rail")
         XCTAssertTrue(button.isHittable, "\(tool) is hidden or clipped")
