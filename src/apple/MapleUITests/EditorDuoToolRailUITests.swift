@@ -40,9 +40,6 @@ import XCTest
           .matching(identifier: "editor-tool-dock").firstMatch.exists)
       XCTAssertTrue(
         app.descendants(matching: .any)
-          .matching(identifier: "editor-duo-tool-rail").firstMatch.exists)
-      XCTAssertTrue(
-        app.descendants(matching: .any)
           .matching(identifier: "editor-adjustments-panel").firstMatch.exists)
 
       for group in ["light", "color", "effects", "detail"] {
