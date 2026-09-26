@@ -4,6 +4,19 @@ import { setupFixture } from './preview-shell.test-helpers';
 const RESOLVED = '[data-testid="preview-surface"] img[data-preview-resolved="true"]';
 
 describe('preview surface observability', () => {
+  it('opens the flag controls from the phone header', () => {
+    const { fixture } = setupFixture();
+    fixture.detectChanges();
+    const flag = fixture.nativeElement.querySelector(
+      '.preview-top-actions button[aria-label="Flag"]',
+    ) as HTMLButtonElement;
+    expect(flag).not.toBeNull();
+    flag.click();
+    fixture.detectChanges();
+    expect(flag.getAttribute('aria-expanded')).toBe('true');
+    expect(fixture.nativeElement.querySelector('#preview-flag-popover')).not.toBeNull();
+  });
+
   it('does not mark a thumbnail as resolved before the preview subscription returns', () => {
     const { fixture } = setupFixture();
     fixture.componentInstance.thumbUrl.set('blob:thumbnail');
