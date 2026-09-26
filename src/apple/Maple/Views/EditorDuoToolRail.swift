@@ -9,6 +9,7 @@
   struct EditorDuoToolRail: ToolbarContent {
     @Bindable var state: EditorState
     let onPresetsTap: () -> Void
+    var showsSpecialTools = true
 
     private let specialTools: [Tool] = [
       .crop, .toneCurve, .filmLook, .geometry, .mask, .presets, .heal,
@@ -18,15 +19,17 @@
       ToolbarItemGroup(placement: .topBarTrailing) {
         ForEach(ToolGroup.allCases, id: \.self) { group in groupButton(group) }
       }
-      ForEach(specialTools, id: \.self) { tool in
-        if #available(iOS 27.1, *) {
-          ToolbarItem(placement: .topBarTrailing) {
-            toolButton(tool)
-          }
-          .axisBehavior(.verticalPreferred)
-        } else {
-          ToolbarItem(placement: .topBarTrailing) {
-            toolButton(tool)
+      if showsSpecialTools {
+        ForEach(specialTools, id: \.self) { tool in
+          if #available(iOS 27.1, *) {
+            ToolbarItem(placement: .topBarTrailing) {
+              toolButton(tool)
+            }
+            .axisBehavior(.verticalPreferred)
+          } else {
+            ToolbarItem(placement: .topBarTrailing) {
+              toolButton(tool)
+            }
           }
         }
       }

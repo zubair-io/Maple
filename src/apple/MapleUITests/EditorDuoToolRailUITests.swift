@@ -24,17 +24,34 @@ import XCTest
       app.launch()
       defer { app.terminate() }
 
-      // A Duo closed (or an ordinary iPhone) keeps compact bottom controls.
-      // The open landscape inner display uses the native vertical toolbar.
       let light = app.buttons["editor-dock-group-light"]
-      if !light.waitForExistence(timeout: 10) {
-        XCTAssertTrue(
+      let compactControls = app.descendants(matching: .any)
+        .matching(identifier: "editor-iphone-controls").firstMatch
+      if compactControls.waitForExistence(timeout: 10) {
+        guard UIDevice.current.name.localizedCaseInsensitiveContains("duo") else {
+          throw XCTSkip("The closed side rail requires an iPhone Duo simulator")
+        }
+        XCTAssertTrue(light.exists, "Closed Duo group selectors should occupy the side rail")
+        XCTAssertFalse(
           app.descendants(matching: .any)
-            .matching(identifier: "editor-iphone-controls")
-            .firstMatch.exists, "Neither the Duo rail nor compact controls appeared")
+            .matching(identifier: "editor-group-tabs").firstMatch.exists)
         XCTAssertFalse(app.buttons["editor-dock-tool-crop"].exists)
-        throw XCTSkip("Open the Duo in Device Hub to exercise the landscape tool rail")
+        for (group, firstTool) in [
+          ("light", "exposure"), ("color", "temp"),
+          ("effects", "clarity"), ("detail", "sharpen"),
+        ] {
+          let button = app.buttons["editor-dock-group-\(group)"]
+          XCTAssertTrue(button.isHittable, "\(group) is hidden or clipped")
+          button.tap()
+          XCTAssertTrue(app.buttons["editor-tool-\(firstTool)"].waitForExistence(timeout: 5))
+        }
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Closed Duo editor group rail"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        return
       }
+      XCTAssertTrue(light.waitForExistence(timeout: 10), "Open Duo tool rail missing")
       XCTAssertFalse(
         app.descendants(matching: .any)
           .matching(identifier: "editor-tool-dock").firstMatch.exists)

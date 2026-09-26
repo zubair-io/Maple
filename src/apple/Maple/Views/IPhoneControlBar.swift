@@ -11,6 +11,7 @@ struct IPhoneControlBar: View {
   @Bindable var state: EditorState
   var onPresetsTap: () -> Void = {}
   var maximumPanelHeight: CGFloat = 300
+  var showsGroupTabs = true
   @State private var controlsHeight: CGFloat = 0
 
   var body: some View {
@@ -38,7 +39,9 @@ struct IPhoneControlBar: View {
       }
 
       Divider().background(MapleTokens.border)
-      GroupTabsView(state: state)
+      if showsGroupTabs {
+        GroupTabsView(state: state)
+      }
       ToolPillRow(state: state, onPresetsTap: onPresetsTap)
     }
     .frame(maxWidth: .infinity)
