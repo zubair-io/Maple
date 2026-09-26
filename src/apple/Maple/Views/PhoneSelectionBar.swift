@@ -39,7 +39,7 @@
             if allSelected {
               vm.clearSelection()
             } else {
-              for asset in vm.assets { vm.select(asset.id) }
+              vm.selectedIDs = Set(vm.assets.map(\.id))
             }
           }
           .padding(.horizontal, 12)
