@@ -180,6 +180,25 @@ extension ToolGroup {
   }
 }
 
+extension Tool {
+  func hasEdits(in model: AdjustmentModel) -> Bool {
+    if self == .crop { return !model.crop.isIdentity }
+    if self == .filmLook { return !model.filmLook.isEmpty }
+    if self == .mask { return !model.localAdjustments.isEmpty }
+    if self == .heal { return !model.retouchSpots.isEmpty }
+    guard isWired else { return false }
+    let subs = subParams
+    if !subs.isEmpty {
+      return subs.contains { sub in
+        abs(model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
+      }
+    }
+    guard ToolValueMapping.displayRange(for: self) != nil else { return false }
+    let value = ToolValueMapping.currentDisplayValue(model, tool: self)
+    return abs(value - ToolValueMapping.defaultDisplayValue(for: self)) > 1e-6
+  }
+}
+
 // MARK: - SpecialDockButton
 
 /// Dock button for a special tool (Crop, Presets) that arms the tool directly.
@@ -191,27 +210,7 @@ private struct SpecialDockButton: View {
 
   private var isSelected: Bool { state.armedTool == tool }
 
-  private var isModified: Bool {
-    if tool == .crop { return !state.session.model.crop.isIdentity }
-    // Film (#2683): the dot must light on a chosen look even before
-    // Strength (its only sub-param) has been touched.
-    if tool == .filmLook { return !state.session.model.filmLook.isEmpty }
-    // Mask (#355): a layer stack is the edit, whatever its sliders say.
-    if tool == .mask { return !state.session.model.localAdjustments.isEmpty }
-    // Heal (#3409): likewise, a spot list is the edit.
-    if tool == .heal { return !state.session.model.retouchSpots.isEmpty }
-    guard tool.isWired else { return false }
-    let subs = tool.subParams
-    if !subs.isEmpty {
-      return subs.contains { sub in
-        abs(state.session.model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
-      }
-    }
-    guard ToolValueMapping.displayRange(for: tool) != nil else { return false }
-    let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
-    let neutral = ToolValueMapping.defaultDisplayValue(for: tool)
-    return abs(v - neutral) > 1e-6
-  }
+  private var isModified: Bool { tool.hasEdits(in: state.session.model) }
 
   var body: some View {
     Button {
