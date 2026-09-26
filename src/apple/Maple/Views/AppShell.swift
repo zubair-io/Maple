@@ -1376,6 +1376,10 @@ struct AppShell: View {
           guard let session = sessions[asset.id] else {
             throw FileOperationError.unsupportedSource("Could not prepare this photo for export.")
           }
+          // A 100 MP session retains its decoded/render buffers. Release the
+          // previous export before resolving the next photo, as the editor
+          // does when its filmstrip switches assets (#1660).
+          if sessions.count > 1 { sessions = [asset.id: session] }
           return session
         }
       }
