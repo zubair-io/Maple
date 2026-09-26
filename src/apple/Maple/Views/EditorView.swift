@@ -151,6 +151,7 @@ struct EditorSurface: View {
             state: state, onPresetsTap: { presetsOpen = true },
             usesSystemToolRail: usesDuoToolRail
           )
+          .padding(.trailing, usesDuoToolRail ? 70 : 0)
         }
       }
       .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
