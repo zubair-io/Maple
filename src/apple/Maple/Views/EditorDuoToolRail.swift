@@ -1,13 +1,12 @@
-// The open Duo keeps every editor destination in one fixed rail below the
-// system clock. A toolbar splits these buttons between its top and bottom
-// placements and can turn taps into overflow scrolling.
+// The open Duo hosts every editor destination in a single system toolbar
+// item, keeping the whole rail in the chrome beneath the clock.
 
 #if os(iOS)
 
   import MapleCore
   import SwiftUI
 
-  struct EditorDuoToolRail: View {
+  struct EditorDuoToolRail: ToolbarContent {
     @Bindable var state: EditorState
     let onPresetsTap: () -> Void
 
@@ -15,12 +14,18 @@
       .crop, .toneCurve, .filmLook, .geometry, .mask, .presets, .heal,
     ]
 
-    var body: some View {
+    var body: some ToolbarContent {
+      ToolbarItem(placement: .topBarTrailing) {
+        controls
+      }
+    }
+
+    private var controls: some View {
       VStack(spacing: 2) {
         ForEach(ToolGroup.allCases, id: \.self) { group in
           Button {
             withAnimation(MapleTokens.Motion.groupSwap) {
-              state.arm(group: group)
+              state.arm(tool: Tool.tools(in: group).first ?? state.armedTool)
             }
           } label: {
             VStack(spacing: 1) {
@@ -33,12 +38,15 @@
             .frame(width: 50, height: 44)
             .modifier(
               DuoToolAppearance(
-                selected: state.armedGroup == group,
+                selected: state.armedGroup == group && !specialTools.contains(state.armedTool),
                 modified: group.hasEdits(in: state.session.model)))
           }
           .buttonStyle(.plain)
           .accessibilityLabel(group.displayName)
-          .accessibilityAddTraits(state.armedGroup == group ? .isSelected : [])
+          .accessibilityAddTraits(
+            state.armedGroup == group && !specialTools.contains(state.armedTool)
+              ? .isSelected : []
+          )
           .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
         }
         Rectangle()
@@ -71,7 +79,6 @@
         }
       }
       .padding(5)
-      .background(ProTokens.bg.opacity(ProGlass.opacity), in: Capsule())
       .accessibilityElement(children: .contain)
       .accessibilityLabel("Editor tools")
       .accessibilityIdentifier("editor-duo-tool-rail")

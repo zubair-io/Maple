@@ -151,7 +151,6 @@ struct EditorSurface: View {
             state: state, onPresetsTap: { presetsOpen = true },
             usesSystemToolRail: usesDuoToolRail
           )
-          .padding(.trailing, usesDuoToolRail ? 70 : 0)
         }
       }
       .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
@@ -183,18 +182,6 @@ struct EditorSurface: View {
       .ignoresSafeArea(edges: .bottom)
       // Keep per-frame rendering observations inside the status leaf.
       EditorRenderStatus(session: state.session)
-
-      #if os(iOS)
-        if usesDuoToolRail {
-          VStack {
-            EditorDuoToolRail(state: state, onPresetsTap: { presetsOpen = true })
-            Spacer(minLength: 0)
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-          .padding(.top, 108)
-          .padding(.trailing, 12)
-        }
-      #endif
 
     }
     .sheet(isPresented: $showExport) {
@@ -256,9 +243,14 @@ struct EditorSurface: View {
       // (EditorView leaves the view hierarchy and its modifier disappears).
       .toolbar(.hidden, for: .windowToolbar)
     #elseif os(iOS)
-      .toolbar(.hidden, for: .navigationBar)
+      .toolbar(usesDuoToolRail ? .visible : .hidden, for: .navigationBar)
       .toolbarBackground(.hidden, for: .navigationBar)
       .navigationBarBackButtonHidden(usesDuoToolRail)
+      .toolbar {
+        if usesDuoToolRail {
+          EditorDuoToolRail(state: state, onPresetsTap: { presetsOpen = true })
+        }
+      }
     #endif
     // Editor key commands (arrows, compare, nudge, filmstrip navigation)
     // are routed by one shared scope so a focused slider or text field can

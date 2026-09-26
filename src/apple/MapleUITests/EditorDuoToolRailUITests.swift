@@ -62,6 +62,28 @@ import XCTest
         XCTAssertTrue(button.isHittable, "\(tool) is hidden or clipped")
       }
 
+      let curve = app.buttons["editor-dock-tool-toneCurve"]
+      curve.tap()
+      XCTAssertTrue(curve.isSelected)
+      XCTAssertEqual(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-panel-section-light").firstMatch.label,
+        "Tone Curve section")
+      XCTAssertFalse(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-slider-exposure").firstMatch.exists)
+
+      let film = app.buttons["editor-dock-tool-filmLook"]
+      film.tap()
+      XCTAssertTrue(film.isSelected)
+      XCTAssertEqual(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-panel-section-effects").firstMatch.label,
+        "Film section")
+      XCTAssertFalse(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-slider-clarity").firstMatch.exists)
+
       let crop = app.buttons["editor-dock-tool-crop"]
       crop.tap()
       XCTAssertTrue(crop.isSelected, "Crop tap did not select its panel")
