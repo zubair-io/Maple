@@ -123,7 +123,7 @@ final class PreviewViewVMTests: XCTestCase {
   func testThumbnailSourceIsLocalBackendForFilesystemAsset() {
     let asset = AssetRef.preview()
     let src = PreviewViewVM.thumbnailSource(for: asset, source: nil)
-    guard case let .local(ref, box) = src else {
+    guard case .local(let ref, let box) = src else {
       return XCTFail("expected .local ThumbnailSource, got \(src)")
     }
     XCTAssertEqual(ref.id, asset.id)
@@ -154,7 +154,7 @@ final class PreviewViewVMTests: XCTestCase {
   func testThumbnailSourceRoutesPhotoKitProvenanceToPhotoKitWithNilSource() {
     let asset = makePhotoKitBackedAsset(stableID: "phasset-local-id-1")
     let src = PreviewViewVM.thumbnailSource(for: asset, source: nil)
-    guard case let .photoKit(localID) = src else {
+    guard case .photoKit(let localID) = src else {
       return XCTFail("expected .photoKit ThumbnailSource, got \(src)")
     }
     XCTAssertEqual(localID, "phasset-local-id-1")
@@ -168,7 +168,7 @@ final class PreviewViewVMTests: XCTestCase {
     // regardless — the routing must NOT depend on `source is PhotoKitSource`.
     let asset = makePhotoKitBackedAsset(stableID: "phasset-local-id-2")
     let src = PreviewViewVM.thumbnailSource(for: asset, source: FakeNonPhotoKitImageSource())
-    guard case let .photoKit(localID) = src else {
+    guard case .photoKit(let localID) = src else {
       return XCTFail("expected .photoKit ThumbnailSource, got \(src)")
     }
     XCTAssertEqual(localID, "phasset-local-id-2")
@@ -187,7 +187,7 @@ final class PreviewViewVMTests: XCTestCase {
       bytesProvider: { Data() }
     )
     let src = PreviewViewVM.thumbnailSource(for: asset, source: nil)
-    guard case let .local(ref, _) = src else {
+    guard case .local(let ref, _) = src else {
       return XCTFail("expected .local ThumbnailSource, got \(src)")
     }
     XCTAssertEqual(ref.id, asset.id)
@@ -210,33 +210,22 @@ final class PreviewViewVMTests: XCTestCase {
     )
     XCTAssertNil(asset.primaryURL, "precondition: a cloud ref has no primaryURL")
     let src = PreviewViewVM.thumbnailSource(for: asset, source: photoKitSource)
-    guard case let .local(ref, _) = src else {
+    guard case .local(let ref, _) = src else {
       return XCTFail("expected .local ThumbnailSource, got \(src)")
     }
     XCTAssertEqual(ref.id, asset.id)
   }
 
-  // MARK: - infoPaneShouldOpen (#2405)
+  // MARK: - usesTransientInfoState (#3856)
 
-  func testInfoPaneOpensAtRegularWhenPreferenceIsStoredOpen() {
-    XCTAssertTrue(
-      PreviewViewVM.infoPaneShouldOpen(isRegular: true, storedPreference: true))
+  func testPhoneAndDuoInfoUseTransientStateAtEveryWidth() {
+    XCTAssertTrue(PreviewViewVM.usesTransientInfoState(isPhoneShell: true, hasInspector: false))
+    XCTAssertTrue(PreviewViewVM.usesTransientInfoState(isPhoneShell: true, hasInspector: true))
   }
 
-  func testInfoPaneHonoursAStoredClosedPreferenceAtRegular() {
-    XCTAssertFalse(
-      PreviewViewVM.infoPaneShouldOpen(isRegular: true, storedPreference: false))
-  }
-
-  func testInfoPaneNeverOpensAtCompactRegardlessOfStoredPreference() {
-    // The iPhone bottom sheet always starts closed — a sheet covering the
-    // photo on every Preview open is the wrong default for the surface
-    // whose whole purpose is showing the photo. Compact never reads the
-    // persisted `cm.preview.infoOpen` preference.
-    XCTAssertFalse(
-      PreviewViewVM.infoPaneShouldOpen(isRegular: false, storedPreference: true))
-    XCTAssertFalse(
-      PreviewViewVM.infoPaneShouldOpen(isRegular: false, storedPreference: false))
+  func testIPadAndMacInfoPersistOnlyWithInspector() {
+    XCTAssertTrue(PreviewViewVM.usesTransientInfoState(isPhoneShell: false, hasInspector: false))
+    XCTAssertFalse(PreviewViewVM.usesTransientInfoState(isPhoneShell: false, hasInspector: true))
   }
 
   // MARK: - needsSessionPriming (#2405)

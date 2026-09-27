@@ -117,7 +117,7 @@ struct PreviewView: View {
     #endif
   }
 
-  private var usesTransientInfo: Bool { MapleShellKind.currentIdiom == .phone }
+  private var isPhoneShell: Bool { MapleShellKind.current == .phoneTab }
 
   private var orderedIDs: [AssetRef.ID] { assets.map(\.id) }
 
@@ -190,7 +190,7 @@ struct PreviewView: View {
     .onChange(of: hasInspector) { wasInspector, nowInspector in
       // Carry Info's open/closed state across the sheet ↔ inspector swap.
       // Only one presentation is mounted for the new width.
-      guard !usesTransientInfo else { return }
+      guard !isPhoneShell else { return }
       if nowInspector {
         infoPaneOpenPreference = showInfo
       } else if wasInspector {
@@ -310,16 +310,12 @@ struct PreviewView: View {
   /// inline pane. Other idioms retain the existing compact-sheet versus
   /// persisted-inspector behavior.
   private func infoPresented(hasInspector: Bool) -> Binding<Bool> {
-    Binding(
-      get: {
-        if usesTransientInfo { return showInfo }
-        return PreviewViewVM.infoPaneShouldOpen(
-          isRegular: hasInspector,
-          storedPreference: infoPaneOpenPreference
-        ) || (!hasInspector && showInfo)
-      },
+    let usesTransientInfo = PreviewViewVM.usesTransientInfoState(
+      isPhoneShell: isPhoneShell, hasInspector: hasInspector)
+    return Binding(
+      get: { usesTransientInfo ? showInfo : infoPaneOpenPreference },
       set: { newValue in
-        if usesTransientInfo || !hasInspector {
+        if usesTransientInfo {
           showInfo = newValue
         } else {
           infoPaneOpenPreference = newValue
