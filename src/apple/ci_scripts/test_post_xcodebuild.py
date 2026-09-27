@@ -63,7 +63,7 @@ class ArchivePlatformTests(unittest.TestCase):
         self.assertNotIn("skipping", result.stdout)
 
     def test_known_non_mac_archives_skip_without_credentials(self):
-        for platform in ("iPhoneOS", "AppleTVOS", "WatchOS", "XROS"):
+        for platform in ("iPhoneOS", "AppleTVOS", "WatchOS", "XROS", "xrOS"):
             with self.subTest(platform=platform):
                 self.fixture(platform)
                 result = self.run_script()
@@ -90,7 +90,9 @@ class ArchivePlatformTests(unittest.TestCase):
 
     def test_missing_archive_application_path_fails(self):
         self.plist(self.archive / "Info.plist", {"ApplicationProperties": {}})
-        self.assertNotEqual(self.run_script().returncode, 0)
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ERROR: archive has no application path", result.stderr)
 
     def test_non_release_and_failed_archives_still_skip(self):
         for overrides in (
