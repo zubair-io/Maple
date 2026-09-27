@@ -31,9 +31,9 @@ import XCTest
 
       app.buttons["preview-info"].tap()
       XCTAssertTrue(app.scrollViews["info-panel"].waitForExistence(timeout: 5))
-      XCTAssertTrue(app.otherElements["info-panel-rating-flags"].exists)
+      XCTAssertTrue(app.otherElements["info-panel-rating-flags"].isHittable)
 
-      let screenshot = XCTAttachment(screenshot: app.screenshot())
+      let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
       screenshot.name = "Duo Preview compact Info"
       screenshot.lifetime = .keepAlways
       add(screenshot)
