@@ -24,9 +24,8 @@ done
 
 ARCHIVE_INFO="$CI_ARCHIVE_PATH/Info.plist"
 # The archive plist describes the product location, not its bundle platform.
-APPLICATION_PATH="$(/usr/libexec/PlistBuddy \
-	-c 'Print :ApplicationProperties:ApplicationPath' "$ARCHIVE_INFO")"
-if [ -z "$APPLICATION_PATH" ]; then
+if ! APPLICATION_PATH="$(/usr/libexec/PlistBuddy \
+	-c 'Print :ApplicationProperties:ApplicationPath' "$ARCHIVE_INFO")" || [ -z "$APPLICATION_PATH" ]; then
 	echo "ERROR: archive has no application path" >&2
 	exit 1
 fi
@@ -37,7 +36,7 @@ ARCHIVE_PLATFORM="$(/usr/libexec/PlistBuddy \
 	-c 'Print :CFBundleSupportedPlatforms:0' "$APP_INFO")"
 case "$ARCHIVE_PLATFORM" in
 MacOSX) ;;
-iPhoneOS | AppleTVOS | WatchOS | XROS)
+iPhoneOS | AppleTVOS | WatchOS | XROS | xrOS)
 	echo "==> Archive platform is $ARCHIVE_PLATFORM, not macOS; skipping direct Mac distribution"
 	exit 0
 	;;
