@@ -7,6 +7,45 @@ import XCTest
   import UIKit
 
   final class EditorDuoToolRailUITests: XCTestCase {
+    func testMoreMenuOpensHealAndPresetsOnWidePhone() throws {
+      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+      let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maple-duo-more-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      try FileManager.default.copyItem(
+        at: fixture, to: directory.appendingPathComponent(fixture.lastPathComponent))
+
+      XCUIDevice.shared.orientation = .landscapeLeft
+      defer { XCUIDevice.shared.orientation = .portrait }
+      let app = XCUIApplication()
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = fixture.lastPathComponent
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = directory.path
+      app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
+      app.launch()
+      defer { app.terminate() }
+
+      let more = app.buttons["editor-dock-more"]
+      XCTAssertTrue(more.waitForExistence(timeout: 10), "Wide phone Editor tool rail missing More")
+      XCTAssertTrue(more.isHittable)
+      more.tap()
+      let heal = app.buttons["editor-dock-tool-heal"]
+      XCTAssertTrue(heal.waitForExistence(timeout: 5), "More did not open Heal")
+      heal.tap()
+      XCTAssertTrue(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-retouch-panel").firstMatch.waitForExistence(timeout: 5))
+
+      more.tap()
+      let presets = app.buttons["editor-dock-tool-presets"]
+      XCTAssertTrue(presets.waitForExistence(timeout: 5), "More did not open Presets")
+      presets.tap()
+      XCTAssertTrue(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-presets-panel").firstMatch.waitForExistence(timeout: 5))
+    }
+
     func testToolControlsMatchCurrentPhonePosture() throws {
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
@@ -70,9 +109,9 @@ import XCTest
             .firstMatch.waitForExistence(timeout: 5))
       }
 
-      // On the reference Duo, Heal is the eleventh item and the system places
-      // it in overflow. Toolbar height and overflow vary with device posture.
-      for tool in ["crop", "toneCurve", "filmLook", "geometry", "mask", "presets"] {
+      // The rail owns its More menu instead of relying on the system's
+      // toolbar overflow, which did not open on the Duo (#3860).
+      for tool in ["crop", "toneCurve", "filmLook", "geometry", "mask"] {
         let button = app.buttons["editor-dock-tool-\(tool)"]
         XCTAssertTrue(button.exists, "Missing \(tool) in the Duo rail")
         XCTAssertTrue(button.isHittable, "\(tool) is hidden or clipped")
@@ -108,6 +147,24 @@ import XCTest
       let mask = app.buttons["editor-dock-tool-mask"]
       mask.tap()
       XCTAssertTrue(mask.isSelected, "Mask tap did not select its panel")
+
+      let more = app.buttons["editor-dock-more"]
+      XCTAssertTrue(more.isHittable, "More tools is hidden or clipped")
+      more.tap()
+      let heal = app.buttons["editor-dock-tool-heal"]
+      XCTAssertTrue(heal.waitForExistence(timeout: 5), "More did not open the hidden tools")
+      heal.tap()
+      XCTAssertTrue(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-retouch-panel").firstMatch.waitForExistence(timeout: 5))
+
+      more.tap()
+      let presets = app.buttons["editor-dock-tool-presets"]
+      XCTAssertTrue(presets.waitForExistence(timeout: 5))
+      presets.tap()
+      XCTAssertTrue(
+        app.descendants(matching: .any)
+          .matching(identifier: "editor-presets-panel").firstMatch.waitForExistence(timeout: 5))
 
       let attachment = XCTAttachment(screenshot: app.screenshot())
       attachment.name = "Open Duo editor tool rail"

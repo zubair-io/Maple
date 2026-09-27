@@ -1,5 +1,5 @@
-// Keep each custom-glyph tool eligible for the Duo's vertical system rail.
-// The system handles the available height and moves excess items to overflow.
+// Keep the primary tools on the Duo's vertical rail. Use an explicit More
+// menu for the remaining tools instead of the system's inert overflow button.
 
 #if os(iOS)
 
@@ -11,16 +11,17 @@
     let onPresetsTap: () -> Void
     var showsSpecialTools = true
 
-    private let specialTools: [Tool] = [
-      .crop, .toneCurve, .filmLook, .geometry, .mask, .presets, .heal,
+    private let visibleTools: [Tool] = [
+      .crop, .toneCurve, .filmLook, .geometry, .mask,
     ]
+    private let moreTools: [Tool] = [.presets, .heal]
 
     var body: some ToolbarContent {
       ToolbarItemGroup(placement: .topBarTrailing) {
         ForEach(ToolGroup.allCases, id: \.self) { group in groupButton(group) }
       }
       if showsSpecialTools {
-        ForEach(specialTools, id: \.self) { tool in
+        ForEach(visibleTools, id: \.self) { tool in
           if #available(iOS 27.1, *) {
             ToolbarItem(placement: .topBarTrailing) {
               toolButton(tool)
@@ -31,6 +32,12 @@
               toolButton(tool)
             }
           }
+        }
+        if #available(iOS 27.1, *) {
+          ToolbarItem(placement: .topBarTrailing) { moreMenu }
+            .axisBehavior(.verticalPreferred)
+        } else {
+          ToolbarItem(placement: .topBarTrailing) { moreMenu }
         }
       }
     }
@@ -45,12 +52,14 @@
           .font(.system(size: 18))
           .modifier(
             DuoToolAppearance(
-              selected: state.armedGroup == group && !specialTools.contains(state.armedTool),
+              selected: state.armedGroup == group && !visibleTools.contains(state.armedTool)
+                && !moreTools.contains(state.armedTool),
               modified: group.hasEdits(in: state.session.model)))
       }
       .accessibilityLabel(group.displayName)
       .accessibilityAddTraits(
-        state.armedGroup == group && !specialTools.contains(state.armedTool)
+        state.armedGroup == group && !visibleTools.contains(state.armedTool)
+          && !moreTools.contains(state.armedTool)
           ? .isSelected : []
       )
       .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
@@ -70,6 +79,32 @@
       .accessibilityLabel(tool.displayName)
       .accessibilityAddTraits(state.armedTool == tool ? .isSelected : [])
       .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
+    }
+
+    private var moreMenu: some View {
+      Menu {
+        ForEach(moreTools, id: \.self) { tool in
+          Button {
+            state.arm(tool: tool)
+            if tool == .presets { onPresetsTap() }
+          } label: {
+            Label {
+              Text(tool.displayName)
+            } icon: {
+              ToolGlyph.icon(for: tool, size: 16)
+            }
+          }
+          .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
+        }
+      } label: {
+        Image(systemName: "ellipsis")
+          .font(.system(size: 18))
+          .foregroundStyle(moreTools.contains(state.armedTool) ? ProTokens.accent : ProTokens.text)
+          .frame(minWidth: 44, minHeight: 44)
+          .contentShape(Rectangle())
+      }
+      .accessibilityLabel("More tools")
+      .accessibilityIdentifier("editor-dock-more")
     }
   }
 
