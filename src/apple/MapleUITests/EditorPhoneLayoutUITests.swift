@@ -151,6 +151,40 @@ import XCTest
       XCTAssertEqual(try Data(contentsOf: staged), original)
     }
 
+    func testCompactResetAllRestoresAdjustment() throws {
+      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+      let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maple-phone-reset-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let staged = directory.appendingPathComponent(fixture.lastPathComponent)
+      try FileManager.default.copyItem(at: fixture, to: staged)
+      let original = try Data(contentsOf: staged)
+
+      XCUIDevice.shared.orientation = .portrait
+      let app = XCUIApplication()
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = staged.lastPathComponent
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = directory.path
+      app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
+      app.launch()
+      defer { app.terminate() }
+      XCTAssertTrue(element(app, "editor-iphone-controls").waitForExistence(timeout: 20))
+
+      app.buttons["editor-group-color"].tap()
+      tapTool(app, "bwMix")
+      let blackWhite = element(app, "editor-bw-toggle")
+      let initial = try XCTUnwrap(blackWhite.value as? String)
+      blackWhite.tap()
+      wait(blackWhite, predicate: NSPredicate(format: "value != %@", initial))
+
+      let resetAll = app.buttons["editor-phone-reset-all"]
+      XCTAssertTrue(resetAll.isHittable)
+      resetAll.tap()
+      wait(blackWhite, predicate: NSPredicate(format: "value == %@", initial))
+      XCTAssertEqual(try Data(contentsOf: staged), original)
+    }
+
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement {
       app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
