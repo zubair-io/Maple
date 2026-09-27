@@ -43,7 +43,9 @@ import XCTest
 
     func testWidePhonePreviewInfoStartsClosedAndOpensOnTap() throws {
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+        .appendingPathComponent("Fixtures")
+        .appendingPathComponent("layout")
+        .appendingPathComponent("rgb-gradient.png")
       let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("maple-duo-wide-preview-\(UUID().uuidString)", isDirectory: true)
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
