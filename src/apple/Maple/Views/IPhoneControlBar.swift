@@ -38,6 +38,21 @@ struct IPhoneControlBar: View {
         .onChange(of: state.armedTool) { _, _ in revealSelectedControl(proxy) }
       }
 
+      HStack {
+        Spacer(minLength: 0)
+        Button {
+          state.resetToFactoryDefaults()
+        } label: {
+          Label("Reset All", systemImage: "arrow.counterclockwise")
+            .font(.caption)
+            .frame(minHeight: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Reset all adjustments")
+        .accessibilityIdentifier("editor-phone-reset-all")
+      }
+      .padding(.horizontal, 16)
+
       Divider().background(MapleTokens.border)
       if showsGroupTabs {
         GroupTabsView(state: state)

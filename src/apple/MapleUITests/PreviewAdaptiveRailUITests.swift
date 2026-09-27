@@ -65,9 +65,14 @@ import XCTest
       info.tap()
       XCTAssertTrue(info.isSelected, "Info should become selected after opening")
       XCTAssertTrue(panel.waitForExistence(timeout: 5))
-      XCTAssertTrue(element("info-panel-rating-flags", in: app).exists)
+      let panelVisible = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "hittable == YES"), object: panel)
+      XCTAssertEqual(XCTWaiter.wait(for: [panelVisible], timeout: 5), .completed)
+      XCTAssertTrue(element("info-panel-rating-flags", in: app).isHittable)
+      XCTAssertLessThanOrEqual(panel.frame.maxX, app.frame.maxX)
+      XCTAssertGreaterThanOrEqual(panel.frame.minX, app.frame.minX)
       XCTAssertEqual(filename.label, displayName)
-      let screenshot = XCTAttachment(screenshot: app.screenshot())
+      let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
       screenshot.name = "Wide Preview rail with Info"
       screenshot.lifetime = .keepAlways
       add(screenshot)
