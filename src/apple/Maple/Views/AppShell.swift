@@ -587,9 +587,8 @@ struct AppShell: View {
     // it for the iPhone global Search tab.
     .environment(
       \.searchForText,
-      SearchTextAction { query in
-        activateSearch(query: query)
-      }
+      FeatureFlags.isMapleCloudEnabled
+        ? SearchTextAction { query in activateSearch(query: query) } : nil
     )
     // Inline single-asset rename (#2638). Re-injected across the iPhone
     // info sheet + PreviewView's inspector/sheet/popover (see

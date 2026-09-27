@@ -400,7 +400,11 @@
       // (#2518). Overrides the AppShell-root (mac/iPad) `searchForText` for
       // the iPhone global Search tab. Re-injected across the info sheet by
       // `PreviewView` / `EditorDestination`.
-      .environment(\.searchForText, SearchTextAction { text in searchFor(text) })
+      .environment(
+        \.searchForText,
+        FeatureFlags.isMapleCloudEnabled
+          ? SearchTextAction { text in searchFor(text) } : nil
+      )
       // Folder row → reveal the containing folder. Wrap the root action so
       // it ALSO switches to the Library tab, where the folder was loaded —
       // otherwise the user stays on the Search tab (#2518).
@@ -417,6 +421,7 @@
     /// Clearing `libraryPath` pops any open editor/preview (and its info
     /// sheet) so the user lands cleanly on the results.
     private func searchFor(_ text: String) {
+      guard FeatureFlags.isMapleCloudEnabled else { return }
       searchQuery = text
       libraryPath = []
       activeTab = "search"
