@@ -78,14 +78,11 @@ struct PreviewView: View {
   /// with the new `asset`.
   let onSelectAsset: (AssetRef) -> Void
 
-  /// Info bottom sheet presentation — compact ONLY. Deliberately always
-  /// starts closed regardless of the persisted preference (spec #2405: a
-  /// sheet covering the photo on every Preview open is the wrong default
-  /// for the surface whose whole purpose is showing the photo).
+  /// Info presentation on every iPhone/Duo width and on compact iPad.
+  /// A new Preview starts closed so the photo is never covered on entry.
   @State private var showInfo = false
-  /// Info inspector column presentation — roomy widths ONLY. Persists
-  /// across Preview opens under `cm.preview.infoOpen`, defaulting to open,
-  /// mirroring the editor's `DetailPanel` inspector.
+  /// Roomy iPad/Mac inspector preference. An iPhone/Duo never reads or
+  /// writes this value, even when its open display uses an inline pane.
   @AppStorage("cm.preview.infoOpen") private var infoPaneOpenPreference = true
   /// The session backing Info. Primed by a `.task` keyed on the pane's
   /// open state (which can default to open on a regular display) — never during
@@ -119,6 +116,8 @@ struct PreviewView: View {
       true
     #endif
   }
+
+  private var usesTransientInfo: Bool { MapleShellKind.currentIdiom == .phone }
 
   private var orderedIDs: [AssetRef.ID] { assets.map(\.id) }
 
@@ -191,6 +190,7 @@ struct PreviewView: View {
     .onChange(of: hasInspector) { wasInspector, nowInspector in
       // Carry Info's open/closed state across the sheet ↔ inspector swap.
       // Only one presentation is mounted for the new width.
+      guard !usesTransientInfo else { return }
       if nowInspector {
         infoPaneOpenPreference = showInfo
       } else if wasInspector {
@@ -306,28 +306,23 @@ struct PreviewView: View {
     )
   }
 
-  /// The single source of truth for "is the Info surface presented",
-  /// routed to the size-class-appropriate backing store: the persisted
-  /// `infoPaneOpenPreference` at regular (tablet+), the transient
-  /// `showInfo` `@State` at compact (iPhone sheet — always starts closed,
-  /// never persisted). The read side calls `PreviewViewVM.infoPaneShouldOpen`
-  /// — the pure, unit-tested form of the regular-vs-compact routing
-  /// decision — OR'd with `showInfo` (which `infoPaneShouldOpen` always
-  /// reports closed for compact, since it never reads the persisted
-  /// preference there) so a compact tap-to-open still works.
+  /// Phone/Duo uses transient state at every width, including the wide
+  /// inline pane. Other idioms retain the existing compact-sheet versus
+  /// persisted-inspector behavior.
   private func infoPresented(hasInspector: Bool) -> Binding<Bool> {
     Binding(
       get: {
-        PreviewViewVM.infoPaneShouldOpen(
+        if usesTransientInfo { return showInfo }
+        return PreviewViewVM.infoPaneShouldOpen(
           isRegular: hasInspector,
           storedPreference: infoPaneOpenPreference
         ) || (!hasInspector && showInfo)
       },
       set: { newValue in
-        if hasInspector {
-          infoPaneOpenPreference = newValue
-        } else {
+        if usesTransientInfo || !hasInspector {
           showInfo = newValue
+        } else {
+          infoPaneOpenPreference = newValue
         }
       }
     )
