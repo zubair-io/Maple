@@ -62,6 +62,7 @@ extension AppShell {
   /// shell's search surface.
   @MainActor
   private func navigateToSearch(rawQuery: [String: String]) {
+    guard FeatureFlags.isMapleCloudEnabled else { return }
     guard let server = CloudServerRegistry.shared.servers.first else {
       deepLinkLog.info("search deep link with no registered server — ignoring")
       return
