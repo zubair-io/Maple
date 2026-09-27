@@ -71,6 +71,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Test release archive platform detection
+        run: python3 src/apple/ci_scripts/test_post_xcodebuild.py
 
       # The package is swift-tools-version 6.1; the image's default Xcode can
       # lag the newest installed one, so select the highest deterministically.

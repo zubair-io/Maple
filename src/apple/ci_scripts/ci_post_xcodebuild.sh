@@ -23,13 +23,29 @@ for variable in CI_ARCHIVE_PATH CI_COMMIT; do
 done
 
 ARCHIVE_INFO="$CI_ARCHIVE_PATH/Info.plist"
-ARCHIVE_PLATFORM="$(/usr/libexec/PlistBuddy \
-	-c 'Print :ApplicationProperties:CFBundleSupportedPlatforms:0' \
-	"$ARCHIVE_INFO" 2>/dev/null || true)"
-if [ "$ARCHIVE_PLATFORM" != "MacOSX" ]; then
-	echo "==> Archive platform is ${ARCHIVE_PLATFORM:-unknown}, not macOS; skipping direct Mac distribution"
-	exit 0
+# The archive plist describes the product location, not its bundle platform.
+APPLICATION_PATH="$(/usr/libexec/PlistBuddy \
+	-c 'Print :ApplicationProperties:ApplicationPath' "$ARCHIVE_INFO")"
+if [ -z "$APPLICATION_PATH" ]; then
+	echo "ERROR: archive has no application path" >&2
+	exit 1
 fi
+ARCHIVED_APP="$CI_ARCHIVE_PATH/Products/$APPLICATION_PATH"
+APP_INFO="$ARCHIVED_APP/Contents/Info.plist"
+if [ ! -f "$APP_INFO" ]; then APP_INFO="$ARCHIVED_APP/Info.plist"; fi
+ARCHIVE_PLATFORM="$(/usr/libexec/PlistBuddy \
+	-c 'Print :CFBundleSupportedPlatforms:0' "$APP_INFO")"
+case "$ARCHIVE_PLATFORM" in
+MacOSX) ;;
+iPhoneOS | AppleTVOS | WatchOS | XROS)
+	echo "==> Archive platform is $ARCHIVE_PLATFORM, not macOS; skipping direct Mac distribution"
+	exit 0
+	;;
+*)
+	echo "ERROR: unsupported archive platform: ${ARCHIVE_PLATFORM:-unknown}" >&2
+	exit 1
+	;;
+esac
 
 required=(
 	CI_DEVELOPER_ID_SIGNED_APP_PATH
