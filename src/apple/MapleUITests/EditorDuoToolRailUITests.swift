@@ -9,7 +9,9 @@ import XCTest
   final class EditorDuoToolRailUITests: XCTestCase {
     func testMoreMenuOpensHealAndPresetsOnWidePhone() throws {
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+        .appendingPathComponent("Fixtures")
+        .appendingPathComponent("layout")
+        .appendingPathComponent("rgb-gradient.png")
       let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("maple-duo-more-\(UUID().uuidString)", isDirectory: true)
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
