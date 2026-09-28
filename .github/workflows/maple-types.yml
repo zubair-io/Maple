@@ -6,8 +6,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: maple-types-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
   maple-typecheck:
+    needs: changes
+    if: needs.changes.outputs.maple == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,3 +33,14 @@ jobs:
         run: |
           ln -s ../api/node_modules node_modules
           bun run typecheck
+
+  result:
+    name: Maple types result
+    needs: [changes, maple-typecheck]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/ci_result.py maple-typecheck=maple
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}

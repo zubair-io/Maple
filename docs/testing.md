@@ -10,24 +10,61 @@ The rule that shapes everything colour-related: **no eyeballing**. A screenshot 
 
 The table below summarizes test and review workflows in [`.github/workflows/`](../.github/workflows/); release and version-management workflows also live there. Workflow definitions describe execution, not the current GitHub branch-protection settings. The repository merge contract requires green checks **on the current tip of `main`**: a branch whose base has moved needs a rebase and fresh checks. Optional jobs are identified explicitly below; a successful workflow summary alone does not prove that every suite executed.
 
-| Workflow              | Job(s)                                                                                       | What it actually runs                                                                                                                                                                                                               | Trigger                                                                              |
-| --------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `cross.yml`           | 12 jobs (see [Repo tooling gates](#repo-tooling-gates))                                      | prettier, oxlint, file budgets, budget ratchets, codegen drift, dead-code audits, secret scan, UI contract docs, editor parity manifest                                                                                             | every push to `main` + every PR, **no path filter**                                  |
-| `web.yml`             | `web-build`, `web-test`, `web-test-common`, `web-webgpu-smoke`                               | `ng build maple` + `ng build maple-syrup` + artifact/capability/adoption checks + a Playwright artifact suite; `ng test maple`; `ng test Maple-common`; a browser-WebGPU smoke (non-required, #2315, see [GPU parity](#gpu-parity)) | every push to `main` + every PR, **no path filter** (deliberate — see below)         |
-| `maple-types.yml`     | `maple-typecheck`                                                                            | Strict package source and test typechecks using the frozen API dependency lock; no native library or image fixtures required                                                                                                        | every push to `main` + every PR + `workflow_dispatch`                                |
-| `api.yml`             | `api-typecheck`, `api-tests`                                                                 | `bun run typecheck` for source and tests, then `bun test --timeout 30000` with no database service, and the Meilisearch integration suite against a real `getmeili/meilisearch:v1.50.0`                                             | every push to `main` + every PR + `workflow_dispatch`                                |
-| `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline` | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, the ACR colour harness, the pano harness                                      | pushes/PRs touching `src/raw-pipeline/**`, the harness scripts, or the budget JSONs  |
-| `apple.yml`           | `swift-build`, `swift-regressions`, `swift-regressions-coverage`                             | MapleCore compile gate, executable regressions against a real host Rust archive, and the run/excluded class-list gate                                                                                                               | pushes/PRs touching `src/apple/**` or `src/raw-pipeline/**`                          |
-| `windows.yml`         | `windows-build-and-test`                                                                     | `cargo check` raw-core/raw-ffi for MSVC, `cargo test -p raw-core --lib`, build `maple-windows` + `Maple.WinUI`, `dotnet test` the WinUI suite, then re-run `tools/codegen.sh` on Windows                                            | every push to `main` + every PR                                                      |
-| `cloudflare.yml`      | `cloudflare-test`                                                                            | `npm run typecheck` + `npm test` (vitest on `@cloudflare/vitest-pool-workers`)                                                                                                                                                      | pushes/PRs touching `src/cloudflare/**`                                              |
-| `face-clustering.yml` | `face-clustering-quality`                                                                    | `src/scripts/test_face_clustering.sh`                                                                                                                                                                                               | pushes/PRs touching `src/api/src/people/**`, the script, or its fixtures             |
-| `deploy-hosted.yml`   | `build-and-deploy`                                                                           | Builds `maple-syrup` and uploads it to Azure Blob. **Publishing, not gating**                                                                                                                                                       | pushes to `main` touching `src/web/**` or `src/raw-pipeline/**`; `workflow_dispatch` |
-| `jules-pr-review.yml` | `review`                                                                                     | Third-party automated reviewer. Skipped for PRs that touch only `CLAUDE.md` / `AGENTS.md` / plan-and-spec directories, and for forks                                                                                                | PR opened / synchronized / reopened / ready-for-review against `main`                |
+| Workflow              | Job(s)                                                                                         | What it actually runs                                                                                                                                                                          | Trigger                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `cross.yml`           | Repo tooling, release/CI regression tests, selection and result jobs                           | prettier, oxlint, file budgets, budget ratchets, codegen drift, dead-code audits, secret scan, UI contract docs, editor parity manifest                                                        | every push to `main` + every PR; expensive jobs selected by dependencies             |
+| `web.yml`             | `build-wasm`, `web-build`, `web-test`, `web-test-common`, `web-webgpu-smoke`, selection/result | One shared WASM build; Angular builds and unit suites, artifact/capability/adoption checks and Playwright; optional fixture-gated WebGPU smoke                                                 | every push to `main` + every PR; jobs selected by dependencies                       |
+| `maple-types.yml`     | `maple-typecheck`                                                                              | Strict package source and test typechecks using the frozen API dependency lock; no native library or image fixtures required                                                                   | every push to `main` + every PR + `workflow_dispatch`                                |
+| `api.yml`             | `api-typecheck`, `api-tests`                                                                   | `bun run typecheck` for source and tests, then `bun test --timeout 30000` with no database service, and the Meilisearch integration suite against a real `getmeili/meilisearch:v1.50.0`        | every push to `main` + every PR + `workflow_dispatch`                                |
+| `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline`   | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, the ACR colour harness, the pano harness | pushes/PRs touching `src/raw-pipeline/**`, the harness scripts, or the budget JSONs  |
+| `apple.yml`           | `swift-build`, `swift-regressions`, `swift-regressions-coverage`                               | MapleCore compile gate, executable regressions against a real host Rust archive, and the run/excluded class-list gate                                                                          | pushes/PRs touching `src/apple/**` or `src/raw-pipeline/**`                          |
+| `windows.yml`         | Wrapper contract, build/tests, selection/result                                                | Supported Windows wrapper build, raw-core tests, WinUI XMP/FFI-layout tests and real window-lifecycle smoke                                                                                    | every push to `main` + every PR; jobs selected by dependencies                       |
+| `cloudflare.yml`      | `cloudflare-test`                                                                              | `npm run typecheck` + `npm test` (vitest on `@cloudflare/vitest-pool-workers`)                                                                                                                 | pushes/PRs touching `src/cloudflare/**`                                              |
+| `face-clustering.yml` | `face-clustering-quality`                                                                      | `src/scripts/test_face_clustering.sh`                                                                                                                                                          | pushes/PRs touching `src/api/src/people/**`, the script, or its fixtures             |
+| `deploy-hosted.yml`   | `build-and-deploy`                                                                             | Builds `maple-syrup` and uploads it to Azure Blob. **Publishing, not gating**                                                                                                                  | pushes to `main` touching `src/web/**` or `src/raw-pipeline/**`; `workflow_dispatch` |
+| `jules-pr-review.yml` | `review`                                                                                       | Third-party automated reviewer. Skipped for PRs that touch only `CLAUDE.md` / `AGENTS.md` / plan-and-spec directories, and for forks                                                           | PR opened / synchronized / reopened / ready-for-review against `main`                |
 
-Two path-filter decisions are load-bearing and worth knowing:
+### Dependency-aware CI selection
 
-- **`web.yml` has no path filter on purpose.** The web tree mirrors types that originate elsewhere in the repo, so narrowing the filter would let a break through from outside `src/web/`.
-- **`raw-pipeline.yml` is path-filtered**, so a change confined to, say, `src/api/` never runs the colour harness. That is fine because nothing outside the Rust workspace and the harness scripts can move the pixels.
+API, Web, Windows, Maple typechecks and expensive cross jobs use the reusable
+`ci-changes.yml` workflow and `tools/ci_changes.py`. Their workflows still start
+on every PR/main push; only unrelated jobs skip. Web selection includes API
+types, Maple packages, shared Rust, and cross-tree assets rather than just
+`src/web/`. Web source changes also select API tests because the API imports
+Web's shared ID parser and checks its preset/adjustment data. Apple brand assets,
+canonical presets, calibration fixtures and shipped component documentation
+select their consumers too. Unknown paths run all optimized suites. Generated files select the
+codegen drift check, even when the generator itself did not change.
+
+PR selection uses the event's immutable base/head merge base; main pushes use
+the entire before/after range. Deletes and both sides of renames count. Missing
+history, invalid events and empty diffs conservatively run everything. Manual
+runs and `release/next-v*` PRs retain full coverage. The eight workflow names
+polled by Release readiness remain unchanged; no branch protections are changed.
+
+Each optimized workflow has an always-running result job using
+`tools/ci_result.py`: selection must succeed, every selected required job must
+succeed, and only explicitly unselected jobs may skip. The existing optional
+WebGPU smoke remains non-blocking; an absent RAW fixture is reported as not
+exercised before dependency/browser setup. It is not evidence of GPU parity.
+
+Web builds the canonical `gpu,parallel` WASM package once, shares it through an
+artifact from the same workflow run, and syncs it into each consumer. The stamp
+is refreshed after download so the existing build lifecycle hooks reuse that
+package rather than recompiling it against checkout timestamps. Native package
+validation still builds every platform; Rust-source and calibration-fixture
+changes now trigger it directly as well as Maple package changes.
+
+`raw-pipeline.yml` and `apple.yml` retain their existing path-filtered coverage.
+Release validation, tag publishing, Hosted deployment and Xcode Cloud are not
+short-circuited by this selector. No tests are selected solely by their filename.
+
+Selector, real Git-range, workflow-wiring, result-gate and Web-artifact tests:
+
+```bash
+python3 -m pip install PyYAML==6.0.2
+python3 -m unittest discover -s tools -p 'test_ci_*.py'
+```
 
 Concurrency policies vary by workflow. The Apple, Rust and cross-cutting gates preserve pushes to `main` while cancelling superseded PR runs. A cancelled run is not passing evidence; use the current head’s completed results.
 
