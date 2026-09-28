@@ -1,0 +1,35 @@
+name: CI change selection
+
+on:
+  workflow_call:
+    outputs:
+      api:
+        value: ${{ jobs.select.outputs.api }}
+      web:
+        value: ${{ jobs.select.outputs.web }}
+      windows:
+        value: ${{ jobs.select.outputs.windows }}
+      maple:
+        value: ${{ jobs.select.outputs.maple }}
+      codegen:
+        value: ${{ jobs.select.outputs.codegen }}
+
+permissions:
+  contents: read
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.changes.outputs.api }}
+      web: ${{ steps.changes.outputs.web }}
+      windows: ${{ steps.changes.outputs.windows }}
+      maple: ${{ steps.changes.outputs.maple }}
+      codegen: ${{ steps.changes.outputs.codegen }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: changes
+        run: python3 tools/ci_changes.py
