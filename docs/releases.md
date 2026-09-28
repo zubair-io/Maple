@@ -27,12 +27,15 @@ For example, when main contains `0.1.3`:
    version-only commit passes the handoff gate (statuses are per commit, so
    another PR with the identical commit receives the same status); it must also pass Release
    readiness, which waits for the complete release PR CI suite.
-6. Review and **rebase-merge** that PR. Main now contains `0.1.4`, TestFlight
+6. The dispatcher enables **rebase auto-merge** on that exact PR head. GitHub merges only after
+   required checks and review requirements pass against up-to-date main.
+   Main now contains `0.1.4`, TestFlight
    builds that version, and other PRs are unblocked. This merge creates no tag.
 
 The source release is a tag, not a second mutable release branch. The
 `release/next-v…` branch is for the next development cycle, not store builds.
-There is intentionally no automatic merge of the bump PR.
+The bump PR auto-merges independently of the tagged Apple/store builds; those
+continue building the immutable release tag, not the updated main branch.
 
 ## One-time rollout
 
@@ -43,7 +46,8 @@ required status check, issued by GitHub Actions. Do not replace existing rules.
 
 First run **release-handoff** manually to seed statuses on open PR heads, then
 add the requirement. The release dispatcher refuses to create a release if
-this requirement is absent. A PAT/GitHub App credential in `VERSION_SYNC_TOKEN`
+the handoff or Release readiness requirement is absent, or strict up-to-date
+checks are disabled. Repository auto-merge must be enabled. A PAT/GitHub App credential in `VERSION_SYNC_TOKEN`
 (fallback: existing `JULES_GH`) needs contents, PRs, issues and statuses write,
 Actions/rules read. Project-board assignment is not part of release orchestration
 and requires no Projects permission. The credential must trigger
@@ -65,6 +69,9 @@ original main SHA and refuses to silently select newer main commits.
 
 - A tag on another commit is never moved or overwritten. Use advance-only only
   for an already-released version whose tag is in main's history.
+- If enabling auto-merge fails, fix the repository setting or credential and
+  rerun the failed run. It reuses the existing tag, branch, issue and PR, and
+  retries auto-merge without bypassing protections.
 - After a successful status refresh, a failure creating the tag or PR leaves
   other merges blocked. Fix the credential/build/PR failure and retry. Reopen a closed unmerged bump
   PR before retrying; do not merge unrelated changes to get around the gate.

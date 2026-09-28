@@ -171,10 +171,16 @@ def require_gate(repo):
         if rule["type"] == "required_status_checks"
         for check in rule["parameters"]["required_status_checks"]
     ]
-    if CONTEXT not in checks:
+    if not {CONTEXT, "Release readiness"}.issubset(checks):
         raise ValueError(
-            f"Require {CONTEXT} in the Main ruleset before creating releases"
+            f"Require {CONTEXT} and Release readiness in the Main ruleset before creating releases"
         )
+    if not any(
+        rule["parameters"].get("strict_required_status_checks_policy")
+        for rule in rules
+        if rule["type"] == "required_status_checks"
+    ):
+        raise ValueError("Require strict up-to-date checks before creating releases")
 
 
 def require_release_validation(sha):
@@ -377,6 +383,18 @@ def release(repo, requested, advance_only=False, release_sha=None):
                 str(body),
             )
     refresh_gate(repo)
+    run(
+        "gh",
+        "pr",
+        "merge",
+        url,
+        "--repo",
+        repo,
+        "--auto",
+        "--rebase",
+        "--match-head-commit",
+        head,
+    )
     print(f"Release {tag}: {remote_tag(tag)}\nNext-version PR: {url}")
 
 
