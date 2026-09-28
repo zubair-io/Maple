@@ -29,6 +29,8 @@ on:
     paths:
       - 'src/maple/**'
       - 'src/raw-pipeline/**'
+      - 'tools/native_package_cache.py'
+      - 'tools/test_ci_native*.py'
       - 'src/apple/MapleUITests/Goldens/.calibration/**'
       - '.github/workflows/publish-package.yml'
 
@@ -81,12 +83,6 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src/raw-pipeline -> target
-          key: ${{ matrix.target }}
-
       - name: Install Zig
         uses: mlugg/setup-zig@v1
         with:
@@ -95,7 +91,43 @@ jobs:
       - name: Install cargo-zigbuild
         run: pipx install cargo-zigbuild
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Only ordinary PRs reuse final binaries; release validation compiles both crates.
+      - name: Fingerprint native package binaries
+        id: native-fingerprint
+        continue-on-error: true
+        shell: bash
+        run: python tools/native_package_cache.py fingerprint --target ${{ matrix.target }} --platform ${{ matrix.platform_dir }} --github-output "$GITHUB_OUTPUT"
+
+      - name: Restore exact native package cache
+        id: native-cache
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: .native-package-cache
+          key: ${{ steps.native-fingerprint.outputs.key }}
+
+      - name: Verify and restore native package binaries
+        id: native-restore
+        continue-on-error: true
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-cache.outputs.cache-hit == 'true'
+        shell: bash
+        run: python tools/native_package_cache.py restore --target ${{ matrix.target }} --platform ${{ matrix.platform_dir }} --fingerprint "${{ steps.native-fingerprint.outputs.fingerprint }}" --cache-dir .native-package-cache --github-output "$GITHUB_OUTPUT"
+
+      - name: Rust cache
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/raw-pipeline -> target
+          key: ${{ matrix.target }}
+
       - name: Build libraw_ffi (${{ matrix.pkg_name }})
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         env:
           RUSTFLAGS: ${{ matrix.libc_type == 'musl' && '-C target-feature=-crt-static' || '' }}
         run: |
@@ -113,27 +145,33 @@ jobs:
           path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.so
           if-no-files-found: error
 
-      # napi addon (#3509). NOT subject to the readelf audit above: napi-rs's
-      # `dyn-symbols` feature (see raw-napi/Cargo.toml) binds every `napi_*`
-      # symbol out of the already-running host process via `libloading` at
-      # load time rather than a `dlopen`-resolved shared-lib dependency, so
-      # the zero-dependency invariant that step enforces for the bun:ffi
-      # dylib doesn't apply the same way to this artifact.
-      #
-      # Filename convention `raw-napi.<platform_dir>.node` (`platform_dir` is
-      # a literal matrix field, one per entry above, equal to `pkg_name` with
-      # the `maple-` prefix stripped, e.g. `linux-x64-gnu`) matches
-      # `getPlatformNapiFilename()` in `src/maple/src/platform.ts` exactly —
-      # keep the two in sync. A literal matrix field is used here rather than
-      # deriving this at expression-eval time: GitHub Actions expressions have
-      # no string-replace function, so this cannot be computed inline.
+      # napi uses dyn-symbols to bind host symbols, so only raw-ffi is audited.
+      # Keep raw-napi.<platform_dir>.node aligned with getPlatformNapiFilename().
       - name: Build raw-napi (${{ matrix.pkg_name }})
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         env:
           RUSTFLAGS: ${{ matrix.libc_type == 'musl' && '-C target-feature=-crt-static' || '' }}
         run: |
           cargo zigbuild --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-napi --target ${{ matrix.zig_target }}
           cp "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_napi.so" \
              "src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node"
+
+      # Default success() also requires both builds (and the Linux audit) to pass.
+      # version-sync's workflow_call inherits its main workflow_dispatch event.
+      - name: Stage verified native package binaries
+        id: native-stage
+        continue-on-error: true
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
+        shell: bash
+        run: python tools/native_package_cache.py stage --target ${{ matrix.target }} --platform ${{ matrix.platform_dir }} --fingerprint "${{ steps.native-fingerprint.outputs.fingerprint }}" --cache-dir .native-package-cache
+
+      - name: Save native package cache
+        continue-on-error: true
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != '' && steps.native-stage.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .native-package-cache
+          key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload Linux napi artifact
         uses: actions/upload-artifact@v4
@@ -163,13 +201,43 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Only ordinary PRs reuse final binaries; release validation compiles both crates.
+      - name: Fingerprint native package binaries
+        id: native-fingerprint
+        continue-on-error: true
+        shell: bash
+        run: python tools/native_package_cache.py fingerprint --target ${{ matrix.target }} --platform ${{ matrix.platform_dir }} --github-output "$GITHUB_OUTPUT"
+
+      - name: Restore exact native package cache
+        id: native-cache
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: .native-package-cache
+          key: ${{ steps.native-fingerprint.outputs.key }}
+
+      - name: Verify and restore native package binaries
+        id: native-restore
+        continue-on-error: true
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-cache.outputs.cache-hit == 'true'
+        shell: bash
+        run: python tools/native_package_cache.py restore --target ${{ matrix.target }} --platform ${{ matrix.platform_dir }} --fingerprint "${{ steps.native-fingerprint.outputs.fingerprint }}" --cache-dir .native-package-cache --github-output "$GITHUB_OUTPUT"
+
       - name: Rust cache
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/raw-pipeline -> target
           key: ${{ matrix.target }}
 
       - name: Build libraw_ffi (${{ matrix.pkg_name }})
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         run: |
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target ${{ matrix.target }}
 
@@ -180,17 +248,31 @@ jobs:
           path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.dylib
           if-no-files-found: error
 
-      # napi addon (#3509) — see the build-linux job's equivalent step for why
-      # this is not subject to a linkage audit. Filename convention
-      # `raw-napi.<platform_dir>.node` (literal matrix field, see build-linux's
-      # equivalent comment for why it's a literal rather than a derived
-      # expression) matches `getPlatformNapiFilename()` in
-      # `src/maple/src/platform.ts` exactly.
+      # napi uses dyn-symbols to bind host symbols, so only raw-ffi is audited.
+      # Keep raw-napi.<platform_dir>.node aligned with getPlatformNapiFilename().
       - name: Build raw-napi (${{ matrix.pkg_name }})
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         run: |
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-napi --target ${{ matrix.target }}
           cp "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_napi.dylib" \
              "src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node"
+
+      # Default success() also requires both builds (and the Linux audit) to pass.
+      # version-sync's workflow_call inherits its main workflow_dispatch event.
+      - name: Stage verified native package binaries
+        id: native-stage
+        continue-on-error: true
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
+        shell: bash
+        run: python tools/native_package_cache.py stage --target ${{ matrix.target }} --platform ${{ matrix.platform_dir }} --fingerprint "${{ steps.native-fingerprint.outputs.fingerprint }}" --cache-dir .native-package-cache
+
+      - name: Save native package cache
+        continue-on-error: true
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != '' && steps.native-stage.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .native-package-cache
+          key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload macOS napi artifact
         uses: actions/upload-artifact@v4
@@ -210,13 +292,43 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Only ordinary PRs reuse final binaries; release validation compiles both crates.
+      - name: Fingerprint native package binaries
+        id: native-fingerprint
+        continue-on-error: true
+        shell: bash
+        run: python tools/native_package_cache.py fingerprint --target x86_64-pc-windows-msvc --platform win32-x64-msvc --github-output "$GITHUB_OUTPUT"
+
+      - name: Restore exact native package cache
+        id: native-cache
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: .native-package-cache
+          key: ${{ steps.native-fingerprint.outputs.key }}
+
+      - name: Verify and restore native package binaries
+        id: native-restore
+        continue-on-error: true
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release/next-v') && steps.native-cache.outputs.cache-hit == 'true'
+        shell: bash
+        run: python tools/native_package_cache.py restore --target x86_64-pc-windows-msvc --platform win32-x64-msvc --fingerprint "${{ steps.native-fingerprint.outputs.fingerprint }}" --cache-dir .native-package-cache --github-output "$GITHUB_OUTPUT"
+
       - name: Rust cache
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/raw-pipeline -> target
           key: x86_64-pc-windows-msvc
 
       - name: Build raw_ffi (maple-win32-x64-msvc)
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         run: |
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target x86_64-pc-windows-msvc
 
@@ -227,17 +339,31 @@ jobs:
           path: src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw_ffi.dll
           if-no-files-found: error
 
-      # napi addon (#3509) — see the build-linux job's equivalent step for why
-      # this is not subject to a linkage audit. A napi addon on Windows is a
-      # plain PE `.dll` renamed with a `.node` extension, same as the
-      # `.so`/`.dylib` rename on Linux/macOS. Filename
-      # `raw-napi.win32-x64-msvc.node` matches `getPlatformNapiFilename()` in
-      # `src/maple/src/platform.ts` exactly.
+      # napi uses dyn-symbols to bind host symbols, so only raw-ffi is audited.
+      # Keep raw-napi.<platform_dir>.node aligned with getPlatformNapiFilename().
       - name: Build raw-napi (maple-win32-x64-msvc)
+        if: steps.native-restore.outcome != 'success' || steps.native-restore.outputs.reused != 'true'
         run: |
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-napi --target x86_64-pc-windows-msvc
           cp src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw_napi.dll `
              src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw-napi.win32-x64-msvc.node
+
+      # Default success() also requires both builds (and the Linux audit) to pass.
+      # version-sync's workflow_call inherits its main workflow_dispatch event.
+      - name: Stage verified native package binaries
+        id: native-stage
+        continue-on-error: true
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != ''
+        shell: bash
+        run: python tools/native_package_cache.py stage --target x86_64-pc-windows-msvc --platform win32-x64-msvc --fingerprint "${{ steps.native-fingerprint.outputs.fingerprint }}" --cache-dir .native-package-cache
+
+      - name: Save native package cache
+        continue-on-error: true
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.native-fingerprint.outcome == 'success' && steps.native-fingerprint.outputs.key != '' && steps.native-stage.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: .native-package-cache
+          key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload Windows napi artifact
         uses: actions/upload-artifact@v4
@@ -374,37 +500,10 @@ jobs:
 
           echo "Publish workflow completed successfully."
 
-  # Real Node-22 acceptance proof for #3509 ("npm install @justmaple/maple
-  # under Node 22 runs the test suite"). This does NOT run this repo's
-  # `bun:test` suite (`test/*.test.ts`, `import ... from 'bun:test'`) —
-  # there is no Node-native runner for those files, and installing Bun here
-  # purely to get its `bun:test` runner while claiming this proves "runs
-  # under Node 22" would be exactly the dressed-up-fake CLAUDE.md's
-  # "no placeholder shortcuts" rule forbids. Instead this runs
-  # `scripts/node-smoke-test.mjs`, a small standalone script with zero
-  # `bun:test` (or any other Bun-only) import, executed with a bare
-  # `node script.mjs` — genuine proof the published entry point
-  # (`dist/index.js`) works under plain Node with no Bun runtime in the loop
-  # (the script itself asserts `typeof globalThis.Bun === 'undefined'`-style
-  # evidence by printing whether `Bun` is present).
-  #
-  # Bun IS installed in this job, but only to run the same packaging helper
-  # (`assemble-packages.ts`) and the same `bun build` step
-  # (`npm run build` -> `bun build ... && tsc`) that produces the real
-  # published `dist/` bundle — identical to how a real npm release is
-  # built. Using it there is not the pattern this job exists to avoid: the
-  # thing under test (the SMOKE SCRIPT ITSELF) runs exclusively via `node`.
-  #
-  # This PR's own publish run is always a dry-run (see `publish_pkg` above),
-  # so `@justmaple/maple-linux-x64-gnu` is never actually pushed to the
-  # registry here — a plain `npm install` in `src/maple` would only ever
-  # resolve the STALE, previously-released platform package as an
-  # `optionalDependency`, which predates this branch's napi addon. Instead
-  # this job re-assembles the same freshly-built `npm/linux-x64-gnu/`
-  # directory the `publish` job assembles (from this run's own compiled
-  # artifacts), so `resolvePlatformNapiAddon()` / `resolvePlatformPackageLib()`
-  # find THIS commit's real napi/bun:ffi binaries via their documented
-  # `npm/<platform>/` fallback candidate, not last release's.
+  # #3509: exercise the published entry point with real Node 22 and napi.
+  # Bun only assembles/builds the package; node-smoke-test.mjs uses plain Node.
+  # Install without registry optionalDependencies and assemble this run's
+  # binaries into npm/<platform>/ so acceptance tests the validated artifacts.
   node-22-acceptance:
     name: Node 22 acceptance (npm install + real napi addon, no bun:test)
     needs: [publish]

@@ -52,8 +52,31 @@ Web builds the canonical `gpu,parallel` WASM package once, shares it through an
 artifact from the same workflow run, and syncs it into each consumer. The stamp
 is refreshed after download so the existing build lifecycle hooks reuse that
 package rather than recompiling it against checkout timestamps. Native package
-validation still builds every platform; Rust-source and calibration-fixture
-changes now trigger it directly as well as Maple package changes.
+validation covers every platform; Rust-source and calibration-fixture changes
+trigger it directly as well as Maple package changes.
+
+### Native package binary reuse
+
+`publish-package.yml` may reuse the final FFI library and N-API addon for each
+of its seven targets during ordinary PR validation. The exact cache key includes
+tracked repository inputs (excluding `src/maple/` except its linkage audit),
+target/platform, Rust/tool versions and runner image identity. Package-only
+changes can therefore reuse native outputs; changes elsewhere conservatively
+invalidate them. No prefix-key fallback is accepted.
+
+The cache is restored into an isolated directory. `tools/native_package_cache.py`
+checks the target, fingerprint, expected files and SHA-256 checksums before
+copying either binary into the usual build output location. Missing, malformed
+or corrupt entries fall back to compilation. Linux linkage audits, package
+assembly, Bun tests and Node 22 acceptance still run against the current PR.
+
+Only validation dispatched on `main` writes this binary cache, including the
+release controller's reusable validation. PRs never save it. Tags, manual runs,
+reusable release validation and `release/next-v*` PRs always invoke the native
+builds; releases never consume this final-binary cache. Checksums detect damage,
+not producer identity: GitHub cache scoping and the write restriction provide
+the trust boundary. Initial runs rebuild until normal main validation populates
+a matching entry; image/toolchain changes and cache eviction cause safe misses.
 
 `raw-pipeline.yml` and `apple.yml` retain their existing path-filtered coverage.
 Release validation, tag publishing, Hosted deployment and Xcode Cloud are not
