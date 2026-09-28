@@ -1,62 +1,10 @@
 # .github/workflows/web.yml
 #
-# Web gates. Three jobs:
-#
-#   web-build        — compiles the Angular app the way a release does
-#                      (`bun run build` == `ng build maple`); fails on any TS /
-#                      template compile error. Closes the gap that let #749 ship.
-#                      Also builds the Hosted app (`ng build maple-syrup`) in
-#                      the same job, so a Hosted-only compile break fails CI
-#                      too (#2283).
-#   web-test         — RUNS the `maple` app unit tests (`ng test maple`, the
-#                      @angular/build:unit-test / vitest runner). A build gate
-#                      catches type/template errors but NOT logic regressions,
-#                      broken HTTP mocks, or assertion drift — exactly what
-#                      slipped onto `main` in #748 (an unflushed poll failed 19
-#                      specs) and a stale `MOCK_STATUS` assertion. See #767.
-#   web-test-common  — RUNS the `Maple-common` library unit tests
-#                      (`ng test Maple-common`). The shared library holds most
-#                      cross-cutting specs (observability, xmp, raw-pipeline,
-#                      api, state, components), but `ng test maple` never runs
-#                      them — so breaks like the #794 observability spec slipped
-#                      onto `main`. A separate sibling job (not a step appended
-#                      to web-test) so it runs in parallel and still fires even
-#                      when the `maple` suite is red. See #845.
-#
-# All three jobs need the Rust -> WASM `pkg/` built first (the app and library
-# both import it), so they share the same toolchain provisioning + cargo cache
-# key; on a cache hit that shared cache makes each later job's WASM build a fast
-# restore rather than another full `-Z build-std` recompile. On a cold cache
-# there's nothing to restore, so each job builds the WASM once.
-#
-# Why this job is heavier than the other cross-cutting jobs:
-#
-#   The web build has a hard dependency on the Rust -> WASM `pkg/`. The
-#   pipeline consumer imports it directly —
-#     projects/maple-common/.../raw-pipeline/raw-wasm-init.ts:
-#       import init, { install_panic_hook, initThreadPool } from './pkg/raw_wasm';
-#   — and that synced `pkg/` is gitignored (built artifact). `ng build`
-#   therefore fails at module resolution unless the WASM is built first.
-#   `bun run build`'s `prebuild` lifecycle hook builds it via
-#   `raw-wasm/build.sh` -> `wasm-pack build --features gpu,parallel
-#   -Z build-std=panic_abort,std`, which needs nightly Rust + rust-src +
-#   the wasm32 target + wasm-pack. `initThreadPool` only exists with
-#   `--features parallel` (wasm-bindgen-rayon) and the WebGPU live entry
-#   (`render_bytes_gpu` / `WebLiveSession`) only with `--features gpu`
-#   (#1059), so a plain `wasm-pack build` is not enough — the canonical
-#   build (one bundle, both features) is required.
-#
-#   So this gate provisions a Rust + wasm toolchain (unlike the lightweight
-#   cross.yml jobs) and builds the WASM explicitly before `ng build`. We run
-#   `bun run raw-wasm` ourselves first so it builds + syncs + writes the
-#   build stamp; the subsequent `prebuild` hook then no-ops off that stamp
-#   (no double build) and correctness doesn't depend on whether bun fires
-#   the lifecycle hook.
-#
-# Trigger: every push to `main` and every PR, with NO path filter. The web
-# app imports types from `src/api`, so an API type change can break the web
-# build without touching `src/web` — narrowing the filter would let that
-# class of break through, which is the opposite of this gate's purpose.
+# Build the canonical gpu,parallel WASM package once per workflow run, then
+# share it across Angular builds, both unit suites, and the fixture-gated
+# browser smoke. Consumers sync the compiler output using the guarded worker
+# patch and refresh its stamp so package lifecycle hooks do not compile again.
+# No path filter: API type changes can also break the web build.
 
 name: web
 
@@ -70,15 +18,16 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  web-build:
-    name: web-build (ng build maple)
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
+  build-wasm:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    name: build-wasm (shared pkg)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
 
       # Pinned to match raw-wasm/rust-toolchain.toml. rustup would resolve
       # the toolchain file automatically when wasm-pack runs from raw-wasm/,
@@ -107,6 +56,31 @@ jobs:
             src/raw-pipeline/target
           key: web-wasm-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
 
+      - name: Build raw-wasm (pkg/)
+        run: bash src/raw-pipeline/raw-wasm/build.sh
+
+      # Upload the unpatched compiler output. Each consumer runs the canonical
+      # sync script, including its guarded wasm-bindgen-rayon worker patch.
+      - name: Upload raw-wasm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-raw-wasm
+          path: src/raw-pipeline/raw-wasm/pkg/
+          if-no-files-found: error
+          retention-days: 1
+
+  web-build:
+    name: web-build (ng build maple)
+    needs: [changes, build-wasm]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install web deps
         working-directory: src/web
         run: bun install --frozen-lockfile
@@ -115,12 +89,21 @@ jobs:
         working-directory: src/web
         run: bun run brand:check
 
-      # Build + sync the WASM pkg/ explicitly. Writes the build stamp so the
-      # `prebuild` hook fired by `bun run build` below no-ops (no double
-      # build), and the WASM is built even if bun skips the lifecycle hook.
-      - name: Build raw-wasm (pkg/)
-        working-directory: src/web
-        run: bun run raw-wasm
+      - name: Download raw-wasm package
+        uses: actions/download-artifact@v4
+        with:
+          name: web-raw-wasm
+          path: src/raw-pipeline/raw-wasm/pkg/
+
+      # Downloads belong to this workflow run and checkout. Refresh the stamp
+      # after checkout: both prebuild and nested prebuild:maple invoke raw-wasm,
+      # whose mtime guard would otherwise rebuild against newer checkout files.
+      - name: Sync raw-wasm package without compiling
+        run: |
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
+          bash src/web/scripts/sync-raw-wasm.sh
 
       # The real gate. `ng build maple` exits non-zero on any TS / template
       # compile error; a plain `run:` step propagates that exit code.
@@ -190,6 +173,8 @@ jobs:
 
   web-test:
     name: web-test (ng test maple)
+    needs: [changes, build-wasm]
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
     # non-interactive env). `timeout-minutes` is a backstop against any
@@ -202,36 +187,25 @@ jobs:
         with:
           bun-version: latest
 
-      # Same toolchain as web-build — `ng test` transforms the app, which
-      # imports the WASM `pkg/`, so it must be built first.
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly-2025-10-01
-          components: rust-src
-          targets: wasm32-unknown-unknown
-
-      - uses: jetli/wasm-pack-action@v0.4.0
-        with:
-          version: latest
-
-      # Same cache key as web-build, so the `-Z build-std` WASM compile is a
-      # restore here rather than a second full build.
-      - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src/raw-pipeline/target
-          key: web-wasm-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
-
       - name: Install web deps
         working-directory: src/web
         run: bun install --frozen-lockfile
 
-      - name: Build raw-wasm (pkg/)
-        working-directory: src/web
-        run: bun run raw-wasm
+      - name: Download raw-wasm package
+        uses: actions/download-artifact@v4
+        with:
+          name: web-raw-wasm
+          path: src/raw-pipeline/raw-wasm/pkg/
+
+      # Downloads belong to this workflow run and checkout. Refresh the stamp
+      # after checkout: both prebuild and nested prebuild:maple invoke raw-wasm,
+      # whose mtime guard would otherwise rebuild against newer checkout files.
+      - name: Sync raw-wasm package without compiling
+        run: |
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
+          bash src/web/scripts/sync-raw-wasm.sh
 
       # The gate. `ng test maple` runs the unit suite and exits non-zero on any
       # failing spec; a plain `run:` step propagates that exit code.
@@ -241,6 +215,8 @@ jobs:
 
   web-test-common:
     name: web-test (ng test Maple-common)
+    needs: [changes, build-wasm]
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
     # non-interactive env). `timeout-minutes` is a backstop against any
@@ -253,37 +229,25 @@ jobs:
         with:
           bun-version: latest
 
-      # Same toolchain as web-build — `ng test` transforms the library, which
-      # imports the WASM `pkg/`, so it must be built first.
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly-2025-10-01
-          components: rust-src
-          targets: wasm32-unknown-unknown
-
-      - uses: jetli/wasm-pack-action@v0.4.0
-        with:
-          version: latest
-
-      # Same cache key as web-build, so on a cache hit the `-Z build-std` WASM
-      # compile is a restore here rather than a third full build; on a cold
-      # cache this job builds the WASM once.
-      - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src/raw-pipeline/target
-          key: web-wasm-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
-
       - name: Install web deps
         working-directory: src/web
         run: bun install --frozen-lockfile
 
-      - name: Build raw-wasm (pkg/)
-        working-directory: src/web
-        run: bun run raw-wasm
+      - name: Download raw-wasm package
+        uses: actions/download-artifact@v4
+        with:
+          name: web-raw-wasm
+          path: src/raw-pipeline/raw-wasm/pkg/
+
+      # Downloads belong to this workflow run and checkout. Refresh the stamp
+      # after checkout: both prebuild and nested prebuild:maple invoke raw-wasm,
+      # whose mtime guard would otherwise rebuild against newer checkout files.
+      - name: Sync raw-wasm package without compiling
+        run: |
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
+          bash src/web/scripts/sync-raw-wasm.sh
 
       # The gate. `ng test Maple-common` runs the shared-library unit suite and
       # exits non-zero on any failing spec; a plain `run:` step propagates that
@@ -327,73 +291,70 @@ jobs:
   #     makes a WebGPU adapter resolve at all in headless Chromium — measured
   #     null without the flag, non-null with it (see that file's own header).
   #     `MAPLE_PERF=1` un-skips it below.
-  # Both specs already skip-pass on their own (existsSync fixture guard, in
-  # the same style as the shell harnesses) rather than needing a probe step
-  # here — `test-fixtures/raws/test_0006.DNG` is gitignored, so on a stock
-  # runner the two SPECS report skipped. Unlike raw-pipeline.yml's
-  # color-pipeline job, which probes for fixtures before provisioning any
-  # toolchain and exits in seconds on a miss, this job pays the full setup
-  # cost (Rust/wasm-pack, the raw-wasm build, the Chromium install) every
-  # run regardless of fixtures — the skip only saves the e2e run itself. That
-  # is the deliberate trade for reusing the existing dev-server specs as-is
-  # rather than adding a fixture-probe step ahead of the WASM toolchain this
-  # job needs either way (web-build/web-test/web-test-common already pay the
-  # same cost unconditionally).
+  # Both specs use test-fixtures/raws/test_0006.DNG. Probe it immediately
+  # after checkout so absent gitignored fixtures skip dependency installation,
+  # artifact download/sync, and Chromium provisioning explicitly. The other
+  # web jobs still build and test regardless of fixture availability.
   #
   # Non-required for now (see raw-pipeline.yml's raw-gpu-metal job for the
   # same reasoning) — `continue-on-error` is the mechanism, since this repo
   # has no server-side required-checks list to omit a new job from.
   web-webgpu-smoke:
     name: web-webgpu-smoke (raw-open + slider-tick-render in headless Chrome)
+    needs: [changes, build-wasm]
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
-    # At least as generous as web-test/web-test-common (20m): this job pays
-    # the same toolchain + WASM-build cost they do, plus its own Chromium
-    # install and e2e run on top, so anything tighter is under-budgeted.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
+      - name: Probe smoke RAW fixture
+        id: fixture
+        shell: bash
+        run: |
+          if [[ -f test-fixtures/raws/test_0006.DNG ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping WebGPU smoke: test-fixtures/raws/test_0006.DNG is missing."
+            echo "WebGPU smoke skipped: RAW fixture missing; dependency and browser provisioning were skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - uses: oven-sh/setup-bun@v2
+        if: steps.fixture.outputs.available == 'true'
         with:
           bun-version: latest
 
-      # Same toolchain as web-build/web-test — the app under test imports the
-      # WASM `pkg/`, so it must be built first.
-      - uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly-2025-10-01
-          components: rust-src
-          targets: wasm32-unknown-unknown
-
-      - uses: jetli/wasm-pack-action@v0.4.0
-        with:
-          version: latest
-
-      # Same cache key as the other web jobs, so a cache hit here is a
-      # restore rather than a fourth full `-Z build-std` compile.
-      - name: Cache cargo registry + raw-pipeline target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src/raw-pipeline/target
-          key: web-wasm-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
-
       - name: Install web deps
+        if: steps.fixture.outputs.available == 'true'
         working-directory: src/web
         run: bun install --frozen-lockfile
 
-      - name: Build raw-wasm (pkg/)
-        working-directory: src/web
-        run: bun run raw-wasm
+      - name: Download raw-wasm package
+        if: steps.fixture.outputs.available == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: web-raw-wasm
+          path: src/raw-pipeline/raw-wasm/pkg/
+
+      # Downloads belong to this workflow run and checkout. Refresh the stamp
+      # after checkout: both prebuild and nested prebuild:maple invoke raw-wasm,
+      # whose mtime guard would otherwise rebuild against newer checkout files.
+      - name: Sync raw-wasm package without compiling
+        if: steps.fixture.outputs.available == 'true'
+        run: |
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
+          bash src/web/scripts/sync-raw-wasm.sh
 
       # playwright.config.ts's default project is bundled Chromium (no
       # `channel: 'chrome'`, unlike playwright.production.config.ts) — install
       # that browser specifically, matching what the specs below actually run
       # against.
       - name: Install Playwright Chromium
+        if: steps.fixture.outputs.available == 'true'
         working-directory: src/web
         run: bun x playwright install --with-deps chromium
 
@@ -401,6 +362,7 @@ jobs:
       # has no such gate. Both still skip individually without the RAW
       # fixture — see the job comment above.
       - name: Browser WebGPU smoke (raw-open + slider-tick-render)
+        if: steps.fixture.outputs.available == 'true'
         working-directory: src/web
         env:
           MAPLE_PERF: '1'
@@ -410,10 +372,23 @@ jobs:
       # the artifact worth keeping on a failure is the trace
       # (`trace: 'retain-on-failure'`) under test-results/, not a report dir.
       - name: Upload Playwright traces
-        if: failure()
+        if: failure() && steps.fixture.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: web-webgpu-smoke-traces
           path: src/web/test-results/
           retention-days: 7
           if-no-files-found: ignore
+
+  result:
+    name: Web result
+    needs: [changes, build-wasm, web-build, web-test, web-test-common, web-webgpu-smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: >-
+          python3 tools/ci_result.py build-wasm=web web-build=web
+          web-test=web web-test-common=web web-webgpu-smoke=web
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}

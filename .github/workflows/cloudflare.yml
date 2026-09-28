@@ -38,9 +38,9 @@ name: cloudflare
 on:
   push:
     branches: [main]
-    paths: ['src/cloudflare/**']
+    paths: ['src/cloudflare/**', '.github/workflows/cloudflare.yml']
   pull_request:
-    paths: ['src/cloudflare/**']
+    paths: ['src/cloudflare/**', '.github/workflows/cloudflare.yml']
 
 concurrency:
   group: cloudflare-${{ github.workflow }}-${{ github.ref }}

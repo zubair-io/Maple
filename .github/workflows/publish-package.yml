@@ -28,6 +28,8 @@ on:
   pull_request:
     paths:
       - 'src/maple/**'
+      - 'src/raw-pipeline/**'
+      - 'src/apple/MapleUITests/Goldens/.calibration/**'
       - '.github/workflows/publish-package.yml'
 
 concurrency:

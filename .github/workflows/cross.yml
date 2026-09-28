@@ -48,6 +48,20 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  changes:
+    uses: ./.github/workflows/ci-changes.yml
+
+  ci-selection-tests:
+    name: CI selection regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install PyYAML==6.0.2
+      - run: python3 -m unittest discover -s tools -p 'test_ci_*.py'
+
   release-handoff-tests:
     name: Release handoff regression tests
     runs-on: ubuntu-latest
@@ -133,6 +147,8 @@ jobs:
               --config src/web/.prettierrc
 
   oxlint-api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     name: oxlint-api (correctness + fs-import guardrail)
     runs-on: ubuntu-latest
     env:
@@ -449,6 +465,8 @@ jobs:
           rm -f "$base" "$marker"
 
   codegen-drift:
+    needs: changes
+    if: needs.changes.outputs.codegen == 'true'
     name: codegen-drift (regenerated outputs are committed)
     runs-on: ubuntu-latest
     env:
@@ -457,6 +475,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/raw-pipeline -> target
+          key: cross-codegen
 
       - name: Probe codegen script presence
         id: probe
@@ -537,6 +560,8 @@ jobs:
         run: bun tools/check-editor-parity-manifest.ts
 
   fallow-audit-web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     name: fallow-audit-web (dead code / complexity / dupes, changed files)
     runs-on: ubuntu-latest
     env:
@@ -574,6 +599,8 @@ jobs:
         run: ./node_modules/.bin/fallow audit --base "origin/${BASE_REF}"
 
   fallow-audit-api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     name: fallow-audit-api (dead code / complexity / dupes, changed files)
     runs-on: ubuntu-latest
     env:
@@ -695,3 +722,36 @@ jobs:
           fi
           echo "Scanning commit range: ${RANGE}"
           gitleaks detect --no-banner --redact --log-opts="${RANGE}"
+
+  result:
+    name: Cross result
+    needs:
+      - changes
+      - ci-selection-tests
+      - release-handoff-tests
+      - format-check
+      - oxlint-api
+      - file-budget
+      - budget-headroom
+      - allowlist-shrinks-only
+      - budgets-ratchet-shrinks-only
+      - codegen-drift
+      - maple-ui-contracts
+      - editor-parity-manifest
+      - fallow-audit-web
+      - fallow-audit-api
+      - gitleaks
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: >-
+          python3 tools/ci_result.py
+          ci-selection-tests=always release-handoff-tests=always
+          format-check=always oxlint-api=api file-budget=always
+          budget-headroom=pr allowlist-shrinks-only=pr
+          budgets-ratchet-shrinks-only=always codegen-drift=codegen
+          maple-ui-contracts=always editor-parity-manifest=always
+          fallow-audit-web=web fallow-audit-api=api gitleaks=always
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
