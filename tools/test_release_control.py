@@ -17,6 +17,7 @@ class ReleaseTests(GitFixture):
         super().setUp()
         self.calls = []
         self.fail_pr = False
+        self.fail_auto_merge = False
         self.issues = []
         real_run = control.run
 
@@ -56,6 +57,25 @@ class ReleaseTests(GitFixture):
                     self.pr(self.git("rev-parse", "HEAD"), policy.branch("1.2.3"))
                 )
                 return self.prs[-1]["html_url"]
+            if args[:3] == ("gh", "pr", "merge"):
+                if self.fail_auto_merge:
+                    raise subprocess.CalledProcessError(1, args)
+                self.assertEqual(
+                    args,
+                    (
+                        "gh",
+                        "pr",
+                        "merge",
+                        self.prs[-1]["html_url"],
+                        "--repo",
+                        "owner/repo",
+                        "--auto",
+                        "--rebase",
+                        "--match-head-commit",
+                        self.git("rev-parse", "HEAD"),
+                    ),
+                )
+                return ""
             return real_run(*args, **kwargs)
 
         self.transport = patch.object(control, "run", side_effect=transport)
@@ -96,6 +116,46 @@ class ReleaseTests(GitFixture):
         )
         self.assertLess(pushes[0], create)
         self.assertEqual(self.statuses[-1][1]["state"], "success")
+        self.assertTrue(any(args[:3] == ("gh", "pr", "merge") for args in self.calls))
+
+    def test_failed_auto_merge_enablement_can_be_retried(self):
+        self.fail_auto_merge = True
+        with self.assertRaises(subprocess.CalledProcessError):
+            control.release("owner/repo", "")
+        tag = control.remote_tag("v1.2.3")
+        head = self.prs[0]["head"]["sha"]
+        self.fail_auto_merge = False
+        control.release("owner/repo", "")
+        self.assertEqual(control.remote_tag("v1.2.3"), tag)
+        self.assertEqual(self.prs[0]["head"]["sha"], head)
+        self.assertEqual(len(self.prs), 1)
+        self.assertEqual(len(self.issues), 1)
+
+        self.assertEqual(
+            sum(args[:3] == ("gh", "pr", "merge") for args in self.calls), 2
+        )
+
+    def test_auto_merge_requires_readiness_and_strict_checks(self):
+        for strict, contexts in [
+            (True, [policy.CONTEXT]),
+            (False, [policy.CONTEXT, "Release readiness"]),
+        ]:
+            rules = [
+                {
+                    "type": "required_status_checks",
+                    "parameters": {
+                        "strict_required_status_checks_policy": strict,
+                        "required_status_checks": [{"context": c} for c in contexts],
+                    },
+                }
+            ]
+            with (
+                self.subTest(strict=strict, contexts=contexts),
+                patch.object(control, "api", return_value=rules),
+                self.assertRaisesRegex(ValueError, "Require"),
+            ):
+                control.release("owner/repo", "")
+        self.assertFalse(any(args[:2] == ("git", "push") for args in self.calls))
 
     def test_retry_reuses_tag_branch_and_pr(self):
         control.release("owner/repo", "2.0.0")

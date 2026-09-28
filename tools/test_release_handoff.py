@@ -125,7 +125,11 @@ class GitFixture(unittest.TestCase):
                 {
                     "type": "required_status_checks",
                     "parameters": {
-                        "required_status_checks": [{"context": policy.CONTEXT}]
+                        "strict_required_status_checks_policy": True,
+                        "required_status_checks": [
+                            {"context": policy.CONTEXT},
+                            {"context": "Release readiness"},
+                        ],
                     },
                 }
             ]
