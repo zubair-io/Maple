@@ -24,6 +24,13 @@ namespace Maple.WinUI
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
             var shift = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            if (!ctrl && _mode == ShellMode.Edit && e.Key is VirtualKey.B or (VirtualKey)0xDC)
+            {
+                _compare.Press(System.Environment.TickCount64);
+                UpdateComparison();
+                e.Handled = true;
+                return;
+            }
 
             var key = (int)e.Key;
             if (!ctrl && key >= (int)VirtualKey.Number0 && key <= (int)VirtualKey.Number5)
@@ -47,7 +54,9 @@ namespace Maple.WinUI
                 case VirtualKey.Enter when _mode == ShellMode.Browse: EnterPreview(); break;
                 // ListViewBase.SelectAll — valid because PhotoGrid is
                 // SelectionMode="Extended" (it throws only in Single/None).
-                case VirtualKey.A when ctrl && _mode == ShellMode.Browse: PhotoGrid.SelectAll(); break;
+                case VirtualKey.A when ctrl && _mode == ShellMode.Browse:
+                    if (_browseListDetail) BrowsePhotoList.SelectAll(); else PhotoGrid.SelectAll();
+                    break;
                 // Inline rename (#2639): same "sole selection, else resolved
                 // primary target" rule Enter uses to open a photo — see
                 // ResolveRenameTarget's doc comment.

@@ -74,6 +74,25 @@ namespace Maple.WinUI.Tests
 
         private static byte[] Json(string text) => Encoding.UTF8.GetBytes(text);
 
+        [Fact]
+        public async Task Inspector_UsesExistingAssetDetailRouteAndEscapesPath()
+        {
+            var handler = new FakeHandler().Then(HttpStatusCode.OK,
+                Json("{\"description\":\"Golden hour\"}"), "application/json");
+            using var client = Client(handler);
+            var metadata = await client.GetInspectorMetadataAsync("/photos/A & B/#1.dng", CancellationToken.None);
+            Assert.Equal("Golden hour", metadata!.Description);
+            Assert.Equal("/api/assets/by-fspath?path=%2Fphotos%2FA%20%26%20B%2F%231.dng",
+                handler.Requests.Single().RequestUri!.PathAndQuery);
+        }
+
+        [Fact]
+        public async Task Inspector_UnindexedAssetIsUnavailableRatherThanEmptySuccess()
+        {
+            using var client = Client(new FakeHandler().Then(HttpStatusCode.NotFound));
+            Assert.Null(await client.GetInspectorMetadataAsync("/missing.dng", CancellationToken.None));
+        }
+
         // --- Thumbs / previews: unified `slug:relPath` routes ---
 
         [Fact]

@@ -296,6 +296,9 @@
          "rail shows in both viewer modes, a cell tap never changes mode"
          contract is testable here without a live Window. -->
     <Compile Include="..\Maple.WinUI\ShellMode.cs" />
+    <Compile Include="..\Maple.WinUI\ComparisonGesture.cs" />
+    <Compile Include="..\Maple.WinUI\ViewModels\BrowseSortLogic.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Metadata\InspectorMetadata.cs" />
     <Compile Include="..\Maple.WinUI\ViewerFilmstripLogic.cs" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />

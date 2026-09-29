@@ -53,7 +53,9 @@ namespace Maple.WinUI
                     SetMode(ShellMode.Edit);
                     ViewModel.SelectedPhoto = new PhotoItem
                     {
-                        FilePath = raw, FileName = Path.GetFileName(raw), Format = "DNG"
+                        FilePath = raw,
+                        FileName = Path.GetFileName(raw),
+                        Format = "DNG"
                     };
                     ViewModel.EnsureDecoded();
                     actualPath = await frame.Task.WaitAsync(TimeSpan.FromSeconds(90));
@@ -62,7 +64,14 @@ namespace Maple.WinUI
                 }
                 renderer.GpuFrameReady -= Gpu;
                 renderer.FrameReady -= Cpu;
-                if (expectedPath != "empty") VerifyViewerDesignNavigation();
+                if (expectedPath != "empty")
+                {
+                    VerifyViewerDesignNavigation();
+                    await VerifyComparisonAsync(raw);
+                    await VerifyResponsiveDesignAsync();
+                    VerifyBrowseSelection();
+                    await VerifyImmediateUndoAsync();
+                }
 
                 // Real queued UI present, held solely by this smoke's UI turn.
                 // The production close path must pump it while awaiting the loop.
@@ -97,10 +106,17 @@ namespace Maple.WinUI
                 if (!renderer.IsStopped) throw new InvalidOperationException("Late producer reopened renderer");
                 File.WriteAllText(reportPath, JsonSerializer.Serialize(new
                 {
-                    passed = true, hwnd = hwnd.ToInt64(), renderPath = actualPath,
-                    panelReleases = _panelReleaseCount, rendererStopped = renderer.IsStopped,
+                    passed = true,
+                    hwnd = hwnd.ToInt64(),
+                    renderPath = actualPath,
+                    panelReleases = _panelReleaseCount,
+                    rendererStopped = renderer.IsStopped,
                     droppedClosingPresents = renderer.DroppedClosingPresents,
-                    viewerDesignNavigation = expectedPath != "empty"
+                    viewerDesignNavigation = expectedPath != "empty",
+                    comparisonPreservesDocument = expectedPath != "empty",
+                    responsiveDesign = expectedPath != "empty",
+                    browseSelectionAndSort = expectedPath != "empty",
+                    immediateUndo = expectedPath != "empty"
                 }));
             }
             catch (Exception error)
@@ -146,6 +162,123 @@ namespace Maple.WinUI
             if (FilmstripRail.IsCollapsed || InfoPane.Visibility != Microsoft.UI.Xaml.Visibility.Visible)
                 throw new InvalidOperationException("Returning from Edit lost Preview layout state");
             SetMode(ShellMode.Edit);
+        }
+
+        private async Task VerifyComparisonAsync(string raw)
+        {
+            var original = await File.ReadAllBytesAsync(raw);
+            var sidecar = Services.Xmp.SidecarStore.SidecarPathFor(raw);
+            var before = File.Exists(sidecar) ? await File.ReadAllBytesAsync(sidecar) : null;
+            var state = Services.Xmp.XmpWriter.Serialize(new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments });
+            var undo = ViewModel.UndoCount;
+            await PrepareComparisonAsync();
+            if (ComparisonImage.Source == null) throw new InvalidOperationException("Comparison did not render");
+            _compare.Toggle();
+            UpdateComparison();
+            if (ComparisonImage.Visibility != Microsoft.UI.Xaml.Visibility.Visible)
+                throw new InvalidOperationException("Comparison did not become visible");
+            ResetComparison();
+            if (state != Services.Xmp.XmpWriter.Serialize(new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments }) || undo != ViewModel.UndoCount)
+                throw new InvalidOperationException("Comparison changed live state or undo history");
+            if (!original.SequenceEqual(await File.ReadAllBytesAsync(raw)) ||
+                (before == null ? File.Exists(sidecar) : !before.SequenceEqual(await File.ReadAllBytesAsync(sidecar))))
+                throw new InvalidOperationException("Comparison modified the original or sidecar");
+        }
+
+        private async Task VerifyResponsiveDesignAsync()
+        {
+            var photo = ViewModel.SelectedPhoto;
+            var model = ViewModel.Adjustments;
+            if (_activeGroup != "Light") ToggleGroupPanel("Light");
+            Content.UpdateLayout();
+            var slider = FindDescendant<Maple.UI.Atoms.MuiAdjustmentSlider>(EditPanel);
+            if (slider == null || slider.ActualWidth <= 0 ||
+                FindDescendant<Microsoft.UI.Xaml.Controls.Primitives.Thumb>(slider)?.Width != 12)
+                throw new InvalidOperationException("Maple adjustment slider template was not realized");
+            var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(slider);
+            if (peer?.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.RangeValue) == null)
+                throw new InvalidOperationException("Adjustment slider lost native range accessibility");
+            // DIP-equivalent content sizes cover the requested physical sizes
+            // at 100/150/200% without changing the user's desktop DPI setting.
+            var root = (Microsoft.UI.Xaml.FrameworkElement)Content;
+            foreach (var size in new[] { (1440d, 900d), (1024d, 768d), (960d, 600d), (683d, 512d), (720d, 450d), (512d, 384d) })
+            {
+                root.Width = size.Item1;
+                root.Height = size.Item2;
+                root.UpdateLayout();
+                await Task.Delay(30);
+                root.UpdateLayout();
+                var buttonBounds = CompareButton.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, CompareButton.ActualWidth, CompareButton.ActualHeight));
+                if (buttonBounds.Right > size.Item1 || buttonBounds.Left < 0 || EditPanel.ActualHeight > size.Item2 ||
+                    EditPanel.Visibility != Microsoft.UI.Xaml.Visibility.Visible || EditPanel.ActualHeight <= 0)
+                    throw new InvalidOperationException($"Editor chrome overflow at {size}");
+                SetMode(ShellMode.Preview);
+                _infoPaneOpen = true;
+                UpdateInfoPane();
+                root.UpdateLayout();
+                if (InfoPane.ActualWidth < 280 || InfoPane.ActualWidth > size.Item1)
+                    throw new InvalidOperationException($"Info overflow at {size}");
+                SetMode(ShellMode.Edit);
+            }
+            root.Width = root.Height = double.NaN;
+            root.UpdateLayout();
+            if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(model, ViewModel.Adjustments))
+                throw new InvalidOperationException("Responsive layout replaced the document");
+        }
+
+        private void VerifyBrowseSelection()
+        {
+            var photo = ViewModel.SelectedPhoto!;
+            var originalPhotos = ViewModel.AllPhotos.ToArray();
+            var originalSort = ViewModel.PhotoSort;
+            var originalView = _browseListDetail;
+            var second = new PhotoItem { FilePath = photo.FilePath + ".second", FileName = "Second.dng", Rating = 5 };
+            SetMode(ShellMode.Browse);
+            ViewModel.AllPhotos.Clear();
+            ViewModel.AllPhotos.Add(photo);
+            ViewModel.AllPhotos.Add(second);
+            try
+            {
+                foreach (var sort in Enum.GetValues<BrowseSort>())
+                {
+                    _syncingBrowseSelection = true;
+                    try { ViewModel.PhotoSort = sort; ViewModel.ApplyFilters(); }
+                    finally { _syncingBrowseSelection = false; }
+                    RestoreBrowseSelection(new[] { photo, second }, photo);
+                    _browseListDetail = !_browseListDetail;
+                    UpdateBrowsePresentation();
+                    Content.UpdateLayout();
+                    if (ViewModel.SelectedPhotos.Count != 2 || BrowsePhotoList.SelectedItems.Count != 2 ||
+                        PhotoGrid.SelectedItems.Count != 2 || !ReferenceEquals(ViewModel.SelectedPhoto, photo) ||
+                        !ViewModel.Photos.SequenceEqual(BrowseSortLogic.Order(new[] { photo, second }, sort)))
+                        throw new InvalidOperationException($"Browse selection/order changed for {sort}");
+                }
+            }
+            finally
+            {
+                ViewModel.AllPhotos.Clear();
+                foreach (var item in originalPhotos) ViewModel.AllPhotos.Add(item);
+                if (!ViewModel.AllPhotos.Contains(photo)) ViewModel.AllPhotos.Add(photo);
+                _syncingBrowseSelection = true;
+                try { ViewModel.PhotoSort = originalSort; ViewModel.ApplyFilters(); }
+                finally { _syncingBrowseSelection = false; }
+                _browseListDetail = originalView;
+                UpdateBrowsePresentation();
+                RestoreBrowseSelection(new[] { photo }, photo);
+                SetMode(ShellMode.Edit);
+            }
+        }
+
+        private async Task VerifyImmediateUndoAsync()
+        {
+            var exposure = ViewModel.Adjustments.Exposure;
+            var depth = ViewModel.UndoCount;
+            ViewModel.Adjustments.Exposure = exposure + .25;
+            ViewModel.NotifyAdjustmentEdited();
+            ViewModel.Undo(); // before the 450ms gesture boundary
+            await Task.Delay(550);
+            if (ViewModel.Adjustments.Exposure != exposure || ViewModel.UndoCount != depth)
+                throw new InvalidOperationException("Immediate Undo lost the edit or queued another boundary");
         }
     }
 }
