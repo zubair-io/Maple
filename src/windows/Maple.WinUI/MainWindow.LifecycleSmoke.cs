@@ -62,6 +62,7 @@ namespace Maple.WinUI
                 }
                 renderer.GpuFrameReady -= Gpu;
                 renderer.FrameReady -= Cpu;
+                if (expectedPath != "empty") VerifyViewerDesignNavigation();
 
                 // Real queued UI present, held solely by this smoke's UI turn.
                 // The production close path must pump it while awaiting the loop.
@@ -98,7 +99,8 @@ namespace Maple.WinUI
                 {
                     passed = true, hwnd = hwnd.ToInt64(), renderPath = actualPath,
                     panelReleases = _panelReleaseCount, rendererStopped = renderer.IsStopped,
-                    droppedClosingPresents = renderer.DroppedClosingPresents
+                    droppedClosingPresents = renderer.DroppedClosingPresents,
+                    viewerDesignNavigation = expectedPath != "empty"
                 }));
             }
             catch (Exception error)
@@ -112,6 +114,38 @@ namespace Maple.WinUI
                 _closeReady = true;
                 Close(); // normal WinUI teardown; never Environment.Exit
             }
+        }
+
+        // Exercised by the real WinUI smoke, after a native frame is displayed.
+        // Toggling presentation must preserve the document and inspector state.
+        private void VerifyViewerDesignNavigation()
+        {
+            var photo = ViewModel.SelectedPhoto;
+            var adjustments = ViewModel.Adjustments;
+            if (photo != null && !ViewModel.Photos.Contains(photo)) ViewModel.Photos.Add(photo);
+            SetMode(ShellMode.Preview);
+            _infoPaneOpen = true;
+            UpdateInfoPane();
+            FilmstripRail.IsCollapsed = false;
+            CanvasHost.UpdateLayout();
+            FilmstripRail.IsCollapsed = true;
+            CanvasHost.UpdateLayout();
+            if (_mode != ShellMode.Preview || InfoPane.Visibility != Microsoft.UI.Xaml.Visibility.Visible ||
+                !ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(adjustments, ViewModel.Adjustments))
+                throw new InvalidOperationException("Preview navigation changed the document or Info state");
+            FilmstripRail.IsCollapsed = false;
+            SetMode(ShellMode.Edit);
+            if (_activeGroup != "Light" || PanelProfileHost.Visibility != Microsoft.UI.Xaml.Visibility.Visible ||
+                PanelWhiteBalanceHost.Visibility != Microsoft.UI.Xaml.Visibility.Collapsed)
+                throw new InvalidOperationException("Editor did not open Light with its profile selector");
+            ToggleGroupPanel("Color");
+            if (PanelWhiteBalanceHost.Visibility != Microsoft.UI.Xaml.Visibility.Visible ||
+                PanelProfileHost.Visibility != Microsoft.UI.Xaml.Visibility.Collapsed)
+                throw new InvalidOperationException("White balance and profile groups overlap");
+            SetMode(ShellMode.Preview);
+            if (FilmstripRail.IsCollapsed || InfoPane.Visibility != Microsoft.UI.Xaml.Visibility.Visible)
+                throw new InvalidOperationException("Returning from Edit lost Preview layout state");
+            SetMode(ShellMode.Edit);
         }
     }
 }

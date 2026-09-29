@@ -50,6 +50,32 @@ namespace Maple.UI
 
         public event EventHandler<string>? Activated;
 
+        public static readonly DependencyProperty ThumbnailAspectRatioProperty =
+            DependencyProperty.Register(nameof(ThumbnailAspectRatio), typeof(double), typeof(MuiFilmstripRail),
+                new PropertyMetadata(1.0, (d, _) => ((MuiFilmstripRail)d).RebuildCells()));
+
+        public double ThumbnailAspectRatio
+        {
+            get => (double)GetValue(ThumbnailAspectRatioProperty);
+            set => SetValue(ThumbnailAspectRatioProperty, value);
+        }
+
+        /// <summary>Preview toggles between a metadata list and compact rail;
+        /// other hosts retain the original hide/show behavior.</summary>
+        public static readonly DependencyProperty PreviewNavigationProperty =
+            DependencyProperty.Register(nameof(PreviewNavigation), typeof(bool), typeof(MuiFilmstripRail),
+                new PropertyMetadata(false, (d, _) => ((MuiFilmstripRail)d).Rebuild()));
+
+        public bool PreviewNavigation
+        {
+            get => (bool)GetValue(PreviewNavigationProperty);
+            set => SetValue(PreviewNavigationProperty, value);
+        }
+
+        private readonly TextBlock _count = new() { FontSize = 10, VerticalAlignment = VerticalAlignment.Center };
+        private readonly List<Grid> _rows = new();
+        private readonly List<StackPanel> _metadata = new();
+
         // A Grid, not a StackPanel: the scroll row needs a bounded height
         // to scroll at all, and a vertical StackPanel measures its children
         // against infinity.
@@ -80,9 +106,13 @@ namespace Maple.UI
             _scroll.Content = _column;
             _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            Grid.SetRow(_toggle, 0);
+            var header = new Grid();
+            _count.Foreground = (Brush)Application.Current.Resources["MapleTextMuted"];
+            header.Children.Add(_count);
+            _toggle.HorizontalAlignment = HorizontalAlignment.Right;
+            header.Children.Add(_toggle);
             Grid.SetRow(_scroll, 1);
-            _root.Children.Add(_toggle);
+            _root.Children.Add(header);
             _root.Children.Add(_scroll);
             Content = _root;
             IsTabStop = false;
@@ -111,12 +141,15 @@ namespace Maple.UI
         {
             _column.Children.Clear();
             _cells.Clear();
+            _rows.Clear();
+            _metadata.Clear();
 
             foreach (var item in Items ?? Array.Empty<MuiFilmstripItem>())
             {
                 var cell = new MuiMediaCell
                 {
                     CellSize = MuiMediaCellSize.Sm,
+                    ThumbnailAspectRatio = ThumbnailAspectRatio,
                     Source = item.Source,
                     Alt = item.Alt,
                     Badges = item.Badges,
@@ -124,9 +157,37 @@ namespace Maple.UI
                     Selected = item.Id == ActiveId,
                 };
                 cell.Pressed += (_, _) => Select(item.Id);
+                cell.Tapped += (_, e) => e.Handled = true;
                 _cells.Add(cell);
-                _column.Children.Add(cell);
+                var row = new Grid { ColumnSpacing = 8, CornerRadius = new CornerRadius(6) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.Children.Add(cell);
+                var metadata = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 6, IsHitTestVisible = false };
+                metadata.Children.Add(new TextBlock
+                {
+                    Text = item.Alt,
+                    FontSize = 12,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Foreground = (Brush)Application.Current.Resources["MapleTextMain"]
+                });
+                metadata.Children.Add(new TextBlock
+                {
+                    Text = item.Metadata ?? string.Join(" · ", item.Badges ?? Array.Empty<string>()),
+                    FontSize = 10,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Foreground = (Brush)Application.Current.Resources["MapleTextMuted"]
+                });
+                Grid.SetColumn(metadata, 1);
+                row.Children.Add(metadata);
+                row.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                row.Tapped += (_, _) => Select(item.Id);
+                _rows.Add(row);
+                _metadata.Add(metadata);
+                _column.Children.Add(row);
             }
+            Rebuild();
+            OnActiveIdChanged();
             RequestFollow();
         }
 
@@ -134,7 +195,15 @@ namespace Maple.UI
         {
             var items = Items ?? Array.Empty<MuiFilmstripItem>();
             for (var i = 0; i < _cells.Count && i < items.Count; i++)
+            {
                 _cells[i].Selected = items[i].Id == ActiveId;
+                _rows[i].Background = items[i].Id == ActiveId && PreviewNavigation && !IsCollapsed
+                    ? (Brush)Application.Current.Resources["MaplePrimaryDim"]
+                    : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            }
+            var selected = -1;
+            for (var i = 0; i < items.Count; i++) if (items[i].Id == ActiveId) selected = i;
+            _count.Text = $"{selected + 1:00} / {items.Count:00}";
 
             RequestFollow();
         }
@@ -166,9 +235,15 @@ namespace Maple.UI
 
         private void Rebuild()
         {
+            var expanded = PreviewNavigation && !IsCollapsed;
+            Width = expanded ? 300 : 88;
             _chevron.IconName = IsCollapsed ? "chevron-right" : "chevron-down";
-            _scroll.Visibility = IsCollapsed ? Visibility.Collapsed : Visibility.Visible;
-            AutomationProperties.SetName(_toggle, IsCollapsed ? "Expand filmstrip" : "Collapse filmstrip");
+            _scroll.Visibility = PreviewNavigation || !IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var metadata in _metadata) metadata.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            AutomationProperties.SetName(_toggle, PreviewNavigation
+                ? (expanded ? "Collapse photo list" : "Expand photo list")
+                : (IsCollapsed ? "Expand filmstrip" : "Collapse filmstrip"));
+            OnActiveIdChanged();
         }
     }
 }

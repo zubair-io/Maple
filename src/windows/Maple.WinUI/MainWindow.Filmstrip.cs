@@ -66,7 +66,8 @@ namespace Maple.WinUI
             FilmstripRail.Items = photos
                 .Select((photo, i) => new MuiFilmstripItem(
                     ViewerFilmstripLogic.IdAt(i), bitmaps[i], photo.FileName,
-                    ViewerFilmstripLogic.CullingBadgesFor(photo.Rating, photo.FlagStatus)))
+                    ViewerFilmstripLogic.CullingBadgesFor(photo.Rating, photo.FlagStatus),
+                    $"{photo.Format} · {photo.FileSizeBytes / (1024.0 * 1024.0):0.0} MB · {string.Join(" ", ViewerFilmstripLogic.CullingBadgesFor(photo.Rating, photo.FlagStatus))}"))
                 .ToList();
             SyncFilmstripRailActive();
         }

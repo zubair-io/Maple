@@ -15,6 +15,13 @@
     <Grid Background="{StaticResource MapleBg}" KeyboardAcceleratorPlacementMode="Hidden">
 
         <Grid.Resources>
+            <!-- Keep native slider keyboard/range/commit behavior with Maple colors. -->
+            <StaticResource x:Key="SliderThumbBackground" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="SliderThumbBackgroundPointerOver" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="SliderThumbBackgroundPressed" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="SliderTrackValueFill" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="SliderTrackValueFillPointerOver" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="SliderTrackValueFillPressed" ResourceKey="MaplePrimary" />
             <conv:PickFlagVisibleConverter x:Key="PickVisible" />
             <conv:BoolVisibleConverter x:Key="BoolVisible" />
             <conv:InverseBoolVisibleConverter x:Key="InverseBoolVisible" />
@@ -568,6 +575,25 @@
                             Background="{StaticResource MapleSidebar}" BorderBrush="{StaticResource MapleBorder}" BorderThickness="1,0,0,0">
                         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
                             <StackPanel Spacing="10">
+                                <Grid Margin="0,0,0,12">
+                                    <TextBlock Text="Info" FontSize="20" Foreground="{StaticResource MapleTextMain}" />
+                                    <mui:MuiButton IconName="x" Variant="Ghost" ButtonSize="Sm" HorizontalAlignment="Right"
+                                                   Click="OnToggleInfoPane" AutomationProperties.Name="Close photo info" />
+                                </Grid>
+                                <TextBlock Text="{Binding SelectedPhoto.FileName}" Foreground="{StaticResource MapleTextMuted}" TextTrimming="CharacterEllipsis" />
+                                <mui:MuiText Text="Rating" Variant="Body" ColorRole="Muted" Margin="0,18,0,0" />
+                                <Grid>
+                                    <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="0" />
+                                    <mui:MuiButton Label="Clear" Variant="Ghost" ButtonSize="Sm" HorizontalAlignment="Right"
+                                                   Click="OnClearRating" AutomationProperties.Name="Clear rating" />
+                                </Grid>
+                                <mui:MuiText Text="Flag" Variant="Body" ColorRole="Muted" Margin="0,12,0,0" />
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <mui:MuiButton x:Name="UnflaggedBtn" Label="Unflagged" Variant="Secondary" ButtonSize="Sm" Click="OnClearFlag" AutomationProperties.Name="Unflagged" />
+                                    <mui:MuiButton x:Name="PickBtn" Label="Pick" Variant="Secondary" ButtonSize="Sm" Click="OnFlagPick" AutomationProperties.Name="Flag as pick" />
+                                    <mui:MuiButton x:Name="RejectBtn" Label="Reject" Variant="Secondary" ButtonSize="Sm" Click="OnFlagReject" AutomationProperties.Name="Flag as reject" />
+                                </StackPanel>
+                                <Border Height="1" Background="{StaticResource MapleBorder}" Margin="0,12,0,12" />
                                 <mui:MuiText Text="CAMERA" Variant="Eyebrow" />
                                 <StackPanel x:Name="ExifRows" Spacing="6" />
                                 <mui:MuiText Text="FILE" Variant="Eyebrow" Margin="0,6,0,0" />
@@ -586,7 +612,7 @@
                              Edit alike; cells, active-follow and activation are
                              wired in MainWindow.Filmstrip.cs. Collapsed in Browse. -->
                         <muim:MuiFilmstripRail x:Name="FilmstripRail" Grid.Column="0" Visibility="Collapsed"
-                                               Margin="10,14,0,16"
+                                               Margin="10,14,0,16" Canvas.ZIndex="2" ThumbnailAspectRatio="1.5"
                                                AutomationProperties.Name="Filmstrip" />
                         <!-- Zoom/pan viewer (#2572): ScrollViewer zoom over both
                              display paths — fit at factor 1, Ctrl+wheel / pinch /
@@ -653,27 +679,16 @@
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"
                                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
-                                Padding="10,6">
+                                Padding="10,6" MinHeight="56" MaxWidth="480">
                             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                                 <mui:MuiButton IconName="back" Variant="Ghost" ButtonSize="Sm" Click="OnViewerBack"
                                         ToolTipService.ToolTip="Back to Browse (Esc)"
                                         AutomationProperties.Name="Back to browse" />
                                 <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
-                                <TextBlock Text="{Binding SelectedPhoto.Dimensions}" FontSize="11"
-                                           VerticalAlignment="Center" Foreground="{StaticResource MapleTextMuted}" />
-                                <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="0" VerticalAlignment="Center" />
-                                <mui:MuiButton x:Name="PickBtn" IconName="check" Variant="Ghost" ButtonSize="Sm"
-                                        IconColor="#4CAF50" Click="OnFlagPick"
-                                        ToolTipService.ToolTip="Pick (P)" AutomationProperties.Name="Flag as pick" />
-                                <mui:MuiButton x:Name="RejectBtn" IconName="x" Variant="Ghost" ButtonSize="Sm"
-                                        IconColor="{StaticResource MapleErrorText}" Click="OnFlagReject"
-                                        ToolTipService.ToolTip="Reject (X)" AutomationProperties.Name="Flag as reject" />
+                                <mui:MuiButton IconName="edit" Variant="Ghost" ButtonSize="Sm" Click="OnEnterEdit"
+                                               ToolTipService.ToolTip="Edit photo" AutomationProperties.Name="Edit photo" />
                                 <mui:MuiButton IconName="info" Variant="Ghost" ButtonSize="Sm" Click="OnToggleInfoPane" ToolTipService.ToolTip="Show or hide photo info" AutomationProperties.Name="Photo info" />
-                                <Button Style="{StaticResource AccentButtonStyle}" Padding="14,5" Click="OnEnterEdit"
-                                        AutomationProperties.Name="Edit photo">
-                                    <TextBlock Text="Edit" FontSize="12" FontWeight="SemiBold" />
-                                </Button>
                             </StackPanel>
                         </Border>
 
@@ -681,14 +696,22 @@
                         <Border x:Name="EditTopBar" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"
-                                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
-                                Padding="10,6">
-                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                HorizontalAlignment="Stretch" VerticalAlignment="Top" Margin="16,16,16,0"
+                                Padding="10,6" MinHeight="56">
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
                                 <mui:MuiButton IconName="back" Variant="Ghost" ButtonSize="Sm" Click="OnExitEdit"
                                         ToolTipService.ToolTip="Back to Preview (Esc)"
                                         AutomationProperties.Name="Back to preview" />
-                                <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
-                                           VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                    <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MapleTextMain}" />
+                                    <TextBlock Text="{Binding SelectedPhoto.Format}" FontSize="10" Foreground="{StaticResource MapleTextMuted}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                                 <Border Width="96" Height="30" CornerRadius="4" Background="{StaticResource MapleImageCanvas}"
                                         BorderBrush="{StaticResource MapleBorder}" BorderThickness="1">
                                     <Grid>
@@ -715,38 +738,45 @@
                                         </Button>
                                     </Grid>
                                 </Border>
-                                <mui:MuiButton Label="AUTO" Variant="Ghost" ButtonSize="Sm" Click="OnApplyAuto"
-                                        AutomationProperties.Name="Auto adjust" />
-                                <mui:MuiButton Label="RESET" Variant="Ghost" ButtonSize="Sm" Click="OnResetAll"
-                                        ToolTipService.ToolTip="Reset all adjustments"
-                                        AutomationProperties.Name="Reset adjustments" />
-                                <mui:MuiButton IconName="revert" Variant="Ghost" ButtonSize="Sm" Click="OnRevert"
-                                        ToolTipService.ToolTip="Revert to sidecar state at open (Ctrl+R)"
-                                        AutomationProperties.Name="Revert edits" />
-                                <TextBlock x:Name="RenderStatsText" FontSize="10" VerticalAlignment="Center"
+                                <mui:MuiButton IconName="revert" Variant="Ghost" ButtonSize="Sm" Click="OnMenuUndo"
+                                               ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo adjustment" />
+                                <mui:MuiButton Label="…" Variant="Ghost" ButtonSize="Sm"
+                                               ToolTipService.ToolTip="More editing actions" AutomationProperties.Name="More editing actions">
+                                    <mui:MuiButton.Flyout>
+                                        <MenuFlyout>
+                                            <MenuFlyoutItem Text="Auto adjust" Click="OnApplyAuto" />
+                                            <MenuFlyoutItem Text="Reset all adjustments" Click="OnResetAll" />
+                                            <MenuFlyoutItem Text="Revert to state at open" Click="OnRevert" />
+                                        </MenuFlyout>
+                                    </mui:MuiButton.Flyout>
+                                </mui:MuiButton>
+                                <TextBlock x:Name="RenderStatsText" Visibility="Collapsed" FontSize="10" VerticalAlignment="Center"
                                            Foreground="{StaticResource MapleTextMuted}" />
                                 <mui:MuiButton IconName="export" Variant="Ghost" ButtonSize="Sm"
                                         IconColor="{StaticResource MaplePrimary}" Click="OnExportPhotos"
                                         ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
                                         AutomationProperties.Name="Export photo" />
-                            </StackPanel>
+                                </StackPanel>
+                            </Grid>
                         </Border>
 
                         <!-- Edit tool rail -->
                         <Border x:Name="EditRail" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"
-                                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0"
+                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,100,16,16"
                                 Padding="6,10">
-                            <StackPanel x:Name="EditRailStack" Spacing="4" />
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="EditRailStack" Spacing="4" />
+                            </ScrollViewer>
                         </Border>
 
                         <!-- Floating group panel -->
                         <Border x:Name="EditPanel" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"
-                                Width="300" MaxHeight="620"
-                                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,86,0"
+                                Width="272" MaxHeight="620"
+                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,116,104,16"
                                 Padding="14,10">
                             <Grid>
                                 <Grid.RowDefinitions>
@@ -755,9 +785,9 @@
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
                                 <Grid Grid.Row="0" Margin="0,0,0,6">
-                                    <TextBlock x:Name="EditPanelTitle" FontSize="11" FontWeight="Bold"
-                                               CharacterSpacing="120" Foreground="{StaticResource MaplePrimary}" />
-                                    <mui:MuiButton IconName="revert" Variant="Ghost" ButtonSize="Sm"
+                                    <TextBlock x:Name="EditPanelTitle" FontSize="15"
+                                               Foreground="{StaticResource MapleTextMain}" />
+                                    <mui:MuiButton Label="Reset" Variant="Ghost" ButtonSize="Sm"
                                             IconColor="{StaticResource MapleTextMuted}"
                                             HorizontalAlignment="Right"
                                             Click="OnResetGroup" ToolTipService.ToolTip="Reset this group"
@@ -812,6 +842,7 @@
                                             </Grid>
                                         </StackPanel>
                                         <StackPanel x:Name="PanelProfileHost" Visibility="Collapsed" Spacing="8" Margin="0,0,0,12" />
+                                        <StackPanel x:Name="PanelWhiteBalanceHost" Visibility="Collapsed" Spacing="8" Margin="0,0,0,12" />
                                         <!-- Imported lens profile (#3480): built in MainWindow.LensProfile.cs;
                                              the three strength rows below it ride PanelSliders. -->
                                         <StackPanel x:Name="PanelLensHost" Visibility="Collapsed" Spacing="8" Margin="0,0,0,12" />

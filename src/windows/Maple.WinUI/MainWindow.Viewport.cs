@@ -57,10 +57,20 @@ namespace Maple.WinUI
 
         private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e)
         {
+            UpdateViewerChromeSize();
             UpdatePanelFit();
             SizeZoomHost();
             UpdateCropDisplay();
             UpdateMaskDisplay();
+        }
+
+        private void UpdateViewerChromeSize()
+        {
+            if (CanvasHost.ActualHeight <= 0) return;
+            EditPanel.MaxHeight = Math.Max(100, CanvasHost.ActualHeight - 132);
+            EditRail.MaxHeight = Math.Max(100, CanvasHost.ActualHeight - 116);
+            FilmstripRail.MaxHeight = _mode == ShellMode.Edit
+                ? Math.Min(340, Math.Max(100, CanvasHost.ActualHeight - 112)) : double.PositiveInfinity;
         }
 
         // --- Zoom / pan (#2572): factor 1 = fit; drag pans when zoomed ---
