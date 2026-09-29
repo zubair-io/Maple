@@ -41,11 +41,11 @@ namespace Maple.WinUI
             ("Color", "tool-tint", null),
             ("Effects", "tool-vignette", null),
             ("Detail", "tool-sharpen", null),
-            ("Lens", "scope", null),
             ("Tone Curve", "tool-contrast", null),
-            ("Crop", "tool-crop", null),
-            ("Geometry", "tool-crop", null),
             ("Mask", "tool-dehaze", null),
+            ("Crop", "tool-crop", null),
+            ("Lens", "scope", null),
+            ("Geometry", "tool-crop", null),
         };
 
         private void BuildEditRail()
@@ -55,7 +55,7 @@ namespace Maple.WinUI
                 var button = new MuiActionButton
                 {
                     IconName = icon,
-                    Label = title,
+                    Label = title == "Tone Curve" ? "Curve" : title,
                     ButtonSize = MuiActionButtonSize.Sm,
                     Orientation = MuiActionButtonOrientation.Stacked,
                     IsEnabled = disabledNote == null,
@@ -85,12 +85,13 @@ namespace Maple.WinUI
             _activeGroup = group;
             RefreshRailArming(group);
             EditPanel.Visibility = Visibility.Visible;
-            EditPanelTitle.Text = group.ToUpperInvariant();
+            EditPanelTitle.Text = group == "Tone Curve" ? "Curve" : group;
             ColorTabRow.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
             EffectsTabRow.Visibility = group == "Effects" ? Visibility.Visible : Visibility.Collapsed;
             PanelFootnote.Visibility = Visibility.Collapsed;
             PanelGradeHost.Visibility = Visibility.Collapsed;
-            PanelProfileHost.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
+            PanelProfileHost.Visibility = group == "Light" ? Visibility.Visible : Visibility.Collapsed;
+            PanelWhiteBalanceHost.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
             PanelLensHost.Visibility = group == "Lens" ? Visibility.Visible : Visibility.Collapsed;
             PanelCurveHost.Visibility = group == "Tone Curve" ? Visibility.Visible : Visibility.Collapsed;
             PanelCropHost.Visibility = group == "Crop" ? Visibility.Visible : Visibility.Collapsed;
@@ -410,110 +411,6 @@ namespace Maple.WinUI
                 ViewModel.BlackWhiteOn = false;
         }
 
-        // --- Star row (Preview pill) ---
-
-        /// <summary>MuiButton stars, not MuiRatingFlags: the molecule's
-        /// same-star click DECREMENTS and it bundles a cycling flag icon,
-        /// while this pill's contract is click-current-to-clear plus the
-        /// separate Pick/Reject buttons — behavior preserved as-is (MN4).</summary>
-        private void BuildStarRow()
-        {
-            for (var i = 0; i < 5; i++)
-            {
-                var stars = i + 1;
-                var button = new MuiButton
-                {
-                    IconName = "star",
-                    Variant = MuiButtonVariant.Ghost,
-                    ButtonSize = MuiButtonSize.Sm,
-                    IconColor = (SolidColorBrush)Application.Current.Resources["MapleBorderHi"],
-                };
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Set rating {stars}");
-                button.Click += (_, _) =>
-                {
-                    var current = ViewModel.SelectedPhoto?.Rating ?? 0;
-                    ViewModel.SetRating(current == stars ? 0 : stars);
-                    UpdateStarRow();
-                };
-                _starButtons[i] = button;
-                StarRow.Children.Add(button);
-            }
-        }
-
-        private void UpdateStarRow()
-        {
-            if (_starButtons[0] == null)
-                return;  // selection can fire before the chrome is built
-            var rating = ViewModel.SelectedPhoto?.Rating ?? 0;
-            var star = (SolidColorBrush)Application.Current.Resources["MapleStar"];
-            var muted = (SolidColorBrush)Application.Current.Resources["MapleBorderHi"];
-            for (var i = 0; i < 5; i++)
-            {
-                _starButtons[i].IconName = i < rating ? "star-filled" : "star";
-                _starButtons[i].IconColor = i < rating ? star : muted;
-            }
-        }
-
-        // --- Docked Preview inspector ---
-
-        private bool _infoPaneOpen = true;
-
-        private void OnToggleInfoPane(object sender, RoutedEventArgs e)
-        {
-            _infoPaneOpen = !_infoPaneOpen;
-            UpdateInfoPane();
-        }
-
-        private void UpdateInfoPane()
-        {
-            var visible = _mode == ShellMode.Preview && _infoPaneOpen;
-            InfoPane.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-            InfoColDef.Width = new GridLength(visible ? 320 : 0);
-            if (visible) RefreshPhotoInfo();
-        }
-
-        private void RefreshPhotoInfo()
-        {
-            var photo = ViewModel.SelectedPhoto;
-            ExifRows.Children.Clear();
-            FileRows.Children.Clear();
-            if (photo == null)
-                return;
-
-            void AddRow(StackPanel host, string label, string value)
-            {
-                var grid = new Grid { ColumnSpacing = 12 };
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                grid.Children.Add(new MuiText
-                {
-                    Text = label,
-                    Variant = MuiTextVariant.Body,
-                    ColorRole = MuiTextColorRole.Muted,
-                });
-                var text = new MuiText
-                {
-                    Text = value,
-                    Variant = MuiTextVariant.Filename,          // mono, per the value column's Consolas
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                };
-                Grid.SetColumn(text, 1);
-                grid.Children.Add(text);
-                host.Children.Add(grid);
-            }
-
-            AddRow(ExifRows, "Camera", photo.CameraModel);
-            AddCameraSupport(ExifRows, photo);
-            AddRow(ExifRows, "Lens", photo.LensInfo);
-            AddRow(ExifRows, "ISO", photo.IsoDisplay);
-            AddRow(ExifRows, "Aperture", photo.Aperture);
-            AddRow(ExifRows, "Shutter", photo.ShutterSpeed);
-            AddRow(ExifRows, "Captured", photo.DateTaken);
-            AddRow(FileRows, "Name", photo.FileName);
-            AddRow(FileRows, "Format", photo.Format);
-            AddRow(FileRows, "Size", $"{photo.FileSizeBytes / (1024.0 * 1024.0):0.0} MB");
-            AddRow(FileRows, "Pixels", photo.Dimensions);
-        }
     }
 
     /// <summary>Draws the 768-bin channel-major RGB histogram into a Canvas as

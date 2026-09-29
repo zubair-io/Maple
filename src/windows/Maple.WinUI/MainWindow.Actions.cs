@@ -58,6 +58,8 @@ namespace Maple.WinUI
 
         private void OnFlagPick(object sender, RoutedEventArgs e) => ViewModel.SetFlag("pick");
         private void OnFlagReject(object sender, RoutedEventArgs e) => ViewModel.SetFlag("reject");
+        private void OnClearFlag(object sender, RoutedEventArgs e) => ViewModel.SetFlag("none");
+        private void OnClearRating(object sender, RoutedEventArgs e) => ViewModel.SetRating(0);
 
         // --- Menu (#2586) — thin shims over the same actions the shortcut
         //     table drives; zoom items are inert in Browse like the keys. ---

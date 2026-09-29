@@ -16,6 +16,7 @@ namespace Maple.WinUI
 
         private readonly AppSettings _settings = AppSettings.Load();
         private ShellMode _mode = ShellMode.Browse;
+        private bool _previewRailCompact = true;
         private uint[]? _lastHistogramBins;
         private IntPtr _panelNative;
 
@@ -181,6 +182,7 @@ namespace Maple.WinUI
 
         private void SetMode(ShellMode mode)
         {
+            if (_mode == ShellMode.Preview) _previewRailCompact = FilmstripRail.IsCollapsed;
             _mode = mode;
             UpdateInfoPane();
             var browse = mode == ShellMode.Browse;
@@ -203,11 +205,25 @@ namespace Maple.WinUI
                 RebuildFilmstripRail();
             EditTopBar.Visibility = edit ? Visibility.Visible : Visibility.Collapsed;
             EditRail.Visibility = edit ? Visibility.Visible : Visibility.Collapsed;
+            FilmstripRail.PreviewNavigation = mode == ShellMode.Preview;
+            FilmstripRail.IsCollapsed = mode == ShellMode.Preview && _previewRailCompact;
+            FilmstripRail.Margin = edit ? new Thickness(16, 96, 0, 16) : new Thickness(8, 16, 0, 16);
+            FilmstripRail.VerticalAlignment = edit ? VerticalAlignment.Top : VerticalAlignment.Stretch;
+            FilmstripRail.Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["MapleSidebar"];
+            FilmstripRail.Padding = new Thickness(0);
+            FilmstripRail.CornerRadius = new CornerRadius(edit ? 12 : 0);
+            Grid.SetColumn(ViewerScroll, edit ? 0 : 1);
+            Grid.SetColumnSpan(ViewerScroll, edit ? 2 : 1);
+            ViewerScroll.Margin = edit ? new Thickness(0) : new Thickness(24, 96, 24, 24);
+            Grid.SetColumn(EditTopBar, 0);
+            Grid.SetColumnSpan(EditTopBar, 2);
+            UpdateViewerChromeSize();
             if (!edit)
             {
                 CloseGroupPanel();
                 return;
             }
+            if (_activeGroup == null) ToggleGroupPanel("Light");
             // The histogram canvas has zero size until the pill first lays out,
             // so replay the newest bins once the layout pass completes.
             HistogramCanvas.DispatcherQueue.TryEnqueue(() =>

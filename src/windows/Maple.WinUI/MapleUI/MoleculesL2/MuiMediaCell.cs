@@ -34,6 +34,15 @@ namespace Maple.UI
     /// </summary>
     public sealed class MuiMediaCell : ContentControl
     {
+        public static readonly DependencyProperty ThumbnailAspectRatioProperty =
+            DependencyProperty.Register(nameof(ThumbnailAspectRatio), typeof(double), typeof(MuiMediaCell),
+                new PropertyMetadata(1.0, (d, _) => ((MuiMediaCell)d).Rebuild()));
+
+        public double ThumbnailAspectRatio
+        {
+            get => (double)GetValue(ThumbnailAspectRatioProperty);
+            set => SetValue(ThumbnailAspectRatioProperty, value);
+        }
         public static readonly DependencyProperty SourceProperty =
             DependencyProperty.Register(nameof(Source), typeof(ImageSource), typeof(MuiMediaCell),
                 new PropertyMetadata(null, (d, _) => ((MuiMediaCell)d).Rebuild()));
@@ -200,7 +209,7 @@ namespace Maple.UI
         {
             var side = CellSize == MuiMediaCellSize.Sm ? 72 : 128;
             _thumbHost.Width = side;
-            _thumbHost.Height = side;
+            _thumbHost.Height = side / (ThumbnailAspectRatio > 0 ? ThumbnailAspectRatio : 1);
             _image.Source = Source;
             _image.AccessibleLabel = Alt;
             _metaRow.Visibility = ShowMetadata ? Visibility.Visible : Visibility.Collapsed;

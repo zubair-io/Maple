@@ -16,7 +16,7 @@ namespace Maple.WinUI
     /// White-balance row of the Color › Basic panel (#2434): the eyedropper
     /// (arm, click a neutral on the canvas, Esc cancels), the nine-choice
     /// preset picker and the provenance readout. Built in code onto
-    /// PanelProfileHost so it shows and hides with the Color group; the
+    /// PanelWhiteBalanceHost so it shows and hides with the Color group; the
     /// canvas half listens on ZoomHost beside the pan handlers — a release
     /// that barely moved is a pick, a drag is still a pan. The decision
     /// halves live in <see cref="WhiteBalancePickLogic"/> (click →
@@ -88,7 +88,7 @@ namespace Maple.WinUI
             _wbHost.Children.Add(_wbPresetBox);
             _wbHost.Children.Add(_wbProvenance);
             _wbHost.Children.Add(_wbMessage);
-            PanelProfileHost.Children.Add(_wbHost);
+            PanelWhiteBalanceHost.Children.Add(_wbHost);
 
             ZoomHost.PointerPressed += OnWhiteBalancePointerPressed;
             ZoomHost.PointerReleased += OnWhiteBalancePointerReleased;
