@@ -12,6 +12,34 @@ namespace Maple.WinUI.ViewModels
         private CloudFolderNode? _selectedCloudFolder;
         private bool _isCloudTimeline;
 
+        public System.Collections.Generic.IEnumerable<(string Label, Action Navigate)> BrowseAncestors()
+        {
+            var result = new System.Collections.Generic.List<(string, Action)>();
+            if (_selectedCloudFolder is { } cloud)
+            {
+                var path = cloud.Path.TrimEnd('/');
+                var root = System.Linq.Enumerable.FirstOrDefault(CloudTree, n => n.LibrarySlug == cloud.LibrarySlug);
+                while (root != null && (path == root.Path.TrimEnd('/') || path.StartsWith(root.Path.TrimEnd('/') + "/", StringComparison.Ordinal)))
+                {
+                    var node = new CloudFolderNode { Name = path[(path.LastIndexOf('/') + 1)..], Path = path, LibrarySlug = cloud.LibrarySlug };
+                    result.Insert(0, (node.Name.Length == 0 ? path : node.Name, () => { _ = LoadCloudDirectoryAsync(node); }));
+                    var slash = path.LastIndexOf('/');
+                    if (slash < 0) break;
+                    path = path[..slash];
+                }
+            }
+            else if (_selectedLocalFolder is { } local)
+            {
+                for (var path = local; !string.IsNullOrEmpty(path); path = System.IO.Path.GetDirectoryName(path.TrimEnd(System.IO.Path.DirectorySeparatorChar)))
+                {
+                    var target = path;
+                    result.Insert(0, (path, () => LoadDirectory(target)));
+                    if (path == System.IO.Path.GetPathRoot(path)) break;
+                }
+            }
+            return result;
+        }
+
         private void BeginBrowse(string? local = null, CloudFolderNode? cloud = null, bool timeline = false)
         {
             _selectedLocalFolder = local;

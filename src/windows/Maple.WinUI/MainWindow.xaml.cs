@@ -151,6 +151,10 @@ namespace Maple.WinUI
             };
             HookViewerPan();
             HookFilmstripRail();   // #3402 — MainWindow.Filmstrip.cs
+            InitializeBrowseDesign();
+            InitializeComparison();
+            ViewModel.ModelSynced += OnEditorModelSynced;
+            ViewModel.AdjustmentEdited += () => EditStatusText.Text = $"{ViewModel.SelectedPhoto?.Format} · Edited";
             // Wire the grouped grid source only after the chrome exists —
             // setting Source synchronously raises the grid's first selection.
             // The grid has two presentations (docs/spec/13-windows-shell.md):
@@ -182,6 +186,7 @@ namespace Maple.WinUI
 
         private void SetMode(ShellMode mode)
         {
+            if (_mode != mode) ResetComparison();
             if (_mode == ShellMode.Preview) _previewRailCompact = FilmstripRail.IsCollapsed;
             _mode = mode;
             UpdateInfoPane();
@@ -218,6 +223,8 @@ namespace Maple.WinUI
             Grid.SetColumn(EditTopBar, 0);
             Grid.SetColumnSpan(EditTopBar, 2);
             UpdateViewerChromeSize();
+            UpdateResponsiveShell();
+            UpdateEditStatus();
             if (!edit)
             {
                 CloseGroupPanel();

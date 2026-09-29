@@ -67,6 +67,8 @@ namespace Maple.WinUI
         private void UpdateViewerChromeSize()
         {
             if (CanvasHost.ActualHeight <= 0) return;
+            HeaderHistogram.Visibility = CanvasHost.ActualWidth < 760 ? Visibility.Collapsed : Visibility.Visible;
+            PreviewTopBar.MaxWidth = Math.Max(160, Math.Min(480, CanvasHost.ActualWidth - FilmstripRail.ActualWidth - 24));
             EditPanel.MaxHeight = Math.Max(100, CanvasHost.ActualHeight - 132);
             EditRail.MaxHeight = Math.Max(100, CanvasHost.ActualHeight - 116);
             FilmstripRail.MaxHeight = _mode == ShellMode.Edit

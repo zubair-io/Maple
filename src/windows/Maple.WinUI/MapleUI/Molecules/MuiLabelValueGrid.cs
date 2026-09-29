@@ -52,7 +52,16 @@ namespace Maple.UI
                 _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
                 var label = new MuiText { Text = rows[i].Label, Variant = MuiTextVariant.ToolLabel, ColorRole = MuiTextColorRole.Muted };
-                var value = new MuiText { Text = rows[i].Value, Variant = MuiTextVariant.RowLabel };
+                // Native text selection supplies keyboard and context-menu Copy
+                // for long paths, captions and OCR without a separate clipboard action.
+                var value = new TextBlock
+                {
+                    Text = rows[i].Value,
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    IsTextSelectionEnabled = true,
+                    Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["MapleTextMain"]
+                };
                 Grid.SetRow(label, i);
                 Grid.SetColumn(label, 0);
                 Grid.SetRow(value, i);

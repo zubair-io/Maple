@@ -22,6 +22,7 @@ namespace Maple.WinUI
             args.Handled = true;
             if (_closing) return;
             _closing = true;
+            ResetComparison();
             // Reject late producers before any already-queued present callback runs.
             ViewModel.Dispose();
             DispatcherQueue.TryEnqueue(async () =>
@@ -51,6 +52,9 @@ namespace Maple.WinUI
         private async Task DrainWindowAsync()
         {
             _closing = true;
+            _infoCancellation?.Cancel();
+            _infoCancellation?.Dispose();
+            _infoCancellation = null;
             var renderer = ViewModel.Renderer;
             renderer.FrameReady -= OnFrameReady;
             renderer.GpuFrameReady -= OnGpuFrameReady;

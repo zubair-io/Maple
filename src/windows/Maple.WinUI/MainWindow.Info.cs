@@ -66,12 +66,15 @@ namespace Maple.WinUI
             var visible = _mode == ShellMode.Preview && _infoPaneOpen;
             InfoPane.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
             InfoColDef.Width = new GridLength(visible ? 320 : 0);
+            UpdateResponsiveShell();
             if (visible) RefreshPhotoInfo();
+            else CancelInspectorHydration();
         }
 
         private void RefreshPhotoInfo()
         {
             var photo = ViewModel.SelectedPhoto;
+            HydrateInspector();
             UpdateStarRow();
             UnflaggedBtn.Variant = photo?.FlagStatus is not ("pick" or "reject") ? MuiButtonVariant.Primary : MuiButtonVariant.Secondary;
             PickBtn.Variant = photo?.FlagStatus == "pick" ? MuiButtonVariant.Primary : MuiButtonVariant.Secondary;
@@ -83,24 +86,10 @@ namespace Maple.WinUI
 
             void AddRow(StackPanel host, string label, string value)
             {
-                var grid = new Grid { ColumnSpacing = 12 };
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                grid.Children.Add(new MuiText
+                host.Children.Add(new Maple.UI.MuiLabelValueGrid
                 {
-                    Text = label,
-                    Variant = MuiTextVariant.Body,
-                    ColorRole = MuiTextColorRole.Muted,
+                    Rows = new[] { new Maple.UI.MuiLabelValueRow(label, value) },
                 });
-                var text = new MuiText
-                {
-                    Text = value,
-                    Variant = MuiTextVariant.Filename,          // mono, per the value column's Consolas
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                };
-                Grid.SetColumn(text, 1);
-                grid.Children.Add(text);
-                host.Children.Add(grid);
             }
 
             AddRow(ExifRows, "Camera", photo.CameraModel);
@@ -114,6 +103,8 @@ namespace Maple.WinUI
             AddRow(FileRows, "Format", photo.Format);
             AddRow(FileRows, "Size", $"{photo.FileSizeBytes / (1024.0 * 1024.0):0.0} MB");
             AddRow(FileRows, "Pixels", photo.Dimensions);
+            AddRow(FileRows, photo.IsCloud ? "Server path" : "Path", photo.FilePath);
+            AddRow(FileRows, "Color label", photo.ColorLabel ?? "None");
         }
     }
 }

@@ -85,7 +85,23 @@ namespace Maple.WinUI.ViewModels
         public string RatingStars =>
             Rating <= 0 ? string.Empty : new string('★', Rating) + new string('☆', 5 - Rating);
 
-        partial void OnRatingChanged(int value) => OnPropertyChanged(nameof(RatingStars));
+        public string BrowseSummary => $"{Format} · {FileSizeBytes / (1024.0 * 1024.0):0.0} MB" +
+            (Rating > 0 ? $" · {RatingStars}" : string.Empty) +
+            (FlagStatus is "pick" or "reject" ? $" · {FlagStatus}" : string.Empty);
+        public string DetailSummary => (Dimensions is "—" or "" ? string.Empty : Dimensions + " · ") + BrowseSummary;
+        partial void OnDimensionsChanged(string value) => OnPropertyChanged(nameof(DetailSummary));
+
+        partial void OnRatingChanged(int value)
+        {
+            OnPropertyChanged(nameof(RatingStars));
+            OnPropertyChanged(nameof(BrowseSummary));
+            OnPropertyChanged(nameof(DetailSummary));
+        }
+        partial void OnFlagStatusChanged(string value)
+        {
+            OnPropertyChanged(nameof(BrowseSummary));
+            OnPropertyChanged(nameof(DetailSummary));
+        }
     }
 
     /// <summary>One capture-day section of the grouped browse grid (#2570).

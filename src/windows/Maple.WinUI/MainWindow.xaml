@@ -34,7 +34,7 @@
                             <Ellipse Width="6" Height="6" Fill="{StaticResource MaplePrimary}"
                                      Visibility="{Binding IsModified, Converter={StaticResource BoolVisible}}"
                                      VerticalAlignment="Center" />
-                            <mui:MuiText Text="{Binding FormattedValue}" Variant="ValueChip" />
+                            <mui:MuiButton Label="{Binding FormattedValue}" Variant="Ghost" ButtonSize="Sm" Click="OnEditSliderValue" AutomationProperties.Name="{Binding Label}" ToolTipService.ToolTip="Enter a numeric value" />
                         </StackPanel>
                     </Grid>
                     <!-- Gesture-end signals a commit-on-release row needs
@@ -45,7 +45,7 @@
                          debounce instead — without that a wheel-adjusted value
                          stays parked forever and is lost on navigate. All three
                          are no-ops for the per-tick rows. -->
-                    <Slider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
+                    <mui:MuiAdjustmentSlider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}" Origin="{Binding DefaultValue}"
                             StepFrequency="{Binding StepFrequency}"
                             Value="{Binding Value, Mode=TwoWay}"
                             IsEnabled="{Binding IsEnabled}"
@@ -199,7 +199,7 @@
         </Grid>
 
         <!-- ===== Main ===== -->
-        <Grid Grid.Row="1">
+        <Grid x:Name="ShellColumns" Grid.Row="1" SizeChanged="OnShellSizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColDef" Width="260" MinWidth="0" MaxWidth="420" />
                 <ColumnDefinition Width="*" MinWidth="300" />
@@ -210,6 +210,7 @@
                     BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,1,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="14" Padding="10,12">
+                        <mui:MuiButton x:Name="CloseCompactSources" Label="Close sources" IconName="x" Variant="Ghost" Visibility="Collapsed" Click="OnToggleSidebar" AutomationProperties.Name="Close sources" />
                         <mui:MuiButton Label="Timeline" IconName="calendar" Variant="Ghost" HorizontalAlignment="Stretch" Click="OnTimelineInvoked" AutomationProperties.Name="Timeline" />
 
                         <StackPanel Spacing="2">
@@ -368,13 +369,22 @@
                                        Visibility="{Binding HasMoreTimeline, Converter={StaticResource BoolVisible}}"
                                        AutomationProperties.Name="Load more timeline photos" />
                     </StackPanel>
-                    <Border Grid.Row="0" BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1"
-                            Padding="12,8">
-                        <Grid>
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <mui:MuiButton IconName="sidebar" Variant="Secondary" ButtonSize="Sm"
-                                        Click="OnToggleSidebar"
-                                        AutomationProperties.Name="Toggle sources panel" />
+                    <Border Grid.Row="0" BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1" Padding="16,12">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <mui:MuiButton IconName="sidebar" Label="Sources" Variant="Secondary" Click="OnToggleSidebar" AutomationProperties.Name="Toggle sources panel" />
+                                <mui:MuiButton x:Name="BrowseLocationButton" Grid.Column="1" Label="Library" Variant="Ghost" HorizontalAlignment="Left" Click="OnBrowseLocation" AutomationProperties.Name="Folder navigation" />
+                                <mui:MuiButton Grid.Column="2" x:Name="BrowseViewButton" Label="Grid view" Variant="Secondary" Click="OnToggleBrowseView" AutomationProperties.Name="Toggle grid and list detail" />
+                            </Grid>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBox x:Name="SearchBox" PlaceholderText="Search name, camera, lens…" Background="{StaticResource MapleInputBg}" FontSize="12" TextChanged="OnSearchChanged" AutomationProperties.Name="Search library" />
+                                <ComboBox x:Name="BrowseSortBox" Grid.Column="1" Width="168" SelectionChanged="OnBrowseSortChanged" AutomationProperties.Name="Sort photos" ToolTipService.ToolTip="Capture sort uses modified date when capture date is unavailable. Timeline keeps day groups.">
+                                    <ComboBoxItem Content="Name A–Z"/><ComboBoxItem Content="Captured newest"/><ComboBoxItem Content="Captured oldest"/><ComboBoxItem Content="Highest rating"/>
+                                </ComboBox>
+                                <mui:MuiButton Grid.Column="2" Label="Options" Variant="Secondary" AutomationProperties.Name="Browse filters and thumbnail size">
+                                    <mui:MuiButton.Flyout><Flyout><StackPanel Spacing="12" MinWidth="200">
                                 <ComboBox x:Name="FormatFilterBox" SelectedIndex="0" Width="120" FontSize="12"
                                           SelectionChanged="OnFormatFilterChanged"
                                           AutomationProperties.Name="Format filter">
@@ -404,26 +414,16 @@
                                     <ComboBoxItem Content="Picks" Tag="pick" />
                                     <ComboBoxItem Content="Rejected" Tag="reject" />
                                 </ComboBox>
-                                <TextBlock x:Name="LibraryCountText" VerticalAlignment="Center" FontSize="12"
-                                           Foreground="{StaticResource MapleTextMuted}" Margin="8,0,0,0"
-                                           AutomationProperties.LiveSetting="Polite" />
-                                <!-- Narrator-only: announces inline-rename commit/cancel outcomes
-                                     (#2639) and batch-rename apply outcomes (#2642, via the same
-                                     AnnounceRename helper). Zero visual footprint — content, not chrome. -->
-                                <TextBlock x:Name="RenameStatusText" Width="0" Height="0" Opacity="0"
-                                           AutomationProperties.LiveSetting="Polite" />
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"
-                                        VerticalAlignment="Center">
-                                <TextBox x:Name="SearchBox" Width="200" PlaceholderText="Search name, camera, lens…"
-                                         Background="{StaticResource MapleInputBg}" FontSize="12"
-                                         TextChanged="OnSearchChanged" AutomationProperties.Name="Search library" />
-                                <mui:MuiButton IconName="export" Label="Export" Variant="Secondary" ButtonSize="Sm"
-                                        Click="OnExportPhotos"
-                                        ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
-                                        AutomationProperties.Name="Export photo" />
-                            </StackPanel>
-                        </Grid>
+
+                                        <TextBlock Text="Thumbnail size" />
+                                        <ComboBox x:Name="BrowseDensityBox" SelectionChanged="OnBrowseDensityChanged" AutomationProperties.Name="Thumbnail size"><ComboBoxItem Content="Small"/><ComboBoxItem Content="Medium"/><ComboBoxItem Content="Large"/></ComboBox>
+                                        <mui:MuiButton Label="Export selection" Variant="Secondary" Click="OnExportPhotos" AutomationProperties.Name="Export selected photos" />
+                                    </StackPanel></Flyout></mui:MuiButton.Flyout>
+                                </mui:MuiButton>
+                            </Grid>
+                            <TextBlock x:Name="LibraryCountText" FontSize="12" Foreground="{StaticResource MapleTextMuted}" AutomationProperties.LiveSetting="Polite" />
+                            <TextBlock x:Name="RenameStatusText" Width="0" Height="0" Opacity="0" AutomationProperties.LiveSetting="Polite" />
+                        </StackPanel>
                     </Border>
                     <Grid Grid.Row="1">
                         <Grid.RowDefinitions>
@@ -473,6 +473,11 @@
                               DragItemsStarting="OnPhotoGridDragItemsStarting"
                               DragItemsCompleted="OnPhotoGridDragItemsCompleted"
                               AutomationProperties.Name="Photo grid">
+                        <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid ItemWidth="192" ItemHeight="192" /></ItemsPanelTemplate></GridView.ItemsPanel>
+                        <GridView.ItemContainerStyle><Style TargetType="GridViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                        </Style></GridView.ItemContainerStyle>
                         <!-- Right-click Delete on the grid selection (#2654) — same
                              OnDeleteSelectedPhotos handler as the Delete key and the
                              Photo menu's "Delete…" item, so none of the three can
@@ -514,7 +519,7 @@
                         </GridView.GroupStyle>
                         <GridView.ItemTemplate>
                             <DataTemplate>
-                                <Grid Width="180" Height="180" Margin="2" CornerRadius="4"
+                                <Grid Margin="2" CornerRadius="4"
                                       AutomationProperties.Name="{Binding FileName}"
                                       Background="{StaticResource MapleSurface}">
                                     <controls:MapleIconControl IconName="photos" Size="36"
@@ -555,7 +560,43 @@
                                 </Grid>
                             </DataTemplate>
                         </GridView.ItemTemplate>
-                    </GridView>
+                        </GridView>
+                        <Grid x:Name="BrowseListDetail" Grid.Row="1" SizeChanged="OnBrowseDetailSizeChanged">
+                            <Grid.ColumnDefinitions><ColumnDefinition x:Name="BrowseListColumn" Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <ListView x:Name="BrowsePhotoList" ItemsSource="{Binding Photos}" SelectionMode="Extended" SelectionChanged="OnBrowseListSelectionChanged" DoubleTapped="OnGridDoubleTapped" AutomationProperties.Name="Photo list">
+                                <ListView.ItemTemplate><DataTemplate>
+                                    <Grid Padding="4,10" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="66"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <Image Source="{Binding ThumbnailPath}" Height="44" Stretch="Uniform" />
+                                        <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding FileName}" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                       Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolVisible}}" DoubleTapped="OnFileNameDoubleTapped" />
+                                            <TextBox Text="{Binding RenameText, Mode=TwoWay}" FontSize="12" Padding="2,0"
+                                                     Visibility="{Binding IsRenaming, Converter={StaticResource BoolVisible}}"
+                                                     AutomationProperties.Name="Rename file" KeyDown="OnRenameTextBoxKeyDown"
+                                                     LostFocus="OnRenameTextBoxLostFocus" DoubleTapped="OnRenameTextBoxDoubleTapped" />
+                                            <TextBlock Text="{Binding BrowseSummary}" FontSize="10" Foreground="{StaticResource MapleTextMuted}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate></ListView.ItemTemplate>
+                            </ListView>
+                            <Grid x:Name="BrowseDetailPane" Grid.Column="1" Padding="24" Background="{StaticResource MapleImageCanvas}">
+                                <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <Image x:Name="BrowseDetailImage" Stretch="Uniform" AutomationProperties.Name="Selected photo preview" />
+                                <StackPanel Grid.Row="1" Spacing="12" Margin="0,16,0,0">
+                                    <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="16" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding SelectedPhoto.DetailSummary}" FontSize="12" Foreground="{StaticResource MapleTextMuted}" TextWrapping="Wrap" />
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <mui:MuiButton Label="Open in editor" Variant="Primary" Click="OnBrowseOpenEditor" />
+                                            <mui:MuiButton Label="Preview" Variant="Secondary" Click="OnBrowseOpenPreview" />
+                                            <mui:MuiButton Label="Info / Rating" Variant="Secondary" Click="OnBrowseOpenInfo" />
+                                            <mui:MuiButton Label="Export" Variant="Secondary" Click="OnExportPhotos" />
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
                     </Grid>
                     <TextBlock x:Name="EmptyStateText" Grid.Row="1" Visibility="Collapsed"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -571,7 +612,7 @@
                         <ColumnDefinition x:Name="InfoColDef" Width="0" />
                     </Grid.ColumnDefinitions>
 
-                    <Border x:Name="InfoPane" Grid.Column="1" Visibility="Collapsed"
+                    <Border x:Name="InfoPane" Grid.Column="1" Canvas.ZIndex="3" Visibility="Collapsed"
                             Background="{StaticResource MapleSidebar}" BorderBrush="{StaticResource MapleBorder}" BorderThickness="1,0,0,0">
                         <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
                             <StackPanel Spacing="10">
@@ -598,6 +639,7 @@
                                 <StackPanel x:Name="ExifRows" Spacing="6" />
                                 <mui:MuiText Text="FILE" Variant="Eyebrow" Margin="0,6,0,0" />
                                 <StackPanel x:Name="FileRows" Spacing="6" />
+                                <StackPanel x:Name="ExtraInfoRows" Spacing="12" Margin="0,12,0,0" />
                             </StackPanel>
                         </ScrollViewer>
                     </Border>
@@ -645,6 +687,8 @@
                                     <Image x:Name="ClipOverlayImage" Stretch="Uniform" Visibility="Collapsed"
                                            IsHitTestVisible="False"
                                            AutomationProperties.Name="Clipping overlay" />
+                                    <Image x:Name="ComparisonImage" Stretch="Fill" Visibility="Collapsed" IsHitTestVisible="False"
+                                           AutomationProperties.Name="Opening-state comparison" />
                                     <!-- Mask tool (#3406): lives INSIDE CropRotateHost (unlike
                                          CropOverlay below, which deliberately stays outside it)
                                          so the straighten rotation and the committed crop's
@@ -680,16 +724,17 @@
                                 BorderThickness="1" CornerRadius="10"
                                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
                                 Padding="10,6" MinHeight="56" MaxWidth="480">
-                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Grid ColumnSpacing="10" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <mui:MuiButton IconName="back" Variant="Ghost" ButtonSize="Sm" Click="OnViewerBack"
                                         ToolTipService.ToolTip="Back to Browse (Esc)"
                                         AutomationProperties.Name="Back to browse" />
-                                <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" FontWeight="SemiBold"
+                                <TextBlock Grid.Column="1" Text="{Binding SelectedPhoto.FileName}" TextTrimming="CharacterEllipsis" FontSize="12" FontWeight="SemiBold"
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
-                                <mui:MuiButton IconName="edit" Variant="Ghost" ButtonSize="Sm" Click="OnEnterEdit"
+                                <mui:MuiButton Grid.Column="2" IconName="edit" Variant="Ghost" ButtonSize="Sm" Click="OnEnterEdit"
                                                ToolTipService.ToolTip="Edit photo" AutomationProperties.Name="Edit photo" />
-                                <mui:MuiButton IconName="info" Variant="Ghost" ButtonSize="Sm" Click="OnToggleInfoPane" ToolTipService.ToolTip="Show or hide photo info" AutomationProperties.Name="Photo info" />
-                            </StackPanel>
+                                <mui:MuiButton Grid.Column="3" IconName="info" Variant="Ghost" ButtonSize="Sm" Click="OnToggleInfoPane" ToolTipService.ToolTip="Show or hide photo info" AutomationProperties.Name="Photo info" />
+                            </Grid>
                         </Border>
 
                         <!-- Edit top pill -->
@@ -709,10 +754,10 @@
                                         AutomationProperties.Name="Back to preview" />
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
                                     <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MapleTextMain}" />
-                                    <TextBlock Text="{Binding SelectedPhoto.Format}" FontSize="10" Foreground="{StaticResource MapleTextMuted}" />
+                                    <TextBlock x:Name="EditStatusText" Text="{Binding SelectedPhoto.Format}" FontSize="10" Foreground="{StaticResource MapleTextMuted}" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                <Border Width="96" Height="30" CornerRadius="4" Background="{StaticResource MapleImageCanvas}"
+                                <Border x:Name="HeaderHistogram" Width="96" Height="30" CornerRadius="4" Background="{StaticResource MapleImageCanvas}"
                                         BorderBrush="{StaticResource MapleBorder}" BorderThickness="1">
                                     <Grid>
                                         <Canvas x:Name="HistogramCanvas" Margin="2" />
@@ -740,6 +785,8 @@
                                 </Border>
                                 <mui:MuiButton IconName="revert" Variant="Ghost" ButtonSize="Sm" Click="OnMenuUndo"
                                                ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo adjustment" />
+                                <mui:MuiButton x:Name="CompareButton" Label="Compare" Variant="Ghost" ButtonSize="Sm" Click="OnCompareClick"
+                                               ToolTipService.ToolTip="Tap to toggle; hold to peek (B or backslash). Before shows the state at open." AutomationProperties.Name="Compare before and after" />
                                 <mui:MuiButton Label="…" Variant="Ghost" ButtonSize="Sm"
                                                ToolTipService.ToolTip="More editing actions" AutomationProperties.Name="More editing actions">
                                     <mui:MuiButton.Flyout>
@@ -761,6 +808,8 @@
                         </Border>
 
                         <!-- Edit tool rail -->
+                        <TextBlock x:Name="ComparisonStatus" Grid.Column="1" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                                   Margin="16" Padding="8" TextWrapping="Wrap" Foreground="{StaticResource MapleTextMain}" AutomationProperties.LiveSetting="Polite" />
                         <Border x:Name="EditRail" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
                                 BorderThickness="1" CornerRadius="10"

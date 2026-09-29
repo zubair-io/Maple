@@ -52,7 +52,7 @@ namespace Maple.WinUI
         private void StartRename(PhotoItem photo)
         {
             ViewModel.BeginRename(photo);
-            PhotoGrid.ScrollIntoView(photo);
+            (_browseListDetail ? (ListViewBase)BrowsePhotoList : PhotoGrid).ScrollIntoView(photo);
             App.MainDispatcherQueue?.TryEnqueue(() => FocusRenameField(photo));
         }
 
@@ -65,7 +65,8 @@ namespace Maple.WinUI
         /// the field still shows correctly once it does become visible.</summary>
         private void FocusRenameField(PhotoItem photo)
         {
-            if (PhotoGrid.ContainerFromItem(photo) is not GridViewItem container)
+            var list = _browseListDetail ? (ListViewBase)BrowsePhotoList : PhotoGrid;
+            if (list.ContainerFromItem(photo) is not FrameworkElement container)
                 return;
             if (FindDescendant<TextBox>(container) is not { } box)
                 return;
