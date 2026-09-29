@@ -331,6 +331,7 @@ namespace Maple.WinUI.ViewModels
                     _cloudDoc = doc;
                     Adjustments = doc.Adjustments;
                     _originalModel = Adjustments.Clone();
+                    OpeningSnapshotVersion++;
                     _undoBaseline = Adjustments.Clone();
                     if (doc.Rating is { } rating) photo.Rating = rating;
                     if (doc.Flag is { } flag) photo.FlagStatus = flag;

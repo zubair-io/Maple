@@ -45,6 +45,7 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private bool _isDateGrouped;
         public DateTime? DateFilterStart { get; private set; }
         public DateTime? DateFilterEndExclusive { get; private set; }
+        public BrowseSort PhotoSort { get; set; } = Enum.TryParse<BrowseSort>(AppSettings.Load().BrowseSort, out var sort) ? sort : BrowseSort.Name;
 
         private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -327,11 +328,14 @@ namespace Maple.WinUI.ViewModels
             // Photos (the flat list) is always the grid's traversal order, so
             // the filmstrip and arrow keys agree with what's on screen in
             // both presentations.
-            IsDateGrouped = _isCloudTimeline || DateFilterStart != null;
+            // Name/rating are global sorts. Date sections would otherwise make
+            // the chosen ordering appear broken at every day boundary.
+            IsDateGrouped = (_isCloudTimeline || DateFilterStart != null) &&
+                PhotoSort is BrowseSort.CapturedNewest or BrowseSort.CapturedOldest;
             var groups = IsDateGrouped
                 ? query
                     .GroupBy(TimelineViewModel.CaptureDay)
-                    .OrderByDescending(g => g.Key)
+                    .OrderBy(g => PhotoSort == BrowseSort.CapturedOldest ? g.Key.Ticks : -g.Key.Ticks)
                     .Select(g =>
                     {
                         var dayGroup = new PhotoDayGroup
@@ -339,10 +343,7 @@ namespace Maple.WinUI.ViewModels
                             Label = g.Key.ToString("dddd, MMMM d, yyyy"),
                             Day = g.Key,
                         };
-                        var ordered = _isCloudTimeline
-                            ? g.OrderByDescending(p => p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime())
-                            : g.OrderBy(p => p.CaptureDate ?? p.FileModifiedUtc.ToLocalTime());
-                        foreach (var item in ordered.ThenBy(p => p.FileName, StringComparer.OrdinalIgnoreCase))
+                        foreach (var item in BrowseSortLogic.Order(g, PhotoSort))
                             dayGroup.Add(item);
                         return dayGroup;
                     })
@@ -363,10 +364,10 @@ namespace Maple.WinUI.ViewModels
             HasPhotos = Photos.Count > 0;
         }
 
-        private static PhotoDayGroup BuildFlatGroup(IEnumerable<PhotoItem> query)
+        private PhotoDayGroup BuildFlatGroup(IEnumerable<PhotoItem> query)
         {
             var flat = new PhotoDayGroup();
-            foreach (var item in query.OrderBy(p => p.FileName, StringComparer.OrdinalIgnoreCase))
+            foreach (var item in BrowseSortLogic.Order(query, PhotoSort))
                 flat.Add(item);
             return flat;
         }

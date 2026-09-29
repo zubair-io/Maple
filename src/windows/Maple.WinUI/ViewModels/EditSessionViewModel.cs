@@ -44,6 +44,15 @@ namespace Maple.WinUI.ViewModels
         private const int UndoDepth = 50;
 
         public AdjustmentState Adjustments { get; private set; } = new();
+        public AdjustmentState OpeningSnapshot() => (_originalModel ?? Adjustments).Clone();
+        public int OpeningSnapshotVersion { get; private set; }
+        public int UndoCount => _undoStack.Count;
+        public bool HasNonDefaultEdits()
+        {
+            var defaults = new AdjustmentState { Temperature = _asShotTemperature, Tint = _asShotTint };
+            return XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }) !=
+                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = defaults });
+        }
         public List<AdjustmentSectionViewModel> Sections { get; }
         public List<HslBandViewModel> HslBands { get; }
         public List<GradeZoneViewModel> GradeZones { get; }
@@ -164,6 +173,8 @@ namespace Maple.WinUI.ViewModels
 
         private void OpenForEditing(PhotoItem photo)
         {
+            _undoTimer?.Dispose();
+            _undoTimer = null;
             FlushSidecarNow();
             PublishPendingCloudPreview();
             _openPhoto = photo;
@@ -185,6 +196,7 @@ namespace Maple.WinUI.ViewModels
                 // Edit entry (#2588 download-to-edit).
                 Adjustments = new AdjustmentState();
                 _originalModel = Adjustments.Clone();
+                OpeningSnapshotVersion++;
                 _undoBaseline = Adjustments.Clone();
                 _undoStack.Clear();
                 _redoStack.Clear();
@@ -198,6 +210,7 @@ namespace Maple.WinUI.ViewModels
             var doc = SidecarStore.Load(photo.FilePath);
             Adjustments = doc?.Adjustments ?? new AdjustmentState();
             _originalModel = Adjustments.Clone();
+            OpeningSnapshotVersion++;
             _undoBaseline = Adjustments.Clone();
             _undoStack.Clear();
             _redoStack.Clear();
@@ -312,7 +325,14 @@ namespace Maple.WinUI.ViewModels
             Renderer.RequestRender(Adjustments.Clone());
             ScheduleSidecarWrite();
             _undoTimer?.Dispose();
-            _undoTimer = new Timer(_ => OnUi(CommitUndoBoundary), null, UndoCommitQuietMs, Timeout.Infinite);
+            Timer? timer = null;
+            timer = new Timer(_ => OnUi(() =>
+            {
+                // A disposed timer can already have a dispatcher callback
+                // queued. It must not append a boundary after Undo or navigation.
+                if (ReferenceEquals(_undoTimer, timer)) CommitUndoBoundary();
+            }), null, UndoCommitQuietMs, Timeout.Infinite);
+            _undoTimer = timer;
             AdjustmentEdited?.Invoke();
         }
 
@@ -329,6 +349,11 @@ namespace Maple.WinUI.ViewModels
 
         public void Undo()
         {
+            _undoTimer?.Dispose();
+            _undoTimer = null;
+            if (_undoBaseline != null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) !=
+                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }))
+                CommitUndoBoundary();
             if (_undoStack.Count == 0)
                 return;
             var before = Adjustments;

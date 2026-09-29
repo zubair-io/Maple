@@ -17,6 +17,12 @@ namespace Maple.WinUI
 
         private void OnToggleSidebar(object sender, RoutedEventArgs e)
         {
+            if (IsCompactShell)
+            {
+                _compactSourcesOpen = !_compactSourcesOpen;
+                UpdateResponsiveShell();
+                return;
+            }
             var hidden = SidebarColDef.Width.Value > 0;
             SidebarColDef.Width = new GridLength(hidden ? 0 : Math.Max(_settings.LeftPanelWidth, 200));
             // Keeps the in-memory _settings field (read elsewhere this
@@ -31,6 +37,7 @@ namespace Maple.WinUI
             // re-loads immediately before writing, per that type's
             // class-level invariant.
             AppSettings.Update(s => s.LeftPanelHidden = hidden);
+            UpdateResponsiveShell();
         }
 
         // --- Selection ---
@@ -45,12 +52,16 @@ namespace Maple.WinUI
 
         private void OnSelectedPhotoChanged()
         {
+            ResetComparison();
             var photo = ViewModel.SelectedPhoto;
             RefreshPhotoInfo();
+            UpdateBrowseDetailImage();
             if (photo == null)
                 return;
-            if (PhotoGrid.SelectedItem != photo)
+            if (!_syncingBrowseSelection && PhotoGrid.SelectedItem != photo)
                 PhotoGrid.SelectedItem = photo;
+            if (!_syncingBrowseSelection && BrowsePhotoList.SelectedItem != photo)
+                BrowsePhotoList.SelectedItem = photo;
             SyncFilmstripRailActive();
             UpdateStarRow();
 
@@ -78,6 +89,7 @@ namespace Maple.WinUI
             if (ReferenceEquals(sender, ViewModel.SelectedPhoto)) RefreshPhotoInfo();
             if (e.PropertyName is not (nameof(PhotoItem.PreviewPath) or nameof(PhotoItem.ThumbnailPath)))
                 return;
+            UpdateBrowseDetailImage();
             var photo = ViewModel.SelectedPhoto;
             // Only refresh while the embedded preview is still what's on screen.
             if (photo != null && ReferenceEquals(sender, photo) && _viewportBitmap == null)
