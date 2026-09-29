@@ -62,6 +62,13 @@ XMP projection, absent/invalid XML, and cloud field/route mapping. The app's
 shutdown, Preview/Info navigation, comparison immutability, native slider
 template/RangeValue support, Browse multi-selection/order, and responsive layout.
 
+The initial Browse smoke used only two photos and did not test overflow. After
+the user reported broken grid scrolling, a 120-photo real WinUI regression
+reproduced a zero vertical scroll range. The grid now explicitly wraps across
+rows and enables vertical scrolling. The regression checks grid and list
+overflow, scrolling down, reaching the last photo, and returning to the top.
+These programmatic checks do not replace mouse-wheel or screenshot review.
+
 Responsive smoke uses root layout sizes 1440×900, 1024×768, 960×600, 683×512,
 720×450 and 512×384 DIPs. These approximate the requested physical-size/scaling
 combinations, but **are not screenshots or actual monitor-DPI qualification**.
@@ -75,8 +82,9 @@ After refreshing window selection, it returned:
 
 The enumerated HWND was the running worktree build; the helper associated it
 with the installed app path and rejected capture. This is a tooling limitation,
-not evidence that the new UI matches the mockups. Keep PR #3890 draft and leave
-the parent issues open until these remaining gates are fulfilled:
+not evidence that the new UI matches the mockups. PR #3890 is ready for review
+per the repository policy; leave the parent issues open and do not merge until
+these remaining gates are fulfilled:
 
 1. Fixed-state current-build Browse, Preview expanded/compact/Info, and Editor
    screenshots at 1024×768 and 1440×900 on actual 100/150/200% DPI; review spacing,
