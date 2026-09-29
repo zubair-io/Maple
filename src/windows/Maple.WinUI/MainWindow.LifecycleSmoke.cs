@@ -70,6 +70,7 @@ namespace Maple.WinUI
                     await VerifyComparisonAsync(raw);
                     await VerifyResponsiveDesignAsync();
                     VerifyBrowseSelection();
+                    await VerifyBrowseScrollingAsync();
                     await VerifyImmediateUndoAsync();
                 }
 
@@ -116,6 +117,7 @@ namespace Maple.WinUI
                     comparisonPreservesDocument = expectedPath != "empty",
                     responsiveDesign = expectedPath != "empty",
                     browseSelectionAndSort = expectedPath != "empty",
+                    browseScrolling = expectedPath != "empty",
                     immediateUndo = expectedPath != "empty"
                 }));
             }

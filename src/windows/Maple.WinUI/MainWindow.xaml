@@ -465,6 +465,10 @@
                             </GridView.ItemTemplate>
                         </GridView>
                         <GridView x:Name="PhotoGrid" Grid.Row="1"
+                              ScrollViewer.HorizontalScrollMode="Disabled"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollMode="Enabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                               ItemsSource="{Binding Source={StaticResource GroupedPhotosSource}}"
                               SelectionMode="Extended" Padding="12"
                               SelectionChanged="OnPhotoGridSelectionChanged"
@@ -473,7 +477,7 @@
                               DragItemsStarting="OnPhotoGridDragItemsStarting"
                               DragItemsCompleted="OnPhotoGridDragItemsCompleted"
                               AutomationProperties.Name="Photo grid">
-                        <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid ItemWidth="192" ItemHeight="192" /></ItemsPanelTemplate></GridView.ItemsPanel>
+                        <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" ItemWidth="192" ItemHeight="192" /></ItemsPanelTemplate></GridView.ItemsPanel>
                         <GridView.ItemContainerStyle><Style TargetType="GridViewItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                             <Setter Property="VerticalContentAlignment" Value="Stretch" />
