@@ -10,7 +10,7 @@ namespace Maple.UI
 {
     /// <summary>One thumbnail in a Filmstrip Row/Rail.</summary>
     public sealed record MuiFilmstripItem(
-        string Id, ImageSource? Source, string Alt, IReadOnlyList<string>? Badges = null);
+        string Id, ImageSource? Source, string Alt, IReadOnlyList<string>? Badges = null, string? Metadata = null);
 
     /// <summary>
     /// Maple.UI Filmstrip Row molecule (unified-component-catalog.md §3,
