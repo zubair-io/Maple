@@ -32,7 +32,7 @@
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use raw_core::raster_analyze::analyze;
+use raw_core::raster_analyze::{analyze, analyze_reader};
 use raw_core::raster_recipe::parse_recipe;
 use raw_core::raster_recipe_exec::run_recipe;
 
@@ -147,18 +147,7 @@ impl Task for RasterAnalyzeBufTask {
     type JsValue = RasterAnalyzeResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(match analyze(&self.input, &self.request_json) {
-            Ok(json) => RasterAnalyzeResult {
-                ok: true,
-                json: Some(json),
-                error: None,
-            },
-            Err(e) => RasterAnalyzeResult {
-                ok: false,
-                json: None,
-                error: Some(e.to_string()),
-            },
-        })
+        Ok(analyze_result(analyze(&self.input, &self.request_json)))
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -176,4 +165,57 @@ pub fn raster_analyze_buf(input: Buffer, request_json: String) -> AsyncTask<Rast
         input: input.to_vec(),
         request_json,
     })
+}
+
+fn analyze_result(result: raw_core::error::Result<String>) -> RasterAnalyzeResult {
+    match result {
+        Ok(json) => RasterAnalyzeResult {
+            ok: true,
+            json: Some(json),
+            error: None,
+        },
+        Err(e) => RasterAnalyzeResult {
+            ok: false,
+            json: None,
+            error: Some(e.to_string()),
+        },
+    }
+}
+
+/// File analysis runs on libuv; metadata skips pixels, stats decodes them.
+pub struct RasterAnalyzePathTask {
+    pub(crate) path: String,
+    pub(crate) request_json: String,
+}
+
+impl Task for RasterAnalyzePathTask {
+    type Output = RasterAnalyzeResult;
+    type JsValue = RasterAnalyzeResult;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let file = match std::fs::File::open(&self.path) {
+            Ok(file) => file,
+            Err(e) => {
+                return Ok(RasterAnalyzeResult {
+                    ok: false,
+                    json: None,
+                    error: Some(format!("failed to read file {}: {e}", self.path)),
+                })
+            }
+        };
+        Ok(analyze_result(analyze_reader(
+            &mut std::io::BufReader::new(file),
+            &self.request_json,
+        )))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
+}
+
+/// Same v1 request/reply as [`raster_analyze_buf`], with seekable file I/O.
+#[napi]
+pub fn raster_analyze_path(path: String, request_json: String) -> AsyncTask<RasterAnalyzePathTask> {
+    AsyncTask::new(RasterAnalyzePathTask { path, request_json })
 }

@@ -220,6 +220,10 @@ export function tryLoadNapiBinding(): NativeBinding | null {
         addon.rasterAnalyzeBuf(input, requestJson),
       ),
 
+      rasterAnalyzePath: wrap<'rasterAnalyzePath'>((inputPath, requestJson) =>
+        addon.rasterAnalyzePath(inputPath, requestJson),
+      ),
+
       // -- RAW-develop export -----------------------------------------------
       exportDevelopedToFile: wrap<'exportDevelopedToFile'>(
         (rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath) =>

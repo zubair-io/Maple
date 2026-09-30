@@ -52,6 +52,7 @@ describe('napi binding resolution', () => {
     expect(typeof napi.rasterExtractTensor).toBe('function');
     expect(typeof napi.rasterPipelineBuf).toBe('function');
     expect(typeof napi.rasterAnalyzeBuf).toBe('function');
+    expect(typeof napi.rasterAnalyzePath).toBe('function');
     expect(typeof napi.exportDevelopedToFile).toBe('function');
     expect(typeof napi.exportRecipeToFile).toBe('function');
     expect(typeof napi.renderThumbnailAvifToFile).toBe('function');

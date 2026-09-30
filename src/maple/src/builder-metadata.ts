@@ -6,7 +6,7 @@
  * the `BuilderState`; `builder.ts`'s class methods are thin wrappers that
  * call into these and (for the fluent setters) `return this`.
  *
- * Backed by `maple_raster_analyze_buf` (`native-raster-analyze.ts`) — see
+ * Backed by `maple_raster_analyze_buf` and `_path` (`native-raster-analyze.ts`) — see
  * `raw-pipeline/raw-core/src/raster_analyze.rs` for the JSON reply this
  * mirrors field-for-field, and `raster_recipe_meta.rs::RecipeMetadata` for
  * the recipe `metadata` block the `with*`/`keep*` methods populate.
@@ -113,9 +113,9 @@ function tier1BufMetadata(m: {
  * non-RAW bitmap file path — the richer metadata block: alpha, embedded
  * colour profile, EXIF/ICC/XMP, density (#3507). A `rawInput` pixel buffer
  * or an actual camera RAW file (by extension, or content-sniffed for a
- * bytes input with no filename to route on) keeps Tier 1's cheap header
- * probe unchanged — analyze()'s container-sidecar reader is written and
- * tested against bitmap containers only.
+ * input with no recognised filename extension) keeps Tier 1's metadata
+ * shape. Both path operations use the seekable reader without decoding
+ * sensor pixels.
  */
 export async function resolveMetadata(state: BuilderState): Promise<ImageMetadata> {
   if (state.rawInput) {
@@ -143,18 +143,24 @@ export async function resolveMetadata(state: BuilderState): Promise<ImageMetadat
   if (!state.inputPath) {
     throw new Error('No input provided to MapleImageBuilder');
   }
-  const bytes = await fs.readFile(state.inputPath);
-  // `isRawPath` only looks at the extension — a genuine camera RAW file
-  // reaching here with an unrecognised or missing one (renamed, extracted
-  // from an archive, uploaded without one) must still content-sniff as
-  // `dng` and route to the header-only probe, the same check the
-  // `inputBytes` branch above already makes. analyze()'s bitmap reader is
-  // untested against RAW containers.
-  const probe = await callNative('rasterProbeMetadataBuf', [bytes]);
-  if (probe.ok && probe.metadata?.format === 'dng') {
-    return tier1BufMetadata(probe.metadata);
-  }
-  return metadataFromReply(await analyzeBytes(bytes, ['metadata']));
+  const res = await callNative('rasterAnalyzePath', [
+    state.inputPath,
+    JSON.stringify({ v: 1, what: ['metadata'] }),
+  ]);
+  if (!res.ok || !res.json) throw new Error(res.error || 'Failed to analyze image');
+  const reply = JSON.parse(res.json) as Record<string, unknown>;
+  const m = reply.metadata as {
+    width: number;
+    height: number;
+    channels: number;
+    orientation: number | null;
+    format: string;
+  };
+  // The seekable reader also content-sniffs TIFF/DNG headers. Preserve the
+  // Tier 1 RAW shape for renamed uploads without a second native probe.
+  return m.format === 'dng'
+    ? tier1BufMetadata({ ...m, orientation: m.orientation ?? 1 })
+    : metadataFromReply(reply);
 }
 
 /** Normalise a raw pixel buffer to a lossless PNG so `analyze()` can decode it. */
@@ -198,6 +204,8 @@ export async function resolveStats(state: BuilderState): Promise<ImageStats> {
   if (state.rawInput) {
     return statsFromReply(await analyzeBytes(await renderRawInputToPng(state.rawInput), ['stats']));
   }
+  // Stats must decode every pixel, so loading encoded bytes here is intentional.
+  // A bounded metadata path would only defer this same full read to the decoder.
   const bytes = state.inputBytes ?? (state.inputPath ? await fs.readFile(state.inputPath) : null);
   if (!bytes) {
     throw new Error('No input provided to MapleImageBuilder');
