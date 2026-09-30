@@ -30,7 +30,6 @@ import { solidJpeg, withExifOrientation } from '../../test-support/synth-image.t
  */
 const RENDERED = { patch: [], invalidates: ['cf-thumb-sync'] };
 
-
 function makeDoc(
   absPath: string,
   libraryId: ObjectId,
