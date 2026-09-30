@@ -140,6 +140,7 @@ namespace Maple.UI
         public event EventHandler? Dismissed;
 
         private readonly Popup _popup = new() { IsLightDismissEnabled = false };
+        private Control? _returnFocus;
         private readonly Grid _scrim = new();
         // ContentControl, not Border — IsTabStop/Focus need a real Control;
         // a bare Border can't take keyboard focus (same reasoning
@@ -227,18 +228,26 @@ namespace Maple.UI
             {
                 if (XamlRoot != null)
                 {
+                    _returnFocus = FocusManager.GetFocusedElement(XamlRoot) as Control;
                     _popup.XamlRoot = XamlRoot;
                     XamlRoot.Changed += OnXamlRootChanged;
                     ResizeScrim();
                 }
                 _popup.IsOpen = true;
-                DispatcherQueue.TryEnqueue(() => _ = FocusManager.TryFocusAsync(_panel, FocusState.Programmatic));
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (IsOpen) _panel.Focus(FocusState.Programmatic);
+                });
             }
             else
             {
                 _popup.IsOpen = false;
                 if (_popup.XamlRoot != null)
                     _popup.XamlRoot.Changed -= OnXamlRootChanged;
+                var returnFocus = _returnFocus;
+                _returnFocus = null;
+                if (returnFocus?.IsLoaded == true && returnFocus.IsEnabled)
+                    returnFocus.Focus(FocusState.Keyboard);
             }
         }
 
