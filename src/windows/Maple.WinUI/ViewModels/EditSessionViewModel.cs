@@ -391,15 +391,13 @@ namespace Maple.WinUI.ViewModels
             }
             try
             {
-                var doc = new XmpSidecarDocument
+                _lastSidecarWriteText = SidecarStore.Update(photo.FilePath, doc =>
                 {
-                    Adjustments = Adjustments.Clone(),
-                    Rating = photo.Rating,
-                    Flag = photo.FlagStatus,
-                    ColorLabel = photo.ColorLabel,
-                };
-                _lastSidecarWriteText = XmpWriter.Serialize(doc);
-                SidecarStore.Save(photo.FilePath, doc);
+                    doc.Adjustments = Adjustments.Clone();
+                    doc.Rating = photo.Rating;
+                    doc.Flag = photo.FlagStatus;
+                    doc.ColorLabel = photo.ColorLabel;
+                });
             }
             catch (Exception ex)
             {

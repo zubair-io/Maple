@@ -16,6 +16,32 @@ namespace Maple.WinUI.Services.Xmp
     {
         /// <summary>UTF-8 without BOM — the xpacket header carries its own U+FEFF marker.</summary>
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        private static readonly object WriteGate = new();
+
+        /// <summary>Change owned fields in the latest sidecar, retaining imported
+        /// metadata and unknown XML. Invalid/unreadable sidecars are never
+        /// replaced by defaults. Serializes in-process metadata/autosave writes.</summary>
+        public static string Update(string rawPath, Action<XmpSidecarDocument> update)
+        {
+            lock (WriteGate)
+            {
+                var path = SidecarPathFor(rawPath);
+                XmpSidecarDocument doc;
+                try
+                {
+                    using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    if (stream.Length > 4 * 1024 * 1024) throw new IOException("Sidecar exceeds the 4 MiB editing limit.");
+                    using var reader = new StreamReader(stream, Encoding.UTF8);
+                    doc = XmpParser.Parse(reader.ReadToEnd())
+                        ?? throw new IOException("Existing sidecar is invalid; it was not overwritten.");
+                }
+                catch (FileNotFoundException) { doc = new XmpSidecarDocument(); }
+                update(doc);
+                var xml = XmpWriter.Serialize(doc);
+                SaveText(path, xml);
+                return xml;
+            }
+        }
 
         /// <summary>
         /// Video container extensions (lowercase, no dot). Mirrors the API's
@@ -87,6 +113,11 @@ namespace Maple.WinUI.Services.Xmp
         {
             var sidecarPath = SidecarPathFor(rawPath);
             var xml = XmpWriter.Serialize(doc);
+            lock (WriteGate) SaveText(sidecarPath, xml);
+        }
+
+        private static void SaveText(string sidecarPath, string xml)
+        {
             var tempPath = $"{sidecarPath}.{Guid.NewGuid():N}.tmp";
             try
             {

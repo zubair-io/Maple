@@ -304,6 +304,8 @@
     <Compile Include="..\Maple.WinUI\ComparisonGesture.cs" />
     <Compile Include="..\Maple.WinUI\ViewModels\BrowseSortLogic.cs" />
     <Compile Include="..\Maple.WinUI\Services\Metadata\InspectorMetadata.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Metadata\MetadataPatch.cs" />
+    <Compile Include="..\Maple.WinUI\Services\Metadata\MetadataBatch.cs" />
     <Compile Include="..\Maple.WinUI\ViewerFilmstripLogic.cs" />
     <Compile Include="..\Maple.WinUI\Services\FileOperations\*.cs" LinkBase="FileOperations" />
     <Compile Include="..\Maple.WinUI\Services\DiagLog.cs" LinkBase="Services" />
