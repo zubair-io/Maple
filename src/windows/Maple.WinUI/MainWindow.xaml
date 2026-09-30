@@ -879,6 +879,7 @@
                                             <MenuFlyoutSeparator />
                                             <MenuFlyoutItem Text="Lens corrections" Click="OnLensTools" />
                                             <MenuFlyoutItem Text="Film looks" Click="OnFilmTools" />
+                                            <MenuFlyoutItem Text="Heal / Clone" Click="OnRetouchTools" />
                                             <MenuFlyoutItem Text="Presets" Click="OnPresetTools" />
                                             <MenuFlyoutItem Text="Geometry" Click="OnGeometryTools" />
                                             <MenuFlyoutItem Text="Brightness…" Click="OnBrightnessValue" />
@@ -984,6 +985,7 @@
                                         <!-- Point tone-curve plot (#2576): channel tabs, plot,
                                              reset footer — above the parametric sliders. -->
                                         <StackPanel x:Name="PanelFilmHost" Visibility="Collapsed" Spacing="8" />
+                                        <StackPanel x:Name="PanelRetouchHost" Visibility="Collapsed" />
                                         <StackPanel x:Name="PanelPresetsHost" Visibility="Collapsed" Spacing="8" />
                                         <StackPanel x:Name="PanelCurveHost" Visibility="Collapsed" Spacing="6"
                                                     Margin="0,0,0,8">

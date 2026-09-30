@@ -142,6 +142,7 @@ namespace Maple.WinUI
             BuildDemosaicPanel();
             BuildCropPanel();
             BuildMaskPanel();
+            BuildRetouchPanel();
             MaybeStartQualifyRun();
             CurvePlot.PointsChanged += OnCurvePointsChanged;
             ViewModel.ModelSynced += () =>
@@ -156,6 +157,7 @@ namespace Maple.WinUI
                     RefreshCurvePlot();
                 SyncCropFromModel();
                 SyncMaskFromModel();
+                SyncRetouchPanel();
             };
             HookViewerPan();
             HookNativeDetail();
