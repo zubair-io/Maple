@@ -18,6 +18,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/qualification-fixture.ps1"
+. "$PSScriptRoot/qualification-timing.ps1"
 
 if ($Raw -eq "") {
     $fixture = Join-Path $PSScriptRoot "..\..\..\test-fixtures\raws\dji-mavic3pro-100mp.dng"
@@ -78,12 +79,10 @@ function Invoke-QualifyRun([hashtable]$extraEnv, [string]$outDir) {
 Write-Output "== GPU tick timing =="
 $gpu = Invoke-QualifyRun @{} (Join-Path $work "gpu")
 if ($gpu.render_path -ne 'gpu') { throw "GPU qualification fell back to $($gpu.render_path); no GPU result." }
-Write-Output ("path={0} decode={1}ms median tick={2}ms p95={3}ms (target 16ms, hard limit 50ms)" -f `
-    $gpu.render_path, $gpu.decode_ms, $gpu.median_ms, $gpu.p95_ms)
-$tickVerdict = if ($gpu.p95_ms -gt 50) { "FAIL (p95 exceeds 50ms hard limit)" }
-    elseif ($gpu.median_ms -le 16) { "PASS (target)" }
-    elseif ($gpu.median_ms -le 50) { "WITHIN HARD LIMIT (misses 16ms target - #2587 optimization backlog)" }
-    else { "FAIL (exceeds 50ms hard limit)" }
+$timing = Get-QualificationTiming $gpu
+Write-Output ("path={0} decode={1}ms median tick={2}ms p95={3}ms max={4}ms (target 16ms, hard limit 50ms)" -f `
+    $gpu.render_path, $gpu.decode_ms, $timing.Median, $timing.P95, $timing.Maximum)
+$tickVerdict = $timing.Verdict
 Write-Output "tick verdict: $tickVerdict"
 
 Write-Output "== CPU parity frame =="
