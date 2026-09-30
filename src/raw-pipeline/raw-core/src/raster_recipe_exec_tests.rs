@@ -6,6 +6,7 @@
 //! verbatim, `super` is `raster_recipe_exec`.
 
 use super::*;
+use crate::error::Error;
 use crate::raster_recipe::parse_recipe;
 
 fn run(json: &str, input: &[u8], aux: &[u8]) -> RecipeResult {
@@ -259,6 +260,10 @@ fn an_unsupported_fit_or_kernel_is_named() {
         ))
         .unwrap();
         let err = run_recipe(&recipe, &[0u8; 12], &[]).unwrap_err();
+        let Error::Recipe(reason) = &err else {
+            panic!("invalid option was misclassified: {err:?}");
+        };
+        assert_eq!(err.to_string(), *reason);
         assert!(
             format!("{err}").contains(needle),
             "expected {needle}, got: {err}"

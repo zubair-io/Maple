@@ -37,17 +37,13 @@ impl AuxRef {
         let end = self
             .off
             .checked_add(self.len)
-            .ok_or_else(|| Error::Decode {
-                path: "<memory>".into(),
-                reason: format!("aux reference {}+{} overflows", self.off, self.len),
-            })?;
-        aux.get(self.off..end).ok_or_else(|| Error::Decode {
-            path: "<memory>".into(),
-            reason: format!(
+            .ok_or_else(|| bad(format!("aux reference {}+{} overflows", self.off, self.len)))?;
+        aux.get(self.off..end).ok_or_else(|| {
+            bad(format!(
                 "aux reference {}..{end} is outside the {}-byte aux buffer",
                 self.off,
                 aux.len()
-            ),
+            ))
         })
     }
 }
@@ -358,25 +354,17 @@ pub struct Recipe {
 /// `raster_recipe_exec` and `raster_recipe_colour` so every validation error
 /// in the pipeline is reported the same way.
 pub(crate) fn bad(reason: String) -> Error {
-    Error::Decode {
-        path: "<recipe>".into(),
-        reason,
-    }
+    Error::Recipe(reason)
 }
 
 pub fn parse_recipe(json: &str) -> Result<Recipe> {
-    let recipe: Recipe = serde_json::from_str(json).map_err(|e| Error::Decode {
-        path: "<recipe>".into(),
-        reason: format!("recipe parse failed: {e}"),
-    })?;
+    let recipe: Recipe =
+        serde_json::from_str(json).map_err(|e| bad(format!("recipe parse failed: {e}")))?;
     if recipe.v != RECIPE_VERSION {
-        return Err(Error::Decode {
-            path: "<recipe>".into(),
-            reason: format!(
-                "recipe version {} is not supported (this build speaks version {RECIPE_VERSION})",
-                recipe.v
-            ),
-        });
+        return Err(bad(format!(
+            "recipe version {} is not supported (this build speaks version {RECIPE_VERSION})",
+            recipe.v
+        )));
     }
     Ok(recipe)
 }
