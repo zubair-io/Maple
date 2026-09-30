@@ -75,6 +75,16 @@ impl ExportFormat {
         }
     }
 
+    fn encoder_name(self) -> &'static str {
+        match self {
+            Self::Jpeg => "JPEG",
+            Self::Tiff16 => "TIFF",
+            Self::Png => "PNG",
+            Self::Avif => "AVIF",
+            Self::Webp => "WebP",
+        }
+    }
+
     /// The channel depth this container is written at.
     fn depth(self) -> ExportDepth {
         match self {
@@ -169,9 +179,10 @@ pub fn export_from_raw_with_film(
         // are exhaustive in practice; this keeps that invariant loud rather
         // than letting a future format land on a silently wrong encoder.
         (format, _) => {
-            return Err(Error::Png(format!(
-                "export: render produced the wrong sample depth for {format:?}"
-            )))
+            return Err(Error::encode(
+                format.encoder_name(),
+                format!("export: render produced the wrong sample depth for {format:?}"),
+            ))
         }
     };
 
@@ -184,12 +195,13 @@ pub fn export_from_raw_with_film(
 
 /// Reject a buffer whose length disagrees with the dimensions before handing it
 /// to an encoder, so the failure names the real problem.
-fn check_len(width: u32, height: u32, actual: usize) -> Result<()> {
+fn check_len(format: ExportFormat, width: u32, height: u32, actual: usize) -> Result<()> {
     let expected = (width as usize) * (height as usize) * 3;
     if actual != expected {
-        return Err(Error::Png(format!(
-            "export: expected {expected} samples for {width}x{height}, got {actual}"
-        )));
+        return Err(Error::encode(
+            format.encoder_name(),
+            format!("export: expected {expected} samples for {width}x{height}, got {actual}"),
+        ));
     }
     Ok(())
 }
@@ -201,38 +213,38 @@ fn encode_jpeg(
     quality: u8,
     profile: Vec<u8>,
 ) -> Result<Vec<u8>> {
-    check_len(width, height, rgb.len())?;
+    check_len(ExportFormat::Jpeg, width, height, rgb.len())?;
     let mut out: Vec<u8> = Vec::new();
     let mut encoder = JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100));
     encoder
         .set_icc_profile(profile)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("JPEG", e.to_string()))?;
     encoder
         .write_image(rgb, width, height, ExtendedColorType::Rgb8)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("JPEG", e.to_string()))?;
     Ok(out)
 }
 
 fn encode_png(width: u32, height: u32, rgb: &[u8], profile: Vec<u8>) -> Result<Vec<u8>> {
-    check_len(width, height, rgb.len())?;
+    check_len(ExportFormat::Png, width, height, rgb.len())?;
     let mut out: Vec<u8> = Vec::new();
     let mut encoder = PngEncoder::new(&mut out);
     encoder
         .set_icc_profile(profile)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("PNG", e.to_string()))?;
     encoder
         .write_image(rgb, width, height, ExtendedColorType::Rgb8)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("PNG", e.to_string()))?;
     Ok(out)
 }
 
 fn encode_tiff16(width: u32, height: u32, rgb: &[u16], profile: Vec<u8>) -> Result<Vec<u8>> {
-    check_len(width, height, rgb.len())?;
+    check_len(ExportFormat::Tiff16, width, height, rgb.len())?;
     let mut out: Vec<u8> = Vec::new();
     let mut encoder = TiffEncoder::new(std::io::Cursor::new(&mut out));
     encoder
         .set_icc_profile(profile)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("TIFF", e.to_string()))?;
     encoder
         .write_image(
             bytemuck::cast_slice::<u16, u8>(rgb),
@@ -240,7 +252,7 @@ fn encode_tiff16(width: u32, height: u32, rgb: &[u16], profile: Vec<u8>) -> Resu
             height,
             ExtendedColorType::Rgb16,
         )
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("TIFF", e.to_string()))?;
     Ok(out)
 }
 
@@ -293,17 +305,17 @@ pub fn encode_webp(
     rgb: &[u8],
     primaries: crate::view::encode::TargetPrimaries,
 ) -> Result<Vec<u8>> {
-    check_len(width, height, rgb.len())?;
+    check_len(ExportFormat::Webp, width, height, rgb.len())?;
     let mut out: Vec<u8> = Vec::new();
     let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
     if primaries == crate::view::encode::TargetPrimaries::P3 {
         encoder
             .set_icc_profile(icc::profile_for(primaries))
-            .map_err(|e| Error::Png(e.to_string()))?;
+            .map_err(|e| Error::encode("WebP", e.to_string()))?;
     }
     encoder
         .write_image(rgb, width, height, ExtendedColorType::Rgb8)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("WebP", e.to_string()))?;
     Ok(out)
 }
 
@@ -386,15 +398,15 @@ pub fn encode_avif_rgba_with_speed(
 ) -> Result<Vec<u8>> {
     let expected = (width as usize) * (height as usize) * 4;
     if rgba.len() != expected {
-        return Err(Error::Png(format!(
-            "expected {expected} bytes, got {}",
-            rgba.len()
-        )));
+        return Err(Error::encode(
+            "AVIF",
+            format!("expected {expected} bytes, got {}", rgba.len()),
+        ));
     }
     let mut out: Vec<u8> = Vec::new();
     image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut out, speed.clamp(1, 10), quality)
         .write_image(rgba, width, height, ExtendedColorType::Rgba8)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("AVIF", e.to_string()))?;
     Ok(out)
 }
 

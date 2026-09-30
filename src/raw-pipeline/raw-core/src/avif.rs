@@ -33,18 +33,17 @@ pub fn encode_with_speed(
 ) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
-        return Err(Error::Png(format!(
-            "expected {} bytes, got {}",
-            expected_len,
-            rgb.len()
-        )));
+        return Err(Error::encode(
+            "AVIF",
+            format!("expected {} bytes, got {}", expected_len, rgb.len()),
+        ));
     }
     let mut out: Vec<u8> = Vec::new();
     // `write_image` asserts `data.len() == expected_buffer_len` internally —
     // the length check above guards the FFI boundary before that assert.
     AvifEncoder::new_with_speed_quality(&mut out, speed.clamp(1, 10), quality)
         .write_image(rgb, width, height, ExtendedColorType::Rgb8)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("AVIF", e.to_string()))?;
     Ok(out)
 }
 
@@ -63,7 +62,12 @@ mod tests {
 
     #[test]
     fn wrong_length_errors() {
-        assert!(encode(2, 2, &[0u8; 10], 55).is_err());
+        let err = encode(2, 2, &[0u8; 10], 55).unwrap_err();
+        assert!(matches!(err, Error::Encode { format: "AVIF", .. }));
+        assert_eq!(
+            err.to_string(),
+            "AVIF write error: expected 12 bytes, got 10"
+        );
     }
 
     #[test]

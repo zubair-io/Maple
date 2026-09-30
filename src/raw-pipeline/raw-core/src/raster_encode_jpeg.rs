@@ -73,7 +73,7 @@ impl Default for JpegOptions {
 const XMP_NAMESPACE: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 
 fn encode_error(e: impl std::fmt::Display) -> Error {
-    Error::Png(format!("jpeg encode failed: {e}"))
+    Error::encode("JPEG", format!("jpeg encode failed: {e}"))
 }
 
 /// The JFIF density segment this encode writes. `None` keeps the crate's own

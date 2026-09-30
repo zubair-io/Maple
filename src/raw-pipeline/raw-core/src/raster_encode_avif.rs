@@ -138,7 +138,7 @@ fn bit_depth_for(bitdepth: u16) -> Option<BitDepth> {
 }
 
 fn avif_error(e: impl std::fmt::Display) -> Error {
-    Error::Png(format!("avif encode failed: {e}"))
+    Error::encode("AVIF", format!("avif encode failed: {e}"))
 }
 
 /// sharp's AVIF `effort` (0 fastest … 9 slowest) → rav1e speed (10 fastest …
@@ -266,18 +266,19 @@ pub fn encode_webp_opts(
                 .into(),
         ));
     }
-    let webp_error = |e: image::ImageError| Error::Png(format!("webp encode failed: {e}"));
+    let webp_error =
+        |e: image::ImageError| Error::encode("WebP", format!("webp encode failed: {e}"));
     let mut out: Vec<u8> = Vec::new();
     let mut encoder = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
     if let Some(profile) = meta.icc {
         encoder
             .set_icc_profile(profile.to_vec())
-            .map_err(|e| Error::Png(format!("webp ICC embed failed: {e}")))?;
+            .map_err(|e| Error::encode("WebP", format!("webp ICC embed failed: {e}")))?;
     }
     if let Some(block) = meta.exif {
         encoder
             .set_exif_metadata(block.to_vec())
-            .map_err(|e| Error::Png(format!("webp EXIF embed failed: {e}")))?;
+            .map_err(|e| Error::encode("WebP", format!("webp EXIF embed failed: {e}")))?;
     }
     encoder
         .write_image(

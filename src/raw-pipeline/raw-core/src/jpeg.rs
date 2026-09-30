@@ -14,19 +14,18 @@ use image::{ImageBuffer, Rgb};
 pub fn encode(width: u32, height: u32, rgb: &[u8], quality: u8) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
-        return Err(Error::Png(format!(
-            "expected {} bytes, got {}",
-            expected_len,
-            rgb.len()
-        )));
+        return Err(Error::encode(
+            "JPEG",
+            format!("expected {} bytes, got {}", expected_len, rgb.len()),
+        ));
     }
     let buf = ImageBuffer::<Rgb<u8>, _>::from_raw(width, height, rgb.to_vec())
-        .ok_or_else(|| Error::Png("failed to build ImageBuffer".into()))?;
+        .ok_or_else(|| Error::encode("JPEG", "failed to build ImageBuffer".into()))?;
     let mut out: Vec<u8> = Vec::with_capacity(expected_len / 4);
     let mut encoder = JpegEncoder::new_with_quality(&mut out, quality);
     encoder
         .encode_image(&buf)
-        .map_err(|e| Error::Png(e.to_string()))?;
+        .map_err(|e| Error::encode("JPEG", e.to_string()))?;
     Ok(out)
 }
 
@@ -45,6 +44,11 @@ mod tests {
 
     #[test]
     fn wrong_length_errors() {
-        assert!(encode(2, 2, &[0u8; 10], 92).is_err());
+        let err = encode(2, 2, &[0u8; 10], 92).unwrap_err();
+        assert!(matches!(err, Error::Encode { format: "JPEG", .. }));
+        assert_eq!(
+            err.to_string(),
+            "JPEG write error: expected 12 bytes, got 10"
+        );
     }
 }

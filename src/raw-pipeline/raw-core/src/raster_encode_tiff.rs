@@ -114,7 +114,7 @@ impl Default for TiffOptions {
 }
 
 fn tiff_error(e: impl std::fmt::Display) -> Error {
-    Error::Png(format!("tiff encode failed: {e}"))
+    Error::encode("TIFF", format!("tiff encode failed: {e}"))
 }
 
 /// The predictor this encode actually writes, which is narrower than what

@@ -7,11 +7,10 @@ use crate::error::{Error, Result};
 pub fn encode(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
-        return Err(Error::Png(format!(
-            "expected {} bytes, got {}",
-            expected_len,
-            rgb.len()
-        )));
+        return Err(Error::encode(
+            "PNG",
+            format!("expected {} bytes, got {}", expected_len, rgb.len()),
+        ));
     }
     let mut out: Vec<u8> = Vec::with_capacity(expected_len / 4);
     {
@@ -22,10 +21,10 @@ pub fn encode(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>> {
         encoder.set_source_srgb(png::SrgbRenderingIntent::Perceptual);
         let mut writer = encoder
             .write_header()
-            .map_err(|e| Error::Png(e.to_string()))?;
+            .map_err(|e| Error::encode("PNG", e.to_string()))?;
         writer
             .write_image_data(rgb)
-            .map_err(|e| Error::Png(e.to_string()))?;
+            .map_err(|e| Error::encode("PNG", e.to_string()))?;
     }
     Ok(out)
 }
@@ -52,9 +51,13 @@ mod tests {
     #[test]
     fn wrong_length_errors() {
         let err = encode(2, 2, &[0u8; 10]).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "PNG write error: expected 12 bytes, got 10"
+        );
         match err {
-            Error::Png(_) => {}
-            _ => panic!("expected Error::Png"),
+            Error::Encode { format: "PNG", .. } => {}
+            _ => panic!("expected a PNG encode error"),
         }
     }
 }

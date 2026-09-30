@@ -188,7 +188,7 @@ fn encode_png_rgba(raster: &RasterImage, profile: Vec<u8>) -> Result<Vec<u8>> {
     let mut encoder = PngEncoder::new(&mut out);
     encoder
         .set_icc_profile(profile)
-        .map_err(|e| crate::error::Error::Png(e.to_string()))?;
+        .map_err(|e| crate::error::Error::encode("PNG", e.to_string()))?;
     encoder
         .write_image(
             &raster.data,
@@ -196,7 +196,7 @@ fn encode_png_rgba(raster: &RasterImage, profile: Vec<u8>) -> Result<Vec<u8>> {
             raster.height,
             ExtendedColorType::Rgba8,
         )
-        .map_err(|e| crate::error::Error::Png(e.to_string()))?;
+        .map_err(|e| crate::error::Error::encode("PNG", e.to_string()))?;
     Ok(out)
 }
 
@@ -209,7 +209,7 @@ fn encode_webp_rgba(raster: &RasterImage, primaries: TargetPrimaries) -> Result<
     if primaries == TargetPrimaries::P3 {
         encoder
             .set_icc_profile(icc::profile_for(primaries))
-            .map_err(|e| crate::error::Error::Png(e.to_string()))?;
+            .map_err(|e| crate::error::Error::encode("WebP", e.to_string()))?;
     }
     encoder
         .write_image(
@@ -218,7 +218,7 @@ fn encode_webp_rgba(raster: &RasterImage, primaries: TargetPrimaries) -> Result<
             raster.height,
             ExtendedColorType::Rgba8,
         )
-        .map_err(|e| crate::error::Error::Png(e.to_string()))?;
+        .map_err(|e| crate::error::Error::encode("WebP", e.to_string()))?;
     Ok(out)
 }
 

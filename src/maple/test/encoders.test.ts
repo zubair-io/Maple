@@ -9,6 +9,16 @@ const fixtureDng = path.join(repoRoot, 'test-fixtures/batch-transfer/source.dng'
 
 /** Gate for #3506: encoder options through the real FFI. */
 describe('Encoder options', () => {
+  it('names JPEG when its native encoder rejects an oversized dimension', async () => {
+    await expect(
+      maple({ data: new Uint8Array(65_536 * 3), width: 65_536, height: 1, channels: 3 })
+        .jpeg()
+        .toBuffer(),
+    ).rejects.toThrow(
+      /^JPEG write error: jpeg encode failed: width 65536 exceeds JPEG's 65535 limit$/,
+    );
+  });
+
   const noise = (w: number, h: number) => ({
     data: new Uint8Array(
       Array.from({ length: w * h * 3 }, (_, i) => (Math.imul(i, 2654435761) >>> 13) & 0xff),
