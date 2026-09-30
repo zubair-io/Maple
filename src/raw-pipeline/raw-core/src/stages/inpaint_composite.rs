@@ -52,6 +52,38 @@ fn sample_cov(cov: &[f32], w: u32, h: u32, fx: f32, fy: f32) -> f32 {
     top + (bot - top) * ty
 }
 
+/// Pixel-center affine map `[scale_x, scale_y, offset_x, offset_y]` for
+/// CPU and WGSL sampling. Calculate once when preparing a source/stack
+/// revision. Native integer placement is recovered within the error bound
+/// of the stored f32 normalized geometry, so a binary mask cannot bleed
+/// into its neighbor merely because a DefaultCrop dimension is non-power-2.
+pub fn sampling_map(image_size: [u32; 2], patch: &InpaintPatch, window: [f32; 4]) -> [f32; 4] {
+    let axis = |i: usize, pixels: u32| {
+        let extent = f64::from(patch.extent[i]);
+        let scale =
+            f64::from(window[i + 2]) / extent * f64::from(pixels) / f64::from(image_size[i]);
+        let offset = (f64::from(window[i]) - f64::from(patch.origin[i])) / extent
+            * f64::from(pixels)
+            + 0.5 * scale
+            - 0.5;
+        let epsilon = f64::from(f32::EPSILON);
+        let offset_error = 4.0
+            * epsilon
+            * ((f64::from(window[i]).abs() + f64::from(patch.origin[i]).abs()) / extent
+                * f64::from(pixels)
+                + offset.abs()
+                + 1.0);
+        if (scale - 1.0).abs() <= 4.0 * epsilon && (offset - offset.round()).abs() <= offset_error {
+            (1.0, offset.round() as f32)
+        } else {
+            (scale as f32, offset as f32)
+        }
+    };
+    let (sx, ox) = axis(0, patch.width);
+    let (sy, oy) = axis(1, patch.height);
+    [sx, sy, ox, oy]
+}
+
 /// Composite each valid patch into `img` (scene-linear Rec.2020). No-op when
 /// `patches` is empty.
 pub fn apply(img: &mut Image, patches: &[InpaintPatch]) {
@@ -83,26 +115,18 @@ pub fn apply_window(
 
 fn composite_patch(img: &mut Image, patch: &InpaintPatch, window: [f32; 4]) {
     let (iw, ih) = (img.width, img.height);
-    let [ox, oy] = patch.origin;
-    let [ex, ey] = patch.extent;
     let (pw, ph) = (patch.width, patch.height);
+    let [sx, sy, ox, oy] = sampling_map([iw, ih], patch, window);
     for y in 0..ih {
-        // Pixel-center normalized v; skip rows outside the patch rect.
-        let v = window[1] + (y as f32 + 0.5) / ih as f32 * window[3];
-        if v < oy || v >= oy + ey {
+        let pv = y as f32 * sy + oy;
+        if pv < -0.5 || pv >= ph as f32 - 0.5 {
             continue;
         }
-        // Pixel-center mapping: normalized-within-patch → source pixel
-        // space `[-0.5, ph-0.5]` (centers at integers). The `- 0.5` makes a
-        // matching-resolution composite an exact 1:1 read, not a half-pixel
-        // blur; bilinear_idx clamps the out-of-range ends.
-        let pv = ((v - oy) / ey).clamp(0.0, 1.0) * ph as f32 - 0.5;
         for x in 0..iw {
-            let u = window[0] + (x as f32 + 0.5) / iw as f32 * window[2];
-            if u < ox || u >= ox + ex {
+            let pu = x as f32 * sx + ox;
+            if pu < -0.5 || pu >= pw as f32 - 0.5 {
                 continue;
             }
-            let pu = ((u - ox) / ex).clamp(0.0, 1.0) * pw as f32 - 0.5;
             let cov = sample_cov(&patch.coverage, pw, ph, pu, pv).clamp(0.0, 1.0);
             if cov <= 0.0 {
                 continue;
@@ -113,6 +137,10 @@ fn composite_patch(img: &mut Image, patch: &InpaintPatch, window: [f32; 4]) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "inpaint_native_tests.rs"]
+mod native_tests;
 
 #[cfg(test)]
 mod tests {

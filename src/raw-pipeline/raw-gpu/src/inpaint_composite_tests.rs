@@ -24,8 +24,7 @@ fn run(ctx: &GpuContext, w: u32, h: u32, window: [f32; 4], patches: &[InpaintPat
             InpaintCompositePass::new(
                 p.width,
                 p.height,
-                [p.origin[0], p.origin[1], p.extent[0], p.extent[1]],
-                window,
+                raw_core::stages::inpaint_composite::sampling_map([w, h], p, window),
                 rgba,
             )
             .unwrap()
@@ -113,8 +112,7 @@ fn opaque_coverage_copies_scene_values_exactly_despite_hdr_base() {
     let pass = InpaintCompositePass::new(
         2,
         1,
-        [0.0, 0.0, 1.0, 1.0],
-        [0.0, 0.0, 1.0, 1.0],
+        [1.0, 1.0, 0.0, 0.0],
         vec![replacement, [1.0, 1.0, 1.0, 0.0]],
     )
     .unwrap();
@@ -128,18 +126,47 @@ fn opaque_coverage_copies_scene_values_exactly_despite_hdr_base() {
 }
 
 #[test]
+fn native_mask_edges_do_not_bleed_on_non_power_of_two_source() {
+    let ctx = GpuContext::new_blocking().expect("GPU required for removal parity");
+    let window = raw_core::types::accepted_removal::NativeWindow {
+        x: 400,
+        y: 1000,
+        width: 1024,
+        height: 1024,
+    }
+    .region(5984, 3992);
+    let patch = InpaintPatch {
+        width: 1024,
+        height: 1024,
+        origin: [window[0], window[1]],
+        extent: [window[2], window[3]],
+        pixels: vec![[-0.125, 0.18, 8.0]; 1024 * 1024],
+        coverage: (0..1024 * 1024)
+            .map(|i| {
+                if (412..612).contains(&(i % 1024)) && (412..612).contains(&(i / 1024)) {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect(),
+    };
+    run(&ctx, 1024, 1024, window, &[patch]);
+}
+
+#[test]
 fn invalid_patch_cannot_be_published_to_gpu() {
-    for (w, region, rgba) in [
-        (0, [0.0, 0.0, 1.0, 1.0], vec![]),
-        (1, [0.0, 0.0, f32::NAN, 1.0], vec![[0.0; 4]]),
-        (1, [0.5, 0.0, 1.0, 1.0], vec![[0.0; 4]]),
+    for (w, sampling, rgba) in [
+        (0, [1.0, 1.0, 0.0, 0.0], vec![]),
+        (1, [1.0, 1.0, f32::NAN, 0.0], vec![[0.0; 4]]),
+        (1, [0.0, 1.0, 0.0, 0.0], vec![[0.0; 4]]),
         (
             1,
-            [0.0, 0.0, 1.0, 1.0],
+            [1.0, 1.0, 0.0, 0.0],
             vec![[f32::INFINITY, 0.0, 0.0, 1.0]],
         ),
-        (1, [0.0, 0.0, 1.0, 1.0], vec![[0.0, 0.0, 0.0, -0.1]]),
+        (1, [1.0, 1.0, 0.0, 0.0], vec![[0.0, 0.0, 0.0, -0.1]]),
     ] {
-        assert!(InpaintCompositePass::new(w, 1, region, [0.0, 0.0, 1.0, 1.0], rgba).is_err());
+        assert!(InpaintCompositePass::new(w, 1, sampling, rgba).is_err());
     }
 }

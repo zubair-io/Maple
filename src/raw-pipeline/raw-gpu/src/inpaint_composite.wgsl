@@ -1,7 +1,6 @@
 // CPU oracle: raw-core/stages/inpaint_composite.rs (#3935).
 struct Params {
-    window: vec4<f32>,
-    region: vec4<f32>,
+    sampling: vec4<f32>,
     image_size: vec2<u32>,
     patch_size: vec2<u32>,
 }
@@ -33,14 +32,13 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if i >= params.image_size.x * params.image_size.y { return; }
     let base = src[i];
     let pixel = vec2<u32>(i % params.image_size.x, i / params.image_size.x);
-    let uv = params.window.xy + (vec2<f32>(pixel) + vec2<f32>(0.5))
-        / vec2<f32>(params.image_size) * params.window.zw;
-    if any(uv < params.region.xy) || any(uv >= params.region.xy + params.region.zw) {
+    // The shared Rust core computes placement once, including exact native
+    // integer alignment. WGSL only evaluates that same affine map.
+    let p = vec2<f32>(pixel) * params.sampling.xy + params.sampling.zw;
+    if any(p < vec2<f32>(-0.5)) || any(p >= vec2<f32>(params.patch_size) - vec2<f32>(0.5)) {
         dst[i] = base;
         return;
     }
-    let p = clamp((uv - params.region.xy) / params.region.zw, vec2<f32>(0.0), vec2<f32>(1.0))
-        * vec2<f32>(params.patch_size) - vec2<f32>(0.5);
     let sampled = sample_patch(p);
     let coverage = clamp(sampled.w, 0.0, 1.0);
     let value = lerp_exact(base, sampled, coverage);
