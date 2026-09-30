@@ -7,7 +7,13 @@
 
 import * as path from 'node:path';
 import { checkIntegerRange } from './builder-validate';
-import { AuxBlob, type Recipe, type RecipeMetadata, type RecipeOp } from './recipe';
+import {
+  AuxBlob,
+  type Recipe,
+  type RecipeMetadata,
+  type RecipeOp,
+  type RecipeOutput,
+} from './recipe';
 import type { Colour, ExportColorSpace, ExportFormat, ExportRecipe, RawPixelInput } from './types';
 
 const RAW_EXTENSIONS = new Set([
@@ -66,8 +72,8 @@ export function resolveGravity(value: string | undefined): string {
  * to each other. A second `.gamma()` call replaces the pair, as sharp does.
  */
 export interface GammaPair {
-  before: RecipeOp;
-  after: RecipeOp;
+  before: Extract<RecipeOp, { op: 'gamma' }>;
+  after: Extract<RecipeOp, { op: 'gamma' }>;
 }
 
 export interface BuilderState {
@@ -88,7 +94,7 @@ export interface BuilderState {
    * `.avif()`/`.tiff()`, or null when the caller only ever used
    * `.toFormat()`/`.quality()`/`.format()` — see `stateToOutput`.
    */
-  output: Record<string, unknown> | null;
+  output: RecipeOutput | null;
   /**
    * The option object the caller actually passed to that per-format method,
    * as opposed to `output`, which is that object merged over every default.
@@ -184,7 +190,7 @@ function insertGammaPair(ops: readonly RecipeOp[], pair: GammaPair | null): Reci
 }
 
 /** Assemble the wire recipe for one terminal call. */
-export function stateToRecipe(state: BuilderState, output: Record<string, unknown>): Recipe {
+export function stateToRecipe(state: BuilderState, output: RecipeOutput): Recipe {
   const input = state.rawInput
     ? ({
         kind: 'raw',
@@ -193,7 +199,9 @@ export function stateToRecipe(state: BuilderState, output: Record<string, unknow
         channels: state.rawInput.channels,
       } as const)
     : ({ kind: 'encoded' } as const);
-  const withAutoOrient = state.autoOrient ? [{ op: 'autoOrient' }, ...state.ops] : state.ops;
+  const withAutoOrient: RecipeOp[] = state.autoOrient
+    ? [{ op: 'autoOrient' }, ...state.ops]
+    : state.ops;
   const ops = insertGammaPair(withAutoOrient, state.gammaPair);
   return { v: 1, input, ops, output, metadata: state.metadata };
 }
@@ -204,10 +212,7 @@ export function stateToRecipe(state: BuilderState, output: Record<string, unknow
  * was called, otherwise the Tier 1 `.toFormat()`/`.quality()`/`.format()`
  * fallback (format plus quality/effort where those apply).
  */
-export function stateToOutput(
-  state: BuilderState,
-  fallback: ExportFormat,
-): Record<string, unknown> {
+export function stateToOutput(state: BuilderState, fallback: ExportFormat): RecipeOutput {
   if (state.output) {
     return state.output;
   }
@@ -222,19 +227,10 @@ export function stateToOutput(
 }
 
 /**
- * Output containers whose wire object carries a `quality` field, and so can
- * take a later `.quality()` / `.toFormat(f, { quality })`. PNG, WebP and TIFF
- * have no quality knob in Maple's encoders at all (`png({ quality })` and
- * `webp({ quality })` are named rejections, and TIFF's is the JPEG-in-TIFF
- * knob Maple has no encoder for), so there is nothing to write there.
- */
-const QUALITY_FORMATS: ReadonlySet<string> = new Set(['jpeg', 'avif']);
-/** Output containers whose wire object carries an `effort` field. */
-const EFFORT_FORMATS: ReadonlySet<string> = new Set(['avif']);
-
-/**
  * Apply a `quality` to both the RAW-develop field and, when a per-format
  * method already set one, the wire output object.
+ * Only JPEG and AVIF carry that field; PNG, WebP and TIFF have no quality
+ * knob in Maple's encoders, so there is nothing to write there.
  *
  * `stateToOutput` returns `state.output` verbatim whenever it is set, so
  * writing only `state.quality` would leave `.jpeg().quality(30)` silently
@@ -250,7 +246,7 @@ export function applyQuality(state: BuilderState, quality: number): void {
   checkIntegerRange('quality', quality, 1, 100);
   state.quality = quality;
   const output = state.output;
-  if (output && QUALITY_FORMATS.has(String(output.format))) {
+  if (output && (output.format === 'jpeg' || output.format === 'avif')) {
     output.quality = quality;
   }
 }
@@ -263,7 +259,7 @@ export function applyEffort(state: BuilderState, effort: number): void {
   checkIntegerRange('effort', effort, 0, 9);
   state.effort = effort;
   const output = state.output;
-  if (output && EFFORT_FORMATS.has(String(output.format))) {
+  if (output?.format === 'avif') {
     output.effort = effort;
   }
 }

@@ -4,7 +4,7 @@
  * (#3505). The builder owns one `BuilderState`; every fluent method mutates
  * it and returns `this`, and the terminals in `builder-exec.ts` read it.
  */
-import { AuxBlob, type Recipe, type RecipeMetadata, type RecipeOp } from './recipe';
+import { AuxBlob, type Recipe, type RecipeMetadata, type RecipeOp, type RecipeOutput } from './recipe';
 import type { Colour, ExportColorSpace, ExportFormat, ExportRecipe, RawPixelInput } from './types';
 export declare function isRawPath(filePath: string): boolean;
 /** Translate a `position` or `gravity` value to its wire spelling. */
@@ -18,8 +18,12 @@ export declare function resolveGravity(value: string | undefined): string;
  * to each other. A second `.gamma()` call replaces the pair, as sharp does.
  */
 export interface GammaPair {
-    before: RecipeOp;
-    after: RecipeOp;
+    before: Extract<RecipeOp, {
+        op: 'gamma';
+    }>;
+    after: Extract<RecipeOp, {
+        op: 'gamma';
+    }>;
 }
 export interface BuilderState {
     inputPath: string | null;
@@ -39,7 +43,7 @@ export interface BuilderState {
      * `.avif()`/`.tiff()`, or null when the caller only ever used
      * `.toFormat()`/`.quality()`/`.format()` — see `stateToOutput`.
      */
-    output: Record<string, unknown> | null;
+    output: RecipeOutput | null;
     /**
      * The option object the caller actually passed to that per-format method,
      * as opposed to `output`, which is that object merged over every default.
@@ -67,17 +71,19 @@ export interface BuilderState {
 }
 export declare function createBuilderState(input: string | Uint8Array | Buffer | RawPixelInput): BuilderState;
 /** Assemble the wire recipe for one terminal call. */
-export declare function stateToRecipe(state: BuilderState, output: Record<string, unknown>): Recipe;
+export declare function stateToRecipe(state: BuilderState, output: RecipeOutput): Recipe;
 /**
  * Output object for the current output selection: the full per-format
  * object set by `.jpeg()`/`.png()`/`.webp()`/`.avif()`/`.tiff()` when one
  * was called, otherwise the Tier 1 `.toFormat()`/`.quality()`/`.format()`
  * fallback (format plus quality/effort where those apply).
  */
-export declare function stateToOutput(state: BuilderState, fallback: ExportFormat): Record<string, unknown>;
+export declare function stateToOutput(state: BuilderState, fallback: ExportFormat): RecipeOutput;
 /**
  * Apply a `quality` to both the RAW-develop field and, when a per-format
  * method already set one, the wire output object.
+ * Only JPEG and AVIF carry that field; PNG, WebP and TIFF have no quality
+ * knob in Maple's encoders, so there is nothing to write there.
  *
  * `stateToOutput` returns `state.output` verbatim whenever it is set, so
  * writing only `state.quality` would leave `.jpeg().quality(30)` silently

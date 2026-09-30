@@ -1461,13 +1461,11 @@ function stateToOutput(state, fallback) {
   }
   return { format };
 }
-var QUALITY_FORMATS = new Set(["jpeg", "avif"]);
-var EFFORT_FORMATS = new Set(["avif"]);
 function applyQuality(state, quality) {
   checkIntegerRange("quality", quality, 1, 100);
   state.quality = quality;
   const output = state.output;
-  if (output && QUALITY_FORMATS.has(String(output.format))) {
+  if (output && (output.format === "jpeg" || output.format === "avif")) {
     output.quality = quality;
   }
 }
@@ -1475,7 +1473,7 @@ function applyEffort(state, effort) {
   checkIntegerRange("effort", effort, 0, 9);
   state.effort = effort;
   const output = state.output;
-  if (output && EFFORT_FORMATS.has(String(output.format))) {
+  if (output?.format === "avif") {
     output.effort = effort;
   }
 }

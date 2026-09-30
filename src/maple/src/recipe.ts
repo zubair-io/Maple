@@ -5,15 +5,8 @@
  * FFI takes.
  */
 
-export interface AuxRef {
-  off: number;
-  len: number;
-}
-
-export interface RecipeOp {
-  op: string;
-  [key: string]: unknown;
-}
+import type { RecipeAuxRef as AuxRef, RecipeOp, RecipeOutput } from './recipe.generated';
+export type { RecipeAuxRef as AuxRef, RecipeOp, RecipeOutput } from './recipe.generated';
 
 export type RecipeInput =
   | { kind: 'encoded' }
@@ -50,7 +43,7 @@ export interface Recipe {
   v: 1;
   input: RecipeInput;
   ops: RecipeOp[];
-  output: Record<string, unknown>;
+  output: RecipeOutput;
   metadata: RecipeMetadata;
 }
 

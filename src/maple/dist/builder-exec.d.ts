@@ -15,6 +15,7 @@
  */
 import { type BuilderState } from './builder-state';
 import type { RawPixels, TensorOptions, TensorResult } from './types';
+import type { RecipeOutput } from './recipe';
 export interface PipelineOutput {
     buffer: Buffer;
     width: number;
@@ -23,7 +24,7 @@ export interface PipelineOutput {
 }
 /** Bytes for the current input: raw pixels, an in-memory buffer, or a file. */
 export declare function inputBytes(state: BuilderState): Promise<Uint8Array>;
-export declare function runPipeline(state: BuilderState, bytes: Uint8Array, output: Record<string, unknown>): Promise<PipelineOutput>;
+export declare function runPipeline(state: BuilderState, bytes: Uint8Array, output: RecipeOutput): Promise<PipelineOutput>;
 /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
 export declare function resolveToRaw(state: BuilderState): Promise<RawPixels>;
 /** Raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace). */

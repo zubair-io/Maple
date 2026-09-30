@@ -496,6 +496,7 @@ dependencies = [
  "clap",
  "raw-core",
  "serde_json",
+ "syn",
 ]
 
 [[package]]

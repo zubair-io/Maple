@@ -81,21 +81,21 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 cargo build --release \
-  --manifest-path src/raw-pipeline/Cargo.toml \
-  -p codegen
+	--manifest-path src/raw-pipeline/Cargo.toml \
+	-p codegen
 
 BIN="src/raw-pipeline/target/release/codegen"
 if [ -f "${BIN}.exe" ]; then
-  BIN="${BIN}.exe"
+	BIN="${BIN}.exe"
 fi
 
 # --- Culling metadata vocabulary (#3662) ----------------------------------
 for color_label_out in \
-  "swift:src/apple/Packages/MapleCore/Sources/MapleCore/Generated/ColorLabel+Generated.swift" \
-  "ts:src/web/projects/maple-common/src/lib/generated/color-labels.generated.ts" \
-  "ts:src/api/src/generated/color-labels.generated.ts" \
-  "cs:src/windows/Maple.WinUI/Generated/ColorLabelVocabulary.g.cs"; do
-  "$BIN" --schema color-labels --target "${color_label_out%%:*}" --out "${color_label_out#*:}"
+	"swift:src/apple/Packages/MapleCore/Sources/MapleCore/Generated/ColorLabel+Generated.swift" \
+	"ts:src/web/projects/maple-common/src/lib/generated/color-labels.generated.ts" \
+	"ts:src/api/src/generated/color-labels.generated.ts" \
+	"cs:src/windows/Maple.WinUI/Generated/ColorLabelVocabulary.g.cs"; do
+	"$BIN" --schema color-labels --target "${color_label_out%%:*}" --out "${color_label_out#*:}"
 done
 
 # --- Adjustment schema ----------------------------------------------------
@@ -104,10 +104,11 @@ SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentMo
 TS_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts"
 TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables.generated.ts"
 
-"$BIN" --schema adjustment --target swift     --out "$SWIFT_OUT"
-"$BIN" --schema adjustment --target ts        --out "$TS_OUT"
+"$BIN" --schema adjustment --target swift --out "$SWIFT_OUT"
+"$BIN" --schema adjustment --target ts --out "$TS_OUT"
 "$BIN" --schema adjustment --target ts-tables --out "$TS_TABLES_OUT"
 "$BIN" --schema adjustment-api --target ts --out "src/api/src/generated/adjustment-fields.generated.ts"
+"$BIN" --schema raster-recipe --target ts --out "src/maple/src/recipe.generated.ts"
 
 "$BIN" --schema batch-transfer --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/BatchTransfer+Generated.swift"
 "$BIN" --schema batch-transfer --target ts --out "src/web/projects/maple-common/src/lib/generated/batch-transfer.generated.ts"
@@ -143,9 +144,9 @@ UI_XAML_OUT="src/windows/Maple.WinUI/Themes/Tokens.xaml"
 # rather than depending on MapleCore's. Both files declare `MapleUITokens`
 # but live in separate modules, so there's no symbol collision.
 "$BIN" --schema ui-tokens --target swift --out "$UI_MAPLEUI_SWIFT_OUT"
-"$BIN" --schema ui-tokens --target ts    --out "$UI_TS_OUT"
-"$BIN" --schema ui-tokens --target scss  --out "$UI_SCSS_OUT"
-"$BIN" --schema ui-tokens --target xaml  --out "$UI_XAML_OUT"
+"$BIN" --schema ui-tokens --target ts --out "$UI_TS_OUT"
+"$BIN" --schema ui-tokens --target scss --out "$UI_SCSS_OUT"
+"$BIN" --schema ui-tokens --target xaml --out "$UI_XAML_OUT"
 
 # --- Color matrices → WGSL (epic #925 P2 / #990) --------------------------
 # The GPU scene-linear kernels (raw-gpu) bake the Oklab + Rec.2020/sRGB
@@ -188,7 +189,7 @@ FILM_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilmCat
 FILM_TS_OUT="src/web/projects/maple-common/src/lib/generated/film-catalog.generated.ts"
 
 "$BIN" --schema film-catalog --target swift --out "$FILM_SWIFT_OUT"
-"$BIN" --schema film-catalog --target ts    --out "$FILM_TS_OUT"
+"$BIN" --schema film-catalog --target ts --out "$FILM_TS_OUT"
 
 # --- Capability registry (#2430) ------------------------------------------
 # The registry table is reviewed Rust; the `core` / `integrated` /
@@ -208,8 +209,8 @@ CAP_MD_OUT="docs/capability-registry.md"
 CAP_JSON_OUT="docs/capability-registry.json"
 
 for target_out in "swift:$CAP_SWIFT_OUT" "ts:$CAP_TS_OUT" "cs:$CAP_CS_OUT" "md:$CAP_MD_OUT" "json:$CAP_JSON_OUT"; do
-  "$BIN" --schema capability-registry --target "${target_out%%:*}" \
-    --evidence-dir "$CAP_EVIDENCE_DIR" --repo-root . --out "${target_out#*:}"
+	"$BIN" --schema capability-registry --target "${target_out%%:*}" \
+		--evidence-dir "$CAP_EVIDENCE_DIR" --repo-root . --out "${target_out#*:}"
 done
 
 # --- Camera / lens support tiers (#2440) ----------------------------------
@@ -227,8 +228,8 @@ TIER_MD_OUT="docs/camera-support.md"
 TIER_JSON_OUT="docs/camera-support.json"
 
 for target_out in "swift:$TIER_SWIFT_OUT" "ts:$TIER_TS_OUT" "cs:$TIER_CS_OUT" "md:$TIER_MD_OUT" "json:$TIER_JSON_OUT"; do
-  "$BIN" --schema support-tiers --target "${target_out%%:*}" \
-    --evidence-dir "$CAP_EVIDENCE_DIR" --repo-root . --out "${target_out#*:}"
+	"$BIN" --schema support-tiers --target "${target_out%%:*}" \
+		--evidence-dir "$CAP_EVIDENCE_DIR" --repo-root . --out "${target_out#*:}"
 done
 
 echo "codegen.sh: outputs regenerated."
