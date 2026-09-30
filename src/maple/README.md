@@ -330,7 +330,8 @@ depth gap is real, but it costs one byte, not a meaningfully larger file.
 larger lossless file. Use `avif()` when you want a small lossy file.
 
 **TIFF `compression` defaults to `'lzw'`, not sharp's `'jpeg'`.** sharp's
-default TIFF compressor is JPEG-in-TIFF; Maple has no JPEG-in-TIFF encoder (the
+default TIFF compressor is JPEG-in-TIFF; Maple decodes its 8-bit YCbCr strips and
+tiles (including BigTIFF), but has no JPEG-in-TIFF encoder (the
 `tiff` crate this pipeline drives directly supports `none`/`lzw`/`deflate`/
 `packbits` only), so `.tiff()` defaults to `'lzw'` instead and rejects
 `compression: 'jpeg'` by name rather than silently falling back. `tile`,
