@@ -111,6 +111,8 @@
         "src/ffi/raw_ffi.ts",
         // #3525: disposable AVIF fixtures under os.tmpdir(), never library files.
         "src/ffi/raw_ffi.child-integrity.test.ts",
+        // #3529: temporary binary symlink and synthetic fixtures under os.tmpdir().
+        "src/ffi/native-resolution.test.ts",
         "src/fs/browse-roots-memo.test.ts",
         "src/fs/browse.ts",
         "src/fs/browse.stub-audio.test.ts",
