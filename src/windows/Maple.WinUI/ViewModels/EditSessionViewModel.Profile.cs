@@ -72,7 +72,6 @@ namespace Maple.WinUI.ViewModels
             {
                 // The old base includes the previous profile's AE anchor and
                 // fitted tail. Never present that base with the new intent.
-                Renderer.SetImage(null);
                 DecodeCurrent(photo);
                 return;
             }

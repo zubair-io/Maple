@@ -170,6 +170,12 @@ namespace Maple.WinUI.ViewModels
         {
             if (value != null)
                 OpenForEditing(value);
+            else
+            {
+                Interlocked.Increment(ref _decodeGeneration);
+                CancelActiveDecode();
+                Renderer.SetImage(null);
+            }
         }
 
         private void OpenForEditing(PhotoItem photo)
@@ -181,6 +187,7 @@ namespace Maple.WinUI.ViewModels
             _openPhoto = photo;
             _sidecarDirty = false;
             _decodedPhoto = null;
+            Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
             // Never let a stale image produce frames for the new photo; the
             // Preview screen shows the embedded JPEG until Edit decodes.
@@ -273,6 +280,7 @@ namespace Maple.WinUI.ViewModels
             RefreshLensProfileChoices(photo);   // #3568 — the profile dropdown's option list
             var generation = Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
+            Renderer.SetImage(null);
 
             IsDecoding = true;
             DecodeStatus = $"Decoding {photo.FileName}…";
@@ -291,7 +299,7 @@ namespace Maple.WinUI.ViewModels
                         photo.EditPath, model, PreviewLongEdge, RefineDecodeQuality.Preview, cancelFlag);
                     if (generation != _decodeGeneration)
                         return;
-                    Renderer.SetImage(decoded);
+                    Renderer.SetImage(decoded, () => !_disposed && generation == Volatile.Read(ref _decodeGeneration));
                     OnUi(() => ApplyDecodedState(generation, photo, decoded));
                     ScheduleAmazeUpgrade(generation, photo, model, decoded);
                 }

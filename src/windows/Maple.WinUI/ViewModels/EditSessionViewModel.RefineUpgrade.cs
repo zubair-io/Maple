@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
@@ -49,8 +50,12 @@ namespace Maple.WinUI.ViewModels
                     // fast-tick session (RenderScheduler.SetImage derives the
                     // half-res session from this same image), so both phases
                     // present the upgraded detail from here on.
-                    Renderer.SetImage(upgraded);
-                    OnUi(() => Renderer.RequestRender(Adjustments.Clone()));
+                    Renderer.SetImage(upgraded, () => !_disposed && generation == Volatile.Read(ref _decodeGeneration));
+                    OnUi(() =>
+                    {
+                        if (!_disposed && generation == _decodeGeneration && ReferenceEquals(SelectedPhoto, photo))
+                            Renderer.RequestRender(Adjustments.Clone());
+                    });
                 }
                 catch (Exception ex)
                 {

@@ -13,10 +13,8 @@ namespace Maple.WinUI.Services
     /// requests, so a fast slider drag never queues more than one frame.
     ///
     /// Two display paths (#2561):
-    /// - GPU: the wgpu DX12 live chain presents straight into the WinUI
-    ///   SwapChainPanel (maple_gpu_present_chain_winui) at full session
-    ///   resolution on every tick; a half-res CPU tick runs only after the
-    ///   drag settles, solely to feed the histogram.
+    /// - GPU: the shared wgpu chain presents half-resolution interactive
+    ///   frames, then full-resolution refinement, into the WinUI panel.
     /// - CPU fallback: the fused CPU chain renders BGRA frames (half-res fast
     ///   pass, debounced full-res refine). Any GPU failure downgrades to this
     ///   path for the rest of the process.
@@ -109,12 +107,15 @@ namespace Maple.WinUI.Services
             }
         }
 
-        public void SetImage(DecodedImage? image)
+        public void SetImage(DecodedImage? image, Func<bool>? isCurrent = null)
         {
             var half = image == null ? null : RenderEngine.DownsampleHalf(image);
             lock (_gate)
             {
-                if (_stopping) return;
+                // Check after downsampling and under the same lock as image
+                // invalidation. A decode superseded during preparation must
+                // not replace the new photo's cleared or decoded base.
+                if (_stopping || (isCurrent != null && !isCurrent())) return;
                 _image = image;
                 _halfImage = half;
                 _lastRendered = null;
