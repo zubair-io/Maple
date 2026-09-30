@@ -147,9 +147,12 @@ jobs:
           bun-version: latest
       - name: Create release handoff
         run: |
-          owner_name=$(gh api "users/$REPOSITORY_OWNER" --jq '.name // .login')
+          set -euo pipefail
+          user_json=$(gh api "users/$REPOSITORY_OWNER")
+          owner_name=$(jq -r '.name // .login' <<<"$user_json")
+          owner_id=$(jq -r '.id' <<<"$user_json")
           git config user.name "$owner_name"
-          git config user.email "$REPOSITORY_OWNER@users.noreply.github.com"
+          git config user.email "${owner_id}+${REPOSITORY_OWNER}@users.noreply.github.com"
           command=release
           if [ "$ADVANCE_ONLY" = true ]; then command=advance; fi
           python3 tools/release_control.py "$command" --next-version "$NEXT_VERSION" --release-sha "$RELEASE_SHA"
