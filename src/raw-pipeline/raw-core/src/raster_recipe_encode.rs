@@ -36,14 +36,8 @@ use crate::raster::RasterImage;
 use crate::raster_encode::{
     composite_over_background, EmbeddedMetadata, RasterOutput, JPEG_FLATTEN_BACKGROUND,
 };
+use crate::raster_recipe::bad;
 use crate::raster_recipe_meta::ResolvedMetadata;
-
-fn bad(reason: String) -> crate::error::Error {
-    crate::error::Error::Decode {
-        path: "<recipe>".into(),
-        reason,
-    }
-}
 
 /// What a container's own encoder crate can actually carry — the exhaustive
 /// truth the module doc's table states, single-sourced here so

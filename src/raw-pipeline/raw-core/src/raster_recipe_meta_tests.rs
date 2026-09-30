@@ -451,3 +451,17 @@ fn a_supplied_introduced_exif_block_is_canonicalised() {
         resolve_metadata(&metadata, &[], &introduced, false, TargetPrimaries::Srgb).unwrap();
     assert_eq!(resolved.exif.as_deref(), Some(&tiff[..]));
 }
+
+#[test]
+fn invalid_supplied_metadata_names_its_field_without_a_decoder_prefix() {
+    let metadata = RecipeMetadata {
+        exif: Some(AuxRef { off: 1, len: 2 }),
+        ..Default::default()
+    };
+    let err = resolve_metadata(&metadata, &[], &[0], false, TargetPrimaries::Srgb).unwrap_err();
+    assert!(matches!(err, crate::error::Error::Recipe(_)));
+    assert_eq!(
+        err.to_string(),
+        "metadata.exif aux reference 1..3 is outside the 1-byte aux buffer"
+    );
+}

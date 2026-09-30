@@ -161,6 +161,24 @@ mod tests {
     fn a_malformed_recipe_reports_rc_5() {
         let (rc, ..) = call(&[0, 0, 0, 255], "{not json", &[], None);
         assert_eq!(rc, 5);
+        // SAFETY: the error CString lives on this test's thread until the next call.
+        let message = unsafe { CStr::from_ptr(crate::error::maple_last_error()) }
+            .to_str()
+            .unwrap();
+        assert!(message.starts_with("recipe parse failed:"), "{message}");
+    }
+
+    #[test]
+    fn an_invalid_option_reaches_the_c_caller_without_a_raw_decoder_prefix() {
+        let recipe = r#"{"v":1,"input":{"kind":"raw","width":1,"height":1,"channels":3},
+            "ops":[{"op":"resize","width":2,"kernel":"mks2013"}],"output":{"format":"raw"}}"#;
+        let (rc, ..) = call(&[255, 0, 0], recipe, &[], None);
+        assert_eq!(rc, 4);
+        // SAFETY: the error CString lives on this test's thread until the next call.
+        let message = unsafe { CStr::from_ptr(crate::error::maple_last_error()) }
+            .to_str()
+            .unwrap();
+        assert_eq!(message, "unsupported resize kernel 'mks2013' (nearest, linear, cubic, mitchell, lanczos2, lanczos3)");
     }
 
     #[test]

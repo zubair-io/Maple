@@ -42,6 +42,11 @@ pub enum Error {
     #[error("bitmap encode unsupported: {0}")]
     BitmapEncode(String),
 
+    /// Invalid raster recipe or option; this is caller validation, not a RAW
+    /// decode failure. Preserve the option's actionable diagnostic verbatim.
+    #[error("{0}")]
+    Recipe(String),
+
     #[error("DCP profile missing or unparseable: {0}")]
     Dcp(String),
 
