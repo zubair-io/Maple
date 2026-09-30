@@ -123,6 +123,7 @@ export class MapleImageBuilder {
     // resamples. Drop any earlier `resize` op and emit only this call's, at
     // the position of this call — matching sharp's "the last call's params
     // win" behaviour.
+    const background = resolveColour(opts.background, [0, 0, 0, 255]);
     this.s.ops = this.s.ops.filter((op) => op.op !== 'resize');
     this.s.ops.push({
       op: 'resize',
@@ -133,7 +134,7 @@ export class MapleImageBuilder {
       kernel: opts.kernel ?? opts.filter ?? 'lanczos3',
       withoutEnlargement: opts.withoutEnlargement ?? true,
       withoutReduction: opts.withoutReduction ?? false,
-      background: resolveColour(opts.background, [0, 0, 0, 255]),
+      background,
     });
     return this;
   }

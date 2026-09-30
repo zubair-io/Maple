@@ -328,7 +328,19 @@ export function resolveColour(
     return fallback;
   }
   if (typeof value !== 'string') {
-    const a = value.alpha === undefined ? 255 : Math.round(value.alpha * 255);
+    for (const channel of ['r', 'g', 'b'] as const) {
+      const byte = value[channel];
+      if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+        throw new Error(
+          `Invalid colour channel ${channel}=${byte}: expected an integer from 0 to 255`,
+        );
+      }
+    }
+    const alpha = value.alpha === undefined ? 1 : value.alpha;
+    if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) {
+      throw new Error(`Invalid colour alpha=${alpha}: expected a finite number from 0 to 1`);
+    }
+    const a = Math.round(alpha * 255);
     return [value.r, value.g, value.b, a];
   }
   const hex = value.replace(/^#/, '');
