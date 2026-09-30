@@ -52,10 +52,10 @@ namespace Maple.WinUI.ViewModels
                         item.ShutterSpeed = FormatShutter(exif.ExposureTimeSeconds);
                         item.CaptureDate = exif.DateTimeOriginal;
                         item.DateTaken = exif.DateTimeOriginal?.ToString("yyyy-MM-dd HH:mm")
-                            ?? item.FileModifiedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+                            ?? "—";
                         item.Dimensions = exif is { PixelWidth: { } w, PixelHeight: { } h }
                             ? $"{w} × {h}"
-                            : $"{item.FileSizeBytes / (1024.0 * 1024.0):0.0} MB";
+                            : "—";
                     }
                     if (ReferenceEquals(item, items[^1]) && (IsDateGrouped || !string.IsNullOrWhiteSpace(SearchText)))
                     {

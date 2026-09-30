@@ -284,7 +284,7 @@ namespace Maple.WinUI.ViewModels
             item.Aperture = exif?.Aperture is { } f ? $"f/{f:0.#}" : "—";
             item.ShutterSpeed = exif?.Shutter ?? "—";
             item.DateTaken = captured?.ToString("yyyy-MM-dd HH:mm") ?? "—";
-            item.Dimensions = $"{image.Size / (1024.0 * 1024.0):0.0} MB";
+            item.Dimensions = "—";
             return item;
         }
 

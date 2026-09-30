@@ -104,6 +104,8 @@ namespace Maple.WinUI
             AddRow(FileRows, "Name", photo.FileName);
             AddRow(FileRows, "Format", photo.Format);
             AddRow(FileRows, "Size", $"{photo.FileSizeBytes / (1024.0 * 1024.0):0.0} MB");
+            AddRow(FileRows, "Modified", photo.FileModifiedUtc == default ? "—"
+                : photo.FileModifiedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
             AddRow(FileRows, "Pixels", photo.Dimensions);
             AddRow(FileRows, photo.IsCloud ? "Server path" : "Path", photo.FilePath);
             AddRow(FileRows, "Color label", photo.ColorLabel ?? "None");
