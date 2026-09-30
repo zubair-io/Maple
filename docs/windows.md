@@ -202,7 +202,7 @@ The imported-lens-profile tests split the same way: `XmpLensProfileTests` and `L
 1. **GPU** — times ticks wiggling Exposure ±0.01 through the real render loop; reports median and p95 against the 16ms target and 50ms hard limit.
 2. **CPU** — `MAPLE_FORCE_CPU=1` plus `MAPLE_DUMP_FRAME=<png>` for a pixel-exact frame, compared against `maple-cli render` of the same RAW + sidecar via `maple-cli diff` (mean ΔE00 budget 2.0 by default).
 
-It skip-passes when no RAW fixture is available, and when `python3` is genuinely missing it still writes both parity artifacts and says there is no ΔE verdict. See [testing](testing.md).
+Missing RAW fixtures or working `python3` fail qualification. Each app run edits an independent, byte-verified copy of the RAW and sidecar; the supplied files and pristine CLI reference remain untouched. `provenance.json` records fixture, sidecar, app, CLI, and native-pipeline hashes. The harness rejects an unexpected render backend and fails when GPU p95 exceeds the 50ms hard limit. CPU-frame parity does not establish GPU/export parity or physical 100MP reference-hardware qualification; those limitations remain explicit in the report. Run `src/windows/scripts/test-qualification-fixture.ps1` to verify fixture isolation. See [testing](testing.md).
 
 ## Build and run
 

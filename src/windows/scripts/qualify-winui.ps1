@@ -7,9 +7,9 @@
 #             compared against `maple-cli render` of the same RAW + sidecar.
 #
 # ΔE verdict needs python3 (compare_images.py via `maple-cli diff`); without
-# it the parity artifacts are still produced and the script says so.
-# Skip-passes when no RAW is available (CI without fixtures), mirroring
-# test_color_pipeline.sh.
+# it the parity artifacts are still produced, but qualification fails.
+# Missing fixtures or parity tooling fail qualification; CI functional smoke
+# remains a separate workflow and does not imply a hardware qualification pass.
 param(
     [string]$Raw = "",
     [string]$AppExe = "$PSScriptRoot\..\Maple.WinUI\bin\x64\Debug\net8.0-windows10.0.19041.0\Maple.WinUI.exe",
@@ -17,30 +17,51 @@ param(
     [double]$ParityBudgetMean = 2.0
 )
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/qualification-fixture.ps1"
 
 if ($Raw -eq "") {
     $fixture = Join-Path $PSScriptRoot "..\..\..\test-fixtures\raws\dji-mavic3pro-100mp.dng"
     if (Test-Path $fixture) { $Raw = (Resolve-Path $fixture).Path }
 }
-if ($Raw -eq "" -or -not (Test-Path $Raw)) {
-    Write-Output "qualify-winui: no RAW fixture available - skipping (soft pass)."
-    exit 0
+if ($Raw -eq "" -or -not (Test-Path -LiteralPath $Raw -PathType Leaf)) {
+    throw "qualify-winui: no RAW fixture available; qualification was not performed."
 }
 foreach ($tool in @($AppExe, $MapleCli)) {
-    if (-not (Test-Path $tool)) { throw "missing: $tool (build the app / maple-cli first)" }
+    if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { throw "missing: $tool (build the app / maple-cli first)" }
 }
 
 $work = Join-Path $env:TEMP "maple-qualify-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory $work | Out-Null
+$sourceRaw = (Resolve-Path -LiteralPath $Raw).Path
+$sourceSidecar = [IO.Path]::ChangeExtension($sourceRaw, ".xmp")
+$sourceHash = (Get-FileHash -LiteralPath $sourceRaw -Algorithm SHA256).Hash
+$sidecarHash = if (Test-Path -LiteralPath $sourceSidecar) { (Get-FileHash -LiteralPath $sourceSidecar -Algorithm SHA256).Hash } else { $null }
+# Preserve one pristine reference input. Each editing run gets another copy,
+# so autosave cannot mutate the source or contaminate the next render path.
+$Raw = Copy-QualificationFixture $sourceRaw $work
 $sidecar = [IO.Path]::ChangeExtension($Raw, ".xmp")
-$sidecarArgs = if (Test-Path $sidecar) { @("--params", $sidecar) } else { @() }
+@{
+    fixture_sha256 = $sourceHash
+    sidecar_sha256 = $sidecarHash
+    app_sha256 = (Get-FileHash -LiteralPath $AppExe -Algorithm SHA256).Hash
+    cli_sha256 = (Get-FileHash -LiteralPath $MapleCli -Algorithm SHA256).Hash
+    native_pipeline_sha256 = (Get-FileHash -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $AppExe).Path)) 'raw_ffi.dll') -Algorithm SHA256).Hash
+    physical_reference_qualified = $false
+    qualification_limits = @('Physical reference hardware and 100MP source dimensions require separate verification.', 'GPU screenshot/export perceptual parity is not covered by this CPU-frame comparison.')
+} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $work 'provenance.json')
+$sidecarArgs = if (Test-Path -LiteralPath $sidecar) { @("--params", $sidecar) } else { @() }
 
 function Invoke-QualifyRun([hashtable]$extraEnv, [string]$outDir) {
     New-Item -ItemType Directory $outDir -Force | Out-Null
+    $runRaw = Copy-QualificationFixture $Raw $outDir
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $AppExe
     $psi.UseShellExecute = $false
-    $psi.EnvironmentVariables["MAPLE_QUALIFY_RAW"] = $Raw
+    $psi.CreateNoWindow = $true
+    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.EnvironmentVariables["MAPLE_FORCE_CPU"] = ""
+    $psi.EnvironmentVariables["MAPLE_DUMP_FRAME"] = ""
+    $psi.EnvironmentVariables["MAPLE_QUALIFY_RAW"] = $runRaw
     $psi.EnvironmentVariables["MAPLE_QUALIFY_OUT"] = $outDir
     foreach ($k in $extraEnv.Keys) { $psi.EnvironmentVariables[$k] = $extraEnv[$k] }
     $proc = [System.Diagnostics.Process]::Start($psi)
@@ -56,9 +77,11 @@ function Invoke-QualifyRun([hashtable]$extraEnv, [string]$outDir) {
 
 Write-Output "== GPU tick timing =="
 $gpu = Invoke-QualifyRun @{} (Join-Path $work "gpu")
+if ($gpu.render_path -ne 'gpu') { throw "GPU qualification fell back to $($gpu.render_path); no GPU result." }
 Write-Output ("path={0} decode={1}ms median tick={2}ms p95={3}ms (target 16ms, hard limit 50ms)" -f `
     $gpu.render_path, $gpu.decode_ms, $gpu.median_ms, $gpu.p95_ms)
-$tickVerdict = if ($gpu.median_ms -le 16) { "PASS (target)" }
+$tickVerdict = if ($gpu.p95_ms -gt 50) { "FAIL (p95 exceeds 50ms hard limit)" }
+    elseif ($gpu.median_ms -le 16) { "PASS (target)" }
     elseif ($gpu.median_ms -le 50) { "WITHIN HARD LIMIT (misses 16ms target - #2587 optimization backlog)" }
     else { "FAIL (exceeds 50ms hard limit)" }
 Write-Output "tick verdict: $tickVerdict"
@@ -66,6 +89,7 @@ Write-Output "tick verdict: $tickVerdict"
 Write-Output "== CPU parity frame =="
 $appFrame = Join-Path $work "app-frame.png"
 $cpu = Invoke-QualifyRun @{ MAPLE_FORCE_CPU = "1"; MAPLE_DUMP_FRAME = $appFrame } (Join-Path $work "cpu")
+if ($cpu.render_path -ne 'cpu') { throw "CPU qualification reported $($cpu.render_path); no CPU result." }
 if (-not (Test-Path $appFrame)) { throw "CPU run produced no frame dump" }
 
 Write-Output "== maple-cli reference render =="
@@ -86,6 +110,7 @@ if ($pythonWorks) {
     Write-Output "python3 not found - parity artifacts written, no Delta-E verdict:"
     Write-Output "  candidate: $appFrame"
     Write-Output "  reference: $refFrame"
+    throw "Parity qualification was not performed: working python3 is required."
 }
 Write-Output "report dir: $work"
 if ($tickVerdict.StartsWith("FAIL")) { exit 1 }
