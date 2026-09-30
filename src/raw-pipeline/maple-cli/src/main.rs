@@ -101,7 +101,7 @@ enum Cmd {
         /// Target bounding height.
         #[arg(long)]
         height: u32,
-        /// Resize fit: 'inside' (preserve aspect ratio) or 'fill' (exact dimensions). Default: inside.
+        /// Resize fit: 'inside', 'fill', 'cover', 'contain' or 'outside'. Default: inside.
         #[arg(long, default_value = "inside")]
         fit: String,
         /// Output quality 1..100 (for lossy formats, default: 85).

@@ -17,14 +17,23 @@ pub fn run(
         return Err("target width and height must be > 0".into());
     }
 
+    let fit = match fit_str.to_ascii_lowercase().as_str() {
+        "inside" => ResizeFit::Inside,
+        "fill" => ResizeFit::Fill,
+        "cover" => ResizeFit::Cover,
+        "contain" => ResizeFit::Contain,
+        "outside" => ResizeFit::Outside,
+        _ => {
+            return Err(format!(
+                "unknown resize fit '{fit_str}'; expected inside, fill, cover, contain or outside"
+            )
+            .into())
+        }
+    };
+
     let bytes = std::fs::read(input)?;
     let ext_hint = input.extension().and_then(|e| e.to_str());
     let raster = decode_raster(&bytes, ext_hint)?;
-
-    let fit = match fit_str.to_ascii_lowercase().as_str() {
-        "fill" => ResizeFit::Fill,
-        _ => ResizeFit::Inside,
-    };
 
     let opts = ResizeOptions {
         width,
