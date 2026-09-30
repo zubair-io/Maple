@@ -19,6 +19,9 @@ namespace Maple.WinUI.Services.Cloud
             var result = await ReadJsonAsync<CloudTimelinePage>(response, ct)
                 ?? throw new InvalidOperationException("Invalid search response");
             if (result.NotImplemented) throw new NotSupportedException("This search scope is not supported by the server.");
+            if (!result.HasPagingMode || !result.HasResults || result.Results == null || result.Total < 0
+                || result.Page < 0 || result.Page > 10000 || result.Limit < 1 || result.Limit > 500)
+                throw new InvalidOperationException("Search response is missing valid pagination metadata.");
             return result;
         }
 

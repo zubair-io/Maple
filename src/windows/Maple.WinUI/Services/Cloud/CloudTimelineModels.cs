@@ -7,11 +7,23 @@ namespace Maple.WinUI.Services.Cloud
 {
     public sealed class CloudTimelinePage
     {
-        [JsonPropertyName("results")] public CloudTimelinePhoto[] Results { get; set; } = Array.Empty<CloudTimelinePhoto>();
+        private CloudTimelinePhoto[] _results = Array.Empty<CloudTimelinePhoto>();
+        [JsonIgnore] public bool HasResults { get; private set; }
+        [JsonPropertyName("results")] public CloudTimelinePhoto[] Results
+        {
+            get => _results;
+            set { _results = value; HasResults = true; }
+        }
         [JsonPropertyName("nextCursor")] public string? NextCursor { get; set; }
-        [JsonPropertyName("cursorPaging")] public bool CursorPaging { get; set; }
-        [JsonPropertyName("total")] public long Total { get; set; }
-        [JsonPropertyName("page")] public int Page { get; set; }
+        private bool _cursorPaging;
+        [JsonIgnore] public bool HasPagingMode { get; private set; }
+        [JsonPropertyName("cursorPaging")] public bool CursorPaging
+        {
+            get => _cursorPaging;
+            set { _cursorPaging = value; HasPagingMode = true; }
+        }
+        [JsonPropertyName("total")] public long Total { get; set; } = -1;
+        [JsonPropertyName("page")] public int Page { get; set; } = -1;
         [JsonPropertyName("limit")] public int Limit { get; set; }
         [JsonPropertyName("notImplemented")] public bool NotImplemented { get; set; }
 

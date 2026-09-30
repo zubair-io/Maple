@@ -73,16 +73,36 @@ public sealed class CloudSearchQueryTests
         finally { Directory.Delete(cache, true); }
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"cursorPaging\":false,\"page\":0,\"limit\":200,\"total\":0}")]
+    [InlineData("{\"results\":[],\"cursorPaging\":false,\"limit\":200,\"total\":0}")]
+    [InlineData("{\"results\":[],\"cursorPaging\":false,\"page\":0,\"limit\":200}")]
+    [InlineData("{\"results\":[],\"page\":0,\"limit\":200,\"total\":0}")]
+    [InlineData("{\"results\":null,\"cursorPaging\":true,\"page\":0,\"limit\":200,\"total\":0}")]
+    [InlineData("{\"results\":[],\"cursorPaging\":false,\"page\":0,\"limit\":0,\"total\":0}")]
+    public async Task MalformedPagingCannotMasqueradeAsAnEmptyResult(string body)
+    {
+        var cache = Path.Combine(Path.GetTempPath(), "maple-search-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var client = new CloudClient("https://maple.test", new Handler { Body = body }, cache);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => client.SearchAsync(new(), 0, null, CancellationToken.None));
+        }
+        finally { Directory.Delete(cache, true); }
+    }
+
     private sealed class Handler : HttpMessageHandler
     {
         public string Route = "";
         public HttpStatusCode Status = HttpStatusCode.OK;
+        public string Body = """{"results":[],"cursorPaging":false,"nextCursor":null,"total":550,"page":2,"limit":200}""";
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Route = request.RequestUri!.Query;
             return Task.FromResult(new HttpResponseMessage(Status)
             {
-                Content = new StringContent("""{"results":[],"cursorPaging":false,"nextCursor":null,"total":550,"page":2,"limit":200}"""),
+                Content = new StringContent(Body),
             });
         }
     }
