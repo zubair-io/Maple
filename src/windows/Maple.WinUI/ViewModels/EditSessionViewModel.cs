@@ -208,7 +208,14 @@ namespace Maple.WinUI.ViewModels
                 return;
             }
 
-            var doc = SidecarStore.Load(photo.FilePath);
+            var pending = _localMetadataWrites.ReadPending(photo.FilePath);
+            var doc = pending ?? SidecarStore.Load(photo.FilePath);
+            if (pending != null)
+            {
+                photo.Rating = pending.Rating ?? 0;
+                photo.FlagStatus = pending.Flag ?? "none";
+                photo.ColorLabel = pending.ColorLabel;
+            }
             Adjustments = doc?.Adjustments ?? new AdjustmentState();
             _originalModel = Adjustments.Clone();
             OpeningSnapshotVersion++;
@@ -387,30 +394,23 @@ namespace Maple.WinUI.ViewModels
         private void FlushSidecarLocked()
         {
             var photo = _openPhoto;
-            if (photo == null || !_sidecarDirty)
-                return;
-            _sidecarDirty = false;
-            if (photo.IsCloud)
+            if (photo != null && _sidecarDirty)
             {
-                PushCloudSidecar(photo);
-                return;
+                _sidecarDirty = false;
+                if (photo.IsCloud) PushCloudSidecar(photo);
+                else _localMetadataWrites.Stage(photo.FilePath, Adjustments,
+                    photo.Rating, photo.FlagStatus, photo.ColorLabel);
             }
-            try
+            _localMetadataError = null;
+            foreach (var result in _localMetadataWrites.Flush())
             {
-                _lastSidecarWriteText = SidecarStore.Update(photo.FilePath, doc =>
+                if (result.Error is { } error)
                 {
-                    doc.Adjustments = Adjustments.Clone();
-                    doc.Rating = photo.Rating;
-                    doc.Flag = photo.FlagStatus;
-                    doc.ColorLabel = photo.ColorLabel;
-                });
-                _localMetadataError = null;
-            }
-            catch (Exception ex)
-            {
-                _sidecarDirty = true;
-                _localMetadataError = ex;
-                System.Diagnostics.Debug.WriteLine($"[Sidecar] write failed: {ex.Message}");
+                    _localMetadataError = error;
+                    DiagLog.Write($"[Sidecar] write failed for {result.Path}: {error.Message}");
+                }
+                else if (string.Equals(result.Path, photo?.FilePath, StringComparison.OrdinalIgnoreCase))
+                    _lastSidecarWriteText = result.Xml;
             }
         }
 
@@ -432,6 +432,7 @@ namespace Maple.WinUI.ViewModels
                 OnUi(() =>
                 {
                     if (!ReferenceEquals(photo, SelectedPhoto)) return;
+                    if (_sidecarDirty || _localMetadataWrites.Contains(photo.FilePath)) return;
                     var before = Adjustments;
                     Adjustments = doc.Adjustments;
                     photo.Rating = doc.Rating ?? 0;

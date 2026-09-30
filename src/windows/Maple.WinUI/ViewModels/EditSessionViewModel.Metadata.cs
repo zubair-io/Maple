@@ -10,6 +10,7 @@ public partial class EditSessionViewModel
     // its preview. Keep failures until observed; a logged error is not a save.
     private readonly PendingCloudSidecarWrites _cloudMetadataWrites = new();
     private readonly object _localMetadataGate = new();
+    private readonly Services.Xmp.PendingLocalSidecarWrites _localMetadataWrites = new();
     private Exception? _localMetadataError;
 
     private void TrackCloudMetadataWrite(Func<Task> write) => _cloudMetadataWrites.Enqueue(write);
@@ -30,8 +31,8 @@ public partial class EditSessionViewModel
         }
         _sidecarTimer?.Dispose();
         // The modal prevents edits while this runs. Flush the previous
-        // adjustment snapshot before reading metadata; failed writes remain
-        // dirty so retry can save them instead of silently discarding edits.
+        // adjustment snapshots before reading metadata; failed writes remain
+        // queued by photo so navigation cannot silently discard those edits.
         await Task.Run(FlushSidecarNow);
         if (_localMetadataError != null)
             throw new InvalidOperationException("Pending adjustment save failed: " + _localMetadataError.Message);

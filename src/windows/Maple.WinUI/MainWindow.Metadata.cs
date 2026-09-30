@@ -65,7 +65,7 @@ public sealed partial class MainWindow
                 var batch = new MetadataBatch(items, fields.Patch(), cloud);
                 fields.ShowPreview(batch, false);
                 modal.CanApply = batch.Patch.HasChanges;
-                modal.ConfirmationMessage = $"Apply the previewed changes to {photos.Length} selected photos? Unchanged fields and original files are preserved.";
+                modal.ConfirmationMessage = $"Apply the previewed changes to {photos.Length} selected photo{(photos.Length == 1 ? "" : "s")}? Unchanged fields and original files are preserved.";
             }
             catch (Exception error) { modal.CanApply = false; Status(error.Message); }
         }
@@ -146,7 +146,7 @@ public sealed partial class MainWindow
                 var remaining = items.Count(i => i.Saved == null);
                 modal.CanApply = remaining > 0;
                 modal.ApplyLabel = "Retry unfinished";
-                modal.ConfirmationMessage = $"Retry the {remaining} unfinished photos? Already saved photos will not be reapplied.";
+                modal.ConfirmationMessage = $"Retry the {remaining} unfinished photo{(remaining == 1 ? "" : "s")}? Already saved photos will not be reapplied.";
                 modal.CancelLabel = "Close";
                 if (applied != null) fields.ShowPreview(applied, true);
                 Status($"Saved {items.Length - remaining} of {items.Length}. {remaining} unfinished; see per-photo results.");
