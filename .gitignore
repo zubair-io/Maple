@@ -59,6 +59,10 @@ test-fixtures/*
 # directly by raw-core's raster_jpeg tests; no RAWs involved.
 !test-fixtures/jpeg-regressions/
 !test-fixtures/jpeg-regressions/**
+
+# Sharp JPEG-in-TIFF decode oracles (#3591), tiny synthetic images.
+!test-fixtures/jpeg-tiff/
+!test-fixtures/jpeg-tiff/**
 # Exception: the film-look self-consistency goldens (epic #2683,
 # src/scripts/test_film_looks.sh) ARE committed — six 1024px-long-edge PNGs
 # (~1MB each), downscaled from the full-res candidate before being written

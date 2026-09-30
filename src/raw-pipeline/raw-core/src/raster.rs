@@ -17,6 +17,9 @@ use raster_exif::*;
 #[path = "raster_jpeg.rs"]
 mod raster_jpeg;
 
+#[path = "raster_tiff.rs"]
+mod raster_tiff;
+
 #[path = "raster_ops.rs"]
 mod raster_ops;
 
@@ -47,7 +50,7 @@ pub use raster_probe::{container_orientation, probe_raster_metadata, RasterMetad
 pub(crate) const MAX_RASTER_PIXELS: u32 = 268_000_000;
 
 /// Allow high-resolution RGB16 inputs while retaining a finite decode budget.
-const MAX_BITMAP_DECODE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+pub(crate) const MAX_BITMAP_DECODE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// Representation of a decoded non-RAW raster image in memory.
 #[derive(Clone, Debug)]
@@ -142,11 +145,23 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
         }
     }
 
+    // image's guesser recognizes Classic TIFF only; tiff supports BigTIFF too.
+    if reader.format().is_none()
+        && (bytes.starts_with(b"II\x2b\0") || bytes.starts_with(b"MM\0\x2b"))
+    {
+        reader.set_format(image::ImageFormat::Tiff);
+    }
     if reader.format().is_none() {
         reader = reader.with_guessed_format().map_err(|e| Error::Decode {
             path: "<memory>".into(),
             reason: format!("cannot identify raster image format: {e}"),
         })?;
+    }
+
+    if reader.format() == Some(image::ImageFormat::Tiff) {
+        if let Some(decoded) = raster_tiff::decode_jpeg_tiff(bytes)? {
+            return Ok(decoded);
+        }
     }
 
     // Raise the 512 MiB default for valid RGB16 library assets (#3516),

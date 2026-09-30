@@ -148,10 +148,6 @@ describe('sharp parity: metadata, orientation and density (#3507)', () => {
     // transform: on this fixture the mean absolute difference between the
     // right transform and the next-best one is 52.
     for (const format of CONTAINERS) {
-      // sharp's `.tiff()` defaults to JPEG-in-TIFF (YCbCr), which the
-      // `image` crate's TIFF decoder refuses outright ("Unhandled TIFF
-      // color type YCbCr(8)") — a decode gap unrelated to orientation.
-      if (format === 'tiff') continue;
       const buf = await written(format);
       const mine = await maple(buf).toRaw();
       const theirs = await sharp(buf).raw().toBuffer({ resolveWithObject: true });
