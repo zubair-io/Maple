@@ -11,6 +11,7 @@
 
 import MapleBackup
 import MapleCore
+import MapleUI
 import Photos
 import SwiftUI
 
@@ -172,14 +173,11 @@ struct BackupStatusPanel: View {
   @ViewBuilder
   private var statusRow: some View {
     HStack(spacing: 8) {
-      Image(
-        systemName: EngineHost.shared.usesLocalAddress
-          ? "point.3.connected.trianglepath.dotted" : "network"
+      MuiIcon(
+        name: EngineHost.shared.usesLocalAddress ? "lan" : "public",
+        size: .sm, color: statusColor
       )
-      .font(.headline)
-      .foregroundStyle(statusColor)
       .frame(width: 20)
-      .accessibilityHidden(true)
       Text(progress.phase.label)
         .font(.headline)
       Spacer()

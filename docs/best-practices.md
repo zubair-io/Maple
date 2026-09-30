@@ -217,6 +217,16 @@ Code lives in three local SPM packages under `src/apple/Packages/` plus the Xcod
 - **MapleUI** — the design system. Dependency-free by contract: no MapleCore import, no third-party packages, because sibling apps consume it directly. macOS 14 / iOS 17.
 - **MapleBackup** — backup engine.
 
+### Icons
+
+New Apple views use MapleUI's `MuiIcon` with canonical Google Material Symbols
+Rounded names, for example `MuiIcon(name: "lan", size: .sm)`. The library is bundled
+and works offline. Inherit the surrounding tint or supply `color`; keep accessible
+labels on the enclosing control. Do not add feature-local icon downloads or assets.
+See the [icon contract](design/maple-ui/components/icon.md) and
+[upstream attribution/update instructions](licenses/google-material-symbols.md).
+The existing SF caller migration is tracked by #3686 / #3899.
+
 ### Module boundary
 
 Shared domain logic belongs in MapleCore, not in the app target — `src/apple/Packages/MapleCore/Sources/MapleCore/BrowseViewModel.swift` is the pattern. Platform `#if` guards are confined to views. MapleUI stays free of both: no MapleCore import, no app-specific types.

@@ -12,21 +12,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "MapleUI",
-    platforms: [
-        .macOS(.v14),
-        .iOS(.v17),
-    ],
-    products: [
-        .library(name: "MapleUI", targets: ["MapleUI"]),
-    ],
-    targets: [
-        .target(
-            name: "MapleUI"
-        ),
-        .testTarget(
-            name: "MapleUITests",
-            dependencies: ["MapleUI"]
-        ),
-    ]
+  name: "MapleUI",
+  platforms: [
+    .macOS(.v14),
+    .iOS(.v17),
+  ],
+  products: [
+    .library(name: "MapleUI", targets: ["MapleUI"])
+  ],
+  targets: [
+    .target(
+      name: "MapleUI",
+      resources: [.copy("Resources/MaterialSymbols")]
+    ),
+    .testTarget(
+      name: "MapleUITests",
+      dependencies: ["MapleUI"]
+    ),
+  ]
 )
