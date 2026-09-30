@@ -38,16 +38,17 @@ namespace Maple.UI
         }
 
         /// <summary>Snaps a pointer's x-offset within a <paramref name="barWidth"/>-wide
-        /// track to a whole-number value in [min, max] — ports `valueAtX`.
+        /// track to the configured step in [min, max].
         /// A zero/negative bar width returns <paramref name="fallback"/>
         /// (the control's current value, unchanged) rather than dividing by
         /// zero.</summary>
-        public static double ValueAtPosition(double x, double barWidth, double min, double max, double fallback)
+        public static double ValueAtPosition(double x, double barWidth, double min, double max, double fallback, double step = 1)
         {
             if (barWidth <= 0) return fallback;
             var pct = x / barWidth;
             var raw = min + pct * (max - min);
-            return MuiSliderMath.Clamp(System.Math.Round(raw), min, max);
+            var increment = double.IsFinite(step) && step > 0 ? step : 1;
+            return MuiSliderMath.Clamp(System.Math.Round(raw / increment) * increment, min, max);
         }
 
         /// <summary>Marker position as a [0,100] percentage — shares

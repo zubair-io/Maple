@@ -56,6 +56,19 @@ namespace Maple.WinUI.Tests
             Assert.Equal(-100, MuiDragBarMath.ValueAtPosition(-500, 200, -100, 100, fallback: 0));
         }
 
+        [Theory]
+        [InlineData(103, 200, -4, 4, 0.05, 0.1)]
+        [InlineData(97, 200, -4, 4, 0.05, -0.1)]
+        [InlineData(103, 200, -45, 45, 0.1, 1.4)]
+        [InlineData(97, 200, -45, 45, 0.1, -1.4)]
+        [InlineData(250, 200, -4, 4, 0.05, 4)]
+        [InlineData(-50, 200, -4, 4, 0.05, -4)]
+        public void ValueAtPosition_PreservesConfiguredFractionalPrecision(
+            double x, double width, double min, double max, double step, double expected)
+        {
+            Assert.Equal(expected, MuiDragBarMath.ValueAtPosition(x, width, min, max, 0, step), precision: 8);
+        }
+
         [Fact]
         public void ValueAtPosition_ZeroBarWidth_ReturnsFallback()
         {

@@ -171,7 +171,7 @@ namespace Maple.UI
             _dragging = true;
             _activePointerId = e.Pointer.PointerId;
             var x = e.GetCurrentPoint(_bar).Position.X;
-            Value = MuiDragBarMath.ValueAtPosition(x, _bar.ActualWidth, Minimum, Maximum, fallback: Value);
+            Value = MuiDragBarMath.ValueAtPosition(x, _bar.ActualWidth, Minimum, Maximum, fallback: Value, step: Step);
             ValueChanged?.Invoke(this, Value);
             _bar.CapturePointer(e.Pointer);
             e.Handled = true;
@@ -181,7 +181,7 @@ namespace Maple.UI
         {
             if (!_dragging || e.Pointer.PointerId != _activePointerId) return;
             var x = e.GetCurrentPoint(_bar).Position.X;
-            Value = MuiDragBarMath.ValueAtPosition(x, _bar.ActualWidth, Minimum, Maximum, fallback: Value);
+            Value = MuiDragBarMath.ValueAtPosition(x, _bar.ActualWidth, Minimum, Maximum, fallback: Value, step: Step);
             ValueChanged?.Invoke(this, Value);
             e.Handled = true;
         }
