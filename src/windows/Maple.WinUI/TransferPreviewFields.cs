@@ -8,12 +8,11 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace Maple.WinUI.Services.Transfer;
 
-/// <summary>Preview content staged under #3880 for the shared selective-paste
-/// modal. Menu/execution/recovery integration remains tracked by that issue.</summary>
+/// <summary>Current and incoming values in the production selective-paste modal.</summary>
 public sealed class TransferPreviewFields
 {
     public StackPanel Root { get; } = new() { Spacing = 12 };
-    public MuiCheckbox Relative { get; } = new() { Label = "Relative white balance — use each photo's camera baseline" };
+    public MuiCheckbox Relative { get; } = new() { Label = "Relative white balance — use each photo's camera baseline", IsThreeState = false };
     public TextBlock Status { get; } = Text("");
     private readonly StackPanel _values = new() { Spacing = 10 };
     public TransferPreviewFields()
@@ -38,7 +37,6 @@ public sealed class TransferPreviewFields
             AutomationProperties.SetName(expander, group.Label + " current and incoming values");
             _values.Children.Add(expander);
         }
-        if (preview.Excluded.Count > 0) _values.Children.Add(Text("Excluded: " + string.Join(", ", preview.Excluded.Select(Label))));
     }
 
     private static TextBlock Text(string value) => new() { Text = value, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };

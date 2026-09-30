@@ -95,6 +95,8 @@ namespace Maple.WinUI
                     SetZoom(ViewerScroll.ZoomFactor / 1.5f);
                     break;
                 case VirtualKey.Z when ctrl && shift: ViewModel.Redo(); break;
+                case VirtualKey.C when ctrl && shift: OnCopySettings(this, new RoutedEventArgs()); break;
+                case VirtualKey.V when ctrl && shift: OnPasteSettings(this, new RoutedEventArgs()); break;
                 case VirtualKey.Z when ctrl: ViewModel.Undo(); break;
                 case VirtualKey.R when ctrl: ViewModel.RevertToOriginal(); break;
                 case VirtualKey.E when ctrl: OnExportPhotos(this, new RoutedEventArgs()); break;

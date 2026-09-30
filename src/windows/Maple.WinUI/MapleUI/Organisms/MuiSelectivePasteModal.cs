@@ -132,7 +132,7 @@ namespace Maple.UI
             _checks.Children.Clear();
             foreach (var group in Groups ?? Array.Empty<MuiSelectivePasteGroup>())
             {
-                var checkbox = new MuiCheckbox { Label = group.Label, CheckedState = selected.Contains(group.Id), IsEnabled = _groupsEnabled };
+                var checkbox = new MuiCheckbox { Label = group.Label, IsThreeState = false, CheckedState = selected.Contains(group.Id), IsEnabled = _groupsEnabled };
                 var groupId = group.Id;
                 checkbox.Checked += (_, _) => Toggle(groupId, true);
                 checkbox.Unchecked += (_, _) => Toggle(groupId, false);

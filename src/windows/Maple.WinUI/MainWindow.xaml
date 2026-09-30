@@ -115,6 +115,11 @@
                                         KeyboardAcceleratorTextOverride="Ctrl+Shift+Z" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Auto Adjust" Click="OnApplyAuto" />
+                        <MenuFlyoutItem Text="Copy Settings" Click="OnCopySettings" KeyboardAcceleratorTextOverride="Ctrl+Shift+C" />
+                        <MenuFlyoutItem Text="Paste Settings…" Click="OnPasteSettings" KeyboardAcceleratorTextOverride="Ctrl+Shift+V" />
+                        <MenuFlyoutItem Text="Sync Settings to Selection…" Click="OnSyncSettings" />
+                        <MenuFlyoutItem Text="Transfer Recovery…" Click="OnTransferRecovery" />
+                        <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Reset All Adjustments" Click="OnResetAll" />
                         <MenuFlyoutItem Text="Revert to Original" Click="OnRevert"
                                         KeyboardAcceleratorTextOverride="Ctrl+R" />
