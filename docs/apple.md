@@ -150,6 +150,12 @@ The wgpu live path is always compiled and on by default; `GpuLiveFlag` turns it 
 
 ### Runtime flags
 
+Cloud browsing, Timeline, Map, Search, backup, Files/Finder integration,
+Observability, and the Generated Search widget are available in every build.
+Their former Cloud rollout overrides are no longer read. Panorama stitching
+retains its separate `FeatureFlags.isPanoramaEnabled` gate and existing
+Panorama/early-feature overrides (#3893).
+
 | Variable                                            | Effect                                                                                    |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `MAPLE_GPU_LIVE=0`                                  | kill-switch — forces the CPU + CoreImage path                                             |

@@ -101,11 +101,6 @@ struct GeneratedSearchWidget: Widget {
     }
     .configurationDisplayName("Rediscover")
     .description("A photo from one of today's collections.")
-    // #3773: Generated Search is a Maple Cloud feature. `WidgetBundleBuilder`
-    // allows no control flow, so the gate lives here: with the flag off the
-    // widget supports no family and the gallery does not offer it. Tiles
-    // placed before a flag flip are covered by `WidgetSession.current()`.
-    .supportedFamilies(
-      FeatureFlags.isMapleCloudEnabled ? [.systemSmall, .systemMedium, .systemLarge] : [])
+    .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
   }
 }

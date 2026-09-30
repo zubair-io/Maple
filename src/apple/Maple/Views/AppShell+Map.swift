@@ -35,7 +35,6 @@ import SwiftUI
 extension AppShell {
   /// Sidebar MAP row action.
   func openMap() {
-    guard FeatureFlags.isMapleCloudEnabled else { return }
     // Capture BEFORE flipping `librarySelection` below — once it's
     // `.map` there's no `.cloudLibrary` left to read.
     let resolvedServer = resolveMapServerURL()

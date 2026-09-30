@@ -12,8 +12,8 @@ import Foundation
 import MapleCore
 
 #if os(iOS)
-@MainActor
-extension AppShell {
+  @MainActor
+  extension AppShell {
     /// Switch to the iPhone Search tab and seed it with `params`.
     ///
     /// `libraryID` is forced onto `params` the same way
@@ -30,16 +30,10 @@ extension AppShell {
     /// `@AppStorage("cm.tab.shell")` observes the write regardless of who
     /// made it.
     func switchToPhoneSearchTab(seeding params: SearchParams, libraryID: String?) {
-        // #3773: `PhoneTabShell.validTabs` drops "search" with Maple Cloud
-        // off; writing it anyway would select a `TabView` value with no
-        // matching `Tab` (nothing highlighted, drawer mode misfires) and
-        // only `onAppear` would repair it. The seed is dropped too — there
-        // is no search surface to apply it to.
-        guard FeatureFlags.isMapleCloudEnabled else { return }
-        var resolvedParams = params
-        resolvedParams.libraryID = libraryID
-        pendingPhoneSearchSeed = resolvedParams
-        UserDefaults.standard.set("search", forKey: "cm.tab.shell")
+      var resolvedParams = params
+      resolvedParams.libraryID = libraryID
+      pendingPhoneSearchSeed = resolvedParams
+      UserDefaults.standard.set("search", forKey: "cm.tab.shell")
     }
-}
+  }
 #endif

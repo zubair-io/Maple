@@ -31,9 +31,7 @@ struct LibrarySourcesSettingsView: View {
     Form {
       foldersSection
       sharesSection
-      if FeatureFlags.isMapleCloudEnabled {
-        serversSection
-      }
+      serversSection
       footerSection
     }
     .formStyle(.grouped)

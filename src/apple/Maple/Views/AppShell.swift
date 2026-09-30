@@ -339,7 +339,6 @@ struct AppShell: View {
   /// Search is only available against a Maple Cloud library — local /
   /// PhotoKit / SMB sources have no server-side index to query.
   var searchAvailable: Bool {
-    guard FeatureFlags.isMapleCloudEnabled else { return false }
     if case .cloudLibrary = librarySelection { return true }
     return false
   }
@@ -587,8 +586,7 @@ struct AppShell: View {
     // it for the iPhone global Search tab.
     .environment(
       \.searchForText,
-      FeatureFlags.isMapleCloudEnabled
-        ? SearchTextAction { query in activateSearch(query: query) } : nil
+      SearchTextAction { query in activateSearch(query: query) }
     )
     // Inline single-asset rename (#2638). Re-injected across the iPhone
     // info sheet + PreviewView's inspector/sheet/popover (see
