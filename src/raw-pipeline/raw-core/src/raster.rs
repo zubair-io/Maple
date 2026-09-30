@@ -159,8 +159,20 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
             data: rgba.into_raw(),
             orientation,
         }),
+        other if other.color().has_alpha() => {
+            // Keep straight alpha when expanding grayscale or narrowing depth
+            // (#3574); metadata and decoded pixels must agree on transparency.
+            let rgba = other.to_rgba8();
+            Ok(RasterImage {
+                width,
+                height,
+                channels: 4,
+                data: rgba.into_raw(),
+                orientation,
+            })
+        }
         other => {
-            // Normalize any grayscale (L8, La8) or 16-bit to standard 8-bit sRGB
+            // Normalize opaque grayscale or high-depth colour to 8-bit RGB.
             let rgb = other.to_rgb8();
             Ok(RasterImage {
                 width,
@@ -239,3 +251,7 @@ mod avif_decode_gate;
 #[cfg(test)]
 #[path = "raster_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "raster_alpha_decode_tests.rs"]
+mod alpha_decode_tests;
