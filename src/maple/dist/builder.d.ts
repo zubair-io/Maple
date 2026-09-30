@@ -214,7 +214,7 @@ export declare class MapleImageBuilder {
      * internally and re-throws on `!ok`, so that behaviour is unchanged.
      */
     toFile(outputPath: string): Promise<ExportResult>;
-    /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
+    /** Execute queued edits as interleaved RGB8 (alpha dropped, grey expanded). */
     toRaw(): Promise<RawPixels>;
 }
 /**

@@ -1737,44 +1737,22 @@ async function runPipeline(state, bytes, output) {
     channels: res.channels
   };
 }
-async function decodeRgb8(bytes, autoOrient) {
-  const res = await callNative("rasterDecodeRgb8Buf", [bytes, autoOrient]);
-  if (!res.ok || !res.buffer || res.width === undefined || res.height === undefined) {
-    throw new Error(res.error || "Failed to decode to RGB8");
-  }
-  return {
-    data: new Uint8Array(res.buffer.buffer, res.buffer.byteOffset, res.buffer.byteLength),
-    width: res.width,
-    height: res.height,
-    channels: 3
-  };
-}
 async function resolveToRaw(state) {
-  if (state.rawInput) {
-    const r = state.rawInput;
-    const png = await callNative("rasterFromRawRenderBuf", [
-      r.data,
-      r.width,
-      r.height,
-      r.channels,
-      0,
-      0,
-      0,
-      0,
-      "png",
-      0,
-      0
-    ]);
-    if (!png.ok || !png.buffer) {
-      throw new Error(png.error || "Failed to normalise raw pixels");
-    }
-    return decodeRgb8(png.buffer, state.autoOrient);
-  }
-  const bytes = state.inputBytes ?? (state.inputPath ? await fs4.readFile(state.inputPath) : null);
-  if (!bytes || bytes.length === 0) {
+  const bytes = await inputBytes(state);
+  if (bytes.length === 0) {
     throw new Error("Input image is empty");
   }
-  return decodeRgb8(bytes, state.autoOrient);
+  const rgbState = {
+    ...state,
+    ops: [...state.ops, { op: "removeAlpha" }]
+  };
+  const out = await runPipeline(rgbState, bytes, { format: "raw" });
+  return {
+    data: new Uint8Array(out.buffer.buffer, out.buffer.byteOffset, out.buffer.byteLength),
+    width: out.width,
+    height: out.height,
+    channels: 3
+  };
 }
 async function resolveTensor(state, options) {
   let bytes = state.inputBytes;
