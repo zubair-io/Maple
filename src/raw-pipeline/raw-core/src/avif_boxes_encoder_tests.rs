@@ -122,7 +122,7 @@ fn build_iloc_payload(header: &[u8], entries: &[(u16, u32, u32)]) -> Vec<u8> {
 /// which the trailing `assert_eq!` treats as a correctness check on
 /// that claim rather than an assumption.
 #[cfg(feature = "avif")]
-fn mux_avif(
+pub(crate) fn mux_avif(
     base: &[u8],
     irot: Option<u8>,
     imir: Option<u8>,

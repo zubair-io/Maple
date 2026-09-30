@@ -77,7 +77,21 @@ fn capped(block: Option<&[u8]>) -> Option<&[u8]> {
 fn metadata_value(bytes: &[u8]) -> Result<Value> {
     let probe = crate::raster::probe_raster_metadata(bytes)?;
     let sidecars = crate::raster_meta::read_sidecars(bytes);
-    Ok(json!({
+    Ok(metadata_reply(
+        &probe,
+        &sidecars,
+        depth_value(bytes, &probe.format),
+        bytes.len(),
+    ))
+}
+
+fn metadata_reply(
+    probe: &crate::raster::RasterMetadata,
+    sidecars: &crate::raster_meta::RasterSidecars,
+    depth: &str,
+    size: usize,
+) -> Value {
+    json!({
         "width": probe.width,
         "height": probe.height,
         "format": probe.format,
@@ -90,16 +104,16 @@ fn metadata_value(bytes: &[u8]) -> Result<Value> {
         // varies: TIFF and PNG can carry 16-bit-per-channel samples, unlike
         // this crate's JPEG/WebP/AVIF encoders, which are always 8-bit.
         "space": "srgb",
-        "depth": depth_value(bytes, &probe.format),
+        "depth": depth,
         "density": sidecars.density,
-        "size": bytes.len(),
+        "size": size,
         "icc": capped(sidecars.icc.as_deref()).map(base64),
         // Handed back in the form the container stored it, introducer and
         // all, because that is what sharp returns (#3507 final fix wave,
         // item 3 — see `RasterSidecars::exif_as_stored`).
         "exif": capped(sidecars.exif_as_stored().as_deref()).map(base64),
         "xmp": capped(sidecars.xmp.as_deref()).map(base64),
-    }))
+    })
 }
 
 /// Sample depth ('uchar' / 'ushort', matching sharp's own `metadata().depth`
@@ -114,23 +128,7 @@ fn metadata_value(bytes: &[u8]) -> Result<Value> {
 /// in practice; falls back to 'uchar' rather than turning an advisory field
 /// into a hard error.
 fn depth_value(bytes: &[u8], format: &str) -> &'static str {
-    if format != "tiff" && format != "dng" && format != "png" {
-        return "uchar";
-    }
-    match image::ImageReader::new(std::io::Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()
-        .and_then(|reader| reader.into_decoder().ok())
-    {
-        Some(decoder) => match decoder.color_type() {
-            image::ColorType::L16
-            | image::ColorType::La16
-            | image::ColorType::Rgb16
-            | image::ColorType::Rgba16 => "ushort",
-            _ => "uchar",
-        },
-        None => "uchar",
-    }
+    depth_reader(&mut std::io::Cursor::new(bytes), format).unwrap_or("uchar")
 }
 
 fn stats_value(stats: &RasterStats) -> Value {
@@ -165,9 +163,7 @@ fn stats_value(stats: &RasterStats) -> Value {
     })
 }
 
-/// Answer an analyze `request` (schema v1, see the module doc) about
-/// `bytes`, returning the JSON reply as a string.
-pub fn analyze(bytes: &[u8], request: &str) -> Result<String> {
+fn parse_request(request: &str) -> Result<AnalyzeRequest> {
     let request: AnalyzeRequest = serde_json::from_str(request)
         .map_err(|e| bad(format!("analyze request parse failed: {e}")))?;
     if request.v != 1 {
@@ -176,6 +172,13 @@ pub fn analyze(bytes: &[u8], request: &str) -> Result<String> {
             request.v
         )));
     }
+    Ok(request)
+}
+
+/// Answer an analyze `request` (schema v1, see the module doc) about
+/// `bytes`, returning the JSON reply as a string.
+pub fn analyze(bytes: &[u8], request: &str) -> Result<String> {
+    let request = parse_request(request)?;
     let mut reply = Map::new();
     for what in &request.what {
         match what.as_str() {
@@ -196,3 +199,77 @@ pub fn analyze(bytes: &[u8], request: &str) -> Result<String> {
 #[cfg(test)]
 #[path = "raster_analyze_tests.rs"]
 mod tests;
+
+/// Analyze a seekable file. Metadata-only requests read headers and metadata
+/// spans; stats explicitly loads the encoded file because it decodes pixels.
+pub fn analyze_reader<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+    request: &str,
+) -> Result<String> {
+    use std::io::SeekFrom;
+    let request = parse_request(request)?;
+    let io_error = |source| Error::Io {
+        path: "<analyze>".into(),
+        source,
+    };
+    let mut reply = Map::new();
+    for what in &request.what {
+        match what.as_str() {
+            "metadata" => {
+                let probe = crate::raster::probe_raster_metadata_reader(reader)?;
+                let sidecars =
+                    crate::raster_meta::read_sidecars_reader(reader).map_err(io_error)?;
+                let size = usize::try_from(reader.seek(SeekFrom::End(0)).map_err(io_error)?)
+                    .map_err(|_| bad("image file is too large".into()))?;
+                reader.seek(SeekFrom::Start(0)).map_err(io_error)?;
+                let depth = depth_reader(reader, &probe.format)?;
+                reply.insert(
+                    "metadata".into(),
+                    metadata_reply(&probe, &sidecars, depth, size),
+                );
+            }
+            "stats" => {
+                reader.seek(SeekFrom::Start(0)).map_err(io_error)?;
+                let mut bytes = Vec::new();
+                reader.read_to_end(&mut bytes).map_err(io_error)?;
+                let raster = crate::raster::decode_raster(&bytes, None)?;
+                reply.insert("stats".into(), stats_value(&compute_stats(&raster)?));
+            }
+            other => return Err(bad(format!("unknown analyze request '{other}'"))),
+        }
+    }
+    serde_json::to_string(&Value::Object(reply))
+        .map_err(|e| bad(format!("analyze reply serialisation failed: {e}")))
+}
+
+fn depth_reader<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+    format: &str,
+) -> Result<&'static str> {
+    if format != "tiff" && format != "dng" && format != "png" {
+        return Ok("uchar");
+    }
+    let io_error = |source| Error::Io {
+        path: "<analyze>".into(),
+        source,
+    };
+    let decoder = match image::ImageReader::new(reader).with_guessed_format() {
+        Ok(reader) => reader.into_decoder(),
+        Err(error) => return Err(io_error(error)),
+    };
+    match decoder {
+        Ok(decoder) => Ok(match decoder.color_type() {
+            image::ColorType::L16
+            | image::ColorType::La16
+            | image::ColorType::Rgb16
+            | image::ColorType::Rgba16 => "ushort",
+            _ => "uchar",
+        }),
+        Err(image::ImageError::IoError(error))
+            if error.kind() != std::io::ErrorKind::UnexpectedEof =>
+        {
+            Err(io_error(error))
+        }
+        Err(_) => Ok("uchar"),
+    }
+}
