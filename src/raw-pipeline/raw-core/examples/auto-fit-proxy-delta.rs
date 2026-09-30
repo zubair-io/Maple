@@ -3,12 +3,16 @@
 //! proxied way, apply each to the SAME Neutral display render, and write the
 //! two PNGs (+ timings) so `compare_images.py` can CIEDE2000 them.
 //! Usage: auto-fit-proxy-delta <raw-dir> <out-dir>
+//! Add `--render-matrix` to hold each fit fixed across native/1600px renders,
+//! with default detail and with chroma NR disabled (#3875). Diagnostic only:
+//! deliberately overriding render-origin cache entries is not host behavior.
 use raw_core::pipeline::{
     fit_auto_profile_from_raw_at_cap, render_sized_from_raw_with_quality_and_source, FitCap,
     RawInput, RenderQuality,
 };
 use raw_core::types::adjustment::{AutoExposureMode, Profile};
 use raw_core::view::auto_profile::apply_curve;
+use raw_core::view::auto_profile::cache::{self, CacheKey, FitOrigin};
 use raw_core::xmp::AdjustmentModel;
 use std::path::Path;
 use std::time::Instant;
@@ -108,6 +112,41 @@ fn main() {
             let p = out.join(format!("{name}-{label}.png"));
             std::fs::write(&p, png).unwrap();
             pngs.push(p.to_string_lossy().to_string());
+            if args.iter().any(|a| a == "--render-matrix") {
+                // Require both artifacts: a missing one would let the render
+                // refit and invalidate the claim that the fit is held fixed.
+                let curve = curve.as_ref().expect("matrix requires a fitted curve");
+                let residual = residual.as_ref().expect("matrix requires a residual LUT");
+                for edge in [1600, raw.width.max(raw.height)] {
+                    let key = CacheKey::from_path(&path, RenderQuality::Preview)
+                        .expect("fixture cache identity")
+                        .with_origin(FitOrigin::Render(
+                            (edge < raw.width.max(raw.height)).then_some(edge),
+                        ));
+                    cache::insert(key.clone(), curve.clone());
+                    cache::insert_lut(key, residual.clone());
+                    for (nr_color, detail) in [(auto_model.nr_color, "default"), (0.0, "no-nr")] {
+                        let model = AdjustmentModel {
+                            nr_color,
+                            ..auto_model.clone()
+                        };
+                        let (rw, rh, rgb) = render_sized_from_raw_with_quality_and_source(
+                            &raw,
+                            &model,
+                            RenderQuality::Preview,
+                            Some(RawInput::Path(&path)),
+                            edge,
+                        )
+                        .expect("fixed-fit render");
+                        let png = raw_core::png::encode(rw, rh, &rgb).unwrap();
+                        std::fs::write(
+                            out.join(format!("{name}-{label}-fit-{edge}-{detail}.png")),
+                            png,
+                        )
+                        .unwrap();
+                    }
+                }
+            }
         }
         println!(
             "{name}\t{}x{}\t{}\t{}\t{}\t{}",
