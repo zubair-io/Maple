@@ -18,6 +18,7 @@ import * as fs from 'node:fs/promises';
 import { callNative } from './worker-pool';
 import { lastResizeWidth, stateToRecipe, type BuilderState } from './builder-state';
 import type { RawPixels, TensorOptions, TensorResult } from './types';
+import type { RecipeOutput } from './recipe';
 
 export interface PipelineOutput {
   buffer: Buffer;
@@ -43,7 +44,7 @@ export async function inputBytes(state: BuilderState): Promise<Uint8Array> {
 export async function runPipeline(
   state: BuilderState,
   bytes: Uint8Array,
-  output: Record<string, unknown>,
+  output: RecipeOutput,
 ): Promise<PipelineOutput> {
   // Resolve file-backed metadata before serializing its final aux offsets.
   await state.aux.resolve();
