@@ -29,24 +29,67 @@ pub struct InpaintPatch {
 }
 
 impl InpaintPatch {
-    /// True when dimensions are non-zero, extent positive, and both buffers
-    /// have the declared length. A malformed patch is skipped by the compositor
-    /// rather than panicking — a corrupt cache entry must not crash a render.
-    pub fn is_valid(&self) -> bool {
-        let n = (self.width as usize) * (self.height as usize);
-        self.width > 0
-            && self.height > 0
-            && self.extent[0] > 0.0
-            && self.extent[1] > 0.0
-            && self.pixels.len() == n
-            && self.coverage.len() == n
+    /// Validate the complete asset at publication/loading boundaries. Negative
+    /// and HDR RGB are valid scene values; NaN/Inf and invalid coverage are not.
+    pub fn validate(&self) -> Result<(), String> {
+        let n = validate_patch_layout(self.width, self.height, self.origin, self.extent)?;
+        if self.pixels.len() != n || self.coverage.len() != n {
+            return Err("inpaint patch: buffers do not match declared dimensions".into());
+        }
+        if self.pixels.iter().flatten().any(|c| !c.is_finite()) {
+            return Err("inpaint patch: RGB must be finite".into());
+        }
+        if self
+            .coverage
+            .iter()
+            .any(|c| !c.is_finite() || !(0.0..=1.0).contains(c))
+        {
+            return Err("inpaint patch: coverage must be finite and in [0, 1]".into());
+        }
+        Ok(())
     }
+
+    /// A malformed patch must not poison the scene buffer or panic a render.
+    pub fn is_valid(&self) -> bool {
+        self.validate().is_ok()
+    }
+}
+
+/// Header validation shared by the carrier and codec, before body allocation.
+pub(crate) fn validate_patch_layout(
+    width: u32,
+    height: u32,
+    origin: [f32; 2],
+    extent: [f32; 2],
+) -> Result<usize, String> {
+    if width == 0 || height == 0 {
+        return Err("inpaint patch: dimensions must be non-zero".into());
+    }
+    let n = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| "inpaint patch: dimension overflow".to_string())?;
+    validate_region([origin[0], origin[1], extent[0], extent[1]])?;
+    Ok(n)
+}
+
+fn validate_region(region: [f32; 4]) -> Result<(), String> {
+    if region.iter().any(|v| !v.is_finite())
+        || region[0] < 0.0
+        || region[1] < 0.0
+        || region[2] <= 0.0
+        || region[3] <= 0.0
+        || region[0] + region[2] > 1.0
+        || region[1] + region[3] > 1.0
+    {
+        return Err("inpaint region must be finite, non-empty and within the source frame".into());
+    }
+    Ok(())
 }
 
 /// Bake-time grade snapshot — the WB/exposure state the patch's inverse was
 /// computed against. Needed to re-grade the composited patch coherently and to
-/// regenerate it deterministically if the cached asset is evicted (design doc
-/// §3c / §5).
+/// interpret legacy schema-2 edits. Accepted patch assets are durable and must
+/// not be evicted or silently regenerated.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BakeGrade {
     pub temperature: f32,
@@ -64,7 +107,7 @@ pub struct Removal {
     /// `.maple/inpaint/<patch_ref>.f16`.
     pub patch_ref: String,
     /// Model identity the patch was generated with — part of the cache key and
-    /// the deterministic-regeneration recipe.
+    /// provenance. Changing installed models never changes accepted pixels.
     pub model_version: String,
     /// The grade the patch's inverse was baked against.
     pub bake: BakeGrade,
@@ -72,9 +115,12 @@ pub struct Removal {
 
 /// Encode removals to the `papp:InpaintRemovals` attribute value (compact JSON
 /// array). Empty input produces `"[]"`.
-pub fn encode_removals(removals: &[Removal]) -> String {
+pub fn encode_removals(removals: &[Removal]) -> Result<String, String> {
+    for removal in removals {
+        validate_removal(removal)?;
+    }
     let arr: Vec<Value> = removals.iter().map(removal_to_json).collect();
-    Value::Array(arr).to_string()
+    Ok(Value::Array(arr).to_string())
 }
 
 /// Decode the `papp:InpaintRemovals` attribute. **Tolerant reader** (mirrors
@@ -116,6 +162,13 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
     if obj.get("kind").and_then(|x| x.as_str()) != Some("removal") {
         return Ok(None); // unknown element kind → skip
     }
+    // Legacy records without a schema were accepted by the original reader.
+    // A recognized future schema cannot safely be interpreted as schema 2.
+    if let Some(schema) = obj.get("schema") {
+        if schema.as_u64() != Some(2) {
+            return Err(format!("unsupported removal schema: {schema}"));
+        }
+    }
     let region = region_from_json(obj.get("region"))?;
     let patch_ref = obj
         .get("patch")
@@ -128,12 +181,28 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
         .ok_or_else(|| "removal missing string `model`".to_string())?
         .to_string();
     let bake = bake_from_json(obj.get("bake"))?;
-    Ok(Some(Removal {
+    let removal = Removal {
         region,
         patch_ref,
         model_version,
         bake,
-    }))
+    };
+    validate_removal(&removal)?;
+    Ok(Some(removal))
+}
+
+fn validate_removal(removal: &Removal) -> Result<(), String> {
+    validate_region(removal.region)?;
+    if removal.patch_ref.trim().is_empty() || removal.model_version.trim().is_empty() {
+        return Err("removal patch and model identities must be non-empty".into());
+    }
+    if !removal.bake.temperature.is_finite()
+        || !removal.bake.tint.is_finite()
+        || !removal.bake.exposure.is_finite()
+    {
+        return Err("removal bake grade must be finite".into());
+    }
+    Ok(())
 }
 
 fn region_from_json(v: Option<&Value>) -> Result<[f32; 4], String> {
@@ -188,7 +257,7 @@ mod tests {
 
     #[test]
     fn encode_empty_is_empty_array() {
-        assert_eq!(encode_removals(&[]), "[]");
+        assert_eq!(encode_removals(&[]).unwrap(), "[]");
     }
 
     #[test]
@@ -198,7 +267,7 @@ mod tests {
         two.patch_ref = "blake3:cafe".to_string();
         two.region = [0.0, 0.0, 1.0, 1.0];
         let removals = vec![one, two];
-        let encoded = encode_removals(&removals);
+        let encoded = encode_removals(&removals).unwrap();
         let decoded = decode_removals(&encoded).unwrap();
         assert_eq!(decoded, removals);
     }
@@ -232,5 +301,59 @@ mod tests {
     fn decode_removal_missing_patch_errors() {
         let s = r#"[{"kind":"removal","region":[0,0,1,1],"model":"m","bake":{"temp":5500,"tint":0,"ev":0}}]"#;
         assert!(decode_removals(s).is_err());
+    }
+
+    #[test]
+    fn recognized_future_or_malformed_schema_fails_closed() {
+        for schema in [
+            json!(3),
+            json!(0),
+            json!(-1),
+            json!(2.5),
+            json!("2"),
+            Value::Null,
+        ] {
+            let mut record = removal_to_json(&sample());
+            record["schema"] = schema;
+            assert!(decode_removals(&json!([record]).to_string()).is_err());
+        }
+        let mut legacy = removal_to_json(&sample());
+        legacy.as_object_mut().unwrap().remove("schema");
+        assert_eq!(
+            decode_removals(&json!([legacy]).to_string()).unwrap(),
+            vec![sample()]
+        );
+    }
+
+    #[test]
+    fn reader_and_writer_reject_out_of_frame_regions_and_empty_identities() {
+        for region in [
+            [-0.1, 0.0, 0.2, 0.2],
+            [0.0, 0.0, 0.0, 1.0],
+            [0.8, 0.0, 0.3, 1.0],
+            [0.0, 0.9, 1.0, 0.2],
+        ] {
+            let mut r = sample();
+            r.region = region;
+            assert!(encode_removals(std::slice::from_ref(&r)).is_err());
+            assert!(decode_removals(&json!([removal_to_json(&r)]).to_string()).is_err());
+        }
+        let mut r = sample();
+        r.patch_ref = " ".into();
+        assert!(encode_removals(std::slice::from_ref(&r)).is_err());
+        assert!(decode_removals(&json!([removal_to_json(&r)]).to_string()).is_err());
+    }
+
+    #[test]
+    fn numeric_conversion_overflow_and_non_finite_writer_fail() {
+        let mut record = removal_to_json(&sample());
+        record["bake"]["ev"] = json!(1e100);
+        assert!(decode_removals(&json!([record]).to_string()).is_err());
+        let mut r = sample();
+        r.region[0] = f32::NAN;
+        assert!(encode_removals(std::slice::from_ref(&r)).is_err());
+        r = sample();
+        r.bake.exposure = f32::INFINITY;
+        assert!(encode_removals(&[r]).is_err());
     }
 }
