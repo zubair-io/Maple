@@ -1,35 +1,10 @@
-// FeatureFlags.swift — Feature flag gates for Maple Cloud and Panorama stitching.
+// FeatureFlags.swift — Panorama stitching rollout gate (#3773).
 //
-// App Store preparation (#3773):
-// Features that depend on the Maple Cloud backend (Timeline, Map view, Cloud server
-// browsing/sources, PhotoKit backup, Files/Finder integration, Cloud search,
-// Observability, the Generated Search widget) and Panorama stitching are hidden by default
-// in release builds (App Store & TestFlight).
-//
-// Scope: the gate closes every entry point, not only the chrome. Settings
-// tabs, sidebar rows and toolbar buttons are hidden, and the non-UI routes
-// into the same features — cold-start source restore, `autoPickInitialSource`,
-// `maple://source/{id}` deep links, the widget's search deep link, the
-// widget timeline itself — all consult the same flag, so a disabled feature
-// is unreachable rather than merely undiscoverable.
-//
-// CI/CD early test releases (version tags carrying a prerelease suffix such
-// as `v0.0.8-test.1`, or builds stamped with `MapleEarlyFeatures = true`)
-// have these features enabled.
-//
-// This lives in MapleCloudKit rather than MapleCore so the widget extension
-// (which links MapleCloudKit only — it must not pull in RawPipeline) reads
-// the same gate as the app. MapleCore re-exports MapleCloudKit, so app code
-// that imports MapleCore sees `FeatureFlags` unchanged.
-//
-// Precedence hierarchy for each flag:
-//   1. Environment variable (`MAPLE_ENABLE_CLOUD`, `MAPLE_ENABLE_PANO`, `MAPLE_EARLY_FEATURES`)
-//   2. Launch argument / UserDefaults (`-MapleEnableCloud`, `-MapleEnablePano`, `-MapleEarlyFeatures`)
-//   3. Stamped Info.plist key (`MapleEnableCloud`, `MapleEnablePano`, `MapleEarlyFeatures`)
-//   4. The value the app last published to the App Group (`publishResolvedFlags()`) —
-//      how an extension whose own Info.plist is never stamped follows the app
-//   5. Version tag analysis (`CFBundleShortVersionString` carrying a prerelease suffix e.g. `-test.1`)
-//   6. `#if DEBUG` default (true in debug, false in release)
+// Cloud features are available in every build (#3893). The remaining
+// Panorama gate defaults off in App Store/TestFlight releases and on in
+// Debug or early releases. Existing Panorama and early-feature overrides
+// retain their precedence: environment, launch argument/UserDefaults,
+// stamped Info.plist, published App Group value, prerelease version, Debug.
 
 import Foundation
 
@@ -38,35 +13,18 @@ public enum FeatureFlags {
 
   /// Plist / UserDefaults keys.
   public static let earlyFeaturesKey = "MapleEarlyFeatures"
-  public static let cloudFeaturesKey = "MapleEnableCloud"
   public static let panoFeaturesKey = "MapleEnablePano"
 
   /// App Group key the app publishes its resolved master toggle under, so
-  /// extensions (widget) that never see the app's stamped Info.plist or
-  /// launch arguments still agree with it.
+  /// consumers that never see the app's stamped Info.plist or launch
+  /// arguments can resolve the same early-feature default.
   public static let publishedEarlyFeaturesKey = "MapleEarlyFeaturesPublished"
 
   /// Environment variable names.
   public static let earlyFeaturesEnvVar = "MAPLE_EARLY_FEATURES"
-  public static let cloudEnvVar = "MAPLE_ENABLE_CLOUD"
   public static let panoEnvVar = "MAPLE_ENABLE_PANO"
 
   // MARK: - Public Feature Gates
-
-  /// Whether Maple Cloud features (Timeline, Map view, Cloud server sources, Backup, Files integration, Cloud search, Observability) are enabled.
-  public static var isMapleCloudEnabled: Bool {
-    if let env = ProcessInfo.processInfo.environment[cloudEnvVar] {
-      if env == "1" { return true }
-      if env == "0" { return false }
-    }
-    if UserDefaults.standard.object(forKey: cloudFeaturesKey) != nil {
-      return UserDefaults.standard.bool(forKey: cloudFeaturesKey)
-    }
-    if let stamped = Bundle.main.infoDictionary?[cloudFeaturesKey] as? Bool {
-      return stamped
-    }
-    return areEarlyFeaturesEnabled
-  }
 
   /// Whether Panorama stitching is enabled.
   public static var isPanoramaEnabled: Bool {
@@ -83,7 +41,7 @@ public enum FeatureFlags {
     return areEarlyFeaturesEnabled
   }
 
-  /// Master toggle for early access features (both Cloud and Panorama).
+  /// Master toggle for early access Panorama stitching.
   public static var areEarlyFeaturesEnabled: Bool {
     // 1. Process environment (explicit override)
     if let env = ProcessInfo.processInfo.environment[earlyFeaturesEnvVar] {
@@ -125,9 +83,7 @@ public enum FeatureFlags {
   // MARK: - App Group publication
 
   /// Called once at app launch. Writes the app's resolved master toggle to the
-  /// App Group so the widget extension — whose own Info.plist the build's
-  /// stamping phase never touches and which cannot see the app's launch
-  /// arguments — resolves the same answer on its next timeline refresh.
+  /// App Group, preserving the early-feature default used by Panorama.
   public static func publishResolvedFlags() {
     sharedDefaults().set(areEarlyFeaturesEnabled, forKey: publishedEarlyFeaturesKey)
   }

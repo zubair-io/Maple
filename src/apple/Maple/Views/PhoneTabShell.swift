@@ -196,11 +196,7 @@
     /// `mode:` below (which treats any non-"library" value as `.preview`)
     /// would also misfire. `normalizeActiveTabIfNeeded()` resets that case.
     private static var validTabs: Set<String> {
-      if FeatureFlags.isMapleCloudEnabled {
-        return ["library", "search", "settings"]
-      } else {
-        return ["library", "settings"]
-      }
+      ["library", "search", "settings"]
     }
 
     var body: some View {
@@ -366,7 +362,7 @@
 
         // Selection owns the action surface. Remove the floating Search tab
         // until Done so it cannot overlap the selection controls on Duo.
-        if FeatureFlags.isMapleCloudEnabled && !browseVM.isSelecting {
+        if !browseVM.isSelecting {
           Tab("Search", systemImage: "magnifyingglass", value: "search", role: .search) {
             PhoneSearchTab(
               sessions: $sessions,
@@ -402,8 +398,7 @@
       // `PreviewView` / `EditorDestination`.
       .environment(
         \.searchForText,
-        FeatureFlags.isMapleCloudEnabled
-          ? SearchTextAction { text in searchFor(text) } : nil
+        SearchTextAction { text in searchFor(text) }
       )
       // Folder row → reveal the containing folder. Wrap the root action so
       // it ALSO switches to the Library tab, where the folder was loaded —
@@ -421,7 +416,6 @@
     /// Clearing `libraryPath` pops any open editor/preview (and its info
     /// sheet) so the user lands cleanly on the results.
     private func searchFor(_ text: String) {
-      guard FeatureFlags.isMapleCloudEnabled else { return }
       searchQuery = text
       libraryPath = []
       activeTab = "search"

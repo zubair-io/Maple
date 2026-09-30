@@ -48,13 +48,11 @@
         Section("General") {
           MuiListRow(
             icon: "gear", label: "General", pressed: { destination = .general }, trailing: chevron)
-          if FeatureFlags.isMapleCloudEnabled {
-            MuiListRow(
-              icon: "icloud.and.arrow.up", label: "Backup", pressed: { destination = .backup },
-              trailing: chevron)
-            MuiListRow(
-              icon: "cloud", label: "Cloud", pressed: { destination = .cloud }, trailing: chevron)
-          }
+          MuiListRow(
+            icon: "icloud.and.arrow.up", label: "Backup", pressed: { destination = .backup },
+            trailing: chevron)
+          MuiListRow(
+            icon: "cloud", label: "Cloud", pressed: { destination = .cloud }, trailing: chevron)
           if FeatureFlags.isPanoramaEnabled {
             MuiListRow(
               icon: "photo.stack", label: "Pano", pressed: { destination = .pano },
@@ -64,12 +62,10 @@
           }
         }
 
-        if FeatureFlags.isMapleCloudEnabled {
-          Section("Observability") {
-            MuiListRow(
-              icon: "waveform.path.ecg", label: "Observability",
-              pressed: { destination = .observability }, trailing: chevron)
-          }
+        Section("Observability") {
+          MuiListRow(
+            icon: "waveform.path.ecg", label: "Observability",
+            pressed: { destination = .observability }, trailing: chevron)
         }
 
         Section("Files") {
@@ -83,10 +79,8 @@
             trailing: chevron
           )
           .accessibilityIdentifier("settings.tab.sources")
-          if FeatureFlags.isMapleCloudEnabled {
-            MuiListRow(
-              icon: "folder", label: "Files", pressed: { destination = .files }, trailing: chevron)
-          }
+          MuiListRow(
+            icon: "folder", label: "Files", pressed: { destination = .files }, trailing: chevron)
         }
 
         Section("App") {
@@ -120,25 +114,13 @@
           .navigationTitle("General")
           .navigationBarTitleDisplayMode(.inline)
       case .backup:
-        if FeatureFlags.isMapleCloudEnabled {
-          BackupSettingsView()
-            .navigationTitle("Backup")
-            .navigationBarTitleDisplayMode(.inline)
-        } else {
-          GeneralSettingsTab()
-            .navigationTitle("General")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        BackupSettingsView()
+          .navigationTitle("Backup")
+          .navigationBarTitleDisplayMode(.inline)
       case .cloud:
-        if FeatureFlags.isMapleCloudEnabled {
-          SelfHostedSettingsTab(sessionFor: sessionFor)
-            .navigationTitle("Cloud")
-            .navigationBarTitleDisplayMode(.inline)
-        } else {
-          GeneralSettingsTab()
-            .navigationTitle("General")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        SelfHostedSettingsTab(sessionFor: sessionFor)
+          .navigationTitle("Cloud")
+          .navigationBarTitleDisplayMode(.inline)
       case .pano:
         if FeatureFlags.isPanoramaEnabled {
           PanoSettingsView()
@@ -150,29 +132,17 @@
             .navigationBarTitleDisplayMode(.inline)
         }
       case .observability:
-        if FeatureFlags.isMapleCloudEnabled {
-          ObservabilitySettingsTab()
-            .navigationTitle("Observability")
-            .navigationBarTitleDisplayMode(.inline)
-        } else {
-          GeneralSettingsTab()
-            .navigationTitle("General")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        ObservabilitySettingsTab()
+          .navigationTitle("Observability")
+          .navigationBarTitleDisplayMode(.inline)
       case .sources:
         LibrarySourcesSettingsView()
           .navigationTitle("Sources")
           .navigationBarTitleDisplayMode(.inline)
       case .files:
-        if FeatureFlags.isMapleCloudEnabled {
-          FileProviderSettingsViewIOS()
-            .navigationTitle("Files")
-            .navigationBarTitleDisplayMode(.inline)
-        } else {
-          GeneralSettingsTab()
-            .navigationTitle("General")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        FileProviderSettingsViewIOS()
+          .navigationTitle("Files")
+          .navigationBarTitleDisplayMode(.inline)
       case .about:
         AboutView()
           .navigationTitle("About")

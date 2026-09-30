@@ -8,11 +8,6 @@
 //   • PhoneSearchSession + resolveSearchServerURL / makePhoneSearchSession
 //     — the iPhone global Search tab's account-wide session
 //
-// Every entry point honours `FeatureFlags.isMapleCloudEnabled` (#3773):
-// `searchAvailable` hides the toolbar button and `activateSearch()` refuses
-// to stand up a session, so neither the magnifying glass nor the info-pane
-// face chips can open a cloud search overlay on a release build.
-
 import MapleCore
 import SwiftUI
 
@@ -38,7 +33,6 @@ extension AppShell {
   /// this one takes server/scope explicitly instead.
   @MainActor
   func activateSearch(server serverID: URL, libraryID: String?, params: SearchParams? = nil) {
-    guard FeatureFlags.isMapleCloudEnabled else { return }
     let httpClient = makeAuthenticatedHTTPClient(server: serverID)
     let effectiveServer = LocalNetworkResolver.shared.effectiveURL(for: serverID)
     let vm = SearchViewModel(
@@ -62,7 +56,6 @@ extension AppShell {
   /// anyway.
   @MainActor
   func activateSearch() {
-    guard FeatureFlags.isMapleCloudEnabled else { return }
     guard case .cloudLibrary(let serverID, let folderID) = librarySelection else { return }
     activateSearch(server: serverID, libraryID: folderID)
   }
@@ -134,7 +127,6 @@ extension AppShell {
     /// currently-open cloud library's server if there is one, else the first
     /// connected cloud account. nil → no cloud account → empty state.
     func resolveSearchServerURL() -> URL? {
-      guard FeatureFlags.isMapleCloudEnabled else { return nil }
       if case .cloudLibrary(let serverID, _) = librarySelection { return serverID }
       return CloudServerRegistry.shared.servers.first
     }
@@ -149,7 +141,6 @@ extension AppShell {
     /// restore) so the first query carries a bearer token — same dance as
     /// `loadCloudLibrary`. nil when no cloud account is connected/signed-in.
     func makePhoneSearchSession() async -> PhoneSearchSession? {
-      guard FeatureFlags.isMapleCloudEnabled else { return nil }
       guard let serverID = resolveSearchServerURL() else { return nil }
       let session = sessionFor(serverID)
       if !session.isSignedIn { await session.bootstrapAndRestore() }

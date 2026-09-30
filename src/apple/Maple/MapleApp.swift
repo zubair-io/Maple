@@ -31,9 +31,7 @@ struct MapleApp: App {
   @Environment(\.scenePhase) private var scenePhase
 
   init() {
-    // #3773: hand the widget extension the same Cloud/Pano answer this
-    // process resolved — its Info.plist is never stamped and it can't see
-    // our launch arguments, so it reads the App Group instead.
+    // Preserve the published early-feature default for Panorama (#3773).
     FeatureFlags.publishResolvedFlags()
     Self.registerBundledFonts()
     Self.installMemoryPressureObserver()
@@ -163,7 +161,7 @@ struct MapleApp: App {
       // wide. Keyed by server URL so two servers can be administered
       // side by side.
       WindowGroup(id: "server-admin", for: URL.self) { $server in
-        if FeatureFlags.isMapleCloudEnabled, let server {
+        if let server {
           ServerAdminView(server: server, session: session(for: server))
         }
       }
@@ -193,7 +191,6 @@ struct MapleApp: App {
         }
       }
       .task {
-        guard FeatureFlags.isMapleCloudEnabled else { return }
         // Start telemetry first: reads the disk-cached SigNoz
         // config and bootstraps swift-otel synchronously (no
         // network), then background-refreshes. Never blocks launch.
@@ -230,7 +227,7 @@ struct MapleApp: App {
           WidgetCenter.shared.reloadAllTimelines()
         }
         #if os(iOS)
-          if newPhase == .active, FeatureFlags.isMapleCloudEnabled {
+          if newPhase == .active {
             // Re-foreground: signal every active File Provider
             // domain so the next Files-app refresh sees fresh
             // server state. Best-effort; failures surface in the
@@ -256,7 +253,6 @@ struct MapleApp: App {
   /// posts `.maplePhotosAccessGranted`, which re-runs this.
   @MainActor
   static func startBackupIfAuthorized() async {
-    guard FeatureFlags.isMapleCloudEnabled else { return }
     guard !BackupSettings.isStoppedByUser, let settings = BackupSettings.load(),
       settings.isConfigured,
       URL(string: settings.serverURL) != nil
@@ -380,14 +376,12 @@ struct SettingsView: View {
       GeneralSettingsTab()
         .tabItem { Label("General", systemImage: "gear") }
         .tag(SettingsTab.general)
-      if FeatureFlags.isMapleCloudEnabled {
-        BackupSettingsView()
-          .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
-          .tag(SettingsTab.backup)
-        SelfHostedSettingsTab(sessionFor: sessionFor)
-          .tabItem { Label("Cloud", systemImage: "cloud") }
-          .tag(SettingsTab.selfHosted)
-      }
+      BackupSettingsView()
+        .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
+        .tag(SettingsTab.backup)
+      SelfHostedSettingsTab(sessionFor: sessionFor)
+        .tabItem { Label("Cloud", systemImage: "cloud") }
+        .tag(SettingsTab.selfHosted)
       // #2925: the sidebar hides source sections with nothing
       // connected, which takes their "+" buttons with them. This tab
       // is where sources are registered and removed instead.
@@ -401,22 +395,18 @@ struct SettingsView: View {
           .tag(SettingsTab.pano)
           .accessibilityIdentifier("settings.tab.pano")
       }
-      if FeatureFlags.isMapleCloudEnabled {
-        ObservabilitySettingsTab()
-          .tabItem { Label("Observability", systemImage: "waveform.path.ecg") }
-          .tag(SettingsTab.observability)
-      }
-      if FeatureFlags.isMapleCloudEnabled {
-        #if os(macOS)
-          FileProviderSettingsView()
-            .tabItem { Label("Finder", systemImage: "folder") }
-            .tag(SettingsTab.finder)
-        #elseif os(iOS)
-          FileProviderSettingsViewIOS()
-            .tabItem { Label("Files", systemImage: "folder") }
-            .tag(SettingsTab.finder)
-        #endif
-      }
+      ObservabilitySettingsTab()
+        .tabItem { Label("Observability", systemImage: "waveform.path.ecg") }
+        .tag(SettingsTab.observability)
+      #if os(macOS)
+        FileProviderSettingsView()
+          .tabItem { Label("Finder", systemImage: "folder") }
+          .tag(SettingsTab.finder)
+      #elseif os(iOS)
+        FileProviderSettingsViewIOS()
+          .tabItem { Label("Files", systemImage: "folder") }
+          .tag(SettingsTab.finder)
+      #endif
       // Maple UI design-system Apple phase — dev-facing catalog of
       // shipped tokens/atoms, not a user-facing settings surface, but
       // hung off Settings since that's the app's one place every
@@ -439,10 +429,7 @@ struct SettingsView: View {
     .onAppear {
       if let tab = initialTab {
         let panoDisabled = tab == .pano && !FeatureFlags.isPanoramaEnabled
-        let cloudDisabled =
-          (tab == .selfHosted || tab == .backup || tab == .finder || tab == .observability)
-          && !FeatureFlags.isMapleCloudEnabled
-        if panoDisabled || cloudDisabled {
+        if panoDisabled {
           selectedTab = .general
         } else {
           selectedTab = tab
