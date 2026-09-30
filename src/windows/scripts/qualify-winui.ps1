@@ -45,6 +45,7 @@ $sidecar = [IO.Path]::ChangeExtension($Raw, ".xmp")
     fixture_sha256 = $sourceHash
     sidecar_sha256 = $sidecarHash
     app_sha256 = (Get-FileHash -LiteralPath $AppExe -Algorithm SHA256).Hash
+    managed_app_sha256 = (Get-FileHash -LiteralPath ([IO.Path]::ChangeExtension($AppExe, '.dll')) -Algorithm SHA256).Hash
     cli_sha256 = (Get-FileHash -LiteralPath $MapleCli -Algorithm SHA256).Hash
     native_pipeline_sha256 = (Get-FileHash -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $AppExe).Path)) 'raw_ffi.dll') -Algorithm SHA256).Hash
     physical_reference_qualified = $false
