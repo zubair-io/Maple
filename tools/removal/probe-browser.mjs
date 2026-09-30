@@ -7,9 +7,9 @@ import { createHash } from "node:crypto";
 import { chromium } from "../../src/web/node_modules/playwright/index.mjs";
 
 const [kind, modelArg, imageArg, runtimeArg, reportArg] = process.argv.slice(2);
-if (!["migan", "lama"].includes(kind) || !reportArg) {
+if (!["migan", "lama", "lama-scene"].includes(kind) || !reportArg) {
   throw new Error(
-    "Usage: probe-browser.mjs migan|lama MODEL IMAGE ORT_PACKAGE_DIR REPORT",
+    "Usage: probe-browser.mjs migan|lama|lama-scene MODEL IMAGE_OR_FLOAT_INPUT ORT_PACKAGE_DIR REPORT",
   );
 }
 const model = resolve(modelArg);
@@ -35,18 +35,35 @@ const html = `<!doctype html><meta charset="utf-8"><title>Maple local model prob
 window.probe = async function(kind) {
   ort.env.wasm.numThreads = 4;
   ort.env.wasm.wasmPaths = '/ort/';
-  const image = new Image(); image.src = '/image.png'; await image.decode();
-  if (image.naturalWidth !== 1024 || image.naturalHeight !== 1024) throw new Error('Expected native 1024 crop');
+  const sceneMode=kind==='lama-scene';
+  const count=1024*1024;
+  let nativeFloat;
+  if(sceneMode) {
+    const buffer=await (await fetch('/image.png')).arrayBuffer();
+    if(buffer.byteLength!==3*count*4) throw new Error('Float input length mismatch');
+    nativeFloat=new Float32Array(buffer);
+    if(!nativeFloat.every(v=>Number.isFinite(v)&&v>=0&&v<=1)) throw new Error('Invalid float model domain');
+  }
+  const image = new Image();
+  if(!sceneMode) {
+    image.src = '/image.png'; await image.decode();
+    if (image.naturalWidth !== 1024 || image.naturalHeight !== 1024) throw new Error('Expected native 1024 crop');
+  }
   const canvas = document.getElementById('image');
-  const context = canvas.getContext('2d', {colorSpace:'srgb'}); context.drawImage(image,0,0);
-  const source = context.getImageData(0,0,1024,1024); const pixels=source.data; const count=1024*1024;
+  const context = canvas.getContext('2d', {colorSpace:'srgb'});
+  if(!sceneMode) context.drawImage(image,0,0);
+  const source = context.getImageData(0,0,1024,1024); const pixels=source.data;
+  if(sceneMode) for(let i=0;i<count;i++) {
+    for(let c=0;c<3;c++) pixels[4*i+c]=Math.round(nativeFloat[c*count+i]*255);
+    pixels[4*i+3]=255;
+  }
   const mask = kind === 'migan' ? new Uint8Array(count).fill(255) : new Float32Array(count);
   const rgb = kind === 'migan' ? new Uint8Array(3*count) : new Float32Array(4*count);
   for(let i=0;i<count;i++) {
     const x=i%1024,y=Math.floor(i/1024),hole=x>=412&&x<612&&y>=412&&y<612;
     mask[i]=kind==='migan'?(hole?0:255):(hole?1:0);
-    for(let c=0;c<3;c++) rgb[c*count+i]=kind==='migan'?pixels[4*i+c]:(hole?0:pixels[4*i+c]/255);
-    if(kind==='lama') rgb[3*count+i]=mask[i];
+    for(let c=0;c<3;c++) rgb[c*count+i]=kind==='migan'?pixels[4*i+c]:(hole?0:sceneMode?nativeFloat[c*count+i]:pixels[4*i+c]/255);
+    if(kind!=='migan') rgb[3*count+i]=mask[i];
   }
   const started=performance.now();
   const session = await ort.InferenceSession.create('/model.onnx',{executionProviders:['wasm']});
@@ -68,8 +85,15 @@ window.probe = async function(kind) {
   if(!finite || outsideError) throw new Error('Model changed known pixels or emitted nonfinite data');
   context.putImageData(new ImageData(output,1024,1024),0,0);
   const outputDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',output)),b=>b.toString(16).padStart(2,'0')).join('');
+  let modelFloat;
+  if(sceneMode) {
+    const bytes=new Uint8Array(generated.data.buffer,generated.data.byteOffset,generated.data.byteLength);
+    let binary='';
+    for(let i=0;i<bytes.length;i+=8192) binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+    modelFloat=btoa(binary);
+  }
   await session.release();
-  return {kind,startupMs,elapsedMs:times,threads:ort.env.wasm.numThreads,crossOriginIsolated,shape:generated.dims,finite,outsideMaskMaxError:outsideError,outputDigest,png:canvas.toDataURL('image/png')};
+  return {kind,startupMs,elapsedMs:times,threads:ort.env.wasm.numThreads,crossOriginIsolated,shape:generated.dims,finite,outsideMaskMaxError:outsideError,outputDigest,png:canvas.toDataURL('image/png'),modelFloat};
 };
 </script>`;
 
@@ -130,7 +154,10 @@ try {
   );
   await page.goto("http://127.0.0.1:" + server.address().port);
   const result = await page.evaluate(async (kind) => window.probe(kind), kind);
-  const { png, ...report } = result;
+  const { png, modelFloat, ...report } = result;
+  if (modelFloat) {
+    await fs.writeFile(reportArg + ".f32", Buffer.from(modelFloat, "base64"));
+  }
   await fs.writeFile(
     reportArg + ".png",
     Buffer.from(png.split(",")[1], "base64"),

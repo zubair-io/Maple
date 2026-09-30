@@ -96,7 +96,14 @@ pub(super) fn reject_untileable(
     // resample gathers from source positions displaced by the (unbounded)
     // lens model. Refuse so opcode-carrying DNGs fall back to the render
     // that applies them correctly (#1173 tracks a tile-local GainMap).
-    if raw.opcode_list3.is_some() {
+    // A master-disabled correction (or all three strengths at zero) skips
+    // every opcode in the full chain too. Such an uncorrected source
+    // context is tile-safe; do not force a 100MP whole-frame allocation
+    // merely because dormant opcodes exist in its metadata (#3941).
+    if raw.opcode_list3.is_some()
+        && crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(model)
+            != crate::pipeline::pano::opcode_apply::LensCorrectionScales::NONE
+    {
         return reject(
             "tile path is not supported when the DNG carries OpcodeList3 (GainMap / WarpRectilinear gain/warp/CA correction; the warp resample gather exceeds the overlap pad and the tile chain does not apply opcodes — use the full-image render entry instead). See #1932.",
         );
