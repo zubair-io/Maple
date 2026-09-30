@@ -35,9 +35,41 @@ public sealed partial class MainWindow
             await Task.Delay(1000);
             if (handler.RequestCount > settledRequests + 1 || map.AppliedCellCount != 1)
                 throw new InvalidOperationException("Map result layout repeatedly restarted viewport requests");
+            handler.Status = HttpStatusCode.ServiceUnavailable;
+            map.SetQuery(new() { MinimumRating = 1 });
+            await WaitAsync(() => map.CanRetry, "Map failure did not expose retry");
+            handler.Status = HttpStatusCode.OK;
+            await map.RetryAsync();
+            await WaitAsync(() => map.AppliedCellCount == 1 && !map.CanRetry, "Map retry did not recover the same viewport");
+            if (!handler.Query.Contains("rating=1")) throw new InvalidOperationException("Map retry lost query filters");
+
+            handler.Status = HttpStatusCode.Unauthorized;
+            map.SetQuery(new() { MinimumRating = 2 });
+            await WaitAsync(() => map.StatusText.Contains("Sign in"), "Map authentication failure was not distinct");
+            handler.Status = HttpStatusCode.OK;
+            handler.Empty = true;
+            map.SetQuery(new() { MinimumRating = 3 });
+            await WaitAsync(() => map.StatusText.Contains("No photos with a location"), "Empty locations were not distinct from loading");
+            handler.Empty = false;
+
+            map.SetQuery(new() { MinimumRating = 5 });
+            await handler.HeldEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            map.SetQuery(new() { MinimumRating = 4 });
+            await WaitAsync(() => map.AppliedCellCount == 1, "Replacement map query did not complete");
+            handler.HeldResponse.TrySetResult();
+            await Task.Delay(100);
+            // Footer resizing can start a fresh viewport request while the old
+            // response completes. Wait through that loading state; the held
+            // response has two cells, distinct from both loading and current data.
+            await WaitAsync(() => map.AppliedCellCount > 0, "Current map results did not settle after delayed response");
+            if (map.AppliedCellCount != 1) throw new InvalidOperationException("Late map response replaced current results");
+
+            await VerifyMapBoundsAsync(map);
+            var camera = map.Viewport;
             CloudMapContainer.Visibility = Visibility.Collapsed;
             CloudMapContainer.Visibility = Visibility.Visible;
-            if (!map.HostReady) throw new InvalidOperationException("Map host lost state across navigation");
+            await Task.Delay(200);
+            if (!map.HostReady || map.Viewport != camera) throw new InvalidOperationException("Map host lost camera across navigation");
         }
         finally
         {
@@ -57,18 +89,58 @@ public sealed partial class MainWindow
         }
     }
 
+    private async Task VerifyMapBoundsAsync(CloudMapView map)
+    {
+        var root = (FrameworkElement)Content;
+        var originalWidth = root.Width;
+        var originalHeight = root.Height;
+        try
+        {
+            foreach (var size in new[] { (1024d, 768d), (720d, 450d), (512d, 384d) })
+            {
+                root.Width = size.Item1;
+                root.Height = size.Item2;
+                root.UpdateLayout();
+                await Task.Delay(80);
+                root.UpdateLayout();
+                var back = map.BackControl;
+                var bounds = back.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, back.ActualWidth, back.ActualHeight));
+                if (bounds.Left < 0 || bounds.Top < 0 || bounds.Right > size.Item1 || bounds.Bottom > size.Item2
+                    || bounds.Width < 24 || bounds.Height < 24 || map.CanvasHeight < 24)
+                    throw new InvalidOperationException($"Map controls overflow or consume the canvas at {size}");
+            }
+        }
+        finally
+        {
+            root.Width = originalWidth;
+            root.Height = originalHeight;
+            root.UpdateLayout();
+            await Task.Delay(600);
+        }
+    }
+
     private sealed class MapSmokeHandler : HttpMessageHandler
     {
         public string Query = "";
         public int RequestCount;
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public HttpStatusCode Status = HttpStatusCode.OK;
+        public bool Empty;
+        public TaskCompletionSource HeldEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource HeldResponse = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Query = request.RequestUri!.Query;
             Interlocked.Increment(ref RequestCount);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            if (Query.Contains("rating=5"))
             {
-                Content = new StringContent("""{"cells":[{"lat":20,"lng":0,"count":2,"representativeAssetId":"fixture","placeLabel":"Fixture place"}]}"""),
-            });
+                HeldEntered.TrySetResult();
+                await HeldResponse.Task;
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"cells":[{"lat":10,"lng":0,"count":9,"representativeAssetId":"stale-one"},{"lat":15,"lng":0,"count":9,"representativeAssetId":"stale-two"}]}""") };
+            }
+            return new HttpResponseMessage(Status)
+            {
+                Content = new StringContent(Empty ? "{\"cells\":[]}" : """{"cells":[{"lat":20,"lng":0,"count":2,"representativeAssetId":"fixture","placeLabel":"Fixture place"}]}"""),
+            };
         }
     }
 }

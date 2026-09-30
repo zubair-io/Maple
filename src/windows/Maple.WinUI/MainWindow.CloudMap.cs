@@ -78,6 +78,7 @@ public sealed partial class MainWindow
         _cloudMap.SetQuery(ViewModel.CurrentTimelineQuery());
         BrowseGridContainer.Visibility = Visibility.Collapsed;
         CloudMapContainer.Visibility = Visibility.Visible;
+        _cloudMap.FocusNavigation();
     }
 
     private void DisposeCloudMap()

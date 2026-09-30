@@ -19,7 +19,7 @@ function viewport() {
 }
 
 window.chrome.webview.addEventListener('message', ({ data }) => {
-  if (data.type === 'configure' && !map) {
+  if (data.type === 'configure') {
     const tileUrl = data.tileUrl;
     const raster = ['{z}', '{x}', '{y}'].every((part) => tileUrl.includes(part));
     const style = raster
@@ -38,9 +38,13 @@ window.chrome.webview.addEventListener('message', ({ data }) => {
           layers: [{ id: 'tiles', type: 'raster', source: 'tiles' }],
         }
       : tileUrl;
+    if (map) {
+      map.setStyle(style, { diff: false });
+      return;
+    }
     map = new Map({ container: 'map', style, center: [0, 20], zoom: 1, maxZoom: 20 });
     map.addControl(new NavigationControl(), 'top-right');
-    map.on('load', viewport);
+    map.on('style.load', viewport);
     map.on('moveend', viewport);
     map.on('error', () => send({ type: 'tileError' }));
     new ResizeObserver(() => map.resize()).observe(document.getElementById('map'));
@@ -59,9 +63,6 @@ window.chrome.webview.addEventListener('message', ({ data }) => {
       );
       return new Marker({ element: button }).setLngLat([cell.lng, cell.lat]).addTo(map);
     });
-  } else if (data.type === 'retry' && map) {
-    map.setStyle(map.getStyle());
-    viewport();
   }
 });
 send({ type: 'ready' });

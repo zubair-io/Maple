@@ -18,21 +18,32 @@ public sealed class CloudMapView : Grid, IDisposable
     private readonly WebView2 _browser = new();
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Button _retry = new() { Content = "Retry map", Visibility = Visibility.Collapsed };
+    private readonly Button _back = new() { Content = "Back to photos and filters" };
     private readonly ListView _results = new() { MaxHeight = 180, SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = true, DisplayMemberPath = nameof(LocationResult.Label) };
     private readonly CloudClient _client;
-    private readonly CloudMapConfig _config;
+    private CloudMapConfig _config;
     private CloudSearchQuery _query;
     private CloudMapViewport? _viewport;
     private CloudMapCell[] _cells = Array.Empty<CloudMapCell>();
     private CancellationTokenSource? _request;
+    private readonly CancellationTokenSource _lifetime = new();
     private long _generation;
     private bool _disposed;
     private bool _initialized;
+    private bool _initializing;
     private bool _ready;
     private bool _tileError;
+    private long _navigationVersion;
 
     internal int AppliedCellCount => _cells.Length;
     internal bool HostReady => _ready;
+    internal bool CanRetry => _retry.Visibility == Visibility.Visible;
+    internal string StatusText => _status.Text;
+    internal FrameworkElement BackControl => _back;
+    internal double CanvasHeight => _browser.ActualHeight;
+    internal CloudMapViewport? Viewport => _viewport;
+
+    public void FocusNavigation() => _back.Focus(FocusState.Keyboard);
 
     public event Action<CloudMapCell>? CellSelected;
     public event Action? BackRequested;
@@ -46,23 +57,17 @@ public sealed class CloudMapView : Grid, IDisposable
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Children.Add(_browser);
         var footer = new StackPanel { Spacing = 8, Padding = new Thickness(12) };
-        var back = new Button { Content = "Back to photos and filters" };
-        back.Click += (_, _) => BackRequested?.Invoke();
-        footer.Children.Add(back);
+        _back.Click += (_, _) => BackRequested?.Invoke();
+        footer.Children.Add(_back);
         footer.Children.Add(_status);
         footer.Children.Add(_retry);
         footer.Children.Add(_results);
         SetRow(footer, 1);
         Children.Add(footer);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_results, "Photo locations, keyboard accessible results");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(_status, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
         _results.ItemClick += (_, e) => { if (e.ClickedItem is LocationResult result && _results.IsEnabled) CellSelected?.Invoke(result.Cell); };
-        _retry.Click += async (_, _) =>
-        {
-            _tileError = false;
-            if (!_initialized) await InitializeAsync();
-            else if (_ready) _browser.CoreWebView2.PostWebMessageAsJson("{\"type\":\"retry\"}");
-            else _browser.CoreWebView2.Navigate($"https://{Host}/index.html");
-        };
+        _retry.Click += async (_, _) => await RetryAsync();
         Loaded += async (_, _) => { if (!_initialized) await InitializeAsync(); };
     }
 
@@ -75,7 +80,9 @@ public sealed class CloudMapView : Grid, IDisposable
 
     private async Task InitializeAsync()
     {
-        _status.Text = "Loading map…";
+        if (_disposed || _initializing) return;
+        _initializing = true;
+        SetStatus("Loading map…");
         _retry.Visibility = Visibility.Collapsed;
         try
         {
@@ -99,9 +106,51 @@ public sealed class CloudMapView : Grid, IDisposable
             core.WebMessageReceived += OnMessage;
             core.NavigationCompleted += (_, e) => { if (!e.IsSuccess && !_disposed) Fail("Map could not start. Retry to try again."); };
             _initialized = true;
-            core.Navigate($"https://{Host}/index.html");
+            NavigateHost();
         }
         catch (Exception) { if (!_disposed) Fail("Map could not start. Check that WebView2 is installed, then retry."); }
+        finally { _initializing = false; }
+    }
+
+    internal async Task RetryAsync()
+    {
+        if (_disposed || _initializing) return;
+        if (!_initialized) { await InitializeAsync(); return; }
+        if (!_ready) { NavigateHost(); return; }
+        if (!_tileError && _viewport is { } viewport) { await LoadViewportAsync(viewport); return; }
+        _retry.IsEnabled = false;
+        try
+        {
+            var config = await _client.GetMapConfigAsync(_lifetime.Token);
+            if (_disposed) return;
+            if (config == null) { Fail("This server no longer provides Map. Return to photos."); return; }
+            _config = config;
+            _tileError = false;
+            _retry.Visibility = Visibility.Collapsed;
+            SetStatus("Loading map…");
+            _browser.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "configure", tileUrl = _config.TileUrl }));
+        }
+        catch (Exception) { if (!_disposed) Fail("Map configuration could not load. Check your connection, then retry."); }
+        finally { if (!_disposed) _retry.IsEnabled = true; }
+    }
+
+    private void NavigateHost()
+    {
+        _ready = false;
+        var version = ++_navigationVersion;
+        _browser.CoreWebView2.Navigate($"https://{Host}/index.html");
+        _ = WatchHostReadyAsync(version);
+    }
+
+    private async Task WatchHostReadyAsync(long version)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), _lifetime.Token);
+            if (!_disposed && !_ready && version == _navigationVersion)
+                Fail("Map renderer did not start. Retry to try again.");
+        }
+        catch (OperationCanceledException) when (_disposed) { }
     }
 
     private void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -147,7 +196,7 @@ public sealed class CloudMapView : Grid, IDisposable
         _results.IsEnabled = false;
         if (!_tileError)
         {
-            _status.Text = "Loading photo locations…";
+            SetStatus("Loading photo locations…");
             _retry.Visibility = Visibility.Collapsed;
         }
         try
@@ -162,7 +211,7 @@ public sealed class CloudMapView : Grid, IDisposable
                 _results.Items.Add(new LocationResult(cell));
             _results.IsEnabled = true;
             if (!_tileError)
-                _status.Text = cells.Length == 0 ? "No photos with a location in this area match these filters." : $"{cells.Length} photo locations";
+                SetStatus(cells.Length == 0 ? "No photos with a location in this area match these filters." : $"{cells.Length} photo locations");
         }
         catch (OperationCanceledException) when (owner.IsCancellationRequested) { }
         catch (Exception error)
@@ -175,13 +224,22 @@ public sealed class CloudMapView : Grid, IDisposable
 
     private void Fail(string message)
     {
-        _status.Text = message;
+        SetStatus(message);
         _retry.Visibility = Visibility.Visible;
+    }
+
+    private void SetStatus(string message)
+    {
+        _status.Text = message;
+        var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.FromElement(_status);
+        peer?.RaiseAutomationEvent(Microsoft.UI.Xaml.Automation.Peers.AutomationEvents.LiveRegionChanged);
     }
 
     public void Dispose()
     {
         _disposed = true;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
         _request?.Cancel();
         _request?.Dispose();
         _browser.Close();
