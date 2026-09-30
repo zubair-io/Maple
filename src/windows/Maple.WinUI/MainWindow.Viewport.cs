@@ -69,10 +69,12 @@ namespace Maple.WinUI
             if (CanvasHost.ActualHeight <= 0) return;
             HeaderHistogram.Visibility = CanvasHost.ActualWidth < 760 ? Visibility.Collapsed : Visibility.Visible;
             PreviewTopBar.MaxWidth = Math.Max(160, Math.Min(480, CanvasHost.ActualWidth - FilmstripRail.ActualWidth - 24));
+            PreviewTopBar.Width = PreviewTopBar.MaxWidth;
             EditPanel.MaxHeight = Math.Max(100, CanvasHost.ActualHeight - 132);
             EditRail.MaxHeight = Math.Max(100, CanvasHost.ActualHeight - 116);
             FilmstripRail.MaxHeight = _mode == ShellMode.Edit
-                ? Math.Min(340, Math.Max(100, CanvasHost.ActualHeight - 112)) : double.PositiveInfinity;
+                ? 50 + Math.Max(1, Math.Min(5, Math.Floor((CanvasHost.ActualHeight - 162) / 60))) * 60
+                : double.PositiveInfinity;
         }
 
         // --- Zoom / pan (#2572): factor 1 = fit; drag pans when zoomed ---

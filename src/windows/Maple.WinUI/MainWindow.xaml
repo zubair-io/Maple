@@ -27,14 +27,14 @@
             <conv:InverseBoolVisibleConverter x:Key="InverseBoolVisible" />
             <CollectionViewSource x:Key="GroupedPhotosSource" IsSourceGrouped="True" />
             <DataTemplate x:Key="SliderRowTemplate" x:DataType="vm:AdjustmentSliderViewModel">
-                <StackPanel Margin="0,2,0,6" DoubleTapped="OnSliderRowDoubleTapped">
+                <StackPanel Margin="0,0,0,2" DoubleTapped="OnSliderRowDoubleTapped">
                     <Grid>
-                        <mui:MuiText Text="{Binding Label}" Variant="RowLabel" />
+                        <TextBlock Text="{Binding Label}" FontSize="12" VerticalAlignment="Center" />
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
                             <Ellipse Width="6" Height="6" Fill="{StaticResource MaplePrimary}"
                                      Visibility="{Binding IsModified, Converter={StaticResource BoolVisible}}"
                                      VerticalAlignment="Center" />
-                            <mui:MuiButton Label="{Binding FormattedValue}" Variant="Ghost" ButtonSize="Sm" Click="OnEditSliderValue" AutomationProperties.Name="{Binding Label}" ToolTipService.ToolTip="Enter a numeric value" />
+                            <Button Content="{Binding FormattedValue}" Background="Transparent" BorderThickness="0" Padding="4,0" MinHeight="22" FontSize="11" Click="OnEditSliderValue" AutomationProperties.Name="{Binding Label}" ToolTipService.ToolTip="Enter a numeric value" />
                         </StackPanel>
                     </Grid>
                     <!-- Gesture-end signals a commit-on-release row needs
@@ -53,7 +53,7 @@
                             PointerCaptureLost="OnSliderPointerCaptureLost"
                             KeyUp="OnSliderKeyUp"
                             PointerWheelChanged="OnSliderPointerWheelChanged"
-                            Margin="0,-4,0,0" IsThumbToolTipEnabled="False" />
+                            MinHeight="24" Height="24" Margin="0" IsThumbToolTipEnabled="False" />
                 </StackPanel>
             </DataTemplate>
         </Grid.Resources>
@@ -724,10 +724,10 @@
 
                         <!-- Preview top pill -->
                         <Border x:Name="PreviewTopBar" Grid.Column="1"
-                                Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
-                                BorderThickness="1" CornerRadius="10"
+                                Background="#F22A2724" BorderThickness="0" CornerRadius="12" Translation="0,0,24"
                                 HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
                                 Padding="10,6" MinHeight="56" MaxWidth="480">
+                            <Border.Shadow><ThemeShadow /></Border.Shadow>
                             <Grid ColumnSpacing="10" VerticalAlignment="Center">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <mui:MuiButton IconName="back" Variant="Ghost" ButtonSize="Sm" Click="OnViewerBack"
@@ -743,10 +743,10 @@
 
                         <!-- Edit top pill -->
                         <Border x:Name="EditTopBar" Grid.Column="1" Visibility="Collapsed"
-                                Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
-                                BorderThickness="1" CornerRadius="10"
+                                Background="#F22A2724" BorderThickness="0" CornerRadius="12" Translation="0,0,24"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Top" Margin="16,16,16,0"
                                 Padding="10,6" MinHeight="56">
+                            <Border.Shadow><ThemeShadow /></Border.Shadow>
                             <Grid ColumnSpacing="10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
@@ -761,10 +761,9 @@
                                     <TextBlock x:Name="EditStatusText" Text="{Binding SelectedPhoto.Format}" FontSize="10" Foreground="{StaticResource MapleTextMuted}" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                <Border x:Name="HeaderHistogram" Width="96" Height="30" CornerRadius="4" Background="{StaticResource MapleImageCanvas}"
-                                        BorderBrush="{StaticResource MapleBorder}" BorderThickness="1">
+                                <Border x:Name="HeaderHistogram" Width="96" Height="30" Background="Transparent">
                                     <Grid>
-                                        <Canvas x:Name="HistogramCanvas" Margin="2" />
+                                        <Canvas x:Name="HistogramCanvas" Margin="2" SizeChanged="OnHistogramSizeChanged" />
                                         <!-- Clipping indicators (#2574): lit when channels clip;
                                              click toggles the canvas clipping overlay. -->
                                         <Button x:Name="ShadowClipButton" Width="12" Height="12" Padding="0"
@@ -789,7 +788,7 @@
                                 </Border>
                                 <mui:MuiButton IconName="revert" Variant="Ghost" ButtonSize="Sm" Click="OnMenuUndo"
                                                ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo adjustment" />
-                                <mui:MuiButton x:Name="CompareButton" Label="Compare" Variant="Ghost" ButtonSize="Sm" Click="OnCompareClick"
+                                <mui:MuiButton x:Name="CompareButton" IconName="split" Variant="Ghost" ButtonSize="Sm" Click="OnCompareClick"
                                                ToolTipService.ToolTip="Tap to toggle; hold to peek (B or backslash). Before shows the state at open." AutomationProperties.Name="Compare before and after" />
                                 <mui:MuiButton Label="…" Variant="Ghost" ButtonSize="Sm"
                                                ToolTipService.ToolTip="More editing actions" AutomationProperties.Name="More editing actions">
@@ -798,6 +797,9 @@
                                             <MenuFlyoutItem Text="Auto adjust" Click="OnApplyAuto" />
                                             <MenuFlyoutItem Text="Reset all adjustments" Click="OnResetAll" />
                                             <MenuFlyoutItem Text="Revert to state at open" Click="OnRevert" />
+                                            <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem Text="Lens corrections" Click="OnLensTools" />
+                                            <MenuFlyoutItem Text="Geometry" Click="OnGeometryTools" />
                                         </MenuFlyout>
                                     </mui:MuiButton.Flyout>
                                 </mui:MuiButton>
@@ -815,10 +817,10 @@
                         <TextBlock x:Name="ComparisonStatus" Grid.Column="1" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Bottom"
                                    Margin="16" Padding="8" TextWrapping="Wrap" Foreground="{StaticResource MapleTextMain}" AutomationProperties.LiveSetting="Polite" />
                         <Border x:Name="EditRail" Grid.Column="1" Visibility="Collapsed"
-                                Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
-                                BorderThickness="1" CornerRadius="10"
+                                Background="#F22A2724" BorderThickness="0" CornerRadius="12" Translation="0,0,24"
                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,100,16,16"
-                                Padding="6,10">
+                                Padding="6,8">
+                            <Border.Shadow><ThemeShadow /></Border.Shadow>
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="EditRailStack" Spacing="4" />
                             </ScrollViewer>
@@ -826,11 +828,11 @@
 
                         <!-- Floating group panel -->
                         <Border x:Name="EditPanel" Grid.Column="1" Visibility="Collapsed"
-                                Background="#F21C1917" BorderBrush="{StaticResource MapleBorder}"
-                                BorderThickness="1" CornerRadius="10"
+                                Background="#F22A2724" BorderThickness="0" CornerRadius="12" Translation="0,0,24"
                                 Width="272" MaxHeight="620"
                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,116,104,16"
-                                Padding="14,10">
+                                Padding="16,10">
+                            <Border.Shadow><ThemeShadow /></Border.Shadow>
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />

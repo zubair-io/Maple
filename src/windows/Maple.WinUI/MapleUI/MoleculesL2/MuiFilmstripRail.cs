@@ -80,6 +80,7 @@ namespace Maple.UI
         // to scroll at all, and a vertical StackPanel measures its children
         // against infinity.
         private readonly Grid _root = new() { RowSpacing = 6 };
+        private readonly Border _surface = new();
         private readonly Button _toggle = new()
         {
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
@@ -114,7 +115,8 @@ namespace Maple.UI
             Grid.SetRow(_scroll, 1);
             _root.Children.Add(header);
             _root.Children.Add(_scroll);
-            Content = _root;
+            _surface.Child = _root;
+            Content = _surface;
             IsTabStop = false;
             HorizontalContentAlignment = HorizontalAlignment.Stretch;
             VerticalContentAlignment = VerticalAlignment.Stretch;
@@ -237,7 +239,11 @@ namespace Maple.UI
         {
             var expanded = PreviewNavigation && !IsCollapsed;
             Width = expanded ? 300 : 88;
-            _chevron.IconName = IsCollapsed ? "chevron-right" : "chevron-down";
+            _chevron.IconName = "sidebar";
+            _surface.Background = (Brush)Application.Current.Resources["MapleSidebar"];
+            _surface.CornerRadius = new CornerRadius(PreviewNavigation ? 0 : 12);
+            _surface.Padding = new Thickness(6);
+            _column.Spacing = PreviewNavigation ? 14 : 8;
             _scroll.Visibility = PreviewNavigation || !IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
             foreach (var metadata in _metadata) metadata.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
             AutomationProperties.SetName(_toggle, PreviewNavigation

@@ -38,14 +38,12 @@ namespace Maple.WinUI
         private static readonly (string Title, string Icon, string? DisabledNote)[] RailGroups =
         {
             ("Light", "tool-exposure", null),
-            ("Color", "tool-tint", null),
-            ("Effects", "tool-vignette", null),
-            ("Detail", "tool-sharpen", null),
-            ("Tone Curve", "tool-contrast", null),
-            ("Mask", "tool-dehaze", null),
+            ("Color", "droplet", null),
+            ("Effects", "effects", null),
+            ("Detail", "detail", null),
+            ("Tone Curve", "curve", null),
+            ("Mask", "tool-tint", null),
             ("Crop", "tool-crop", null),
-            ("Lens", "scope", null),
-            ("Geometry", "tool-crop", null),
         };
 
         private void BuildEditRail()
@@ -67,6 +65,13 @@ namespace Maple.WinUI
                 _railButtons[title] = button;
                 EditRailStack.Children.Add(button);
             }
+        }
+
+        private void OnLensTools(object sender, RoutedEventArgs e) => ToggleGroupPanel("Lens");
+        private void OnGeometryTools(object sender, RoutedEventArgs e) => ToggleGroupPanel("Geometry");
+        private void OnHistogramSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_lastHistogramBins != null) HistogramView.Draw(HistogramCanvas, _lastHistogramBins);
         }
 
         private void ToggleGroupPanel(string group)
