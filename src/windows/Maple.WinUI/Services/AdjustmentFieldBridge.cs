@@ -73,6 +73,13 @@ public static class AdjustmentFieldBridge
         foreach (var name in result.Applied) Members[name].SetValue(target, Members[name].GetValue(result.State));
     }
 
+    public static SparseAdjustmentResult Reset(AdjustmentState original, IReadOnlyDictionary<string, JsonElement> fields)
+    {
+        var supported = Apply(original, fields);
+        var reset = Apply(original, DefaultsFor(supported.Applied));
+        return reset with { Skipped = supported.Skipped };
+    }
+
     public static Dictionary<string, JsonElement> DefaultsFor(IEnumerable<string> names)
     {
         var baseline = new AdjustmentState();

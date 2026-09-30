@@ -43,8 +43,7 @@ public sealed class PresetExportNativeTests
             var reopened = SidecarStore.Load(raw);
             Assert.NotNull(reopened);
             Assert.Equal(.75, reopened.Adjustments.Exposure);
-            var reset = AdjustmentFieldBridge.Apply(reopened.Adjustments,
-                AdjustmentFieldBridge.DefaultsFor(preset.Fields.Keys));
+            var reset = AdjustmentFieldBridge.Reset(reopened.Adjustments, preset.Fields);
             Assert.Equal(.75, reset.State.Exposure);
             var inputs = new[]
             {

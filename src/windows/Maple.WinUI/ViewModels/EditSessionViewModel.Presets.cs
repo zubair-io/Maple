@@ -10,8 +10,8 @@ public partial class EditSessionViewModel
     {
         if (!AdjustmentsReady || SelectedPhoto == null) throw new InvalidOperationException("Wait for the photo's adjustments to load.");
         preset.Validate();
-        var fields = reset ? AdjustmentFieldBridge.DefaultsFor(preset.Fields.Keys) : preset.Fields;
-        var result = AdjustmentFieldBridge.Apply(Adjustments, fields);
+        var result = reset ? AdjustmentFieldBridge.Reset(Adjustments, preset.Fields)
+            : AdjustmentFieldBridge.Apply(Adjustments, preset.Fields);
         if (result.Applied.Length != 0)
             ApplyDecodeFieldEdit(model => AdjustmentFieldBridge.CommitTo(model, result));
         return result;

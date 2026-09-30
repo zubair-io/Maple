@@ -80,6 +80,24 @@ public class PresetTests
     }
 
     [Fact]
+    public void ResetPreservesFieldsThatApplyRejectedAndDisclosesThem()
+    {
+        var original = new AdjustmentState { Contrast = 35, Tint = 22, Exposure = 1.25, Demosaic = "Rcd" };
+        var preset = Read("""
+            {"contrast":-50,"tint":true,"demosaic":"FutureKernel","future_setting":7}
+            """);
+        var applied = AdjustmentFieldBridge.Apply(original, preset.Fields);
+        var reset = AdjustmentFieldBridge.Reset(applied.State, preset.Fields);
+        Assert.Equal(new[] { "contrast" }, reset.Applied);
+        Assert.Equal(new[] { "tint", "demosaic", "future_setting" }, reset.Skipped);
+        Assert.Equal(0, reset.State.Contrast);
+        Assert.Equal(22, reset.State.Tint);
+        Assert.Equal("Rcd", reset.State.Demosaic);
+        Assert.Equal(1.25, reset.State.Exposure);
+        Assert.Equal(-50, applied.State.Contrast);
+    }
+
+    [Fact]
     public void ResetAffectsOnlyPresetFieldsAndAppliedValuesPersistInXmp()
     {
         var original = new AdjustmentState { Exposure = 1.25, Contrast = 35, Saturation = 10 };
@@ -92,7 +110,7 @@ public class PresetTests
         Assert.Equal("Lmmse", reopened.Adjustments.Demosaic);
         Assert.Equal(1.25, reopened.Adjustments.Exposure);
         Assert.Equal(4, reopened.Rating);
-        var reset = AdjustmentFieldBridge.Apply(applied.State, AdjustmentFieldBridge.DefaultsFor(fields.Keys));
+        var reset = AdjustmentFieldBridge.Reset(applied.State, fields);
         Assert.Equal(0, reset.State.Contrast);
         Assert.Equal(100, reset.State.FilmStrength);
         Assert.Equal("Auto", reset.State.Demosaic);
