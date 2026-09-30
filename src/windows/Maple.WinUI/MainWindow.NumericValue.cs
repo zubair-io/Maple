@@ -33,6 +33,14 @@ public sealed partial class MainWindow
             PrimaryButtonStyle = (Style)Application.Current.Resources["MuiButtonPrimaryStyle"],
             DefaultButton = ContentDialogButton.Primary
         };
+        // ContentDialog applies its accent template to the default button,
+        // including visual states that override PrimaryButtonStyle setters.
+        foreach (var state in new[] { "", "PointerOver", "Pressed" })
+        {
+            dialog.Resources["AccentButtonBackground" + state] = Application.Current.Resources["MaplePrimary"];
+            dialog.Resources["AccentButtonForeground" + state] = Application.Current.Resources["MapleTextMain"];
+            dialog.Resources["AccentButtonBorderBrush" + state] = Application.Current.Resources["MaplePrimary"];
+        }
         if (await dialog.ShowAsync() == ContentDialogResult.Primary && ReferenceEquals(photo, ViewModel.SelectedPhoto) && double.IsFinite(number.Value))
         {
             slider.Value = Math.Clamp(number.Value, slider.Minimum, slider.Maximum);
