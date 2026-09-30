@@ -348,14 +348,14 @@ namespace Maple.WinUI.Services
                 return CpuRender(sampleScopes ? image : _halfImage ?? image, state, emitFrame: true, sampleScopes: sampleScopes);
             }
 
-            var started = Environment.TickCount64;
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             var rc = DispatchPresent(queue,
                 image, state, panel, generation, useHalf, targetWidth, targetHeight, sampleScopes);
             if (rc == int.MinValue)
                 return true;  // superseded by a newer SetImage — dropped
             if (rc == 0)
             {
-                var total = Environment.TickCount64 - started;
+                var total = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 DiagLog.Write($"[tick] {(useHalf ? "half" : "full")} total={total}ms ffi={_lastFfiMillis}ms");
                 // The presented surface is ALWAYS the target (full) size — the
                 // half session was upscaled in the present shader — so the panel
@@ -462,11 +462,11 @@ namespace Maple.WinUI.Services
                         p.residual_lut_len = (nuint)image.ResidualLut.Length;
                         p.residual_lut_size = image.ResidualLutSize;
                     }
-                    var ffiStarted = Environment.TickCount64;
+                    var ffiStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                     rc = RawFfi.maple_gpu_present_chain_winui_scaled(
                         handle, &p, panel, IntPtr.Zero, generation,
                         (uint)targetWidth, (uint)targetHeight);
-                    _lastFfiMillis = Environment.TickCount64 - ffiStarted;
+                    _lastFfiMillis = System.Diagnostics.Stopwatch.GetElapsedTime(ffiStarted).TotalMilliseconds;
                 }
                 _lastGpuError = rc == 0 ? null : RawFfi.LastError();
                 if (rc == 0 && p.scope_enabled != 0) _scopes.Submitted();
@@ -476,8 +476,8 @@ namespace Maple.WinUI.Services
 
         /// <summary>FFI duration of the newest present (excludes UI-dispatch
         /// queue wait) — the #2587 tick-budget breakdown.</summary>
-        public long LastFfiMillis => _lastFfiMillis;
-        private long _lastFfiMillis;
+        public double LastFfiMillis => _lastFfiMillis;
+        private double _lastFfiMillis;
 
         private bool CpuRender(DecodedImage image, AdjustmentState state, bool emitFrame, bool sampleScopes = false)
         {
@@ -494,9 +494,9 @@ namespace Maple.WinUI.Services
                     scratch = _chainScratch;
                 }
 
-                var started = Environment.TickCount64;
+                var started = System.Diagnostics.Stopwatch.GetTimestamp();
                 RenderEngine.RenderTick(image, state, ref scratch, pixels, _activeFilm);
-                var elapsed = (double)(Environment.TickCount64 - started);
+                var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
 
                 lock (_gate)
                 {

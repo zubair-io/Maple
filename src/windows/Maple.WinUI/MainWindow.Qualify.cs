@@ -83,7 +83,7 @@ namespace Maple.WinUI
                     FileName = Path.GetFileName(rawPath),
                     Format = Path.GetExtension(rawPath).TrimStart('.').ToUpperInvariant(),
                 };
-                var decodeStarted = Environment.TickCount64;
+                var decodeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
                 SetMode(ShellMode.Edit);
                 ViewModel.SelectedPhoto = photo;
                 ViewModel.EnsureDecoded();
@@ -91,7 +91,7 @@ namespace Maple.WinUI
                 // First frame = decode + first render complete; then drain the
                 // initial refine so it can't bleed into the first measured tick.
                 await NextFrameAsync();
-                var decodeMs = Environment.TickCount64 - decodeStarted;
+                var decodeMs = System.Diagnostics.Stopwatch.GetElapsedTime(decodeStarted).TotalMilliseconds;
                 await NextFrameAsync();
 
                 for (var i = 0; i < QualifyTicks; i++)
@@ -108,6 +108,9 @@ namespace Maple.WinUI
                 {
                     raw = rawPath,
                     render_path = path,
+                    timing_clock = "Stopwatch",
+                    timing_frequency_hz = System.Diagnostics.Stopwatch.Frequency,
+                    timing_high_resolution = System.Diagnostics.Stopwatch.IsHighResolution,
                     decode_ms = decodeMs,
                     tick_ms = ticks,
                     median_ms = sorted[sorted.Count / 2],
