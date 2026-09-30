@@ -28,6 +28,17 @@ fn fmt4(v: f32) -> String {
     format!("{rounded}")
 }
 
+fn fmt_mask_coord(v: f32) -> String {
+    let rounded = (f64::from(v) * 1_000_000.0).round() / 1_000_000.0;
+    if rounded == 0.0 {
+        return "0".into();
+    }
+    format!("{rounded:.6}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .into()
+}
+
 /// Emit the canonical `crs:GradientBasedCorrections` /
 /// `crs:CircularGradientBasedCorrections` nested child elements for
 /// `model.local_adjustments`, each line prefixed so the container element
@@ -243,6 +254,7 @@ fn serialize_geometric_mask(mask: &Mask, indent: &str, modern: bool) -> String {
             fmt2(value)
         }
     };
+    let coordinate = |value: f32| if modern { value.to_string() } else { fmt_mask_coord(value) };
     match *mask {
         Mask::Bitmap { .. } | Mask::Everywhere | Mask::Group(_) => {
             unreachable!("serialize_mask routes Bitmap/Everywhere before calling this")
@@ -258,10 +270,10 @@ fn serialize_geometric_mask(mask: &Mask, indent: &str, modern: bool) -> String {
              {indent}  crs:ZeroX=\"{}\" crs:ZeroY=\"{}\"\n\
              {indent}  crs:FullX=\"{}\" crs:FullY=\"{}\"\n\
              {indent}  papp:LocalFeather=\"{}\"/>\n",
-            number(start.x),
-            number(start.y),
-            number(end.x),
-            number(end.y),
+            coordinate(start.x),
+            coordinate(start.y),
+            coordinate(end.x),
+            coordinate(end.y),
             number(feather),
         ),
         Mask::Radial {
@@ -282,10 +294,10 @@ fn serialize_geometric_mask(mask: &Mask, indent: &str, modern: bool) -> String {
                  {indent}  crs:Top=\"{}\" crs:Left=\"{}\" crs:Bottom=\"{}\" crs:Right=\"{}\"\n\
                  {indent}  crs:Angle=\"{}\" crs:Midpoint=\"50\" crs:Roundness=\"0\"\n\
                  {indent}  crs:Feather=\"{}\" crs:Flipped=\"{}\"{}/>\n",
-                number(top),
-                number(left),
-                number(bottom),
-                number(right),
+                coordinate(top),
+                coordinate(left),
+                coordinate(bottom),
+                coordinate(right),
                 number(angle.to_degrees()),
                 number(feather * if modern { 50.0 } else { 100.0 }),
                 if invert ^ modern { "True" } else { "False" },

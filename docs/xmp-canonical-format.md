@@ -85,13 +85,13 @@ Unknown namespaces sort last, so an imported sidecar's foreign attributes stay o
 
 ### Number formatting
 
-One codec for every numeric attribute value and every tone-curve coordinate:
+The default codec for numeric attribute values and tone-curve coordinates:
 
 - integers emit bare — `0`, `6`, `-6`, `5200`, `255`;
 - non-integers round to two decimals with trailing zeros trimmed — `0.5`, `0.12` (from `0.123`), `-14.5`, `1.4`;
 - non-finite values are not representable and are never written.
 
-The one documented exception is the crop group, which uses six decimals (`%.6f` / `toFixed(6)`) because crop edges are normalized fractions and two decimals would quantize the rect to whole percents of the frame.
+Normalized spatial coordinates need greater precision: the crop group uses six fixed decimals (`%.6f` / `toFixed(6)`), and linear/radial mask coordinates use six decimals with trailing zeros trimmed. Two decimals would quantize their geometry to whole percents of the frame. Local fraction-scaled sliders have their separate four-decimal codec described below.
 
 Implementations: `numericSerializer` in `xmp-fields.ts`, `XMPSerializer.fmtNum` in `XMPSerialization+Helpers.swift`, `XmpSchema.FormatNumber` in `XmpSidecarDocument.cs`, `fmt_coord` in `raw-core/src/xmp/tone_curves.rs`.
 
@@ -323,6 +323,8 @@ The two families are different QUANTITIES, not different spellings of the same o
 Masked, per-region edits (linear "gradient" masks, radial "circular gradient" masks, and — #3271 — host-supplied bitmap masks and the whole-image "Everywhere" fallback) are the one field the schema table above deliberately excludes — `local_adjustments` is a `Vec<LocalAdjustment>` with its own nested shape, not a flat attribute, and the schema-drift test in `types/adjustment/schema/tests.rs` allow-lists it for exactly that reason. `mask_rasters` (the bitmap masks' pixel data, resolved from the host's raster registry — see below) sits beside it on the same allow-list for the same reason: structured, non-scalar data, never copied by paste.
 
 **Wire form uses the Adobe Camera Raw correction structure** for geometry and ordered masks. This establishes structural interchange; the independent ACR pixel reference required by #1478 remains separate: `crs:GradientBasedCorrections` (linear) and `crs:CircularGradientBasedCorrections` (radial), each an `rdf:Seq` of `rdf:li` → `rdf:Description` "corrections" carrying the slider values, with one nested `crs:CorrectionMasks > rdf:Seq > rdf:li` holding the mask geometry:
+
+The normalized gradient endpoints (`ZeroX`, `ZeroY`, `FullX`, `FullY`) and radial bounds (`Top`, `Left`, `Bottom`, `Right`) round to six decimals, halfway away from zero, with trailing zeros and the trailing decimal point trimmed; rounded zero emits `0`. Thus `0.300698` survives a save, while `0.3` retains its existing spelling. This precision repair uses the existing fields and readers, with no schema-version change. Angle, feather, correction sliders and range refinement keep their existing codecs. Four-host regression fixtures cover fine endpoints and a narrow radial mask over repeated round trips (#3875).
 
 ```xml
 <crs:GradientBasedCorrections>

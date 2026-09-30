@@ -10,12 +10,21 @@ import Foundation
 extension XMPSerializer {
     /// Format a crop edge or angle value. 6 significant decimal places —
     /// matches the reference renderer's output and keeps sidecars
-    /// byte-interchangeable across platforms for the crop group. The one
-    /// documented exception to `fmtNum` below: crop edges are normalized
+    /// byte-interchangeable across platforms for the crop group. Unlike
+    /// the default `fmtNum` below, crop edges are normalized
     /// fractions where two decimals would quantize the rect to whole
     /// percents of the frame.
     static func fmtCrop(_ v: Double) -> String {
         String(format: "%.6f", v)
+    }
+
+    static func fmtMaskCoordinate(_ value: Double) -> String {
+        let rounded = (value * 1_000_000).rounded() / 1_000_000
+        if rounded == 0 { return "0" }
+        var text = String(format: "%.6f", locale: Locale(identifier: "en_US_POSIX"), rounded)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
     }
 
     /// The canonical numeric wire codec (`docs/xmp-canonical-format.md`

@@ -23,6 +23,7 @@ GpuExitPreviewCacheTests
 GpuPresentationOutcomeTests
 GpuSessionReplacementTests
 LocalAdjustmentXMPTests
+MaskCoordinatePrecisionTests
 #
 # Editor state (#3460): pure `EditorState` / `EditSession` logic on
 # `EditorTestCase`, plus the sub-param memory tests that inject their own

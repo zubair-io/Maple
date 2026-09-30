@@ -262,6 +262,11 @@ namespace Maple.WinUI.Services.Xmp
         private static IEnumerable<string> MaskLines(LocalMask mask, string indent)
         {
             var n = (Func<double, string>)XmpSchema.FormatNumber;
+            static string Coord(double v)
+            {
+                var rounded = Math.Round(v, 6, MidpointRounding.AwayFromZero);
+                return rounded == 0 ? "0" : rounded.ToString("0.######", CultureInfo.InvariantCulture);
+            }
             switch (mask)
             {
                 case LinearMask l:
@@ -270,15 +275,15 @@ namespace Maple.WinUI.Services.Xmp
                         $"{indent}<rdf:li",
                         $"{indent}  crs:What=\"{MaskWhatLinear}\"",
                         $"{indent}  crs:MaskValue=\"1\"",
-                        $"{indent}  crs:ZeroX=\"{n(l.Start.X)}\" crs:ZeroY=\"{n(l.Start.Y)}\"",
-                        $"{indent}  crs:FullX=\"{n(l.End.X)}\" crs:FullY=\"{n(l.End.Y)}\"",
+                        $"{indent}  crs:ZeroX=\"{Coord(l.Start.X)}\" crs:ZeroY=\"{Coord(l.Start.Y)}\"",
+                        $"{indent}  crs:FullX=\"{Coord(l.End.X)}\" crs:FullY=\"{Coord(l.End.Y)}\"",
                         $"{indent}  papp:LocalFeather=\"{n(l.Feather)}\"/>",
                     };
                 case RadialMask r:
-                    var top = n(r.Center.Y - r.Radii.Y);
-                    var left = n(r.Center.X - r.Radii.X);
-                    var bottom = n(r.Center.Y + r.Radii.Y);
-                    var right = n(r.Center.X + r.Radii.X);
+                    var top = Coord(r.Center.Y - r.Radii.Y);
+                    var left = Coord(r.Center.X - r.Radii.X);
+                    var bottom = Coord(r.Center.Y + r.Radii.Y);
+                    var right = Coord(r.Center.X + r.Radii.X);
                     return new[]
                     {
                         $"{indent}<rdf:li",

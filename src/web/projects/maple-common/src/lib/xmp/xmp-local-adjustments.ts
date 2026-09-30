@@ -425,13 +425,18 @@ function maskLines(mask: LocalMask, indent: string, modern = false): string[] {
   if (mask.kind === 'group')
     return mask.components.flatMap((component) => componentLines(component, indent));
   const n = modern ? (value: number) => String(value) : numericSerializer;
+  const coord = (value: number) => {
+    if (modern) return String(value);
+    const rounded = (Math.sign(value) * Math.round(Math.abs(value) * 1e6)) / 1e6;
+    return rounded === 0 ? '0' : rounded.toFixed(6).replace(/\.?0+$/, '');
+  };
   if (mask.kind === 'linear') {
     return [
       `${indent}<rdf:li`,
       `${indent}  crs:What="${MASK_WHAT.linear}"`,
       `${indent}  crs:MaskValue="1"`,
-      `${indent}  crs:ZeroX="${n(mask.start.x)}" crs:ZeroY="${n(mask.start.y)}"`,
-      `${indent}  crs:FullX="${n(mask.end.x)}" crs:FullY="${n(mask.end.y)}"`,
+      `${indent}  crs:ZeroX="${coord(mask.start.x)}" crs:ZeroY="${coord(mask.start.y)}"`,
+      `${indent}  crs:FullX="${coord(mask.end.x)}" crs:FullY="${coord(mask.end.y)}"`,
       `${indent}  papp:LocalFeather="${n(mask.feather)}"/>`,
     ];
   }
@@ -444,10 +449,10 @@ function maskLines(mask: LocalMask, indent: string, modern = false): string[] {
       `${indent}  papp:MaskSource="Everywhere"/>`,
     ];
   }
-  const top = n(mask.center.y - mask.radii.y);
-  const left = n(mask.center.x - mask.radii.x);
-  const bottom = n(mask.center.y + mask.radii.y);
-  const right = n(mask.center.x + mask.radii.x);
+  const top = coord(mask.center.y - mask.radii.y);
+  const left = coord(mask.center.x - mask.radii.x);
+  const bottom = coord(mask.center.y + mask.radii.y);
+  const right = coord(mask.center.x + mask.radii.x);
   return [
     `${indent}<rdf:li`,
     `${indent}  crs:What="${MASK_WHAT.radial}"`,

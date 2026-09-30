@@ -5,6 +5,39 @@
 
 use super::tests_local_adjustments::{linear_layer, radial_layer, sidecar, INDENT};
 use super::*;
+use crate::types::local_adjustment::{Mask, Point2};
+
+#[test]
+fn fine_mask_coordinates_survive_repeated_round_trips() {
+    let mut linear = linear_layer();
+    linear.mask = Mask::Linear {
+        start: Point2::new(0.300698, 0.500123),
+        end: Point2::new(0.700321, 0.499876),
+        feather: 0.5,
+    };
+    let mut radial = radial_layer();
+    radial.mask = Mask::Radial {
+        center: Point2::new(0.500698, 0.499876),
+        radii: Point2::new(0.001234, 0.002345),
+        angle: 0.0,
+        feather: 0.5,
+        invert: false,
+    };
+    let mut model = AdjustmentModel::default();
+    model.local_adjustments = vec![linear, radial];
+    let block = serialize_local_adjustments(&model, INDENT);
+    assert!(block.contains("crs:ZeroX=\"0.300698\" crs:ZeroY=\"0.500123\""));
+    assert!(block.contains(
+        "crs:Top=\"0.497531\" crs:Left=\"0.499464\" crs:Bottom=\"0.502221\" crs:Right=\"0.501932\""
+    ));
+    let mut current = block.clone();
+    for _ in 0..5 {
+        let parsed = parse(&sidecar(&current)).expect("fine mask parse");
+        assert_eq!(parsed.local_adjustments.len(), 2);
+        current = serialize_local_adjustments(&parsed, INDENT);
+        assert_eq!(current, block);
+    }
+}
 
 /// Cross-language byte-parity fixture (#358): the same literal appears in
 /// the Swift suite (`LocalAdjustmentXMPTests.swift`), the TypeScript suite

@@ -450,19 +450,20 @@ extension XMPSerializer {
     _ mask: LocalMask, indent: String, modern: Bool = false
   ) -> [String] {
     let number: (Double) -> String = modern ? _groupNumber : fmtNum
+    let coordinate: (Double) -> String = modern ? _groupNumber : fmtMaskCoordinate
     switch mask {
     case .linear(let start, let end, let feather):
       return [
         "\(indent)<rdf:li",
         "\(indent)  crs:What=\"\(LocalAdjustmentXMP.maskWhat(.linear))\"",
         "\(indent)  crs:MaskValue=\"1\"",
-        "\(indent)  crs:ZeroX=\"\(number(start.x))\" crs:ZeroY=\"\(number(start.y))\"",
-        "\(indent)  crs:FullX=\"\(number(end.x))\" crs:FullY=\"\(number(end.y))\"",
+        "\(indent)  crs:ZeroX=\"\(coordinate(start.x))\" crs:ZeroY=\"\(coordinate(start.y))\"",
+        "\(indent)  crs:FullX=\"\(coordinate(end.x))\" crs:FullY=\"\(coordinate(end.y))\"",
         "\(indent)  papp:LocalFeather=\"\(number(feather))\"/>",
       ]
     case .radial(let center, let radii, let angle, let feather, let invert):
-      let (top, left) = (number(center.y - radii.y), number(center.x - radii.x))
-      let (bottom, right) = (number(center.y + radii.y), number(center.x + radii.x))
+      let (top, left) = (coordinate(center.y - radii.y), coordinate(center.x - radii.x))
+      let (bottom, right) = (coordinate(center.y + radii.y), coordinate(center.x + radii.x))
       let degrees = number(LocalAdjustmentXMP.radiansToDegrees(angle))
       return [
         "\(indent)<rdf:li",
