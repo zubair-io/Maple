@@ -1,12 +1,9 @@
 /**
  * Bitmap-format thumbnail rendering — shared by `/api/fs/thumb` (live) and
  * the indexer's thumb stage. Decodes JPEG/PNG/WEBP/TIFF/AVIF/HEIC/HEIF and
- * writes a resized AVIF or JPEG to `thumbPath` atomically (`.tmp` + rename)
- * — see `ThumbOutputFormat`. `imgdecode-pool.ts` (retired by #3499) used to
- * be a second consumer for the 1280px VLM describe/OCR preview tier; that
- * tier (`indexer/previewer.ts`) now renders AVIF through this same module
- * instead, so `format: 'jpeg'` below has no current production caller —
- * see `ThumbOutputFormat`'s doc.
+ * writes a resized AVIF to `thumbPath` atomically (`.tmp` + rename).
+ * The 512px grid thumbnails and 1280px describe/OCR previews share this
+ * AVIF path; describe providers convert the preview to JPEG in memory.
  *
  * RAW formats are NOT handled here — those go through the libraw FFI worker
  * pool. Maple's bindings decode HEIC/HEIF itself, but the SIMD-only bitmap
@@ -68,31 +65,9 @@ export const THUMB_LONG_EDGE_PX = 512;
  * effort has no effect on decode cost. */
 export const THUMB_AVIF_EFFORT = 4;
 
-/** Output codec for `renderImageThumbToFile` and its two format-specific
- * helpers. `'avif'` is the 256px grid-thumbnail tier (default) and also
- * what the 1280px VLM describe/OCR preview tier (`indexer/previewer.ts`)
- * renders — `describe.ts` re-encodes that AVIF to JPEG in memory per
- * provider call instead (every describe provider hardcodes `image/jpeg` as
- * the media type it sends upstream). No production caller passes `'jpeg'`
- * here today; kept pending a retire-or-keep decision (#3528). */
-export type ThumbOutputFormat = 'avif' | 'jpeg';
-
-/** Encode a Maple builder to `format`. Maple's JPEG encoder is not the
- * previous encoder's mozjpeg — it's Maple's own encoder, and it always
- * embeds an sRGB ICC profile (the previous encoder did not). NOTE: Maple's encoder also
- * drops alpha with no compositing step, so a source with real transparency
- * (a transparent PNG, or the PSD/HDR branch below) renders as opaque BLACK
- * wherever it was transparent — not a neutral/white matte. This is a ruled
- * interim (#3505); the previous encoder used to composite onto white/whatever matte was
- * configured. */
-function encodeToBuffer(
-  builder: ReturnType<typeof maple>,
-  quality: number,
-  format: ThumbOutputFormat,
-): Promise<Buffer> {
-  return format === 'jpeg'
-    ? builder.toFormat('jpeg', { quality }).toBuffer()
-    : builder.toFormat('avif', { quality, effort: THUMB_AVIF_EFFORT }).toBuffer();
+/** Encode an AVIF cache derivative with the shared effort setting. */
+function encodeToBuffer(builder: ReturnType<typeof maple>, quality: number): Promise<Buffer> {
+  return builder.toFormat('avif', { quality, effort: THUMB_AVIF_EFFORT }).toBuffer();
 }
 
 /** `fit: 'inside', withoutEnlargement: true` — this pipeline's resize
@@ -130,7 +105,6 @@ export async function renderHeicThumbToFile(
   thumbPath: string,
   sizePx: number,
   quality = THUMB_AVIF_QUALITY,
-  format: ThumbOutputFormat = 'avif',
 ): Promise<void> {
   const inputBuffer = await readFile(srcPath);
   // Lazy import: see the module doc above — this keeps the ~1.4MB
@@ -148,7 +122,7 @@ export async function renderHeicThumbToFile(
   const builder = maple(jpegBuffer)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(inside(sizePx));
-  const buf = await encodeToBuffer(builder, quality, format);
+  const buf = await encodeToBuffer(builder, quality);
   await writeAtomic(thumbPath, buf);
 }
 
@@ -184,7 +158,6 @@ async function renderPsdOrHdrThumbToFile(
   sizePx: number,
   ext: string,
   quality = THUMB_AVIF_QUALITY,
-  format: ThumbOutputFormat = 'avif',
 ): Promise<void> {
   const inputBuffer = await readFile(srcPath);
   const raster =
@@ -192,17 +165,14 @@ async function renderPsdOrHdrThumbToFile(
       ? await decodeHdrIsolated(new Uint8Array(inputBuffer))
       : decodePsdComposite(new Uint8Array(inputBuffer));
 
-  // channels: 4 carries this raster's alpha through to Maple, but the
-  // encoder below drops it with no compositing — a fully transparent PSD/HDR
-  // pixel renders as opaque BLACK, not a neutral matte. Ruled interim
-  // (#3505).
+  // Keep the flattened raster's alpha through the AVIF cache encode.
   const builder = maple({
     data: raster.data,
     width: raster.width,
     height: raster.height,
     channels: 4,
   }).resize(inside(sizePx));
-  const buf = await encodeToBuffer(builder, quality, format);
+  const buf = await encodeToBuffer(builder, quality);
   await writeAtomic(thumbPath, buf);
 }
 
@@ -220,12 +190,9 @@ async function renderPsdOrHdrThumbToFile(
 // (`heic-convert`) or the PSD/HDR branch (`ag-psd`/`hdr`) above, which
 // front-end through their own separate decoders before ever reaching Maple.
 /**
- * Render `srcPath` to `thumbPath` with the long edge ≤ `sizePx`, in `format`
- * (default AVIF — both the 256px grid-thumbnail tier and the 1280px VLM
- * describe/OCR preview tier; see `ThumbOutputFormat`'s doc for the `'jpeg'`
- * option's status). Atomic: writes to
- * `<thumbPath>.<pid>.tmp` first, then renames so a crash mid-write never
- * leaves a half-written cache file. Caller is responsible for ensuring the
+ * Render `srcPath` to an AVIF at `thumbPath` with the long edge ≤ `sizePx`.
+ * Atomic: write to a private pid/random-suffixed sibling, then rename so a
+ * crash mid-write never leaves a half-written cache file. Caller ensures the
  * parent directory exists.
  *
  * This function is the canonical render body called inside `ffi/raw_ffi.child.ts`
@@ -242,18 +209,17 @@ export async function renderImageThumbToFile(
   sizePx: number,
   ext: string,
   quality = THUMB_AVIF_QUALITY,
-  format: ThumbOutputFormat = 'avif',
 ): Promise<boolean> {
   if (ext === 'heic' || ext === 'heif') {
     // Call the canonical HEIC chain directly. When render.ts is loaded inside
     // `ffi/raw_ffi.child.ts` this is already an isolated process — no event-loop
     // blocking concern. The old Worker-thread indirection via heic-pool is gone.
-    await renderHeicThumbToFile(srcPath, thumbPath, sizePx, quality, format);
+    await renderHeicThumbToFile(srcPath, thumbPath, sizePx, quality);
     return true;
   }
 
   if (ext === 'psd' || ext === 'psb' || ext === 'hdr') {
-    await renderPsdOrHdrThumbToFile(srcPath, thumbPath, sizePx, ext, quality, format);
+    await renderPsdOrHdrThumbToFile(srcPath, thumbPath, sizePx, ext, quality);
     return true;
   }
 
@@ -264,7 +230,7 @@ export async function renderImageThumbToFile(
     // nothing to act on until that lands (#3507).
     .rotate()
     .resize(inside(sizePx));
-  const buf = await encodeToBuffer(builder, quality, format);
+  const buf = await encodeToBuffer(builder, quality);
   await writeAtomic(thumbPath, buf);
   return true;
 }

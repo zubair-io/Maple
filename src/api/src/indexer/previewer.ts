@@ -382,7 +382,6 @@ async function renderBitmapPreviewToFile(
       PREVIEW_LONG_EDGE_PX,
       70,
       ext,
-      'avif',
     );
     if (!result.ok) {
       return logRenderFailure(

@@ -94,7 +94,7 @@ class FfiWorkerPool {
   }
 
   /** Shared enqueue for the three `_to_file` render requests (renderThumb /
-   * renderPreviewJpeg / renderDevelop): all three write the image in the
+   * renderDevelop / exportRecipe): all three write the image in the
    * child and report only ok/error, and share the same dispatch/promise
    * plumbing. `payload` carries the type-specific fields.
    *
@@ -103,7 +103,7 @@ class FfiWorkerPool {
    * (child crash, dylib missing). The `resolve(false)` below is an
    * unreachable defensive fallback for a malformed ok=false/no-error reply. */
   private renderToFile(
-    type: 'renderThumb' | 'renderPreviewJpeg' | 'renderDevelop' | 'exportRecipe',
+    type: 'renderThumb' | 'renderDevelop' | 'exportRecipe',
     payload: Record<string, unknown>,
   ): Promise<boolean> {
     const id = this.requestId();
@@ -133,25 +133,6 @@ class FfiWorkerPool {
     quality = 55,
   ): Promise<boolean> {
     return this.renderToFile('renderThumb', {
-      rawPath,
-      outPath,
-      maxPx,
-      quality,
-    });
-  }
-
-  /** Render a RAW's embedded preview to JPEG on disk. No production caller
-   * invokes this today — `previewer.ts` renders the 1280px describe/OCR
-   * tier as AVIF and `describe.ts` re-encodes to JPEG in memory instead;
-   * kept pending a retire-or-keep decision (#3528). Resolves `true` on
-   * success; REJECTS on a render failure or infra error. */
-  async renderThumbnailPreviewJpegToFile(
-    rawPath: string,
-    outPath: string,
-    maxPx: number,
-    quality = 85,
-  ): Promise<boolean> {
-    return this.renderToFile('renderPreviewJpeg', {
       rawPath,
       outPath,
       maxPx,
@@ -196,7 +177,7 @@ class FfiWorkerPool {
   }
 
   /** Render a non-RAW bitmap (JPEG/PNG/WebP/TIFF/AVIF/HEIC/PSD/HDR) to a
-   * resized AVIF or JPEG on disk inside the FFI child. Resolves the child's
+   * resized AVIF on disk inside the FFI child. Resolves the child's
    * `{ ok, error }` (never rejects on a render failure — only on infra
    * failure), matching what the retired imgdecode pool returned so call
    * sites keep their error handling. */
@@ -206,7 +187,6 @@ class FfiWorkerPool {
     maxPx: number,
     quality: number,
     ext: string,
-    format?: 'avif' | 'jpeg',
   ): Promise<{ ok: boolean; error?: string }> {
     const id = this.requestId();
     return new Promise((resolve, reject) => {
@@ -221,7 +201,6 @@ class FfiWorkerPool {
             maxPx,
             quality,
             ext,
-            format,
           }),
         onResponse: (msg) => {
           if (msg.type !== 'renderBitmap') return false;
