@@ -72,6 +72,8 @@ namespace Maple.UI
 
         public event EventHandler<string>? AspectSelected;
         public event EventHandler<double>? StraightenChanged;
+        public event EventHandler? GestureStarted;
+        public event EventHandler? GestureCompleted;
         public event EventHandler? RotateRequested;
         public event EventHandler? FlipRequested;
         public event EventHandler? ResetRequested;
@@ -104,6 +106,8 @@ namespace Maple.UI
 
             _aspectChips.SelectionChanged += (_, id) => { SelectedAspectId = id; AspectSelected?.Invoke(this, id); };
             _straighten.ValueChanged += (_, angle) => { StraightenAngle = angle; StraightenChanged?.Invoke(this, angle); };
+            _straighten.GestureStarted += (sender, args) => GestureStarted?.Invoke(sender, args);
+            _straighten.GestureCompleted += (sender, args) => GestureCompleted?.Invoke(sender, args);
             _rotate.Click += (_, _) => RotateRequested?.Invoke(this, EventArgs.Empty);
             _flip.Click += (_, _) => FlipRequested?.Invoke(this, EventArgs.Empty);
             _reset.Click += (_, _) => ResetRequested?.Invoke(this, EventArgs.Empty);

@@ -7,8 +7,24 @@ namespace Maple.WinUI.ViewModels
 {
     public partial class EditSessionViewModel
     {
-        private bool _adjustmentGestureActive;
         // --- Adjustment edits ---
+        private object? _adjustmentGesture;
+
+        public void BeginAdjustmentGesture(object owner)
+        {
+            if (!AdjustmentsReady || ReferenceEquals(_adjustmentGesture, owner)) return;
+            _undoTimer?.Dispose();
+            _undoTimer = null;
+            CommitUndoBoundary();
+            _adjustmentGesture = owner;
+        }
+
+        public void EndAdjustmentGesture(object owner)
+        {
+            if (!ReferenceEquals(_adjustmentGesture, owner)) return;
+            _adjustmentGesture = null;
+            CommitUndoBoundary();
+        }
 
         /// <summary>Called by every slider on value change: re-render, debounce
         /// the sidecar write (750ms per spec), debounce the undo commit.</summary>
@@ -19,7 +35,7 @@ namespace Maple.WinUI.ViewModels
             ScheduleSidecarWrite();
             _undoTimer?.Dispose();
             _undoTimer = null;
-            if (_adjustmentGestureActive)
+            if (_adjustmentGesture != null)
             {
                 AdjustmentEdited?.Invoke();
                 return;
@@ -37,7 +53,8 @@ namespace Maple.WinUI.ViewModels
 
         private void CommitUndoBoundary()
         {
-            if (_undoBaseline == null)
+            if (_undoBaseline == null || XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) ==
+                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }))
                 return;
             _undoStack.Add(_undoBaseline);
             if (_undoStack.Count > UndoDepth)
@@ -55,24 +72,17 @@ namespace Maple.WinUI.ViewModels
                 XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments })) CommitUndoBoundary();
         }
 
-        public void BeginAdjustmentGesture()
-        {
-            if (_adjustmentGestureActive) return;
-            CommitPendingAdjustmentGesture();
-            _adjustmentGestureActive = true;
-        }
-
         public void EndAdjustmentGesture()
         {
-            if (!_adjustmentGestureActive) return;
-            _adjustmentGestureActive = false;
+            if (_adjustmentGesture is null) return;
+            _adjustmentGesture = null;
             CommitPendingAdjustmentGesture();
         }
 
         public void Undo()
         {
             if (!AdjustmentsReady) return;
-            _adjustmentGestureActive = false;
+            _adjustmentGesture = null;
             _undoTimer?.Dispose();
             _undoTimer = null;
             if (_undoBaseline != null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) !=
@@ -91,7 +101,7 @@ namespace Maple.WinUI.ViewModels
         public void Redo()
         {
             if (!AdjustmentsReady) return;
-            _adjustmentGestureActive = false;
+            _adjustmentGesture = null;
             if (_redoStack.Count == 0)
                 return;
             var before = Adjustments;

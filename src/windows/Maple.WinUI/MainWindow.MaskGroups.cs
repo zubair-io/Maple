@@ -14,12 +14,10 @@ namespace Maple.WinUI
         private void BuildMaskComposition()
         {
             var composition = MaskPanel.Composition;
-            composition.GestureStarted += (_, _) => ViewModel.BeginAdjustmentGesture();
-            composition.GestureEnded += (_, _) => ViewModel.EndAdjustmentGesture();
-            MaskPanel.GestureStarted += (_, _) => ViewModel.BeginAdjustmentGesture();
-            MaskPanel.GestureEnded += (_, _) => ViewModel.EndAdjustmentGesture();
-            MaskOverlay.GestureStarted += (_, _) => ViewModel.BeginAdjustmentGesture();
-            MaskOverlay.GestureEnded += (_, _) => ViewModel.EndAdjustmentGesture();
+            composition.GestureStarted += (sender, _) => ViewModel.BeginAdjustmentGesture(sender!);
+            composition.GestureEnded += (sender, _) => ViewModel.EndAdjustmentGesture(sender!);
+            MaskOverlay.GestureStarted += (sender, _) => ViewModel.BeginAdjustmentGesture(sender!);
+            MaskOverlay.GestureEnded += (sender, _) => ViewModel.EndAdjustmentGesture(sender!);
             composition.AddRequested += (_, request) =>
             {
                 if (!Enum.TryParse<MaskCombine>(request.Combine, out var combine)) return;

@@ -192,6 +192,7 @@ namespace Maple.WinUI.ViewModels
         {
             _undoTimer?.Dispose();
             _undoTimer = null;
+            _adjustmentGesture = null;
             FlushSidecarNow();
             PublishPendingCloudPreview();
             _photoOpenVersion++;

@@ -101,7 +101,7 @@ namespace Maple.UI
         public event EventHandler<(string Field, double Value)>? AdjustmentChanged;
         public event EventHandler? ResetRequested;
         public event EventHandler? GestureStarted;
-        public event EventHandler? GestureEnded;
+        public event EventHandler? GestureCompleted;
         public MuiMaskComposition Composition { get; } = new();
 
         private readonly StackPanel _root = new() { Spacing = 10 };
@@ -138,6 +138,7 @@ namespace Maple.UI
             foreach (var (field, label, min, max, step, _) in ControlDescriptors)
             {
                 var bar = new MuiDragBar { Label = label, Minimum = min, Maximum = max, Step = step };
+                WireGesture(bar);
                 bar.ValueChanged += (_, v) => { if (!_syncGate.IsSyncing) AdjustmentChanged?.Invoke(this, (field, v)); };
                 _controlBars[field] = bar;
                 _selectedHost.Children.Add(bar);
@@ -149,11 +150,7 @@ namespace Maple.UI
             _addLinear.Click += (_, _) => AddLinearRequested?.Invoke(this, EventArgs.Empty);
             _addRadial.Click += (_, _) => AddRadialRequested?.Invoke(this, EventArgs.Empty);
             _featherBar.ValueChanged += (_, v) => { if (!_syncGate.IsSyncing) FeatherChanged?.Invoke(this, v); };
-            foreach (var bar in _controlBars.Values.Append(_featherBar))
-            {
-                bar.GestureStarted += (_, _) => GestureStarted?.Invoke(this, EventArgs.Empty);
-                bar.GestureEnded += (_, _) => GestureEnded?.Invoke(this, EventArgs.Empty);
-            }
+            WireGesture(_featherBar);
             _invertCheckbox.Checked += (_, _) => { if (!_syncGate.IsSyncing) InvertChanged?.Invoke(this, true); };
             _invertCheckbox.Unchecked += (_, _) => { if (!_syncGate.IsSyncing) InvertChanged?.Invoke(this, false); };
             _resetButton.Click += (_, _) => ResetRequested?.Invoke(this, EventArgs.Empty);
@@ -163,6 +160,12 @@ namespace Maple.UI
             AutomationProperties.SetName(this, "Mask panel");
 
             RebuildLayerList();
+        }
+
+        private void WireGesture(MuiDragBar bar)
+        {
+            bar.GestureStarted += (sender, args) => GestureStarted?.Invoke(sender, args);
+            bar.GestureCompleted += (sender, args) => GestureCompleted?.Invoke(sender, args);
         }
 
         private void SyncControlValues() => _syncGate.RunSynced(() =>

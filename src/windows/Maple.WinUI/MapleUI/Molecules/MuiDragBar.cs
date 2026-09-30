@@ -89,7 +89,12 @@ namespace Maple.UI
         /// <summary>Fires after a drag/keyboard change.</summary>
         public event EventHandler<double>? ValueChanged;
         public event EventHandler? GestureStarted;
-        public event EventHandler? GestureEnded;
+        public event EventHandler? GestureCompleted;
+        public event EventHandler? GestureEnded
+        {
+            add => GestureCompleted += value;
+            remove => GestureCompleted -= value;
+        }
 
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 4 };
         private readonly Grid _headerRow = new();
@@ -128,7 +133,8 @@ namespace Maple.UI
             _bar.PointerMoved += OnPointerMoved;
             _bar.PointerReleased += OnPointerReleased;
             _bar.PointerCanceled += OnPointerReleased;
-            _bar.PointerCaptureLost += (_, _) => EndGesture();
+            _bar.PointerCaptureLost += (_, _) => CompleteGesture();
+            Unloaded += (_, _) => CompleteGesture();
             KeyDown += OnKeyDown;
             SizeChanged += (_, _) => Layout();
             IsEnabledChanged += (_, _) => Rebuild();
@@ -168,13 +174,13 @@ namespace Maple.UI
         {
             if (!IsEnabled || !e.GetCurrentPoint(_bar).Properties.IsLeftButtonPressed || _dragging) return;
             Focus(FocusState.Pointer);
-            GestureStarted?.Invoke(this, EventArgs.Empty);
             _dragging = true;
             _activePointerId = e.Pointer.PointerId;
+            GestureStarted?.Invoke(this, EventArgs.Empty);
             var x = e.GetCurrentPoint(_bar).Position.X;
             Value = MuiDragBarMath.ValueAtPosition(x, _bar.ActualWidth, Minimum, Maximum, fallback: Value, step: Step);
             ValueChanged?.Invoke(this, Value);
-            _bar.CapturePointer(e.Pointer);
+            if (!_bar.CapturePointer(e.Pointer)) CompleteGesture();
             e.Handled = true;
         }
 
@@ -190,17 +196,17 @@ namespace Maple.UI
         private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
         {
             if (e.Pointer.PointerId != _activePointerId) return;
-            EndGesture();
+            CompleteGesture();
             _bar.ReleasePointerCapture(e.Pointer);
             e.Handled = true;
         }
 
-        private void EndGesture()
+        private void CompleteGesture()
         {
-            var wasDragging = _dragging;
+            if (!_dragging) return;
             _dragging = false;
             _activePointerId = null;
-            if (wasDragging) GestureEnded?.Invoke(this, EventArgs.Empty);
+            GestureCompleted?.Invoke(this, EventArgs.Empty);
         }
 
         private void OnKeyDown(object sender, KeyRoutedEventArgs e)

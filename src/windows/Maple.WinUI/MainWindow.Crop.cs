@@ -43,6 +43,8 @@ namespace Maple.WinUI
             CropToolbar.AspectPresets = CropAspects.Select(a => new MuiChip(a.Id, a.Label)).ToList();
             CropToolbar.SelectedAspectId = "free";
             CropToolbar.AspectSelected += (_, _) => OnCropAspectSelected();
+            CropToolbar.GestureStarted += (sender, _) => ViewModel.BeginAdjustmentGesture(sender!);
+            CropToolbar.GestureCompleted += (sender, _) => ViewModel.EndAdjustmentGesture(sender!);
             CropToolbar.StraightenChanged += (_, angle) =>
             {
                 ViewModel.Adjustments.Crop = ViewModel.Adjustments.Crop with { Angle = angle };

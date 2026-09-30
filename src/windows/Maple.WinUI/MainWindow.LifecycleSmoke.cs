@@ -77,6 +77,7 @@ namespace Maple.WinUI
                     await VerifyNativeDetailAsync();
                     await VerifyScopesAsync();
                     await VerifyPresetUndoAsync();
+                    await VerifyAdjustmentGestureUndoAsync();
                     await VerifyRetouchUndoAsync();
                     await VerifyTransferUndoAsync(output);
                     VerifyViewerDesignNavigation();
