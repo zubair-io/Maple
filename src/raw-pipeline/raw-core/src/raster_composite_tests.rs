@@ -270,3 +270,76 @@ fn wire_spellings_round_trip() {
     assert_eq!(Gravity::from_wire("northeast"), Some(Gravity::NorthEast));
     assert_eq!(Gravity::from_wire("entropy"), None);
 }
+
+#[test]
+fn overlapping_low_alpha_layers_round_only_after_the_final_blend() {
+    let base = solid_rgba(1, 1, [162, 143, 17, 5]);
+    let images = [[157, 237, 15, 6], [201, 220, 107, 7], [51, 16, 25, 8]]
+        .map(|pixel| solid_rgba(1, 1, pixel));
+    let layers = images
+        .iter()
+        .map(|image| layer(image, BlendMode::Over))
+        .collect::<Vec<_>>();
+    assert_eq!(composite(&base, &layers).unwrap().data, [136, 144, 43, 25]);
+}
+
+#[test]
+fn empty_layers_preserve_hidden_rgb_and_add_alpha_to_rgb_input() {
+    let rgba = solid_rgba(1, 1, [10, 20, 30, 0]);
+    assert_eq!(composite(&rgba, &[]).unwrap().data, rgba.data);
+    let rgb = RasterImage::new_rgb(1, 1, vec![10, 20, 30]);
+    assert_eq!(composite(&rgb, &[]).unwrap().data, [10, 20, 30, 255]);
+    let empty = RasterImage::new_rgb(0, 0, vec![]);
+    assert!(composite(&empty, &[]).unwrap().data.is_empty());
+}
+
+#[test]
+fn untiled_extreme_offsets_are_clipped_without_overflow() {
+    let base = solid_rgba(3, 2, [10, 20, 30, 255]);
+    let image = solid_rgba(2, 2, [100, 200, 150, 128]);
+    for offset in [i64::MIN, i64::MAX] {
+        for (left, top) in [(offset, 0), (0, offset)] {
+            let placed = CompositeLayer {
+                left: Some(left),
+                top: Some(top),
+                ..layer(&image, BlendMode::Over)
+            };
+            assert_eq!(composite(&base, &[placed]).unwrap().data, base.data);
+        }
+    }
+}
+
+#[test]
+fn wide_composites_keep_precision_across_scratch_chunk_boundaries() {
+    let base = solid_rgba(4100, 2, [162, 143, 17, 5]);
+    let images = [[157, 237, 15, 6], [201, 220, 107, 7], [51, 16, 25, 8]]
+        .map(|pixel| solid_rgba(4100, 2, pixel));
+    let layers = images
+        .iter()
+        .map(|image| layer(image, BlendMode::Over))
+        .collect::<Vec<_>>();
+    assert!(composite(&base, &layers)
+        .unwrap()
+        .data
+        .chunks_exact(4)
+        .all(|pixel| pixel == [136, 144, 43, 25]));
+
+    let base = solid_rgba(4100, 2, [10, 20, 30, 255]);
+    let image = solid_rgba(6, 1, [100, 200, 150, 255]);
+    let placed = CompositeLayer {
+        left: Some(4094),
+        top: Some(1),
+        ..layer(&image, BlendMode::Over)
+    };
+    let output = composite(&base, &[placed]).unwrap();
+    for (i, pixel) in output.data.chunks_exact(4).enumerate() {
+        assert_eq!(
+            pixel,
+            if i >= 4100 + 4094 {
+                [100, 200, 150, 255]
+            } else {
+                [10, 20, 30, 255]
+            }
+        );
+    }
+}
