@@ -1,6 +1,8 @@
 using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -34,7 +36,13 @@ namespace Maple.UI
 
         public static readonly DependencyProperty ValueProperty =
             DependencyProperty.Register(nameof(Value), typeof(double), typeof(MuiDragBar),
-                new PropertyMetadata(0.0, (d, _) => ((MuiDragBar)d).Rebuild()));
+                new PropertyMetadata(0.0, (d, e) =>
+                {
+                    var bar = (MuiDragBar)d;
+                    bar.Rebuild();
+                    FrameworkElementAutomationPeer.FromElement(bar)?.RaisePropertyChangedEvent(
+                        RangeValuePatternIdentifiers.ValueProperty, e.OldValue, e.NewValue);
+                }));
 
         public static readonly DependencyProperty MinimumProperty =
             DependencyProperty.Register(nameof(Minimum), typeof(double), typeof(MuiDragBar),
@@ -129,6 +137,32 @@ namespace Maple.UI
         }
 
         private static Brush R(string key) => (Brush)Application.Current.Resources[key];
+
+        protected override AutomationPeer OnCreateAutomationPeer() => new DragBarPeer(this);
+
+        private sealed class DragBarPeer(MuiDragBar bar) : FrameworkElementAutomationPeer(bar), IRangeValueProvider
+        {
+            protected override string GetClassNameCore() => nameof(MuiDragBar);
+            protected override string GetNameCore() => string.IsNullOrEmpty(bar.Label) ? "Drag bar" : bar.Label;
+            protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Slider;
+            protected override object GetPatternCore(PatternInterface pattern) =>
+                pattern == PatternInterface.RangeValue ? this : base.GetPatternCore(pattern);
+            public bool IsReadOnly => !bar.IsEnabled;
+            public double SmallChange => bar.Step > 0 ? bar.Step : 1;
+            public double LargeChange => SmallChange * 10;
+            public double Minimum => bar.Minimum;
+            public double Maximum => bar.Maximum;
+            public double Value => bar.Value;
+
+            public void SetValue(double value)
+            {
+                if (IsReadOnly) throw new InvalidOperationException("Drag bar is disabled.");
+                if (!double.IsFinite(value) || value < Minimum || value > Maximum)
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                bar.Value = value;
+                bar.ValueChanged?.Invoke(bar, value);
+            }
+        }
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
