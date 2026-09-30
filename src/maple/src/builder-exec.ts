@@ -70,46 +70,25 @@ export async function runPipeline(
   };
 }
 
-async function decodeRgb8(bytes: Uint8Array, autoOrient: boolean): Promise<RawPixels> {
-  const res = await callNative('rasterDecodeRgb8Buf', [bytes, autoOrient]);
-  if (!res.ok || !res.buffer || res.width === undefined || res.height === undefined) {
-    throw new Error(res.error || 'Failed to decode to RGB8');
-  }
-  return {
-    data: new Uint8Array(res.buffer.buffer, res.buffer.byteOffset, res.buffer.byteLength),
-    width: res.width,
-    height: res.height,
-    channels: 3,
-  };
-}
-
-/** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
+/** Execute the recipe as interleaved RGB8, dropping alpha after all edits. */
 export async function resolveToRaw(state: BuilderState): Promise<RawPixels> {
-  if (state.rawInput) {
-    const r = state.rawInput;
-    const png = await callNative('rasterFromRawRenderBuf', [
-      r.data,
-      r.width,
-      r.height,
-      r.channels,
-      0,
-      0,
-      0,
-      0,
-      'png',
-      0,
-      0,
-    ]);
-    if (!png.ok || !png.buffer) {
-      throw new Error(png.error || 'Failed to normalise raw pixels');
-    }
-    return decodeRgb8(png.buffer, state.autoOrient);
-  }
-  const bytes = state.inputBytes ?? (state.inputPath ? await fs.readFile(state.inputPath) : null);
-  if (!bytes || bytes.length === 0) {
+  const bytes = await inputBytes(state);
+  if (bytes.length === 0) {
     throw new Error('Input image is empty');
   }
-  return decodeRgb8(bytes, state.autoOrient);
+  // Alpha must survive resize/composite/filters. Append its removal to a
+  // terminal-local state so subsequent toRawAlpha()/toBuffer() calls retain it.
+  const rgbState: BuilderState = {
+    ...state,
+    ops: [...state.ops, { op: 'removeAlpha' }],
+  };
+  const out = await runPipeline(rgbState, bytes, { format: 'raw' });
+  return {
+    data: new Uint8Array(out.buffer.buffer, out.buffer.byteOffset, out.buffer.byteLength),
+    width: out.width,
+    height: out.height,
+    channels: 3,
+  };
 }
 
 /** Raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace). */
