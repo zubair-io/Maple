@@ -77,7 +77,7 @@ struct BackupStatusPanel: View {
                   ThumbnailTile(localIdentifier: item.id.phassetLocalId, size: Self.uploadTileSize)
                   let state = BackupStatusPresentation.tile(item)
                   HStack(spacing: 3) {
-                    Image(systemName: state.symbol)
+                    MuiIcon(name: state.symbol, size: .sm)
                     if !state.text.isEmpty { Text(state.text) }
                   }
                   .font(.system(size: Self.uploadLabelFontSize))
@@ -117,9 +117,13 @@ struct BackupStatusPanel: View {
       // Session uploads are separate from the whole-library progress above.
       // Related files can continue retrying after an original is saved.
       HStack(spacing: 16) {
-        Label("This run: \(progress.totalCompleted.formatted())", systemImage: "checkmark.circle")
-          .foregroundStyle(.secondary)
-          .accessibilityIdentifier("backup.status.done")
+        Label {
+          Text("This run: \(progress.totalCompleted.formatted())")
+        } icon: {
+          MuiIcon(name: "check_circle", size: .sm)
+        }
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("backup.status.done")
         Spacer(minLength: 0)
         issueButton(
           .warnings, count: progress.issues.warningCount,
@@ -142,11 +146,15 @@ struct BackupStatusPanel: View {
     Button {
       issuePopover = kind
     } label: {
-      Label(count.formatted(), systemImage: symbol)
-        .monospacedDigit()
-        .foregroundStyle(count > 0 ? color : .secondary)
-        .frame(minWidth: 44, minHeight: 44)
-        .contentShape(Rectangle())
+      Label {
+        Text(count.formatted())
+      } icon: {
+        MuiIcon(name: symbol, size: .sm)
+      }
+      .monospacedDigit()
+      .foregroundStyle(count > 0 ? color : .secondary)
+      .frame(minWidth: 44, minHeight: 44)
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel("\(count) backup \(kind.rawValue). Show details")

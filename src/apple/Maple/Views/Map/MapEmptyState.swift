@@ -17,62 +17,63 @@
 //   - `.connecting`     — bootstrapping an already-persisted token; a
 //                         spinner, not a dead end, so it gets no copy.
 
-import SwiftUI
 import MapleCore
+import MapleUI
+import SwiftUI
 
 struct MapEmptyState: View {
-    let reason: MapUnavailableReason
+  let reason: MapUnavailableReason
 
-    var body: some View {
-        Group {
-            switch reason {
-            case .connecting:
-                ProgressView()
-            case .noAccount, .signInRequired:
-                VStack(spacing: 12) {
-                    Image(systemName: "map")
-                        .font(.system(size: 40))
-                        .foregroundStyle(MapleTokens.textMuted)
-                    Text(title)
-                        .font(MapleTokens.Typography.sheetTitle)
-                        .foregroundStyle(MapleTokens.textMain)
-                    Text(message)
-                        .font(MapleTokens.Typography.rowLabel)
-                        .foregroundStyle(MapleTokens.textMuted)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 320)
-                }
-                .padding(24)
-            }
+  var body: some View {
+    Group {
+      switch reason {
+      case .connecting:
+        ProgressView()
+      case .noAccount, .signInRequired:
+        VStack(spacing: 12) {
+          MuiIcon(name: "map", size: .xl)
+            .font(.system(size: 40))
+            .foregroundStyle(MapleTokens.textMuted)
+          Text(title)
+            .font(MapleTokens.Typography.sheetTitle)
+            .foregroundStyle(MapleTokens.textMain)
+          Text(message)
+            .font(MapleTokens.Typography.rowLabel)
+            .foregroundStyle(MapleTokens.textMuted)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 320)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MapleTokens.bg.ignoresSafeArea())
-        .accessibilityIdentifier(accessibilityIdentifier)
+        .padding(24)
+      }
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(MapleTokens.bg.ignoresSafeArea())
+    .accessibilityIdentifier(accessibilityIdentifier)
+  }
 
-    private var title: String {
-        switch reason {
-        case .connecting: return ""
-        case .noAccount: return "See your photos on a map"
-        case .signInRequired: return "Sign in to see your map"
-        }
+  private var title: String {
+    switch reason {
+    case .connecting: return ""
+    case .noAccount: return "See your photos on a map"
+    case .signInRequired: return "Sign in to see your map"
     }
+  }
 
-    private var message: String {
-        switch reason {
-        case .connecting: return ""
-        case .noAccount:
-            return "Connect a Maple Cloud account to plot your located photos on the map."
-        case .signInRequired:
-            return "Your Maple Cloud account is connected but signed out. Sign in again to load the map."
-        }
+  private var message: String {
+    switch reason {
+    case .connecting: return ""
+    case .noAccount:
+      return "Connect a Maple Cloud account to plot your located photos on the map."
+    case .signInRequired:
+      return "Your Maple Cloud account is connected but signed out. Sign in again to load the map."
     }
+  }
 
-    private var accessibilityIdentifier: String {
-        switch reason {
-        case .connecting: return "map-empty-connecting"
-        case .noAccount: return "map-empty-no-account"
-        case .signInRequired: return "map-empty-sign-in-required"
-        }
+  private var accessibilityIdentifier: String {
+    switch reason {
+    case .connecting: return "map-empty-connecting"
+    case .noAccount: return "map-empty-no-account"
+    case .signInRequired: return "map-empty-sign-in-required"
     }
+  }
 }

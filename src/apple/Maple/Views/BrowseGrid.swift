@@ -17,6 +17,7 @@
 // phone consequently had no empty state at all.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 #if os(macOS)
@@ -468,7 +469,11 @@ struct BrowseGrid: View {
         let ids = active.contains(asset.id) && active.count > 1 ? active : [asset.id]
         onTrashAssets(ids)
       } label: {
-        Label(trashMenuTitle(for: asset), systemImage: "trash")
+        Label {
+          Text(trashMenuTitle(for: asset))
+        } icon: {
+          MuiIcon(name: "delete", size: .sm)
+        }
       }
       .accessibilityIdentifier("browseGrid.trash.\(asset.displayName)")
     }
@@ -517,7 +522,11 @@ struct BrowseGrid: View {
         guard !urls.isEmpty else { return }
         NSWorkspace.shared.activateFileViewerSelecting(urls)
       } label: {
-        Label("Reveal in Finder", systemImage: "folder")
+        Label {
+          Text("Reveal in Finder")
+        } icon: {
+          MuiIcon(name: "folder", size: .sm)
+        }
       }
       .accessibilityIdentifier("browseGrid.revealInFinder.\(asset.displayName)")
     }
@@ -536,7 +545,7 @@ private struct ErrorBanner: View {
 
   var body: some View {
     HStack(spacing: 8) {
-      Image(systemName: "exclamationmark.triangle.fill")
+      MuiIcon(name: "warning", size: .sm, filled: true)
         .foregroundStyle(MapleTokens.errorText)
       Text(message)
         .font(.system(size: 11))
@@ -550,11 +559,13 @@ private struct ErrorBanner: View {
       Button {
         onDismiss()
       } label: {
-        Image(systemName: "xmark")
+        MuiIcon(name: "close", size: .xs)
           .font(.system(size: 10, weight: .semibold))
           .foregroundStyle(MapleTokens.textMuted)
       }
       .buttonStyle(.plain)
+      .accessibilityLabel("Dismiss error")
+      .accessibilityIdentifier("browse-error-dismiss")
     }
     .padding(10)
     .background(

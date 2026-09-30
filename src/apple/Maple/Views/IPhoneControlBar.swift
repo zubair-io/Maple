@@ -5,6 +5,7 @@
 // iPad and macOS continue to use the canvas-first dock/panel controls.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct IPhoneControlBar: View {
@@ -43,9 +44,13 @@ struct IPhoneControlBar: View {
         Button {
           state.resetToFactoryDefaults()
         } label: {
-          Label("Reset All", systemImage: "arrow.counterclockwise")
-            .font(.caption)
-            .frame(minHeight: 44)
+          Label {
+            Text("Reset All")
+          } icon: {
+            MuiIcon(name: "rotate_left", size: .sm)
+          }
+          .font(.caption)
+          .frame(minHeight: 44)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Reset all adjustments")

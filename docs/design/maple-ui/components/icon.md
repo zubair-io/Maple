@@ -12,8 +12,11 @@ Web currently uses a stroke-SVG registry and Windows uses Segoe Fluent glyphs.
 The Apple migration is tracked by #3686: the bundled-library slice is #3898 and
 caller migration is #3899. The [baseline inventory](../apple-icon-inventory.json)
 records direct SF Symbol uses and MuiIcon callers, including dynamic inputs.
-Until #3899 lands, legacy SF names remain supported. This compatibility path
-is deliberate staging, not a completed migration.
+The inventory records the completed caller migration in #3899 and its explicit
+native exceptions. Legacy public model inputs resolve through `MuiIconLegacyNames`
+to Material outlines, preserving compatibility for sibling apps. New callers use
+canonical names. Unknown inputs from external consumers retain the legacy SF
+fallback; Maple app callers are covered by the shared library and alias registry.
 
 ## Variants
 
@@ -41,7 +44,7 @@ interactive atom wraps it.
 - `name`: on Apple, a canonical Google Material Symbols Rounded name from the
   bundled `glyphs.json`, such as `lan`, `public`, `photo_camera`, or `tune`.
   The component draws bundled vector outlines at weight 400, optical size 24,
-  grade 0, fill 0. Legacy SF names remain during #3899's migration only.
+  grade 0. The `filled` prop selects the filled outline for selected states. Legacy SF model identifiers resolve to Material outlines through the compatibility table.
   `cloud` and `calendar` intentionally retain the custom 16×16 outlines shared
   with Web/Windows (#3024); migrating their custom path treatment requires
   coordinated changes to those platforms. Native-system exceptions are
@@ -49,6 +52,8 @@ interactive atom wraps it.
   [Attribution and update instructions](../../../licenses/google-material-symbols.md)
   cover adding names and updating the bundled library.
 - `size`: `xs | sm | md | lg | xl` (default `md`).
+- `filled`: Boolean (default false), selects the filled Material outline; legacy
+  `.fill` inputs preserve their selected appearance.
 - `color`: optional override; defaults to `currentColor`.
 
 ## Accessibility
@@ -59,3 +64,15 @@ interactive atom wraps it.
 - Icon-only usages (no adjacent visible text) are not self-sufficient — the _wrapping_ component
   (IconButton, etc.) is responsible for supplying an accessible label; a bare Icon atom is never
   used standalone as an interactive, unlabeled control.
+
+## Native Apple exceptions
+
+The inventory lists every direct SF call and its reason. Apple's Settings tab
+metadata and menu/navigation/toolbar metadata retain system symbols because the
+OS owns their rendering. Image-producing placeholder APIs (`MuiRemoteImage`,
+`AtomsGalleryView`, `PreviewZoomController`) retain native images where the public
+API requires `Image` or `UIImage` instead of a View. The vectorscope's Canvas
+person legend stays a data-rendering glyph. These are separate from Maple chrome,
+which uses MuiIcon. The Apple gate runs `tools/check-apple-icons.py` to reject new
+untracked SF calls and stale exceptions. Controls keep their existing accessible
+labels; decorative MuiIcon content is hidden from assistive technology.

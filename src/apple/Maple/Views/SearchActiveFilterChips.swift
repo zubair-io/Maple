@@ -9,8 +9,9 @@
 // Chip derivation lives in SearchActiveFilterChips+VM.swift (the
 // `+VM.swift` pattern, issue #192) — this file only renders.
 
-import SwiftUI
 import MapleCore
+import MapleUI
+import SwiftUI
 
 struct SearchActiveFilterChips: View {
   @Bindable var vm: SearchViewModel
@@ -44,7 +45,7 @@ struct SearchActiveFilterChips: View {
 
   private func chipView(_ chip: Chip) -> some View {
     HStack(spacing: 5) {
-      Image(systemName: chip.icon)
+      MuiIcon(name: chip.icon, size: .xs)
         .font(.system(size: 10))
         .foregroundStyle(MapleTokens.textMuted)
       Text(chip.label)
@@ -58,7 +59,9 @@ struct SearchActiveFilterChips: View {
         Button {
           remove(chip)
         } label: {
-          Image(systemName: "xmark")
+          MuiIcon(name: "close", size: .xs)
+            .scaleEffect(9 / 14)
+            .frame(width: 9, height: 9)
             .font(.system(size: 9, weight: .bold))
             .foregroundStyle(MapleTokens.textMuted)
         }

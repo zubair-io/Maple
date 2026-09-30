@@ -1,3 +1,4 @@
+import MapleUI
 import SwiftUI
 
 struct BackupIssueDetails: View {
@@ -24,7 +25,7 @@ struct BackupIssueDetails: View {
         Button {
           dismiss()
         } label: {
-          Image(systemName: "xmark")
+          MuiIcon(name: "close", size: .sm)
             .frame(width: 32, height: 32)
             .contentShape(Rectangle())
         }
@@ -38,10 +39,18 @@ struct BackupIssueDetails: View {
           Text("No current errors.")
         }
         if let startError {
-          Label(startError, systemImage: "exclamationmark.circle")
+          Label {
+            Text(startError)
+          } icon: {
+            MuiIcon(name: "error", size: .sm)
+          }
         }
         if case .failed(let reason) = progress.walkPhase {
-          Label("Library check: \(reason)", systemImage: "exclamationmark.circle")
+          Label {
+            Text("Library check: \(reason)")
+          } icon: {
+            MuiIcon(name: "error", size: .sm)
+          }
         }
         if let count = progress.lastWalkSummary?.failedPermanently,
           count > progress.issues.failureCount

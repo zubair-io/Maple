@@ -35,6 +35,7 @@
 // `PreviewView+VM.swift` and is unit-tested.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 #if os(iOS)
@@ -224,7 +225,7 @@ struct PreviewView: View {
         Button {
           onEdit(asset)
         } label: {
-          Image(systemName: "pencil")
+          MuiIcon(name: "edit", size: .sm)
             .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(.plain)
@@ -235,7 +236,7 @@ struct PreviewView: View {
         Button {
           infoPresented(hasInspector: hasInspector).wrappedValue.toggle()
         } label: {
-          Image(systemName: "info.circle")
+          MuiIcon(name: "info", size: .sm)
             .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(.plain)

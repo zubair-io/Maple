@@ -51,6 +51,7 @@
 //       InfoPanelView(session: session, isInsideSheet: false)
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 // MARK: - InfoPanelView
@@ -188,7 +189,7 @@ struct InfoSheetHeader: View {
         .foregroundStyle(MapleTokens.textMain)
       Spacer()
       Button(action: onClose) {
-        Image(systemName: "xmark")
+        MuiIcon(name: "close", size: .xs)
           .font(.system(size: 14, weight: .medium))
           .foregroundStyle(MapleTokens.textMuted)
           .frame(width: 28, height: 28)

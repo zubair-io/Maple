@@ -1264,5 +1264,407 @@
       "line": 119,
       "use": "MuiIcon(name: \"chevron.right\", size: .sm, color: MuiTokens.textMuted)"
     }
-  ]
+  ],
+  "migration": {
+    "issue": 3899,
+    "scope": "Maple app content and MapleUI chrome use the bundled Material library. Direct SF references below are explicit native-framework exceptions. The cloud/calendar custom paths remain coordinated cross-platform glyphs (#3024).",
+    "nativeExceptions": [
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 381,
+        "source": ".tabItem { Label(\"General\", systemImage: \"gear\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 385,
+        "source": ".tabItem { Label(\"Backup\", systemImage: \"icloud.and.arrow.up\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 388,
+        "source": ".tabItem { Label(\"Cloud\", systemImage: \"cloud\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 395,
+        "source": ".tabItem { Label(\"Sources\", systemImage: \"externaldrive\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 400,
+        "source": ".tabItem { Label(\"Pano\", systemImage: \"photo.stack\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 406,
+        "source": ".tabItem { Label(\"Observability\", systemImage: \"waveform.path.ecg\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 412,
+        "source": ".tabItem { Label(\"Finder\", systemImage: \"folder\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 416,
+        "source": ".tabItem { Label(\"Files\", systemImage: \"folder\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 427,
+        "source": ".tabItem { Label(\"Maple UI\", systemImage: \"square.grid.2x2\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/MapleApp.swift",
+        "line": 432,
+        "source": ".tabItem { Label(\"About\", systemImage: \"info.circle\") }",
+        "reason": "Apple Settings TabView metadata: the operating system owns tab icon rendering and sizing."
+      },
+      {
+        "file": "src/apple/Maple/Views/AppShellToolbar.swift",
+        "line": 113,
+        "source": "Button(\"Open Folder\", systemImage: \"folder.badge.plus\") {",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/AppShellToolbar.swift",
+        "line": 145,
+        "source": "Button(\"Settings\", systemImage: \"gear\") {",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/AssetDrop/PhoneAssetMovePicker.swift",
+        "line": 148,
+        "source": "Button(\"Back\", systemImage: \"chevron.left\") { pathStack.removeLast() }",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/BrowseGrid+Rename.swift",
+        "line": 31,
+        "source": "Label(\"Rename\u2026\", systemImage: \"pencil\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+        "line": 183,
+        "source": "Label(\"Move Selected Here\", systemImage: \"arrow.right.doc.on.clipboard\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+        "line": 189,
+        "source": "Label(\"Copy Selected Here\", systemImage: \"doc.on.doc\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+        "line": 199,
+        "source": "Label(\"New Folder\", systemImage: \"folder.badge.plus\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+        "line": 216,
+        "source": "Label(\"Rename\u2026\", systemImage: \"pencil\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+        "line": 229,
+        "source": "Label(\"Move to Trash\", systemImage: \"trash\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+        "line": 237,
+        "source": "Label(\"Show Trash\u2026\", systemImage: \"trash.circle\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+        "line": 245,
+        "source": "Label(\"Refresh\", systemImage: \"arrow.clockwise\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudSearchView.swift",
+        "line": 120,
+        "source": "Label(option.label, systemImage: \"checkmark\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/CloudServerSection.swift",
+        "line": 171,
+        "source": "Label(\"Rename\u2026\", systemImage: \"pencil\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+        "line": 160,
+        "source": "Label(\"Move Selected Here\", systemImage: \"arrow.right.doc.on.clipboard\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+        "line": 166,
+        "source": "Label(\"Copy Selected Here\", systemImage: \"doc.on.doc\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+        "line": 176,
+        "source": "Label(\"New Folder\", systemImage: \"folder.badge.plus\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+        "line": 185,
+        "source": "Label(\"Rename\u2026\", systemImage: \"pencil\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+        "line": 193,
+        "source": "Label(\"Move Folder to\u2026\", systemImage: \"folder.badge.gearshape\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+        "line": 202,
+        "source": "Label(Self.trashMenuTitle, systemImage: \"trash\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+        "line": 217,
+        "source": "Label(\"Reveal in Finder\", systemImage: \"folder\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+        "line": 225,
+        "source": "Label(\"Show Trash\u2026\", systemImage: \"trash.circle\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/Masks/MaskListRow.swift",
+        "line": 46,
+        "source": "Label(\"Delete\", systemImage: \"trash\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 113,
+        "source": "Button(\"Export\u2026\", systemImage: \"square.and.arrow.up\") {",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 124,
+        "source": "Button(\"Move to\u2026\", systemImage: \"folder\") {",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 137,
+        "source": "\"Edit Metadata\u2026\", systemImage: \"pencil.and.list.clipboard\", action: onEditMetadata",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 142,
+        "source": "Button(\"Batch Rename\u2026\", systemImage: \"textformat\", action: onBatchRename)",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 147,
+        "source": "\"Sync Settings\u2026\", systemImage: \"arrow.triangle.2.circlepath\", action: onSyncSettings",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 152,
+        "source": "Button(\"Paste Settings\u2026\", systemImage: \"doc.on.clipboard\", action: onPasteSettings)",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 156,
+        "source": "Button(\"Merge to Panorama\u2026\", systemImage: \"photo.stack\", action: onMergePanorama)",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 160,
+        "source": "Button(\"Move to Trash\", systemImage: \"trash\", role: .destructive) {",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+        "line": 167,
+        "source": "Label(\"More\", systemImage: \"ellipsis.circle\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneTabShell.swift",
+        "line": 229,
+        "source": "Tab(\"Library\", systemImage: \"photo.on.rectangle.angled\", value: \"library\") {",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneTabShell.swift",
+        "line": 370,
+        "source": "Tab(\"Search\", systemImage: \"magnifyingglass\", value: \"search\", role: .search) {",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PhoneTabShell.swift",
+        "line": 384,
+        "source": "Tab(\"Settings\", systemImage: \"gearshape\", value: \"settings\") {",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PresetsPanel.swift",
+        "line": 150,
+        "source": "systemName: \"checkmark\",",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PresetsPanel.swift",
+        "line": 156,
+        "source": "systemName: \"xmark\",",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PresetsPanel.swift",
+        "line": 182,
+        "source": "systemName: \"xmark\",",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PresetsPanel.swift",
+        "line": 196,
+        "source": "systemName: String,",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/PreviewZoomController.swift",
+        "line": 25,
+        "source": "image: UIImage(systemName: \"photo\")?.withConfiguration(",
+        "reason": "Native Image/UIImage-producing placeholder API. The public image provider requires a platform image rather than a View."
+      },
+      {
+        "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+        "line": 153,
+        "source": "Label(\"Move Selected Here\", systemImage: \"arrow.right.doc.on.clipboard\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+        "line": 159,
+        "source": "Label(\"Copy Selected Here\", systemImage: \"doc.on.doc\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+        "line": 169,
+        "source": "Label(\"New Folder\", systemImage: \"folder.badge.plus\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+        "line": 178,
+        "source": "Label(\"Rename\u2026\", systemImage: \"pencil\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+        "line": 186,
+        "source": "Label(\"Move Folder to\u2026\", systemImage: \"folder.badge.gearshape\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+        "line": 195,
+        "source": "Label(\"Move to Trash\", systemImage: \"trash\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+        "line": 203,
+        "source": "Label(\"Show Trash\u2026\", systemImage: \"trash.circle\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+        "line": 211,
+        "source": "Label(\"Refresh\", systemImage: \"arrow.clockwise\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/ServerAdmin/ServerAdminView.swift",
+        "line": 123,
+        "source": "ContentUnavailableView(\"Select a section\", systemImage: \"sidebar.left\")",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/ServerAdmin/ServerAdminView.swift",
+        "line": 133,
+        "source": "systemImage: \"lock\",",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/ServerAdmin/WorkersDrawers.swift",
+        "line": 43,
+        "source": "\"No dead jobs\", systemImage: \"checkmark.circle\",",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Maple/Views/ServerAdmin/WorkersDrawers.swift",
+        "line": 163,
+        "source": "\"Nothing damaged\", systemImage: \"checkmark.circle\",",
+        "reason": "Apple-owned menu/navigation/toolbar metadata; SF symbols remain for the native menu renderer."
+      },
+      {
+        "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+        "line": 68,
+        "source": "Image(systemName: name)",
+        "reason": "Compatibility for unrecognized icon inputs from external MapleUI consumers. Maple app/model inputs use the Material alias registry."
+      },
+      {
+        "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+        "line": 75,
+        "source": "Image(systemName: name)",
+        "reason": "Compatibility for unrecognized icon inputs from external MapleUI consumers. Maple app/model inputs use the Material alias registry."
+      },
+      {
+        "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiRemoteImage.swift",
+        "line": 196,
+        "source": "return Image(systemName: \"photo.fill\")",
+        "reason": "Native Image/UIImage-producing placeholder API. The public image provider requires a platform image rather than a View."
+      },
+      {
+        "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Gallery/AtomsGalleryView.swift",
+        "line": 206,
+        "source": "return Image(systemName: \"mountain.2.fill\")",
+        "reason": "Native Image/UIImage-producing placeholder API. The public image provider requires a platform image rather than a View."
+      },
+      {
+        "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiVectorscope.swift",
+        "line": 138,
+        "source": "Image(systemName: \"person\").resizable().symbolRenderingMode(.monochrome))",
+        "reason": "Canvas Image legend for the skin-angle cone, retained as a data-rendering glyph rather than chrome."
+      }
+    ]
+  }
 }

@@ -16,6 +16,7 @@
 // visible (`FloatingImageHeader`).
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct PillHeader: View {
@@ -63,7 +64,7 @@ struct PillHeader: View {
 
       // Undo (tap) / Redo (long-press)
       Button(action: { history(redo: false) }) {
-        Image(systemName: "arrow.uturn.backward")
+        MuiIcon(name: "undo", size: .xs)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(
             (state.canUndo || state.canRedo)
@@ -86,7 +87,7 @@ struct PillHeader: View {
       // Info — opens the iPhone Info sheet / reveals the desktop
       // inspector via the editor's `onInfo` closure.
       Button(action: onInfo) {
-        Image(systemName: "info.circle")
+        MuiIcon(name: "info", size: .xs)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ProTokens.text)
           .frame(width: 30, height: 30)
@@ -97,7 +98,7 @@ struct PillHeader: View {
 
       // Share / export
       Button(action: onShare) {
-        Image(systemName: "square.and.arrow.up")
+        MuiIcon(name: "ios_share", size: .xs)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ProTokens.text)
           .frame(width: 30, height: 30)
@@ -108,8 +109,10 @@ struct PillHeader: View {
 
       // Vectorscope HUD toggle (#3277) — shows/hides the canvas-corner
       // scope; the HUD itself arms `session.scopeEnabled` on appear.
-      Button { showsScope.toggle() } label: {
-        Image(systemName: "circle.hexagongrid")
+      Button {
+        showsScope.toggle()
+      } label: {
+        MuiIcon(name: "filter_vintage", size: .xs)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(showsScope ? ProTokens.accent : ProTokens.text)
           .frame(width: 30, height: 30)
@@ -121,8 +124,10 @@ struct PillHeader: View {
       // Scopes panel toggle (#3251) — histogram + waveform + parade +
       // vectorscope, mounted by EditorView beside the filmstrip rail.
       if scopesPanelAvailable {
-        Button { showsScopesPanel.toggle() } label: {
-          Image(systemName: "waveform.path.ecg.rectangle")
+        Button {
+          showsScopesPanel.toggle()
+        } label: {
+          MuiIcon(name: "monitoring", size: .xs)
             .font(.system(size: 14, weight: .regular))
             .foregroundStyle(showsScopesPanel ? ProTokens.accent : ProTokens.text)
             .frame(width: 30, height: 30)

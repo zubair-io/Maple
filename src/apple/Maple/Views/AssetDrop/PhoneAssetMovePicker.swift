@@ -1,6 +1,7 @@
 #if os(iOS)
   import Foundation
   import MapleCore
+  import MapleUI
   import SwiftUI
 
   /// The active Browse source, not a global list of unrelated destinations.
@@ -108,7 +109,11 @@
               ProgressView("Finding folders…")
             } else if let errorMessage {
               ContentUnavailableView {
-                Label("Couldn't load folders", systemImage: "exclamationmark.triangle")
+                Label {
+                  Text("Couldn't load folders")
+                } icon: {
+                  MuiIcon(name: "warning", size: .sm)
+                }
               } description: {
                 Text(errorMessage)
               } actions: {
@@ -122,7 +127,11 @@
                 Button {
                   pathStack.append(folder.path)
                 } label: {
-                  Label(folder.name, systemImage: "folder")
+                  Label {
+                    Text(folder.name)
+                  } icon: {
+                    MuiIcon(name: "folder", size: .sm)
+                  }
                 }
                 .accessibilityIdentifier("phone-move-folder-\(folder.name)")
               }

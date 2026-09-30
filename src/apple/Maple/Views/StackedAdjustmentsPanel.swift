@@ -5,6 +5,7 @@
 // the vertical dock or above the compact horizontal dock.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct StackedAdjustmentsPanel: View {
@@ -45,10 +46,14 @@ struct StackedAdjustmentsPanel: View {
       Button {
         state.resetToFactoryDefaults()
       } label: {
-        Label("Reset All", systemImage: "arrow.counterclockwise")
-          .font(.caption)
-          .foregroundStyle(ProTokens.textMuted)
-          .frame(minHeight: 44)
+        Label {
+          Text("Reset All")
+        } icon: {
+          MuiIcon(name: "rotate_left", size: .sm)
+        }
+        .font(.caption)
+        .foregroundStyle(ProTokens.textMuted)
+        .frame(minHeight: 44)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Reset all adjustments")

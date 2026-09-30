@@ -12,9 +12,10 @@
 // wider map viewport; reusing them verbatim on a phone's narrower viewport
 // packs nearby pins/clusters closer together and increases overlap.
 
-import SwiftUI
 import Foundation
 import MapleCore
+import MapleUI
+import SwiftUI
 
 /// Circular thumbnail pin for a `count == 1` cell. Fetches its bytes via
 /// the shared `fetchCloudThumbBytes` (cache-first, then the network
@@ -46,18 +47,20 @@ struct MapThumbnailPinView: View {
             .aspectRatio(contentMode: .fill)
             .clipShape(Circle())
         } else {
-          Image(systemName: "photo")
+          MuiIcon(name: "photo", size: .sm)
             .font(.system(size: layout == .phone ? 10 : 12))
             .foregroundStyle(MapleTokens.textMuted)
         }
       }
       .frame(width: diameter, height: diameter)
       .overlay(
-        Circle().strokeBorder(isSelected ? MapleTokens.primary : Color.white, lineWidth: isSelected ? 3 : 2)
+        Circle().strokeBorder(
+          isSelected ? MapleTokens.primary : Color.white, lineWidth: isSelected ? 3 : 2)
       )
       .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
       .task(id: cacheKey) {
-        let bytes = await fetchCloudThumbBytes(host: host, absPath: thumbKey, cache: thumbCache, client: thumbClient)
+        let bytes = await fetchCloudThumbBytes(
+          host: host, absPath: thumbKey, cache: thumbCache, client: thumbClient)
         guard !Task.isCancelled else { return }
         let image = await ThumbnailDecoder.image(for: bytes, key: cacheKey)
         guard !Task.isCancelled else { return }

@@ -27,11 +27,12 @@
 // the seam narrow.
 
 #if os(iOS)
-import SwiftUI
+  import MapleUI
+  import SwiftUI
 
-// MARK: - iPhone-only toolbar items
+  // MARK: - iPhone-only toolbar items
 
-struct AppShellIPhoneToolbar: ToolbarContent {
+  struct AppShellIPhoneToolbar: ToolbarContent {
     /// True when AppShell is in Browse mode — gates the leading hamburger.
     /// (Per open question 5 in the iPhone-drawer design doc, the drawer is
     /// unreachable from the viewer, so the button is hidden in Full-image.)
@@ -42,25 +43,25 @@ struct AppShellIPhoneToolbar: ToolbarContent {
     @Binding var isDrawerOpen: Bool
 
     var body: some ToolbarContent {
-        // Hamburger only meaningful in browse mode (per open question 5:
-        // drawer unreachable from viewer). Writes the drawer's snapped-open
-        // state directly — the drawer's internal animation handles the slide.
-        if isBrowse {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        isDrawerOpen = true
-                    }
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 17, weight: .semibold))
-                }
-                .accessibilityLabel("Library")
+      // Hamburger only meaningful in browse mode (per open question 5:
+      // drawer unreachable from viewer). Writes the drawer's snapped-open
+      // state directly — the drawer's internal animation handles the slide.
+      if isBrowse {
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+              isDrawerOpen = true
             }
+          } label: {
+            MuiIcon(name: "menu", size: .sm)
+              .font(.system(size: 17, weight: .semibold))
+          }
+          .accessibilityLabel("Library")
         }
-        // Settings gear is provided by `AppShellToolbar` — don't duplicate
-        // it here, or two buttons share the same accessibilityIdentifier and
-        // UI-test lookups become ambiguous.
+      }
+      // Settings gear is provided by `AppShellToolbar` — don't duplicate
+      // it here, or two buttons share the same accessibilityIdentifier and
+      // UI-test lookups become ambiguous.
     }
-}
+  }
 #endif

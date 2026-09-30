@@ -26,21 +26,23 @@ def main():
 
     destination = DESTINATION
     destination.mkdir(parents=True, exist_ok=True)
-    font = TTFont(BytesIO(upstream(f"variablefont/{FONT}.ttf")), recalcTimestamp=False)
-    instantiateVariableFont(
-        font, {"FILL": 0, "GRAD": 0, "opsz": 24, "wght": 400}, inplace=True
-    )
-    # MuiIcon consumes outlines by glyph ID; text-shaping tables are unused.
-    for table in ["GSUB", "GPOS"]:
-        if table in font:
-            del font[table]
+    source = upstream(f"variablefont/{FONT}.ttf")
+    for fill, filename in [(0, "Rounded.ttf"), (1, "RoundedFilled.ttf")]:
+        font = TTFont(BytesIO(source), recalcTimestamp=False)
+        instantiateVariableFont(
+            font, {"FILL": fill, "GRAD": 0, "opsz": 24, "wght": 400}, inplace=True
+        )
+        # MuiIcon consumes outlines by glyph ID; text-shaping tables are unused.
+        for table in ["GSUB", "GPOS"]:
+            if table in font:
+                del font[table]
+        font.save(destination / filename)
     cmap = font.getBestCmap()
     codepoints = upstream(f"variablefont/{FONT}.codepoints").decode().splitlines()
     glyphs = {
         name: font.getGlyphID(cmap[int(codepoint, 16)])
         for name, codepoint in (line.split() for line in codepoints)
     }
-    font.save(destination / "Rounded.ttf")
     (destination / "glyphs.json").write_text(
         json.dumps(glyphs, sort_keys=True, indent=2) + "\n"
     )

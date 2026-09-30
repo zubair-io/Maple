@@ -1,5 +1,6 @@
 import MapleCore
 // AccountSettingsView.swift
+import MapleUI
 import SwiftUI
 
 struct AccountSettingsView: View {
@@ -32,7 +33,7 @@ struct AccountSettingsView: View {
                 Button(role: .destructive) {
                   Task { await remove(c.id) }
                 } label: {
-                  Image(systemName: "trash")
+                  MuiIcon(name: "delete", size: .sm)
                 }
               }
             }
