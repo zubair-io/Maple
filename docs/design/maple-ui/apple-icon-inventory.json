@@ -1,0 +1,1268 @@
+{
+  "issue": 3686,
+  "baselineRevision": "0cfe4929eb643facc1bf12b0718b68e0ff38db0c",
+  "scope": ["Maple app (macOS/iOS/iPadOS)", "MapleUI package"],
+  "note": "Baseline caller inventory for the migration in #3899; includes dynamic icon fields that require tracing. Native-system exceptions and custom paths are specified in the icon contract.",
+  "callSites": [
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 381,
+      "use": ".tabItem { Label(\"General\", systemImage: \"gear\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 385,
+      "use": ".tabItem { Label(\"Backup\", systemImage: \"icloud.and.arrow.up\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 388,
+      "use": ".tabItem { Label(\"Cloud\", systemImage: \"cloud\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 395,
+      "use": ".tabItem { Label(\"Sources\", systemImage: \"externaldrive\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 400,
+      "use": ".tabItem { Label(\"Pano\", systemImage: \"photo.stack\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 406,
+      "use": ".tabItem { Label(\"Observability\", systemImage: \"waveform.path.ecg\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 412,
+      "use": ".tabItem { Label(\"Finder\", systemImage: \"folder\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 416,
+      "use": ".tabItem { Label(\"Files\", systemImage: \"folder\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 427,
+      "use": ".tabItem { Label(\"Maple UI\", systemImage: \"square.grid.2x2\") }"
+    },
+    {
+      "file": "src/apple/Maple/MapleApp.swift",
+      "line": 432,
+      "use": ".tabItem { Label(\"About\", systemImage: \"info.circle\") }"
+    },
+    {
+      "file": "src/apple/Maple/Views/AccountSettingsView.swift",
+      "line": 28,
+      "use": "Button(role: .destructive) { Task { await remove(c.id) } } label: { Image(systemName: \"trash\") }"
+    },
+    {
+      "file": "src/apple/Maple/Views/AddMapleCloudSheet.swift",
+      "line": 115,
+      "use": "Label(message, systemImage: \"exclamationmark.triangle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AppShellIPhoneToolbar.swift",
+      "line": 55,
+      "use": "Image(systemName: \"line.3.horizontal\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AppShellToolbar.swift",
+      "line": 71,
+      "use": "Image(systemName: browseDisplayMode.toggleIconName)"
+    },
+    {
+      "file": "src/apple/Maple/Views/AppShellToolbar.swift",
+      "line": 89,
+      "use": "Image(systemName: \"checkmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AppShellToolbar.swift",
+      "line": 92,
+      "use": "Image(systemName: \"checkmark.square\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AppShellToolbar.swift",
+      "line": 112,
+      "use": "Button(\"Open Folder\", systemImage: \"folder.badge.plus\") {"
+    },
+    {
+      "file": "src/apple/Maple/Views/AppShellToolbar.swift",
+      "line": 135,
+      "use": "Image(systemName: \"magnifyingglass\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AppShellToolbar.swift",
+      "line": 144,
+      "use": "Button(\"Settings\", systemImage: \"gear\") {"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/AssetDropCollisionSheet.swift",
+      "line": 28,
+      "use": "Label(\"Replace\", systemImage: \"arrow.triangle.2.circlepath\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/AssetDropCollisionSheet.swift",
+      "line": 36,
+      "use": "Label(\"Keep Both\", systemImage: \"doc.on.doc\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/AssetDropCollisionSheet.swift",
+      "line": 44,
+      "use": "Label(\"Skip\", systemImage: \"arrow.uturn.forward\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/AssetDropResultSheet.swift",
+      "line": 67,
+      "use": "Image(systemName: \"checkmark.circle.fill\").foregroundStyle(MapleTokens.successText)"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/AssetDropResultSheet.swift",
+      "line": 69,
+      "use": "Image(systemName: \"doc.on.doc.fill\").foregroundStyle(MapleTokens.successText)"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/AssetDropResultSheet.swift",
+      "line": 71,
+      "use": "Image(systemName: \"arrow.uturn.forward.circle.fill\").foregroundStyle(MapleTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/AssetDropResultSheet.swift",
+      "line": 73,
+      "use": "Image(systemName: \"exclamationmark.triangle.fill\").foregroundStyle(.red)"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/PhoneAssetMovePicker.swift",
+      "line": 111,
+      "use": "Label(\"Couldn't load folders\", systemImage: \"exclamationmark.triangle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/PhoneAssetMovePicker.swift",
+      "line": 125,
+      "use": "Label(folder.name, systemImage: \"folder\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/AssetDrop/PhoneAssetMovePicker.swift",
+      "line": 139,
+      "use": "Button(\"Back\", systemImage: \"chevron.left\") { pathStack.removeLast() }"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupActivityLine.swift",
+      "line": 16,
+      "use": "Label(current.text, systemImage: current.symbol)"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupIssueDetails.swift",
+      "line": 27,
+      "use": "Image(systemName: \"xmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupIssueDetails.swift",
+      "line": 41,
+      "use": "Label(startError, systemImage: \"exclamationmark.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupIssueDetails.swift",
+      "line": 44,
+      "use": "Label(\"Library check: \\(reason)\", systemImage: \"exclamationmark.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupSettingsView.swift",
+      "line": 137,
+      "use": "Label(photosAccessError, systemImage: \"exclamationmark.triangle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupStatusPanel.swift",
+      "line": 79,
+      "use": "Image(systemName: state.symbol)"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupStatusPanel.swift",
+      "line": 119,
+      "use": "Label(\"This run: \\(progress.totalCompleted.formatted())\", systemImage: \"checkmark.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupStatusPanel.swift",
+      "line": 144,
+      "use": "Label(count.formatted(), systemImage: symbol)"
+    },
+    {
+      "file": "src/apple/Maple/Views/BackupStatusPanel.swift",
+      "line": 176,
+      "use": "systemName: EngineHost.shared.usesLocalAddress"
+    },
+    {
+      "file": "src/apple/Maple/Views/BatchRename/BatchRenamePreviewList.swift",
+      "line": 50,
+      "use": "Image(systemName: \"arrow.right\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BatchRename/BatchRenamePreviewList.swift",
+      "line": 59,
+      "use": "Image(systemName: \"exclamationmark.triangle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BatchRename/BatchRenamePreviewList.swift",
+      "line": 89,
+      "use": "Image(systemName: \"arrow.right\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BatchRename/BatchRenamePreviewList.swift",
+      "line": 105,
+      "use": "Image(systemName: \"checkmark.circle.fill\").foregroundStyle(.green)"
+    },
+    {
+      "file": "src/apple/Maple/Views/BatchRename/BatchRenamePreviewList.swift",
+      "line": 107,
+      "use": "Image(systemName: \"arrow.uturn.forward.circle.fill\").foregroundStyle(.orange)"
+    },
+    {
+      "file": "src/apple/Maple/Views/BatchRename/BatchRenamePreviewList.swift",
+      "line": 109,
+      "use": "Image(systemName: \"xmark.circle.fill\").foregroundStyle(.red)"
+    },
+    {
+      "file": "src/apple/Maple/Views/BrowseEmptyState.swift",
+      "line": 29,
+      "use": "Image(systemName: iconName)"
+    },
+    {
+      "file": "src/apple/Maple/Views/BrowseGrid+Rename.swift",
+      "line": 31,
+      "use": "Label(\"Rename\u2026\", systemImage: \"pencil\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BrowseGrid.swift",
+      "line": 471,
+      "use": "Label(trashMenuTitle(for: asset), systemImage: \"trash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BrowseGrid.swift",
+      "line": 520,
+      "use": "Label(\"Reveal in Finder\", systemImage: \"folder\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BrowseGrid.swift",
+      "line": 539,
+      "use": "Image(systemName: \"exclamationmark.triangle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/BrowseGrid.swift",
+      "line": 553,
+      "use": "Image(systemName: \"xmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+      "line": 183,
+      "use": "Label(\"Move Selected Here\", systemImage: \"arrow.right.doc.on.clipboard\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+      "line": 189,
+      "use": "Label(\"Copy Selected Here\", systemImage: \"doc.on.doc\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+      "line": 199,
+      "use": "Label(\"New Folder\", systemImage: \"folder.badge.plus\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+      "line": 216,
+      "use": "Label(\"Rename\u2026\", systemImage: \"pencil\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+      "line": 229,
+      "use": "Label(\"Move to Trash\", systemImage: \"trash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+      "line": 237,
+      "use": "Label(\"Show Trash\u2026\", systemImage: \"trash.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudFolderTreeRow.swift",
+      "line": 245,
+      "use": "Label(\"Refresh\", systemImage: \"arrow.clockwise\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudSearchView.swift",
+      "line": 80,
+      "use": "Image(systemName: \"magnifyingglass\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudSearchView.swift",
+      "line": 97,
+      "use": "Image(systemName: \"xmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudSearchView.swift",
+      "line": 116,
+      "use": "Label(option.label, systemImage: \"checkmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudSearchView.swift",
+      "line": 123,
+      "use": "Image(systemName: \"arrow.up.arrow.down\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudSearchView.swift",
+      "line": 136,
+      "use": "Image(systemName: \"line.3.horizontal.decrease.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudSearchView.swift",
+      "line": 214,
+      "use": "Image(systemName: icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudServerSection.swift",
+      "line": 89,
+      "use": "Image(systemName: \"person.crop.circle.badge.exclamationmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudServerSection.swift",
+      "line": 149,
+      "use": "Image(systemName: \"chevron.down\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CloudServerSection.swift",
+      "line": 170,
+      "use": "Label(\"Rename\u2026\", systemImage: \"pencil\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/CropToolbar.swift",
+      "line": 119,
+      "use": "Image(systemName: \"angle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/EditorCompareButton.swift",
+      "line": 14,
+      "use": "systemName: state.session.showingOriginal"
+    },
+    {
+      "file": "src/apple/Maple/Views/EditorDuoToolRail.swift",
+      "line": 51,
+      "use": "Image(systemName: group.dockSymbol)"
+    },
+    {
+      "file": "src/apple/Maple/Views/EditorDuoToolRail.swift",
+      "line": 100,
+      "use": "Image(systemName: \"ellipsis\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FileProviderSettingsViewIOS.swift",
+      "line": 76,
+      "use": "Image(systemName: \"checkmark.circle.fill\").foregroundStyle(.green)"
+    },
+    {
+      "file": "src/apple/Maple/Views/FilmLookStrip.swift",
+      "line": 74,
+      "use": "Image(systemName: \"checkmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FilmSection.swift",
+      "line": 254,
+      "use": "Image(systemName: \"checkmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FilmstripRail.swift",
+      "line": 131,
+      "use": "Image(systemName: collapsed ? \"chevron.right\" : \"chevron.left\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FloatingImageHeader.swift",
+      "line": 29,
+      "use": "Image(systemName: \"chevron.left\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+      "line": 160,
+      "use": "Label(\"Move Selected Here\", systemImage: \"arrow.right.doc.on.clipboard\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+      "line": 166,
+      "use": "Label(\"Copy Selected Here\", systemImage: \"doc.on.doc\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+      "line": 176,
+      "use": "Label(\"New Folder\", systemImage: \"folder.badge.plus\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+      "line": 185,
+      "use": "Label(\"Rename\u2026\", systemImage: \"pencil\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+      "line": 193,
+      "use": "Label(\"Move Folder to\u2026\", systemImage: \"folder.badge.gearshape\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+      "line": 202,
+      "use": "Label(Self.trashMenuTitle, systemImage: \"trash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+      "line": 217,
+      "use": "Label(\"Reveal in Finder\", systemImage: \"folder\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/FolderTreeRow.swift",
+      "line": 225,
+      "use": "Label(\"Show Trash\u2026\", systemImage: \"trash.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/GpuDebugView.swift",
+      "line": 268,
+      "use": "systemImage: pass ? \"checkmark.seal.fill\" : \"xmark.seal.fill\""
+    },
+    {
+      "file": "src/apple/Maple/Views/Grid/FolderTile.swift",
+      "line": 45,
+      "use": "Image(systemName: \"folder\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Grid/PhotoThumbnailCell.swift",
+      "line": 132,
+      "use": "Image(systemName: \"arrow.up.circle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Grid/PhotoThumbnailCell.swift",
+      "line": 154,
+      "use": "Image(systemName: checked ? \"checkmark.circle.fill\" : \"circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Grid/PhotoThumbnailCell.swift",
+      "line": 280,
+      "use": "Image(systemName: \"star.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Grid/PhotoThumbnailCell.swift",
+      "line": 311,
+      "use": "Image(systemName: \"star.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Grid/PhotoThumbnailCell.swift",
+      "line": 350,
+      "use": "Image(systemName: \"star.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Grid/ThumbnailImage.swift",
+      "line": 103,
+      "use": "Image(systemName: \"photo\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/IPhoneControlBar.swift",
+      "line": 46,
+      "use": "Label(\"Reset All\", systemImage: \"arrow.counterclockwise\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/InfoPanel/InfoPanelView.swift",
+      "line": 191,
+      "use": "Image(systemName: \"xmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 400,
+      "use": "Image(systemName: \"exclamationmark.triangle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 501,
+      "use": "Image(systemName: \"calendar\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 529,
+      "use": "Image(systemName: \"map\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 606,
+      "use": "Image(systemName: \"plus.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 766,
+      "use": "Image(systemName: \"chevron.down\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 791,
+      "use": "Image(systemName: \"plus\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 813,
+      "use": "Image(systemName: icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 955,
+      "use": "Image(systemName: \"folder\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 1000,
+      "use": "Image(systemName: \"chevron.right\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 1014,
+      "use": "Image(systemName: icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySidebar.swift",
+      "line": 1022,
+      "use": "Image(systemName: \"plus\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/LibrarySourcesSettingsView.swift",
+      "line": 185,
+      "use": "Image(systemName: \"minus.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Map/MapAnnotationContent.swift",
+      "line": 49,
+      "use": "Image(systemName: \"photo\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Map/MapEmptyState.swift",
+      "line": 33,
+      "use": "Image(systemName: \"map\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Map/MapView.swift",
+      "line": 160,
+      "use": "Image(systemName: icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/Masks/MaskListRow.swift",
+      "line": 33,
+      "use": "Image(systemName: glyph).frame(width: 20)"
+    },
+    {
+      "file": "src/apple/Maple/Views/Masks/MaskListRow.swift",
+      "line": 45,
+      "use": "Label(\"Delete\", systemImage: \"trash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Masks/MaskPanel.swift",
+      "line": 57,
+      "use": "Image(systemName: \"plus.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PairAppleTVSheet.swift",
+      "line": 40,
+      "use": "Image(systemName: \"xmark.circle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PairAppleTVSheet.swift",
+      "line": 69,
+      "use": "Image(systemName: \"icloud.slash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PairAppleTVSheet.swift",
+      "line": 93,
+      "use": "Image(systemName: \"server.rack\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PairAppleTVSheet.swift",
+      "line": 96,
+      "use": "Image(systemName: \"chevron.right\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PairAppleTVSheet.swift",
+      "line": 139,
+      "use": "Image(systemName: \"checkmark.circle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PairAppleTVSheet.swift",
+      "line": 153,
+      "use": "Label(message, systemImage: \"exclamationmark.triangle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PanoMergeView.swift",
+      "line": 158,
+      "use": "Image(systemName: \"exclamationmark.triangle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PanoMergeView.swift",
+      "line": 287,
+      "use": "Image(systemName: \"checkmark.circle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PanoMergeView.swift",
+      "line": 324,
+      "use": "Image(systemName: \"exclamationmark.triangle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PanoMergeView.swift",
+      "line": 395,
+      "use": "Image(systemName: failed ? \"exclamationmark.triangle\" : \"photo\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PanoSettingsView.swift",
+      "line": 69,
+      "use": "Image(systemName: PanoProvisioner.isReady(status)"
+    },
+    {
+      "file": "src/apple/Maple/Views/PanoSettingsView.swift",
+      "line": 108,
+      "use": "Label(\"Download & Install\", systemImage: \"arrow.down.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PanoSettingsView.swift",
+      "line": 145,
+      "use": "Label(\"Retry\", systemImage: \"arrow.clockwise\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSearchTab.swift",
+      "line": 251,
+      "use": "Image(systemName: \"magnifyingglass\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 113,
+      "use": "Button(\"Export\u2026\", systemImage: \"square.and.arrow.up\") {"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 124,
+      "use": "Button(\"Move to\u2026\", systemImage: \"folder\") {"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 137,
+      "use": "\"Edit Metadata\u2026\", systemImage: \"pencil.and.list.clipboard\", action: onEditMetadata"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 142,
+      "use": "Button(\"Batch Rename\u2026\", systemImage: \"textformat\", action: onBatchRename)"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 147,
+      "use": "\"Sync Settings\u2026\", systemImage: \"arrow.triangle.2.circlepath\", action: onSyncSettings"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 152,
+      "use": "Button(\"Paste Settings\u2026\", systemImage: \"doc.on.clipboard\", action: onPasteSettings)"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 156,
+      "use": "Button(\"Merge to Panorama\u2026\", systemImage: \"photo.stack\", action: onMergePanorama)"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 160,
+      "use": "Button(\"Move to Trash\", systemImage: \"trash\", role: .destructive) {"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSelectionBar.swift",
+      "line": 167,
+      "use": "Label(\"More\", systemImage: \"ellipsis.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneSettingsView.swift",
+      "line": 112,
+      "use": "MuiIcon(name: \"chevron.right\", size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneTabShell.swift",
+      "line": 229,
+      "use": "Tab(\"Library\", systemImage: \"photo.on.rectangle.angled\", value: \"library\") {"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneTabShell.swift",
+      "line": 370,
+      "use": "Tab(\"Search\", systemImage: \"magnifyingglass\", value: \"search\", role: .search) {"
+    },
+    {
+      "file": "src/apple/Maple/Views/PhoneTabShell.swift",
+      "line": 384,
+      "use": "Tab(\"Settings\", systemImage: \"gearshape\", value: \"settings\") {"
+    },
+    {
+      "file": "src/apple/Maple/Views/PillHeader.swift",
+      "line": 66,
+      "use": "Image(systemName: \"arrow.uturn.backward\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PillHeader.swift",
+      "line": 89,
+      "use": "Image(systemName: \"info.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PillHeader.swift",
+      "line": 100,
+      "use": "Image(systemName: \"square.and.arrow.up\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PillHeader.swift",
+      "line": 112,
+      "use": "Image(systemName: \"circle.hexagongrid\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PillHeader.swift",
+      "line": 125,
+      "use": "Image(systemName: \"waveform.path.ecg.rectangle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PresetsPanel.swift",
+      "line": 149,
+      "use": "systemName: \"checkmark\","
+    },
+    {
+      "file": "src/apple/Maple/Views/PresetsPanel.swift",
+      "line": 155,
+      "use": "systemName: \"xmark\","
+    },
+    {
+      "file": "src/apple/Maple/Views/PresetsPanel.swift",
+      "line": 181,
+      "use": "systemName: \"xmark\","
+    },
+    {
+      "file": "src/apple/Maple/Views/PresetsPanel.swift",
+      "line": 195,
+      "use": "systemName: String,"
+    },
+    {
+      "file": "src/apple/Maple/Views/PresetsPanel.swift",
+      "line": 202,
+      "use": "Image(systemName: systemName)"
+    },
+    {
+      "file": "src/apple/Maple/Views/PreviewImage.swift",
+      "line": 84,
+      "use": "Image(systemName: \"photo\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PreviewNavigationRail.swift",
+      "line": 26,
+      "use": "showsList ? \"Filmstrip\" : \"Photo list\", systemImage: showsList ? \"film\" : \"list.bullet\""
+    },
+    {
+      "file": "src/apple/Maple/Views/PreviewVideoView.swift",
+      "line": 18,
+      "use": "Image(systemName: \"video.slash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PreviewView.swift",
+      "line": 227,
+      "use": "Image(systemName: \"pencil\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PreviewView.swift",
+      "line": 238,
+      "use": "Image(systemName: \"info.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/PreviewZoomController.swift",
+      "line": 25,
+      "use": "image: UIImage(systemName: \"photo\")?.withConfiguration("
+    },
+    {
+      "file": "src/apple/Maple/Views/Retouch/RetouchPanel.swift",
+      "line": 158,
+      "use": "Image(systemName: \"bandage\").frame(width: 20)"
+    },
+    {
+      "file": "src/apple/Maple/Views/Retouch/RetouchPanel.swift",
+      "line": 165,
+      "use": "Image(systemName: \"trash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+      "line": 153,
+      "use": "Label(\"Move Selected Here\", systemImage: \"arrow.right.doc.on.clipboard\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+      "line": 159,
+      "use": "Label(\"Copy Selected Here\", systemImage: \"doc.on.doc\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+      "line": 169,
+      "use": "Label(\"New Folder\", systemImage: \"folder.badge.plus\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+      "line": 178,
+      "use": "Label(\"Rename\u2026\", systemImage: \"pencil\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+      "line": 186,
+      "use": "Label(\"Move Folder to\u2026\", systemImage: \"folder.badge.gearshape\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+      "line": 195,
+      "use": "Label(\"Move to Trash\", systemImage: \"trash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+      "line": 203,
+      "use": "Label(\"Show Trash\u2026\", systemImage: \"trash.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SMBFolderTreeRow.swift",
+      "line": 211,
+      "use": "Label(\"Refresh\", systemImage: \"arrow.clockwise\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SearchActiveFilterChips.swift",
+      "line": 47,
+      "use": "Image(systemName: chip.icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/SearchActiveFilterChips.swift",
+      "line": 61,
+      "use": "Image(systemName: \"xmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SearchFilterPanel.swift",
+      "line": 147,
+      "use": "Image(systemName: \"xmark.circle.fill\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SearchFilterPanel.swift",
+      "line": 157,
+      "use": "Label(\"Add date\", systemImage: \"calendar.badge.plus\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SearchFilterPanel.swift",
+      "line": 225,
+      "use": "Image(systemName: \"checkmark\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SearchFilterPanel.swift",
+      "line": 258,
+      "use": "Image(systemName: \"mappin.and.ellipse\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SearchView.swift",
+      "line": 141,
+      "use": "Image(systemName: \"line.3.horizontal.decrease.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SelfHostedSettingsTab.swift",
+      "line": 135,
+      "use": "Image(systemName: \"server.rack\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/SelfHostedSettingsTab.swift",
+      "line": 176,
+      "use": "Image(systemName: \"trash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/ImportsPickStepView.swift",
+      "line": 69,
+      "use": "Image(systemName: \"checkmark.circle\").foregroundStyle(.green)"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/ImportsPickStepView.swift",
+      "line": 103,
+      "use": "Label(\"Up\", systemImage: \"chevron.up\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/ImportsPickStepView.swift",
+      "line": 121,
+      "use": "Image(systemName: \"folder\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/ImportsPickStepView.swift",
+      "line": 124,
+      "use": "Image(systemName: \"chevron.right\").foregroundStyle(.secondary)"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/ServerAdminView.swift",
+      "line": 72,
+      "use": "Label(section.title, systemImage: section.icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/ServerAdminView.swift",
+      "line": 96,
+      "use": "Label(section.title, systemImage: section.icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/ServerAdminView.swift",
+      "line": 114,
+      "use": "ContentUnavailableView(\"Select a section\", systemImage: \"sidebar.left\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/ServerAdminView.swift",
+      "line": 124,
+      "use": "systemImage: \"lock\","
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/StageRuntimeSection.swift",
+      "line": 54,
+      "use": "Label(message, systemImage: \"xmark.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/StageRuntimeSection.swift",
+      "line": 59,
+      "use": "Label(\"Saved.\", systemImage: \"checkmark.circle\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/WorkersDrawers.swift",
+      "line": 43,
+      "use": "\"No dead jobs\", systemImage: \"checkmark.circle\","
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/WorkersDrawers.swift",
+      "line": 163,
+      "use": "\"Nothing damaged\", systemImage: \"checkmark.circle\","
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/WorkersStageRow.swift",
+      "line": 64,
+      "use": "Image(systemName: meta.icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/WorkersStageRow.swift",
+      "line": 88,
+      "use": "Image(systemName: meta.icon)"
+    },
+    {
+      "file": "src/apple/Maple/Views/ServerAdmin/WorkersStageRow.swift",
+      "line": 128,
+      "use": "Image(systemName: isExpanded ? \"chevron.down\" : \"chevron.right\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/StackedAdjustmentsPanel.swift",
+      "line": 48,
+      "use": "Label(\"Reset All\", systemImage: \"arrow.counterclockwise\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/TVQRScannerView.swift",
+      "line": 49,
+      "use": "Image(systemName: \"qrcode.viewfinder\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/ToolDock.swift",
+      "line": 128,
+      "use": "Image(systemName: group.dockSymbol)"
+    },
+    {
+      "file": "src/apple/Maple/Views/Trash/AssetTrashResultSheet.swift",
+      "line": 66,
+      "use": "Image(systemName: \"checkmark.circle.fill\").foregroundStyle(MapleTokens.successText)"
+    },
+    {
+      "file": "src/apple/Maple/Views/Trash/AssetTrashResultSheet.swift",
+      "line": 68,
+      "use": "Image(systemName: \"exclamationmark.triangle.fill\").foregroundStyle(.red)"
+    },
+    {
+      "file": "src/apple/Maple/Views/Trash/TrashBrowserSheet.swift",
+      "line": 136,
+      "use": "Image(systemName: \"trash\")"
+    },
+    {
+      "file": "src/apple/Maple/Views/Trash/TrashBrowserSheet.swift",
+      "line": 187,
+      "use": "Image(systemName: \"trash\")"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiActionButton.swift",
+      "line": 66,
+      "use": "let iconView = MuiIcon(name: icon, size: size == .sm ? .sm : .md, color: foregroundColor)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiBadge.swift",
+      "line": 34,
+      "use": "MuiIcon(name: \"star.fill\", size: .xs, color: MuiTokens.star)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiButton.swift",
+      "line": 85,
+      "use": "MuiIcon(name: leadingIcon, size: iconSize, color: foregroundColor)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiButton.swift",
+      "line": 91,
+      "use": "MuiIcon(name: trailingIcon, size: iconSize, color: foregroundColor)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiCheckbox.swift",
+      "line": 83,
+      "use": "Image(systemName: \"checkmark\")"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiCheckbox.swift",
+      "line": 87,
+      "use": "Image(systemName: \"minus\")"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+      "line": 60,
+      "use": "Image(systemName: name)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+      "line": 67,
+      "use": "Image(systemName: name)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+      "line": 100,
+      "use": "MuiIcon(name: \"star.fill\", size: size, color: MuiTokens.primary)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+      "line": 111,
+      "use": "MuiIcon(name: \"heart.fill\").foregroundStyle(MuiTokens.errorText)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+      "line": 112,
+      "use": "MuiIcon(name: \"checkmark.circle.fill\").foregroundStyle(MuiTokens.successText)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+      "line": 122,
+      "use": "MuiIcon(name: \"cloud\", size: size, color: MuiTokens.textMain)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiIcon.swift",
+      "line": 123,
+      "use": "MuiIcon(name: \"calendar\", size: size, color: MuiTokens.textMain)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiImage.swift",
+      "line": 74,
+      "use": "MuiIcon(name: \"photo\", size: .lg, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiInput.swift",
+      "line": 132,
+      "use": "MuiIcon(name: prefixIcon, size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiInput.swift",
+      "line": 151,
+      "use": "MuiIcon(name: \"xmark.circle.fill\", size: .xs, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiInput.swift",
+      "line": 163,
+      "use": "MuiIcon(name: suffixIcon, size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiInput.swift",
+      "line": 249,
+      "use": "MuiIcon(name: \"minus\", size: .xs, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiInput.swift",
+      "line": 258,
+      "use": "MuiIcon(name: \"plus\", size: .xs, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiLink.swift",
+      "line": 54,
+      "use": "MuiIcon(name: \"arrow.up.right\", size: .xs, color: color)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiRemoteImage.swift",
+      "line": 196,
+      "use": "return Image(systemName: \"photo.fill\")"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiStatusText.swift",
+      "line": 25,
+      "use": "MuiIcon(name: Self.iconName(for: state), size: .xs, color: Self.color(for: state))"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiToast.swift",
+      "line": 90,
+      "use": "MuiIcon(name: Self.iconName(for: variant), size: .sm, color: Self.iconColor(for: variant))"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Atoms/MuiToast.swift",
+      "line": 104,
+      "use": "MuiIcon(name: \"xmark\", size: .xs, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Gallery/AtomsGalleryView.swift",
+      "line": 62,
+      "use": "MuiIcon(name: \"star.fill\", size: .sm, color: MuiTokens.primary)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Gallery/AtomsGalleryView.swift",
+      "line": 63,
+      "use": "MuiIcon(name: \"star.fill\", size: .md, color: MuiTokens.primary)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Gallery/AtomsGalleryView.swift",
+      "line": 64,
+      "use": "MuiIcon(name: \"star.fill\", size: .lg, color: MuiTokens.primary)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Gallery/AtomsGalleryView.swift",
+      "line": 206,
+      "use": "return Image(systemName: \"mountain.2.fill\")"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Gallery/MoleculesL1SelectionGallery.swift",
+      "line": 47,
+      "use": "MuiIcon(name: \"chevron.right\", size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiBanner.swift",
+      "line": 45,
+      "use": "MuiIcon(name: Self.iconName(for: variant), size: .sm, color: Self.accentColor(for: variant))"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiBubbleMenu.swift",
+      "line": 59,
+      "use": "MuiIcon("
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiChipRow.swift",
+      "line": 114,
+      "use": "MuiIcon(name: \"xmark\", size: .xs, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiCollapsible.swift",
+      "line": 24,
+      "use": "MuiIcon(name: \"chevron.right\", size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiCommandMenu.swift",
+      "line": 105,
+      "use": "MuiIcon(name: icon, size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiContextMenu.swift",
+      "line": 94,
+      "use": "MuiIcon(name: icon, size: .sm, color: item.destructive ? MuiTokens.errorText : MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiEmptyState.swift",
+      "line": 30,
+      "use": "MuiIcon(name: icon, size: .xl, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiInlineRenameField.swift",
+      "line": 57,
+      "use": "MuiIcon(name: \"checkmark\", size: .xs, color: MuiTokens.successText)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiListRow.swift",
+      "line": 58,
+      "use": "MuiIcon(name: icon, size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiListRow.swift",
+      "line": 103,
+      "use": "MuiIcon(name: \"chevron.right\", size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiListRow.swift",
+      "line": 106,
+      "use": "MuiIcon(name: \"chevron.right\", size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiMapAnnotation.swift",
+      "line": 56,
+      "use": "MuiIcon(name: \"photo\", size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiRatingFlags.swift",
+      "line": 74,
+      "use": "MuiIcon("
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiRatingFlags.swift",
+      "line": 110,
+      "use": "MuiIcon("
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiRatingFlags.swift",
+      "line": 133,
+      "use": "MuiIcon(name: \"flag.fill\", size: .sm, color: flagColor)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiSuggestionMenu.swift",
+      "line": 85,
+      "use": "MuiIcon(name: icon, size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiTabs.swift",
+      "line": 42,
+      "use": "MuiIcon(name: icon, size: .sm, color: isActive ? MuiTokens.textMain : MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiToolbar.swift",
+      "line": 96,
+      "use": "MuiIcon(name: item.icon, size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiTreeRow.swift",
+      "line": 56,
+      "use": "MuiIcon(name: \"chevron.right\", size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiTreeRow.swift",
+      "line": 65,
+      "use": "MuiIcon(name: icon, size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiVectorscope.swift",
+      "line": 138,
+      "use": "Image(systemName: \"person\").resizable().symbolRenderingMode(.monochrome))"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Molecules/MuiVideoPlayer.swift",
+      "line": 43,
+      "use": "MuiIcon(name: \"play.rectangle\", size: .xl, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/MoleculesL2/MuiEmbedShell.swift",
+      "line": 42,
+      "use": "MuiIcon(name: statusIcon, size: .sm, color: MuiTokens.primary)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/MoleculesL2/MuiFilmstripRail.swift",
+      "line": 30,
+      "use": "MuiIcon(name: collapsed ? \"chevron.right\" : \"chevron.down\", size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/MoleculesL2/MuiProgressStep.swift",
+      "line": 36,
+      "use": "MuiIcon(name: \"checkmark\", size: .xs, color: MuiTokens.successText)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/MoleculesL2/MuiSettingsRow.swift",
+      "line": 38,
+      "use": "MuiIcon(name: icon, size: .sm, color: MuiTokens.textMuted)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/Organisms/MuiPresetsPanel.swift",
+      "line": 74,
+      "use": "MuiIcon(name: \"trash\", size: .sm, color: MuiTokens.errorText)"
+    },
+    {
+      "file": "src/apple/Packages/MapleUI/Sources/MapleUI/OrganismsB/MuiSettingsSection.swift",
+      "line": 119,
+      "use": "MuiIcon(name: \"chevron.right\", size: .sm, color: MuiTokens.textMuted)"
+    }
+  ]
+}
