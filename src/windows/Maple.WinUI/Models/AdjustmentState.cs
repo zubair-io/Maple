@@ -168,6 +168,8 @@ namespace Maple.WinUI.Models
         //     Empty = none; the writer emits the crs:GradientBasedCorrections /
         //     crs:CircularGradientBasedCorrections containers only when set. ---
         public List<LocalAdjustment> LocalAdjustments = new();
+        // #3888: immutable repair state, evaluated by the shared decode path.
+        public RetouchState Retouch = RetouchState.Empty;
 
         // --- Render / recovery enums ---
         public HighlightRecoveryMode HighlightRecovery = HighlightRecoveryMode.ChromaticAdaptation;

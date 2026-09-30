@@ -198,6 +198,7 @@ namespace Maple.WinUI.Services.Xmp
                 .Select(e => (e.Tag, Block: ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments))))
                 .Concat(XmpMaskGroupTemplate.Blocks(doc, ChildIndent))
                 .ToList();
+            modeledBlocks.Add((XmpRetouch.Tag, doc.Adjustments.Retouch.Xml is { } repairs ? ChildIndent + repairs : null));
             var blocksByTag = modeledBlocks.ToDictionary(b => b.Tag, b => b.Block);
 
             var recordedTags = new HashSet<string>();

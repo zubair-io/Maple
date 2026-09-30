@@ -86,6 +86,7 @@ namespace Maple.WinUI.Services
         public static bool DecodeInputsChanged(AdjustmentState before, AdjustmentState after) =>
             before.Profile != after.Profile
             || before.Demosaic != after.Demosaic
+            || before.Retouch.Xml != after.Retouch.Xml
             || before.AutoExposure != after.AutoExposure
             || before.LensProfileEnable != after.LensProfileEnable
             // The imported profile and all three strengths are applied in the

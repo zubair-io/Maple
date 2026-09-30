@@ -345,6 +345,12 @@ namespace Maple.WinUI.Services.Xmp
         {
             foreach (var child in desc.Elements())
             {
+                if (XmpRetouch.IsContainer(child) && doc.Adjustments.Retouch.Xml == null)
+                {
+                    doc.Adjustments.Retouch = XmpRetouch.Read(child);
+                    doc.ChildOrder.Add(ChildSlot.ForModeled(XmpRetouch.Tag));
+                    continue;
+                }
                 var tag = ToneCurveTagFor(child);
                 var curve = tag is null ? null : CurveSlotFor(tag, doc.Adjustments);
                 if (curve is not null)
@@ -377,6 +383,8 @@ namespace Maple.WinUI.Services.Xmp
                 doc.PassthroughNodes.Add(child.ToString(SaveOptions.DisableFormatting));
                 doc.ChildOrder.Add(ChildSlot.ForPassthrough(doc.PassthroughNodes.Count - 1));
             }
+            if (doc.Adjustments.Retouch.Xml == null && desc.Element(XName.Get("RetouchInfo", XmpSchema.CrsNs)) is { } legacy)
+                doc.Adjustments.Retouch = XmpRetouch.ReadLegacy(legacy);
         }
 
         /// <summary>
@@ -454,7 +462,7 @@ namespace Maple.WinUI.Services.Xmp
                 .Count(a => !a.IsNamespaceDeclaration && CanonicalName(a) is { } n &&
                             n != "rdf:about" && ConsumedAttributes.Contains(n));
             var children = desc.Elements().Count(c =>
-                ToneCurveTagFor(c) is not null || XmpLocalAdjustments.ContainerTagFor(c) is not null);
+                ToneCurveTagFor(c) is not null || XmpLocalAdjustments.ContainerTagFor(c) is not null || XmpRetouch.IsContainer(c));
             return attrs + children;
         }
 

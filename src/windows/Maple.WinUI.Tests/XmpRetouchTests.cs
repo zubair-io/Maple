@@ -1,11 +1,8 @@
 // XmpRetouchTests — the Windows side of the clone / heal brush's sidecar
-// contract (#3409). Windows has no repair UI yet and does not MODEL the
-// spot list; what it must do is never lose one. `crs:RetouchAreas` is an
-// unrecognized child element, so it rides the generic node passthrough
-// (`XmpParser.ParseChildren` → `XmpSidecarDocument.PassthroughNodes`,
-// re-emitted by `XmpWriter.BuildChildren` at its original position) — these
-// tests pin that, because a Windows read-modify-write of a Mac- or
-// Lightroom-authored sidecar is exactly where the spots would vanish.
+// contract (#3409/#3888). The immutable repair model retains the complete
+// subtree and XmpWriter re-emits it at its original position. These tests
+// pin preservation for Mac- and Lightroom-authored sidecars; authoring and
+// native decode tests live in RetouchAuthoringTests.
 //
 // The literal below is the same canonical block the Rust
 // (`tests_retouch.rs`), Swift (`RetouchXMPTests.swift`) and TypeScript
