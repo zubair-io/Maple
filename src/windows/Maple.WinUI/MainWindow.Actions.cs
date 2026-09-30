@@ -56,6 +56,10 @@ namespace Maple.WinUI
 
         // --- Culling ---
 
+        // These are toggles: clicking the current flag unchecks its button,
+        // but SetFlag sees an unchanged model value and raises no notification.
+        // Reassert the model selection even on that no-op. ClearRating is a
+        // regular button, so it does not need this visual-state refresh.
         private void OnFlagPick(object sender, RoutedEventArgs e) { ViewModel.SetFlag("pick"); RefreshPhotoInfo(); }
         private void OnFlagReject(object sender, RoutedEventArgs e) { ViewModel.SetFlag("reject"); RefreshPhotoInfo(); }
         private void OnClearFlag(object sender, RoutedEventArgs e) { ViewModel.SetFlag("none"); RefreshPhotoInfo(); }
