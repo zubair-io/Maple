@@ -120,7 +120,11 @@ mod transform;
 /// payload_start, box_end)`. `None` on a truncated header, an overflowing
 /// or out-of-bounds size, or a `largesize` box (`size == 1`) — no box this
 /// module reads ever uses one.
-fn box_header(data: &[u8], idx: usize, bound: usize) -> Option<([u8; 4], usize, usize)> {
+fn box_header<S: crate::metadata_source::MetadataSource + ?Sized>(
+    data: &S,
+    idx: usize,
+    bound: usize,
+) -> Option<([u8; 4], usize, usize)> {
     let payload_start = idx.checked_add(8)?;
     if payload_start > bound {
         return None;
@@ -155,11 +159,20 @@ fn find_child_box<'a>(
     end: usize,
     kind: &[u8; 4],
 ) -> Option<&'a [u8]> {
+    data.get(find_child_range(data, start, end, kind)?)
+}
+
+fn find_child_range<S: crate::metadata_source::MetadataSource + ?Sized>(
+    data: &S,
+    start: usize,
+    end: usize,
+    kind: &[u8; 4],
+) -> Option<std::ops::Range<usize>> {
     let mut idx = start;
     loop {
         let (this_kind, payload_start, box_end) = box_header(data, idx, end)?;
         if this_kind == *kind {
-            return data.get(payload_start..box_end);
+            return Some(payload_start..box_end);
         }
         idx = box_end;
     }
@@ -313,9 +326,16 @@ fn parse_iloc(payload: &[u8]) -> Vec<(u16, usize, usize)> {
 /// these — or that isn't a well-formed ISO-BMFF stream at all — reports
 /// transform `1` and no items.
 pub fn read_avif_boxes(bytes: &[u8]) -> AvifBoxes {
-    let meta_children = find_child_box(bytes, 0, bytes.len(), b"meta")
-        .and_then(|payload| payload.get(4..)) // skip meta's own FullBox version/flags
-        .unwrap_or(&[]);
+    read_avif_boxes_source(bytes)
+}
+
+pub(crate) fn read_avif_boxes_source<S: crate::metadata_source::MetadataSource + ?Sized>(
+    bytes: &S,
+) -> AvifBoxes {
+    let meta = find_child_range(bytes, 0, bytes.len(), b"meta")
+        .and_then(|range| bytes.get(range))
+        .unwrap_or_default();
+    let meta_children = meta.get(4..).unwrap_or(&[]); // skip FullBox version/flags
 
     let primary_item = find_child_box(meta_children, 0, meta_children.len(), b"pitm")
         .and_then(transform::parse_pitm)
@@ -339,7 +359,7 @@ pub fn read_avif_boxes(bytes: &[u8]) -> AvifBoxes {
             .map(|(id, _)| *id)?;
         let (_, offset, length) = item_offsets.iter().find(|(i, _, _)| *i == id)?;
         let end = offset.checked_add(*length)?;
-        bytes.get(*offset..end).map(|s| s.to_vec())
+        bytes.get(*offset..end).map(|s| s.into_owned())
     };
 
     // An `Exif` item's payload is prefixed by a 4-byte offset to the TIFF
@@ -360,4 +380,4 @@ mod tests;
 
 #[cfg(test)]
 #[path = "avif_boxes_encoder_tests.rs"]
-mod encoder_tests;
+pub(crate) mod encoder_tests;

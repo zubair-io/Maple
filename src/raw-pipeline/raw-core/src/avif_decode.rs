@@ -20,6 +20,10 @@ use crate::avif_yuv::{copy_plane, expand_range, yuv_to_rgb, Yuv};
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
 
+#[path = "avif_probe_reader.rs"]
+mod probe_reader;
+pub use probe_reader::probe_avif_reader;
+
 // dav1d encodes "try again" as `-(libc::EAGAIN as c_int)`. That errno is
 // platform-specific (11 on Linux, 35 on macOS); rav1d's own `error` module
 // that defines the mapping is crate-private, so it's recomputed here from
@@ -134,11 +138,15 @@ fn sequence_header(obu: &[u8]) -> Result<Dav1dSequenceHeader> {
 
 pub fn probe_avif(bytes: &[u8]) -> Result<AvifProbe> {
     let data = parse_container(bytes)?;
-    let hdr = sequence_header(&data.primary_item)?;
+    probe_sequence(&data.primary_item, data.alpha_item.is_some())
+}
+
+fn probe_sequence(obu: &[u8], has_alpha: bool) -> Result<AvifProbe> {
+    let hdr = sequence_header(obu)?;
     Ok(AvifProbe {
         width: hdr.max_width as u32,
         height: hdr.max_height as u32,
-        has_alpha: data.alpha_item.is_some(),
+        has_alpha,
         bit_depth: if hdr.hbd == 0 {
             8
         } else if hdr.hbd == 1 {

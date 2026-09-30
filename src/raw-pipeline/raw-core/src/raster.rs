@@ -33,6 +33,13 @@ pub use raster_tensor::{extract_tensor, TensorData, TensorLayout, TensorNormaliz
 /// orientation) — see its own module doc.
 #[path = "raster_probe.rs"]
 mod raster_probe;
+#[path = "raster_probe_reader.rs"]
+mod raster_probe_reader;
+pub use raster_probe_reader::probe_raster_metadata_reader;
+#[path = "raster_probe_jpeg.rs"]
+mod raster_probe_jpeg;
+#[cfg(test)]
+pub(crate) use raster_probe::legacy::legacy_probe;
 pub use raster_probe::{container_orientation, probe_raster_metadata, RasterMetadata};
 
 /// Representation of a decoded non-RAW raster image in memory.

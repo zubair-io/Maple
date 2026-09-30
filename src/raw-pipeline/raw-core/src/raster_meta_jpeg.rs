@@ -10,24 +10,24 @@
 use super::*;
 
 /// Walk JPEG marker segments from the SOI to the SOS, collecting APP1/APP2.
-pub(super) fn read_jpeg(bytes: &[u8]) -> RasterSidecars {
+pub(super) fn read_jpeg<S: MetadataSource + ?Sized>(bytes: &S) -> RasterSidecars {
     let mut found = RasterSidecars::default();
     let mut icc_chunks: Vec<(u8, u8, Vec<u8>)> = Vec::new();
     let mut idx = 2usize;
     'segments: loop {
-        if bytes.get(idx) != Some(&0xFF) {
+        if bytes.byte(idx) != Some(0xFF) {
             break;
         }
         // A marker may be preceded by a run of 0xFF fill bytes (padding some
         // encoders emit) before the real, non-0xFF code byte.
         let mut code_idx = idx;
-        while bytes.get(code_idx) == Some(&0xFF) {
+        while bytes.byte(code_idx) == Some(0xFF) {
             let Some(next) = code_idx.checked_add(1) else {
                 break 'segments;
             };
             code_idx = next;
         }
-        let Some(&marker) = bytes.get(code_idx) else {
+        let Some(marker) = bytes.byte(code_idx) else {
             break;
         };
         if marker == 0xDA || marker == 0xD9 {

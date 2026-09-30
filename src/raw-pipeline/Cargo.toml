@@ -117,3 +117,4 @@ toml = "0.8"
 [patch.crates-io]
 rav1d = { path = "third_party/rav1d" }
 zune-jpeg = { path = "third_party/zune-jpeg" }
+avif-parse = { path = "third_party/avif-parse" }
