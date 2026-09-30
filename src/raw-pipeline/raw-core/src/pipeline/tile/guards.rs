@@ -25,6 +25,22 @@ pub(super) fn reject_untileable(
     model: &AdjustmentModel,
     rect: TileRect,
 ) -> Result<()> {
+    let (width, height) = if raw.orientation.swaps_wh() {
+        (raw.height, raw.width)
+    } else {
+        (raw.width, raw.height)
+    };
+    if rect.src_w == 0
+        || rect.src_h == 0
+        || rect.out_w == 0
+        || rect.out_h == 0
+        || rect.src_x >= width
+        || rect.src_y >= height
+        || rect.src_w > width.saturating_sub(rect.src_x)
+        || rect.src_h > height.saturating_sub(rect.src_y)
+    {
+        return reject("tile source rectangle is empty or outside the oriented sensor extent");
+    }
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return reject(
             "tile path does not support LinearRaw DNGs; use the full-image render entry instead. See ticket #07.",

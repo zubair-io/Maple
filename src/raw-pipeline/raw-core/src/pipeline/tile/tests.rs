@@ -10,6 +10,65 @@
 
 use super::*;
 
+#[test]
+fn source_bounds_reject_invalid_rectangles_before_development() {
+    let model = AdjustmentModel::default();
+    for orientation in 1..=8 {
+        let mut raw = fake_raw(80, 60);
+        raw.orientation = crate::image::ExifOrientation::from_u16(orientation);
+        let (w, h) = if raw.orientation.swaps_wh() {
+            (60, 80)
+        } else {
+            (80, 60)
+        };
+        for (x, y, sw, sh) in [
+            (w, 0, 1, 1),
+            (0, h, 1, 1),
+            (w - 1, 0, 2, 1),
+            (0, h - 1, 1, 2),
+            (u32::MAX, 0, 2, 1),
+            (0, 0, u32::MAX, 1),
+            (0, 0, 0, 1),
+            (0, 0, 1, 0),
+        ] {
+            let error =
+                render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
+                    &raw,
+                    &model,
+                    TileRect {
+                        src_x: x,
+                        src_y: y,
+                        src_w: sw,
+                        src_h: sh,
+                        out_w: 1,
+                        out_h: 1,
+                    },
+                    RenderQuality::Full,
+                    None,
+                    1.0,
+                )
+                .unwrap_err();
+            assert!(
+                error.to_string().contains("outside the oriented sensor"),
+                "{error}"
+            );
+        }
+        assert!(guards::reject_untileable(
+            &raw,
+            &model,
+            TileRect {
+                src_x: w - 1,
+                src_y: h - 1,
+                src_w: 1,
+                src_h: 1,
+                out_w: 1,
+                out_h: 1,
+            }
+        )
+        .is_ok());
+    }
+}
+
 /// Build a fake `RawImage` for the rejection / out>src error-path tests.
 /// Decode + DCP + every chained stage need a real RAW + DCP profile,
 /// so these helpers only feed paths that error before any of that

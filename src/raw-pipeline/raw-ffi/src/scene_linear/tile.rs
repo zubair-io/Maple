@@ -162,6 +162,9 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
                     if crate::model::is_untileable_model_error(&msg) {
                         return 10;
                     }
+                    if msg.contains("tile source rectangle") {
+                        return 9;
+                    }
                     if msg.contains("upscale") || msg.contains("downscale-only") {
                         return 11;
                     }
@@ -298,6 +301,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
                     // (#3409).
                     if crate::model::is_untileable_model_error(&msg) {
                         return 10;
+                    }
+                    if msg.contains("tile source rectangle") {
+                        return 9;
                     }
                     if msg.contains("upscale") || msg.contains("downscale-only") {
                         return 11;

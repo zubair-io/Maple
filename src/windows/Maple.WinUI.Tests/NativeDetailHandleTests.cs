@@ -21,6 +21,10 @@ public class NativeDetailHandleTests
             Assert.True(geometry.CropWidth > 0 && geometry.CropHeight > 0);
             Assert.True((ulong)geometry.CropX + geometry.CropWidth <= geometry.SensorWidth);
             Assert.True((ulong)geometry.CropY + geometry.CropHeight <= geometry.SensorHeight);
+            var rejected = new MapleSceneLinearBufferF32();
+            Assert.Equal(9, RawFfi.maple_render_handle_scene_linear_tile_ae_f32(handle,
+                uint.MaxValue, 0, 2, 2, 2, 2, 0, 0, 0, 1, &rejected));
+            Assert.True(rejected.f32_rgba == null);
             var width = Math.Min(32u, geometry.CropWidth);
             var height = Math.Min(32u, geometry.CropHeight);
             foreach (var origin in new[] {
