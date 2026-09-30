@@ -148,6 +148,7 @@ namespace Maple.UI
         {
             IsTabStop = true,
             Width = 360,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };

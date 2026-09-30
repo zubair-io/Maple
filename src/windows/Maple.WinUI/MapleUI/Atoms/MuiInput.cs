@@ -194,7 +194,7 @@ namespace Maple.UI.Atoms
 
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 4 };
         private readonly Border _fieldBorder = new();
-        private readonly StackPanel _fieldRow = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
+        private readonly Grid _fieldRow = new() { ColumnSpacing = 6 };
         private readonly MuiIcon _prefixIcon = new() { Size = MuiIconSize.Sm16 };
         private readonly TextBox _textBox = new() { Background = Transparent(), BorderThickness = new Thickness(0) };
         private readonly NumberBox _numberBox = new()
@@ -205,7 +205,6 @@ namespace Maple.UI.Atoms
         };
         private readonly Button _suffixButton = GhostIconButton();
         private readonly MuiIcon _suffixIcon = new() { Size = MuiIconSize.Sm16 };
-        private readonly Button _clearButton = GhostIconButton();
         private readonly TextBlock _helperText = new() { FontSize = 11, TextWrapping = TextWrapping.Wrap };
 
         private bool _isFocused;
@@ -214,6 +213,15 @@ namespace Maple.UI.Atoms
 
         public MuiInput()
         {
+            _textBox.Resources["TextControlBorderBrushFocused"] = Transparent();
+            _numberBox.Resources["TextControlBorderBrushFocused"] = Transparent();
+            HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            _fieldRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _fieldRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _fieldRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(_textBox, 1);
+            Grid.SetColumn(_numberBox, 1);
+            Grid.SetColumn(_suffixButton, 2);
             _fieldBorder.Child = _fieldRow;
             _root.Children.Add(_fieldBorder);
             _root.Children.Add(_helperText);
@@ -223,7 +231,7 @@ namespace Maple.UI.Atoms
             _textBox.TextChanged += (_, _) =>
             {
                 if (_suppressTextCallback) return;
-                SetValue(TextProperty, _textBox.Text); // triggers OnTextPropertyChanged -> Rebuild()
+                SetValue(TextProperty, _textBox.Text);
                 TextChanged?.Invoke(this, _textBox.Text);
             };
             _textBox.GotFocus += (_, _) => { _isFocused = true; ApplyColors(); };
@@ -237,9 +245,6 @@ namespace Maple.UI.Atoms
             };
             _numberBox.GotFocus += (_, _) => { _isFocused = true; ApplyColors(); };
             _numberBox.LostFocus += (_, _) => { _isFocused = false; ApplyColors(); Committed?.Invoke(this, _numberBox.Value.ToString()); };
-
-            _clearButton.Content = new MuiIcon { IconName = "x", Size = MuiIconSize.Sm16 };
-            _clearButton.Click += (_, _) => { Text = string.Empty; _textBox.Focus(FocusState.Programmatic); };
 
             _suffixButton.Content = _suffixIcon;
             _suffixButton.Click += (_, _) => SuffixActionRequested?.Invoke(this, EventArgs.Empty);
@@ -265,20 +270,18 @@ namespace Maple.UI.Atoms
 
         private void OnTextPropertyChanged(string value)
         {
-            if (_textBox.Text == value) { Rebuild(); return; }
+            if (_textBox.Text == value) return;
             _suppressTextCallback = true;
             _textBox.Text = value ?? string.Empty;
             _suppressTextCallback = false;
-            Rebuild();
         }
 
         private void OnNumericValuePropertyChanged(double value)
         {
-            if (_numberBox.Value.Equals(value)) { Rebuild(); return; }
+            if (_numberBox.Value.Equals(value)) return;
             _suppressNumericCallback = true;
             _numberBox.Value = value;
             _suppressNumericCallback = false;
-            Rebuild();
         }
 
         private static Brush R(string key) => (Brush)Application.Current.Resources[key];
@@ -336,9 +339,8 @@ namespace Maple.UI.Atoms
                 _textBox.IsTabStop = true;
                 _fieldRow.Children.Add(_textBox);
 
-                var showClear = !ReadOnly && IsEnabled && !string.IsNullOrEmpty(_textBox.Text);
-                if (showClear)
-                    _fieldRow.Children.Add(_clearButton);
+                // TextBox supplies the accessible clear action; adding another
+                // button duplicates it while the native editor has focus.
             }
 
             if (!string.IsNullOrEmpty(SuffixIconName))
