@@ -37,6 +37,20 @@ public sealed class ExportQueueTests : IDisposable
         return new(path, "<snapshot exposure='0.5'/>", stem, "2026:09:06 12:30:00");
     }
 
+    [Theory]
+    [InlineData("directory", null)]
+    [InlineData("directory", "")]
+    [InlineData("directory", "   ")]
+    [InlineData("download", null)]
+    public void Missing_folder_reports_recovery_before_native_validation(string destination, string? directory)
+    {
+        _executor.BeforeValidate = () => throw new InvalidOperationException("Native policy diagnostic");
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            _runner.ValidateRecipe(Recipe() with { Destination = destination, Directory = directory }));
+        Assert.Equal("Choose a destination folder before adding photos to the export queue.", error.Message);
+        Assert.Empty(_store.ListJobs());
+    }
+
     [Fact]
     public void Recipe_roundtrip_retains_unsupported_choices_and_explicit_nulls()
     {
@@ -242,7 +256,8 @@ public sealed class ExportQueueTests : IDisposable
         public List<ExportQueueItem> Calls { get; } = new();
         public Action<ExportQueueItem>? BeforeRender { get; set; }
         public Func<ExportInput, string>? Name { get; set; }
-        public void Validate(ExportRecipe recipe) { }
+        public Action? BeforeValidate { get; set; }
+        public void Validate(ExportRecipe recipe) => BeforeValidate?.Invoke();
         public string Filename(ExportRecipe recipe, ExportInput input, ulong index) =>
             Name?.Invoke(input) ?? $"{input.OriginalStem}-{index + 1}.jpg";
         public void Render(ExportRecipe recipe, ExportQueueItem item)

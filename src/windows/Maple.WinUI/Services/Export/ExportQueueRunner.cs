@@ -22,9 +22,9 @@ public sealed class ExportQueueRunner
 
     public void ValidateRecipe(ExportRecipe recipe)
     {
+        if (recipe.Destination != "directory" || string.IsNullOrWhiteSpace(recipe.Directory))
+            throw new InvalidOperationException("Choose a destination folder before adding photos to the export queue.");
         _executor.Validate(recipe);
-        if (recipe.Destination != "directory" || recipe.Directory == null)
-            throw new InvalidOperationException("Windows queues require a destination folder.");
         ExportPaths.DirectoryPath(recipe.Directory);
     }
 

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Maple.WinUI.Generated;
 
@@ -37,6 +39,18 @@ public sealed class ExportRecipeEditor : StackPanel
         _recipe = recipe;
         Width = 420;
         Spacing = 10;
+        AutomationProperties.SetLiveSetting(Message, AutomationLiveSetting.Polite);
+        Message.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(Message.Text)) return;
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!Message.IsLoaded || string.IsNullOrWhiteSpace(Message.Text)) return;
+                Message.UpdateLayout();
+                Message.StartBringIntoView();
+                FrameworkElementAutomationPeer.FromElement(Message)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+            });
+        });
         Children.Add(SavedRecipes);
         Children.Add(_name);
         var recipeButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
