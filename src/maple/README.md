@@ -111,6 +111,10 @@ const avif = await maple({ data: rgb, width, height, channels: 3 })
 const { data, width: w, height: h } = await maple(jpegBytes).rotate().toRaw();
 ```
 
+`toRaw()` executes queued edits and returns interleaved RGB8 at the resulting
+dimensions. Alpha remains available while edits run and is dropped at output;
+use `toRawAlpha()` to retain it.
+
 `fit` accepts all five of sharp's modes — `'inside' | 'fill' | 'cover' | 'contain' | 'outside'`. `kernel` (and its alias `filter`) accepts all six kernels — `'nearest' | 'linear' | 'cubic' | 'mitchell' | 'lanczos2' | 'lanczos3'`, with `'bilinear'` accepted as a second spelling of `'linear'`. AVIF `effort` is 0 (fastest) to 9 (slowest), as in sharp. AVIF inputs decode (pure-Rust AV1 decoder); a JPEG truncated in its scan data decodes to the rows that survived.
 
 **`withoutEnlargement` defaults to `true`** here, where sharp defaults it to `false`. A source smaller than the requested box is therefore left at its own size, and in particular `fit: 'cover'` never upscales to fill the box unless you pass `withoutEnlargement: false`. A `width` or `height` of `0` means "keep the source dimension on this axis". `withoutReduction` follows sharp and defaults to `false`.

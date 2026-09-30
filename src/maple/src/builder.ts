@@ -550,7 +550,7 @@ export class MapleImageBuilder {
       : await bitmapToFile(this.s, outputPath);
   }
 
-  /** Decode to native-size interleaved RGB8 (alpha dropped, grey expanded). */
+  /** Execute queued edits as interleaved RGB8 (alpha dropped, grey expanded). */
   async toRaw(): Promise<RawPixels> {
     return resolveToRaw(this.s);
   }
