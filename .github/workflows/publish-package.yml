@@ -418,9 +418,11 @@ jobs:
           # previously published platform package that bun install pulls in
           # as an optionalDependency (it predates any new FFI symbols).
           MAPLE_NATIVE_LIB: ${{ github.workspace }}/src/maple/npm/linux-x64-gnu/libraw_ffi.so
+          MAPLE_ORACLE_REQUIRED: '1'
         run: |
           bun install
           bun run build
+          bun run typecheck
           bun test
 
       - name: Publish to npm (dry-run on PR/dispatch, release on v* tags)
