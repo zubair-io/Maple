@@ -102,6 +102,7 @@ namespace Maple.WinUI
                 CancelWhiteBalancePick();
             if (_activeGroup == "Mask" && group != "Mask")
                 ExitMaskMode();
+            if (_activeGroup == "Heal" && group != "Heal") ExitRetouchCanvas();
             _activeGroup = group;
             RefreshRailArming(group);
             EditPanel.Visibility = Visibility.Visible;
@@ -255,6 +256,7 @@ namespace Maple.WinUI
             CancelWhiteBalancePick();
             if (_activeGroup == "Mask")
                 ExitMaskMode();
+            if (_activeGroup == "Heal") ExitRetouchCanvas();
             _activeGroup = null;
             EditPanel.Visibility = Visibility.Collapsed;
             RefreshRailArming(null);

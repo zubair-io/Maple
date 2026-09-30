@@ -30,6 +30,9 @@ public static unsafe partial class RawFfi
     public static extern int maple_raw_handle_geometry(RawDetailHandle handle, out MapleRawGeometry geometry);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern uint maple_raw_handle_orientation(RawDetailHandle handle);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int maple_render_handle_scene_linear_tile_ae_f32(
         RawDetailHandle handle, uint x, uint y, uint width, uint height,
         uint outputWidth, uint outputHeight, int qualityPreview,

@@ -19,10 +19,14 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
     private RawDetailHandle? _handle;
     private (string Path, long Modified, long Length, string Model)? _key;
     private MapleRawGeometry _geometry;
+    private uint _orientation;
     private int _disposed;
 
     public Task<MapleRawGeometry> ReadGeometryAsync(string path, AdjustmentState model, CancellationToken cancellation) =>
         RunAsync(path, model, cancellation, () => _geometry);
+
+    public Task<uint> ReadOrientationAsync(string path, AdjustmentState model, CancellationToken cancellation) =>
+        RunAsync(path, model, cancellation, () => _orientation);
 
     public Task<NativeDetailImage> DecodeAsync(string path, AdjustmentState model, DecodedImage anchor,
         NativeDetailRegion region, CancellationToken cancellation) =>
@@ -70,6 +74,8 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
                 var rc = RawFfi.maple_raw_handle_geometry(opened, out var geometry);
                 if (rc != 0) throw new InvalidDataException($"Native source geometry failed ({rc}): {RawFfi.LastError()}");
                 _geometry = geometry;
+                _orientation = RawFfi.maple_raw_handle_orientation(opened);
+                if (_orientation is < 1 or > 8) throw new InvalidDataException("Native source orientation is unavailable.");
                 _handle = opened;
                 _key = key;
             }

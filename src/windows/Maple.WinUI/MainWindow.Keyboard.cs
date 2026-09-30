@@ -21,6 +21,12 @@ namespace Maple.WinUI
             // A modal's buttons and result list can hold focus too. Root
             // culling/navigation shortcuts must not mutate the frozen selection.
             if (_modalFlowGate.IsEntered) return;
+            if (_repairDraft != null && e.Key == VirtualKey.Escape)
+            {
+                CancelRepairGesture();
+                e.Handled = true;
+                return;
+            }
             if (CloudMapContainer.Visibility == Visibility.Visible)
             {
                 if (e.Key == VirtualKey.Escape)
@@ -33,6 +39,12 @@ namespace Maple.WinUI
             }
             if (FocusManager.GetFocusedElement(this.Content.XamlRoot) is TextBox or Slider or NumberBox or ComboBox)
                 return;
+            if (_activeGroup == "Heal" && e.Key == VirtualKey.Delete)
+            {
+                DeleteSelectedRepair();
+                e.Handled = true;
+                return;
+            }
             var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
             var shift = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)

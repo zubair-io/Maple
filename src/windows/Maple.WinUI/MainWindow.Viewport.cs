@@ -55,6 +55,7 @@ namespace Maple.WinUI
             SizeZoomHost();
             UpdateCropDisplay();
             UpdateMaskDisplay();
+            UpdateRepairCanvas();
         }
 
         private void OnCanvasHostSizeChanged(object sender, SizeChangedEventArgs e)
@@ -64,6 +65,7 @@ namespace Maple.WinUI
             SizeZoomHost();
             UpdateCropDisplay();
             UpdateMaskDisplay();
+            UpdateRepairCanvas();
             QueueDetailRefresh();
         }
 
@@ -143,6 +145,7 @@ namespace Maple.WinUI
         {
             ZoomHost.PointerPressed += (_, e) =>
             {
+                if (_activeGroup == "Heal") return;
                 if (ViewerScroll.ScrollableWidth <= 0 && ViewerScroll.ScrollableHeight <= 0)
                     return;
                 _panning = true;

@@ -4,7 +4,8 @@ namespace Maple.WinUI.Models;
 
 public enum RetouchKind { Heal, Clone }
 
-// Full oriented-image fractions; radius is a fraction of WIDTH, not height.
+// Shared decode-frame fractions (before EXIF orientation); radius is a
+// fraction of WIDTH, not height. The canvas/panel map to oriented coordinates.
 public sealed record RetouchSpot(RetouchKind Kind, double X, double Y,
     double SourceX, double SourceY, double Radius, double Feather = 0.5, double Opacity = 1);
 

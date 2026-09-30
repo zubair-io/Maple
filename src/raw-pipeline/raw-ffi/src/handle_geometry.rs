@@ -73,9 +73,45 @@ fn oriented_geometry(
     }
 }
 
+/// EXIF orientation of the same retained decode used by repair evaluation.
+/// Zero means an invalid handle; valid values are the TIFF codes 1 through 8.
+#[no_mangle]
+pub unsafe extern "C" fn maple_raw_handle_orientation(handle: *const MapleRawHandle) -> u32 {
+    if handle.is_null() || (*handle).inner.is_null() {
+        set_last_error("null RAW handle".into());
+        return 0;
+    }
+    let raw = &(*((*handle).inner as *const MapleRawHandleInner)).raw;
+    orientation_code(raw.orientation)
+}
+
+fn orientation_code(orientation: ExifOrientation) -> u32 {
+    match orientation {
+        ExifOrientation::Normal => 1,
+        ExifOrientation::HorizontalFlip => 2,
+        ExifOrientation::Rotate180 => 3,
+        ExifOrientation::VerticalFlip => 4,
+        ExifOrientation::Transpose => 5,
+        ExifOrientation::Rotate90 => 6,
+        ExifOrientation::Transverse => 7,
+        ExifOrientation::Rotate270 => 8,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repair_orientation_uses_tiff_codes_and_rejects_null() {
+        for code in 1..=8 {
+            assert_eq!(
+                orientation_code(ExifOrientation::from_u16(code)),
+                code as u32
+            );
+        }
+        assert_eq!(unsafe { maple_raw_handle_orientation(std::ptr::null()) }, 0);
+    }
 
     #[test]
     fn cropped_geometry_matches_each_orientation_and_round_trips() {

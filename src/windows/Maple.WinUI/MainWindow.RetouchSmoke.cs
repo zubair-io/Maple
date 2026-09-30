@@ -14,11 +14,13 @@ public sealed partial class MainWindow
         var depth = ViewModel.UndoCount;
         ToggleGroupPanel("Heal");
         await ReadyAsync();
+        await WaitAsync(() => RepairMap != null && _repairCanvas.Visibility == Microsoft.UI.Xaml.Visibility.Visible);
         var invoke = (IInvokeProvider)new ButtonAutomationPeer(_repairAdd).GetPattern(PatternInterface.Invoke);
         invoke.Invoke();
         await WaitAsync(() => ViewModel.Adjustments.Retouch.Spots.Count == before.Spots.Count + 1);
         await ReadyAsync();
         if (ViewModel.UndoCount != depth + 1) throw new InvalidOperationException("Repair placement was not one undo entry");
+        if (_repairCanvas.Children.Count < 3) throw new InvalidOperationException("Repair source, destination and connector were not drawn");
         _repairKind.SelectedItem = "Clone";
         await ReadyAsync();
         if (SelectedRepair?.Kind != RetouchKind.Clone || ViewModel.UndoCount != depth + 2)

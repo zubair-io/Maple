@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Maple.WinUI.Models;
+using Maple.WinUI.Services;
 using Maple.WinUI.Services.Xmp;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -25,6 +26,7 @@ public sealed partial class MainWindow
 
     private void BuildRetouchPanel()
     {
+        BuildRetouchCanvas();
         _repairPanel.Children.Add(_repairStatus);
         _repairPanel.Children.Add(_repairAdd);
         _repairPanel.Children.Add(_repairList);
@@ -38,13 +40,7 @@ public sealed partial class MainWindow
             _repairSelection = state.Spots.Count - 1;
             ApplyRepairs(state);
         };
-        _repairDelete.Click += (_, _) =>
-        {
-            if (!CanEditRepairs || SelectedRepair == null) return;
-            var state = XmpRetouch.Remove(ViewModel.Adjustments.Retouch, _repairSelection);
-            _repairSelection = Math.Min(_repairSelection, state.Spots.Count - 1);
-            ApplyRepairs(state);
-        };
+        _repairDelete.Click += (_, _) => DeleteSelectedRepair();
         _repairList.SelectionChanged += (_, _) =>
         {
             if (_repairSyncing) return;
@@ -59,16 +55,34 @@ public sealed partial class MainWindow
         AddRepairValue("Size (% of image width)", s => s.Radius * 100, (s, v) => s with { Radius = v / 100 }, .01);
         AddRepairValue("Feather (%)", s => s.Feather * 100, (s, v) => s with { Feather = v / 100 });
         AddRepairValue("Opacity (%)", s => s.Opacity * 100, (s, v) => s with { Opacity = v / 100 });
-        AddRepairValue("Destination X (%)", s => s.X * 100, (s, v) => s with { X = v / 100 });
-        AddRepairValue("Destination Y (%)", s => s.Y * 100, (s, v) => s with { Y = v / 100 });
-        AddRepairValue("Source X (%)", s => s.SourceX * 100, (s, v) => s with { SourceX = v / 100 });
-        AddRepairValue("Source Y (%)", s => s.SourceY * 100, (s, v) => s with { SourceY = v / 100 });
+        AddRepairValue("Destination X (%)", s => OrientedRepairPoint(s, false).X * 100, (s, v) => SetRepairCoordinate(s, false, true, v / 100));
+        AddRepairValue("Destination Y (%)", s => OrientedRepairPoint(s, false).Y * 100, (s, v) => SetRepairCoordinate(s, false, false, v / 100));
+        AddRepairValue("Source X (%)", s => OrientedRepairPoint(s, true).X * 100, (s, v) => SetRepairCoordinate(s, true, true, v / 100));
+        AddRepairValue("Source Y (%)", s => OrientedRepairPoint(s, true).Y * 100, (s, v) => SetRepairCoordinate(s, true, false, v / 100));
         _repairPanel.Children.Add(_repairDelete);
         PanelRetouchHost.Children.Add(_repairPanel);
         SyncRetouchPanel();
     }
 
     private bool CanEditRepairs => ViewModel.AdjustmentsReady && !ViewModel.IsRasterSource;
+    private void DeleteSelectedRepair()
+    {
+        if (!CanEditRepairs || SelectedRepair == null) return;
+        CancelRepairGesture();
+        var state = XmpRetouch.Remove(ViewModel.Adjustments.Retouch, _repairSelection);
+        _repairSelection = Math.Min(_repairSelection, state.Spots.Count - 1);
+        ApplyRepairs(state);
+    }
+    private MaskPoint OrientedRepairPoint(RetouchSpot spot, bool source) => RepairCanvasMap.Orient(
+        source ? new(spot.SourceX, spot.SourceY) : new(spot.X, spot.Y), _repairOrientation is >= 1 and <= 8 ? _repairOrientation : 1);
+
+    private RetouchSpot SetRepairCoordinate(RetouchSpot spot, bool source, bool xAxis, double value)
+    {
+        var point = OrientedRepairPoint(spot, source);
+        point = new(xAxis ? value : point.X, xAxis ? point.Y : value);
+        var frame = RepairCanvasMap.Orient(point, _repairOrientation switch { 6 => 8, 8 => 6, >= 1 and <= 8 => _repairOrientation, _ => 1 });
+        return source ? spot with { SourceX = frame.X, SourceY = frame.Y } : spot with { X = frame.X, Y = frame.Y };
+    }
     private RetouchSpot? SelectedRepair => _repairSelection >= 0 && _repairSelection < ViewModel.Adjustments.Retouch.Spots.Count
         ? ViewModel.Adjustments.Retouch.Spots[_repairSelection].Spot : null;
 
@@ -123,12 +137,15 @@ public sealed partial class MainWindow
             _repairAdd.IsEnabled = CanEditRepairs;
             foreach (var box in _repairValues)
             {
-                box.IsEnabled = CanEditRepairs && selected != null;
+                box.IsEnabled = CanEditRepairs && selected != null && (_repairValues.IndexOf(box) < 3 || RepairMap != null);
                 box.Value = selected == null ? double.NaN : ((Func<RetouchSpot, double>)box.Tag)(selected);
             }
             _repairStatus.Text = ViewModel.IsRasterSource ? "Repair requires a RAW image. Existing repair data is preserved."
                 : "Heal blends source detail with destination colour. Clone copies the source. Coordinates refer to the full image.";
         }
         finally { _repairSyncing = false; }
+        UpdateRepairCanvas();
+        if (_activeGroup == "Heal" && !ReferenceEquals(_repairMappingPhoto, ViewModel.SelectedPhoto))
+            _ = PrepareRepairCanvasAsync();
     }
 }
