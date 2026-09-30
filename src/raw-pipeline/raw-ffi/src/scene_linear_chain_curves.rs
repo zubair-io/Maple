@@ -86,7 +86,9 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
     curves: *const MapleToneCurves,
     out_ptr: *mut f32,
 ) -> i32 {
-    chain_with_film(in_ptr, width, height, params, curves, None, 0.0, out_ptr)
+    chain_with_film(
+        in_ptr, width, height, params, curves, None, 0.0, out_ptr, None,
+    )
 }
 
 /// Film-aware sibling for a cached LUT; no LUT decoding/copying per tick.
@@ -117,6 +119,55 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_film_f32(
         film.as_ref().map(|handle| &handle.lut),
         strength,
         out_ptr,
+        None,
+    )
+}
+
+#[repr(C)]
+pub struct MapleChainWindow {
+    pub x: u32,
+    pub y: u32,
+    pub full_width: u32,
+    pub full_height: u32,
+}
+
+/// # Safety
+/// Same lifetime and buffer contract as the Film entry; window must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn maple_apply_chain_and_encode_window_f32(
+    in_ptr: *const f32,
+    width: u32,
+    height: u32,
+    params: *const MapleAdjustmentParams,
+    curves: *const MapleToneCurves,
+    film: *const crate::film::MapleFilmLut,
+    strength: f32,
+    window: *const MapleChainWindow,
+    out_ptr: *mut f32,
+) -> i32 {
+    let Some(window) = window.as_ref() else {
+        set_last_error("native detail: null window".into());
+        return 1;
+    };
+    if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
+        set_last_error("native detail: invalid film strength".into());
+        return 4;
+    }
+    chain_with_film(
+        in_ptr,
+        width,
+        height,
+        params,
+        curves,
+        film.as_ref().map(|f| &f.lut),
+        strength,
+        out_ptr,
+        Some(raw_core::pipeline::ChainWindow {
+            x: window.x,
+            y: window.y,
+            full_width: window.full_width,
+            full_height: window.full_height,
+        }),
     )
 }
 
@@ -129,6 +180,7 @@ unsafe fn chain_with_film(
     film: Option<&raw_core::film::FilmLut>,
     strength: f32,
     out_ptr: *mut f32,
+    window: Option<raw_core::pipeline::ChainWindow>,
 ) -> i32 {
     if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
         set_last_error("apply_chain_and_encode_display_curves_f32: null pointer".into());
@@ -179,9 +231,15 @@ unsafe fn chain_with_film(
     let opts = ci.options(p.skip_agx != 0);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
-    let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32_with_film(
-        in_slice, width, height, &ci.model, &opts, film,
-    ) {
+    let rendered = match window {
+        Some(window) => raw_core::pipeline::apply_scene_linear_chain_f32_windowed(
+            in_slice, width, height, &ci.model, &opts, film, window,
+        ),
+        None => raw_core::pipeline::apply_scene_linear_chain_f32_with_film(
+            in_slice, width, height, &ci.model, &opts, film,
+        ),
+    };
+    let out_vec = match rendered {
         Ok(v) => v,
         Err(e) => {
             set_last_error(format!("apply_chain_and_encode_display_curves_f32: {}", e));

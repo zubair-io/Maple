@@ -8,6 +8,16 @@ namespace Maple.WinUI.Native;
 // Native-detail integration for #3876; viewport scheduling is tracked by that issue.
 public static unsafe partial class RawFfi
 {
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, EntryPoint = "maple_apply_chain_and_encode_window_f32")]
+    public static extern int ApplyWindow(float* input, uint width, uint height,
+        MapleAdjustmentParams* parameters, MapleToneCurves* curves, IntPtr film,
+        float strength, MapleChainWindow* window, float* output);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl, EntryPoint = "maple_apply_chain_and_encode_window_f32")]
+    public static extern int ApplyWindow(float* input, uint width, uint height,
+        MapleAdjustmentParams* parameters, MapleToneCurves* curves, FilmLutHandle film,
+        float strength, MapleChainWindow* window, float* output);
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     internal static extern int maple_open_raw_handle(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
@@ -25,6 +35,15 @@ public static unsafe partial class RawFfi
         uint outputWidth, uint outputHeight, int qualityPreview,
         float decodedTemperature, float decodedTint, float aeGain,
         MapleSceneLinearBufferF32* output);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct MapleChainWindow
+{
+    public uint X;
+    public uint Y;
+    public uint FullWidth;
+    public uint FullHeight;
 }
 
 [StructLayout(LayoutKind.Sequential)]

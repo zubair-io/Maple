@@ -11,7 +11,7 @@ pub fn apply_scene_linear_chain_f32_with_film(
     options: &ChainOptions<'_>,
     film: Option<&FilmLut>,
 ) -> Result<Vec<f32>> {
-    apply_scene_linear_chain_f32_inner(input, width, height, model, options, None, film)
+    apply_scene_linear_chain_f32_inner(input, width, height, model, options, None, film, None)
         .map(|(output, _)| output)
 }
 

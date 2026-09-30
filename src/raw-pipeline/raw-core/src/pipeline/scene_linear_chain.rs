@@ -341,7 +341,7 @@ pub fn apply_scene_linear_chain_f32(
     model: &AdjustmentModel,
     opts: &ChainOptions<'_>,
 ) -> Result<Vec<f32>> {
-    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, None, None)
+    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, None, None, None)
         .map(|(out, _weights)| out)
 }
 
@@ -360,7 +360,16 @@ pub fn apply_scene_linear_chain_f32_scoped(
     opts: &ChainOptions<'_>,
     scope_layer: Option<usize>,
 ) -> Result<(Vec<f32>, Option<Vec<f32>>)> {
-    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, scope_layer, None)
+    apply_scene_linear_chain_f32_inner(
+        in_f32_rgba,
+        width,
+        height,
+        model,
+        opts,
+        scope_layer,
+        None,
+        None,
+    )
 }
 
 /// Shared implementation behind [`apply_scene_linear_chain_f32`] and
@@ -368,182 +377,10 @@ pub fn apply_scene_linear_chain_f32_scoped(
 /// `local_adjustments` is identical between the two public entries, so the
 /// chain itself is written exactly once rather than risking the two
 /// diverging.
-fn apply_scene_linear_chain_f32_inner(
-    in_f32_rgba: &[f32],
-    width: u32,
-    height: u32,
-    model: &AdjustmentModel,
-    opts: &ChainOptions<'_>,
-    scope_layer: Option<usize>,
-    film_lut: Option<&crate::film::FilmLut>,
-) -> Result<(Vec<f32>, Option<Vec<f32>>)> {
-    let ChainOptions {
-        decoded_temp,
-        decoded_tint,
-        wb_frame,
-        skip_agx,
-        target_primaries,
-        noise_profile,
-        iso,
-        mask_long_edge,
-        whites_anchor_ev,
-    } = *opts;
-    use crate::stages::{
-        clarity, color_grade, dehaze, display_tone_curve, grain, hsl, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        vignette, white_balance,
-    };
-    use crate::view::agx;
-
-    let pixel_count = (width as usize)
-        .checked_mul(height as usize)
-        .ok_or_else(|| {
-            crate::error::Error::Pipeline(format!(
-                "apply_scene_linear_chain_f32: pixel count overflow: {}x{}",
-                width, height
-            ))
-        })?;
-    let expected_len = pixel_count.checked_mul(4).ok_or_else(|| {
-        crate::error::Error::Pipeline(format!(
-            "apply_scene_linear_chain_f32: expected input length overflow (RGBA 4-lane multiplier): {}x{}",
-            width, height
-        ))
-    })?;
-    if in_f32_rgba.len() != expected_len {
-        return Err(crate::error::Error::Pipeline(format!(
-            "apply_scene_linear_chain_f32: input length {} != width({}) * height({}) * 4 = {}",
-            in_f32_rgba.len(),
-            width,
-            height,
-            expected_len
-        )));
-    }
-
-    // Decode f32 RGBA -> Image (Vec<[f32; 3]>, alpha discarded).
-    let mut img = stage("ffi_chain_unpack_f32", || {
-        endcaps::unpack_f32(in_f32_rgba, width, height)
-    });
-    img.whites_anchor_ev = whites_anchor_ev;
-
-    // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
-    // sibling) verbatim. The order MUST match the Rust reference so
-    // `calibrate_color_pipeline` remains the canonical metric. WB frame
-    // dispatch (#1781) — see the fp16 sibling.
-    stage("ffi_chain_white_balance", || match wb_frame {
-        Some(frame) if frame.is_present() => frame.apply_delta_rec2020(
-            &mut img,
-            (model.temperature, model.tint),
-            (decoded_temp, decoded_tint),
-        ),
-        _ => white_balance::apply_delta(
-            &mut img,
-            model.temperature,
-            model.tint,
-            decoded_temp,
-            decoded_tint,
-            model.wb_method,
-        ),
-    });
-    let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
-    stage("ffi_chain_scene_tone_controls", || {
-        scene_tone_controls::apply_with_mask_anchor(&mut img, model, sh_mask_anchor)
-    });
-    stage("ffi_chain_tone_curves", || {
-        tone_curves::apply(&mut img, model)
-    });
-    stage("ffi_chain_vibrance", || {
-        vibrance::apply(&mut img, model.vibrance)
-    });
-    stage("ffi_chain_saturation", || {
-        saturation::apply(&mut img, model.saturation)
-    });
-    // HSL 8-band (#1112) — same position as the fp16 sibling.
-    stage("ffi_chain_hsl", || hsl::apply_model(&mut img, model));
-    stage("ffi_chain_clarity", || {
-        clarity::apply(&mut img, model.clarity)
-    });
-    stage("ffi_chain_texture", || {
-        texture::apply(&mut img, model.texture)
-    });
-    stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
-    let scope_weights = stage("ffi_chain_local_adjustments", || {
-        local_adjustments::apply_with_scope(
-            &mut img,
-            &model.local_adjustments,
-            &model.mask_rasters,
-            scope_layer,
-        )
-    });
-    // Vignette (#1109) — same chain position as develop / the fp16 sibling.
-    stage("ffi_chain_vignette", || {
-        vignette::apply(&mut img, model.vignette_amount, model.vignette_feather)
-    });
-    // Sharpen (#1043) — same chain position as develop (after vignette,
-    // before nr_luminance) and as the GPU live chain's `SharpenPass`.
-    // `sharpen::apply` short-circuits below |amount| < 1e-3.
-    stage("ffi_chain_sharpen", || {
-        sharpen::apply(
-            &mut img,
-            model.sharpen_amount,
-            model.sharpen_radius,
-            model.sharpen_detail,
-            model.sharpen_masking,
-        )
-    });
-    stage("ffi_chain_nr_luminance", || {
-        noise_reduction::apply_luminance(&mut img, model.nr_luminance, noise_profile, iso)
-    });
-    // Chroma noise reduction (#1043) — develop's `nr_color`, immediately
-    // after nr_luminance; identity below |amount| < 1e-3.
-    stage("ffi_chain_nr_color", || {
-        noise_reduction::apply_color(&mut img, model.nr_color, noise_profile, iso)
-    });
-    if !skip_agx {
-        stage("ffi_chain_agx", || {
-            agx::apply(&mut img, model.contrast, model.whites)
-        });
-    } else {
-        // Non-RAW retag — see the fp16 sibling for the full rationale. #2478
-        img.space = ColorSpace::DisplayLinearRec2020;
-    }
-    // Display-referred point curves (#2232) — see the fp16 sibling. Runs
-    // either way (RAW or non-RAW), gated only on the four curves.
-    stage("ffi_chain_display_tone_curve", || {
-        display_tone_curve::apply(&mut img, model)
-    });
-    // Split toning (#1111) + film grain (#1110), gated only on their own
-    // sliders for both RAW and non-RAW — see the fp16 sibling. #2478
-    stage("ffi_chain_color_grade", || {
-        color_grade::apply_model(&mut img, model)
-    });
-    if let Some(lut) = film_lut {
-        stage("ffi_chain_film_look", || {
-            crate::stages::film_look::apply(&mut img, lut, model.film_strength)
-        });
-    }
-    stage("ffi_chain_grain", || {
-        grain::apply(
-            &mut img,
-            model.grain_amount,
-            model.grain_size,
-            model.grain_roughness,
-        )
-    });
-    if !skip_agx {
-        // Display-primary conversion (#1337) — see the fp16 sibling for the
-        // full rationale. `Srgb` is a no-op; `P3` applies rec2020_to_display.
-        if target_primaries != TargetPrimaries::Srgb {
-            use crate::view::encode::rec2020_to_display;
-            stage("ffi_chain_display_encode", || {
-                rec2020_to_display(&mut img, target_primaries)
-            });
-        }
-    }
-
-    // Pack the result back to f32 RGBA.
-    let out = stage("ffi_chain_pack_f32", || endcaps::pack_f32(&img.pixels));
-    Ok((out, scope_weights))
-}
+mod f32_chain;
+use f32_chain::apply_scene_linear_chain_f32_inner;
+mod window;
+pub use window::{apply_scene_linear_chain_f32_windowed, ChainWindow};
 
 /// Patch-compositing wrappers ([`apply_scene_linear_chain_with_patches`],
 /// [`apply_scene_linear_chain_f32_with_patches`]) live in a sibling
