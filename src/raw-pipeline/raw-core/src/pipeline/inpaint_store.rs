@@ -4,10 +4,11 @@
 //! 16-bit-int normalization would clip); placement stays f32 for precision.
 //!
 //! This is the byte codec only — the host owns the directory, content-addressing
-//! (blake3), and the LRU sweep (which must stay scoped to `.maple/inpaint/` and
-//! never touch originals). Pure encode/decode, no filesystem access here.
+//! (blake3), and durable asset publication. Accepted pixels are not an evictable
+//! cache: hosts must retain assets referenced by edits/history. Pure codec, no I/O.
 
 use super::fp16::{f16_bits_to_f32, f32_to_f16_bits};
+use crate::types::inpaint::validate_patch_layout;
 use crate::types::InpaintPatch;
 
 /// File magic: "Maple InPaint Fp16".
@@ -19,12 +20,21 @@ const VERSION: u16 = 1;
 const HEADER_LEN: usize = 32;
 
 /// Serialize a patch to the `.f16` byte layout. Pixels and coverage are written
-/// in the patch's declared row-major order; on a malformed patch (buffer length
-/// ≠ `width*height`) the result simply won't round-trip — callers serialize
-/// validated patches ([`InpaintPatch::is_valid`]).
-pub fn patch_to_bytes(patch: &InpaintPatch) -> Vec<u8> {
-    let n = (patch.width as usize) * (patch.height as usize);
-    let mut out = Vec::with_capacity(HEADER_LEN + n * 3 * 2 + n * 2);
+/// in row-major order. Invalid values and RGB that would overflow fp16 are
+/// rejected; quantization must never turn a valid scene value into infinity.
+pub fn patch_to_bytes(patch: &InpaintPatch) -> Result<Vec<u8>, String> {
+    patch.validate()?;
+    let n = validate_patch_layout(patch.width, patch.height, patch.origin, patch.extent)?;
+    let len = record_len(n)?;
+    if patch
+        .pixels
+        .iter()
+        .flatten()
+        .any(|c| !f16_bits_to_f32(f32_to_f16_bits(*c)).is_finite())
+    {
+        return Err("inpaint patch: RGB exceeds finite fp16 storage range".into());
+    }
+    let mut out = Vec::with_capacity(len);
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&VERSION.to_le_bytes());
     out.extend_from_slice(&0u16.to_le_bytes()); // reserved
@@ -46,7 +56,13 @@ pub fn patch_to_bytes(patch: &InpaintPatch) -> Vec<u8> {
     for &cov in &patch.coverage {
         out.extend_from_slice(&f32_to_f16_bits(cov).to_le_bytes());
     }
-    out
+    Ok(out)
+}
+
+fn record_len(n: usize) -> Result<usize, String> {
+    n.checked_mul(8)
+        .and_then(|body| HEADER_LEN.checked_add(body))
+        .ok_or_else(|| "inpaint patch: body size overflow".to_string())
 }
 
 /// Parse a patch from the `.f16` byte layout. Validates magic, version, and that
@@ -65,6 +81,9 @@ pub fn patch_from_bytes(bytes: &[u8]) -> Result<InpaintPatch, String> {
     if version != VERSION {
         return Err(format!("inpaint patch: unsupported version {version}"));
     }
+    if bytes[6..8] != [0, 0] {
+        return Err("inpaint patch: unsupported reserved header flags".into());
+    }
     let width = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
     let height = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
     let rd_f32 =
@@ -75,19 +94,32 @@ pub fn patch_from_bytes(bytes: &[u8]) -> Result<InpaintPatch, String> {
     let n = (width as usize)
         .checked_mul(height as usize)
         .ok_or_else(|| "inpaint patch: dimension overflow".to_string())?;
-    let body = n
-        .checked_mul(3 * 2 + 2) // 3 fp16 pixel lanes + 1 fp16 coverage lane
-        .ok_or_else(|| "inpaint patch: body size overflow".to_string())?;
-    let expected = HEADER_LEN + body;
+    let expected = record_len(n)?;
     if bytes.len() != expected {
         return Err(format!(
             "inpaint patch: length {} != expected {expected} for {width}x{height}",
             bytes.len()
         ));
     }
+    validate_patch_layout(width, height, origin, extent)?;
 
     let mut off = HEADER_LEN;
     let rd_f16 = |o: usize| f16_bits_to_f32(u16::from_le_bytes([bytes[o], bytes[o + 1]]));
+    // Preflight samples before allocating the decoded body. Scene RGB has no
+    // [0,1] bound, but coverage does, and neither may contain NaN or infinity.
+    let rgb_end = HEADER_LEN + n * 6; // record_len already checked the larger size
+    if (HEADER_LEN..rgb_end)
+        .step_by(2)
+        .any(|o| !rd_f16(o).is_finite())
+    {
+        return Err("inpaint patch: RGB must be finite".into());
+    }
+    if (rgb_end..expected)
+        .step_by(2)
+        .any(|o| !(0.0..=1.0).contains(&rd_f16(o)))
+    {
+        return Err("inpaint patch: coverage must be finite and in [0, 1]".into());
+    }
     let mut pixels = Vec::with_capacity(n);
     for _ in 0..n {
         pixels.push([rd_f16(off), rd_f16(off + 2), rd_f16(off + 4)]);
@@ -113,12 +145,14 @@ pub fn patch_from_bytes(bytes: &[u8]) -> Result<InpaintPatch, String> {
 /// [`patch_to_bytes`] record (its header carries `w`/`h`, so the decoder walks
 /// records without a separate length table). Empty input → 4-byte `count=0`.
 /// Used to hand a render's active patch set across the C-ABI in one pointer.
-pub fn patches_to_blob(patches: &[InpaintPatch]) -> Vec<u8> {
-    let mut out = (patches.len() as u32).to_le_bytes().to_vec();
+pub fn patches_to_blob(patches: &[InpaintPatch]) -> Result<Vec<u8>, String> {
+    let count =
+        u32::try_from(patches.len()).map_err(|_| "inpaint blob: count overflow".to_string())?;
+    let mut out = count.to_le_bytes().to_vec();
     for p in patches {
-        out.extend_from_slice(&patch_to_bytes(p));
+        out.extend_from_slice(&patch_to_bytes(p)?);
     }
-    out
+    Ok(out)
 }
 
 /// Inverse of [`patches_to_blob`]. Validates the count, then walks each record
@@ -199,181 +233,5 @@ pub fn patches_from_blob(bytes: &[u8]) -> Result<Vec<InpaintPatch>, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample() -> InpaintPatch {
-        // 3×2 patch with varied values, including a >1.0 highlight (headroom).
-        InpaintPatch {
-            width: 3,
-            height: 2,
-            origin: [0.25, 0.5],
-            extent: [0.5, 0.25],
-            pixels: vec![
-                [0.18, 0.10, 0.05],
-                [0.50, 0.40, 0.30],
-                [2.5, 1.2, 0.8],
-                [0.0, 0.0, 0.0],
-                [1.0, 1.0, 1.0],
-                [0.02, 0.03, 0.04],
-            ],
-            coverage: vec![1.0, 0.5, 0.0, 0.75, 1.0, 0.25],
-        }
-    }
-
-    #[test]
-    fn roundtrips_header_and_pixels() {
-        let p = sample();
-        let bytes = patch_to_bytes(&p);
-        let back = patch_from_bytes(&bytes).expect("decode");
-        assert_eq!(back.width, p.width);
-        assert_eq!(back.height, p.height);
-        assert_eq!(back.origin, p.origin); // f32, exact
-        assert_eq!(back.extent, p.extent);
-        assert_eq!(back.pixels.len(), p.pixels.len());
-        for (a, b) in back.pixels.iter().zip(p.pixels.iter()) {
-            for c in 0..3 {
-                // fp16 quantization tolerance (coarser for the >1.0 highlight).
-                let tol = 0.01 * b[c].abs().max(1.0);
-                assert!((a[c] - b[c]).abs() <= tol, "pixel {:?} vs {:?}", a, b);
-            }
-        }
-        for (a, b) in back.coverage.iter().zip(p.coverage.iter()) {
-            assert!((a - b).abs() < 1e-3, "coverage {a} vs {b}");
-        }
-        assert!(back.is_valid());
-    }
-
-    #[test]
-    fn bad_magic_errors() {
-        let mut bytes = patch_to_bytes(&sample());
-        bytes[0] = b'X';
-        assert!(patch_from_bytes(&bytes).is_err());
-    }
-
-    #[test]
-    fn truncated_errors() {
-        let bytes = patch_to_bytes(&sample());
-        assert!(patch_from_bytes(&bytes[..HEADER_LEN - 1]).is_err());
-        assert!(patch_from_bytes(&bytes[..bytes.len() - 2]).is_err());
-    }
-
-    #[test]
-    fn wrong_version_errors() {
-        let mut bytes = patch_to_bytes(&sample());
-        bytes[4] = 0xFF;
-        bytes[5] = 0xFF;
-        assert!(patch_from_bytes(&bytes).is_err());
-    }
-
-    #[test]
-    fn blob_round_trips_variable_size_patches() {
-        let a = sample(); // 3×2
-        let mut b = sample();
-        b.width = 2;
-        b.height = 2;
-        b.pixels = vec![[0.1, 0.2, 0.3]; 4];
-        b.coverage = vec![0.5; 4];
-        let blob = patches_to_blob(&[a.clone(), b.clone()]);
-        let back = patches_from_blob(&blob).expect("decode blob");
-        assert_eq!(back.len(), 2);
-        for (got, want) in back.iter().zip([&a, &b]) {
-            assert_eq!(got.width, want.width);
-            assert_eq!(got.height, want.height);
-            assert_eq!(got.origin, want.origin);
-            assert_eq!(got.extent, want.extent);
-            assert_eq!(got.pixels.len(), want.pixels.len());
-            assert!(got.is_valid());
-        }
-    }
-
-    #[test]
-    fn blob_empty_is_count_zero() {
-        let blob = patches_to_blob(&[]);
-        assert_eq!(blob, 0u32.to_le_bytes().to_vec());
-        assert!(patches_from_blob(&blob).unwrap().is_empty());
-    }
-
-    #[test]
-    fn blob_truncated_errors() {
-        let blob = patches_to_blob(&[sample()]);
-        assert!(patches_from_blob(&blob[..2]).is_err()); // truncated count
-        assert!(patches_from_blob(&blob[..10]).is_err()); // truncated header
-        assert!(patches_from_blob(&blob[..blob.len() - 4]).is_err()); // truncated body
-    }
-
-    #[test]
-    fn blob_overlong_count_errors() {
-        // Count claims 5 patches but there is no body to back it.
-        let mut blob = 5u32.to_le_bytes().to_vec();
-        blob.extend_from_slice(&[0u8; 4]);
-        assert!(patches_from_blob(&blob).is_err());
-    }
-    /// A malformed header claiming a huge patch count must be rejected from the
-    /// blob length alone, BEFORE `Vec::with_capacity` — otherwise an untrusted
-    /// blob crossing the FFI boundary aborts the process on the allocation.
-    #[test]
-    fn absurd_count_is_rejected_without_allocating() {
-        let mut blob = u32::MAX.to_le_bytes().to_vec();
-        blob.extend_from_slice(&[0u8; 16]);
-        let err = patches_from_blob(&blob).expect_err("absurd count must error");
-        assert!(
-            err.contains("exceeds what"),
-            "expected the length-bound rejection, got: {err}"
-        );
-    }
-
-    /// The per-patch body length must not be able to wrap the offset math.
-    /// `w * h * 8` can survive its own `checked_mul` at `usize::MAX - 15` while
-    /// `HEADER_LEN + body` still overflows, so the header addition has to be
-    /// checked too — otherwise this input panics in debug and, in release,
-    /// wraps `end` down to a value that slips past the truncation check.
-    /// These dimensions are the smallest pair that both fit `u32` and land in
-    /// that window: 2147483646 * 1073741825 * 8 == usize::MAX - 15.
-    #[test]
-    fn body_length_cannot_wrap_the_offset_math() {
-        let mut blob = 1u32.to_le_bytes().to_vec();
-        blob.extend_from_slice(&[0u8; 8]); // origin/extent lead-in
-        blob.extend_from_slice(&2147483646u32.to_le_bytes());
-        blob.extend_from_slice(&1073741825u32.to_le_bytes());
-        blob.extend_from_slice(&[0u8; HEADER_LEN - 16]); // rest of the header
-        let err = patches_from_blob(&blob).expect_err("wrapping body must error");
-        assert!(
-            err.contains("overflow") || err.contains("truncated"),
-            "expected an overflow/truncation rejection, got: {err}"
-        );
-    }
-
-    /// Trailing bytes mean the blob does not describe what it claims; treating
-    /// it as valid would silently drop removals from a corrupt cache entry.
-    #[test]
-    fn trailing_bytes_are_rejected() {
-        let patch = InpaintPatch {
-            width: 2,
-            height: 2,
-            origin: [0.0, 0.0],
-            extent: [1.0, 1.0],
-            pixels: vec![[0.25, 0.5, 0.75]; 4],
-            coverage: vec![1.0; 4],
-        };
-        let good = patches_to_blob(std::slice::from_ref(&patch));
-        assert!(patches_from_blob(&good).is_ok(), "control blob must decode");
-
-        let mut trailing = good.clone();
-        trailing.extend_from_slice(&[0xAB; 3]);
-        let err = patches_from_blob(&trailing).expect_err("trailing bytes must error");
-        assert!(
-            err.contains("trailing"),
-            "expected the trailing-byte rejection, got: {err}"
-        );
-    }
-
-    /// The empty blob stays valid — it is the "no removals" encoding.
-    #[test]
-    fn empty_blob_still_decodes_to_no_patches() {
-        let blob = 0u32.to_le_bytes().to_vec();
-        assert!(patches_from_blob(&blob)
-            .expect("empty blob decodes")
-            .is_empty());
-    }
-}
+#[path = "inpaint_store_tests.rs"]
+mod tests;
