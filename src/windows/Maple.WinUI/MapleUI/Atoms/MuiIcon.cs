@@ -56,9 +56,6 @@ namespace Maple.UI.Atoms
         public MuiIcon()
         {
             IsTabStop = false;
-            // The drawn paths capture a brush; rebuild when a parent changes
-            // currentColor (for example when a tool is selected or deselected).
-            RegisterPropertyChangedCallback(ForegroundProperty, (_, _) => Rebuild());
             // ContentControl's default content alignment is Left/TOP, so a
             // stretched host (a grid cell, a row taller than the glyph)
             // parks the glyph in the top-left corner instead of on the

@@ -149,6 +149,11 @@ namespace Maple.UI.Atoms
                 BorderBrush = Outlined ? R("MapleBorder") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
                 Foreground = R("MapleTextMuted");
             }
+            // WinUI's content presenter can supply its own Foreground. Pin the
+            // drawn content to our state brush rather than inheriting a stale
+            // or template-provided color after selection changes.
+            _icon.IconColor = Foreground;
+            _label.Foreground = Foreground;
         }
 
         private void Rebuild()
