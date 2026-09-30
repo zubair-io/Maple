@@ -39,6 +39,9 @@ use raw_core::decode::decode_bytes;
 use raw_core::xmp;
 use std::ffi::{c_char, CStr};
 
+#[path = "handle_geometry.rs"]
+mod geometry;
+
 /// Internal state behind the opaque pointer. Not exposed in the C ABI.
 pub(crate) struct MapleRawHandleInner {
     pub(crate) raw: raw_core::image::RawImage,
