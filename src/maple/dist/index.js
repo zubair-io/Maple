@@ -587,6 +587,9 @@ function tryLoadNapiBinding() {
   }
   try {
     const addon = loadNapiModule(addonPath);
+    if (typeof addon.rasterAnalyzePath !== "function") {
+      throw new Error(`N-API addon ${addonPath} lacks rasterAnalyzePath; rebuild or update it`);
+    }
     const binding = {
       renderFilenameTemplate: wrap((args) => addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined })),
       validateFilename: wrap((name) => addon.validateFilename(name)),
