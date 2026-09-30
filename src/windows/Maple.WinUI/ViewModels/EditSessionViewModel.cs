@@ -172,6 +172,10 @@ namespace Maple.WinUI.ViewModels
                 OpenForEditing(value);
             else
             {
+                _photoOpenVersion++;
+                AdjustmentsReady = false;
+                HasSidecarLoadError = false;
+                IsDecoding = false;
                 Interlocked.Increment(ref _decodeGeneration);
                 CancelActiveDecode();
                 Renderer.SetImage(null);
@@ -184,6 +188,10 @@ namespace Maple.WinUI.ViewModels
             _undoTimer = null;
             FlushSidecarNow();
             PublishPendingCloudPreview();
+            _photoOpenVersion++;
+            AdjustmentsReady = false;
+            HasSidecarLoadError = false;
+            SidecarLoadError = string.Empty;
             _openPhoto = photo;
             _sidecarDirty = false;
             _decodedPhoto = null;
@@ -224,6 +232,7 @@ namespace Maple.WinUI.ViewModels
                 photo.ColorLabel = pending.ColorLabel;
             }
             Adjustments = doc?.Adjustments ?? new AdjustmentState();
+            AdjustmentsReady = true;
             _originalModel = Adjustments.Clone();
             OpeningSnapshotVersion++;
             _undoBaseline = Adjustments.Clone();
@@ -259,7 +268,7 @@ namespace Maple.WinUI.ViewModels
             var photo = SelectedPhoto;
             if (photo == null || ReferenceEquals(_decodedPhoto, photo))
                 return;
-            if (photo.IsCloud && photo.LocalCachePath == null)
+            if (photo.IsCloud)
             {
                 _ = DownloadThenDecodeAsync(photo);
                 return;
@@ -276,6 +285,11 @@ namespace Maple.WinUI.ViewModels
         private void DecodeCurrent(PhotoItem photo)
         {
             if (_disposed) return;
+            if (photo.IsCloud && photo.LocalCachePath == null)
+            {
+                EnsureDecoded();
+                return;
+            }
             ResetLensProfileState();   // #3480 — EditSessionViewModel.LensProfile.cs
             RefreshLensProfileChoices(photo);   // #3568 — the profile dropdown's option list
             var generation = Interlocked.Increment(ref _decodeGeneration);
@@ -338,6 +352,8 @@ namespace Maple.WinUI.ViewModels
         /// point another host wrote.</summary>
         public void ApplyAuto()
         {
+            if (!AdjustmentsReady) return;
+            var version = _photoOpenVersion;
             var photo = SelectedPhoto;
             if (photo == null)
                 return;
@@ -352,6 +368,7 @@ namespace Maple.WinUI.ViewModels
                 }
                 OnUi(() =>
                 {
+                    if (version != _photoOpenVersion || !AdjustmentsReady) return;
                     CommitUndoBoundary();
                     var before = Adjustments.Clone();
                     Adjustments.Exposure = auto.exposure;
@@ -389,6 +406,7 @@ namespace Maple.WinUI.ViewModels
 
         private void ScheduleSidecarWrite()
         {
+            if (!AdjustmentsReady) return;
             _sidecarDirty = true;
             _sidecarTimer?.Dispose();
             _sidecarTimer = new Timer(_ => FlushSidecarNow(), null, SidecarDebounceMs, Timeout.Infinite);

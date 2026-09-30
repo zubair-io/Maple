@@ -11,6 +11,7 @@ namespace Maple.WinUI.ViewModels
         /// any pending slider gesture before recording the profile change.</summary>
         public void SelectProfile(ProfileMode profile)
         {
+            if (!AdjustmentsReady) return;
             if (SelectedPhoto == null || Adjustments.Profile == profile
                 || !Enum.IsDefined(profile))
                 return;
@@ -40,6 +41,7 @@ namespace Maple.WinUI.ViewModels
         /// contract the web editor gives the pair.</summary>
         public void ApplyDecodeFieldEdit(Action<AdjustmentState> apply)
         {
+            if (!AdjustmentsReady) return;
             if (SelectedPhoto == null)
                 return;
 

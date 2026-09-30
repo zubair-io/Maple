@@ -824,10 +824,13 @@
                                     </Grid>
                                 </Border>
                                 <mui:MuiButton IconName="revert" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" Click="OnMenuUndo"
+                                               IsEnabled="{Binding AdjustmentsReady}"
                                                ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo adjustment" />
                                 <mui:MuiButton x:Name="CompareButton" IconName="split" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" Click="OnCompareClick"
+                                               IsEnabled="{Binding AdjustmentsReady}"
                                                ToolTipService.ToolTip="Tap to toggle; hold to peek (B or backslash). Before shows the state at open." AutomationProperties.Name="Compare before and after" />
                                 <mui:MuiButton x:Name="MoreEditActions" Label="…" Variant="Ghost" ButtonSize="Sm"
+                                               IsEnabled="{Binding AdjustmentsReady}"
                                                ToolTipService.ToolTip="More editing actions" AutomationProperties.Name="More editing actions">
                                     <mui:MuiButton.Flyout>
                                         <MenuFlyout>
@@ -858,13 +861,22 @@
                         <InfoBar x:Name="RenderErrorBar" Grid.Column="1" IsOpen="False" IsClosable="False"
                                  Severity="Error" Title="Preview unavailable" MaxWidth="640" Margin="16"
                                  HorizontalAlignment="Center" VerticalAlignment="Bottom" AutomationProperties.LiveSetting="Assertive" />
+                        <InfoBar Grid.Column="1" IsOpen="{Binding HasSidecarLoadError}" IsClosable="False"
+                                 Severity="Error" Title="Saved adjustments unavailable" Message="{Binding SidecarLoadError}"
+                                 MaxWidth="640" Margin="16" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                                 AutomationProperties.LiveSetting="Assertive">
+                            <InfoBar.ActionButton><Button Content="Retry" Click="OnRetryCloudSidecar"
+                                                         AutomationProperties.Name="Retry loading saved adjustments" /></InfoBar.ActionButton>
+                        </InfoBar>
                         <Border x:Name="EditRail" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F22A2724" BorderThickness="0" CornerRadius="12" Translation="0,0,24"
                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,100,16,16"
                                 Width="80" Padding="8">
                             <Border.Shadow><ThemeShadow /></Border.Shadow>
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                                <StackPanel x:Name="EditRailStack" Spacing="4" />
+                                <ContentControl IsEnabled="{Binding AdjustmentsReady}" HorizontalContentAlignment="Stretch">
+                                    <StackPanel x:Name="EditRailStack" Spacing="4" />
+                                </ContentControl>
                             </ScrollViewer>
                         </Border>
 
@@ -875,6 +887,7 @@
                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,116,104,16"
                                 Padding="16,10">
                             <Border.Shadow><ThemeShadow /></Border.Shadow>
+                            <ContentControl IsEnabled="{Binding AdjustmentsReady}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
@@ -1024,6 +1037,7 @@
                                     </StackPanel>
                                 </ScrollViewer>
                             </Grid>
+                            </ContentControl>
                         </Border>
                     </Grid>
                 </Grid>

@@ -14,6 +14,7 @@ namespace Maple.WinUI.ViewModels
         /// the sidecar write (750ms per spec), debounce the undo commit.</summary>
         public void NotifyAdjustmentEdited()
         {
+            if (!AdjustmentsReady) return;
             Renderer.RequestRender(Adjustments.Clone());
             ScheduleSidecarWrite();
             _undoTimer?.Dispose();
@@ -70,6 +71,7 @@ namespace Maple.WinUI.ViewModels
 
         public void Undo()
         {
+            if (!AdjustmentsReady) return;
             _adjustmentGestureActive = false;
             _undoTimer?.Dispose();
             _undoTimer = null;
@@ -88,6 +90,7 @@ namespace Maple.WinUI.ViewModels
 
         public void Redo()
         {
+            if (!AdjustmentsReady) return;
             _adjustmentGestureActive = false;
             if (_redoStack.Count == 0)
                 return;
@@ -103,6 +106,7 @@ namespace Maple.WinUI.ViewModels
         /// identity. Pushes the current state so it is undoable.</summary>
         public void ResetToDefaults()
         {
+            if (!AdjustmentsReady) return;
             var before = Adjustments;
             _undoStack.Add(Adjustments.Clone());
             Adjustments = new AdjustmentState
@@ -118,6 +122,7 @@ namespace Maple.WinUI.ViewModels
         /// restores the model loaded at open.</summary>
         public void RevertToOriginal()
         {
+            if (!AdjustmentsReady) return;
             if (_originalModel == null)
                 return;
             var before = Adjustments;

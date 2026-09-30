@@ -51,6 +51,7 @@ namespace Maple.WinUI
         }
 
         private void OnApplyAuto(object sender, RoutedEventArgs e) => ViewModel.ApplyAuto();
+        private async void OnRetryCloudSidecar(object sender, RoutedEventArgs e) => await ViewModel.RetryCloudSidecarAsync();
         private void OnResetAll(object sender, RoutedEventArgs e) => ViewModel.ResetToDefaults();
         private void OnRevert(object sender, RoutedEventArgs e) => ViewModel.RevertToOriginal();
 
