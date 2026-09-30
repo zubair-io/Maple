@@ -130,6 +130,7 @@ jobs:
       NEXT_VERSION: ${{ inputs.next_version }}
       ADVANCE_ONLY: ${{ inputs.advance_only }}
       RELEASE_SHA: ${{ github.sha }}
+      REPOSITORY_OWNER: ${{ github.repository_owner }}
       VALIDATED_APPLE_SHA: ${{ needs.validate-apple.outputs.validated_sha }}
       VALIDATED_PACKAGES_SHA: ${{ needs.validate-packages.outputs.validated_sha }}
     steps:
@@ -146,8 +147,9 @@ jobs:
           bun-version: latest
       - name: Create release handoff
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          owner_name=$(gh api "users/$REPOSITORY_OWNER" --jq '.name // .login')
+          git config user.name "$owner_name"
+          git config user.email "$REPOSITORY_OWNER@users.noreply.github.com"
           command=release
           if [ "$ADVANCE_ONLY" = true ]; then command=advance; fi
           python3 tools/release_control.py "$command" --next-version "$NEXT_VERSION" --release-sha "$RELEASE_SHA"
