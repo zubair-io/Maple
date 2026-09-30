@@ -5,16 +5,16 @@
 //! the package exists so a caller can swap `sharp` for `maple` and get the
 //! same bytes out, and libvips composites in the working colourspace.
 //!
-//! The formulae are Porter-Duff / PDF separable blending on premultiplied
-//! values in `[0, 1]`:
+//! Porter-Duff and libvips separable blending use premultiplied values.
+//! Add retains values above 1 until the final output quantization:
 //!
 //! ```text
 //! over:     Co = Cs + Cb·(1 - As)                 Ao = As + Ab·(1 - As)
-//! add:      Co = min(1, Cs + Cb)                  Ao = min(1, As + Ab)
+//! add:      Co = Cs + Cb                          Ao = min(1, As + Ab)
 //! dest-in:  Co = Cb·As                            Ao = Ab·As
 //! dest-out: Co = Cb·(1 - As)                      Ao = Ab·(1 - As)
-//! separable (multiply, screen, darken, lighten), on STRAIGHT values cs, cb:
-//!           Co = (1-Ab)·Cs + (1-As)·Cb + As·Ab·B(cb, cs)
+//! separable (multiply, screen, darken, lighten), matching libvips:
+//!           Co = (1-Ab)·Cs + (1-As)·Cb + As·Ab·B(Cb, Cs)
 //!           Ao = As + Ab·(1 - As)
 //! ```
 
@@ -52,7 +52,7 @@ impl BlendMode {
         }
     }
 
-    /// Separable blend function `B(cb, cs)` on straight values in `[0, 1]`.
+    /// Separable blend function on premultiplied values, matching libvips.
     /// `None` for the modes that are not separable (they are handled
     /// directly on premultiplied values).
     fn separable(self) -> Option<fn(f32, f32) -> f32> {
@@ -164,14 +164,37 @@ fn to_byte(v: f32) -> u8 {
     (v.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-/// Blend one straight-alpha source pixel onto one straight-alpha base pixel.
-fn blend_pixel(base: [u8; 4], src: [u8; 4], mode: BlendMode) -> [u8; 4] {
-    let ab = to_unit(base[3]);
-    let a_s = to_unit(src[3]);
-    let cb = [0, 1, 2].map(|i| to_unit(base[i]));
+fn premultiply(pixel: &[u8]) -> [f32; 4] {
+    let alpha = if pixel.len() == 4 {
+        to_unit(pixel[3])
+    } else {
+        1.0
+    };
+    [
+        to_unit(pixel[0]) * alpha,
+        to_unit(pixel[1]) * alpha,
+        to_unit(pixel[2]) * alpha,
+        alpha,
+    ]
+}
+
+fn unpremultiply(pixel: [f32; 4]) -> [u8; 4] {
+    if pixel[3] <= 0.0 {
+        return [0, 0, 0, 0];
+    }
+    [
+        to_byte(pixel[0] / pixel[3]),
+        to_byte(pixel[1] / pixel[3]),
+        to_byte(pixel[2] / pixel[3]),
+        to_byte(pixel[3]),
+    ]
+}
+
+fn blend_pixel(base: [f32; 4], src: &[u8], mode: BlendMode) -> [f32; 4] {
+    let ab = base[3];
+    let a_s = if src.len() == 4 { to_unit(src[3]) } else { 1.0 };
     let cs = [0, 1, 2].map(|i| to_unit(src[i]));
-    // Premultiplied.
-    let pb = cb.map(|c| c * ab);
+    let pb = [base[0], base[1], base[2]];
     let ps = cs.map(|c| c * a_s);
 
     let (ao, po) = match mode {
@@ -179,10 +202,7 @@ fn blend_pixel(base: [u8; 4], src: [u8; 4], mode: BlendMode) -> [u8; 4] {
             a_s + ab * (1.0 - a_s),
             [0, 1, 2].map(|i| ps[i] + pb[i] * (1.0 - a_s)),
         ),
-        BlendMode::Add => (
-            (a_s + ab).min(1.0),
-            [0, 1, 2].map(|i| (ps[i] + pb[i]).min(1.0)),
-        ),
+        BlendMode::Add => ((a_s + ab).min(1.0), [0, 1, 2].map(|i| ps[i] + pb[i])),
         BlendMode::DestIn => (ab * a_s, [0, 1, 2].map(|i| pb[i] * a_s)),
         BlendMode::DestOut => (ab * (1.0 - a_s), [0, 1, 2].map(|i| pb[i] * (1.0 - a_s))),
         other => {
@@ -193,65 +213,104 @@ fn blend_pixel(base: [u8; 4], src: [u8; 4], mode: BlendMode) -> [u8; 4] {
             (
                 a_s + ab * (1.0 - a_s),
                 [0, 1, 2]
-                    .map(|i| (1.0 - ab) * ps[i] + (1.0 - a_s) * pb[i] + a_s * ab * f(cb[i], cs[i])),
+                    .map(|i| (1.0 - ab) * ps[i] + (1.0 - a_s) * pb[i] + a_s * ab * f(pb[i], ps[i])),
             )
         }
     };
 
-    if ao <= 0.0 {
-        return [0, 0, 0, 0];
-    }
-    let out = [0, 1, 2].map(|i| to_byte(po[i] / ao));
-    [out[0], out[1], out[2], to_byte(ao)]
+    [po[0], po[1], po[2], ao]
 }
 
 /// Composite `layers` onto `base`, in order. The result always carries an
 /// alpha channel; callers that want RGB out run `remove_alpha` or `flatten`
 /// afterwards (the recipe executor does exactly that at encode time).
 pub fn composite(base: &RasterImage, layers: &[CompositeLayer<'_>]) -> Result<RasterImage> {
+    let placements = layers
+        .iter()
+        .map(|layer| prepare_layer(base, layer))
+        .collect::<Result<Vec<_>>>()?;
     let mut out = base.ensure_alpha(255);
-    let (bw, bh) = (out.width as i64, out.height as i64);
-    for layer in layers {
-        if layer.image.width == 0 || layer.image.height == 0 {
-            return Err(Error::Decode {
-                path: "<memory>".into(),
-                reason: format!(
-                    "composite layer has zero size ({}x{})",
-                    layer.image.width, layer.image.height
-                ),
-            });
-        }
-        if layer.image.width > out.width || layer.image.height > out.height {
-            return Err(Error::Decode {
-                path: "<memory>".into(),
-                reason: format!(
-                    "composite layer {}x{} is larger than the base {}x{}",
-                    layer.image.width, layer.image.height, out.width, out.height
-                ),
-            });
-        }
-        let src = layer.image.ensure_alpha(255);
-        let (ox, oy) = match (layer.left, layer.top) {
-            (Some(x), Some(y)) => (x, y),
-            (None, None) => layer
-                .gravity
-                .place_crop((out.width, out.height), (src.width, src.height)),
-            (Some(_), None) | (None, Some(_)) => {
-                return Err(Error::Decode {
-                    path: "<memory>".into(),
-                    reason: "composite: a layer must set both left and top, or neither".into(),
-                });
+    if layers.is_empty() || out.data.is_empty() {
+        return Ok(out);
+    }
+    const CHUNK_PIXELS: usize = 4096;
+    let mut row = vec![[0.0; 4]; (base.width as usize).min(CHUNK_PIXELS)];
+    for (y, bytes) in out
+        .data
+        .chunks_exact_mut(base.width as usize * 4)
+        .enumerate()
+    {
+        for (chunk, bytes) in bytes.chunks_mut(CHUNK_PIXELS * 4).enumerate() {
+            let row = &mut row[..bytes.len() / 4];
+            for (pixel, accumulated) in bytes.chunks_exact(4).zip(row.iter_mut()) {
+                *accumulated = premultiply(pixel);
             }
-        };
-        let steps_x = tile_steps(ox, src.width as i64, bw, layer.tile)?;
-        let steps_y = tile_steps(oy, src.height as i64, bh, layer.tile)?;
-        for &ty in &steps_y {
-            for &tx in &steps_x {
-                blend_at(&mut out, &src, tx, ty, layer.blend);
+            for placement in &placements {
+                blend_row(row, (chunk * CHUNK_PIXELS) as i64, y as i64, placement);
+            }
+            for (pixel, accumulated) in bytes.chunks_exact_mut(4).zip(row.iter()) {
+                pixel.copy_from_slice(&unpremultiply(*accumulated));
             }
         }
     }
     Ok(out)
+}
+
+struct PlacedLayer<'a> {
+    image: &'a RasterImage,
+    ox: i64,
+    oy: i64,
+    blend: BlendMode,
+    tile: bool,
+}
+
+fn prepare_layer<'a>(base: &RasterImage, layer: &CompositeLayer<'a>) -> Result<PlacedLayer<'a>> {
+    if layer.image.width == 0 || layer.image.height == 0 {
+        return Err(Error::Decode {
+            path: "<memory>".into(),
+            reason: format!(
+                "composite layer has zero size ({}x{})",
+                layer.image.width, layer.image.height
+            ),
+        });
+    }
+    if layer.image.width > base.width || layer.image.height > base.height {
+        return Err(Error::Decode {
+            path: "<memory>".into(),
+            reason: format!(
+                "composite layer {}x{} is larger than the base {}x{}",
+                layer.image.width, layer.image.height, base.width, base.height
+            ),
+        });
+    }
+    let src = layer.image;
+    let (ox, oy) = match (layer.left, layer.top) {
+        (Some(x), Some(y)) => (x, y),
+        (None, None) => layer
+            .gravity
+            .place_crop((base.width, base.height), (src.width, src.height)),
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(Error::Decode {
+                path: "<memory>".into(),
+                reason: "composite: a layer must set both left and top, or neither".into(),
+            });
+        }
+    };
+    let (ox, oy) = if layer.tile {
+        (
+            tile_origin(ox, src.width as i64, base.width as i64)?,
+            tile_origin(oy, src.height as i64, base.height as i64)?,
+        )
+    } else {
+        (ox, oy)
+    };
+    Ok(PlacedLayer {
+        image: src,
+        ox,
+        oy,
+        blend: layer.blend,
+        tile: layer.tile,
+    })
 }
 
 /// A caller-supplied `left`/`top` on a `tile: true` layer is untrusted input
@@ -266,34 +325,11 @@ fn offset_overflow(origin: i64, dim: i64, extent: i64) -> Error {
     }
 }
 
-/// Tile origins along one axis that replicate a `dim`-sized overlay to cover
-/// the WHOLE `[0, extent)` canvas, not just from the placed `origin`
-/// forward — matching sharp/libvips, which tile the overlay across the
-/// entire base regardless of gravity or offset. Origins are
-/// `origin − k·dim` for the smallest `k` that brings the first tile at or
-/// before 0, continuing rightward/downward until the far edge is covered.
-/// When `tile` is false this is just `[origin]` — no arithmetic, so an
-/// out-of-range `origin` alone can't overflow here (`blend_at` clips it).
-/// `dim` is always positive — `composite` rejects a zero-size overlay before
-/// this runs. Every step uses checked arithmetic and returns an error
-/// instead of wrapping or panicking on a hostile `origin` (#3505).
-fn tile_steps(origin: i64, dim: i64, extent: i64, tile: bool) -> Result<Vec<i64>> {
-    if !tile {
-        return Ok(vec![origin]);
-    }
+fn tile_origin(origin: i64, dim: i64, extent: i64) -> Result<i64> {
     let overflow = || offset_overflow(origin, dim, extent);
     let k = ceil_div(origin, dim).ok_or_else(overflow)?;
     let offset = k.checked_mul(dim).ok_or_else(overflow)?;
-    let first = origin.checked_sub(offset).ok_or_else(overflow)?;
-    let span = extent.checked_sub(first).ok_or_else(overflow)?;
-    let count = ceil_div(span, dim).ok_or_else(overflow)?.max(0);
-    (0..count)
-        .map(|i| {
-            i.checked_mul(dim)
-                .and_then(|step| first.checked_add(step))
-                .ok_or_else(overflow)
-        })
-        .collect()
+    origin.checked_sub(offset).ok_or_else(overflow)
 }
 
 /// `ceil(a / b)` for `b > 0`, any sign of `a` (`i64::div_ceil` is unstable).
@@ -308,38 +344,40 @@ fn ceil_div(a: i64, b: i64) -> Option<i64> {
     }
 }
 
-/// Blend `src` onto `dst` with its top-left corner at `(ox, oy)`, clipping to
-/// the destination on every edge (negative offsets included).
-fn blend_at(dst: &mut RasterImage, src: &RasterImage, ox: i64, oy: i64, mode: BlendMode) {
-    let dw = dst.width as i64;
-    let dh = dst.height as i64;
-    for sy in 0..src.height as i64 {
-        let dy = oy + sy;
-        if dy < 0 || dy >= dh {
-            continue;
-        }
-        for sx in 0..src.width as i64 {
-            let dx = ox + sx;
-            if dx < 0 || dx >= dw {
-                continue;
-            }
-            let si = ((sy * src.width as i64 + sx) * 4) as usize;
-            let di = ((dy * dw + dx) * 4) as usize;
-            let s = [
-                src.data[si],
-                src.data[si + 1],
-                src.data[si + 2],
-                src.data[si + 3],
-            ];
-            let b = [
-                dst.data[di],
-                dst.data[di + 1],
-                dst.data[di + 2],
-                dst.data[di + 3],
-            ];
-            let blended = blend_pixel(b, s, mode);
-            dst.data[di..di + 4].copy_from_slice(&blended);
-        }
+fn blend_row(row: &mut [[f32; 4]], x0: i64, y: i64, layer: &PlacedLayer<'_>) {
+    let src = layer.image;
+    let sy = if layer.tile {
+        (y - layer.oy).rem_euclid(src.height as i64)
+    } else {
+        let Some(sy) = y
+            .checked_sub(layer.oy)
+            .filter(|sy| (0..src.height as i64).contains(sy))
+        else {
+            return;
+        };
+        sy
+    };
+    let x1 = x0 + row.len() as i64;
+    let (start, end) = if layer.tile {
+        (x0, x1)
+    } else {
+        (
+            layer.ox.clamp(x0, x1),
+            layer.ox.saturating_add(src.width as i64).clamp(x0, x1),
+        )
+    };
+    for x in start..end {
+        let sx = if layer.tile {
+            (x - layer.ox).rem_euclid(src.width as i64)
+        } else {
+            x - layer.ox
+        };
+        let si = ((sy * src.width as i64 + sx) * src.channels as i64) as usize;
+        row[(x - x0) as usize] = blend_pixel(
+            row[(x - x0) as usize],
+            &src.data[si..si + src.channels as usize],
+            layer.blend,
+        );
     }
 }
 
