@@ -32,6 +32,17 @@ public sealed partial class MainWindow
 
         public MetadataFields()
         {
+            Preview.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
+                <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                              xmlns:mui="using:Maple.UI.Atoms">
+                    <mui:MuiText Text="{Binding}" Variant="Body" HorizontalAlignment="Stretch" />
+                </DataTemplate>
+                """);
+            var rowStyle = new Style(typeof(ListViewItem));
+            rowStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+            Preview.ItemContainerStyle = rowStyle;
+            ScrollViewer.SetHorizontalScrollMode(Preview, ScrollMode.Disabled);
+            ScrollViewer.SetHorizontalScrollBarVisibility(Preview, ScrollBarVisibility.Disabled);
             Root.Children.Add(_current);
             var choices = new Grid { ColumnSpacing = 12, RowSpacing = 10 };
             choices.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });

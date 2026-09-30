@@ -309,7 +309,6 @@ namespace Maple.WinUI.ViewModels
         /// server-side metadata this app doesn't model.</summary>
         private Services.Xmp.XmpSidecarDocument? _cloudDoc;
         private Task _cloudSidecarLoad = Task.CompletedTask;
-        private Exception? _cloudSidecarLoadError;
         /// <summary>Cloud photo whose developed preview should re-publish when
         /// the session moves off it (set on every cloud adjustment flush).</summary>
         private PhotoItem? _cloudPreviewPending;
@@ -318,7 +317,6 @@ namespace Maple.WinUI.ViewModels
         /// No sidecar (404) keeps the default state.</summary>
         private async Task LoadCloudSidecarAsync(PhotoItem photo)
         {
-            _cloudSidecarLoadError = null;
             if (_cloud == null)
                 return;
             try
@@ -327,7 +325,7 @@ namespace Maple.WinUI.ViewModels
                 if (xml == null || !ReferenceEquals(_openPhoto, photo))
                     return;
                 var doc = Services.Xmp.XmpParser.Parse(xml) ?? throw new InvalidOperationException("The server sidecar is invalid.");
-                OnUi(() =>
+                await OnUiAcknowledgedAsync(() =>
                 {
                     if (!ReferenceEquals(_openPhoto, photo))
                         return;
@@ -345,7 +343,11 @@ namespace Maple.WinUI.ViewModels
             }
             catch (Exception ex)
             {
-                if (ReferenceEquals(_openPhoto, photo)) _cloudSidecarLoadError = ex;
+                OnUi(() =>
+                {
+                    if (ReferenceEquals(_openPhoto, photo))
+                        CloudStatus = $"Could not load photo sidecar: {ex.Message}";
+                });
                 DiagLog.Write($"[cloud] sidecar fetch failed for {photo.FileName}: {ex.Message}");
             }
         }
@@ -486,7 +488,7 @@ namespace Maple.WinUI.ViewModels
                 // Failed writes leave the last acknowledged culling state visible.
                 // Patch only the requested field so a stale search-feed value
                 // cannot overwrite unrelated metadata stored by another client.
-                OnUi(() =>
+                await OnUiAcknowledgedAsync(() =>
                 {
                     if (patch.Rating != null) photo.Rating = saved.Rating;
                     if (patch.Flag != null) photo.FlagStatus = saved.Flag;

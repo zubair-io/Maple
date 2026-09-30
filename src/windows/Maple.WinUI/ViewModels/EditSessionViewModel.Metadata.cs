@@ -26,8 +26,9 @@ public partial class EditSessionViewModel
         if (_openPhoto?.IsCloud == true)
         {
             await _cloudSidecarLoad;
-            if (_cloudSidecarLoadError != null)
-                throw new InvalidOperationException("Opening cloud metadata failed: " + _cloudSidecarLoadError.Message);
+            // The dialog performs its own strict, fresh read below. An earlier
+            // preview-sidecar fetch failure must not permanently poison Retry.
+            // Wait for that fetch so it cannot publish stale culling after us.
         }
         _sidecarTimer?.Dispose();
         // The modal prevents edits while this runs. Flush the previous
@@ -37,5 +38,22 @@ public partial class EditSessionViewModel
         if (_localMetadataError != null)
             throw new InvalidOperationException("Pending adjustment save failed: " + _localMetadataError.Message);
         await _cloudMetadataWrites.DrainAsync(retryFailed: true);
+    }
+
+    private static Task OnUiAcknowledgedAsync(Action action)
+    {
+        var queue = App.MainDispatcherQueue;
+        if (queue == null || queue.HasThreadAccess)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!queue.TryEnqueue(() =>
+        {
+            try { action(); completion.SetResult(); }
+            catch (Exception error) { completion.SetException(error); }
+        })) completion.SetException(new InvalidOperationException("The window closed before metadata could be refreshed."));
+        return completion.Task;
     }
 }
