@@ -9,6 +9,17 @@ namespace Maple.WinUI.Tests
 {
     public sealed class CameraSupportRegistryTests
     {
+        [Theory]
+        [InlineData("bayer")]
+        [InlineData("xtrans")]
+        [InlineData("linear_rgb")]
+        [InlineData("future_sensor")]
+        public void SensorLayoutRetainsNativeFacts(string layout)
+        {
+            var json = "{\"cameraKey\":\"Unknown camera\",\"resolution\":\"embedded_cm_only\",\"lens\":\"no_correction_data\",\"sensorLayout\":\"" + layout + "\"}";
+            Assert.Equal(layout, CameraSupportMetadata.Parse(json).SensorLayout);
+        }
+
         [Fact]
         public void UncalibratedFileCannotInheritTheCameraNamesProfiledTier()
         {
@@ -30,6 +41,7 @@ namespace Maple.WinUI.Tests
         {
             var support = CameraSupportMetadata.Parse("""{"cameraKey":"Unknown camera","resolution":"embedded_cm_only","lens":"no_correction_data"}""");
             Assert.Equal(CameraTier.MatrixOnly, support.Tier);
+            Assert.Equal("unknown", support.SensorLayout);
             Assert.Equal(LensSupport.NoCorrectionData, support.Lens);
             Assert.Equal(CameraSupportRegistry.Explanation(CameraTier.MatrixOnly), support.Explanation);
             Assert.Equal(CameraSupportRegistry.Explanation(LensSupport.NoCorrectionData), support.LensExplanation);

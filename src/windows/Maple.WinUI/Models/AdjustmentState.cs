@@ -8,6 +8,8 @@ namespace Maple.WinUI.Models
     public enum ProfileMode { Auto, Neutral }
     public enum ToneCurveMode { PerChannel, RatioPreserving }
     public enum ToggleMode { Off, On }
+    // Canonical raw-core/types/adjustment/demosaic_choice.rs wire values.
+    public enum DemosaicChoice { Auto, Amaze, Rcd, DualAmaze, DualRcd, Lmmse }
 
     /// <summary>Where the white balance came from (#2434) — raw-core's
     /// `WbSource`, Swift's `WbSource`, TS's `WbSource` union. The member
@@ -97,6 +99,9 @@ namespace Maple.WinUI.Models
         public double SharpenRadius = 1.0;           // [0.5, 3]
         public double SharpenDetail = 25.0;          // [0, 100]
         public double SharpenMasking = 0.0;
+        // #3883: retain future imported choices verbatim, even when this
+        // host's capability-aware Detail picker cannot offer that kernel.
+        public string Demosaic = nameof(DemosaicChoice.Auto);
         public double CaptureSharpeningAmount = 0.0;
         public double CaptureSharpeningSigma = 1.0;  // [0.5, 2]
 

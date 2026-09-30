@@ -11,6 +11,7 @@ namespace Maple.WinUI.Services
     /// exclusively from the generated evidence registry, never from EXIF names.</summary>
     public sealed record CameraSupportMetadata(string CameraKey, ProfileResolution Resolution, LensSupport Lens)
     {
+        public string SensorLayout { get; init; } = "unknown";
         public CameraTier Tier => CameraSupportRegistry.TierFor(CameraKey, Resolution);
         public string Label => CameraSupportRegistry.Label(Tier);
         public string Explanation => CameraSupportRegistry.Explanation(Tier);
@@ -24,7 +25,11 @@ namespace Maple.WinUI.Services
             return new CameraSupportMetadata(
                 root.GetProperty("cameraKey").GetString() ?? throw new JsonException("Camera key missing"),
                 CameraSupportRegistry.ParseResolution(root.GetProperty("resolution").GetString() ?? ""),
-                CameraSupportRegistry.ParseLens(root.GetProperty("lens").GetString() ?? ""));
+                CameraSupportRegistry.ParseLens(root.GetProperty("lens").GetString() ?? ""))
+            {
+                SensorLayout = root.TryGetProperty("sensorLayout", out var layout)
+                    ? layout.GetString() ?? "unknown" : "unknown",
+            };
         }
 
         // A decoded image remains usable when the optional native metadata ABI

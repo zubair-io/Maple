@@ -10,6 +10,7 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderSupport {
     pub camera_key: String,
+    pub sensor_layout: &'static str,
     pub resolution: ProfileResolution,
     pub lens: LensSupport,
 }
@@ -24,6 +25,11 @@ impl RenderSupport {
     pub fn from_source(raw: &RawImage, source: &dcp::ProfileSource) -> Self {
         Self {
             camera_key: profile_loader::camera_key_for(raw).unique_camera_model,
+            sensor_layout: match raw.cfa {
+                crate::image::CfaPattern::XTrans(_) => "xtrans",
+                crate::image::CfaPattern::LinearRgb => "linear_rgb",
+                _ => "bayer",
+            },
             resolution: ProfileResolution::from(source),
             lens: if raw.has_lens_corrections() {
                 LensSupport::EmbeddedCorrection
@@ -38,6 +44,7 @@ impl RenderSupport {
     pub fn to_json(&self) -> String {
         serde_json::json!({
             "cameraKey": self.camera_key,
+            "sensorLayout": self.sensor_layout,
             "resolution": self.resolution.id(),
             "lens": self.lens.id(),
         })
@@ -83,6 +90,24 @@ mod tests {
             opcode_list3: None,
             aperture: None,
             focal_length: None,
+        }
+    }
+
+    #[test]
+    fn sensor_layout_reports_actual_cfa_without_camera_name_inference() {
+        for (cfa, expected) in [
+            (CfaPattern::Rggb, "bayer"),
+            (CfaPattern::Bggr, "bayer"),
+            (CfaPattern::Grbg, "bayer"),
+            (CfaPattern::Gbrg, "bayer"),
+            (CfaPattern::XTrans([0; 36]), "xtrans"),
+            (CfaPattern::LinearRgb, "linear_rgb"),
+        ] {
+            let mut raw = raw();
+            raw.cfa = cfa;
+            let support = RenderSupport::resolve(&raw).unwrap();
+            let wire: serde_json::Value = serde_json::from_str(&support.to_json()).unwrap();
+            assert_eq!(wire["sensorLayout"], expected);
         }
     }
 

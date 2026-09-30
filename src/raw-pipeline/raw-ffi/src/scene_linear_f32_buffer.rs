@@ -100,6 +100,7 @@ mod tests {
     #[test]
     fn support_json_escapes_camera_key_nul_for_ffi() {
         let support = raw_core::support_tiers::RenderSupport {
+            sensor_layout: "bayer",
             camera_key: "Camera\0Body\n\t\"\\".into(),
             resolution: raw_core::support_tiers::ProfileResolution::RawlerFallback,
             lens: raw_core::support_tiers::LensSupport::NoCorrectionData,

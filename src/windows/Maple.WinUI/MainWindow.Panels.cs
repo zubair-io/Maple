@@ -442,6 +442,8 @@ namespace Maple.WinUI
                 : _activeGroup;
             foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, sectionTitle).Sliders)
                 slider.Reset();
+            if (sectionTitle == "Detail" && ViewModel.Adjustments.Demosaic != "Auto")
+                ViewModel.ApplyDecodeFieldEdit(model => model.Demosaic = "Auto");
             if (sectionTitle == "B&W")
                 ViewModel.BlackWhiteOn = false;
         }

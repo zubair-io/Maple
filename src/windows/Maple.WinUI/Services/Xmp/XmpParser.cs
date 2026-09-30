@@ -34,7 +34,7 @@ namespace Maple.WinUI.Services.Xmp
                 "papp:WbScaleVersion",
                 "crs:Version", "crs:ProcessVersion", "crs:HasSettings",
                 "papp:HighlightRecoveryMode", "papp:AutoExposure",
-                "papp:Look", "papp:Profile", "papp:FilmLook",
+                "papp:Look", "papp:Profile", "papp:FilmLook", "papp:Demosaic",
                 "papp:HotPixelSuppression", "crs:LensProfileEnable",
                 "papp:LensProfile",
                 "crs:AutoLateralCA",
@@ -173,6 +173,10 @@ namespace Maple.WinUI.Services.Xmp
                         break;
                     case "papp:FilmLook":
                         state.FilmLook = attr.Value;
+                        break;
+                    case "papp:Demosaic":
+                        state.Demosaic = Enum.GetNames<DemosaicChoice>().FirstOrDefault(
+                            value => string.Equals(value, attr.Value, StringComparison.OrdinalIgnoreCase)) ?? attr.Value;
                         break;
                     case "papp:Profile":
                         profileSeen = true;

@@ -87,6 +87,8 @@ namespace Maple.WinUI
 
         private void OnCurrentPhotoPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
+            if (ReferenceEquals(sender, ViewModel.SelectedPhoto) && e.PropertyName == nameof(PhotoItem.CameraSupport))
+                SyncDemosaicPanel();
             if (ReferenceEquals(sender, ViewModel.SelectedPhoto)) RefreshPhotoInfo();
             if (e.PropertyName is not (nameof(PhotoItem.PreviewPath) or nameof(PhotoItem.ThumbnailPath)))
                 return;

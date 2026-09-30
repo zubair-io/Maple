@@ -89,6 +89,8 @@ namespace Maple.WinUI.Services.Xmp
             }
             // Persist the selected intent even when it is the default (#2441).
             parts.Add($"papp:Profile=\"{state.Profile}\"");
+            if (state.Demosaic != nameof(DemosaicChoice.Auto))
+                parts.Add($"papp:Demosaic=\"{XmpSchema.EscapeAttr(state.Demosaic)}\"");
             if (!string.IsNullOrEmpty(state.FilmLook))
                 parts.Add($"papp:FilmLook=\"{XmpSchema.EscapeAttr(state.FilmLook)}\"");
             if (!string.IsNullOrEmpty(state.LensProfile))

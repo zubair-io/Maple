@@ -135,6 +135,7 @@ namespace Maple.WinUI
             BuildProfilePanel();
             BuildFilmPanel();
             BuildLensPanel();      // #3480 — MainWindow.LensProfile.cs
+            BuildDemosaicPanel();
             BuildCropPanel();
             BuildMaskPanel();
             MaybeStartQualifyRun();
@@ -144,6 +145,7 @@ namespace Maple.WinUI
                 if (_closing) return;
                 SyncProfilePanel();
                 SyncFilmPanel();
+                SyncDemosaicPanel();
                 SyncLensPanel();
                 SyncGradeWheels();
                 if (_activeGroup == "Tone Curve")
