@@ -15,6 +15,7 @@ public sealed partial class MainWindow
         ToggleGroupPanel("Heal");
         await ReadyAsync();
         await WaitAsync(() => RepairMap != null && _repairCanvas.Visibility == Microsoft.UI.Xaml.Visibility.Visible);
+        await VerifyRepairTransformsAsync();
         var invoke = (IInvokeProvider)new ButtonAutomationPeer(_repairAdd).GetPattern(PatternInterface.Invoke);
         invoke.Invoke();
         await WaitAsync(() => ViewModel.Adjustments.Retouch.Spots.Count == before.Spots.Count + 1);

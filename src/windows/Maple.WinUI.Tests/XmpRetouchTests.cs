@@ -16,7 +16,7 @@ namespace Maple.WinUI.Tests
 {
     public class XmpRetouchTests
     {
-        private static readonly string DocWithTwoSpots = string.Join("\n", new[]
+        internal static readonly string DocWithTwoSpots = string.Join("\n", new[]
         {
             "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>",
             "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">",

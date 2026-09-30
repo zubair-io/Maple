@@ -132,6 +132,8 @@ public sealed partial class MainWindow
     {
         if (!CanEditRepairs || !e.GetCurrentPoint(_repairCanvas).Properties.IsLeftButtonPressed
             || RepairPoint(e) is not { } point || RepairMap is not { } map) return;
+        // Leave numeric editing before canvas gestures so Delete/Undo target the repair.
+        ViewerScroll.Focus(FocusState.Pointer);
         _repairDraft = ViewModel.Adjustments.Retouch;
         _repairGesturePhoto = ViewModel.SelectedPhoto;
         _repairAnchor = point;
