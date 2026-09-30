@@ -456,7 +456,9 @@ export function loadNativeBinding(): NativeBinding {
       binding.rasterProbeMetadataBuf(bytes),
     ),
 
-    ...createRasterPipelineBinding(lib, ptr, getLastError),
+    ...createRasterPipelineBinding(lib, ptr, getLastError, (bytes) =>
+      binding.rasterProbeMetadataBuf(bytes),
+    ),
 
     ...createRasterAnalyzeBinding(lib, ptr, getLastError),
 

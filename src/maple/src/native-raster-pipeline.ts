@@ -5,6 +5,9 @@
  * C ABI and `raw-core/src/raster_recipe.rs` for the recipe schema.
  */
 
+import { initialPipelineCapacity } from './native-output-buffer';
+import type { RasterMetadataProbe } from './native-raster-v2';
+
 /** rc from the C ABI for "your buffer was too small; `*out_len` is the size". */
 const NEED_LARGER_BUFFER = 100;
 
@@ -28,6 +31,7 @@ export function createRasterPipelineBinding(
   lib: { symbols: Record<string, (...args: unknown[]) => unknown> },
   ptr: (buf: Uint8Array) => unknown,
   getLastError: () => string | null,
+  probeMetadata: (inputBytes: Uint8Array) => RasterMetadataProbe,
 ): RasterPipelineBinding {
   return {
     rasterPipelineBuf(input, recipeJson, aux) {
@@ -57,10 +61,10 @@ export function createRasterPipelineBinding(
         ok: false,
         error: getLastError() || `Raster pipeline failed with code ${rc}`,
       });
-      // One speculative call sized from the input, then at most one resize.
-      // A recipe that grows the image (extend, contain letterboxing) is the
-      // reason the first guess can fall short.
-      const first = Buffer.alloc(Math.max(65536, input.byteLength * 2));
+      // Size thumbnails from their target and full-size raw output from the
+      // source dimensions. Geometry/metadata that outgrows the first estimate
+      // still uses the existing exact-size retry reported by native code.
+      const first = Buffer.alloc(initialPipelineCapacity(input, recipeJson, probeMetadata));
       const rc0 = call(first);
       if (rc0 === 0) {
         return {
