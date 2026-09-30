@@ -90,10 +90,13 @@ pub(crate) fn validate_region(region: [f32; 4]) -> Result<(), String> {
 /// computed against. Needed to re-grade the composited patch coherently and to
 /// interpret legacy schema-2 edits. Accepted patch assets are durable and must
 /// not be evicted or silently regenerated.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BakeGrade {
+    #[serde(rename = "temp")]
     pub temperature: f32,
     pub tint: f32,
+    #[serde(rename = "ev")]
     pub exposure: f32,
 }
 
@@ -101,6 +104,8 @@ pub struct BakeGrade {
 /// sidecar; the patch *pixels* do not (they are referenced by `patch_ref`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Removal {
+    /// Present only for schema-3 accepted edits. None denotes legacy schema 2.
+    pub accepted: Option<super::accepted_removal::AcceptedRemoval>,
     /// Removal region in normalized full-image coords: `[x, y, w, h]` in `[0, 1]`.
     pub region: [f32; 4],
     /// Content hash of the baked patch asset (e.g. `"blake3:…"`), resolving to
@@ -141,15 +146,20 @@ pub fn decode_removals(s: &str) -> Result<Vec<Removal>, String> {
     Ok(out)
 }
 
-fn removal_to_json(r: &Removal) -> Value {
-    json!({
-        "schema": 2,
+pub(crate) fn removal_to_json(r: &Removal) -> Value {
+    let mut record = json!({
+        "schema": if r.accepted.is_some() { 3 } else { 2 },
         "kind": "removal",
         "region": [r.region[0], r.region[1], r.region[2], r.region[3]],
         "patch": r.patch_ref,
         "model": r.model_version,
         "bake": { "temp": r.bake.temperature, "tint": r.bake.tint, "ev": r.bake.exposure },
-    })
+    });
+    if let Some(accepted) = &r.accepted {
+        record["accepted"] =
+            serde_json::to_value(accepted).expect("accepted removal is serializable");
+    }
+    record
 }
 
 /// `Ok(Some)` = a recognized removal; `Ok(None)` = an element this build doesn't
@@ -164,11 +174,27 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
     }
     // Legacy records without a schema were accepted by the original reader.
     // A recognized future schema cannot safely be interpreted as schema 2.
-    if let Some(schema) = obj.get("schema") {
-        if schema.as_u64() != Some(2) {
-            return Err(format!("unsupported removal schema: {schema}"));
+    let schema = obj.get("schema").map(|v| v.as_u64()).unwrap_or(Some(2));
+    if let Some(value) = obj.get("schema") {
+        if schema != Some(2) && schema != Some(3) {
+            return Err(format!("unsupported removal schema: {value}"));
         }
     }
+    let accepted = if schema == Some(3) {
+        Some(
+            serde_json::from_value(
+                obj.get("accepted")
+                    .cloned()
+                    .ok_or_else(|| "schema-3 removal missing accepted metadata".to_string())?,
+            )
+            .map_err(|e| format!("invalid accepted removal: {e}"))?,
+        )
+    } else {
+        if obj.contains_key("accepted") {
+            return Err("legacy removal cannot contain accepted metadata".into());
+        }
+        None
+    };
     let region = region_from_json(obj.get("region"))?;
     let patch_ref = obj
         .get("patch")
@@ -182,6 +208,7 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
         .to_string();
     let bake = bake_from_json(obj.get("bake"))?;
     let removal = Removal {
+        accepted,
         region,
         patch_ref,
         model_version,
@@ -191,8 +218,19 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
     Ok(Some(removal))
 }
 
-fn validate_removal(removal: &Removal) -> Result<(), String> {
+pub(crate) fn validate_removal(removal: &Removal) -> Result<(), String> {
     validate_region(removal.region)?;
+    if let Some(accepted) = &removal.accepted {
+        accepted.validate()?;
+        super::accepted_removal::ContentDigest::parse(&removal.patch_ref)?;
+        if removal.region
+            != accepted
+                .patch_window
+                .region(accepted.source.width, accepted.source.height)
+        {
+            return Err("removal region disagrees with native patch geometry".into());
+        }
+    }
     if removal.patch_ref.trim().is_empty() || removal.model_version.trim().is_empty() {
         return Err("removal patch and model identities must be non-empty".into());
     }
@@ -244,6 +282,7 @@ mod tests {
 
     fn sample() -> Removal {
         Removal {
+            accepted: None,
             region: [0.25, 0.1, 0.5, 0.4],
             patch_ref: "blake3:deadbeef".to_string(),
             model_version: "lama-bigl-1".to_string(),
