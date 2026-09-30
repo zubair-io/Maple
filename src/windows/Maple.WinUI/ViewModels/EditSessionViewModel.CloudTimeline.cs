@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -12,16 +14,22 @@ namespace Maple.WinUI.ViewModels
     {
         [ObservableProperty] private bool _hasMoreTimeline;
         private string? _timelineCursor;
+        private int _timelinePage;
+        private CloudSearchQuery? _timelineQuery;
+        public bool IsServerSearch => _isCloudTimeline;
 
         public async Task LoadCloudTimelineAsync()
         {
             _libraryCts?.Cancel();
             _libraryCts = new CancellationTokenSource();
             _libraryWatcher?.Stop();
+            _timelineQuery = null;
             BeginBrowse(timeline: true);
             CurrentFolderPath = string.Empty;
             ActiveSectionName = "Timeline";
             _timelineCursor = null;
+            _timelinePage = 0;
+            _timelineQuery = CurrentTimelineQuery();
             if (_cloud == null || !CloudConnected)
             {
                 FinishBrowse(_libraryCts, "Connect to Maple Cloud to view your timeline.");
@@ -43,23 +51,89 @@ namespace Maple.WinUI.ViewModels
             var client = _cloud!;
             try
             {
-                var page = await client.GetTimelineAsync(_timelineCursor, owner.Token);
+                var page = await client.SearchAsync(_timelineQuery!, _timelinePage, _timelineCursor, owner.Token);
                 if (_libraryCts != owner || owner.IsCancellationRequested) return;
                 if (page == null) throw new InvalidOperationException("The server could not load the timeline.");
                 var items = page.NewPhotos(AllPhotos.Select(photo => photo.FilePath))
                     .Select(TimelinePhotoItem).ToList();
                 AllPhotos.AddRange(items);
-                _timelineCursor = page.NextCursor;
-                HasMoreTimeline = !string.IsNullOrEmpty(_timelineCursor);
+                _timelineCursor = page.CursorPaging ? page.NextCursor : null;
+                _timelinePage = page.Page + 1;
+                HasMoreTimeline = page.CursorPaging ? !string.IsNullOrEmpty(_timelineCursor)
+                    : page.Results.Length > 0 && (long)_timelinePage * page.Limit < page.Total;
                 ApplyFilters();
-                FinishBrowse(owner, string.Empty);
+                FinishBrowse(owner, AllPhotos.Count == 0 ? "No photos match these filters." : string.Empty);
                 _ = Task.Run(() => HydrateCloudThumbnailsAsync(items, owner.Token), owner.Token);
             }
             catch (OperationCanceledException) when (owner.IsCancellationRequested) { }
+            catch (HttpRequestException error)
+            {
+                var message = error.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
+                    ? "Sign in to Maple Cloud to search."
+                    : error.StatusCode == null ? "Cloud search is offline. Select Timeline to retry."
+                    : "Cloud search failed. Select Timeline to retry.";
+                FinishBrowse(owner, message);
+            }
             catch (Exception)
             {
                 FinishBrowse(owner, "Could not load the timeline. Select Timeline to retry.");
             }
+        }
+
+        private CloudSearchQuery CurrentTimelineQuery() => new()
+        {
+            Text = SearchText.Trim(),
+            MinimumRating = MinRatingFilter > 0 ? MinRatingFilter : null,
+            Flag = FlagFilter == "all" ? null : FlagFilter,
+            Extension = FormatFilter == "All" ? null : FormatFilter.ToLowerInvariant(),
+            From = DateFilterStart is { } start ? new DateTimeOffset(DateTime.SpecifyKind(start, DateTimeKind.Utc)) : null,
+            Through = DateFilterEndExclusive is { } end ? new DateTimeOffset(DateTime.SpecifyKind(end.AddMilliseconds(-1), DateTimeKind.Utc)) : null,
+            Sort = PhotoSort switch
+            {
+                BrowseSort.CapturedNewest => CloudSearchSort.CapturedDescending,
+                BrowseSort.CapturedOldest => CloudSearchSort.CapturedAscending,
+                BrowseSort.Rating => CloudSearchSort.Rating,
+                _ => CloudSearchSort.Name,
+            },
+        };
+
+        private bool RestartTimelineForChangedFilters()
+        {
+            if (!_isCloudTimeline || _timelineQuery == null) return false;
+            var query = CurrentTimelineQuery();
+            if (query == _timelineQuery) return false;
+            _libraryCts?.Cancel();
+            var owner = _libraryCts = new CancellationTokenSource();
+            _timelineQuery = query;
+            _timelinePage = 0;
+            _timelineCursor = null;
+            HasMoreTimeline = false;
+            SelectedPhoto = null;
+            SyncSelectedPhotos(Array.Empty<PhotoItem>());
+            AllPhotos.Clear();
+            Photos.Clear();
+            PhotoGroups.Clear();
+            HasPhotos = false;
+            IsLibraryLoading = true;
+            LibraryLoadStatus = "Searching Maple Cloud…";
+            _ = ReloadTimelineAfterDebounceAsync(owner);
+            return true;
+        }
+
+        private async Task ReloadTimelineAfterDebounceAsync(CancellationTokenSource owner)
+        {
+            try
+            {
+                await Task.Delay(300, owner.Token);
+                if (_libraryCts != owner || !_isCloudTimeline) return;
+                if (_cloud == null || !CloudConnected)
+                {
+                    FinishBrowse(owner, "Connect to Maple Cloud to search.");
+                    return;
+                }
+                await LoadTimelinePageAsync(owner);
+            }
+            catch (OperationCanceledException) when (owner.IsCancellationRequested) { }
         }
 
         private static PhotoItem TimelinePhotoItem(CloudTimelinePhoto image)

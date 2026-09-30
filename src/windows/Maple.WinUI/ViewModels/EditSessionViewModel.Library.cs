@@ -293,27 +293,30 @@ namespace Maple.WinUI.ViewModels
 
         public void ApplyFilters()
         {
+            if (RestartTimelineForChangedFilters()) return;
             var query = AllPhotos.AsEnumerable();
-            if (FormatFilter != "All")
-                query = query.Where(p => p.Format.Equals(FormatFilter, StringComparison.OrdinalIgnoreCase));
-            if (MinRatingFilter > 0)
-                query = query.Where(p => p.Rating >= MinRatingFilter);
-            if (FlagFilter == "pick")
-                query = query.Where(p => p.FlagStatus == "pick");
-            else if (FlagFilter == "reject")
-                query = query.Where(p => p.FlagStatus == "reject");
-            if (DateFilterStart is { } start && DateFilterEndExclusive is { } end)
-                query = query.Where(p =>
-                    TimelineViewModel.CaptureDay(p) >= start && TimelineViewModel.CaptureDay(p) < end);
-            if (!string.IsNullOrWhiteSpace(SearchText))
+            if (!_isCloudTimeline)
             {
-                var needle = SearchText.Trim();
-                query = query.Where(p =>
-                    p.FileName.Contains(needle, StringComparison.OrdinalIgnoreCase)
-                    || p.CameraModel.Contains(needle, StringComparison.OrdinalIgnoreCase)
-                    || p.LensInfo.Contains(needle, StringComparison.OrdinalIgnoreCase));
+                if (FormatFilter != "All")
+                    query = query.Where(p => p.Format.Equals(FormatFilter, StringComparison.OrdinalIgnoreCase));
+                if (MinRatingFilter > 0)
+                    query = query.Where(p => p.Rating >= MinRatingFilter);
+                if (FlagFilter == "pick")
+                    query = query.Where(p => p.FlagStatus == "pick");
+                else if (FlagFilter == "reject")
+                    query = query.Where(p => p.FlagStatus == "reject");
+                if (DateFilterStart is { } start && DateFilterEndExclusive is { } end)
+                    query = query.Where(p =>
+                        TimelineViewModel.CaptureDay(p) >= start && TimelineViewModel.CaptureDay(p) < end);
+                if (!string.IsNullOrWhiteSpace(SearchText))
+                {
+                    var needle = SearchText.Trim();
+                    query = query.Where(p =>
+                        p.FileName.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                        || p.CameraModel.Contains(needle, StringComparison.OrdinalIgnoreCase)
+                        || p.LensInfo.Contains(needle, StringComparison.OrdinalIgnoreCase));
+                }
             }
-
             // Two presentations (docs/spec/13-windows-shell.md, matching the
             // Mac BrowseGrid/AllSourcesTimeline split):
             //
@@ -330,7 +333,7 @@ namespace Maple.WinUI.ViewModels
             // both presentations.
             // Name/rating are global sorts. Date sections would otherwise make
             // the chosen ordering appear broken at every day boundary.
-            IsDateGrouped = (_isCloudTimeline || DateFilterStart != null) &&
+            IsDateGrouped = (!_isCloudTimeline || string.IsNullOrWhiteSpace(SearchText)) && (_isCloudTimeline || DateFilterStart != null) &&
                 PhotoSort is BrowseSort.CapturedNewest or BrowseSort.CapturedOldest;
             var groups = IsDateGrouped
                 ? query
@@ -367,7 +370,7 @@ namespace Maple.WinUI.ViewModels
         private PhotoDayGroup BuildFlatGroup(IEnumerable<PhotoItem> query)
         {
             var flat = new PhotoDayGroup();
-            foreach (var item in BrowseSortLogic.Order(query, PhotoSort))
+            foreach (var item in _isCloudTimeline ? query : BrowseSortLogic.Order(query, PhotoSort))
                 flat.Add(item);
             return flat;
         }
