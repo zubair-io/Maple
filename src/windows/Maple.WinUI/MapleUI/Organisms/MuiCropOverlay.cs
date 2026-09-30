@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.Foundation;
+using Windows.System;
 using Maple.UI.Atoms;
 
 namespace Maple.UI
@@ -83,14 +86,11 @@ namespace Maple.UI
         // Transparent (not null) background: a null-background Border only
         // hit-tests its 1px border stroke, which would make the drag-the-
         // region-body gesture ungrabbable everywhere but the frame line.
-        private readonly Border _region = new()
-        {
-            BorderThickness = new Thickness(1),
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
-        };
+        private readonly MuiCropTarget _region = new("Move crop region");
         private readonly Canvas _gridLines = new() { IsHitTestVisible = false };
-        private readonly List<Border> _handles = new();
-        private readonly Dictionary<Border, MuiCropHandle> _handleKind = new();
+        private readonly List<MuiCropTarget> _handles = new();
+        private readonly Dictionary<MuiCropTarget, MuiCropHandle> _handleKind = new();
+        private bool _keyboardGesture;
 
         private bool _draggingRegion;
         private MuiCropHandle? _draggingHandle;
@@ -99,6 +99,9 @@ namespace Maple.UI
 
         public MuiCropOverlay()
         {
+            _region.Frame.BorderThickness = new Thickness(1);
+            _region.Frame.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            WireKeyboard(_region, null);
             _canvas.Children.Add(_maskTop);
             _canvas.Children.Add(_maskBottom);
             _canvas.Children.Add(_maskLeft);
@@ -108,13 +111,14 @@ namespace Maple.UI
 
             foreach (MuiCropHandle kind in Enum.GetValues(typeof(MuiCropHandle)))
             {
-                var handle = new Border
+                var handle = new MuiCropTarget($"Crop {HandleName(kind)} handle")
                 {
                     Width = HandleSize,
                     Height = HandleSize,
-                    CornerRadius = new CornerRadius(2),
-                    BorderThickness = new Thickness(1),
                 };
+                handle.Frame.CornerRadius = new CornerRadius(2);
+                handle.Frame.BorderThickness = new Thickness(1);
+                WireKeyboard(handle, kind);
                 handle.PointerPressed += (_, e) => OnHandlePressed(kind, e);
                 _handleKind[handle] = kind;
                 _handles.Add(handle);
@@ -126,7 +130,7 @@ namespace Maple.UI
             PointerReleased += OnPointerEnded;
             PointerCanceled += OnPointerEnded;
             PointerCaptureLost += OnPointerEnded;
-            Unloaded += (_, _) => EndDrag();
+            Unloaded += (_, _) => { EndDrag(); EndKeyboardGesture(); };
 
             Content = _canvas;
             IsHitTestVisible = true;
@@ -134,6 +138,63 @@ namespace Maple.UI
         }
 
         private static Brush R(string key) => (Brush)Application.Current.Resources[key];
+
+        private static string HandleName(MuiCropHandle kind) => kind switch
+        {
+            MuiCropHandle.TopLeft => "top left", MuiCropHandle.TopRight => "top right",
+            MuiCropHandle.BottomLeft => "bottom left", MuiCropHandle.BottomRight => "bottom right",
+            _ => kind.ToString().ToLowerInvariant(),
+        };
+
+        private void WireKeyboard(MuiCropTarget target, MuiCropHandle? handle)
+        {
+            target.PointerPressed += (_, _) => target.Focus(FocusState.Pointer);
+            target.KeyDown += (_, e) =>
+            {
+                var (dx, dy) = e.Key switch
+                {
+                    VirtualKey.Left => (-1.0, 0.0), VirtualKey.Right => (1.0, 0.0),
+                    VirtualKey.Up => (0.0, -1.0), VirtualKey.Down => (0.0, 1.0),
+                    _ => (0.0, 0.0),
+                };
+                if (dx == 0 && dy == 0) return;
+                e.Handled = true; // Never navigate to a different photo.
+                if (!IsEnabled || _activePointerId != null) return;
+                var step = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+                    .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down) ? 10 : 1;
+                var resized = handle is { } kind
+                    ? MuiCropOverlayMath.ApplyHandleDelta(Rect, kind, dx * step, dy * step,
+                        Bounds.Width, Bounds.Height, MinRegionWidth, MinRegionHeight)
+                    : MuiCropOverlayMath.Translate(Rect, dx * step, dy * step, Bounds.Width, Bounds.Height);
+                var next = handle is { } aspectHandle && AspectRatio is { } aspect
+                    ? MuiCropOverlayMath.ConstrainAspect(resized, aspectHandle, aspect,
+                        Bounds.Width, Bounds.Height, MinRegionWidth, MinRegionHeight) : resized;
+                if (next == Rect) return;
+                if (!_keyboardGesture)
+                {
+                    _keyboardGesture = true;
+                    GestureStarted?.Invoke(this, EventArgs.Empty);
+                }
+                Rect = next;
+                RectChanged?.Invoke(this, next);
+            };
+            target.KeyUp += (_, e) =>
+            {
+                if (e.Key is VirtualKey.Left or VirtualKey.Right or VirtualKey.Up or VirtualKey.Down)
+                {
+                    EndKeyboardGesture();
+                    e.Handled = true;
+                }
+            };
+            target.LostFocus += (_, _) => EndKeyboardGesture();
+        }
+
+        private void EndKeyboardGesture()
+        {
+            if (!_keyboardGesture) return;
+            _keyboardGesture = false;
+            GestureCompleted?.Invoke(this, EventArgs.Empty);
+        }
 
         private void OnHandlePressed(MuiCropHandle kind, PointerRoutedEventArgs e)
         {
@@ -171,6 +232,7 @@ namespace Maple.UI
 
         private void StartDrag(PointerRoutedEventArgs e)
         {
+            EndKeyboardGesture();
             _activePointerId = e.Pointer.PointerId;
             GestureStarted?.Invoke(this, EventArgs.Empty);
             if (!CapturePointer(e.Pointer)) EndDrag();
@@ -204,6 +266,9 @@ namespace Maple.UI
 
         private void Rebuild()
         {
+            var position = $"Left {Rect.Left:0.#}, top {Rect.Top:0.#}, width {Rect.Width:0.#}, height {Rect.Height:0.#} pixels";
+            AutomationProperties.SetItemStatus(_region, position);
+            foreach (var target in _handles) AutomationProperties.SetItemStatus(target, position);
             var maskBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0, 0, 0));
             var boundsWidth = Math.Max(0, Bounds.Width);
             var boundsHeight = Math.Max(0, Bounds.Height);
@@ -215,7 +280,7 @@ namespace Maple.UI
             LayoutBand(_maskLeft, maskBrush, 0, Rect.Top, Rect.Left, Rect.Height);
             LayoutBand(_maskRight, maskBrush, Rect.Right, Rect.Top, boundsWidth - Rect.Right, Rect.Height);
 
-            _region.BorderBrush = R("MaplePrimary");
+            _region.Frame.BorderBrush = R("MaplePrimary");
             _region.Width = Rect.Width;
             _region.Height = Rect.Height;
             Canvas.SetLeft(_region, Rect.X);
@@ -225,8 +290,8 @@ namespace Maple.UI
 
             foreach (var handle in _handles)
             {
-                handle.Background = R("MapleSurface");
-                handle.BorderBrush = R("MaplePrimary");
+                handle.Frame.Background = R("MapleSurface");
+                handle.Frame.BorderBrush = R("MaplePrimary");
                 var (x, y) = HandlePosition(_handleKind[handle]);
                 Canvas.SetLeft(handle, x - HandleSize / 2);
                 Canvas.SetTop(handle, y - HandleSize / 2);
