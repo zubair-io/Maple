@@ -129,7 +129,7 @@ describe('GET /api/fs/thumb — cache hit is ONE fs op (#2258)', () => {
 
     // Decode-verified: the render path must have produced a real AVIF.
     const meta = await maple(Buffer.from(await res.arrayBuffer())).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
 
     // And the thumb is now on disk for the next request's fast path.
     const thumbPath = resolveThumbPath(rawPath);
