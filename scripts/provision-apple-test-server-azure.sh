@@ -94,7 +94,8 @@ ssh "${SSH_OPTS[@]}" "${ADMIN_USER}@${PUBLIC_IP}" 'sudo cloud-init status --wait
 
 # Include only committed repository files; never upload local databases,
 # credentials, environment files, or ignored build output from this machine.
-git -C "$ROOT" archive --format=tar.gz --output="$ARCHIVE" HEAD
+git -C "$ROOT" archive --format=tar.gz --output="$ARCHIVE" HEAD \
+	src/api src/web src/raw-pipeline src/maple resources/film-luts
 scp "${SSH_OPTS[@]}" "$ARCHIVE" "${ADMIN_USER}@${PUBLIC_IP}:/tmp/maple-apple-dev.tgz"
 
 # The validated Azure hostname is intentionally expanded on this machine.
