@@ -475,7 +475,6 @@ export class RawPipelineService implements OnDestroy {
     return runWhiteBalanceSample(this.sampleQueue, bytes, ext, xmp, nx, ny);
   }
 
-  // fallow-ignore-next-line unused-class-member
   sampleMaskRange(
     bytes: Uint8Array,
     ext: string,
