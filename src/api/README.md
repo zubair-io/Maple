@@ -73,7 +73,46 @@ accounts always use a passkey without an email address. In **Settings → Users*
 **Create invite code**, then copy and share the code with the new member; Maple does not send email.
 Codes expire after 15 minutes and work once. Owners can revoke unused codes individually.
 The script prints the resource-group name; deleting that group with
-`az group delete --name <group> --yes` removes the VM, database, and server.
+`az group delete --name <group> --yes` removes the VM, database, and server. For the shared test
+server, use the manual workflow below so its scoped Azure access stays configured.
+
+### Manual GitHub Actions workflow
+
+In GitHub, open **Actions → Azure test server → Run workflow**, select `main`, and choose:
+
+| Action     | Result                                                                                       |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `create`   | Build committed `main` and create a fresh server. Refuses to replace an existing server.     |
+| `delete`   | Delete the VM, OS disk, network resources, SQLite database, accounts, and on-server backups. |
+| `recreate` | Delete the existing server and create a fresh one from committed `main`.                     |
+
+The workflow manages only `maple-apple-75ffbb` in `maple-apple-dev-75ffbb`, retains the empty
+resource group for its scoped Azure role, and reuses
+`https://maple-apple-75ffbb.eastus.cloudapp.azure.com`. A recreated server needs a new owner claim
+and new invite codes. Previously enrolled passkeys cannot log in to the reset database.
+Runs are serialized and never automatically cancelled by another dispatch.
+
+Azure access uses a dedicated Entra application with a GitHub federated credential for
+`repo:zubair-io/Maple:ref:refs/heads/main` and Contributor access only to this resource group.
+It uses OpenID Connect rather than a stored Azure client secret. The group must carry the tag
+`maple-test-server=maple-apple-75ffbb`; deletion also refuses unfamiliar resources in that group.
+
+These repository variables configure the workflow:
+
+| Variable                     | Value                                                                              |
+| ---------------------------- | ---------------------------------------------------------------------------------- |
+| `AZURE_TEST_CLIENT_ID`       | Dedicated Entra application client ID.                                             |
+| `AZURE_TEST_TENANT_ID`       | Azure tenant ID.                                                                   |
+| `AZURE_TEST_SUBSCRIPTION_ID` | Subscription containing the dedicated test resource group.                         |
+| `AZURE_TEST_OWNER_CIDR`      | Your public IPv4 address with `/32`, allowed to claim the fresh server over HTTPS. |
+
+Update `AZURE_TEST_OWNER_CIDR` before Create/Recreate if your public IP changes. The GitHub runner
+gets its own temporary SSH key and an SSH rule limited to its IP; both are removed after
+provisioning. The workflow waits for the API and certificate-verified HTTPS to become healthy and prints the server URL in its
+run summary. HTTPS stays restricted to your owner IP until you claim the server and open access
+with the Azure command above. HTTP remains public for certificate validation and redirects to HTTPS.
+
+The workflow becomes available in Actions after its file is merged into the default branch.
 
 ## Environment variables
 
