@@ -53,8 +53,15 @@ test('adding an unregistered request variant fails compilation', () => {
 });
 
 test('omitting an existing request type fails compilation', () => {
-  const mutated = source.replace('  histogram: true,\n', '');
+  const mutated = source.replace('  histogram: true,', '');
   expect(mutated).not.toBe(source);
+  expect(diagnostics(mutated)).toContain("Property 'histogram' is missing");
+});
+
+test('registry omission also fails compilation with CRLF source', () => {
+  const crlf = source.replace(/\r?\n/g, '\r\n');
+  const mutated = crlf.replace('  histogram: true,', '');
+  expect(mutated).not.toBe(crlf);
   expect(diagnostics(mutated)).toContain("Property 'histogram' is missing");
 });
 
