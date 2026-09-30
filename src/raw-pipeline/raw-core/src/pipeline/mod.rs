@@ -21,6 +21,7 @@
 //! re-exported here so call sites that say `raw_core::pipeline::stage`,
 //! `raw_core::pipeline::RenderQuality`, etc. continue to compile unchanged.
 
+mod accepted_removal;
 mod capture_sharpening_helper;
 mod develop;
 mod develop_sized;
@@ -30,8 +31,14 @@ mod inpaint_store;
 mod orient;
 pub(crate) mod pano;
 mod removal_mask_store;
+mod removal_prepare;
+pub use removal_prepare::prepare_accepted_removal;
 mod render;
 mod scene_linear_chain;
+pub use accepted_removal::{
+    removal_context_dependencies, removal_needs_review, removal_record_digest,
+    resolve_accepted_removal,
+};
 mod tile;
 
 pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, patches_to_blob};

@@ -1,6 +1,25 @@
 //! Thin WASM selection and durable-mask bridge (#3934), shared with C-FFI.
 use wasm_bindgen::prelude::*;
 
+/// Digest durable bytes once during source/model preparation or publication.
+#[wasm_bindgen]
+pub fn removal_content_digest(bytes: &[u8]) -> String {
+    raw_core::types::accepted_removal::ContentDigest::for_bytes(bytes)
+        .as_str()
+        .into()
+}
+
+#[wasm_bindgen]
+pub fn removal_prepare(
+    request: &str,
+    prior: &str,
+    mask: &[u8],
+    patch: &[u8],
+) -> Result<String, JsError> {
+    raw_core::pipeline::prepare_accepted_removal(request, prior, mask, patch)
+        .map_err(|e| JsError::new(&e))
+}
+
 /// Compose once on source/stack changes, retaining the returned base for live
 /// grading. Coordinates describe the un-oriented DefaultCrop source window.
 #[wasm_bindgen]

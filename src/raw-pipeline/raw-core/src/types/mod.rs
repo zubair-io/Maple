@@ -8,6 +8,7 @@
 //! parsing/serialization concerns even though the surrounding crate links
 //! `quick-xml` for other modules.
 
+pub mod accepted_removal;
 pub mod adjustment;
 pub use adjustment::{TRANSFER_XMP_ATTRIBUTES, TRANSFER_XMP_ELEMENTS};
 pub mod inpaint;

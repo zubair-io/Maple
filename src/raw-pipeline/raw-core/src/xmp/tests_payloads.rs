@@ -66,6 +66,7 @@ fn default_inpaint_removals_is_empty() {
 fn parse_inpaint_removals_round_trips() {
     use crate::types::inpaint::{encode_removals, BakeGrade, Removal};
     let removals = vec![Removal {
+        accepted: None,
         region: [0.25, 0.1, 0.5, 0.4],
         patch_ref: "blake3:deadbeef".to_string(),
         model_version: "lama-bigl-1".to_string(),
@@ -110,6 +111,7 @@ fn removal_sidecar_and_companion_round_trip_from_real_files() {
     let companion = dir.path().join(format!("{digest}.f16"));
     std::fs::write(&companion, &bytes).unwrap();
     let removal = Removal {
+        accepted: None,
         region: [0.0, 0.0, 1.0, 1.0],
         patch_ref: format!("blake3:{digest}"),
         model_version: "test-accepted-pixels".into(),
@@ -135,7 +137,7 @@ fn removal_sidecar_and_companion_round_trip_from_real_files() {
     // A recognized incompatible version survives file I/O and fails the real
     // parser; it cannot silently become a partial list of accepted edits.
     let mut record: serde_json::Value = serde_json::from_str(&json).unwrap();
-    record[0]["schema"] = serde_json::json!(3);
+    record[0]["schema"] = serde_json::json!(4);
     let xml = format!(
         r#"<rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:InpaintRemovals="{}"/>"#,
         record.to_string().replace('"', "&quot;")
