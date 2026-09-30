@@ -31,10 +31,10 @@ const EAGAIN: i32 = -(libc::EAGAIN as i32);
 /// default is 0 = unlimited, so without this a hostile AVIF that *declares*
 /// 65535x65535 in its frame header makes the decoder allocate multi-GB
 /// planes — and `copy_plane` then allocates as much again — before anything
-/// notices. 268 MP is ~13x the largest sensor Maple decodes (100 MP) and
+/// notices. 268 MP is ~2.7x the largest sensor Maple decodes (100 MP) and
 /// ~65x the biggest derivative it writes, so no real input comes near it,
 /// while an absurd declaration fails as a clean `Err` instead of an OOM.
-const AVIF_MAX_FRAME_PIXELS: u32 = 268_000_000;
+use crate::raster::MAX_RASTER_PIXELS as AVIF_MAX_FRAME_PIXELS;
 
 /// Container-level facts, read without decoding any pixel data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
