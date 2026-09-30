@@ -104,7 +104,7 @@ async function runTrial(raw: string, jpeg: string, directory: string, workers: n
     (async () => {
       const output = join(directory, `bitmap-${index}.avif`);
       await observer.measure(`bitmap-${index}`, output, async () => {
-        checkOk(await pool.renderBitmapThumbToFile(jpeg, output, 512, 55, 'jpg', 'avif'));
+        checkOk(await pool.renderBitmapThumbToFile(jpeg, output, 512, 55, 'jpg'));
       });
       await observer.measure(`validate-${index}`, output, async () => {
         checkOk(await pool.validateAvif(output, 512));

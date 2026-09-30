@@ -21,7 +21,6 @@ function fakeFfi(calls: string[]): RawFfi {
     };
   return {
     renderThumbnailAvifToFile: record('renderThumbnailAvifToFile'),
-    renderThumbnailPreviewJpegToFile: record('renderThumbnailPreviewJpegToFile'),
     renderDevelopJpegToFile: record('renderDevelopJpegToFile'),
     computeHistogramBins: record('computeHistogramBins'),
     asShotWhiteBalance: record('asShotWhiteBalance'),

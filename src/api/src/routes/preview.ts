@@ -149,7 +149,6 @@ async function stagePreviewToAvif(
       PREVIEW_LONG_EDGE_PX,
       PREVIEW_TRANSCODE_AVIF_QUALITY,
       'jpg',
-      'avif',
     );
     await unlinkQuiet(jpegTmpPath);
     if (!result.ok) {

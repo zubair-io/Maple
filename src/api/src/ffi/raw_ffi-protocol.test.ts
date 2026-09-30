@@ -30,7 +30,6 @@ describe('coerceFfiRequest', () => {
         'registerLensProfile',
         'renderBitmap',
         'renderDevelop',
-        'renderPreviewJpeg',
         'renderThumb',
         'validateAvif',
       ].sort(),
@@ -42,6 +41,7 @@ describe('coerceFfiRequest', () => {
     expect(coerceFfiRequest({ id: 3, rawPath: '/a.dng' })).toBeNull();
     expect(coerceFfiRequest({ type: 'HISTOGRAM', id: 3 })).toBeNull();
     expect(coerceFfiRequest({ type: 'renderBitmapThumb', id: 3 })).toBeNull();
+    expect(coerceFfiRequest({ type: 'renderPreviewJpeg', id: 3 })).toBeNull();
     expect(coerceFfiRequest({ type: 1, id: 3 })).toBeNull();
     expect(coerceFfiRequest({ type: null, id: 3 })).toBeNull();
   });
