@@ -25,9 +25,8 @@ namespace Maple.WinUI
     /// entry) — the same convention Crop's own transient aspect-id follows.
     /// Every model write funnels through <see cref="EditSessionViewModel.
     /// NotifyAdjustmentEdited"/>, which re-renders immediately and debounces
-    /// the sidecar write. Panel rulers explicitly delimit pointer gestures
-    /// so pauses during a drag do not split its undo entry. Overlay changes
-    /// still use the quiet-time history boundary.
+    /// the sidecar write. Panel rulers and overlay handles explicitly delimit
+    /// pointer gestures so pauses during a drag do not split its undo entry.
     /// </summary>
     public sealed partial class MainWindow
     {
@@ -39,6 +38,8 @@ namespace Maple.WinUI
             MaskPanel.AddLinearRequested += (_, _) => AddMaskLayer(linear: true);
             MaskPanel.GestureStarted += (sender, _) => ViewModel.BeginAdjustmentGesture(sender!);
             MaskPanel.GestureCompleted += (sender, _) => ViewModel.EndAdjustmentGesture(sender!);
+            MaskOverlay.GestureStarted += (sender, _) => ViewModel.BeginAdjustmentGesture(sender!);
+            MaskOverlay.GestureCompleted += (sender, _) => ViewModel.EndAdjustmentGesture(sender!);
             MaskPanel.AddRadialRequested += (_, _) => AddMaskLayer(linear: false);
             MaskPanel.LayerSelected += (_, index) =>
             {

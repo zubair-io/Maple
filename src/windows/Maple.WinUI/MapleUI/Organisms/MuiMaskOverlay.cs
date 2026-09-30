@@ -60,7 +60,7 @@ namespace Maple.UI
         /// same <see cref="MuiCropOverlay.RectChanged"/> contract.</summary>
         public event EventHandler<MuiMaskShape>? ShapeChanged;
         public event EventHandler? GestureStarted;
-        public event EventHandler? GestureEnded;
+        public event EventHandler? GestureCompleted;
 
         private readonly Canvas _canvas = new();
         private readonly Polyline _outline = new() { StrokeDashArray = new DoubleCollection { 4, 3 }, StrokeThickness = 1.5 };
@@ -85,6 +85,7 @@ namespace Maple.UI
         private readonly Brush _rotateBackground;
 
         private MuiMaskHandle? _draggingHandle;
+        private uint? _activePointerId;
 
         public MuiMaskOverlay()
         {
@@ -102,9 +103,10 @@ namespace Maple.UI
             }
 
             PointerMoved += OnPointerMoved;
-            PointerReleased += (_, _) => EndDrag();
-            PointerCanceled += (_, _) => EndDrag();
-            PointerCaptureLost += (_, _) => EndDrag();
+            PointerReleased += OnPointerEnded;
+            PointerCanceled += OnPointerEnded;
+            PointerCaptureLost += OnPointerEnded;
+            Unloaded += (_, _) => EndDrag();
 
             _pinBackground = R("MapleSurface");
             _rotateBackground = R("MaplePrimary");
@@ -135,26 +137,34 @@ namespace Maple.UI
 
         private void OnHandlePressed(MuiMaskHandle handle, PointerRoutedEventArgs e)
         {
-            if (_draggingHandle is not null) EndDrag();
-            GestureStarted?.Invoke(this, EventArgs.Empty);
+            if (!IsEnabled || Shape == null || _activePointerId != null
+                || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
             _draggingHandle = handle;
-            CapturePointer(e.Pointer);
+            _activePointerId = e.Pointer.PointerId;
+            GestureStarted?.Invoke(this, EventArgs.Empty);
+            if (!CapturePointer(e.Pointer)) EndDrag();
             e.Handled = true;
         }
 
         private void EndDrag()
         {
-            if (_draggingHandle is null) return;
+            if (_activePointerId == null) return;
+            _activePointerId = null;
             _draggingHandle = null;
+            GestureCompleted?.Invoke(this, EventArgs.Empty);
             ReleasePointerCaptures();
-            GestureEnded?.Invoke(this, EventArgs.Empty);
         }
 
         public void CancelDrag() => EndDrag();
 
+        private void OnPointerEnded(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.Pointer.PointerId == _activePointerId) EndDrag();
+        }
+
         private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
         {
-            if (_draggingHandle is not { } handle || Shape is not { } shape)
+            if (e.Pointer.PointerId != _activePointerId || _draggingHandle is not { } handle || Shape is not { } shape)
                 return;
             var pos = e.GetCurrentPoint(this).Position;
             var next = MuiMaskOverlayMath.ApplyDrag(

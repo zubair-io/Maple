@@ -136,6 +136,7 @@ namespace Maple.WinUI
                     viewerDesignNavigation = expectedPath != "empty",
                     nativeDetailActualSize = expectedPath != "empty",
                     presetUndoRedoAndReset = expectedPath != "empty",
+                    adjustmentGestureUndoRedo = expectedPath != "empty",
                     repairControlsUndoRedo = expectedPath != "empty",
                     scopesLifecycle = expectedPath != "empty",
                     transferWatcherUndoRedo = expectedPath != "empty",

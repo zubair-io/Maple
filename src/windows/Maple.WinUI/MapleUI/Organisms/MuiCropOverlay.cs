@@ -68,6 +68,8 @@ namespace Maple.UI
         public double MinRegionHeight { get => (double)GetValue(MinRegionHeightProperty); set => SetValue(MinRegionHeightProperty, value); }
 
         public event EventHandler<MuiCropRect>? RectChanged;
+        public event EventHandler? GestureStarted;
+        public event EventHandler? GestureCompleted;
 
         private readonly Canvas _canvas = new();
         // Four bands around Rect, not one full-bounds panel — a mask has
@@ -93,6 +95,7 @@ namespace Maple.UI
         private bool _draggingRegion;
         private MuiCropHandle? _draggingHandle;
         private Point _dragOrigin;
+        private uint? _activePointerId;
 
         public MuiCropOverlay()
         {
@@ -120,9 +123,10 @@ namespace Maple.UI
 
             _region.PointerPressed += OnRegionPressed;
             PointerMoved += OnPointerMoved;
-            PointerReleased += (_, _) => EndDrag();
-            PointerCanceled += (_, _) => EndDrag();
-            PointerCaptureLost += (_, _) => { _draggingRegion = false; _draggingHandle = null; };
+            PointerReleased += OnPointerEnded;
+            PointerCanceled += OnPointerEnded;
+            PointerCaptureLost += OnPointerEnded;
+            Unloaded += (_, _) => EndDrag();
 
             Content = _canvas;
             IsHitTestVisible = true;
@@ -133,33 +137,53 @@ namespace Maple.UI
 
         private void OnHandlePressed(MuiCropHandle kind, PointerRoutedEventArgs e)
         {
+            if (!CanStartDrag(e)) return;
             _draggingHandle = kind;
             _dragOrigin = e.GetCurrentPoint(this).Position;
             // Capture on the control (the library's pointer-capture-drag
             // convention — MuiPad2D/MuiCurvePlot) so fast drags that leave
             // the overlay keep tracking until release.
-            CapturePointer(e.Pointer);
+            StartDrag(e);
             e.Handled = true;
         }
 
         private void OnRegionPressed(object sender, PointerRoutedEventArgs e)
         {
+            if (!CanStartDrag(e)) return;
             _draggingRegion = true;
             _dragOrigin = e.GetCurrentPoint(this).Position;
-            CapturePointer(e.Pointer);
+            StartDrag(e);
             e.Handled = true;
         }
 
         private void EndDrag()
         {
+            if (_activePointerId == null) return;
+            _activePointerId = null;
             _draggingRegion = false;
             _draggingHandle = null;
+            GestureCompleted?.Invoke(this, EventArgs.Empty);
             ReleasePointerCaptures();
+        }
+
+        private bool CanStartDrag(PointerRoutedEventArgs e) => IsEnabled && _activePointerId == null
+            && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed;
+
+        private void StartDrag(PointerRoutedEventArgs e)
+        {
+            _activePointerId = e.Pointer.PointerId;
+            GestureStarted?.Invoke(this, EventArgs.Empty);
+            if (!CapturePointer(e.Pointer)) EndDrag();
+        }
+
+        private void OnPointerEnded(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.Pointer.PointerId == _activePointerId) EndDrag();
         }
 
         private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
         {
-            if (_draggingHandle is null && !_draggingRegion) return;
+            if (e.Pointer.PointerId != _activePointerId || (_draggingHandle is null && !_draggingRegion)) return;
             var pos = e.GetCurrentPoint(this).Position;
             var dx = pos.X - _dragOrigin.X;
             var dy = pos.Y - _dragOrigin.Y;
