@@ -72,7 +72,7 @@ pub(crate) fn validate_patch_layout(
     Ok(n)
 }
 
-fn validate_region(region: [f32; 4]) -> Result<(), String> {
+pub(crate) fn validate_region(region: [f32; 4]) -> Result<(), String> {
     if region.iter().any(|v| !v.is_finite())
         || region[0] < 0.0
         || region[1] < 0.0

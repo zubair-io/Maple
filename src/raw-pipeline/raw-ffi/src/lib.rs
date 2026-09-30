@@ -119,6 +119,7 @@ mod raster_pipeline;
 // answering a small JSON request ("metadata", "stats", or both) about an
 // encoded image, over `raw_core::raster_analyze`.
 mod raster_analyze;
+mod removal_composite;
 mod removal_selection;
 mod render;
 mod render_develop;
@@ -206,6 +207,7 @@ pub use workflow::{
 // integration tests the same way `maple_last_error` is below.
 pub use brush::maple_brush_rasterize;
 pub use mask_registry::{maple_mask_raster_register, maple_mask_raster_release};
+pub use removal_composite::maple_removal_composite_window_f32;
 pub use removal_selection::{maple_removal_mask_decode_buf, maple_removal_selection_buf};
 pub use scene_linear_chain::MapleAdjustmentParams;
 // #3272: cbindgen needs visibility on the struct; ungated (the CPU fused
