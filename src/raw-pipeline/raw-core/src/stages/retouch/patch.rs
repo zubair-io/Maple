@@ -8,8 +8,10 @@
 //! meaning for.
 
 use super::geometry::SpotFootprint;
+use crate::cancel::CancelToken;
+use crate::error::{Error, Result};
 use crate::image::Image;
-use crate::stages::blur::gaussian_blur_plane_sigma;
+use crate::stages::blur::gaussian_blur_plane_sigma_cancellable;
 use crate::types::retouch::{RetouchKind, RetouchSpot};
 
 /// One patch of the buffer as three planar channels.
@@ -47,11 +49,23 @@ impl Planes {
 
 /// Gather the patch centred on frame pixel `center` into planar buffers.
 /// `origin` is the buffer's top-left in frame coordinates.
-fn gather(img: &Image, fp: &SpotFootprint, center: (i32, i32), origin: (i32, i32)) -> Planes {
+fn gather(
+    img: &Image,
+    fp: &SpotFootprint,
+    center: (i32, i32),
+    origin: (i32, i32),
+    cancel: CancelToken<'_>,
+) -> Result<Planes> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     let (pw, ph) = (fp.width(), fp.height());
     let mut planes = Planes::empty(pw * ph);
     let stride = img.width as usize;
     for row in 0..ph {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let fy = center.1 + fp.off_y.0 + row as i32 - origin.1;
         let base = fy as usize * stride;
         for col in 0..pw {
@@ -63,7 +77,7 @@ fn gather(img: &Image, fp: &SpotFootprint, center: (i32, i32), origin: (i32, i32
             planes.b[i] = px[2];
         }
     }
-    planes
+    Ok(planes)
 }
 
 /// Coverage of the feathered disc at patch cell `(col, row)`, in `[0, 1]`.
@@ -92,10 +106,11 @@ pub(super) fn apply_footprint(
     spot: &RetouchSpot,
     fp: &SpotFootprint,
     origin: (i32, i32),
-) {
+    cancel: CancelToken<'_>,
+) -> Result<()> {
     let (pw, ph) = (fp.width(), fp.height());
-    let src = gather(img, fp, fp.source, origin);
-    let dst = gather(img, fp, fp.center, origin);
+    let src = gather(img, fp, fp.source, origin, cancel)?;
+    let dst = gather(img, fp, fp.center, origin, cancel)?;
 
     // The replacement: a straight copy for Clone, and for Heal the source's
     // high frequencies riding the destination's low frequencies. The additive
@@ -108,10 +123,15 @@ pub(super) fn apply_footprint(
             for c in 0..3 {
                 let src_c = src.channel(c);
                 let dst_c = dst.channel(c);
-                let src_low = gaussian_blur_plane_sigma(src_c, pw, ph, fp.sigma);
-                let dst_low = gaussian_blur_plane_sigma(dst_c, pw, ph, fp.sigma);
+                let src_low =
+                    gaussian_blur_plane_sigma_cancellable(src_c, pw, ph, fp.sigma, cancel)?;
+                let dst_low =
+                    gaussian_blur_plane_sigma_cancellable(dst_c, pw, ph, fp.sigma, cancel)?;
                 let out_c = out.channel_mut(c);
                 for i in 0..out_c.len() {
+                    if i % pw == 0 && cancel.is_cancelled() {
+                        return Err(Error::Cancelled);
+                    }
                     out_c[i] = (dst_low[i] + (src_c[i] - src_low[i])).max(0.0);
                 }
             }
@@ -123,6 +143,9 @@ pub(super) fn apply_footprint(
     let opacity = spot.clamped_opacity();
     let stride = img.width as usize;
     for row in 0..ph {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let fy = fp.center.1 + fp.off_y.0 + row as i32 - origin.1;
         let base = fy as usize * stride;
         for col in 0..pw {
@@ -139,4 +162,5 @@ pub(super) fn apply_footprint(
             }
         }
     }
+    Ok(())
 }

@@ -343,7 +343,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     // scene features at this reduced resolution; the disc is simply smaller
     // in pixels, which is what a sized render wants.
     stage("sized_retouch", || {
-        retouch::apply(&mut scene, &model.retouch_spots)
+        retouch::apply_cancellable(&mut scene, &model.retouch_spots, cancel)
     })?;
     dump_after("03c_retouch", &scene);
     // Decode-time chroma pre-filter (#1104) — runs on the downsampled

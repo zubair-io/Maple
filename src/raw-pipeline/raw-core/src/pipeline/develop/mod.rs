@@ -343,7 +343,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // like their neighbours, and so no slider tick re-runs the patch work.
     // Empty list (the default) is a bit-identical skip.
     stage("retouch", || {
-        retouch::apply(&mut scene, &model.retouch_spots)
+        retouch::apply_cancellable(&mut scene, &model.retouch_spots, cancel)
     })?;
     dump_after("03c_retouch", &scene);
     // `raw.profile_gain_table_map` (DNG 1.6 ProfileGainTableMap) is

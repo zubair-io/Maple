@@ -37,6 +37,7 @@
 //! already refuses dehaze and deep denoise. A tile no spot reaches renders
 //! normally.
 
+use crate::cancel::CancelToken;
 use crate::error::{Error, Result};
 use crate::image::{ColorSpace, Image};
 use crate::types::retouch::RetouchSpot;
@@ -48,8 +49,17 @@ mod patch;
 /// full-frame window contains every clamped footprint by construction — but
 /// returns `Result` so callers share one shape with [`apply_windowed`].
 pub fn apply(img: &mut Image, spots: &[RetouchSpot]) -> Result<()> {
+    apply_cancellable(img, spots, CancelToken::never())
+}
+
+/// Cancelled buffers may be partially repaired and must be discarded by the caller.
+pub fn apply_cancellable(
+    img: &mut Image,
+    spots: &[RetouchSpot],
+    cancel: CancelToken<'_>,
+) -> Result<()> {
     let full = (img.width, img.height);
-    apply_windowed(img, spots, (0, 0), full)
+    apply_windowed_cancellable(img, spots, (0, 0), full, cancel)
 }
 
 /// [`apply`] for a buffer that is a window of the frame: the buffer's pixel
@@ -65,6 +75,19 @@ pub fn apply_windowed(
     origin: (i32, i32),
     full: (u32, u32),
 ) -> Result<()> {
+    apply_windowed_cancellable(img, spots, origin, full, CancelToken::never())
+}
+
+pub fn apply_windowed_cancellable(
+    img: &mut Image,
+    spots: &[RetouchSpot],
+    origin: (i32, i32),
+    full: (u32, u32),
+    cancel: CancelToken<'_>,
+) -> Result<()> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     if spots.is_empty() {
         return Ok(());
     }
@@ -74,6 +97,9 @@ pub fn apply_windowed(
         return Ok(());
     }
     for (index, spot) in spots.iter().enumerate() {
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
         let Some(fp) = geometry::footprint(spot, full) else {
             continue;
         };
@@ -97,7 +123,7 @@ pub fn apply_windowed(
                 origin.1 + h as i32 - 1,
             )));
         }
-        patch::apply_footprint(img, spot, &fp, origin);
+        patch::apply_footprint(img, spot, &fp, origin, cancel)?;
     }
     Ok(())
 }
@@ -112,3 +138,6 @@ pub fn has_effective_spots(spots: &[RetouchSpot], full: (u32, u32)) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod cancellation_tests;

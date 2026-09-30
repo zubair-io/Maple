@@ -250,38 +250,72 @@ pub(crate) fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
 /// unchanged, so the result is bit-identical to the serial form this
 /// replaces in `capture_sharpening.rs`).
 pub(crate) fn gaussian_blur_plane_sigma(buf: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
+    gaussian_blur_plane_sigma_cancellable(buf, w, h, sigma, crate::cancel::CancelToken::never())
+        .expect("a never-cancel blur cannot be cancelled")
+}
+
+pub(crate) fn gaussian_blur_plane_sigma_cancellable(
+    buf: &[f32],
+    w: usize,
+    h: usize,
+    sigma: f32,
+    cancel: crate::cancel::CancelToken<'_>,
+) -> crate::error::Result<Vec<f32>> {
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     let kernel = gaussian_kernel_1d(sigma);
     let half = kernel.len() / 2;
 
     // Horizontal pass: tmp[y*w + x] = sum_k kernel[k] * buf[y*w + clamp(x + k - half)]
     let mut tmp = vec![0.0_f32; buf.len()];
     let w_i = w as isize;
-    tmp.par_chunks_mut(w).enumerate().for_each(|(y, row_out)| {
-        let row_in = &buf[y * w..(y + 1) * w];
-        for (x, out) in row_out.iter_mut().enumerate() {
-            let mut acc = 0.0_f32;
-            for (k_idx, &k) in kernel.iter().enumerate() {
-                let xi = (x as isize + k_idx as isize - half as isize).clamp(0, w_i - 1) as usize;
-                acc += k * row_in[xi];
+    tmp.par_chunks_mut(w)
+        .enumerate()
+        .try_for_each(|(y, row_out)| {
+            if cancel.is_cancelled() {
+                return Err(crate::error::Error::Cancelled);
             }
-            *out = acc;
-        }
-    });
+            let row_in = &buf[y * w..(y + 1) * w];
+            for (x, out) in row_out.iter_mut().enumerate() {
+                if x % 64 == 0 && cancel.is_cancelled() {
+                    return Err(crate::error::Error::Cancelled);
+                }
+                let mut acc = 0.0_f32;
+                for (k_idx, &k) in kernel.iter().enumerate() {
+                    let xi =
+                        (x as isize + k_idx as isize - half as isize).clamp(0, w_i - 1) as usize;
+                    acc += k * row_in[xi];
+                }
+                *out = acc;
+            }
+            Ok(())
+        })?;
 
     // Vertical pass: out[y*w + x] = sum_k kernel[k] * tmp[clamp(y + k - half)*w + x]
     let mut out = vec![0.0_f32; buf.len()];
     let h_i = h as isize;
-    out.par_chunks_mut(w).enumerate().for_each(|(y, row_out)| {
-        for (x, out_px) in row_out.iter_mut().enumerate() {
-            let mut acc = 0.0_f32;
-            for (k_idx, &k) in kernel.iter().enumerate() {
-                let yi = (y as isize + k_idx as isize - half as isize).clamp(0, h_i - 1) as usize;
-                acc += k * tmp[yi * w + x];
+    out.par_chunks_mut(w)
+        .enumerate()
+        .try_for_each(|(y, row_out)| {
+            if cancel.is_cancelled() {
+                return Err(crate::error::Error::Cancelled);
             }
-            *out_px = acc;
-        }
-    });
-    out
+            for (x, out_px) in row_out.iter_mut().enumerate() {
+                if x % 64 == 0 && cancel.is_cancelled() {
+                    return Err(crate::error::Error::Cancelled);
+                }
+                let mut acc = 0.0_f32;
+                for (k_idx, &k) in kernel.iter().enumerate() {
+                    let yi =
+                        (y as isize + k_idx as isize - half as isize).clamp(0, h_i - 1) as usize;
+                    acc += k * tmp[yi * w + x];
+                }
+                *out_px = acc;
+            }
+            Ok(())
+        })?;
+    Ok(out)
 }
 
 /// Edge-preserving local-mean filter (He, Sun, Tang 2010 — "Guided
