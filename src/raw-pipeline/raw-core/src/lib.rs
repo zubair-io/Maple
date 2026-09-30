@@ -98,6 +98,8 @@ pub(crate) mod raster_labs;
 /// Read EXIF, ICC and XMP metadata blocks straight out of a JPEG, PNG, TIFF
 /// or WebP container's bytes (#3507). AVIF is Task G2.
 pub mod raster_meta;
+mod raster_metadata_fields;
+mod raster_metadata_gif;
 mod raster_orient;
 pub mod raster_recipe;
 pub(crate) mod raster_recipe_colour;
@@ -178,3 +180,6 @@ pub mod film_catalog;
 
 #[cfg(test)]
 mod raster_metadata_reader_tests;
+
+#[cfg(test)]
+mod raster_metadata_fields_tests;

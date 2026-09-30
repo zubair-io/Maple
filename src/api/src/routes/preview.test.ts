@@ -246,7 +246,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
 
     const previewPath = join(tmp, '.maple', 'previews', 'IMG_5555.NEF.avif');
     const meta = await maple(previewPath).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
     expect(meta.width).toBeLessThanOrEqual(200);
     expect(meta.height).toBeLessThanOrEqual(150);
 
@@ -264,7 +264,7 @@ describe('PUT /api/preview — JPEG body (#2018 server-side transcode)', () => {
 
     const previewPath = join(tmp, '.maple', 'previews', 'sniffed.dng.avif');
     const meta = await maple(previewPath).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
   }, 15_000);
 
   it('rejects an undecodable JPEG body with 422 and writes nothing', async () => {

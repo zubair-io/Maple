@@ -517,6 +517,9 @@ jobs:
       - name: 'Seekable metadata parity and bounded reads (JPEG/PNG/WebP/TIFF/DNG/AVIF, #3620)'
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features avif metadata_reader --lib
+      - name: 'Header metadata Sharp oracle and corrupt inputs (#3590)'
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features avif raster_metadata_fields_tests --lib
       - name: 'cargo test -p raw-core --features avif (AVIF panic barrier, #3517)'
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features avif --test avif_corruption

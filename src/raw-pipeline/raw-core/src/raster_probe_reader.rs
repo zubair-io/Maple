@@ -24,6 +24,23 @@ pub fn probe_raster_metadata_reader<R: BufRead + Seek>(reader: &mut R) -> Result
         .read_to_end(&mut header)
         .map_err(io_error)?;
     reader.seek(SeekFrom::Start(0)).map_err(io_error)?;
+    if header.starts_with(b"GIF87a") || header.starts_with(b"GIF89a") {
+        let source = SeekableSource::new(reader).map_err(io_error)?;
+        let gif = crate::raster_metadata_gif::read(&source);
+        source.finish(()).map_err(io_error)?;
+        let gif = gif.ok_or_else(|| Error::Decode {
+            path: "<metadata>".into(),
+            reason: "invalid GIF frame headers".into(),
+        })?;
+        return Ok(RasterMetadata {
+            width: gif.width,
+            height: gif.height,
+            format: "gif".into(),
+            channels: if gif.has_alpha { 4 } else { 3 },
+            orientation: None,
+            has_alpha: gif.has_alpha,
+        });
+    }
     if is_avif(&header) {
         let probe = avif_decode_gate::probe_reader(reader)?;
         let source = SeekableSource::new(reader).map_err(io_error)?;
@@ -82,6 +99,13 @@ pub fn probe_raster_metadata_reader<R: BufRead + Seek>(reader: &mut R) -> Result
     } else {
         None
     };
+    // image's TIFF wrapper expands grayscale+alpha to RGBA. Metadata
+    // reports the source samples, shared with the richer analyze reply.
+    let source_channels = if format == "tiff" {
+        crate::raster_metadata_fields::source_channels(&source)
+    } else {
+        None
+    };
     let declared = raster_probe::container_orientation_source(&source);
     source.finish(()).map_err(io_error)?;
     let (width, height, channels, has_alpha) = match facts {
@@ -111,8 +135,8 @@ pub fn probe_raster_metadata_reader<R: BufRead + Seek>(reader: &mut R) -> Result
         width,
         height,
         format: final_format.into(),
-        channels,
+        channels: source_channels.unwrap_or(channels),
         orientation,
-        has_alpha,
+        has_alpha: source_channels.map(|n| n == 2).unwrap_or(has_alpha),
     })
 }

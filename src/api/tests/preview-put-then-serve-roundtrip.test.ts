@@ -108,7 +108,7 @@ describe('PUT /api/preview → GET /api/fs/preview round-trips byte-identically 
     // Decode-verify what was actually served (not just what was uploaded) —
     // proves the round-trip produced a genuine, complete AVIF end to end.
     const meta = await maple(served).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
     expect(meta.width).toBe(640);
     expect(meta.height).toBe(480);
 

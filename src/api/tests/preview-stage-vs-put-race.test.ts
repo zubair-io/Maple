@@ -172,6 +172,6 @@ describe('PUT /api/preview racing the `preview` stage — no partial AVIF (#1997
     const finalBytes = await readFile(previewPath as string);
     expect(finalBytes.byteLength).toBeGreaterThan(0);
     const finalMeta = await maple(previewPath as string).metadata();
-    expect(finalMeta.format).toBe('avif');
+    expect(finalMeta.format).toBe('heif');
   });
 });

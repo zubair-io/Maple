@@ -49,7 +49,7 @@ describe('Raster v2 surface', () => {
       .toFormat('avif', { quality: 60, effort: 2 })
       .toBuffer();
     const meta = await maple(avif).metadata();
-    expect([meta.width, meta.height, meta.format]).toEqual([24, 16, 'avif']);
+    expect([meta.width, meta.height, meta.format]).toEqual([24, 16, 'heif']);
     const jpeg = await maple(avif).toFormat('jpeg', { quality: 90 }).toBuffer();
     expect(jpeg[0]).toBe(0xff);
     expect(await maple(avif).validateIntegrity()).toEqual({ ok: true });
@@ -204,7 +204,7 @@ describe('Raster v2 surface', () => {
         .toFormat('avif', { quality: 50, effort })
         .toBuffer();
       const meta = await maple(avif).metadata();
-      expect([meta.width, meta.height, meta.format]).toEqual([24, 16, 'avif']);
+      expect([meta.width, meta.height, meta.format]).toEqual([24, 16, 'heif']);
     }
   });
 
