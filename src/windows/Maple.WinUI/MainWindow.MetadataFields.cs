@@ -32,6 +32,8 @@ public sealed partial class MainWindow
 
         public MetadataFields()
         {
+            // MuiInput is single-line; retain native multiline editing with the shared focus token.
+            _keywords.Resources["TextControlBorderBrushFocused"] = Application.Current.Resources["MaplePrimary"];
             Preview.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("""
                 <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                               xmlns:mui="using:Maple.UI.Atoms">

@@ -8,6 +8,8 @@ Everything the product bar depends on comes from the same Rust core the Apple an
 
 The local and cloud source hierarchies use native WinUI `TreeView` controls for their expansion, selection, drag/drop and accessibility behavior. Their selected-row backgrounds and active indicators are scoped to Maple surface/primary resources in `SidebarPane`; they do not inherit the user's Windows accent color. The native tree template remains a platform-specific exception to the shared flat list-row atom.
 
+Batch metadata keeps a native multiline `TextBox` for one-keyword-per-line entry because `MuiInput` is single-line. Its focused underline uses `MaplePrimary`; native text editing, line breaks and the accessible label remain intact.
+
 | Artifact            | Built from                                           | Role                                                                                                 |
 | ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `Maple.WinUI.exe`   | `src/windows/Maple.WinUI/Maple.WinUI.csproj`         | The app. WinUI 3, .NET 8, `win-x64` / `win-arm64`.                                                   |
