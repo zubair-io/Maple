@@ -48,7 +48,8 @@ pub use detail::{render_detail_base, render_detail_tile, DetailContext, DetailRe
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
 pub use export::{
-    render_export_from_raw, render_export_from_raw_with_film, ExportDepth, ExportPixels,
+    render_export_from_raw, render_export_from_raw_with_film, render_export_raster, ExportDepth,
+    ExportPixels,
 };
 
 // Synthetic-input render entries — the view transform applied to an already

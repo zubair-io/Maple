@@ -160,6 +160,16 @@ pub fn export_from_raw_with_film(
         film_lut,
     )?;
 
+    encode_pixels(width, height, pixels, options)
+}
+
+/// Shared terminal encoder for RAW and already-developed raster inputs.
+pub(crate) fn encode_pixels(
+    width: u32,
+    height: u32,
+    pixels: ExportPixels,
+    options: &ExportOptions,
+) -> Result<ExportedImage> {
     let profile = icc::profile_for(options.target);
     let bytes = match (options.format, pixels) {
         (ExportFormat::Jpeg, ExportPixels::Eight(rgb)) => {

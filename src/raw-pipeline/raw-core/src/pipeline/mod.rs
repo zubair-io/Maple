@@ -58,8 +58,8 @@ pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetada
 pub use render::{
     cached_auto_profile_fit, fit_auto_profile_from_raw, fit_auto_profile_from_raw_at_cap,
     fit_profile_curve_from_raw, native_render_dims, render_detail_base, render_detail_tile,
-    render_export_from_raw, render_export_from_raw_with_film, render_from_raw,
-    render_from_raw_with_quality, render_from_raw_with_quality_and_source,
+    render_export_from_raw, render_export_from_raw_with_film, render_export_raster,
+    render_from_raw, render_from_raw_with_quality, render_from_raw_with_quality_and_source,
     render_from_raw_with_quality_source_and_film, render_from_scene_linear,
     render_from_scene_linear_with_chain, render_scene_linear_from_raw_with_quality,
     render_scene_linear_from_raw_with_quality_f32,

@@ -1,9 +1,6 @@
 //! Recipe render binding. The job ledger owns final naming and atomic publication.
 use crate::error::{set_last_error, with_large_stack};
-use raw_core::{
-    export_recipe::{export_with_recipe, ExportRecipe},
-    pipeline::RawInput,
-};
+use raw_core::export_recipe::{export_bytes_with_recipe, ExportRecipe};
 use std::{
     ffi::{c_char, CStr},
     io::Write,
@@ -88,15 +85,7 @@ pub unsafe extern "C" fn maple_export_recipe_to_file(
                 .extension()
                 .and_then(|s| s.to_str())
                 .unwrap_or("");
-            let raw =
-                raw_core::decode::decode_bytes(&bytes, ext).map_err(|e| format!("decode: {e}"))?;
-            let exported = export_with_recipe(
-                &raw,
-                &model,
-                Some(RawInput::Bytes { bytes: &bytes, ext }),
-                &recipe,
-                film.as_ref(),
-            )?;
+            let exported = export_bytes_with_recipe(&bytes, ext, &model, &recipe, film.as_ref())?;
             let mut file = std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -185,6 +174,81 @@ pub unsafe extern "C" fn maple_export_recipe_filename_buf(
 mod tests {
     use super::*;
     use std::ffi::CString;
+    #[test]
+    fn raster_export_uses_captured_edits_and_never_overwrites_original_or_failed_output() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("original.jpg");
+        let output = root.path().join("edited.png");
+        let mut original = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut original)
+            .encode(&[64; 16 * 16 * 3], 16, 16, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        std::fs::write(&source, &original).unwrap();
+        let source_c = CString::new(source.to_str().unwrap()).unwrap();
+        let output_c = CString::new(output.to_str().unwrap()).unwrap();
+        let xmp = CString::new(r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="1"/></rdf:RDF></x:xmpmeta>"#).unwrap();
+        let recipe = ExportRecipe {
+            format: "png".into(),
+            quality: None,
+            ..Default::default()
+        };
+        let recipe = CString::new(serde_json::to_string(&recipe).unwrap()).unwrap();
+        unsafe {
+            assert_eq!(
+                maple_export_recipe_to_file(
+                    source_c.as_ptr(),
+                    xmp.as_ptr(),
+                    recipe.as_ptr(),
+                    std::ptr::null(),
+                    output_c.as_ptr()
+                ),
+                0
+            );
+        }
+        let pixels = image::open(&output).unwrap().to_rgb8();
+        assert!(
+            pixels.pixels().all(|p| p[0] > 80),
+            "captured exposure must affect export"
+        );
+        unsafe {
+            assert_eq!(
+                maple_export_recipe_to_file(
+                    source_c.as_ptr(),
+                    xmp.as_ptr(),
+                    recipe.as_ptr(),
+                    std::ptr::null(),
+                    source_c.as_ptr()
+                ),
+                1
+            );
+        }
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        let invalid = CString::new(
+            xmp.to_str()
+                .unwrap()
+                .replace("crs:Exposure2012=\"1\"", "crs:Contrast2012=\"20\""),
+        )
+        .unwrap();
+        let failed = root.path().join("failed.png");
+        let failed_c = CString::new(failed.to_str().unwrap()).unwrap();
+        unsafe {
+            assert_eq!(
+                maple_export_recipe_to_file(
+                    source_c.as_ptr(),
+                    invalid.as_ptr(),
+                    recipe.as_ptr(),
+                    std::ptr::null(),
+                    failed_c.as_ptr()
+                ),
+                1
+            );
+        }
+        assert!(
+            !failed.exists(),
+            "unsupported settings must fail before output publication"
+        );
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+    }
     #[test]
     fn preflight_rejects_unsupported_choices_and_nulls_without_rendering() {
         let json = CString::new(serde_json::to_string(&ExportRecipe::default()).unwrap()).unwrap();

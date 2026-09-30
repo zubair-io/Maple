@@ -21,6 +21,9 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
+mod raster;
+pub use raster::render_export_raster;
+
 /// Bits per channel in the exported file.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExportDepth {

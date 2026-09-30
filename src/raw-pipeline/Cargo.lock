@@ -2376,6 +2376,7 @@ dependencies = [
  "jpeg-encoder",
  "libc",
  "miniz_oxide",
+ "moxcms",
  "png 0.17.16",
  "quick-xml",
  "rav1d",

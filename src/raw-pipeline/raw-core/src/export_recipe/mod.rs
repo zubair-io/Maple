@@ -241,5 +241,50 @@ pub fn export_with_recipe(
         .map_err(|e| e.to_string())
 }
 
+/// Dispatch original bytes without treating an ordinary JPEG/TIFF as a sensor
+/// mosaic. RAW-in-TIFF containers retain the existing RAW decoder and renderer.
+pub fn export_bytes_with_recipe(
+    bytes: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    recipe: &ExportRecipe,
+    film: Option<&FilmLut>,
+) -> Result<ExportedImage, String> {
+    let options = recipe.options()?;
+    let jpeg = bytes.starts_with(&[0xff, 0xd8]);
+    if !jpeg {
+        match crate::decode::decode_bytes(bytes, ext) {
+            Ok(raw) => {
+                return export_with_recipe(
+                    &raw,
+                    model,
+                    Some(RawInput::Bytes { bytes, ext }),
+                    recipe,
+                    film,
+                )
+            }
+            Err(error) if !matches!(ext.to_ascii_lowercase().as_str(), "tif" | "tiff") => {
+                return Err(error.to_string())
+            }
+            Err(_) => {}
+        }
+    }
+    let depth = if recipe.bit_depth == 16 {
+        crate::pipeline::ExportDepth::Sixteen
+    } else {
+        crate::pipeline::ExportDepth::Eight
+    };
+    let (width, height, pixels) = crate::pipeline::render_export_raster(
+        bytes,
+        model,
+        options.max_long_edge,
+        options.target,
+        depth,
+        film,
+    )
+    .map_err(|e| e.to_string())?;
+    crate::export::encode_pixels(width, height, pixels, &options).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod render_tests;
