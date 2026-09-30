@@ -21,7 +21,7 @@ import {
   browseRoots,
   isUnderRoot,
   RAW_EXTENSIONS,
-  SHARP_EXTENSIONS,
+  BITMAP_EXTENSIONS,
   PSD_HDR_EXTENSIONS,
 } from '../fs/browse.ts';
 import { VIDEO_EXTS } from '../indexer/media-types.ts';
@@ -62,7 +62,7 @@ export type JailedFileError = { ok: false; status: number; error: string };
 export function isDecodableRasterExt(ext: string): boolean {
   return (
     RAW_EXTENSIONS.has(ext) ||
-    SHARP_EXTENSIONS.has(ext) ||
+    BITMAP_EXTENSIONS.has(ext) ||
     PSD_HDR_EXTENSIONS.has(ext) ||
     VIDEO_EXTS.has(`.${ext}`)
   );

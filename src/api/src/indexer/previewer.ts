@@ -47,7 +47,7 @@ import { randomBytes } from 'node:crypto';
 import { cachePathFor } from '../fs/xmp.ts';
 import { replicatePath } from '../fs/mirrored.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from './media-types.ts';
+import { BITMAP_EXTENSIONS, PSD_HDR_EXTENSIONS } from './media-types.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
@@ -156,7 +156,7 @@ export async function generatePreview(
     renderOk = await renderRawPreviewToFile(absPath, tmpPath);
   } else if (isVideoFilename(absPath)) {
     renderOk = await renderVideoPreviewToFile(absPath, tmpPath);
-  } else if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
+  } else if (BITMAP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     renderOk = await renderBitmapPreviewToFile(absPath, tmpPath, extNoDot);
   } else {
     // Unknown format — no decode path can produce a genuine AVIF from these

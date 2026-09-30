@@ -19,7 +19,7 @@ import {
   AUDIO_EXTENSIONS,
   PSD_HDR_EXTENSIONS,
   RAW_EXTENSIONS,
-  SHARP_EXTENSIONS,
+  BITMAP_EXTENSIONS,
   STUB_IMAGE_EXTENSIONS,
 } from '../indexer/media-types.ts';
 import type { AssetExif } from '../db/schema.ts';
@@ -292,7 +292,7 @@ export {
   AUDIO_EXTENSIONS,
   PSD_HDR_EXTENSIONS,
   RAW_EXTENSIONS,
-  SHARP_EXTENSIONS,
+  BITMAP_EXTENSIONS,
   STUB_IMAGE_EXTENSIONS,
 } from '../indexer/media-types.ts';
 
@@ -302,7 +302,7 @@ export {
  * thumb endpoint's extension gate. */
 const IMAGE_EXTENSIONS = new Set<string>([
   ...RAW_EXTENSIONS,
-  ...SHARP_EXTENSIONS,
+  ...BITMAP_EXTENSIONS,
   ...PSD_HDR_EXTENSIONS,
 ]);
 
