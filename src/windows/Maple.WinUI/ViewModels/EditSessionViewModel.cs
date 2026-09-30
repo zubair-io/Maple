@@ -455,8 +455,13 @@ namespace Maple.WinUI.ViewModels
             var photo = SelectedPhoto;
             if (photo == null || stars < 0 || stars > 5)
                 return;
+            if (photo.IsCloud)
+            {
+                PushCloudCulling(photo, new Services.Metadata.MetadataPatch(Rating: stars));
+                return;
+            }
             photo.Rating = stars;
-            PersistCulling(photo);
+            ScheduleSidecarWrite();
         }
 
         public void SetFlag(string flag)
@@ -464,8 +469,13 @@ namespace Maple.WinUI.ViewModels
             var photo = SelectedPhoto;
             if (photo == null)
                 return;
+            if (photo.IsCloud)
+            {
+                PushCloudCulling(photo, new Services.Metadata.MetadataPatch(Flag: flag));
+                return;
+            }
             photo.FlagStatus = flag;
-            PersistCulling(photo);
+            ScheduleSidecarWrite();
         }
 
         public void SetColorLabel(string? label)
@@ -473,16 +483,13 @@ namespace Maple.WinUI.ViewModels
             var photo = SelectedPhoto;
             if (photo == null)
                 return;
-            photo.ColorLabel = label;
-            PersistCulling(photo);
-        }
-
-        private void PersistCulling(PhotoItem photo)
-        {
             if (photo.IsCloud)
-                PushCloudCulling(photo);
-            else
-                ScheduleSidecarWrite();
+            {
+                PushCloudCulling(photo, new Services.Metadata.MetadataPatch(SetLabel: true, Label: label));
+                return;
+            }
+            photo.ColorLabel = label;
+            ScheduleSidecarWrite();
         }
 
         private static string? ExistingSidecar(string rawPath)

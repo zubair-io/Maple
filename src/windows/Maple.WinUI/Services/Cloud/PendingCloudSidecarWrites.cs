@@ -55,16 +55,24 @@ public sealed class PendingCloudSidecarWrites
 
     public async Task DrainAsync(bool retryFailed = false)
     {
-        Task worker;
-        lock (_gate)
+        while (true)
         {
-            if (!_running && _pending.Count > 0 && (_error == null || retryFailed)) StartLocked();
-            worker = _worker;
-        }
-        await worker;
-        lock (_gate)
-        {
-            if (_error != null) throw new InvalidOperationException("Pending cloud save failed: " + _error.Message, _error);
+            Task worker;
+            lock (_gate)
+            {
+                if (!_running && _pending.Count > 0 && (_error == null || retryFailed)) StartLocked();
+                // One explicit retry per drain, not an infinite retry loop on failure.
+                retryFailed = false;
+                worker = _worker;
+            }
+            await worker;
+            lock (_gate)
+            {
+                if (_error != null) throw new InvalidOperationException("Pending cloud save failed: " + _error.Message, _error);
+                // A successor worker may have started after the awaited worker
+                // became idle. Do not let metadata read ahead of its autosave.
+                if (!_running && _pending.Count == 0) return;
+            }
         }
     }
 }

@@ -84,12 +84,29 @@ public sealed class CloudSidecarUpdateTests : IDisposable
         Assert.Equal(new[] { "keep me" }, MetadataValues.Read(saved).Keywords);
     }
 
+    [Fact]
+    public async Task RatingPatchDoesNotSendUnrelatedCullingFields()
+    {
+        var doc = new XmpSidecarDocument { Rating = 2, Flag = "reject", ColorLabel = "purple" };
+        using var handler = new SidecarHandler(XmpWriter.Serialize(doc));
+        using var client = new CloudClient("https://maple.example.test", handler, _cache);
+        var saved = await client.ApplyMetadataAsync("/a.dng", "photos:a.dng",
+            new(Rating: 5), CancellationToken.None);
+        using var request = JsonDocument.Parse(handler.LastBatchBody!);
+        var fields = request.RootElement.GetProperty("entries")[0].GetProperty("metadata");
+        Assert.Equal(new[] { "rating" }, fields.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal(5, saved.Rating);
+        Assert.Equal("reject", saved.Flag);
+        Assert.Equal("purple", saved.Label);
+    }
+
     private sealed class SidecarHandler(string xml) : HttpMessageHandler
     {
         public string Xml = xml;
         public bool PauseFirstRead;
         public HttpStatusCode ReadStatus = HttpStatusCode.OK;
         public int Reads;
+        public string? LastBatchBody;
         public List<double> WrittenExposure { get; } = new();
         public TaskCompletionSource ReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -109,6 +126,7 @@ public sealed class CloudSidecarUpdateTests : IDisposable
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
             if (request.RequestUri!.AbsolutePath.EndsWith("/batch"))
             {
+                LastBatchBody = body;
                 using var json = JsonDocument.Parse(body);
                 var entry = json.RootElement.GetProperty("entries")[0];
                 var metadata = entry.GetProperty("metadata");

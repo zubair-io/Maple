@@ -469,15 +469,30 @@ namespace Maple.WinUI.ViewModels
 
         /// <summary>Push a cloud asset's culling change to the server
         /// (POST /api/xmp/batch merges into the server-side sidecar).</summary>
-        private void PushCloudCulling(PhotoItem photo)
+        private void PushCloudCulling(PhotoItem photo, Services.Metadata.MetadataPatch patch)
         {
             if (_cloud == null || photo.CloudAddress == null)
+            {
+                CloudStatus = "Metadata was not saved: this photo has no connected cloud address.";
                 return;
+            }
             var client = _cloud;
-            var patch = new Services.Metadata.MetadataPatch(Rating: photo.Rating, Flag: photo.FlagStatus,
-                SetLabel: true, Label: photo.ColorLabel);
-            TrackCloudMetadataWrite(() => client.ApplyMetadataAsync(photo.FilePath, photo.CloudAddress,
-                patch, CancellationToken.None));
+            var opening = _cloudSidecarLoad;
+            TrackCloudMetadataWrite(async () =>
+            {
+                await opening;
+                var saved = await client.ApplyMetadataAsync(photo.FilePath, photo.CloudAddress,
+                    patch, CancellationToken.None);
+                // Failed writes leave the last acknowledged culling state visible.
+                // Patch only the requested field so a stale search-feed value
+                // cannot overwrite unrelated metadata stored by another client.
+                OnUi(() =>
+                {
+                    if (patch.Rating != null) photo.Rating = saved.Rating;
+                    if (patch.Flag != null) photo.FlagStatus = saved.Flag;
+                    if (patch.SetLabel) photo.ColorLabel = saved.Label;
+                });
+            });
         }
     }
 }

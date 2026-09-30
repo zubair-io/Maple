@@ -59,4 +59,20 @@ public sealed class PendingCloudSidecarWritesTests
             Assert.Equal(i + 1, saves);
         }
     }
+
+    [Fact]
+    public async Task ExplicitRetryThatFailsAgainStopsWithoutSpinning()
+    {
+        var queue = new PendingCloudSidecarWrites();
+        var attempts = 0;
+        queue.Enqueue(() =>
+        {
+            Interlocked.Increment(ref attempts);
+            return Task.FromException(new IOException("Server unavailable"));
+        });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => queue.DrainAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            queue.DrainAsync(retryFailed: true).WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(2, attempts);
+    }
 }
