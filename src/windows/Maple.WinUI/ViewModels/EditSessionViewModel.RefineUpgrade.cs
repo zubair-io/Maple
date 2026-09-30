@@ -30,7 +30,7 @@ namespace Maple.WinUI.ViewModels
         private void ScheduleAmazeUpgrade(
             int generation, PhotoItem photo, AdjustmentState model, DecodedImage previewDecoded)
         {
-            if (_disposed || generation != _decodeGeneration) return;
+            if (_disposed || generation != _decodeGeneration || previewDecoded.IsRaster) return;
             if (!RefineDecodeQuality.ShouldScheduleAmazeUpgrade(
                     RenderEngine.SensorLongEdge(photo.EditPath), PreviewLongEdge))
                 return;

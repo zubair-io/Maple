@@ -172,6 +172,7 @@ namespace Maple.WinUI.ViewModels
 
         partial void OnSelectedPhotoChanged(PhotoItem? value)
         {
+            PublishRasterCapabilities(false);
             if (value != null)
                 OpenForEditing(value);
             else

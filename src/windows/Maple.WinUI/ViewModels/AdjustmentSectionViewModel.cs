@@ -59,6 +59,9 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty]
         private bool _isEnabled = true;
 
+        [ObservableProperty]
+        private string _unavailableReason = string.Empty;
+
         public AdjustmentSliderViewModel(
             EditSessionViewModel session, string label,
             double min, double max, double step,

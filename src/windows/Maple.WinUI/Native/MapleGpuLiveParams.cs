@@ -282,7 +282,7 @@ namespace Maple.WinUI.Native
                 decoded_temperature = image.DecodedTemperature,
                 decoded_tint = image.DecodedTint,
                 target_primaries = 0,
-                input_shape = 0,
+                input_shape = image.IsRaster ? 2u : 0u,
                 bw_active = m.BlackWhite == ToggleMode.On ? 1f : 0f,
                 bw_mix_red = (float)m.GrayMixerRed,
                 bw_mix_orange = (float)m.GrayMixerOrange,

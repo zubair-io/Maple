@@ -39,6 +39,9 @@
 use crate::error::set_last_error;
 use std::ffi::{c_char, CStr};
 
+#[path = "thumbnail_raster.rs"]
+mod raster;
+
 /// Shared core for both externs below: extract the embedded preview,
 /// downsample to `max_px` on the long edge, bake in EXIF orientation, encode
 /// via `encode` (either `raw_core::avif::encode` or `raw_core::jpeg::encode`
@@ -107,32 +110,41 @@ unsafe fn render_thumbnail_to_file(
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
-    let (dyn_img, orientation) = match raw_core::preview::extract_embedded_preview(&raw_bytes, &ext)
-    {
-        Ok(pair) => pair,
-        Err(raw_core::Error::Preview(msg)) => {
-            let panicked = msg.contains("panicked");
-            set_last_error(msg);
-            return if panicked { 11 } else { 8 };
+    let (ow, oh, oriented) = if raster::is_raster(&raw_bytes, &ext) {
+        match raster::pixels(&raw_bytes, max_px) {
+            Ok(pixels) => pixels,
+            Err(error) => {
+                set_last_error(error.to_string());
+                return 8;
+            }
         }
-        Err(e) => {
-            // Unreachable in practice — `extract_embedded_preview` only ever
-            // returns `Error::Preview` — but handled defensively so a future
-            // change to that contract can't silently drop the message here.
-            set_last_error(e.to_string());
-            return 8;
-        }
-    };
+    } else {
+        let (dyn_img, orientation) =
+            match raw_core::preview::extract_embedded_preview(&raw_bytes, &ext) {
+                Ok(pair) => pair,
+                Err(raw_core::Error::Preview(msg)) => {
+                    let panicked = msg.contains("panicked");
+                    set_last_error(msg);
+                    return if panicked { 11 } else { 8 };
+                }
+                Err(e) => {
+                    // Unreachable in practice — `extract_embedded_preview` only ever
+                    // returns `Error::Preview` — but handled defensively so a future
+                    // change to that contract can't silently drop the message here.
+                    set_last_error(e.to_string());
+                    return 8;
+                }
+            };
 
-    let resized = raw_core::preview::resize_long_edge(dyn_img, max_px);
-    let rgb_img = resized.to_rgb8();
-    let (rw, rh) = rgb_img.dimensions();
-    // Bake EXIF orientation into the pixels — rawler hands back the
-    // embedded preview in its native (usually sensor) orientation and the
-    // re-encode below carries no EXIF, so rotating here is the only chance
-    // to land an upright thumb on disk.
-    let (ow, oh, oriented) =
-        raw_core::image::apply_orientation(rgb_img.as_raw(), rw, rh, orientation);
+        let resized = raw_core::preview::resize_long_edge(dyn_img, max_px);
+        let rgb_img = resized.to_rgb8();
+        let (rw, rh) = rgb_img.dimensions();
+        // Bake EXIF orientation into the pixels — rawler hands back the
+        // embedded preview in its native (usually sensor) orientation and the
+        // re-encode below carries no EXIF, so rotating here is the only chance
+        // to land an upright thumb on disk.
+        raw_core::image::apply_orientation(rgb_img.as_raw(), rw, rh, orientation)
+    };
     let encoded = match encode(ow, oh, &oriented, q) {
         Ok(b) => b,
         Err(e) => {

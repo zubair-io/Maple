@@ -136,6 +136,7 @@ mod scene_linear_chain_curves;
 // raw_core::export (JPEG / 16-bit TIFF / PNG, ICC-tagged, long-edge cap).
 mod export_file;
 mod export_recipe;
+mod raster_develop;
 mod scene_linear_f32;
 mod scene_linear_f32_buffer;
 mod thumbnail;

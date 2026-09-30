@@ -10,6 +10,7 @@ namespace Maple.WinUI.ViewModels
         private void ApplyDecodedState(int generation, PhotoItem photo, DecodedImage decoded)
         {
             if (generation != _decodeGeneration || !ReferenceEquals(SelectedPhoto, photo)) return;
+            PublishRasterCapabilities(decoded.IsRaster);
             photo.CameraSupport = decoded.CameraSupport;
             PublishLensProfile(decoded.LensProfile);   // #3480
             if (decoded.DecodedTemperature > 0)

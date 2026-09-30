@@ -239,6 +239,7 @@
          library is needed at test time. -->
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.DecodeOwned.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\RenderEngine.Raster.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\NativeDetailDecoder.cs" LinkBase="Services" />
     <!-- LensProfileStore.cs (#3480) — the %LOCALAPPDATA% LCP store
          RenderEngine.Decode restores from and the export executor consults:

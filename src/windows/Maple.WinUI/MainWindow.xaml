@@ -27,6 +27,9 @@
             <conv:InverseBoolVisibleConverter x:Key="InverseBoolVisible" />
             <CollectionViewSource x:Key="GroupedPhotosSource" IsSourceGrouped="True" />
             <DataTemplate x:Key="SliderRowTemplate" x:DataType="vm:AdjustmentSliderViewModel">
+                <ContentControl IsEnabled="{Binding IsEnabled}" HorizontalContentAlignment="Stretch"
+                                ToolTipService.ToolTip="{Binding UnavailableReason}"
+                                AutomationProperties.HelpText="{Binding UnavailableReason}">
                 <StackPanel Margin="0,0,0,2" DoubleTapped="OnSliderRowDoubleTapped">
                     <Grid>
                         <TextBlock Text="{Binding Label}" FontSize="12" VerticalAlignment="Center" />
@@ -55,6 +58,7 @@
                             PointerWheelChanged="OnSliderPointerWheelChanged"
                             MinHeight="24" Height="24" Margin="0" IsThumbToolTipEnabled="False" />
                 </StackPanel>
+                </ContentControl>
             </DataTemplate>
         </Grid.Resources>
 

@@ -14,11 +14,11 @@ use image::{DynamicImage, ImageDecoder, ImageReader};
 use std::io::Cursor;
 
 fn unsupported(message: &str) -> Error {
-    Error::Pipeline(format!("raster export: {message}"))
+    Error::Pipeline(format!("raster image: {message}"))
 }
 
 /// RAW-only authored stages must never disappear silently on a raster source.
-fn validate_model(model: &AdjustmentModel) -> Result<()> {
+pub fn validate_raster_adjustments(model: &AdjustmentModel) -> Result<()> {
     let defaults = AdjustmentModel::default();
     let checks = [
         // These controls belong to AgX, which cannot be run a second time
@@ -169,22 +169,18 @@ pub fn render_export_raster(
     depth: ExportDepth,
     film: Option<&FilmLut>,
 ) -> Result<(u32, u32, ExportPixels)> {
-    validate_model(model)?;
+    validate_raster_adjustments(model)?;
     if !model.film_look.is_empty() && film.is_none() {
         return Err(unsupported("selected film LUT is unavailable"));
     }
-    let (mut scene, orientation) = decode(bytes)?;
-    if let Some(cap) = max_long_edge {
-        if cap == 0 {
-            return Err(unsupported("maxLongEdge must be positive"));
-        }
-        downsample_image_area(&mut scene, cap);
-    }
-    let rgba: Vec<f32> = scene
-        .pixels
-        .iter()
-        .flat_map(|p| [p[0], p[1], p[2], 1.0])
-        .collect();
+    // Masks, grain and geometry are authored against the oriented canvas.
+    // Share the editor base so asymmetric edits cannot rotate relative to it.
+    let (width, height, rgba) = decode_raster_base(
+        bytes,
+        max_long_edge.unwrap_or(u32::MAX),
+        crate::CancelToken::never(),
+    )?;
+    let mut scene = Image::new(width, height, ColorSpace::SceneLinearRec2020);
     let chained = apply_scene_linear_chain_f32_with_film(
         &rgba,
         scene.width,
@@ -203,7 +199,42 @@ pub fn render_export_raster(
     encode::rec2020_to_display(&mut scene, target);
     encode::srgb_gamma_encode(&mut scene);
     Ok(match depth {
-        ExportDepth::Eight => finish_eight(&mut scene, orientation, model),
-        ExportDepth::Sixteen => finish_sixteen(&mut scene, orientation, model),
+        ExportDepth::Eight => finish_eight(&mut scene, ExifOrientation::Normal, model),
+        ExportDepth::Sixteen => finish_sixteen(&mut scene, ExifOrientation::Normal, model),
     })
+}
+
+/// Color-managed editor base, with EXIF orientation applied once and no user
+/// edits baked in. CPU/GPU hosts must use their non-RAW chain on this buffer.
+pub fn decode_raster_base(
+    bytes: &[u8],
+    max_long_edge: u32,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    if max_long_edge == 0 {
+        return Err(unsupported("maxLongEdge must be positive"));
+    }
+    let (mut scene, orientation) = decode(bytes)?;
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    downsample_image_area(&mut scene, max_long_edge);
+    let rgba: Vec<f32> = scene
+        .pixels
+        .iter()
+        .flat_map(|p| [p[0], p[1], p[2], 1.0])
+        .collect();
+    let result = crate::pipeline::orient::apply_orientation_f32_rgba(
+        &rgba,
+        scene.width,
+        scene.height,
+        orientation,
+    );
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(result)
 }

@@ -34,6 +34,10 @@ namespace Maple.WinUI
             Grid.SetColumn(_profilePicker, 1);
             row.Children.Add(_profilePicker);
             PanelProfileHost.Children.Add(row);
+            ViewModel.PropertyChanged += (_, e) =>
+            {
+                if (!_closing && e.PropertyName == nameof(ViewModel.IsRasterSource)) SyncProfilePanel();
+            };
             SyncProfilePanel();
             BuildWhiteBalancePanel();   // #2434 — MainWindow.WhiteBalance.cs
         }
@@ -44,8 +48,10 @@ namespace Maple.WinUI
             _profileSyncing = true;
             _profilePicker.SelectedIndex = auto ? 0 : 1;
             _profileSyncing = false;
-            _profilePicker.IsEnabled = ViewModel.SelectedPhoto != null;
-            ToolTipService.SetToolTip(_profilePicker, auto
+            _profilePicker.IsEnabled = ViewModel.SelectedPhoto != null && !ViewModel.IsRasterSource;
+            ToolTipService.SetToolTip(_profilePicker, ViewModel.IsRasterSource
+                ? "JPEG and TIFF keep their existing tone mapping and embedded color profile."
+                : auto
                 ? "Fits color and contrast to the camera's embedded preview. Uses Neutral when no preview is available."
                 : "Uses the fixed AgX view transform without matching the embedded preview.");
         }

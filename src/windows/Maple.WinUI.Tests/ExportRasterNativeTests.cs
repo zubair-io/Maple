@@ -52,6 +52,11 @@ public sealed class ExportRasterNativeTests(ITestOutputHelper output)
             Assert.True(created.Status == "applied", created.Reason);
             var jpeg = created.OutputPath;
             var jpegHash = ExportPaths.Hash(jpeg);
+            var jpegPreview = Services.RenderEngine.Decode(jpeg,
+                new AdjustmentState { SharpenAmount = 0, NrColor = 0 }, 16, 0, IntPtr.Zero);
+            Assert.True(jpegPreview.IsRaster);
+            Assert.Equal(16, jpegPreview.Width);
+            Assert.Equal(16, jpegPreview.Height);
             var job = runner.Create(recipe, [
                 new(source, Snapshot(), "tiff-baseline", null),
                 new(source, Snapshot(1), "tiff-edited", null),
@@ -119,7 +124,7 @@ public sealed class ExportRasterNativeTests(ITestOutputHelper output)
         }
     }
 
-    private static string WriteTiff(string root)
+    internal static string WriteTiff(string root)
     {
         // Little-endian 16x16 RGB16 TIFF; 10 IFD entries, bits at 134, pixels at 140.
         var path = Path.Combine(root, "original.tif");

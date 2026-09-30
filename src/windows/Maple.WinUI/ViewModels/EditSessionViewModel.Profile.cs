@@ -11,7 +11,7 @@ namespace Maple.WinUI.ViewModels
         /// any pending slider gesture before recording the profile change.</summary>
         public void SelectProfile(ProfileMode profile)
         {
-            if (!AdjustmentsReady) return;
+            if (!AdjustmentsReady || IsRasterSource) return;
             if (SelectedPhoto == null || Adjustments.Profile == profile
                 || !Enum.IsDefined(profile))
                 return;

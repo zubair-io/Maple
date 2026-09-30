@@ -28,6 +28,7 @@ namespace Maple.WinUI.Services
         /// <summary>Raw copy of the wb_frame_* export block, in struct order,
         /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
         public required float[] WbFrame { get; init; }
+        public bool IsRaster { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
         /// <summary>What the core resolved for the sidecar's lens selection
         /// on this RAW (#3480): source and per-family coverage, which the
@@ -101,6 +102,10 @@ namespace Maple.WinUI.Services
                 var buffer = new MapleSceneLinearBufferF32();
                 var rc = RawFfi.maple_render_file_scene_linear_sized_f32(
                     rawPath, tempXmpPath, (uint)maxLongEdge, quality, cancelFlag, &buffer);
+                // Ordinary TIFFs share the RAW container signature. Try RAW
+                // first; only an actual decode failure may take the raster path.
+                if (rc == 7 && IsRasterExtension(rawPath))
+                    return DecodeRaster(rawPath, model, maxLongEdge, cancelFlag);
                 if (rc != 0)
                     throw new InvalidOperationException(
                         $"scene-linear decode failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
@@ -217,6 +222,7 @@ namespace Maple.WinUI.Services
             var p = MapleAdjustmentParams.From(
                 model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv);
             ApplyWbFrame(ref p, image.WbFrame);
+            p.skip_agx = image.IsRaster ? 1u : 0u;
 
             // Point tone curves (#2576) ride a sibling struct — the scalar
             // params ABI can't carry variable-length knot lists.
@@ -464,6 +470,7 @@ namespace Maple.WinUI.Services
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
                 WbFrame = src.WbFrame,
+                IsRaster = src.IsRaster,
                 ProfileCurve = src.ProfileCurve,
                 ResidualLut = src.ResidualLut,
                 ResidualLutSize = src.ResidualLutSize,

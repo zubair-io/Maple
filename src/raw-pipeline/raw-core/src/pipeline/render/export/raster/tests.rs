@@ -267,3 +267,60 @@ fn edited_export_matches_non_raw_live_chain_and_respects_size_cap() {
         }
     }
 }
+
+#[test]
+fn oriented_editor_base_matches_export_with_asymmetric_grain() {
+    let source = jpeg();
+    let mut exif = b"Exif\0\0II\x2a\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0".to_vec();
+    exif.extend_from_slice(&6u16.to_le_bytes());
+    exif.extend_from_slice(&[0; 6]);
+    let mut tagged = vec![0xff, 0xd8, 0xff, 0xe1];
+    tagged.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
+    tagged.extend_from_slice(&exif);
+    tagged.extend_from_slice(&source[2..]);
+    let (width, height, base) =
+        decode_raster_base(&tagged, 32, crate::CancelToken::never()).unwrap();
+    assert_eq!((width, height), (24, 32));
+    let edits = AdjustmentModel {
+        exposure: 0.4,
+        grain_amount: 70.0,
+        ..model()
+    };
+    let chained = crate::pipeline::apply_scene_linear_chain_f32(
+        &base,
+        width,
+        height,
+        &edits,
+        &ChainOptions {
+            skip_agx: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let expected = crate::pipeline::encode_display_srgb_f32(&chained, width, height).unwrap();
+    let (_, _, output) = render_export_raster(
+        &tagged,
+        &edits,
+        None,
+        TargetPrimaries::Srgb,
+        ExportDepth::Eight,
+        None,
+    )
+    .unwrap();
+    let ExportPixels::Eight(output) = output else {
+        panic!("expected RGB8")
+    };
+    for (got, want) in output.chunks_exact(3).zip(expected.chunks_exact(4)) {
+        for channel in 0..3 {
+            assert!(
+                got[channel].abs_diff((want[channel].clamp(0.0, 1.0) * 255.0).round() as u8) <= 1
+            );
+        }
+    }
+    let flag = std::sync::atomic::AtomicBool::new(true);
+    assert!(matches!(
+        decode_raster_base(&tagged, 32, crate::CancelToken::new(&flag)),
+        Err(Error::Cancelled)
+    ));
+    assert!(decode_raster_base(&tagged, 0, crate::CancelToken::never()).is_err());
+}
