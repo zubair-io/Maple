@@ -6,19 +6,10 @@
  * `raw-pipeline/raw-ffi/src/raster_v2.rs` for the C ABI these bind against.
  */
 
+import { initialRenderCapacity, MAX_PROBE_SIZED_PIXELS } from './native-output-buffer';
+
 /** rc from the C ABI for "your buffer was too small; `*out_len` is the size". */
 const NEED_LARGER_BUFFER = 100;
-
-/**
- * Ceiling on the pixel count `rasterDecodeRgb8Buf` will allocate for straight
- * from a header, matching raw-core's `AVIF_MAX_FRAME_PIXELS`. The dimensions
- * come from the file's own header, before any decoder has validated it, so
- * without a ceiling a hostile TIFF/PNG declaring 100000x100000 would turn a
- * documented `{ ok: false, error }` into a `RangeError` thrown out of
- * `Buffer.alloc`. Past the ceiling the code takes the null-buffer size probe
- * instead, which allocates nothing until the decoder agrees on a size.
- */
-const MAX_PROBE_SIZED_PIXELS = 268_000_000;
 
 /**
  * The part of `native.ts`'s header probe that `rasterDecodeRgb8Buf` needs to
@@ -125,7 +116,9 @@ export function createRasterV2Binding(
           BigInt(outBuf.byteLength),
           ptr(outLenBuf),
         ) as number;
-      const first = Buffer.alloc(Math.max(65536, inputBytes.byteLength * 2));
+      const first = Buffer.alloc(
+        initialRenderCapacity(inputBytes.byteLength, width, height, format),
+      );
       const rc0 = call(first);
       const outBuf =
         rc0 === NEED_LARGER_BUFFER ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
@@ -169,7 +162,11 @@ export function createRasterV2Binding(
           BigInt(outBuf.byteLength),
           ptr(outLenBuf),
         ) as number;
-      const first = Buffer.alloc(Math.max(65536, pixels.byteLength));
+      const first = Buffer.alloc(
+        width || height
+          ? initialRenderCapacity(pixels.byteLength, width, height, format)
+          : Math.max(65536, pixels.byteLength),
+      );
       const rc0 = call(first);
       const outBuf =
         rc0 === NEED_LARGER_BUFFER ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
