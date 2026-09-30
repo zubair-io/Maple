@@ -1,0 +1,84 @@
+name: Azure test server
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Create, delete, or recreate the test server (delete/recreate erase data and accounts)'
+        required: true
+        default: create
+        type: choice
+        options: [create, delete, recreate]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: azure-test-server
+  cancel-in-progress: false
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AZURE_TEST_SUBSCRIPTION_ID: ${{ vars.AZURE_TEST_SUBSCRIPTION_ID }}
+      MAPLE_AZURE_OWNER_CIDR: ${{ vars.AZURE_TEST_OWNER_CIDR }}
+    steps:
+      - name: Require main and configured Azure access
+        env:
+          SELECTED_REF: ${{ github.ref }}
+          AZURE_TEST_CLIENT_ID: ${{ vars.AZURE_TEST_CLIENT_ID }}
+          AZURE_TEST_TENANT_ID: ${{ vars.AZURE_TEST_TENANT_ID }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          [[ "$SELECTED_REF" == refs/heads/main ]] || { echo 'Run this workflow from main.' >&2; exit 1; }
+          : "${AZURE_TEST_CLIENT_ID:?Missing AZURE_TEST_CLIENT_ID repository variable}"
+          : "${AZURE_TEST_TENANT_ID:?Missing AZURE_TEST_TENANT_ID repository variable}"
+          : "${AZURE_TEST_SUBSCRIPTION_ID:?Missing AZURE_TEST_SUBSCRIPTION_ID repository variable}"
+          if [[ "$ACTION" != delete ]]; then
+            : "${MAPLE_AZURE_OWNER_CIDR:?Missing AZURE_TEST_OWNER_CIDR repository variable}"
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Azure login with scoped OpenID Connect identity
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_TEST_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TEST_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_TEST_SUBSCRIPTION_ID }}
+
+      - name: Manage the dedicated test server
+        id: lifecycle
+        env:
+          ACTION: ${{ inputs.action }}
+          MAPLE_AZURE_SSH_KEY: ${{ runner.temp }}/maple-test-server-ssh
+        run: bash scripts/azure-test-server-lifecycle.sh "$ACTION"
+
+      - name: Remove the runner SSH rule and private key
+        if: always() && steps.lifecycle.outputs.provisioning_started == 'true'
+        env:
+          MAPLE_AZURE_SSH_KEY: ${{ runner.temp }}/maple-test-server-ssh
+        run: |
+          set -euo pipefail
+          rm -f "$MAPLE_AZURE_SSH_KEY" "$MAPLE_AZURE_SSH_KEY.pub"
+          nsg_count=$(az network nsg list --resource-group maple-apple-dev-75ffbb \
+            --query "length([?name=='maple-apple-75ffbb-nsg'])" -o tsv)
+          if [[ "$nsg_count" == 1 ]]; then
+            rule_count=$(az network nsg rule list --resource-group maple-apple-dev-75ffbb \
+              --nsg-name maple-apple-75ffbb-nsg \
+              --query "length([?name=='maple-ssh-from-setup-machine'])" -o tsv)
+            if [[ "$rule_count" == 1 ]]; then
+              az network nsg rule delete --resource-group maple-apple-dev-75ffbb \
+                --nsg-name maple-apple-75ffbb-nsg --name maple-ssh-from-setup-machine
+            fi
+          fi
+
+      - name: Azure logout
+        if: always()
+        run: az logout
