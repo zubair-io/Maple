@@ -12,6 +12,7 @@ pub mod adjustment;
 pub use adjustment::{TRANSFER_XMP_ATTRIBUTES, TRANSFER_XMP_ELEMENTS};
 pub mod inpaint;
 pub mod local_adjustment;
+pub mod removal_mask;
 pub mod retouch;
 
 pub use adjustment::{

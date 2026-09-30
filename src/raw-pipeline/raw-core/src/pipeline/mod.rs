@@ -30,11 +30,13 @@ mod inpaint_store;
 pub mod mask;
 mod orient;
 pub(crate) mod pano;
+mod removal_mask_store;
 mod render;
 mod scene_linear_chain;
 mod tile;
 
 pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, patches_to_blob};
+pub use removal_mask_store::{removal_mask_from_bytes, removal_mask_to_bytes};
 
 /// Phase-1 end-to-end seam test (#1484): baked patch composited at the
 /// pre-grade seam via the real stages re-grades like sensor data. Test-only.
