@@ -69,6 +69,19 @@ rows and enables vertical scrolling. The regression checks grid and list
 overflow, scrolling down, reaching the last photo, and returning to the top.
 These programmatic checks do not replace mouse-wheel or screenshot review.
 
+The user's subsequent Preview/Editor captures exposed oversized thumbnail
+cards and adjustment rows. The correction removes padding from thumbnail-only
+media cells, gives the rail a single rounded surface, sizes the editor rail for
+complete rows, widens the Preview bar, and compacts adjustment rows to a 22-DIP
+value row plus a 24-DIP native slider. The seven primary tools use lighter
+labels and corrected icons; Lens and Geometry remain in the editing overflow.
+Floating panels now use ThemeShadow rather than strong outlines, comparison
+uses the split icon, and histogram layout changes replay the latest real bins.
+Release build, all 1,176 unit tests, and GPU lifecycle smoke pass, including
+compact slider height, seven primary tools, overflow access and Browse scrolling.
+Post-change screenshot fidelity is still unverified; the capture helper maps
+worktree windows to the installed app and rejects their ownership.
+
 Responsive smoke uses root layout sizes 1440×900, 1024×768, 960×600, 683×512,
 720×450 and 512×384 DIPs. These approximate the requested physical-size/scaling
 combinations, but **are not screenshots or actual monitor-DPI qualification**.
