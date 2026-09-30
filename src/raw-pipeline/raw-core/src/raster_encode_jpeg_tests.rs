@@ -221,7 +221,12 @@ fn dimensions_beyond_the_jpeg_limit_are_rejected() {
         data: vec![0; 65_536 * 3],
         orientation: crate::image::ExifOrientation::Normal,
     };
-    assert!(encode_jpeg_opts(&wide, &opts(), &EmbeddedMetadata::default()).is_err());
+    let err = encode_jpeg_opts(&wide, &opts(), &EmbeddedMetadata::default()).unwrap_err();
+    assert!(matches!(err, Error::Encode { format: "JPEG", .. }));
+    assert_eq!(
+        err.to_string(),
+        "JPEG write error: jpeg encode failed: width 65536 exceeds JPEG's 65535 limit"
+    );
 }
 
 // --- Deferred from the F1 review: parse-level assertions, not just marker

@@ -6,6 +6,30 @@
 
 use super::*;
 
+#[test]
+fn invalid_export_buffers_name_their_requested_container() {
+    for (format, result) in [
+        ("JPEG", encode_jpeg(2, 2, &[0; 10], 80, Vec::new())),
+        ("PNG", encode_png(2, 2, &[0; 10], Vec::new())),
+        ("TIFF", encode_tiff16(2, 2, &[0; 10], Vec::new())),
+        ("WebP", encode_webp(2, 2, &[0; 10], TargetPrimaries::Srgb)),
+    ] {
+        let err = result.unwrap_err();
+        assert!(matches!(err, Error::Encode { format: actual, .. } if actual == format));
+        assert_eq!(
+            err.to_string(),
+            format!("{format} write error: export: expected 12 samples for 2x2, got 10")
+        );
+    }
+}
+
+#[test]
+fn a_webp_codec_dimension_failure_is_a_webp_error() {
+    let err = encode_webp(16_385, 1, &vec![0; 16_385 * 3], TargetPrimaries::Srgb).unwrap_err();
+    assert!(matches!(err, Error::Encode { format: "WebP", .. }));
+    assert!(err.to_string().starts_with("WebP write error:"));
+}
+
 fn ramp_u8(width: u32, height: u32) -> Vec<u8> {
     (0..(width as usize * height as usize * 3))
         .map(|i| (i % 256) as u8)

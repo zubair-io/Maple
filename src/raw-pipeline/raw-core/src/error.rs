@@ -53,8 +53,11 @@ pub enum Error {
     #[error("XMP parse error: {0}")]
     Xmp(String),
 
-    #[error("PNG write error: {0}")]
-    Png(String),
+    #[error("{format} write error: {reason}")]
+    Encode {
+        format: &'static str,
+        reason: String,
+    },
 
     /// Embedded-preview extraction failed (`crate::preview::extract_embedded_preview`)
     /// — either the RAW has none of rawler's `preview_image`/`full_image`/
@@ -76,6 +79,12 @@ pub enum Error {
     /// the develop chain; the default never-cancel path can never return it.
     #[error("render cancelled by host")]
     Cancelled,
+}
+
+impl Error {
+    pub(crate) fn encode(format: &'static str, reason: String) -> Self {
+        Self::Encode { format, reason }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

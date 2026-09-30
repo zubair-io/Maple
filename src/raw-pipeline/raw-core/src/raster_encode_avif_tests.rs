@@ -5,6 +5,14 @@
 
 use super::*;
 
+#[test]
+fn a_webp_recipe_codec_failure_is_labeled_webp() {
+    let wide = RasterImage::new_rgb(16_385, 1, vec![0; 16_385 * 3]);
+    let err = encode_webp_opts(&wide, true, &EmbeddedMetadata::default()).unwrap_err();
+    assert!(matches!(err, Error::Encode { format: "WebP", .. }));
+    assert!(err.to_string().starts_with("WebP write error:"));
+}
+
 fn gradient(w: u32, h: u32, alpha: bool) -> RasterImage {
     let channels = if alpha { 4 } else { 3 };
     let data = (0..h)
