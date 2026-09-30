@@ -48,7 +48,7 @@ do not bump stage versions or reprocess existing assets automatically.
 
 It also publishes a status snapshot into the `worker_status` table every 2 s. That is how the API process — which has an empty in-process registry — can answer `GET /api/workers/status`.
 
-Native decoders are deliberately kept out of this process's address space: `src/api/scripts/check-worker-isolation.sh` fails if `sharp`, `onnxruntime-node`, or `heic-convert` are imported anywhere on the `worker-main` path outside a dedicated child (`thumbs/imgdecode.child.ts`, `enrichment/face-pool.child.ts`, and friends). A segfault in libraw or ONNX kills a child, not the tier.
+RAW and bitmap thumbnail/preview decode and ONNX face inference run in dedicated child processes, so a decoder crash on those paths kills a child. `src/api/scripts/check-worker-isolation.sh` checks `onnxruntime-node` and `heic-convert` imports in selected worker-main directories, thumbnail/preview pool routing, and the face child's presence. It does not check Maple native imports or establish crash isolation for other Maple callers, including describe and video frame extraction (#3629).
 
 ## Discovery: keeping the catalog in step with disk
 

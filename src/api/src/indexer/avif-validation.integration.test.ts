@@ -51,7 +51,7 @@ describe('generateThumb — AVIF validation wiring', () => {
   });
 
   it('never leaves a broken file at the thumb path for the unknown-format copy fallback', async () => {
-    // .bmp is not in RAW_EXTS, SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS, or the
+    // .bmp is not in RAW_EXTS, BITMAP_EXTENSIONS, PSD_HDR_EXTENSIONS, or the
     // no-preview guard sets, so it reaches `copyImageAsThumb` — the
     // last-resort branch that copies source bytes verbatim. Before #2011
     // this always "succeeded"; now the copied (non-AVIF) bytes must fail

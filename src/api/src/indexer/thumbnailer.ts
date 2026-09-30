@@ -30,7 +30,7 @@ import { randomBytes } from 'node:crypto';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { replicatePath } from '../fs/mirrored.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from './media-types.ts';
+import { BITMAP_EXTENSIONS, PSD_HDR_EXTENSIONS } from './media-types.ts';
 import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
@@ -166,7 +166,7 @@ async function renderByFormat(
 ): Promise<boolean> {
   if (RAW_EXTS.has(ext)) return renderRawThumbToFile(absPath, tmpPath);
   if (isVideoFilename(absPath)) return renderVideoThumbToFile(absPath, tmpPath);
-  if (SHARP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
+  if (BITMAP_EXTENSIONS.has(extNoDot) || PSD_HDR_EXTENSIONS.has(extNoDot)) {
     return renderBitmapThumbToFile(absPath, tmpPath, extNoDot);
   }
   // Unknown format — fall back to copy so something is at the path (matches

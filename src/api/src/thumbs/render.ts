@@ -35,7 +35,7 @@ import { maple } from 'maple';
 import { decodePsdComposite } from './psd-hdr-decode.ts';
 import { decodeHdrIsolated } from './hdr-decode-isolated.ts';
 
-// The SHARP_EXTENSIONS allowlist lives in `indexer/media-types.ts` (a leaf
+// The BITMAP_EXTENSIONS allowlist lives in `indexer/media-types.ts` (a leaf
 // module with no renderer deps) so routes like `/api/fs/raw` can import the
 // gate without pulling in `maple` / `heic-convert`. (#782, #1988)
 
