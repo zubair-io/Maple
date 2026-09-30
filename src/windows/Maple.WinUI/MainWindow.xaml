@@ -778,7 +778,7 @@
                         <!-- Edit top pill -->
                         <Border x:Name="EditTopBar" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F22A2724" BorderThickness="0" CornerRadius="12" Translation="0,0,24"
-                                HorizontalAlignment="Stretch" VerticalAlignment="Top" Margin="16,16,16,0"
+                                Width="720" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="16,16,16,0"
                                 Padding="10,6" MinHeight="56">
                             <Border.Shadow><ThemeShadow /></Border.Shadow>
                             <Grid ColumnSpacing="10">
