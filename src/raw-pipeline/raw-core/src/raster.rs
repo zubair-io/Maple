@@ -135,6 +135,10 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
         })?;
     }
 
+    // Library assets are trusted inputs. Match the server's former Sharp
+    // `unlimited: true` behavior: image's default 512 MiB decoded-buffer
+    // ceiling rejects valid high-resolution RGB16 TIFF/PNG files (#3516).
+    reader.no_limits();
     let dyn_img = reader.decode().map_err(|e| Error::Decode {
         path: "<memory>".into(),
         reason: format!("failed to decode raster pixels: {e}"),
@@ -239,3 +243,7 @@ mod avif_decode_gate;
 #[cfg(test)]
 #[path = "raster_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "raster_large_decode_tests.rs"]
+mod large_decode_tests;
