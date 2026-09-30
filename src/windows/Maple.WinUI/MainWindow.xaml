@@ -46,14 +46,15 @@
                          arrow-key adjustment. A WHEEL change raises neither, so
                          it is handled separately and commits on an idle
                          debounce instead — without that a wheel-adjusted value
-                         stays parked forever and is lost on navigate. All three
-                         are no-ops for the per-tick rows. -->
+                         stays parked forever and is lost on navigate. Pointer
+                         boundaries also keep live edits in one undo entry. -->
                     <mui:MuiAdjustmentSlider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}" Origin="{Binding DefaultValue}"
                             StepFrequency="{Binding StepFrequency}"
                             Value="{Binding Value, Mode=TwoWay}"
                             IsEnabled="{Binding IsEnabled}"
                             AutomationProperties.Name="{Binding Label}"
-                            PointerCaptureLost="OnSliderPointerCaptureLost"
+                            GestureStarted="OnSliderGestureStarted"
+                            GestureCompleted="OnSliderGestureCompleted"
                             KeyUp="OnSliderKeyUp"
                             PointerWheelChanged="OnSliderPointerWheelChanged"
                             MinHeight="24" Height="24" Margin="0" IsThumbToolTipEnabled="False" />

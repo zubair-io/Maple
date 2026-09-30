@@ -232,7 +232,6 @@ namespace Maple.WinUI
             VerifyDragBarAccessibility();
             VerifyMaskSelection();
             var photo = ViewModel.SelectedPhoto;
-            var model = ViewModel.Adjustments;
             if (_activeGroup != "Light") ToggleGroupPanel("Light");
             Content.UpdateLayout();
             var slider = FindDescendant<Maple.UI.Atoms.MuiAdjustmentSlider>(EditPanel);
@@ -242,6 +241,10 @@ namespace Maple.WinUI
             var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(slider);
             if (peer?.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.RangeValue) == null)
                 throw new InvalidOperationException("Adjustment slider lost native range accessibility");
+            await VerifySliderGestureUndoAsync(slider);
+            // Undo deliberately replaces the adjustment object. Capture the
+            // identity after that check, before testing layout-only changes.
+            var model = ViewModel.Adjustments;
             if (slider.ActualHeight > 24 || EditRailStack.Children.Count != 7 || CompareButton.IconName != "split" || CompareButton.Label.Length != 0)
                 throw new InvalidOperationException("Editor density or primary tool dock differs from the design");
             if (FindDescendant<Microsoft.UI.Xaml.Controls.Border>(FilmstripRail)?.Background == null)

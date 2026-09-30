@@ -5,6 +5,31 @@ namespace Maple.WinUI;
 
 public sealed partial class MainWindow
 {
+    private async Task VerifySliderGestureUndoAsync(Maple.UI.Atoms.MuiAdjustmentSlider slider)
+    {
+        var original = slider.Value;
+        var depth = ViewModel.UndoCount;
+        OnSliderGestureStarted(slider, EventArgs.Empty);
+        slider.Value = original + .05;
+        await Task.Delay(650);
+        slider.Value = original + .25;
+        await Task.Delay(650);
+        if (ViewModel.UndoCount != depth || ViewModel.Adjustments.Exposure != original + .25)
+            throw new InvalidOperationException("Bound Exposure slider split a paused edit or failed to update the model.");
+        OnSliderGestureCompleted(slider, EventArgs.Empty);
+        if (ViewModel.UndoCount != depth + 1)
+            throw new InvalidOperationException("Bound slider release did not commit one edit.");
+        ViewModel.Undo();
+        Content.UpdateLayout();
+        if (ViewModel.Adjustments.Exposure != original || slider.Value != original)
+            throw new InvalidOperationException("Slider Undo did not restore both model and visible control.");
+        ViewModel.Redo();
+        Content.UpdateLayout();
+        if (ViewModel.Adjustments.Exposure != original + .25 || slider.Value != original + .25)
+            throw new InvalidOperationException("Slider Redo did not restore the final value.");
+        ViewModel.Undo();
+    }
+
     private async Task VerifyAdjustmentGestureUndoAsync()
     {
         var original = ViewModel.Adjustments.Exposure;

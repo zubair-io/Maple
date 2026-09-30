@@ -99,14 +99,6 @@ namespace Maple.WinUI
 
         private void UpdateMaskDisplay()
         {
-            if (!_maskArmed || ContentFitRect() is not { } f || _mode != ShellMode.Edit)
-            {
-                MaskOverlay.Visibility = Visibility.Collapsed;
-                return;
-            }
-            MaskOverlay.Margin = new Thickness(f.X, f.Y, 0, 0);
-            MaskOverlay.Bounds = new Windows.Foundation.Size(f.W, f.H);
-
             var layers = ViewModel.Adjustments.LocalAdjustments;
             var selected = _selectedMaskIndex >= 0 && _selectedMaskIndex < layers.Count ? layers[_selectedMaskIndex] : null;
             SyncMaskComposition(selected);
@@ -118,12 +110,21 @@ namespace Maple.WinUI
                 _ => null,
             };
             MaskOverlay.Invert = leaf is RadialMask { Invert: true };
-            MaskOverlay.Visibility = selected is null ? Visibility.Collapsed : Visibility.Visible;
-
             var feather = leaf switch { LinearMask l => l.Feather, RadialMask r => r.Feather, _ => 0.5 };
             MaskPanel.Feather = feather * 100;
             MaskPanel.Invert = selected?.Mask is RadialMask { Invert: true };
             MaskPanel.Adjustments = ToMuiAdjustments(selected?.Adjustments ?? new PartialAdjustments());
+
+            // Selection and values are available before image decode/layout.
+            // Only canvas placement depends on the rendered image footprint.
+            if (!_maskArmed || ContentFitRect() is not { } f || _mode != ShellMode.Edit)
+            {
+                MaskOverlay.Visibility = Visibility.Collapsed;
+                return;
+            }
+            MaskOverlay.Margin = new Thickness(f.X, f.Y, 0, 0);
+            MaskOverlay.Bounds = new Windows.Foundation.Size(f.W, f.H);
+            MaskOverlay.Visibility = selected is null ? Visibility.Collapsed : Visibility.Visible;
         }
 
         // --- Layer list rows ---

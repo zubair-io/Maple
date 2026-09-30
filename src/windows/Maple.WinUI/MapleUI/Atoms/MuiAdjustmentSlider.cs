@@ -2,6 +2,7 @@ using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
@@ -21,6 +22,9 @@ public sealed class MuiAdjustmentSlider : Slider
     private Canvas? _decoration;
     private Rectangle? _segment;
     private Rectangle? _origin;
+    private uint? _gesturePointer;
+    public event EventHandler? GestureStarted;
+    public event EventHandler? GestureCompleted;
 
     public MuiAdjustmentSlider()
     {
@@ -30,6 +34,42 @@ public sealed class MuiAdjustmentSlider : Slider
         RegisterPropertyChangedCallback(MinimumProperty, (_, _) => UpdateTrack());
         RegisterPropertyChangedCallback(MaximumProperty, (_, _) => UpdateTrack());
         IsEnabledChanged += (_, _) => UpdateTrack();
+        Unloaded += (_, _) => CompleteGesture();
+    }
+
+    protected override void OnPointerPressed(PointerRoutedEventArgs e)
+    {
+        if (IsEnabled && _gesturePointer == null && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+        {
+            _gesturePointer = e.Pointer.PointerId;
+            GestureStarted?.Invoke(this, EventArgs.Empty);
+        }
+        base.OnPointerPressed(e);
+    }
+
+    protected override void OnPointerReleased(PointerRoutedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        if (_gesturePointer == e.Pointer.PointerId) CompleteGesture();
+    }
+
+    protected override void OnPointerCanceled(PointerRoutedEventArgs e)
+    {
+        base.OnPointerCanceled(e);
+        if (_gesturePointer == e.Pointer.PointerId) CompleteGesture();
+    }
+
+    protected override void OnPointerCaptureLost(PointerRoutedEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        if (_gesturePointer == e.Pointer.PointerId) CompleteGesture();
+    }
+
+    private void CompleteGesture()
+    {
+        if (_gesturePointer == null) return;
+        _gesturePointer = null;
+        GestureCompleted?.Invoke(this, EventArgs.Empty);
     }
 
     protected override void OnApplyTemplate()

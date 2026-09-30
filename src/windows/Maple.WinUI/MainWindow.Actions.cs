@@ -28,8 +28,14 @@ namespace Maple.WinUI
         // because the XAML events carry different delegate types; each is named
         // for the event it is subscribed to.
 
-        private void OnSliderPointerCaptureLost(object sender, PointerRoutedEventArgs e) =>
+        private void OnSliderGestureStarted(object sender, System.EventArgs e) =>
+            ViewModel.BeginAdjustmentGesture(sender);
+
+        private void OnSliderGestureCompleted(object sender, System.EventArgs e)
+        {
             CommitSliderGesture(sender);
+            ViewModel.EndAdjustmentGesture(sender);
+        }
 
         private void OnSliderKeyUp(object sender, KeyRoutedEventArgs e) =>
             CommitSliderGesture(sender);
