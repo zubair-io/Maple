@@ -31,7 +31,13 @@ beforeAll(async () => {
   await mkdir(path.join(tmpRoot, '2026', 'France', '0002'), { recursive: true });
   // Create a symlink that escapes the root.
   const outsideDir = await mkdtemp(path.join(tmpdir(), 'maple-outside-'));
-  await symlink(outsideDir, path.join(tmpRoot, 'escape-link')).catch(() => {});
+  // Junctions exercise realpath escape protection without Windows symlink privileges.
+  // A fixture creation failure must fail setup rather than silently test an absent link.
+  await symlink(
+    outsideDir,
+    path.join(tmpRoot, 'escape-link'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
 
   // Register the test library slug in the in-memory cache.
   // This avoids a database dependency for pure-jail tests.

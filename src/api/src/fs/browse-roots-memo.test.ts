@@ -72,7 +72,7 @@ describe('browseRoots memoisation', () => {
     const real = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-roots-real-')));
     const linkParent = await realpath(await mkdtemp(path.join(tmpdir(), 'maple-roots-link-')));
     const link = path.join(linkParent, 'via-link');
-    await symlink(real, link);
+    await symlink(real, link, process.platform === 'win32' ? 'junction' : 'dir');
 
     process.env.MAPLE_ROOTS = link;
     expect(await browseRoots()).toEqual([real]);

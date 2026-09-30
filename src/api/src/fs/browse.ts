@@ -9,7 +9,8 @@
 import { readdir, realpath, stat } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import * as path from 'node:path';
-import type { OpResult } from './root.ts';
+import { isWithinRoot, type OpResult } from './root.ts';
+import { parseRootList } from './root-list.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { findListingAssetsByFilenames } from '../db/repos/assets.by-filename.ts';
 import { listFolders } from '../db/repos/folders.repo.ts';
@@ -172,13 +173,7 @@ async function fileProviderBrowseRoots(): Promise<string[]> {
 
 async function resolveBrowseRoots(env: string | undefined): Promise<string[]> {
   if (!env || env.trim() === '') return ['/'];
-  // Strip trailing slash unless the entry IS just "/" — `"/".replace(/\/$/, "")`
-  // collapses to "" and then filter(Boolean) drops it, leaving an empty roots
-  // list for `MAPLE_ROOTS=/`. Preserve "/" explicitly.
-  const raw = env
-    .split(':')
-    .map((p) => (p === '/' ? '/' : p.replace(/\/$/, '')))
-    .filter(Boolean);
+  const raw = parseRootList(env);
   // Resolve symlinks in each root so the jail check works on macOS where
   // /var → /private/var (and the realpath of reqPath will be /private/var/…).
   const resolved = await Promise.all(
@@ -194,9 +189,7 @@ async function resolveBrowseRoots(env: string | undefined): Promise<string[]> {
 }
 
 export function isUnderRoot(absPath: string, root: string): boolean {
-  const r = root.replace(/\/$/, '') || '/';
-  if (r === '/') return true;
-  return absPath === r || absPath.startsWith(r + '/');
+  return isWithinRoot(root, absPath);
 }
 
 export async function listDir(reqPath: string, showAll: boolean): Promise<OpResult<DirListing>> {

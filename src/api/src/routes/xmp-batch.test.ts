@@ -147,7 +147,7 @@ describe('POST /api/xmp/batch', () => {
     });
 
     // Status 200 (all succeeded)
-    expect(res.status).toBe(200);
+    expect({ status: res.status, body: await res.clone().json() }).toMatchObject({ status: 200 });
     const body = await res.json();
     expect(body.results).toHaveLength(1);
     expect(body.results[0].ok).toBe(true);
