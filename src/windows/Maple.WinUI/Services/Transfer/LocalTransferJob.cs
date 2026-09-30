@@ -147,6 +147,22 @@ public sealed class LocalTransferJob
         return new(applied, pending, failed, cancelled);
     }
 
+    /// <summary>Only an acknowledged, still-current write may create an undo
+    /// boundary. A conflict or a later external edit is not this job's result.</summary>
+    public async Task<bool> IsCurrentAppliedAsync(string path)
+    {
+        var canonical = Path.GetFullPath(path);
+        for (var index = 0; index < Count; index++)
+        {
+            var item = await ReadItemAsync(index);
+            if (!string.Equals(item.Input.Path, canonical, StringComparison.OrdinalIgnoreCase)) continue;
+            if (item.Status != "applied" || item.After == null) return false;
+            var current = await Task.Run(() => SidecarStore.ReadSnapshot(canonical));
+            return SidecarStore.SnapshotHash(current) == SidecarStore.SnapshotHash(Encoding.UTF8.GetBytes(item.After));
+        }
+        return false;
+    }
+
     private async Task<TransferJobItem> ReadItemAsync(int index)
     {
         var item = JsonSerializer.Deserialize<TransferJobItem>(await File.ReadAllTextAsync(ItemPath(index)))

@@ -28,6 +28,7 @@ public partial class EditSessionViewModel
                 XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = doc.Adjustments });
             if (recordUndo)
             {
+                _undoTimer?.Dispose(); _undoTimer = null;
                 _undoStack.Add(undoBefore!.Clone());
                 if (_undoStack.Count > UndoDepth) _undoStack.RemoveAt(0);
                 _redoStack.Clear();

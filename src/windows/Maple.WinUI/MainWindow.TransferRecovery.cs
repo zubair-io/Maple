@@ -122,17 +122,29 @@ public sealed partial class MainWindow
                     if (action == "refresh") LocalSummary(await local.SummaryAsync());
                     else LocalSummary(await local.RunAsync(action == "retry", operation.Token,
                         new TransferProgress(p => { progress.Value = 100.0 * (p.Applied + p.Failed) / p.Total; Status($"{p.Applied} applied, {p.Failed} failed, {p.Pending} pending. {p.Current}"); })));
+                    if (undoBefore != null && (selectedPhoto == null || !await local.IsCurrentAppliedAsync(selectedPhoto.FilePath))) undoBefore = null;
                 }
                 else
                 {
-                    if (cloud!.SubmissionPending) await cloud.SubmitPendingAsync(CancellationToken.None);
+                    if (cloud!.SubmissionPending && (action == "refresh" || operation.IsCancellationRequested))
+                    {
+                        canResume = true; canRetry = false;
+                        Status("Submission is not acknowledged. Resume pending reconnects using the saved request, without creating a duplicate job.");
+                        return;
+                    }
+                    if (cloud.SubmissionPending) await cloud.SubmitPendingAsync(CancellationToken.None);
                     else if (action is "resume" or "retry") await cloud.ContinueAsync(action == "retry", CancellationToken.None);
                     bool cancelSent = false;
                     while (true)
                     {
                         var state = await cloud.ReadAsync(CancellationToken.None);
                         CloudSummary(state);
-                        if (state.Status is not ("queued" or "running")) break;
+                        if (state.Status is not ("queued" or "running"))
+                        {
+                            var selectedId = selectedPhoto?.CloudAddress ?? selectedPhoto?.FilePath;
+                            if (selectedId == null || (state.Result ?? state.Checkpoint)?.Applied.Contains(selectedId) != true) undoBefore = null;
+                            break;
+                        }
                         if (operation.IsCancellationRequested && !cancelSent)
                         {
                             await cloud.CancelAsync(CancellationToken.None);

@@ -28,6 +28,22 @@ public sealed class LocalTransferJobTests : IDisposable
     }
 
     [Fact]
+    public async Task UndoAcknowledgementRejectsFailedAndSupersededWrites()
+    {
+        var input = Input(0);
+        var job = await LocalTransferJob.CreateAsync(_root, new[] { input });
+        Assert.False(await job.IsCurrentAppliedAsync(input.Path));
+        await job.RunAsync(false, CancellationToken.None);
+        Assert.True(await job.IsCurrentAppliedAsync(input.Path));
+        await File.AppendAllTextAsync(SidecarStore.SidecarPathFor(input.Path), "\n");
+        Assert.False(await job.IsCurrentAppliedAsync(input.Path));
+        var stale = await LocalTransferJob.CreateAsync(_root, new[] { input });
+        var failed = await stale.RunAsync(false, CancellationToken.None);
+        Assert.Single(failed.Failures);
+        Assert.False(await stale.IsCurrentAppliedAsync(input.Path));
+    }
+
+    [Fact]
     public async Task CancelStopsAfterInFlightWriteAndRestartResumesOnlyPending()
     {
         var inputs = Enumerable.Range(0, 3).Select(Input).ToArray();

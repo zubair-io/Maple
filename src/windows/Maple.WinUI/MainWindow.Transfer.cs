@@ -62,21 +62,9 @@ public sealed partial class MainWindow
             await ViewModel.PrepareMetadataAsync();
             var prepared = await PreviewTransferAsync(source, targets, cloud);
             if (prepared == null) return;
-            // Publish every ledger before the first write. Recovery lists both
-            // jobs if the process exits between local and server delivery.
-            LocalTransferJob? localJob = null;
-            CloudTransferJob? cloudJob = null;
-            var localInputs = targets.Where(t => !t.Cloud).Select(t => new TransferJobInput(t.Path, t.Name,
-                prepared.Snapshots[t.Id].ExpectedHash!, prepared.Preview.Patches[t.Id])).ToArray();
-            if (localInputs.Length > 0) localJob = await LocalTransferJob.CreateAsync(LocalTransferRoot, localInputs);
-            var cloudTargets = targets.Where(t => t.Cloud).ToArray();
-            if (cloudTargets.Length > 0)
-            {
-                var patch = prepared.Preview.Patches[cloudTargets[0].Id];
-                cloudJob = await CloudTransferJob.PrepareAsync(CloudTransferRoot, cloud!,
-                    cloudTargets.Select(t => new CloudTransferTarget(t.Id, t.Path)).ToArray(),
-                    cloudTargets.ToDictionary(t => t.Id, t => t.Name), patch, prepared.Correction);
-            }
+            var jobs = await PrepareTransferJobsAsync(targets, cloud, prepared);
+            if (jobs == null) return;
+            var (localJob, cloudJob) = jobs.Value;
             var currentPhoto = ViewModel.SelectedPhoto;
             var undoBefore = currentPhoto != null && prepared.Snapshots.TryGetValue(FreezeTransferPhoto(currentPhoto).Id, out var original)
                 ? original.Document.Adjustments.Clone() : null;
