@@ -1,6 +1,6 @@
-import * as path from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
+import { loadSharpOracle } from './support/sharp-oracle.ts';
 
 /**
  * The #3507 final fix wave: everything whose expected value is "whatever
@@ -15,22 +15,11 @@ import { maple } from '../src/index.ts';
  *
  * Every numeric expectation below is compared against sharp at run time,
  * not hardcoded, so the suite cannot drift from the oracle. The whole
- * describe skips — loudly — when sharp is not installed under `src/api`,
- * mirroring the existing oracle block's pattern.
+ * describe skips locally when the test dependency is absent. CI requires it.
  */
 describe('sharp parity: metadata, orientation and density (#3507)', () => {
-  const repoRoot = path.resolve(__dirname, '../../..');
-  const apiDir = path.join(repoRoot, 'src/api');
-  let sharpPath: string | null;
-  try {
-    sharpPath = require.resolve('sharp', { paths: [apiDir] });
-  } catch {
-    sharpPath = null;
-    console.warn('sharp parity tests skipped: no sharp install found under', apiDir);
-  }
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const sharp = sharpPath === null ? null : require(sharpPath);
-  const skip = sharpPath === null;
+  const sharp = loadSharpOracle();
+  const skip = sharp === null;
 
   /** 24x16 asymmetric RGB: every one of the eight transforms is distinct. */
   const base = () => {

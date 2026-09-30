@@ -329,9 +329,11 @@ class NativeWorkflowTests(unittest.TestCase):
             node = self.one_step(job, uses="actions/setup-node@v4")
             self.assertEqual(node["with"]["node-version"], 22)
         bun = self.command_step("publish", "bun test")
+        self.assertEqual(bun["env"]["MAPLE_ORACLE_REQUIRED"], "1")
         self.assertEqual(bun["working-directory"], "src/maple")
         self.assertEqual(
-            bun["run"].splitlines(), ["bun install", "bun run build", "bun test"]
+            bun["run"].splitlines(),
+            ["bun install", "bun run build", "bun run typecheck", "bun test"],
         )
         self.assertEqual(bun["env"]["MAPLE_NATIVE_LIB"], NATIVE_LIB)
         install = self.command_step("node-22-acceptance", "npm install --omit=optional")

@@ -10,27 +10,12 @@
  * un-differences whatever tag 317 claims, so encoder and decoder cancelled the
  * corruption out).
  *
- * sharp is a devDependency of `src/api`, not of this package — `@justmaple/maple`
- * exists to *replace* it and must not depend on it. So it is resolved out of
- * that workspace and, when it is not installed there (a fresh clone, a CI job
- * that only builds this package), the suite prints a loud banner and passes
- * rather than failing on a missing oracle.
+ * sharp is a test-only devDependency of this package. CI sets
+ * MAPLE_ORACLE_REQUIRED=1 so a missing oracle cannot silently pass.
  */
-import * as path from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
-
-const repoRoot = path.resolve(__dirname, '../../..');
-
-/** sharp from `src/api`'s node_modules, or null when it isn't installed. */
-function loadSharp(): SharpModule | null {
-  try {
-    const resolved = require.resolve('sharp', { paths: [path.join(repoRoot, 'src/api')] });
-    return require(resolved) as SharpModule;
-  } catch {
-    return null;
-  }
-}
+import { loadSharpOracle } from './support/sharp-oracle.ts';
 
 type SharpInstance = {
   metadata(): Promise<{ channels: number; hasAlpha: boolean; depth: string; format: string }>;
@@ -41,7 +26,7 @@ type SharpInstance = {
 };
 type SharpModule = (input: Buffer, options?: Record<string, unknown>) => SharpInstance;
 
-const sharp = loadSharp();
+const sharp = loadSharpOracle() as SharpModule | null;
 
 const W = 64;
 const H = 64;
@@ -134,17 +119,8 @@ function pixiDepths(bytes: Buffer): number[] {
 }
 
 if (sharp === null) {
-  const banner =
-    '\n' +
-    '='.repeat(78) +
-    '\n  SKIPPED: the cross-decoder oracle needs sharp under src/api/node_modules.\n' +
-    '  Encoder output was NOT verified against libvips/libtiff/libheif.\n' +
-    `  Install it with:  cd ${path.join(repoRoot, 'src/api')} && bun install\n` +
-    '='.repeat(78) +
-    '\n';
   describe('Cross-decoder oracle', () => {
-    it('is skipped because sharp is not installed under src/api', () => {
-      console.warn(banner);
+    it.skip('requires the sharp test dependency', () => {
       expect(sharp).toBeNull();
     });
   });

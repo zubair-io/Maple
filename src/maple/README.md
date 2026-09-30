@@ -765,14 +765,22 @@ Maple is engineered to meet strict latency and throughput budgets:
 `bun run typecheck` checks both the package source and every TypeScript file
 under `test/`, using the package's strict compiler settings without emitting
 files. The **Maple package types** CI job runs it independently of native builds.
-To use the repository's locked development tools from a fresh checkout:
+Install the package's development dependencies before running either gate:
 
 ```sh
-(cd src/api && bun install --frozen-lockfile)
-(cd src/maple && ln -s ../api/node_modules node_modules && bun run typecheck)
+(cd src/maple && bun install && bun run typecheck)
+cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi
+# macOS example; Linux uses libraw_ffi.so and Windows uses raw_ffi.dll.
+(cd src/maple && MAPLE_NATIVE_LIB="$PWD/../raw-pipeline/target/release/libraw_ffi.dylib" MAPLE_ORACLE_REQUIRED=1 bun test)
 ```
 
-If `src/maple/node_modules` already exists, use that installation instead of
-creating the link. `bun test` is a separate runtime check: it needs matching
-native libraries, and some suites also require fixtures or an external decoder.
-A successful typecheck does not qualify those runtime paths.
+The package installs sharp 0.34.5 as a **test-only devDependency** for independent
+libvips/libtiff/libheif decoder checks. It is not a runtime dependency or part
+of the shipped bundle. All three oracle suites use the same loader. A missing
+oracle warns and skips locally; `MAPLE_ORACLE_REQUIRED=1` makes it fail, and a
+broken installed oracle always fails.
+
+The PR/release `publish-package` workflow builds and typechecks source and tests,
+then runs the full package suite with the oracle required and `MAPLE_NATIVE_LIB`
+pinned to that run's assembled Rust binary. Some separate responsiveness tests
+still need RAW fixtures. A successful typecheck does not qualify runtime paths.
