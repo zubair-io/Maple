@@ -19,6 +19,15 @@ use crate::context::GpuContext;
 use crate::context_pipelines_helpers::{compile_source, compile_standalone, compile_with_matrices};
 
 impl GpuContext {
+    pub fn inpaint_composite_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.inpaint_composite_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "inpaint-composite",
+                include_str!("inpaint_composite.wgsl"),
+            )
+        })
+    }
     /// The cached exposure compute pipeline, compiling `exposure.wgsl` on first
     /// call. The auto bind-group layout (`layout: None`) is shared by every
     /// `ExposurePass` bind group via `pipeline.get_bind_group_layout(0)`.

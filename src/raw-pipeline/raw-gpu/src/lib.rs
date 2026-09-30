@@ -307,6 +307,8 @@ pub use full_chain::{
 pub use grain::{apply_grain, GrainOptions, GrainPass};
 pub use hsl::{apply_hsl, HslPass};
 pub use image::GpuImage;
+pub mod inpaint_composite;
+pub use inpaint_composite::InpaintCompositePass;
 pub use live_chain::{
     build_live_chain, build_live_split, chain_signature, dehaze_is_active, VIEW_TAIL_PASS_COUNT,
 };

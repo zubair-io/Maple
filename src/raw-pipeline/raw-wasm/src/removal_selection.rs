@@ -1,6 +1,28 @@
 //! Thin WASM selection and durable-mask bridge (#3934), shared with C-FFI.
 use wasm_bindgen::prelude::*;
 
+/// Compose once on source/stack changes, retaining the returned base for live
+/// grading. Coordinates describe the un-oriented DefaultCrop source window.
+#[wasm_bindgen]
+pub fn removal_composite_window(
+    input: &[f32],
+    width: u32,
+    height: u32,
+    blob: &[u8],
+    window: &[f32],
+) -> Result<Vec<f32>, JsError> {
+    let window: [f32; 4] = window
+        .try_into()
+        .map_err(|_| JsError::new("source window needs four values"))?;
+    let patches = if blob.is_empty() {
+        Vec::new()
+    } else {
+        raw_core::pipeline::patches_from_blob(blob).map_err(|e| JsError::new(&e))?
+    };
+    raw_core::pipeline::composite_window_into_f32(input, width, height, &patches, window)
+        .map_err(|e| JsError::new(&e.to_string()))
+}
+
 #[wasm_bindgen]
 pub fn removal_selection(
     source_width: u32,
