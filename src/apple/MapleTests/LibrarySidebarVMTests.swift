@@ -110,31 +110,4 @@ final class LibrarySidebarVMTests: XCTestCase {
     XCTAssertTrue(LibrarySidebarVM.showsPhotosSection)
   }
 
-  // MARK: - Feature Flag Gating
-
-  func testShowsTimelineRowHonoursCloudFlag() {
-    XCTAssertTrue(LibrarySidebarVM.showsTimelineRow(cloudEnabled: true))
-    XCTAssertFalse(LibrarySidebarVM.showsTimelineRow(cloudEnabled: false))
-  }
-
-  func testShowsMapRowHonoursCloudFlag() {
-    XCTAssertTrue(LibrarySidebarVM.showsMapRow(cloudEnabled: true))
-    XCTAssertFalse(LibrarySidebarVM.showsMapRow(cloudEnabled: false))
-  }
-
-  func testShowsCloudServersHonoursCloudFlag() {
-    XCTAssertTrue(LibrarySidebarVM.showsCloudServers(cloudEnabled: true))
-    XCTAssertFalse(LibrarySidebarVM.showsCloudServers(cloudEnabled: false))
-  }
-
-  func testCloudServerSectionHidesWhenCloudDisabledEvenWithReachableRoots() {
-    XCTAssertFalse(
-      LibrarySidebarVM.showsCloudServerSection(
-        isSignedIn: true,
-        hasFileAccess: true,
-        connectedFolderCount: 5,
-        cloudEnabled: false
-      )
-    )
-  }
 }

@@ -210,19 +210,11 @@ struct LibrarySidebar: View {
         // Photos is the deliberate exception; see
         // `LibrarySidebarVM.showsPhotosSection`.
         VStack(alignment: .leading, spacing: 0) {
-          if LibrarySidebarVM.showsTimelineRow() {
-            timelineRow
-          }
-          if LibrarySidebarVM.showsMapRow() {
-            mapRow
-          }
-          if LibrarySidebarVM.showsTimelineRow() || LibrarySidebarVM.showsMapRow() {
-            separator
-          }
-          if LibrarySidebarVM.showsCloudServers() {
-            cloudServersSection
-            if hasVisibleCloudServers { separator }
-          }
+          timelineRow
+          mapRow
+          separator
+          cloudServersSection
+          if hasVisibleCloudServers { separator }
           if shouldRenderFoldersSection {
             foldersSection
             separator
@@ -291,8 +283,7 @@ struct LibrarySidebar: View {
     LibrarySidebarVM.showsCloudServerSection(
       isSignedIn: session.isSignedIn,
       hasFileAccess: session.hasFileAccess,
-      connectedFolderCount: cloudFoldersByServer[url]?.filter(\.isConnected).count,
-      cloudEnabled: LibrarySidebarVM.showsCloudServers()
+      connectedFolderCount: cloudFoldersByServer[url]?.filter(\.isConnected).count
     )
   }
 
@@ -300,7 +291,6 @@ struct LibrarySidebar: View {
   /// folders: with every server hidden the block renders nothing (or just
   /// the add-a-server button, which brings its own spacing).
   private var hasVisibleCloudServers: Bool {
-    guard LibrarySidebarVM.showsCloudServers() else { return false }
     return registry.servers.contains { showsCloudServer($0, session: sessionFor($0)) }
   }
 

@@ -20,15 +20,6 @@ final class FeatureFlagsTests: XCTestCase {
   }
 
   func testEnvironmentVariableOverride() {
-    // Test cloud override
-    setenv(FeatureFlags.cloudEnvVar, "0", 1)
-    XCTAssertFalse(FeatureFlags.isMapleCloudEnabled)
-
-    setenv(FeatureFlags.cloudEnvVar, "1", 1)
-    XCTAssertTrue(FeatureFlags.isMapleCloudEnabled)
-
-    unsetenv(FeatureFlags.cloudEnvVar)
-
     // Test pano override
     setenv(FeatureFlags.panoEnvVar, "0", 1)
     XCTAssertFalse(FeatureFlags.isPanoramaEnabled)
@@ -42,12 +33,10 @@ final class FeatureFlagsTests: XCTestCase {
   func testMasterEarlyFeaturesEnvironmentVariable() {
     setenv(FeatureFlags.earlyFeaturesEnvVar, "0", 1)
     XCTAssertFalse(FeatureFlags.areEarlyFeaturesEnabled)
-    XCTAssertFalse(FeatureFlags.isMapleCloudEnabled)
     XCTAssertFalse(FeatureFlags.isPanoramaEnabled)
 
     setenv(FeatureFlags.earlyFeaturesEnvVar, "1", 1)
     XCTAssertTrue(FeatureFlags.areEarlyFeaturesEnabled)
-    XCTAssertTrue(FeatureFlags.isMapleCloudEnabled)
     XCTAssertTrue(FeatureFlags.isPanoramaEnabled)
 
     unsetenv(FeatureFlags.earlyFeaturesEnvVar)
@@ -56,30 +45,22 @@ final class FeatureFlagsTests: XCTestCase {
   func testUserDefaultsOverride() {
     // Clear before testing
     UserDefaults.standard.removeObject(forKey: FeatureFlags.earlyFeaturesKey)
-    UserDefaults.standard.removeObject(forKey: FeatureFlags.cloudFeaturesKey)
     UserDefaults.standard.removeObject(forKey: FeatureFlags.panoFeaturesKey)
 
     UserDefaults.standard.set(false, forKey: FeatureFlags.earlyFeaturesKey)
     XCTAssertFalse(FeatureFlags.areEarlyFeaturesEnabled)
-    XCTAssertFalse(FeatureFlags.isMapleCloudEnabled)
-    XCTAssertFalse(FeatureFlags.isPanoramaEnabled)
-
-    UserDefaults.standard.set(true, forKey: FeatureFlags.cloudFeaturesKey)
-    XCTAssertTrue(FeatureFlags.isMapleCloudEnabled)
     XCTAssertFalse(FeatureFlags.isPanoramaEnabled)
 
     UserDefaults.standard.set(true, forKey: FeatureFlags.panoFeaturesKey)
     XCTAssertTrue(FeatureFlags.isPanoramaEnabled)
 
     UserDefaults.standard.removeObject(forKey: FeatureFlags.earlyFeaturesKey)
-    UserDefaults.standard.removeObject(forKey: FeatureFlags.cloudFeaturesKey)
     UserDefaults.standard.removeObject(forKey: FeatureFlags.panoFeaturesKey)
   }
 
   func testPublishedAppGroupValueIsHonouredAfterPlist() {
     let shared = FeatureFlags.sharedDefaults()
     UserDefaults.standard.removeObject(forKey: FeatureFlags.earlyFeaturesKey)
-    UserDefaults.standard.removeObject(forKey: FeatureFlags.cloudFeaturesKey)
     UserDefaults.standard.removeObject(forKey: FeatureFlags.panoFeaturesKey)
     defer { shared.removeObject(forKey: FeatureFlags.publishedEarlyFeaturesKey) }
 
@@ -87,7 +68,6 @@ final class FeatureFlagsTests: XCTestCase {
     // published value is consulted before the compile-time default.
     shared.set(false, forKey: FeatureFlags.publishedEarlyFeaturesKey)
     XCTAssertFalse(FeatureFlags.areEarlyFeaturesEnabled)
-    XCTAssertFalse(FeatureFlags.isMapleCloudEnabled)
     XCTAssertFalse(FeatureFlags.isPanoramaEnabled)
 
     // Launch-argument / UserDefaults override still wins over the published value.

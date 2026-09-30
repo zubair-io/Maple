@@ -27,7 +27,6 @@ extension AppShell {
   /// connected server's libraries and stands up the aggregating VM.
   @MainActor
   func openAllSourcesTimeline() {
-    guard FeatureFlags.isMapleCloudEnabled else { return }
     librarySelection = .allSources
     currentRootBookmark = nil
     tearDownSearch()
