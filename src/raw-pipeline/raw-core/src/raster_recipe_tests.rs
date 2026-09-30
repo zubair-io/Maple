@@ -145,6 +145,25 @@ fn a_future_schema_version_is_rejected() {
         parse_recipe(r#"{"v":2,"input":{"kind":"encoded"},"ops":[],"output":{"format":"png"}}"#)
             .unwrap_err();
     assert!(format!("{err}").contains("version 2"), "got: {err}");
+    assert!(matches!(err, Error::Recipe(_)));
+}
+
+#[test]
+fn malformed_recipes_and_aux_bounds_are_validation_errors() {
+    let malformed = parse_recipe("{not json").unwrap_err();
+    assert!(matches!(malformed, Error::Recipe(_)));
+    assert!(malformed.to_string().starts_with("recipe parse failed:"));
+    for reference in [
+        AuxRef { off: 1, len: 2 },
+        AuxRef {
+            off: usize::MAX,
+            len: 1,
+        },
+    ] {
+        let err = reference.slice(&[0]).unwrap_err();
+        assert!(matches!(err, Error::Recipe(_)));
+        assert!(err.to_string().starts_with("aux reference"));
+    }
 }
 
 /// Every variant of `RecipeInput`, `Op` and `Output` — unit and

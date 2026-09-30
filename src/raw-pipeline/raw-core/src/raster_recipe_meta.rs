@@ -13,7 +13,7 @@
 
 use crate::error::Result;
 use crate::raster_meta::RasterSidecars;
-use crate::raster_recipe::AuxRef;
+use crate::raster_recipe::{bad, AuxRef};
 use crate::view::encode::TargetPrimaries;
 use serde::Deserialize;
 
@@ -137,12 +137,9 @@ fn icc_bytes_for_name(name: &str) -> Result<Vec<u8>> {
         "p3" => Ok(crate::icc::profile_for(
             crate::view::encode::TargetPrimaries::P3,
         )),
-        other => Err(crate::error::Error::Decode {
-            path: "<recipe>".into(),
-            reason: format!(
-                "metadata.iccName '{other}' is not a known profile name (expected 'srgb' or 'p3')"
-            ),
-        }),
+        other => Err(bad(format!(
+            "metadata.iccName '{other}' is not a known profile name (expected 'srgb' or 'p3')"
+        ))),
     }
 }
 
@@ -189,10 +186,9 @@ pub fn resolve_metadata(
         reference
             .map(|r| {
                 r.slice(aux).map(|s| s.to_vec()).map_err(|e| match e {
-                    crate::error::Error::Decode { reason, .. } => crate::error::Error::Decode {
-                        path: "<recipe>".into(),
-                        reason: format!("metadata.{field} {reason}"),
-                    },
+                    crate::error::Error::Recipe(reason) => {
+                        bad(format!("metadata.{field} {reason}"))
+                    }
                     other => other,
                 })
             })

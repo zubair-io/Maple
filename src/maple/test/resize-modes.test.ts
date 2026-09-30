@@ -111,4 +111,16 @@ describe('Resize modes', () => {
         .toBuffer(),
     ).rejects.toThrow(/entropy/);
   });
+
+  it('reports an invalid recipe option without calling it a RAW decode failure', async () => {
+    await expect(
+      maple(wide)
+        // @ts-expect-error Exercise the native error for untyped JavaScript callers.
+        .resize({ width: 8, kernel: 'mks2013' })
+        .png()
+        .toBuffer(),
+    ).rejects.toThrow(
+      /^unsupported resize kernel 'mks2013' \(nearest, linear, cubic, mitchell, lanczos2, lanczos3\)$/,
+    );
+  });
 });
