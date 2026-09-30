@@ -19,6 +19,7 @@ public sealed partial class MainWindow
         if (ScopesPanelHost.Visibility != Visibility.Visible || ScopesPlots.Visibility != Visibility.Visible
             || ScopesPlots.VectorscopeBins?.Count != 128 * 128)
             throw new InvalidOperationException("Production scopes panel did not display the native sample");
+        await VerifyScopesBoundsAsync();
 
         var changed = ViewModel.Adjustments.Clone();
         changed.Exposure += 0.5;
@@ -45,6 +46,36 @@ public sealed partial class MainWindow
                 throw new InvalidOperationException("Closed scopes continued publishing");
         }
         finally { renderer.ScopeReady -= Sample; }
+    }
+
+    private async Task VerifyScopesBoundsAsync()
+    {
+        var root = (FrameworkElement)Content;
+        var originalWidth = root.Width;
+        var originalHeight = root.Height;
+        try
+        {
+            foreach (var size in new[] { (1024d, 768d), (720d, 450d), (512d, 384d) })
+            {
+                root.Width = size.Item1;
+                root.Height = size.Item2;
+                root.UpdateLayout();
+                await Task.Delay(30);
+                root.UpdateLayout();
+                var bounds = CloseScopesButton.TransformToVisual(root).TransformBounds(
+                    new Windows.Foundation.Rect(0, 0, CloseScopesButton.ActualWidth, CloseScopesButton.ActualHeight));
+                if (bounds.Left < 0 || bounds.Top < 0 || bounds.Right > size.Item1 || bounds.Bottom > size.Item2
+                    || bounds.Width < 24 || bounds.Height < 24 || ScopesPanelHost.ActualWidth <= 0
+                    || ScopesPanelHost.ActualHeight > ViewerContainer.ActualHeight)
+                    throw new InvalidOperationException($"Scopes or its close control overflow at {size}");
+            }
+        }
+        finally
+        {
+            root.Width = originalWidth;
+            root.Height = originalHeight;
+            root.UpdateLayout();
+        }
     }
 
     private async Task<ScopePanelFrame> WaitForScopeAsync(long previous)
