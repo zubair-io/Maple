@@ -72,9 +72,10 @@ namespace Maple.WinUI.ViewModels
             var photo = SelectedPhoto;
             if (photo != null && RenderEngine.DecodeInputsChanged(before, Adjustments))
             {
-                // The old base includes the previous profile's AE anchor and
-                // fitted tail. Never present that base with the new intent.
-                DecodeCurrent(photo);
+                // Calibration changes invalidate the previous AE anchor/tail.
+                // Repair-only changes keep that calibration valid while the
+                // new repair pixels are prepared on the decode worker.
+                DecodeCurrent(photo, preserveCurrentBase: RenderEngine.OnlyRepairDecodeInputsChanged(before, Adjustments));
                 return;
             }
             Renderer.RequestRender(Adjustments.Clone());

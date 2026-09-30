@@ -18,6 +18,8 @@ public sealed partial class MainWindow
         await VerifyRepairTransformsAsync();
         var invoke = (IInvokeProvider)new ButtonAutomationPeer(_repairAdd).GetPattern(PatternInterface.Invoke);
         invoke.Invoke();
+        if (ViewModel.Renderer.DetailSource == null)
+            throw new InvalidOperationException("Repair decode cleared the base needed for ordinary slider rendering");
         await WaitAsync(() => ViewModel.Adjustments.Retouch.Spots.Count == before.Spots.Count + 1);
         await ReadyAsync();
         if (ViewModel.UndoCount != depth + 1) throw new InvalidOperationException("Repair placement was not one undo entry");

@@ -287,7 +287,7 @@ namespace Maple.WinUI.ViewModels
         /// like AutoExposure changes). Always decodes at Preview first; see
         /// <see cref="ScheduleAmazeUpgrade"/> for the optional follow-up
         /// AMaZE decode (#3417 review).</summary>
-        private void DecodeCurrent(PhotoItem photo)
+        private void DecodeCurrent(PhotoItem photo, bool preserveCurrentBase = false)
         {
             if (_disposed) return;
             if (photo.IsCloud && photo.LocalCachePath == null)
@@ -299,7 +299,9 @@ namespace Maple.WinUI.ViewModels
             RefreshLensProfileChoices(photo);   // #3568 — the profile dropdown's option list
             var generation = Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();
-            Renderer.SetImage(null);
+            // Repair-only updates retain the last completed base so exposure and
+            // other chain controls can render while the replacement decodes.
+            if (!preserveCurrentBase) Renderer.SetImage(null);
 
             IsDecoding = true;
             DecodeStatus = $"Decoding {photo.FileName}…";

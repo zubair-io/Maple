@@ -41,6 +41,25 @@ public class RetouchAuthoringTests
     }
 
     [Fact]
+    public void OnlyRepairChangesMayKeepThePreviousCalibratedBase()
+    {
+        var before = new AdjustmentState();
+        var after = before.Clone();
+        after.Retouch = XmpRetouch.Add(after.Retouch, Spot);
+        after.Exposure = 1;
+        Assert.True(RenderEngine.OnlyRepairDecodeInputsChanged(before, after));
+        Assert.False(RenderEngine.OnlyRepairDecodeInputsChanged(before, before));
+        after.Profile = ProfileMode.Neutral;
+        Assert.False(RenderEngine.OnlyRepairDecodeInputsChanged(before, after));
+        after.Profile = before.Profile;
+        after.Demosaic = "Rcd";
+        Assert.False(RenderEngine.OnlyRepairDecodeInputsChanged(before, after));
+        after.Demosaic = before.Demosaic;
+        after.CaptureSharpeningAmount = 25;
+        Assert.False(RenderEngine.OnlyRepairDecodeInputsChanged(before, after));
+    }
+
+    [Fact]
     public void AuthoredSpotsReopenWithoutMutatingUndoSnapshot()
     {
         var original = new AdjustmentState();

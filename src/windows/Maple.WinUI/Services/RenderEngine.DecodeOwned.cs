@@ -81,6 +81,16 @@ namespace Maple.WinUI.Services
             return m;
         }
 
+        /// <summary>Only repair pixels change; the current calibration remains valid
+        /// for ordinary slider rendering while the replacement base is decoded.</summary>
+        public static bool OnlyRepairDecodeInputsChanged(AdjustmentState before, AdjustmentState after)
+        {
+            if (before.Retouch.Xml == after.Retouch.Xml) return false;
+            var calibrated = before.Clone();
+            calibrated.Retouch = after.Retouch;
+            return !DecodeInputsChanged(calibrated, after);
+        }
+
         /// <summary>Fields owned by the decoded base, including the profile's
         /// AE anchor and fitted tail. A slider-only change reuses the base.</summary>
         public static bool DecodeInputsChanged(AdjustmentState before, AdjustmentState after) =>
