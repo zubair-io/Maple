@@ -63,7 +63,7 @@ export const THUMB_LONG_EDGE_PX = 512;
  * — see `avifEffortWire` in `maple` for how that maps onto the underlying
  * encoder's speed knob. 4 favors encode throughput for the indexer backlog —
  * effort has no effect on decode cost. */
-export const THUMB_AVIF_EFFORT = 4;
+const THUMB_AVIF_EFFORT = 4;
 
 /** Encode an AVIF cache derivative with the shared effort setting. */
 function encodeToBuffer(builder: ReturnType<typeof maple>, quality: number): Promise<Buffer> {
