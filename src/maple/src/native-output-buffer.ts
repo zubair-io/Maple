@@ -49,7 +49,7 @@ export function initialPipelineCapacity(
     return MIN_CAPACITY;
   }
   if (!recipe || !Array.isArray(recipe.ops)) return MIN_CAPACITY;
-  const target = recipe.ops.reduce<RecipeOp | undefined>(
+  const target = recipe.ops.reduce<Extract<RecipeOp, { op: 'resize' | 'extract' }> | undefined>(
     (latest, op) => (op?.op === 'resize' || op?.op === 'extract' ? op : latest),
     undefined,
   );
