@@ -5,6 +5,10 @@
  */
 import { maple } from 'maple';
 
+// The package suite stays independent of API dependencies; API callers use
+// this designated fixture module to reach the same pure JPEG packet helper.
+export { withExifOrientation } from '../../../maple/test/support/jpeg-exif.ts';
+
 export type Rgb = [number, number, number];
 
 export function solidRgb(width: number, height: number, rgb: Rgb) {

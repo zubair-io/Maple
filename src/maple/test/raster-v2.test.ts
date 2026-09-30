@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
+import { withExifOrientation } from './support/jpeg-exif.ts';
 
 /**
  * Gate for the second-generation raster surface (#3498, #3513): raw pixel
@@ -68,29 +69,6 @@ describe('Raster v2 surface', () => {
     const meta = await maple(out).metadata();
     expect([meta.width, meta.height]).toEqual([32, 24]);
   });
-
-  /**
-   * Minimal APP1 EXIF segment carrying a single IFD0 entry: Orientation
-   * (tag 0x0112, SHORT) = `orientation`. Spliced in right after the SOI
-   * marker, which is where a camera writes it.
-   */
-  const withExifOrientation = (jpeg: Buffer, orientation: number) => {
-    const tiff = Buffer.alloc(26);
-    tiff.write('II', 0, 'ascii'); // little-endian TIFF header
-    tiff.writeUInt16LE(0x2a, 2);
-    tiff.writeUInt32LE(8, 4); // IFD0 starts right after the header
-    tiff.writeUInt16LE(1, 8); // one entry
-    tiff.writeUInt16LE(0x0112, 10); // Orientation
-    tiff.writeUInt16LE(3, 12); // type SHORT
-    tiff.writeUInt32LE(1, 14); // count
-    tiff.writeUInt16LE(orientation, 18); // inline value
-    tiff.writeUInt32LE(0, 22); // no next IFD
-    const header = Buffer.alloc(4);
-    header.writeUInt16BE(0xffe1, 0); // APP1
-    header.writeUInt16BE(2 + 6 + tiff.length, 2); // segment length
-    const app1 = Buffer.concat([header, Buffer.from('Exif\0\0', 'binary'), tiff]);
-    return Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]);
-  };
 
   it('toRaw with rotate() honours EXIF orientation 6', async () => {
     const jpeg = await maple(solid(24, 12, [70, 80, 90]))
