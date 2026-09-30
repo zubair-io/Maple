@@ -43,6 +43,7 @@ mod color_labels;
 mod color_matrices;
 mod export_recipe;
 mod film_catalog;
+mod raster_recipe;
 mod support_tiers;
 mod support_tiers_cs;
 mod support_tiers_summary;
@@ -100,6 +101,8 @@ enum Schema {
     /// Culling metadata XMP vocabulary, with no pixel-processing behavior.
     ColorLabels,
     ExportRecipe,
+    /// Raster operation and encoder wire types (#3553).
+    RasterRecipe,
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
     /// TS interface + default factory.
     Adjustment,
@@ -215,6 +218,11 @@ fn main() {
             eprintln!(
                 "codegen: --schema white-balance-presets supports only swift / ts / cs targets"
             );
+            std::process::exit(2);
+        }
+        (Schema::RasterRecipe, Target::Ts) => raster_recipe::emit_ts(),
+        (Schema::RasterRecipe, _) => {
+            eprintln!("raster-recipe supports ts");
             std::process::exit(2);
         }
         (Schema::AdjustmentApi, Target::Ts) => adjustment_api::emit_ts(ADJUSTMENT_SCHEMA),
