@@ -35,7 +35,7 @@ const RENDERED = { patch: [], invalidates: ['cf-thumb-sync'] };
  * (tag 0x0112, SHORT) = `orientation`. Spliced in right after the SOI
  * marker, which is where a camera writes it. Copied from
  * `src/maple/test/raster-v2.test.ts`'s `withExifOrientation` (also copied
- * into `thumbs/apply-orientation.test.ts` / `workers/stages/preview.test.ts`)
+ * into `workers/stages/preview.test.ts`)
  * — the same hand-spliced-EXIF trick, not shared production code.
  */
 function withExifOrientation(jpeg: Buffer, orientation: number): Buffer {

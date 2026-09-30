@@ -20,7 +20,7 @@
  * ran a decode of a freshly-written, possibly-malformed file — exactly the
  * input most likely to trip a native decoder crash — inside the HTTP server
  * (see `ffi/ffi-pool.ts`'s "Why off-process" module doc). The actual check
- * semantics (format/dimensions/orientation/full-decode) now live in
+ * semantics (format/dimensions/full-decode) now live in
  * `thumbs/avif-checks.ts`, imported only by the decode child's dispatch
  * (`ffi/raw_ffi-dispatch.ts`)
  * — this file stays importable from the parent without pulling Maple's
@@ -67,7 +67,7 @@ function errMessage(e: unknown): string {
  * Decode `filePath` via the isolated FFI child and confirm it's a
  * genuine, complete, correctly-sized AVIF matching this pipeline's encode
  * conventions — see `thumbs/avif-checks.ts#checkAvifOutput` for the actual
- * check semantics (format/dimensions/orientation/full-decode, cheapest-first).
+ * check semantics (format/dimensions/full-decode, cheapest-first).
  *
  * A dispatch failure — the child failed to spawn, or crashed while decoding
  * this specific (possibly poison) file — is caught here and reported as a

@@ -1,7 +1,7 @@
 /**
  * Post-encode validation of an AVIF this pipeline wrote (see the doc comment
- * in `validate-avif.ts`). Checks run cheapest-first: container/dimensions/
- * orientation from the header probe, then a full pixel decode last. Maple
+ * in `validate-avif.ts`). Checks run cheapest-first: container and dimensions
+ * from the header probe, then a full pixel decode last. Maple
  * decodes AVIF with a pure-Rust AV1 decoder (#3496); the retired implementation
  * also checked `space`/ICC, which our encoder never writes, so those
  * checks are gone with it.
@@ -10,11 +10,8 @@
  * PIXEL-WORK consumer — imported at module scope there, inside the isolated
  * decode child, so no production code in the API parent
  * process ever runs a decode or encode on the native bitmap bindings; a
- * crash stays contained to the isolated child. The parent process does
- * still load the bindings for lightweight metadata reads: `routes/fs-
- * thumbs.ts` imports `thumbs/apply-orientation.ts`, which calls
- * `maple(thumbPath).metadata()` directly in-process. (Tests import this
- * module freely to exercise the predicate directly.)
+ * crash stays contained to the isolated child. Tests import this module
+ * freely to exercise the predicate directly.
  */
 
 import { maple } from 'maple';
@@ -43,19 +40,7 @@ function errMessage(e: unknown): string {
  *     only, since `fit: 'inside', withoutEnlargement: true` (this pipeline's
  *     resize contract) legitimately leaves a source smaller than the target
  *     un-upscaled.
- *  3. Orientation: every encoder in this pipeline bakes EXIF orientation
- *     into pixels at encode time (raw-ffi's `bake_orientation`, Maple's
- *     `.rotate()`) and never carries an orientation tag forward — see
- *     `thumbs/apply-orientation.ts`'s module doc. Maple's AVIF probe now
- *     reads the real container transform (#3507) and, matching the previous
- *     decoder exactly, reports `orientation: undefined` whenever the file
- *     carries no EXIF Orientation item — which is every AVIF this pipeline
- *     writes, since it bakes rotation into pixels and never writes that
- *     item. `1` remains accepted too (an explicit "no rotation" tag reads
- *     the same as no tag at all). Any OTHER value means some path landed a
- *     cache entry that still depends on a tag no reader (server route,
- *     Apple, web) applies.
- *  4. Integrity: a full pixel decode must succeed. `.metadata()` alone is
+ *  3. Integrity: a full pixel decode must succeed. `.metadata()` alone is
  *     NOT sufficient — it can return a plausible width/height read straight
  *     from the AVIF's meta/header box even when the pixel payload is
  *     truncated. Catching a truncated/corrupt encode requires forcing a real
@@ -63,6 +48,11 @@ function errMessage(e: unknown): string {
  *     LAST: it's the only check that pulls the full image into memory, so
  *     every cheap metadata-only check — especially the dimension bound —
  *     must reject first for a wildly-oversized input.
+ *
+ * AVIF has no reported orientation flag, even when an Exif item contains
+ * Orientation (#3586). Container irot/imir transforms are baked into the
+ * decoded pixels and metadata dimensions; an EXIF tag is never applied on
+ * top. A metadata.orientation check would therefore be unreachable (#3589).
  */
 export async function checkAvifOutput(
   filePath: string,
@@ -84,12 +74,6 @@ export async function checkAvifOutput(
     return {
       ok: false,
       reason: `dimensions ${meta.width}x${meta.height} exceed expected long edge ${expectedLongEdgePx} (+${DIMENSION_TOLERANCE_PX}px tolerance)`,
-    };
-  }
-  if (meta.orientation !== undefined && meta.orientation !== 1) {
-    return {
-      ok: false,
-      reason: `unexpected orientation tag ${meta.orientation} — this pipeline bakes rotation into pixels and writes no orientation tag`,
     };
   }
   const intact = await image.validateIntegrity();

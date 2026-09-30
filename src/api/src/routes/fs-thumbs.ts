@@ -50,10 +50,8 @@ import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { VIDEO_EXTS } from '../indexer/media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
-import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { ffmpegBinary, extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
-import { child as childLogger } from '../log.ts';
 import {
   resolveJailedFile,
   notModifiedResponse,
@@ -61,8 +59,6 @@ import {
   lowerExt,
 } from './fs-jail.ts';
 import { computeBodyETag } from '../runtime/http-etag.ts';
-
-const log = childLogger('fs-thumbs');
 
 // Unchanged from before #2258: one hour, revalidating. Not `immutable` — this
 // route serves a source-keyed URL (`?path=…`) with no revision token, so the
@@ -395,16 +391,6 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       if (!ok) {
         set.status = 500;
         return { error: 'Thumbnail render failed (see server log)' };
-      }
-      try {
-        await applyExifOrientationInPlace(thumbPath);
-      } catch (err) {
-        // Non-fatal: the FFI output is still a valid AVIF, just possibly
-        // un-rotated. Better to serve a sideways image than 500 the request.
-        log.warn(
-          { thumbPath, err: err instanceof Error ? err.message : err },
-          'orientation post-process failed; serving un-rotated thumb',
-        );
       }
     }
 

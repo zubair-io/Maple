@@ -20,9 +20,8 @@ import { solidJpeg } from '../../test-support/synth-image.ts';
  * Minimal APP1 EXIF segment carrying a single IFD0 entry: Orientation
  * (tag 0x0112, SHORT) = `orientation`. Spliced in right after the SOI
  * marker, which is where a camera writes it. Copied from
- * `src/maple/test/raster-v2.test.ts`'s `withExifOrientation` (also copied
- * into `thumbs/apply-orientation.test.ts`) — the same hand-spliced-EXIF
- * trick, not shared production code.
+ * `src/maple/test/raster-v2.test.ts`'s `withExifOrientation` — the same
+ * hand-spliced-EXIF trick, not shared production code.
  */
 function withExifOrientation(jpeg: Buffer, orientation: number): Buffer {
   const tiff = Buffer.alloc(26);
