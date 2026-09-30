@@ -29,14 +29,6 @@ async function freshAppWith(devAuth: '1' | undefined) {
   return new Elysia().use(authRoutes);
 }
 
-/** How many accounts carry this address. */
-function userCount(email: string): number {
-  const row = live.db.query(`SELECT count(*) AS n FROM users WHERE email = ?`).get(email) as {
-    n: number;
-  };
-  return row.n;
-}
-
 beforeEach(async () => {
   live = await createLiveTestDatabase();
 });
@@ -85,17 +77,17 @@ describe('dev-login (gated)', () => {
     const body = (await r.json()) as {
       access_token: string;
       refresh_token?: string;
-      user: { email: string; role: string };
+      user: { id: string; email: string | null; role: string };
     };
     expect(body.access_token).toBeTypeOf('string');
     // #857: refresh token is the httpOnly cookie only, not the JSON body.
     expect(body.refresh_token).toBeUndefined();
-    expect(body.user.email).toBe('dev@maple.local');
+    expect(body.user.email).toBeNull();
     expect(body.user.role).toBe('owner');
 
-    const stored = live.db
-      .query(`SELECT role FROM users WHERE email = ?`)
-      .get('dev@maple.local') as { role: string } | null;
+    const stored = live.db.query(`SELECT role FROM users WHERE id = ?`).get(body.user.id) as {
+      role: string;
+    } | null;
     expect(stored).not.toBeNull();
     expect(stored?.role).toBe('owner');
   });
@@ -115,10 +107,10 @@ describe('dev-login (gated)', () => {
     const first = await devLogin();
     const second = await devLogin();
     expect(second.user.id).toBe(first.user.id);
-    expect(userCount('dev@maple.local')).toBe(1);
+    expect(live.db.query('SELECT COUNT(*) AS n FROM users').get()).toEqual({ n: 1 });
   });
 
-  it('honours a custom email', async () => {
+  it('ignores an email sent by an older client', async () => {
     const app = await freshAppWith('1');
     const r = await app.handle(
       new Request('http://localhost/api/auth/dev-login', {
@@ -128,7 +120,7 @@ describe('dev-login (gated)', () => {
       }),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { user: { email: string } };
-    expect(body.user.email).toBe('custom@dev.local');
+    const body = (await r.json()) as { user: { email: string | null } };
+    expect(body.user.email).toBeNull();
   });
 });

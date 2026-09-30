@@ -44,7 +44,7 @@ export function seedLibrary(
 export function seedUser(
   db: Database,
   opts: {
-    email: string;
+    email: string | null;
     role?: UserRole;
     fileAccess?: boolean;
     createdAt?: string;
@@ -106,7 +106,6 @@ export function seedInvite(
   db: Database,
   opts: {
     code: string;
-    email: string;
     invitedBy: ObjectId;
     expiresAt?: Date;
     consumedAt?: string | null;
@@ -114,11 +113,10 @@ export function seedInvite(
 ): void {
   run(
     db,
-    `INSERT INTO invites (id, code, email, invited_by, expires_at, consumed_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO invites (id, code, invited_by, expires_at, consumed_at)
+     VALUES (?, ?, ?, ?, ?)`,
     newObjectIdHex(),
     opts.code,
-    opts.email,
     opts.invitedBy.toHexString(),
     (opts.expiresAt ?? new Date(Date.now() + 15 * 60_000)).toISOString(),
     opts.consumedAt ?? null,

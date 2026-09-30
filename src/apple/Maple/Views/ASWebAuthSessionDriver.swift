@@ -54,8 +54,10 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
 
   /// Begin the auth flow against `host`. The completion handler runs on the
   /// main actor. Cancelling via `cancel()` invalidates the session.
-  func start(host: CloudHost,
-             completion: @escaping @MainActor (ASWebAuthSessionResult) -> Void) {
+  func start(
+    host: CloudHost,
+    completion: @escaping @MainActor (ASWebAuthSessionResult) -> Void
+  ) {
     let verifier = Self.randomURLSafe(byteCount: 32)
     let state = Self.randomURLSafe(byteCount: 16)
     self.pkceVerifier = verifier
@@ -114,13 +116,14 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
       let asError = error as NSError
       // ASWebAuthenticationSessionErrorDomain code 1 = canceledLogin
       if asError.domain == ASWebAuthenticationSessionErrorDomain,
-         asError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
+        asError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue
+      {
         return .cancelled
       }
       return .failed(error.localizedDescription)
     }
     guard let url = callbackURL,
-          let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+      let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
     else {
       return .failed("missing callback URL")
     }
@@ -146,8 +149,10 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
   }
 
   /// Exchange the one-time `code` + PKCE `verifier` for tokens.
-  private static func redeem(code: String, verifier: String,
-                             host: CloudHost) async throws -> ASWebAuthSessionResult {
+  private static func redeem(
+    code: String, verifier: String,
+    host: CloudHost
+  ) async throws -> ASWebAuthSessionResult {
     var req = URLRequest(url: host.url.appendingPathComponent("api/auth/native-code/redeem"))
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -158,24 +163,9 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
       let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
       return .failed("code redemption rejected (status \(status))")
     }
-    struct Redeemed: Decodable {
-      let access_token: String
-      let refresh_token: String
-      struct U: Decodable {
-        let id: String
-        let email: String
-        let role: String
-        // #2899 — absent on pre-upgrade servers; AuthUser applies the
-        // granted-by-default rule.
-        let file_access: Bool?
-      }
-      let user: U
-    }
-    let r = try JSONDecoder().decode(Redeemed.self, from: data)
+    let r = try JSONDecoder().decode(AuthVerifyResponse.self, from: data)
     let tokens = AuthTokens(access: r.access_token, refresh: r.refresh_token)
-    let user = AuthUser(
-      id: r.user.id, email: r.user.email, role: r.user.role, file_access: r.user.file_access)
-    return .success(tokens, user)
+    return .success(tokens, r.user)
   }
 
   // MARK: - PKCE helpers
@@ -199,7 +189,9 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
 
   // MARK: - ASWebAuthenticationPresentationContextProviding
 
-  nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+  nonisolated func presentationAnchor(for session: ASWebAuthenticationSession)
+    -> ASPresentationAnchor
+  {
     // Required to run on the main thread per Apple's docs. The system
     // calls this synchronously while we're already on main from .start().
     MainActor.assumeIsolated {
@@ -210,31 +202,31 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
   @MainActor
   private static func bestAnchor() -> ASPresentationAnchor {
     #if os(macOS)
-    return NSApplication.shared.keyWindow ?? ASPresentationAnchor()
+      return NSApplication.shared.keyWindow ?? ASPresentationAnchor()
     #else
-    // Prefer scene-bound anchors — the scene-less `UIWindow()` initializer
-    // is deprecated as of iOS 26.
-    let windowScenes = UIApplication.shared.connectedScenes
-      .compactMap { $0 as? UIWindowScene }
-    if let keyWindow = windowScenes.compactMap(\.keyWindow).first {
-      return keyWindow
-    }
-    if let scene = windowScenes.first {
-      return scene.windows.first ?? ASPresentationAnchor(windowScene: scene)
-    }
-    // No connected window scene (a scene torn down mid-flow, or a headless
-    // launch): the session can't present regardless of what we return, so
-    // degrade to a detached anchor and let the auth attempt fail — never
-    // crash the sign-in path. This is the one deliberately-retained
-    // deprecated call in this file; a scene-bound anchor is impossible to
-    // construct here by definition.
-    return ASPresentationAnchor()
+      // Prefer scene-bound anchors — the scene-less `UIWindow()` initializer
+      // is deprecated as of iOS 26.
+      let windowScenes = UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+      if let keyWindow = windowScenes.compactMap(\.keyWindow).first {
+        return keyWindow
+      }
+      if let scene = windowScenes.first {
+        return scene.windows.first ?? ASPresentationAnchor(windowScene: scene)
+      }
+      // No connected window scene (a scene torn down mid-flow, or a headless
+      // launch): the session can't present regardless of what we return, so
+      // degrade to a detached anchor and let the auth attempt fail — never
+      // crash the sign-in path. This is the one deliberately-retained
+      // deprecated call in this file; a scene-bound anchor is impossible to
+      // construct here by definition.
+      return ASPresentationAnchor()
     #endif
   }
 }
 
 #if os(macOS)
-import AppKit
+  import AppKit
 #else
-import UIKit
+  import UIKit
 #endif

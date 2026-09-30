@@ -34,7 +34,9 @@ public enum AuthClientError: Error, Sendable {
 }
 
 public struct AuthVerifyResponse: Decodable {
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let access_token: String
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let refresh_token: String
   public let user: AuthUser
 }
@@ -42,8 +44,11 @@ public struct AuthMeResponse: Decodable {
   public let user: AuthUser
   public struct Cred: Decodable, Identifiable {
     public let id: String
+    // swift-format-ignore: AlwaysUseLowerCamelCase
     public let device_label: String
+    // swift-format-ignore: AlwaysUseLowerCamelCase
     public let last_used_at: String?
+    // swift-format-ignore: AlwaysUseLowerCamelCase
     public let created_at: String
   }
   public let credentials: [Cred]
@@ -53,7 +58,9 @@ public struct AuthMeResponse: Decodable {
 /// token pair minted for a paired tvOS device. See `AuthClient.mintDeviceSession`.
 public struct DeviceSessionMint: Codable {
   public let id: String
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let access_token: String
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let refresh_token: String
 }
 
@@ -61,7 +68,8 @@ public actor AuthClient {
   public nonisolated let server: URL
   let urlSession: URLSession
   public init(server: URL, urlSession: URLSession = .shared) {
-    self.server = server; self.urlSession = urlSession
+    self.server = server
+    self.urlSession = urlSession
   }
 
   public func bootstrap() async throws -> Bool {
@@ -83,15 +91,23 @@ public actor AuthClient {
   /// rotation when `/me` 5xx'd post-rotation. That's why this version
   /// is tokens-only.)
   public func refreshTokens(refreshToken: String) async throws -> AuthTokens {
-    struct R: Decodable { let access_token: String; let refresh_token: String }
-    let r: R = try await postJSON("/api/auth/refresh", body: ["refresh_token": refreshToken], auth: nil)
+    struct R: Decodable {
+      // swift-format-ignore: AlwaysUseLowerCamelCase
+      let access_token: String
+      // swift-format-ignore: AlwaysUseLowerCamelCase
+      let refresh_token: String
+    }
+    let r: R = try await postJSON(
+      "/api/auth/refresh", body: ["refresh_token": refreshToken], auth: nil)
     return AuthTokens(access: r.access_token, refresh: r.refresh_token)
   }
 
   public func logout(accessToken: String, refreshToken: String) async throws {
-    _ = try await postJSON("/api/auth/logout",
-                           body: ["refresh_token": refreshToken],
-                           auth: accessToken) as EmptyResponse
+    _ =
+      try await postJSON(
+        "/api/auth/logout",
+        body: ["refresh_token": refreshToken],
+        auth: accessToken) as EmptyResponse
   }
 
   /// Mints a new, device-scoped token pair for a paired tvOS device. Called
@@ -122,11 +138,13 @@ public actor AuthClient {
     let (data, resp) = try await send(req)
     try checkStatus(resp, data: data)
     if T.self == EmptyResponse.self { return EmptyResponse() as! T }
-    do { return try JSONDecoder().decode(T.self, from: data) }
-    catch { throw AuthClientError.decode(error) }
+    do { return try JSONDecoder().decode(T.self, from: data) } catch {
+      throw AuthClientError.decode(error)
+    }
   }
 
-  func postJSON<T: Decodable>(_ path: String, body: [String: Any], auth: String?) async throws -> T {
+  func postJSON<T: Decodable>(_ path: String, body: [String: Any], auth: String?) async throws -> T
+  {
     var req = URLRequest(url: server.appending(path: path))
     req.httpMethod = "POST"
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -135,8 +153,9 @@ public actor AuthClient {
     let (data, resp) = try await send(req)
     try checkStatus(resp, data: data)
     if T.self == EmptyResponse.self { return EmptyResponse() as! T }
-    do { return try JSONDecoder().decode(T.self, from: data) }
-    catch { throw AuthClientError.decode(error) }
+    do { return try JSONDecoder().decode(T.self, from: data) } catch {
+      throw AuthClientError.decode(error)
+    }
   }
 
   /// Wraps URLSession.data so transport failures (offline, DNS, timeout)
@@ -144,8 +163,9 @@ public actor AuthClient {
   /// gives callers a structured signal to keep tokens on transient
   /// failures and only clear them on real auth rejections.
   func send(_ req: URLRequest) async throws -> (Data, URLResponse) {
-    do { return try await urlSession.data(for: req) }
-    catch let e as URLError { throw AuthClientError.network(e) }
+    do { return try await urlSession.data(for: req) } catch let e as URLError {
+      throw AuthClientError.network(e)
+    }
   }
 
   func checkStatus(_ resp: URLResponse, data: Data) throws {
@@ -156,7 +176,7 @@ public actor AuthClient {
     switch code {
     case 401: throw AuthClientError.unauthorized(body: body)
     case 403: throw AuthClientError.forbidden(body: body)
-    default:  throw AuthClientError.http(status: code, body: body)
+    default: throw AuthClientError.http(status: code, body: body)
     }
   }
 }
@@ -170,41 +190,15 @@ public actor AuthClient {
 // domain. Sign-in now happens inside a WKWebView that captures tokens
 // via a JS bridge (see WebViewSignInPanel.swift).
 
-// MARK: - Invites + credentials management
+// MARK: - Credentials management
 
 extension AuthClient {
-  public func createInvite(email: String, accessToken: String) async throws -> (code: String, expiresAt: String) {
-    struct R: Decodable { let code: String; let expires_at: String }
-    let r: R = try await postJSON("/api/auth/invites", body: ["email": email], auth: accessToken)
-    return (r.code, r.expires_at)
-  }
-
-  public func listInvites(accessToken: String) async throws -> [[String: Any]] {
-    return try await getRaw("/api/auth/invites", auth: accessToken)
-  }
-
-  public func rescindInvite(code: String, accessToken: String) async throws {
-    var req = URLRequest(url: server.appending(path: "/api/auth/invites/\(code)"))
-    req.httpMethod = "DELETE"
-    req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-    let (data, resp) = try await send(req)
-    try checkStatus(resp, data: data)
-  }
-
   public func deleteCredential(id: String, accessToken: String) async throws {
     var req = URLRequest(url: server.appending(path: "/api/auth/credentials/\(id)"))
     req.httpMethod = "DELETE"
     req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     let (data, resp) = try await send(req)
     try checkStatus(resp, data: data)
-  }
-
-  func getRaw(_ path: String, auth: String?) async throws -> [[String: Any]] {
-    var req = URLRequest(url: server.appending(path: path))
-    if let auth { req.setValue("Bearer \(auth)", forHTTPHeaderField: "Authorization") }
-    let (data, resp) = try await send(req)
-    try checkStatus(resp, data: data)
-    return (try JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
   }
 
   // MARK: - Preview

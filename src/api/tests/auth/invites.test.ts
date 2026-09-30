@@ -34,24 +34,24 @@ describe('invites through the auth module', () => {
     using live = await createLiveTestDatabase();
     const owner = await seedOwner(live);
 
-    const invite = await createInvite(owner, 'Alice@Example.com');
+    const invite = await createInvite(owner);
     // Base32 without 0/1/8/9 — an invite is read out loud or typed from a
     // message, so the confusable characters are not in the alphabet.
     expect(invite.code).toMatch(/^[A-Z2-7]{8}$/);
-    expect(invite.email).toBe('alice@example.com');
+    expect(invite).not.toHaveProperty('email');
 
     expect(await listInvites()).toHaveLength(1);
-    expect(await redeemInvite(invite.code, 'alice@example.com')).toMatchObject({ ok: true });
-    await expect(redeemInvite(invite.code, 'alice@example.com')).rejects.toThrow(/consumed/);
+    expect(await redeemInvite(invite.code)).toMatchObject({ ok: true });
+    await expect(redeemInvite(invite.code)).rejects.toThrow(/consumed/);
   });
 
   it('rescinding takes the code out of the store', async () => {
     using live = await createLiveTestDatabase();
     const owner = await seedOwner(live);
-    const invite = await createInvite(owner, 'alice@example.com');
+    const invite = await createInvite(owner);
 
     await rescindInvite(invite.code);
     expect(await listInvites()).toHaveLength(0);
-    await expect(redeemInvite(invite.code, 'alice@example.com')).rejects.toThrow(/not found/);
+    await expect(redeemInvite(invite.code)).rejects.toThrow(/not found/);
   });
 });

@@ -6,7 +6,6 @@
 
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { FormsModule } from '@angular/forms';
 import { AuthService, errorMessage } from '@maple-common';
 
 /**
@@ -22,7 +21,7 @@ export function safeReturnUrl(raw: string | null): string {
 @Component({
   standalone: true,
   selector: 'maple-sign-in',
-  imports: [FormsModule, RouterLink],
+  imports: [RouterLink],
   templateUrl: './sign-in.component.html',
   host: { class: 'flex items-center justify-center w-full h-full bg-bg text-text-main p-6' },
 })
@@ -36,7 +35,6 @@ export class SignInComponent implements OnInit {
     return safeReturnUrl(this.route.snapshot.queryParamMap.get('returnUrl'));
   }
 
-  email = '';
   claimed = signal<boolean | null>(null);
   devLoginEnabled = signal(false);
   busy = signal(false);
@@ -59,7 +57,7 @@ export class SignInComponent implements OnInit {
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.auth.claim(this.email, 'Web');
+      await this.auth.claim('Web');
       // In the Apple shell's WKWebView the native host has already
       // received the tokens via the `maple` message handler and is
       // about to dismiss the sheet. Skip the SPA navigation so we

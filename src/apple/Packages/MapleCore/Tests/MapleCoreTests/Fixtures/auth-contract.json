@@ -12,7 +12,7 @@
       "id": "register_options",
       "method": "POST",
       "path": "/api/auth/register/options",
-      "request_keys": ["email"],
+      "request_keys": [],
       "request_optional_keys": ["invite_code"],
       "response_keys": ["challenge", "rp", "user", "pubKeyCredParams"]
     },
@@ -20,7 +20,7 @@
       "id": "register_verify",
       "method": "POST",
       "path": "/api/auth/register/verify",
-      "request_keys": ["email", "device_label", "credential"],
+      "request_keys": ["device_label", "credential"],
       "request_optional_keys": ["invite_code"],
       "response_keys": ["access_token", "refresh_token", "user"]
     },
@@ -58,7 +58,7 @@
       "method": "POST",
       "path": "/api/auth/invites",
       "auth": "owner",
-      "request_keys": ["email"],
+      "request_keys": [],
       "response_keys": ["code", "expires_at"]
     },
     {

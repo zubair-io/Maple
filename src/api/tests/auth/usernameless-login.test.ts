@@ -4,7 +4,7 @@
  * Sign in with NO email: login/options issues a discoverable challenge (empty
  * allowCredentials), the authenticator asserts a resident passkey, and
  * login/verify identifies the account from the asserted credential id. The
- * email-scoped path is kept as a fallback.
+ * Login ignores any email field from an older client.
  *
  * Runs against a private SQLite database installed as the process-wide handle
  * for each test (#3787), so every test claims an unclaimed server — sentinel
@@ -47,13 +47,13 @@ function post(path: string, body: unknown, ip: string): Promise<Response> {
 }
 
 /** Claim the server with a resident passkey; return the soft authenticator. */
-async function claim(email: string, ip: string): Promise<SoftAuthenticator> {
-  const optsRes = await post('/api/auth/register/options', { email }, ip);
+async function claim(ip: string): Promise<SoftAuthenticator> {
+  const optsRes = await post('/api/auth/register/options', {}, ip);
   const { challenge } = (await optsRes.json()) as { challenge: string };
   const built = await buildRegistrationResponse({ challenge, rpId: RP_ID, origin: ORIGIN });
   await post(
     '/api/auth/register/verify',
-    { email, device_label: 'laptop', credential: built.response },
+    { device_label: 'laptop', credential: built.response },
     ip,
   );
   return built.authenticator;
@@ -62,7 +62,7 @@ async function claim(email: string, ip: string): Promise<SoftAuthenticator> {
 describe('usernameless login (#1304)', () => {
   it('signs in with NO email via a discoverable credential', async () => {
     const ip = '198.51.100.70';
-    const authr = await claim('owner@maple.test', ip);
+    const authr = await claim(ip);
 
     // No email → discoverable options (empty allowCredentials).
     const optsRes = await post('/api/auth/login/options', {}, ip);
@@ -80,15 +80,18 @@ describe('usernameless login (#1304)', () => {
     // No email at verify either — identified by the asserted credential id.
     const verifyRes = await post('/api/auth/login/verify', { credential: assertion }, ip);
     expect(verifyRes.status).toBe(200);
-    const body = (await verifyRes.json()) as { access_token?: string; user?: { email: string } };
+    const body = (await verifyRes.json()) as {
+      access_token?: string;
+      user?: { email: string | null };
+    };
     expect(body.access_token).toBeDefined();
-    expect(body.user?.email).toBe('owner@maple.test');
+    expect(body.user?.email).toBeNull();
   });
 
   it('issues discoverable options regardless of any supplied email', async () => {
     const ip = '198.51.100.71';
     const email = 'owner@maple.test';
-    await claim(email, ip); // a resident credential now exists for this email
+    await claim(ip); // a resident credential now exists
 
     // Login is pure passkey: a registered email must NOT scope the options —
     // allowCredentials stays empty so no email-keyed credential list leaks.

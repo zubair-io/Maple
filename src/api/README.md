@@ -48,6 +48,33 @@ in the background.
 (For scripted setup you can still POST to `/api/folders` directly:
 `curl -X POST http://localhost:3000/api/folders -H 'Content-Type: application/json' -d '{"path":"/photos"}'`.)
 
+## Apple cloud testing server (Azure)
+
+From the repository root, sign in to Azure and run:
+
+```bash
+az login
+scripts/provision-apple-test-server-azure.sh
+```
+
+The script builds committed sources from the current checkout, provisions a small East US Linux VM, and serves it at an
+Azure hostname with automatic HTTPS. Its SQLite database and Maple config persist on the VM disk.
+Initially, HTTPS is restricted to the machine
+that ran the script. HTTP is public for certificate validation and redirects to HTTPS, so you can safely claim the owner account with a passkey and no email. Then
+open web access for Apple:
+
+```bash
+az network nsg rule update --resource-group <group> --nsg-name <vm>-nsg \
+  --name maple-public-web --source-address-prefixes Internet
+```
+
+Claim the server with a passkey; an invite code is not needed to create the first owner. New
+accounts always use a passkey without an email address. In **Settings → Users**, choose
+**Create invite code**, then copy and share the code with the new member; Maple does not send email.
+Codes expire after 15 minutes and work once. Owners can revoke unused codes individually.
+The script prints the resource-group name; deleting that group with
+`az group delete --name <group> --yes` removes the VM, database, and server.
+
 ## Environment variables
 
 | Variable                | Default                                                                  | Description                                                                                                                                                                                                                                                                                                                         |

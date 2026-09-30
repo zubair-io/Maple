@@ -20,7 +20,6 @@ export class JoinComponent {
   private auth = inject(AuthService);
   private router = inject(Router);
 
-  email = '';
   busy = signal(false);
   error = signal<string | null>(null);
 
@@ -38,7 +37,7 @@ export class JoinComponent {
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.auth.join(window.location.origin, this.email, this.code, 'Web');
+      await this.auth.join(this.code, 'Web');
       // Skip SPA nav when running inside the Apple shell — the native
       // side has the tokens via `maple` postMessage and is closing the
       // sheet.

@@ -55,7 +55,7 @@ export type { SqliteDb } from './db-handle.ts';
 
 interface UserRow {
   id: string;
-  email: string;
+  email: string | null;
   role: UserRole;
   file_access: number | null;
   created_at: string;

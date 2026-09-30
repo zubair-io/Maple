@@ -17,18 +17,9 @@
       Sign in with a passkey
     </button>
   } @else if (claimed() === false) {
-    <input
-      type="email"
-      [(ngModel)]="email"
-      name="email"
-      placeholder="Email"
-      autocomplete="email"
-      required
-      class="block w-full px-3.5 py-3 text-sm text-text-main bg-input-bg border border-border rounded-md outline-none transition-colors duration-[120ms] ease-default placeholder:text-text-muted focus:border-primary"
-    />
     <button
       type="submit"
-      [disabled]="busy() || !email"
+      [disabled]="busy()"
       class="inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed enabled:hover:bg-[color-mix(in_srgb,var(--color-primary)_88%,white)] disabled:bg-primary-dim disabled:text-text-muted"
     >
       Create passkey
@@ -53,9 +44,11 @@
       Sign in as dev (no passkey)
     </button>
   }
-  <a
-    routerLink="/join"
-    class="self-center mt-2 text-[13px] text-text-muted no-underline hover:text-text-main hover:underline"
-    >Have an invite code?</a
-  >
+  @if (claimed() === true) {
+    <a
+      routerLink="/join"
+      class="self-center mt-2 text-[13px] text-text-muted no-underline hover:text-text-main hover:underline"
+      >Have an invite code?</a
+    >
+  }
 </form>

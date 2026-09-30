@@ -1340,7 +1340,7 @@ export type ImportWithId = WithId<ImportDoc>;
 export type UserRole = 'owner' | 'member';
 
 export interface UserDoc {
-  email: string; // unique, lowercased
+  email: string | null; // optional legacy identity; passkeys identify new accounts
   role: UserRole;
   /**
    * Per-user "file access" permission (#2893). Absent/true = the user may
@@ -1377,9 +1377,8 @@ export interface CredentialDoc {
 
 export interface InviteDoc {
   code: string; // 8-char base32, unique
-  email: string; // lowercased
   invited_by: ObjectId;
-  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
+  expires_at: Date; // checked during redemption, then periodically swept
   consumed_at: string | null;
 }
 // ---------------------------------------------------------------------------

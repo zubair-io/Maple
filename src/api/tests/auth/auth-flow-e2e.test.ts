@@ -93,19 +93,19 @@ function post(path: string, body: unknown, opts: PostOpts): Promise<Response> {
 }
 
 /** Full passkey claim ceremony for a fresh (owner) account. */
-async function claim(email: string, ip: string, deviceLabel = 'device') {
-  const optsRes = await post('/api/auth/register/options', { email }, { ip });
+async function claim(ip: string, deviceLabel = 'device') {
+  const optsRes = await post('/api/auth/register/options', {}, { ip });
   const { challenge } = (await optsRes.json()) as { challenge: string };
   const built = await buildRegistrationResponse({ challenge, rpId: RP_ID, origin: ORIGIN });
   const verifyRes = await post(
     '/api/auth/register/verify',
-    { email, device_label: deviceLabel, credential: built.response },
+    { device_label: deviceLabel, credential: built.response },
     { ip },
   );
   const body = (await verifyRes.json()) as {
     access_token?: string;
     refresh_token?: string;
-    user?: { id: string; email: string; role: string };
+    user?: { id: string; email: string | null; role: string };
   };
   return {
     res: verifyRes,
@@ -134,7 +134,7 @@ const logout = (cookie: string, ip: string) => post('/api/auth/logout', {}, { ip
 describe('auth lifecycle e2e (#852 stack)', () => {
   it('claim → cookie rotates → within-grace replay re-mints → logout revokes the whole family', async () => {
     const ip = '198.51.100.1';
-    const { res, body, cookie: r0 } = await claim('owner@maple.test', ip, 'laptop');
+    const { res, body, cookie: r0 } = await claim(ip, 'laptop');
 
     // Claim issues a usable session.
     expect(res.status).toBe(200);
@@ -169,9 +169,8 @@ describe('auth lifecycle e2e (#852 stack)', () => {
   it('logging out one device leaves another device signed in (family-scoped revoke)', async () => {
     const ipA = '198.51.100.2';
     const ipB = '198.51.100.3';
-    const email = 'multi@maple.test';
 
-    const { authenticator, cookie: a0 } = await claim(email, ipA, 'deviceA'); // family A
+    const { authenticator, cookie: a0 } = await claim(ipA, 'deviceA'); // family A
     const { cookie: b0 } = await loginExisting(authenticator, ipB); // family B
     expect(b0.length).toBeGreaterThan(20);
     expect(b0).not.toBe(a0);
@@ -187,7 +186,7 @@ describe('auth lifecycle e2e (#852 stack)', () => {
 
   it('native PKCE: authed issue → public redeem → device-scoped tokens; the code is single-use', async () => {
     const ip = '198.51.100.4';
-    const email = 'native@maple.test';
+    const email = null;
     const userId = seedUser(live.db, { email, role: 'owner' });
     const bearer = await signAccessToken(
       { file_access: true, sub: userId.toHexString(), email, role: 'owner' },
@@ -227,7 +226,7 @@ describe('auth lifecycle e2e (#852 stack)', () => {
     const redeemed = (await redeemRes.json()) as {
       access_token?: string;
       refresh_token?: string;
-      user?: { email: string };
+      user?: { email: string | null };
     };
     expect(redeemed.access_token).toBeDefined();
     expect(redeemed.refresh_token).toBeDefined();
@@ -249,7 +248,7 @@ describe('auth lifecycle e2e (#852 stack)', () => {
     // browser, so the first rotation after the handoff wiped the session and
     // the next page reload found no cookie at all.
     const ip = '198.51.100.5';
-    const { body } = await claim('lan@maple.test', ip, 'laptop');
+    const { body } = await claim(ip, 'laptop');
     const bearer = body.access_token!;
 
     // Public HTTPS-domain page issues a one-time handoff code.
