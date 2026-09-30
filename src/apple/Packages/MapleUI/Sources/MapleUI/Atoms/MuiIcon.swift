@@ -34,17 +34,20 @@ public enum MuiIconSize: Sendable {
 public struct MuiIcon: View {
   public let name: String
   public let size: MuiIconSize
+  public let filled: Bool
   public let color: Color?
   public let accessibilityLabel: String?
 
   public init(
     name: String,
     size: MuiIconSize = .md,
+    filled: Bool = false,
     color: Color? = nil,
     accessibilityLabel: String? = nil
   ) {
     self.name = name
     self.size = size
+    self.filled = filled
     self.color = color
     self.accessibilityLabel = accessibilityLabel
   }
@@ -56,7 +59,10 @@ public struct MuiIcon: View {
         // byte-for-byte instead of resolving to an SF Symbol, so
         // they read identically to the Windows/Web chrome.
         strokeGlyph(mirroredPath)
-      } else if let materialPath = MuiMaterialSymbols.path(for: name) {
+      } else if let materialPath = MuiMaterialSymbols.path(
+        for: MuiIconLegacyNames.materialName(for: name),
+        filled: filled || MuiIconLegacyNames.isFilled(name))
+      {
         materialGlyph(materialPath)
       } else if let color {
         Image(systemName: name)
@@ -109,7 +115,7 @@ public struct MuiIcon: View {
   HStack(alignment: .bottom, spacing: 16) {
     ForEach([MuiIconSize.xs, .sm, .md, .lg, .xl], id: \.points) { size in
       VStack(spacing: 4) {
-        MuiIcon(name: "star.fill", size: size, color: MuiTokens.primary)
+        MuiIcon(name: "star", size: size, filled: true, color: MuiTokens.primary)
         Text("\(Int(size.points))").font(.caption2).foregroundStyle(MuiTokens.textMuted)
       }
     }
@@ -120,8 +126,8 @@ public struct MuiIcon: View {
 
 #Preview("MuiIcon — currentColor inheritance") {
   VStack(spacing: 12) {
-    MuiIcon(name: "heart.fill").foregroundStyle(MuiTokens.errorText)
-    MuiIcon(name: "checkmark.circle.fill").foregroundStyle(MuiTokens.successText)
+    MuiIcon(name: "favorite", filled: true).foregroundStyle(MuiTokens.errorText)
+    MuiIcon(name: "check_circle", filled: true).foregroundStyle(MuiTokens.successText)
   }
   .padding()
   .background(MuiTokens.bg)

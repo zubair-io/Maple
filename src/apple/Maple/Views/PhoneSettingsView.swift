@@ -103,7 +103,7 @@
     }
 
     private func chevron() -> some View {
-      MuiIcon(name: "chevron.right", size: .sm, color: MuiTokens.textMuted)
+      MuiIcon(name: "chevron_right", size: .sm, color: MuiTokens.textMuted)
     }
 
     @ViewBuilder

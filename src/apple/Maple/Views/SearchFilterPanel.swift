@@ -14,8 +14,9 @@
 // SearchFilterPanel+VM.swift (the `+VM.swift` pattern, issue #192) —
 // this file only renders.
 
-import SwiftUI
 import MapleCore
+import MapleUI
+import SwiftUI
 
 struct SearchFilterPanel: View {
   @Bindable var vm: SearchViewModel
@@ -32,18 +33,20 @@ struct SearchFilterPanel: View {
       ScrollView {
         VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
           dateSection
-          facetRowsSection(title: "People",
-                           rows: SearchFilterPanelVM.rowModels(
-                             facets: vm.peopleFacets, selected: vm.params.people),
-                           icon: .personInitial,
-                           selected: vm.params.people,
-                           toggle: togglePerson)
-          facetRowsSection(title: "Places",
-                           rows: SearchFilterPanelVM.rowModels(
-                             facets: vm.placeFacets, selected: vm.params.place),
-                           icon: .location,
-                           selected: vm.params.place,
-                           toggle: togglePlace)
+          facetRowsSection(
+            title: "People",
+            rows: SearchFilterPanelVM.rowModels(
+              facets: vm.peopleFacets, selected: vm.params.people),
+            icon: .personInitial,
+            selected: vm.params.people,
+            toggle: togglePerson)
+          facetRowsSection(
+            title: "Places",
+            rows: SearchFilterPanelVM.rowModels(
+              facets: vm.placeFacets, selected: vm.params.place),
+            icon: .location,
+            selected: vm.params.place,
+            toggle: togglePlace)
         }
         .padding(MapleTokens.Spacing.panelInset)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -110,8 +113,10 @@ struct SearchFilterPanel: View {
   private var presetChips: some View {
     // Computed once per render, not per chip.
     let active = SearchDatePreset.matching(from: vm.params.from, to: vm.params.to)
-    return LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 6)],
-                     alignment: .leading, spacing: 6) {
+    return LazyVGrid(
+      columns: [GridItem(.adaptive(minimum: 92), spacing: 6)],
+      alignment: .leading, spacing: 6
+    ) {
       ForEach(SearchDatePreset.allCases) { preset in
         chip(preset.label, selected: preset == active) {
           // Single-select toggle: tapping the active preset clears the range.
@@ -129,8 +134,10 @@ struct SearchFilterPanel: View {
   /// A custom date bound: unset shows an "Add" affordance (sets today,
   /// revealing the picker); set shows a compact `DatePicker` + clear.
   @ViewBuilder
-  private func dateFieldRow(label: String,
-                            keyPath: WritableKeyPath<SearchParams, String?>) -> some View {
+  private func dateFieldRow(
+    label: String,
+    keyPath: WritableKeyPath<SearchParams, String?>
+  ) -> some View {
     HStack(spacing: 8) {
       Text(label)
         .font(MapleTokens.Typography.rowLabel)
@@ -144,7 +151,7 @@ struct SearchFilterPanel: View {
           vm.params[keyPath: keyPath] = nil
           Task { await vm.submit() }
         } label: {
-          Image(systemName: "xmark.circle.fill")
+          MuiIcon(name: "cancel", size: .sm, filled: true)
             .foregroundStyle(MapleTokens.textMuted)
         }
         .buttonStyle(.plain)
@@ -154,9 +161,13 @@ struct SearchFilterPanel: View {
           vm.params[keyPath: keyPath] = SearchDateFormat.string(from: Date())
           Task { await vm.submit() }
         } label: {
-          Label("Add date", systemImage: "calendar.badge.plus")
-            .font(MapleTokens.Typography.body)
-            .foregroundStyle(MapleTokens.primary)
+          Label {
+            Text("Add date")
+          } icon: {
+            MuiIcon(name: "event_available", size: .sm)
+          }
+          .font(MapleTokens.Typography.body)
+          .foregroundStyle(MapleTokens.primary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Add \(label.lowercased()) date")
@@ -184,11 +195,13 @@ struct SearchFilterPanel: View {
   }
 
   @ViewBuilder
-  private func facetRowsSection(title: String,
-                                rows: [FacetRow],
-                                icon: RowIcon,
-                                selected: [String],
-                                toggle: @escaping (String) -> Void) -> some View {
+  private func facetRowsSection(
+    title: String,
+    rows: [FacetRow],
+    icon: RowIcon,
+    selected: [String],
+    toggle: @escaping (String) -> Void
+  ) -> some View {
     if rows.isEmpty {
       EmptyView()
     } else {
@@ -204,10 +217,12 @@ struct SearchFilterPanel: View {
     }
   }
 
-  private func facetRow(_ row: FacetRow,
-                        icon: RowIcon,
-                        isSelected: Bool,
-                        action: @escaping () -> Void) -> some View {
+  private func facetRow(
+    _ row: FacetRow,
+    icon: RowIcon,
+    isSelected: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
     Button(action: action) {
       HStack(spacing: 10) {
         rowIcon(icon, value: row.value)
@@ -222,7 +237,7 @@ struct SearchFilterPanel: View {
             .foregroundStyle(MapleTokens.textMuted)
         }
         if isSelected {
-          Image(systemName: "checkmark")
+          MuiIcon(name: "check", size: .xs)
             .font(.system(size: 11, weight: .bold))
             .foregroundStyle(MapleTokens.primary)
         }
@@ -232,8 +247,10 @@ struct SearchFilterPanel: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .background(isSelected ? MapleTokens.surfaceAlt : .clear,
-                in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
+    .background(
+      isSelected ? MapleTokens.surfaceAlt : .clear,
+      in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
+    )
     .accessibilityLabel(row.value)
     .accessibilityAddTraits(isSelected ? [.isSelected] : [])
   }
@@ -255,7 +272,7 @@ struct SearchFilterPanel: View {
         .fill(MapleTokens.surfaceAlt)
         .frame(width: 26, height: 26)
         .overlay {
-          Image(systemName: "mappin.and.ellipse")
+          MuiIcon(name: "location_on", size: .xs)
             .font(.system(size: 12))
             .foregroundStyle(MapleTokens.textMuted)
         }
@@ -275,8 +292,10 @@ struct SearchFilterPanel: View {
   // MARK: - Building blocks
 
   @ViewBuilder
-  private func section<Content: View>(_ title: String,
-                                      @ViewBuilder content: () -> Content) -> some View {
+  private func section<Content: View>(
+    _ title: String,
+    @ViewBuilder content: () -> Content
+  ) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       Text(title.uppercased())
         .font(MapleTokens.Typography.eyebrow)
@@ -292,8 +311,9 @@ struct SearchFilterPanel: View {
         .foregroundStyle(selected ? .white : MapleTokens.textMain)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(selected ? MapleTokens.primary : MapleTokens.surfaceAlt,
-                    in: Capsule())
+        .background(
+          selected ? MapleTokens.primary : MapleTokens.surfaceAlt,
+          in: Capsule())
     }
     .buttonStyle(.plain)
   }

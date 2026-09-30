@@ -9,8 +9,9 @@
 //   .signedIn          → dismisses on entry
 //   .error             → inline message + Try again
 
-import SwiftUI
 import MapleCore
+import MapleUI
+import SwiftUI
 
 struct AddMapleCloudSheet: View {
   let onDismiss: () -> Void
@@ -19,9 +20,11 @@ struct AddMapleCloudSheet: View {
   @State private var vm: AddMapleCloudViewModel
   @State private var driver = ASWebAuthSessionDriver()
 
-  init(prefilledDomain: String = "",
-       onDismiss: @escaping () -> Void,
-       onSignedIn: @escaping @MainActor (URL, AuthTokens, AuthUser) -> Void) {
+  init(
+    prefilledDomain: String = "",
+    onDismiss: @escaping () -> Void,
+    onSignedIn: @escaping @MainActor (URL, AuthTokens, AuthUser) -> Void
+  ) {
     self.onDismiss = onDismiss
     self.onSignedIn = onSignedIn
     let viewModel = AddMapleCloudViewModel(onSignedIn: onSignedIn)
@@ -57,10 +60,10 @@ struct AddMapleCloudSheet: View {
   @ViewBuilder
   private var panel: some View {
     switch vm.state {
-    case .idle:                        idlePanel
-    case .authenticating(let host):    authenticatingPanel(host: host)
-    case .signedIn(let host, _, _):    spinnerPanel("Signed in to \(host.displayHost).")
-    case .error(let msg, _):           errorPanel(message: msg)
+    case .idle: idlePanel
+    case .authenticating(let host): authenticatingPanel(host: host)
+    case .signedIn(let host, _, _): spinnerPanel("Signed in to \(host.displayHost).")
+    case .error(let msg, _): errorPanel(message: msg)
     }
   }
 
@@ -74,8 +77,8 @@ struct AddMapleCloudSheet: View {
       TextField("myserver.com", text: $vm.domainInput)
         .textFieldStyle(.roundedBorder)
         #if !os(macOS)
-        .textInputAutocapitalization(.never)
-        .keyboardType(.URL)
+          .textInputAutocapitalization(.never)
+          .keyboardType(.URL)
         #endif
         .onSubmit { startSession() }
       HStack {
@@ -112,8 +115,12 @@ struct AddMapleCloudSheet: View {
 
   private func errorPanel(message: String) -> some View {
     VStack(alignment: .leading, spacing: 12) {
-      Label(message, systemImage: "exclamationmark.triangle.fill")
-        .foregroundStyle(.red).font(.callout)
+      Label {
+        Text(message)
+      } icon: {
+        MuiIcon(name: "warning", size: .sm, filled: true)
+      }
+      .foregroundStyle(.red).font(.callout)
       HStack {
         Spacer()
         Button("Cancel", action: dismiss).keyboardShortcut(.cancelAction)
@@ -149,17 +156,17 @@ struct AddMapleCloudSheet: View {
 // AddMapleCloudViewModel.preview(...) factory in MapleCore.
 
 #Preview("Default — empty domain") {
-    AddMapleCloudSheet(
-        prefilledDomain: "",
-        onDismiss: {},
-        onSignedIn: { _, _, _ in }
-    )
+  AddMapleCloudSheet(
+    prefilledDomain: "",
+    onDismiss: {},
+    onSignedIn: { _, _, _ in }
+  )
 }
 
 #Preview("Prefilled domain") {
-    AddMapleCloudSheet(
-        prefilledDomain: "myserver.example.com",
-        onDismiss: {},
-        onSignedIn: { _, _, _ in }
-    )
+  AddMapleCloudSheet(
+    prefilledDomain: "myserver.example.com",
+    onDismiss: {},
+    onSignedIn: { _, _, _ in }
+  )
 }

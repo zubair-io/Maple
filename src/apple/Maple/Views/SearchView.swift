@@ -17,10 +17,11 @@
 
 #if os(iOS)
 
-import SwiftUI
-import MapleCore
+  import MapleUI
+  import SwiftUI
+  import MapleCore
 
-struct SearchView: View {
+  struct SearchView: View {
     /// Optional view model — when nil the view runs in "shell" mode
     /// (renders the UI scaffold but doesn't issue search calls).
     var viewModel: SearchViewModel?
@@ -50,13 +51,13 @@ struct SearchView: View {
     /// ThumbnailProvider wired to the cloud thumb infra, or nil when no
     /// cloud session is available (shell mode / previews → grey placeholders).
     private var thumbProvider: ThumbnailProvider? {
-        guard let client = thumbClient, let cache = thumbCache else { return nil }
-        return ThumbnailProvider(thumbClient: client, thumbCache: cache)
+      guard let client = thumbClient, let cache = thumbCache else { return nil }
+      return ThumbnailProvider(thumbClient: client, thumbCache: cache)
     }
 
     /// Server cache-host key for `PhotoGridItem.cloud` namespace routing.
     private var host: String {
-        viewModel?.server.cacheHostKey ?? ""
+      viewModel?.server.cacheHostKey ?? ""
     }
 
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespaces) }
@@ -66,59 +67,59 @@ struct SearchView: View {
     private var filtersActive: Bool { viewModel?.hasUnifiedFilters ?? false }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let viewModel {
-                    filterRow(viewModel)
-                }
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          if let viewModel {
+            filterRow(viewModel)
+          }
 
-                if trimmedQuery.isEmpty && !filtersActive {
-                    SearchRecentQueries(recent: recent, onTap: tapRecent)
-                } else {
-                    SearchPhotoResultsSection(
-                        results: results,
-                        total: total,
-                        isStale: isStale,
-                        hasQuery: true,
-                        query: query,
-                        onTap: { asset in
-                            commitRecent()
-                            onSelectAsset(asset)
-                        },
-                        onLoadMore: { Task { await viewModel?.loadMore() } },
-                        isLoadingMore: viewModel?.isLoadingMore ?? false,
-                        provider: thumbProvider,
-                        host: host
-                    )
-                }
-            }
-            .padding(12)
+          if trimmedQuery.isEmpty && !filtersActive {
+            SearchRecentQueries(recent: recent, onTap: tapRecent)
+          } else {
+            SearchPhotoResultsSection(
+              results: results,
+              total: total,
+              isStale: isStale,
+              hasQuery: true,
+              query: query,
+              onTap: { asset in
+                commitRecent()
+                onSelectAsset(asset)
+              },
+              onLoadMore: { Task { await viewModel?.loadMore() } },
+              isLoadingMore: viewModel?.isLoadingMore ?? false,
+              provider: thumbProvider,
+              host: host
+            )
+          }
         }
-        .background(MapleTokens.bg.ignoresSafeArea())
-        .accessibilityIdentifier("search-root")
-        .onChange(of: query) { _, _ in scheduleSearch() }
-        .onAppear {
-            // The session / view model can arrive AFTER the user has already
-            // typed (the `.searchable` field lives above this view and is
-            // live while the session loads). Re-issue any pending query so it
-            // isn't stranded showing no results until the next keystroke.
-            if !trimmedQuery.isEmpty { scheduleSearch() }
-            // The filter sheet's People / Places rows come from the facets
-            // response, and an empty-query Search tab never submits — warm
-            // them here so the panel is usable without a query (#2879).
-            Task { await viewModel?.loadFacetsIfNeeded() }
+        .padding(12)
+      }
+      .background(MapleTokens.bg.ignoresSafeArea())
+      .accessibilityIdentifier("search-root")
+      .onChange(of: query) { _, _ in scheduleSearch() }
+      .onAppear {
+        // The session / view model can arrive AFTER the user has already
+        // typed (the `.searchable` field lives above this view and is
+        // live while the session loads). Re-issue any pending query so it
+        // isn't stranded showing no results until the next keystroke.
+        if !trimmedQuery.isEmpty { scheduleSearch() }
+        // The filter sheet's People / Places rows come from the facets
+        // response, and an empty-query Search tab never submits — warm
+        // them here so the panel is usable without a query (#2879).
+        Task { await viewModel?.loadFacetsIfNeeded() }
+      }
+      .onDisappear { debounceTask?.cancel() }
+      .sheet(isPresented: $showFilters) {
+        if let viewModel {
+          SearchFilterPanel(vm: viewModel, onClose: { showFilters = false })
+            .presentationDetents([.large])
+            // Covers the case where the session (and so the view
+            // model) arrived after `onAppear` ran; a no-op once the
+            // facets are loaded.
+            .task { await viewModel.loadFacetsIfNeeded() }
         }
-        .onDisappear { debounceTask?.cancel() }
-        .sheet(isPresented: $showFilters) {
-            if let viewModel {
-                SearchFilterPanel(vm: viewModel, onClose: { showFilters = false })
-                    .presentationDetents([.large])
-                    // Covers the case where the session (and so the view
-                    // model) arrived after `onAppear` ran; a no-op once the
-                    // facets are loaded.
-                    .task { await viewModel.loadFacetsIfNeeded() }
-            }
-        }
+      }
     }
 
     // MARK: - Filter row
@@ -126,54 +127,56 @@ struct SearchView: View {
     /// Active chips + the Filters control (badge = active count) that
     /// opens the unified Date/People/Places sheet.
     private func filterRow(_ vm: SearchViewModel) -> some View {
-        HStack(spacing: 8) {
-            SearchActiveFilterChips(vm: vm, onOpenFilters: { showFilters = true })
-            Spacer(minLength: 0)
-            filtersButton(vm)
-        }
+      HStack(spacing: 8) {
+        SearchActiveFilterChips(vm: vm, onOpenFilters: { showFilters = true })
+        Spacer(minLength: 0)
+        filtersButton(vm)
+      }
     }
 
     private func filtersButton(_ vm: SearchViewModel) -> some View {
-        Button {
-            showFilters = true
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                Text("Filters")
-                    .font(MapleTokens.Typography.chipLabel)
-                if vm.unifiedFilterCount > 0 {
-                    Text("\(vm.unifiedFilterCount)")
-                        .font(MapleTokens.Typography.chipLabel)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(MapleTokens.primary, in: Capsule())
-                }
-            }
-            .foregroundStyle(vm.unifiedFilterCount > 0 ? MapleTokens.primary : MapleTokens.textMain)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(MapleTokens.surfaceAlt, in: Capsule())
-            .overlay(Capsule().stroke(MapleTokens.border, lineWidth: 0.5))
+      Button {
+        showFilters = true
+      } label: {
+        HStack(spacing: 4) {
+          MuiIcon(name: "filter_list", size: .sm)
+          Text("Filters")
+            .font(MapleTokens.Typography.chipLabel)
+          if vm.unifiedFilterCount > 0 {
+            Text("\(vm.unifiedFilterCount)")
+              .font(MapleTokens.Typography.chipLabel)
+              .foregroundStyle(.white)
+              .padding(.horizontal, 5)
+              .padding(.vertical, 1)
+              .background(MapleTokens.primary, in: Capsule())
+          }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(vm.unifiedFilterCount > 0
-                            ? "Filters, \(vm.unifiedFilterCount) active" : "Filters")
-        .accessibilityIdentifier("search-filters")
+        .foregroundStyle(vm.unifiedFilterCount > 0 ? MapleTokens.primary : MapleTokens.textMain)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(MapleTokens.surfaceAlt, in: Capsule())
+        .overlay(Capsule().stroke(MapleTokens.border, lineWidth: 0.5))
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel(
+        vm.unifiedFilterCount > 0
+          ? "Filters, \(vm.unifiedFilterCount) active" : "Filters"
+      )
+      .accessibilityIdentifier("search-filters")
     }
 
     // MARK: - Actions
 
     private func tapRecent(_ q: String) {
-        query = q
-        // Promote to head on tap so the list reflects most-recent-first.
-        recentJSON = encodeRecents(pushRecent(recent, q))
+      query = q
+      // Promote to head on tap so the list reflects most-recent-first.
+      recentJSON = encodeRecents(pushRecent(recent, q))
     }
 
     private func commitRecent() {
-        let trimmed = trimmedQuery
-        guard !trimmed.isEmpty else { return }
-        recentJSON = encodeRecents(pushRecent(recent, trimmed))
+      let trimmed = trimmedQuery
+      guard !trimmed.isEmpty else { return }
+      recentJSON = encodeRecents(pushRecent(recent, trimmed))
     }
 
     // MARK: - Search debounce
@@ -182,32 +185,32 @@ struct SearchView: View {
     /// An empty query with no active filters resets to idle; with filters
     /// set it still fetches (a filters-only search is a real search).
     private func scheduleSearch() {
-        debounceTask?.cancel()
-        let trimmed = trimmedQuery
-        guard !trimmed.isEmpty || filtersActive else {
-            isStale = false
-            return
+      debounceTask?.cancel()
+      let trimmed = trimmedQuery
+      guard !trimmed.isEmpty || filtersActive else {
+        isStale = false
+        return
+      }
+      isStale = true
+      debounceTask = Task { [viewModel] in
+        try? await Task.sleep(for: .milliseconds(250))
+        if Task.isCancelled { return }
+        await MainActor.run {
+          viewModel?.params.placeQuery = trimmed
         }
-        isStale = true
-        debounceTask = Task { [viewModel] in
-            try? await Task.sleep(for: .milliseconds(250))
-            if Task.isCancelled { return }
-            await MainActor.run {
-                viewModel?.params.placeQuery = trimmed
-            }
-            // A trailing-whitespace edit leaves `trimmed` — and so the whole
-            // param set — unchanged; `submitIfChanged` skips the redundant
-            // round-trip in that case.
-            await viewModel?.submitIfChanged()
-            await MainActor.run { isStale = false }
-        }
+        // A trailing-whitespace edit leaves `trimmed` — and so the whole
+        // param set — unchanged; `submitIfChanged` skips the redundant
+        // round-trip in that case.
+        await viewModel?.submitIfChanged()
+        await MainActor.run { isStale = false }
+      }
     }
-}
+  }
 
-#Preview("SearchView — empty state") {
+  #Preview("SearchView — empty state") {
     NavigationStack {
-        SearchView(query: .constant(""))
+      SearchView(query: .constant(""))
     }
-}
+  }
 
 #endif

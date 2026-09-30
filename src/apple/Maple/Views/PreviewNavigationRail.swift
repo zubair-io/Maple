@@ -3,6 +3,7 @@
 // a second action toolbar or entering Browse selection mode.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct PreviewNavigationRail: View {
@@ -22,9 +23,11 @@ struct PreviewNavigationRail: View {
       Button {
         showsList.toggle()
       } label: {
-        Label(
-          showsList ? "Filmstrip" : "Photo list", systemImage: showsList ? "film" : "list.bullet"
-        )
+        Label {
+          Text(showsList ? "Filmstrip" : "Photo list")
+        } icon: {
+          MuiIcon(name: showsList ? "film" : "list.bullet", size: .sm)
+        }
         .font(.caption.weight(.semibold))
         .frame(maxWidth: .infinity, minHeight: 44)
       }

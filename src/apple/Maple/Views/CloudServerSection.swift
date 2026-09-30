@@ -14,8 +14,9 @@
 // Each library is rendered as a CloudFolderTreeRow at depth 0; its
 // children are populated on first expand via /api/fs/dir.
 
-import SwiftUI
 import MapleCore
+import MapleUI
+import SwiftUI
 
 struct CloudServerSection: View {
   let serverURL: URL
@@ -86,7 +87,7 @@ struct CloudServerSection: View {
       if !session.isSignedIn {
         Button(action: onSignIn) {
           HStack(spacing: 6) {
-            Image(systemName: "person.crop.circle.badge.exclamationmark")
+            MuiIcon(name: "account_circle", size: .sm)
             Text("Sign in")
           }
           .font(.callout.weight(.semibold))
@@ -146,7 +147,7 @@ struct CloudServerSection: View {
       withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
     }) {
       HStack(spacing: 6) {
-        Image(systemName: "chevron.down")
+        MuiIcon(name: "expand_more", size: .xs)
           .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(MapleTokens.textMuted)
           .rotationEffect(.degrees(isExpanded ? 0 : -90))
@@ -234,7 +235,8 @@ private struct _CloudServerSectionPreviewWrapper: View {
 }
 
 #Preview("Collapsed") {
-  _CloudServerSectionPreviewWrapper(folders: [
-    CloudFolder(id: "1", path: "/photos", label: "Photos"),
-  ], expanded: false)
+  _CloudServerSectionPreviewWrapper(
+    folders: [
+      CloudFolder(id: "1", path: "/photos", label: "Photos")
+    ], expanded: false)
 }

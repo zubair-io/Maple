@@ -7,6 +7,7 @@
 // it. Mirrors the web `CropToolbarComponent`.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct CropToolbar: View {
@@ -116,7 +117,7 @@ struct CropToolbar: View {
       }
     )
     return HStack(spacing: 8) {
-      Image(systemName: "angle")
+      MuiIcon(name: "angle", size: .xs)
         .font(.system(size: 12))
         .foregroundStyle(MapleTokens.textMuted)
       Slider(

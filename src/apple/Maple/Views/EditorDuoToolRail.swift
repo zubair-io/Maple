@@ -4,6 +4,7 @@
 #if os(iOS)
 
   import MapleCore
+  import MapleUI
   import SwiftUI
 
   struct EditorDuoToolRail: ToolbarContent {
@@ -48,7 +49,7 @@
           state.arm(tool: Tool.tools(in: group).first ?? state.armedTool)
         }
       } label: {
-        Image(systemName: group.dockSymbol)
+        MuiIcon(name: group.dockSymbol, size: .sm)
           .font(.system(size: 18))
           .modifier(
             DuoToolAppearance(
@@ -97,7 +98,7 @@
           .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
         }
       } label: {
-        Image(systemName: "ellipsis")
+        MuiIcon(name: "more_horiz", size: .sm)
           .font(.system(size: 18))
           .foregroundStyle(moreTools.contains(state.armedTool) ? ProTokens.accent : ProTokens.text)
           .frame(minWidth: 44, minHeight: 44)

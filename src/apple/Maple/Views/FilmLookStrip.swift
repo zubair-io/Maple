@@ -15,6 +15,7 @@
 // which layout is on screen.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct FilmLookStrip: View {
@@ -71,7 +72,9 @@ private struct FilmLookCard: View {
           .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.text)
           .lineLimit(1)
         if isSelected {
-          Image(systemName: "checkmark")
+          MuiIcon(name: "check", size: .xs)
+            .scaleEffect(9 / 14)
+            .frame(width: 9, height: 9)
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(ProTokens.accent)
         }

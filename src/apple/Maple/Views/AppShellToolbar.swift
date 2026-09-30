@@ -16,6 +16,7 @@
 // back/share chrome, so the window toolbar never needs to duplicate them.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 // MARK: - Browse toolbar
@@ -68,7 +69,7 @@ struct AppShellToolbar: ToolbarContent {
         Button {
           browseDisplayMode = browseDisplayMode.toggled
         } label: {
-          Image(systemName: browseDisplayMode.toggleIconName)
+          MuiIcon(name: browseDisplayMode.toggleIconName, size: .sm)
             .foregroundStyle(MapleTokens.textMuted)
         }
         .accessibilityLabel(browseDisplayMode.toggleAccessibilityLabel)
@@ -86,10 +87,10 @@ struct AppShellToolbar: ToolbarContent {
           onToggleSelect()
         } label: {
           if isSelecting {
-            Image(systemName: "checkmark")
+            MuiIcon(name: "check", size: .sm)
               .foregroundStyle(MapleTokens.textMuted)
           } else {
-            Image(systemName: "checkmark.square")
+            MuiIcon(name: "check_box", size: .sm)
               .foregroundStyle(MapleTokens.textMuted)
           }
         }
@@ -132,7 +133,7 @@ struct AppShellToolbar: ToolbarContent {
           Button {
             onOpenSearch()
           } label: {
-            Image(systemName: "magnifyingglass")
+            MuiIcon(name: "search", size: .sm)
               .foregroundStyle(
                 isSearchActive
                   ? MapleTokens.primary : MapleTokens.textMuted)

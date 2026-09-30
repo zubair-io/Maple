@@ -5,135 +5,136 @@
 // (`vm.applyResults`) — partial failure is reported per file, never
 // collapsed into one pass/fail alert.
 
-import SwiftUI
 import MapleCore
+import MapleUI
+import SwiftUI
 
 // MARK: - BatchRenamePreviewList
 
 struct BatchRenamePreviewList: View {
-    let vm: BatchRenameViewModel
+  let vm: BatchRenameViewModel
 
-    var body: some View {
-        List {
-            if let results = vm.applyResults {
-                ForEach(results) { result in
-                    BatchRenameResultRow(result: result)
-                }
-            } else {
-                ForEach(vm.preview) { item in
-                    BatchRenamePreviewRow(item: item)
-                }
-            }
+  var body: some View {
+    List {
+      if let results = vm.applyResults {
+        ForEach(results) { result in
+          BatchRenameResultRow(result: result)
         }
-        .listStyle(.plain)
-        .accessibilityIdentifier("batch-rename-preview-list")
-        .overlay {
-            if vm.isPreviewing && vm.preview.isEmpty {
-                ProgressView()
-            }
+      } else {
+        ForEach(vm.preview) { item in
+          BatchRenamePreviewRow(item: item)
         }
+      }
     }
+    .listStyle(.plain)
+    .accessibilityIdentifier("batch-rename-preview-list")
+    .overlay {
+      if vm.isPreviewing && vm.preview.isEmpty {
+        ProgressView()
+      }
+    }
+  }
 }
 
 // MARK: - BatchRenamePreviewRow
 
 private struct BatchRenamePreviewRow: View {
-    let item: BatchRenamePreviewItem
+  let item: BatchRenamePreviewItem
 
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(item.oldFilename)
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Image(systemName: "arrow.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            if let newFilename = item.newFilename {
-                Text(newFilename)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if item.duplicate {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .help("Collides with another rendered name in this batch")
-                        .accessibilityLabel("Duplicate rendered name")
-                }
-            } else {
-                Text(item.error ?? "Unavailable")
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .lineLimit(1)
-            }
+  var body: some View {
+    HStack(spacing: 8) {
+      Text(item.oldFilename)
+        .font(.system(.body, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .truncationMode(.middle)
+      MuiIcon(name: "arrow_forward", size: .xs)
+        .font(.caption)
+        .foregroundStyle(.tertiary)
+      if let newFilename = item.newFilename {
+        Text(newFilename)
+          .font(.system(.body, design: .monospaced))
+          .lineLimit(1)
+          .truncationMode(.middle)
+        if item.duplicate {
+          MuiIcon(name: "warning", size: .sm, filled: true)
+            .foregroundStyle(.orange)
+            .help("Collides with another rendered name in this batch")
+            .accessibilityLabel("Duplicate rendered name")
         }
-        .accessibilityIdentifier("batch-rename-preview-row")
-        .accessibilityElement(children: .combine)
+      } else {
+        Text(item.error ?? "Unavailable")
+          .font(.callout)
+          .foregroundStyle(.red)
+          .lineLimit(1)
+      }
     }
+    .accessibilityIdentifier("batch-rename-preview-row")
+    .accessibilityElement(children: .combine)
+  }
 }
 
 // MARK: - BatchRenameResultRow
 
 private struct BatchRenameResultRow: View {
-    let result: BatchRenameApplyResult
+  let result: BatchRenameApplyResult
 
-    var body: some View {
-        HStack(spacing: 8) {
-            statusIcon
-            Text(result.oldFilename)
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Image(systemName: "arrow.right")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-            Text(subtitle)
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(subtitleColor)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .accessibilityIdentifier("batch-rename-result-row")
-        .accessibilityElement(children: .combine)
+  var body: some View {
+    HStack(spacing: 8) {
+      statusIcon
+      Text(result.oldFilename)
+        .font(.system(.body, design: .monospaced))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .truncationMode(.middle)
+      MuiIcon(name: "arrow_forward", size: .xs)
+        .font(.caption)
+        .foregroundStyle(.tertiary)
+      Text(subtitle)
+        .font(.system(.body, design: .monospaced))
+        .foregroundStyle(subtitleColor)
+        .lineLimit(1)
+        .truncationMode(.middle)
     }
+    .accessibilityIdentifier("batch-rename-result-row")
+    .accessibilityElement(children: .combine)
+  }
 
-    private var statusIcon: some View {
-        switch result.outcome {
-        case .renamed:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .skipped:
-            Image(systemName: "arrow.uturn.forward.circle.fill").foregroundStyle(.orange)
-        case .failed:
-            Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-        }
+  private var statusIcon: some View {
+    switch result.outcome {
+    case .renamed:
+      MuiIcon(name: "check_circle", size: .sm, filled: true).foregroundStyle(.green)
+    case .skipped:
+      MuiIcon(name: "redo", size: .sm, filled: true).foregroundStyle(.orange)
+    case .failed:
+      MuiIcon(name: "cancel", size: .sm, filled: true).foregroundStyle(.red)
     }
+  }
 
-    private var subtitle: String {
-        switch result.outcome {
-        case .renamed(let newFilename): return newFilename
-        case .skipped(let reason): return "Skipped — \(reason)"
-        case .failed(let message): return "Failed — \(message)"
-        }
+  private var subtitle: String {
+    switch result.outcome {
+    case .renamed(let newFilename): return newFilename
+    case .skipped(let reason): return "Skipped — \(reason)"
+    case .failed(let message): return "Failed — \(message)"
     }
+  }
 
-    private var subtitleColor: Color {
-        switch result.outcome {
-        case .renamed: return .primary
-        case .skipped: return .orange
-        case .failed: return .red
-        }
+  private var subtitleColor: Color {
+    switch result.outcome {
+    case .renamed: return .primary
+    case .skipped: return .orange
+    case .failed: return .red
     }
+  }
 }
 
 // MARK: - Preview
 
 #Preview {
-    BatchRenamePreviewList(
-        vm: BatchRenameViewModel(
-            assets: [AssetRef(url: URL(fileURLWithPath: "/tmp/test.dng"))],
-            routing: .filesystem
-        )
+  BatchRenamePreviewList(
+    vm: BatchRenameViewModel(
+      assets: [AssetRef(url: URL(fileURLWithPath: "/tmp/test.dng"))],
+      routing: .filesystem
     )
+  )
 }

@@ -129,7 +129,7 @@ struct PhotoThumbnailCell: View {
     }
     .overlay(alignment: .bottomTrailing) {
       if isPendingUpload {
-        Image(systemName: "arrow.up.circle.fill")
+        MuiIcon(name: "arrow_circle_up", size: .sm, filled: true)
           .foregroundStyle(.white)
           .shadow(radius: 1)
           .padding(4)
@@ -151,16 +151,18 @@ struct PhotoThumbnailCell: View {
     .overlay(alignment: .topTrailing) {
       // Multi-select badge — only present when multiSelectChecked is non-nil.
       if let checked = multiSelectChecked {
-        Image(systemName: checked ? "checkmark.circle.fill" : "circle")
-          .font(.system(size: 20, weight: .semibold))
-          .foregroundStyle(checked ? .white : Color.white.opacity(0.90))
-          .background(
-            Circle()
-              .fill(checked ? Color.accentColor : Color.black.opacity(0.45))
-              .padding(-2)
-          )
-          .padding(6)
-          .accessibilityHidden(true)
+        MuiIcon(
+          name: checked ? "check_circle" : "radio_button_unchecked", size: .md, filled: checked
+        )
+        .font(.system(size: 20, weight: .semibold))
+        .foregroundStyle(checked ? .white : Color.white.opacity(0.90))
+        .background(
+          Circle()
+            .fill(checked ? Color.accentColor : Color.black.opacity(0.45))
+            .padding(-2)
+        )
+        .padding(6)
+        .accessibilityHidden(true)
       }
     }
     .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
@@ -277,7 +279,9 @@ private struct GridCellOverlayView: View {
         Color.clear
         HStack(spacing: 1) {
           ForEach(0..<stars, id: \.self) { _ in
-            Image(systemName: "star.fill")
+            MuiIcon(name: "star", size: .xs, filled: true)
+              .scaleEffect(6 / 14)
+              .frame(width: 6, height: 6)
               .font(.system(size: 6))
               .foregroundStyle(MapleTokens.star)
           }
@@ -308,7 +312,7 @@ private struct GridCellOverlayView: View {
           Color.clear
           HStack(spacing: 1) {
             ForEach(0..<stars, id: \.self) { _ in
-              Image(systemName: "star.fill")
+              MuiIcon(name: "star", size: .xs, filled: true)
                 .font(.caption2)
             }
           }
@@ -347,7 +351,7 @@ private struct GridCellOverlayView: View {
         Color.clear
         HStack(spacing: 1) {
           ForEach(0..<stars, id: \.self) { _ in
-            Image(systemName: "star.fill")
+            MuiIcon(name: "star", size: .xs, filled: true)
               .font(.caption2)
           }
         }

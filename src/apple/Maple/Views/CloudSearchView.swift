@@ -10,8 +10,9 @@
 // server-backed). AppShell gates the toolbar entry point to cloud
 // libraries and constructs the SearchViewModel + thumb client/cache.
 
-import SwiftUI
 import MapleCore
+import MapleUI
+import SwiftUI
 
 struct CloudSearchView: View {
   @Bindable var vm: SearchViewModel
@@ -26,20 +27,23 @@ struct CloudSearchView: View {
   @State private var showFilters = false
   @State private var provider: ThumbnailProvider
 
-  init(vm: SearchViewModel,
-       thumbClient: CloudThumbClient,
-       thumbCache: CloudThumbCache,
-       displayMode: GridDisplayMode,
-       onSelectAsset: @escaping (SearchAsset) -> Void,
-       onClose: @escaping () -> Void) {
+  init(
+    vm: SearchViewModel,
+    thumbClient: CloudThumbClient,
+    thumbCache: CloudThumbCache,
+    displayMode: GridDisplayMode,
+    onSelectAsset: @escaping (SearchAsset) -> Void,
+    onClose: @escaping () -> Void
+  ) {
     self.vm = vm
     self.thumbClient = thumbClient
     self.thumbCache = thumbCache
     self.displayMode = displayMode
     self.onSelectAsset = onSelectAsset
     self.onClose = onClose
-    self._provider = State(initialValue: ThumbnailProvider(
-      thumbClient: thumbClient, thumbCache: thumbCache))
+    self._provider = State(
+      initialValue: ThumbnailProvider(
+        thumbClient: thumbClient, thumbCache: thumbCache))
   }
 
   var body: some View {
@@ -77,7 +81,7 @@ struct CloudSearchView: View {
 
   private var searchBar: some View {
     HStack(spacing: 8) {
-      Image(systemName: "magnifyingglass")
+      MuiIcon(name: "search", size: .sm)
         .foregroundStyle(MapleTokens.textMuted)
       TextField("Search photos — people, places, things, dates…", text: $vm.params.placeQuery)
         .textFieldStyle(.plain)
@@ -94,7 +98,7 @@ struct CloudSearchView: View {
       filtersButton
 
       Button(action: onClose) {
-        Image(systemName: "xmark")
+        MuiIcon(name: "close", size: .sm)
           .foregroundStyle(MapleTokens.textMuted)
       }
       .buttonStyle(.plain)
@@ -120,7 +124,7 @@ struct CloudSearchView: View {
         }
       }
     } label: {
-      Image(systemName: "arrow.up.arrow.down")
+      MuiIcon(name: "swap_vert", size: .sm)
         .foregroundStyle(MapleTokens.textMuted)
     }
     .menuIndicator(.hidden)
@@ -133,7 +137,7 @@ struct CloudSearchView: View {
       showFilters.toggle()
     } label: {
       HStack(spacing: 4) {
-        Image(systemName: "line.3.horizontal.decrease.circle")
+        MuiIcon(name: "filter_list", size: .sm)
         if vm.unifiedFilterCount > 0 {
           Text("\(vm.unifiedFilterCount)")
             .font(MapleTokens.Typography.chipLabel)
@@ -146,8 +150,10 @@ struct CloudSearchView: View {
       .foregroundStyle(vm.unifiedFilterCount > 0 ? MapleTokens.primary : MapleTokens.textMuted)
     }
     .buttonStyle(.plain)
-    .accessibilityLabel(vm.unifiedFilterCount > 0
-                        ? "Filters, \(vm.unifiedFilterCount) active" : "Filters")
+    .accessibilityLabel(
+      vm.unifiedFilterCount > 0
+        ? "Filters, \(vm.unifiedFilterCount) active" : "Filters"
+    )
     .accessibilityIdentifier("search-filters")
   }
 
@@ -156,13 +162,15 @@ struct CloudSearchView: View {
   @ViewBuilder
   private var resultsArea: some View {
     if let err = vm.loadError, vm.results.isEmpty {
-      statePane(icon: "exclamationmark.triangle",
-                title: "Search failed",
-                detail: err.localizedDescription)
+      statePane(
+        icon: "exclamationmark.triangle",
+        title: "Search failed",
+        detail: err.localizedDescription)
     } else if vm.results.isEmpty && !vm.isLoading {
-      statePane(icon: "magnifyingglass",
-                title: "No matches",
-                detail: "Try a different query or clear the filters.")
+      statePane(
+        icon: "magnifyingglass",
+        title: "No matches",
+        detail: "Try a different query or clear the filters.")
     } else {
       ScrollView {
         HStack {
@@ -211,7 +219,7 @@ struct CloudSearchView: View {
 
   private func statePane(icon: String, title: String, detail: String) -> some View {
     VStack(spacing: 12) {
-      Image(systemName: icon)
+      MuiIcon(name: icon, size: .xl)
         .font(.system(size: 40))
         .foregroundStyle(MapleTokens.textMuted)
       Text(title)
@@ -238,7 +246,8 @@ struct CloudSearchView: View {
     thumbCache: CloudThumbCache.preview(),
     displayMode: .fill,
     onSelectAsset: { _ in },
-    onClose: {})
+    onClose: {}
+  )
   .frame(width: 820, height: 600)
 }
 
@@ -249,6 +258,7 @@ struct CloudSearchView: View {
     thumbCache: CloudThumbCache.preview(),
     displayMode: .fill,
     onSelectAsset: { _ in },
-    onClose: {})
+    onClose: {}
+  )
   .frame(width: 820, height: 600)
 }
