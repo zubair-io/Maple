@@ -50,6 +50,8 @@ public sealed partial class MainWindow
         ViewModel.PropertyChanged += (_, e) =>
         {
             if (_closing) return;
+            if (e.PropertyName is nameof(ViewModel.SearchFacets) or nameof(ViewModel.CloudConnected))
+                UpdateSearchFacetControls();
             if (e.PropertyName is nameof(ViewModel.ActiveSectionName) or nameof(ViewModel.CurrentFolderPath))
             {
                 UpdateBrowseLocation();
@@ -94,6 +96,7 @@ public sealed partial class MainWindow
     private void UpdateBrowseLocation()
     {
         var section = ViewModel.ActiveSectionName;
+        UpdateSearchFacetControls();
         SearchBox.PlaceholderText = ViewModel.IsServerSearch ? "Search Maple Cloud" : "Filter this folder";
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SearchBox,
             ViewModel.IsServerSearch ? "Search Maple Cloud" : "Filter this folder by name, camera or lens");

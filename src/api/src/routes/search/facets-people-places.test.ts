@@ -110,6 +110,7 @@ async function listFilenames(qs: string): Promise<{ total: number; filenames: st
 describe('GET /api/search/facets — people & places buckets (#2864)', () => {
   it('lists named, visible persons with per-asset counts (dup faces count once)', async () => {
     const body = await facets();
+    expect(body.supportedFilters).toEqual(['people', 'place', 'hidden']);
     // Priya (2 assets) and the operator-named "Person Alice" (1). The
     // clustering placeholder and the hidden person are both absent.
     expect(body.people).toEqual([

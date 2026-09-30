@@ -400,7 +400,7 @@
                                     <ComboBoxItem Content="Name A–Z"/><ComboBoxItem Content="Captured newest"/><ComboBoxItem Content="Captured oldest"/><ComboBoxItem Content="Highest rating"/>
                                 </ComboBox>
                                 <mui:MuiButton Grid.Column="2" Label="Options" Variant="Secondary" AutomationProperties.Name="Browse filters and thumbnail size">
-                                    <mui:MuiButton.Flyout><Flyout><StackPanel Spacing="12" MinWidth="200">
+                                    <mui:MuiButton.Flyout><Flyout><ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto"><StackPanel Spacing="12" MinWidth="200">
                                 <ComboBox x:Name="FormatFilterBox" SelectedIndex="0" Width="120" FontSize="12"
                                           SelectionChanged="OnFormatFilterChanged"
                                           AutomationProperties.Name="Format filter">
@@ -431,10 +431,21 @@
                                     <ComboBoxItem Content="Rejected" Tag="reject" />
                                 </ComboBox>
 
+                                        <ComboBox x:Name="ColorSearchBox" Header="Color label" SelectedIndex="0" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Color label filter">
+                                            <ComboBoxItem Content="All labels" Tag="all"/><ComboBoxItem Content="Red" Tag="red"/><ComboBoxItem Content="Orange" Tag="orange"/><ComboBoxItem Content="Yellow" Tag="yellow"/><ComboBoxItem Content="Green" Tag="green"/><ComboBoxItem Content="Blue" Tag="blue"/><ComboBoxItem Content="Purple" Tag="purple"/>
+                                        </ComboBox>
+                                        <StackPanel x:Name="CloudSearchOptions" Visibility="Collapsed" Spacing="12">
+                                            <ComboBox x:Name="PeopleSearchBox" Header="People" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by person"/>
+                                            <ComboBox x:Name="PlaceSearchBox" Header="Places" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by place"/>
+                                            <ComboBox x:Name="HiddenSearchBox" Header="Hidden photos" SelectedIndex="0" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Hidden photos filter">
+                                                <ComboBoxItem Content="Exclude hidden"/><ComboBoxItem Content="Only hidden"/><ComboBoxItem Content="Include hidden"/>
+                                            </ComboBox>
+                                            <TextBlock Text="{Binding SearchFacetStatus}" TextWrapping="Wrap" MaxWidth="260" AutomationProperties.LiveSetting="Polite"/>
+                                        </StackPanel>
                                         <TextBlock Text="Thumbnail size" />
                                         <ComboBox x:Name="BrowseDensityBox" SelectionChanged="OnBrowseDensityChanged" AutomationProperties.Name="Thumbnail size"><ComboBoxItem Content="Small"/><ComboBoxItem Content="Medium"/><ComboBoxItem Content="Large"/></ComboBox>
                                         <mui:MuiButton Label="Export selection" Variant="Secondary" Click="OnExportPhotos" AutomationProperties.Name="Export selected photos" />
-                                    </StackPanel></Flyout></mui:MuiButton.Flyout>
+                                    </StackPanel></ScrollViewer></Flyout></mui:MuiButton.Flyout>
                                 </mui:MuiButton>
                             </Grid>
                             <TextBlock x:Name="LibraryCountText" Grid.Row="2" Grid.ColumnSpan="2" FontSize="12" Foreground="{StaticResource MapleTextMuted}" AutomationProperties.LiveSetting="Polite" />

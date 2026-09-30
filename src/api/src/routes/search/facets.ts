@@ -55,7 +55,9 @@ export const facetsRoute = new Elysia().get(
       };
     });
 
-    return { ...facets, people, owners };
+    // Native clients gate controls on explicit support rather than assuming
+    // an older server will reject unknown filters instead of ignoring them.
+    return { ...facets, people, owners, supportedFilters: ['people', 'place', 'hidden'] };
   },
   { query: SearchQueryT },
 );

@@ -301,6 +301,8 @@ namespace Maple.WinUI.ViewModels
                     query = query.Where(p => p.Format.Equals(FormatFilter, StringComparison.OrdinalIgnoreCase));
                 if (MinRatingFilter > 0)
                     query = query.Where(p => p.Rating >= MinRatingFilter);
+                if (ColorFilter != "all")
+                    query = query.Where(p => string.Equals(p.ColorLabel, ColorFilter, StringComparison.OrdinalIgnoreCase));
                 if (FlagFilter == "pick")
                     query = query.Where(p => p.FlagStatus == "pick");
                 else if (FlagFilter == "reject")

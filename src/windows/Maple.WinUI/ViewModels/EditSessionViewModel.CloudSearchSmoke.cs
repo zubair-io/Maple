@@ -73,6 +73,18 @@ public partial class EditSessionViewModel
             await session.RetryCloudSearchAsync();
             Require(handler.Queries[^1] == failedQuery && session.Photos.Count == 1 && !session.CanRetryCloudSearch,
                 "retry lost filters or did not recover");
+            await Wait(() => session.SearchFacets?.People?.Length == 1);
+            var facetsPage = handler.Next();
+            session.CloudPeopleFilter = "Ada";
+            session.CloudPlaceFilter = "Paris, France";
+            session.CloudHiddenFilter = Services.Cloud.CloudHiddenFilter.Only;
+            session.ColorFilter = "red";
+            await Wait(() => handler.Queries.Count == 7);
+            Require(handler.Queries[^1].Contains("people=Ada") && handler.Queries[^1].Contains("place=Paris%2C%20France")
+                && handler.Queries[^1].Contains("hidden=only") && handler.Queries[^1].Contains("color=red"),
+                "facet changes did not reach the server together");
+            facetsPage.SetResult(Page("facet-match.dng", false, null, 0, 1));
+            await Wait(() => !session.IsLibraryLoading);
         }
         finally
         {
@@ -93,6 +105,11 @@ public partial class EditSessionViewModel
         }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsolutePath == "/api/search/facets")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"total":1,"people":[{"value":"Ada","count":1}],"places":[{"value":"Paris, France","count":1}],"supportedFilters":["people","place","hidden"]}"""),
+                });
             if (request.RequestUri!.AbsolutePath != "/api/search") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             Queries.Add(request.RequestUri.Query);
             // Deliberately ignore cancellation to verify the generation guard.

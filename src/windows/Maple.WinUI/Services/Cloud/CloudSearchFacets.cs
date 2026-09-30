@@ -7,15 +7,15 @@ using System.Threading.Tasks;
 
 namespace Maple.WinUI.Services.Cloud;
 
-// #3881: facet transport foundation; filter UI integration remains tracked
-// in that delivery. Null means the server
-// omitted that capability; an empty array means supported with no matches.
+// Null means the server omitted that capability; an empty array means
+// supported with no matches. Additional flags cover non-bucket filters.
 public sealed class CloudSearchFacets
 {
     [JsonPropertyName("total")] public long Total { get; set; }
     [JsonPropertyName("people")] public CloudSearchBucket[]? People { get; set; }
     [JsonPropertyName("places")] public CloudSearchBucket[]? Places { get; set; }
     [JsonPropertyName("extensions")] public CloudSearchBucket[]? Extensions { get; set; }
+    [JsonPropertyName("supportedFilters")] public string[]? SupportedFilters { get; set; }
 }
 
 public sealed class CloudSearchBucket

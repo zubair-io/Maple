@@ -9,8 +9,7 @@ public enum CloudSearchScope { Photos, Places, People }
 public enum CloudHiddenFilter { None, Only, All }
 
 /// <summary>Shared search/facet/map filter contract from the server's
-/// routes/search/query-schema.ts. #3881: transport foundation; the existing
-/// timeline caller is migrated separately with cancellation and UI states.</summary>
+/// routes/search/query-schema.ts, used by timeline search and its facets.</summary>
 public sealed record CloudSearchQuery
 {
     public string? Filename { get; init; }

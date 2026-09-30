@@ -76,6 +76,7 @@ namespace Maple.WinUI.ViewModels
                     : page.Results.Length > 0 && (long)_timelinePage * page.Limit < page.Total;
                 ApplyFilters();
                 FinishBrowse(owner, AllPhotos.Count == 0 ? "No photos match these filters." : string.Empty);
+                _ = RefreshSearchFacetsAsync(owner, _timelineQuery!);
                 _ = Task.Run(() => HydrateCloudThumbnailsAsync(items, owner.Token), owner.Token);
             }
             catch (OperationCanceledException) when (owner.IsCancellationRequested) { }
@@ -109,6 +110,10 @@ namespace Maple.WinUI.ViewModels
             Text = SearchText.Trim(),
             MinimumRating = MinRatingFilter > 0 ? MinRatingFilter : null,
             Flag = FlagFilter == "all" ? null : FlagFilter,
+            Color = ColorFilter == "all" ? null : ColorFilter,
+            People = CloudPeopleFilter,
+            Places = CloudPlaceFilter,
+            Hidden = CloudHiddenFilter,
             Extension = FormatFilter == "All" ? null : FormatFilter.ToLowerInvariant(),
             From = DateFilterStart is { } start ? new DateTimeOffset(DateTime.SpecifyKind(start, DateTimeKind.Utc)) : null,
             Through = DateFilterEndExclusive is { } end ? new DateTimeOffset(DateTime.SpecifyKind(end.AddMilliseconds(-1), DateTimeKind.Utc)) : null,
