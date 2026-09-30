@@ -1,3 +1,4 @@
+import MapleUI
 import SwiftUI
 
 /// One reserved line. New events cannot reset the five-second dwell time.
@@ -13,12 +14,16 @@ struct BackupActivityLine: View {
 
     ZStack(alignment: .leading) {
       if let current {
-        Label(current.text, systemImage: current.symbol)
-          .id(current.id)
-          .transition(.opacity)
-          .lineLimit(1)
-          .truncationMode(.tail)
-          .help(current.text)
+        Label {
+          Text(current.text)
+        } icon: {
+          MuiIcon(name: current.symbol, size: .sm)
+        }
+        .id(current.id)
+        .transition(.opacity)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .help(current.text)
       } else {
         Text(" ").accessibilityHidden(true)
       }

@@ -225,7 +225,9 @@ and works offline. Inherit the surrounding tint or supply `color`; keep accessib
 labels on the enclosing control. Do not add feature-local icon downloads or assets.
 See the [icon contract](design/maple-ui/components/icon.md) and
 [upstream attribution/update instructions](licenses/google-material-symbols.md).
-The existing SF caller migration is tracked by #3686 / #3899.
+Legacy model identifiers resolve to Material outlines through the shared compatibility
+table. Use `filled: true` for selected states. The explicit native-system exceptions
+are inventoried under #3686 / #3899 and checked by the Apple CI gate.
 
 ### Module boundary
 

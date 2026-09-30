@@ -23,24 +23,29 @@ enum MuiMaterialSymbols {
     }
   }()
 
-  private static let font: CTFont = {
-    let url = resource("Rounded", extension: "ttf")
+  private static let font = loadFont("Rounded")
+  private static let filledFont = loadFont("RoundedFilled")
+
+  private static func loadFont(_ name: String) -> CTFont {
+    let url = resource(name, extension: "ttf")
     guard let provider = CGDataProvider(url: url as CFURL), let font = CGFont(provider) else {
-      preconditionFailure("Invalid bundled Material Symbols font")
+      preconditionFailure("Invalid bundled Material Symbols font: \(name)")
     }
     return CTFontCreateWithGraphicsFont(font, 24, nil, nil)
-  }()
+  }
 
   /// Filled outline in a 24×24 design space, ready for inherited tint.
-  static func path(for name: String) -> Path? {
+  static func path(for name: String, filled: Bool = false) -> Path? {
     guard let glyph = glyphs[name] else { return nil }
-    if let cached = outlines.object(forKey: name as NSString) { return cached.path }
+    let key = (filled ? "filled:\(name)" : name) as NSString
+    if let cached = outlines.object(forKey: key) { return cached.path }
     var transform = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: 24)
-    guard let outline = CTFontCreatePathForGlyph(font, glyph, &transform) else {
+    guard let outline = CTFontCreatePathForGlyph(filled ? filledFont : font, glyph, &transform)
+    else {
       preconditionFailure("Missing bundled Material Symbols outline: \(name)")
     }
     let path = Path(outline)
-    outlines.setObject(Outline(path), forKey: name as NSString)
+    outlines.setObject(Outline(path), forKey: key)
     return path
   }
 

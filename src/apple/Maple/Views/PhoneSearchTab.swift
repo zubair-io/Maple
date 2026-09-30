@@ -26,6 +26,7 @@
 
 #if os(iOS)
 
+  import MapleUI
   import SwiftUI
   import MapleCore
   import UIKit
@@ -248,7 +249,7 @@
   private struct PhoneSearchEmptyState: View {
     var body: some View {
       VStack(spacing: 12) {
-        Image(systemName: "magnifyingglass")
+        MuiIcon(name: "search", size: .xl)
           .font(.system(size: 40))
           .foregroundStyle(MapleTokens.textMuted)
         Text("Search your cloud account")

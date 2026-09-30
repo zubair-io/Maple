@@ -12,8 +12,9 @@
 // Replaces the two hand-rolled cells this consolidates: `BrowseGrid`'s 3:2
 // `FolderCell` and `LibraryGrid`'s square `LibraryFolderCell`.
 
-import SwiftUI
 import MapleCore
+import MapleUI
+import SwiftUI
 
 /// A single sub-folder tile. Single tap navigates into the folder; the
 /// button style gives press feedback (scale + tinted ground) before the
@@ -25,81 +26,84 @@ import MapleCore
 /// `onDropAssets` are non-nil — the Browse grid passes both; the iPhone
 /// Library (no drag source on phone) and previews pass neither.
 struct FolderTile: View {
-    static let width: CGFloat = 180
-    static let height: CGFloat = 64
-    static let cornerRadius: CGFloat = 4
-    /// Gap between neighbouring tiles — the Windows template's 2px margin
-    /// on each side.
-    static let spacing: CGFloat = 4
+  static let width: CGFloat = 180
+  static let height: CGFloat = 64
+  static let cornerRadius: CGFloat = 4
+  /// Gap between neighbouring tiles — the Windows template's 2px margin
+  /// on each side.
+  static let spacing: CGFloat = 4
 
-    let url: URL
-    var rootBookmark: Data? = nil
-    var onDropAssets: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
-    let onNavigate: () -> Void
+  let url: URL
+  var rootBookmark: Data? = nil
+  var onDropAssets: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
+  let onNavigate: () -> Void
 
-    @State private var isDropTargeted = false
+  @State private var isDropTargeted = false
 
-    var body: some View {
-        Button(action: onNavigate) {
-            HStack(spacing: 10) {
-                Image(systemName: "folder")
-                    .font(.system(size: 20))
-                    .foregroundStyle(MapleTokens.primary)
-                Text(url.lastPathComponent)
-                    .font(MapleTokens.Typography.body)
-                    .foregroundStyle(MapleTokens.textMain)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 14)
-            .frame(width: Self.width, height: Self.height)
-            // The `surface` ground is painted by `FolderTileButtonStyle`
-            // (with the press tint layered on top of it), not here — an
-            // opaque background on the label would hide the tint.
-            .overlay {
-                if isDropTargeted {
-                    RoundedRectangle(cornerRadius: Self.cornerRadius)
-                        .fill(MapleTokens.primary.opacity(0.15))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Self.cornerRadius)
-                                .strokeBorder(MapleTokens.primary, lineWidth: 2)
-                        )
-                }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
+  var body: some View {
+    Button(action: onNavigate) {
+      HStack(spacing: 10) {
+        MuiIcon(name: "folder", size: .md)
+          .font(.system(size: 20))
+          .foregroundStyle(MapleTokens.primary)
+        Text(url.lastPathComponent)
+          .font(MapleTokens.Typography.body)
+          .foregroundStyle(MapleTokens.textMain)
+          .lineLimit(1)
+          .truncationMode(.tail)
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 14)
+      .frame(width: Self.width, height: Self.height)
+      // The `surface` ground is painted by `FolderTileButtonStyle`
+      // (with the press tint layered on top of it), not here — an
+      // opaque background on the label would hide the tint.
+      .overlay {
+        if isDropTargeted {
+          RoundedRectangle(cornerRadius: Self.cornerRadius)
+            .fill(MapleTokens.primary.opacity(0.15))
+            .overlay(
+              RoundedRectangle(cornerRadius: Self.cornerRadius)
+                .strokeBorder(MapleTokens.primary, lineWidth: 2)
+            )
         }
-        .buttonStyle(FolderTileButtonStyle())
-        .accessibilityLabel("Folder \(url.lastPathComponent)")
-        .modifier(FolderDropTarget(
-            url: url,
-            rootBookmark: rootBookmark,
-            onDropAssets: onDropAssets,
-            isTargeted: $isDropTargeted
-        ))
+      }
+      .contentShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
     }
+    .buttonStyle(FolderTileButtonStyle())
+    .accessibilityLabel("Folder \(url.lastPathComponent)")
+    .modifier(
+      FolderDropTarget(
+        url: url,
+        rootBookmark: rootBookmark,
+        onDropAssets: onDropAssets,
+        isTargeted: $isDropTargeted
+      ))
+  }
 }
 
 /// Attaches the asset drop target only when the caller supplied both halves
 /// of the drop contract; otherwise the tile is left untouched, so it can
 /// never light up as a drop target it would then refuse.
 private struct FolderDropTarget: ViewModifier {
-    let url: URL
-    let rootBookmark: Data?
-    let onDropAssets: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)?
-    @Binding var isTargeted: Bool
+  let url: URL
+  let rootBookmark: Data?
+  let onDropAssets: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)?
+  @Binding var isTargeted: Bool
 
-    func body(content: Content) -> some View {
-        if let rootBookmark, let onDropAssets {
-            content.dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
-                guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
-                onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
-                return true
-            }, isTargeted: { targeted in isTargeted = targeted })
-        } else {
-            content
-        }
+  func body(content: Content) -> some View {
+    if let rootBookmark, let onDropAssets {
+      content.dropDestination(
+        for: DraggedAssetPayload.self,
+        action: { payloads, _ in
+          guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
+          onDropAssets(url, rootBookmark, Set(payload.ids), MapleDragModifier.isCopyRequested())
+          return true
+        }, isTargeted: { targeted in isTargeted = targeted })
+    } else {
+      content
     }
+  }
 }
 
 /// The folder block above a photo grid: `tiles` wrap left-to-right with a
@@ -111,55 +115,59 @@ private struct FolderDropTarget: ViewModifier {
 /// than passing an empty `ForEach`) when there are no subfolders or while
 /// multi-selecting.
 struct FolderTileSection<Tiles: View>: View {
-    /// Gap between the folder block and the first photo row.
-    static var sectionGap: CGFloat { 12 }
+  /// Gap between the folder block and the first photo row.
+  static var sectionGap: CGFloat { 12 }
 
-    @ViewBuilder let tiles: () -> Tiles
+  @ViewBuilder let tiles: () -> Tiles
 
-    var body: some View {
-        LazyVGrid(
-            columns: [GridItem(
-                .adaptive(minimum: FolderTile.width, maximum: FolderTile.width),
-                spacing: FolderTile.spacing,
-                alignment: .leading
-            )],
-            alignment: .leading,
-            spacing: FolderTile.spacing
-        ) {
-            tiles()
-        }
-        .padding(.bottom, Self.sectionGap)
+  var body: some View {
+    LazyVGrid(
+      columns: [
+        GridItem(
+          .adaptive(minimum: FolderTile.width, maximum: FolderTile.width),
+          spacing: FolderTile.spacing,
+          alignment: .leading
+        )
+      ],
+      alignment: .leading,
+      spacing: FolderTile.spacing
+    ) {
+      tiles()
     }
+    .padding(.bottom, Self.sectionGap)
+  }
 }
 
 /// Press feedback for `FolderTile`. Paints the tile's `surface` ground and
 /// layers the `bgActive` tint over it while the pointer/finger is down,
 /// scaling down slightly and easing back on release.
 private struct FolderTileButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-            .background(
-                RoundedRectangle(cornerRadius: FolderTile.cornerRadius)
-                    .fill(MapleTokens.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: FolderTile.cornerRadius)
-                            .fill(configuration.isPressed ? MapleTokens.bgActive : .clear)
-                    )
-            )
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+      .background(
+        RoundedRectangle(cornerRadius: FolderTile.cornerRadius)
+          .fill(MapleTokens.surface)
+          .overlay(
+            RoundedRectangle(cornerRadius: FolderTile.cornerRadius)
+              .fill(configuration.isPressed ? MapleTokens.bgActive : .clear)
+          )
+      )
+      .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+  }
 }
 
 #Preview("Folder tiles") {
-    ScrollView {
-        FolderTileSection {
-            ForEach(["001_0360", "001_0361", "A much longer folder name that truncates", "001_0393"], id: \.self) { name in
-                FolderTile(url: URL(fileURLWithPath: "/tmp/\(name)"), onNavigate: {})
-            }
-        }
-        .padding(8)
+  ScrollView {
+    FolderTileSection {
+      ForEach(
+        ["001_0360", "001_0361", "A much longer folder name that truncates", "001_0393"], id: \.self
+      ) { name in
+        FolderTile(url: URL(fileURLWithPath: "/tmp/\(name)"), onNavigate: {})
+      }
     }
-    .background(MapleTokens.bg)
-    .frame(width: 600, height: 200)
+    .padding(8)
+  }
+  .background(MapleTokens.bg)
+  .frame(width: 600, height: 200)
 }

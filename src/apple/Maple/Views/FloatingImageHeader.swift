@@ -1,4 +1,5 @@
 import MapleCore
+import MapleUI
 import SwiftUI
 
 /// Shared leading content and glass treatment for Preview and Editor headers.
@@ -26,7 +27,7 @@ struct FloatingImageHeader<Trailing: View>: View {
       // Back chevron + filename are pinned outside the scroll region so
       // they stay visible however wide the trailing controls grow.
       Button(action: onBack) {
-        Image(systemName: "chevron.left")
+        MuiIcon(name: "chevron_left", size: .sm)
           .font(.system(size: 15, weight: .semibold))
           .foregroundStyle(ProTokens.text)
           .frame(width: 30, height: 30)

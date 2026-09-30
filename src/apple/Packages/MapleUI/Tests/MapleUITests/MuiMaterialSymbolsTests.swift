@@ -27,6 +27,24 @@ final class MuiMaterialSymbolsTests: XCTestCase {
     }
   }
 
+  func testLegacyModelInputsResolveToMaterialOutlines() throws {
+    for name in MuiIconLegacyNames.aliases.keys {
+      let material = MuiIconLegacyNames.materialName(for: name)
+      XCTAssertNotNil(MuiMaterialSymbols.path(for: material), name)
+    }
+    XCTAssertEqual(MuiIconLegacyNames.materialName(for: "photo_camera"), "photo_camera")
+  }
+
+  func testFilledSelectionUsesItsOwnOutlineAndCacheEntry() throws {
+    let outline = try XCTUnwrap(MuiMaterialSymbols.path(for: "star"))
+    let filled = try XCTUnwrap(MuiMaterialSymbols.path(for: "star", filled: true))
+    XCTAssertNotEqual(outline, filled)
+    XCTAssertEqual(outline.boundingRect, filled.boundingRect)
+    XCTAssertEqual(outline, MuiMaterialSymbols.path(for: "star"))
+    XCTAssertTrue(MuiIconLegacyNames.isFilled("star.fill"))
+    XCTAssertFalse(MuiIconLegacyNames.isFilled("star"))
+  }
+
   func testRepeatedLookupKeepsIdenticalGeometry() throws {
     let first = try XCTUnwrap(MuiMaterialSymbols.path(for: "public"))
     let second = try XCTUnwrap(MuiMaterialSymbols.path(for: "public"))

@@ -14,6 +14,7 @@
 // different questions.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -182,7 +183,7 @@ struct LibrarySourcesSettingsView: View {
       }
       Spacer()
       Button(role: .destructive, action: onRemove) {
-        Image(systemName: "minus.circle")
+        MuiIcon(name: "do_not_disturb_on", size: .sm)
       }
       .buttonStyle(.borderless)
       .accessibilityLabel("Remove \(title)")

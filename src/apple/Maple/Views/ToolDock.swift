@@ -3,6 +3,7 @@
 // The entry order, selection, actions and accessibility identifiers agree.
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct ToolDock: View {
@@ -125,7 +126,7 @@ private struct GroupDockButton: View {
             )
             .frame(width: 36, height: 36)
 
-          Image(systemName: group.dockSymbol)
+          MuiIcon(name: group.dockSymbol, size: .xs)
             .font(.system(size: 14, weight: .regular))
             .foregroundStyle(isSelected ? ProTokens.accent : ProTokens.text)
 

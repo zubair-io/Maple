@@ -48,6 +48,7 @@
 // the same stacked inspector above a horizontal tool dock (#3252).
 
 import MapleCore
+import MapleUI
 import SwiftUI
 
 // MARK: - FilmSection
@@ -251,7 +252,7 @@ private struct FilmLookRow: View {
           .lineLimit(1)
         Spacer(minLength: 4)
         if isSelected {
-          Image(systemName: "checkmark")
+          MuiIcon(name: "check", size: .xs)
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(ProTokens.accent)
         }

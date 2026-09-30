@@ -147,6 +147,8 @@ jobs:
       - name: Execute MapleUI tests
         working-directory: src/apple/Packages/MapleUI
         run: swift test
+      - name: Check native icon exceptions
+        run: python3 tools/check-apple-icons.py
 
   swift-regressions-coverage:
     name: swift-regressions-coverage (every test class is run or excluded on purpose)

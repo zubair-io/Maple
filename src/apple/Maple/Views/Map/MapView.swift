@@ -28,9 +28,10 @@
 // the invalidation to `MapHeatmapCameraLayer`, the only subtree that reads
 // it, because this body never reads `cameraTracker.region`/`.zoomLevel`.
 
-import SwiftUI
 import MapKit
 import MapleCore
+import MapleUI
+import SwiftUI
 
 struct MapView: View {
   @Bindable var vm: MapViewModel
@@ -72,7 +73,10 @@ struct MapView: View {
       ZStack {
         Map(initialPosition: Self.initialCameraPosition) {
           ForEach(items) { item in
-            Annotation(item.id, coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)) {
+            Annotation(
+              item.id,
+              coordinate: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude)
+            ) {
               annotationContent(for: item)
             }
           }
@@ -96,23 +100,27 @@ struct MapView: View {
         MapHeatmapCameraLayer(points: vm.heatmapPoints, tracker: cameraTracker, proxy: proxy)
 
         if vm.isEmpty {
-          statePane(icon: "mappin.slash",
-                    title: MapViewVM.emptyStateTitle,
-                    detail: MapViewVM.emptyStateDetail)
+          statePane(
+            icon: "mappin.slash",
+            title: MapViewVM.emptyStateTitle,
+            detail: MapViewVM.emptyStateDetail)
         } else if let error = vm.loadError, vm.cells.isEmpty {
           // Only shown when there's nothing else to render — a failure with
           // prior cells still on screen keeps showing those (MapViewModel
           // never clears `cells` on error) rather than covering the map.
-          statePane(icon: "exclamationmark.triangle",
-                    title: MapViewVM.errorStateTitle,
-                    detail: MapViewVM.errorStateDetail(error))
+          statePane(
+            icon: "exclamationmark.triangle",
+            title: MapViewVM.errorStateTitle,
+            detail: MapViewVM.errorStateDetail(error))
         }
 
         if vm.isLoading {
           ProgressView()
             .controlSize(.small)
             .padding(8)
-            .background(MapleTokens.surface, in: RoundedRectangle(cornerRadius: MapleTokens.Radius.md))
+            .background(
+              MapleTokens.surface, in: RoundedRectangle(cornerRadius: MapleTokens.Radius.md)
+            )
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             .allowsHitTesting(false)
@@ -133,9 +141,10 @@ struct MapView: View {
     } label: {
       switch item.kind {
       case .thumbnail(let assetID, let thumbKey):
-        MapThumbnailPinView(assetID: assetID, thumbKey: thumbKey, host: host,
-                            thumbClient: thumbClient, thumbCache: thumbCache,
-                            isSelected: isSelected)
+        MapThumbnailPinView(
+          assetID: assetID, thumbKey: thumbKey, host: host,
+          thumbClient: thumbClient, thumbCache: thumbCache,
+          isSelected: isSelected)
       case .cluster(let count):
         MapClusterBubbleView(count: count, isSelected: isSelected)
       }
@@ -157,7 +166,7 @@ struct MapView: View {
 
   private func statePane(icon: String, title: String, detail: String) -> some View {
     VStack(spacing: 12) {
-      Image(systemName: icon)
+      MuiIcon(name: icon, size: .xl)
         .font(.system(size: 36))
         .foregroundStyle(MapleTokens.textMuted)
       Text(title)
@@ -181,10 +190,12 @@ struct MapView: View {
 #Preview("Loaded") {
   MapView(
     vm: MapViewModel.preview(cells: [
-      MapCluster(lat: 48.8566, lng: 2.3522, count: 1, representativeAssetId: "a1",
-                placeLabel: "Paris", thumbKey: "/photos/eiffel.dng"),
-      MapCluster(lat: 35.6762, lng: 139.6503, count: 42, representativeAssetId: "a2",
-                placeLabel: "Tokyo"),
+      MapCluster(
+        lat: 48.8566, lng: 2.3522, count: 1, representativeAssetId: "a1",
+        placeLabel: "Paris", thumbKey: "/photos/eiffel.dng"),
+      MapCluster(
+        lat: 35.6762, lng: 139.6503, count: 42, representativeAssetId: "a2",
+        placeLabel: "Tokyo"),
     ]),
     thumbClient: CloudThumbClient.preview(),
     thumbCache: CloudThumbCache.preview(),

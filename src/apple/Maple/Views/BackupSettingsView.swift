@@ -134,9 +134,13 @@ struct BackupSettingsView: View {
         .buttonStyle(.borderedProminent)
         .accessibilityIdentifier("backup.startButton")
         if let photosAccessError {
-          Label(photosAccessError, systemImage: "exclamationmark.triangle.fill")
-            .font(.callout)
-            .foregroundStyle(MapleTokens.warn)
+          Label {
+            Text(photosAccessError)
+          } icon: {
+            MuiIcon(name: "warning", size: .sm, filled: true)
+          }
+          .font(.callout)
+          .foregroundStyle(MapleTokens.warn)
         }
       }
     }

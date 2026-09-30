@@ -18,6 +18,7 @@
 // Callbacks fire when a row is activated; the shell does the actual work.
 
 import MapleCore
+import MapleUI
 import Photos
 import SwiftUI
 
@@ -397,7 +398,7 @@ struct LibrarySidebar: View {
             selection = .photosFilter(.all)
             onPickPhotosFilter(.all)
           } label: {
-            Image(systemName: "exclamationmark.triangle.fill")
+            MuiIcon(name: "warning", size: .xs, filled: true)
               .font(.system(size: 12, weight: .semibold))
               .foregroundStyle(MapleTokens.warn)
               .frame(width: 28, height: 28)
@@ -498,7 +499,7 @@ struct LibrarySidebar: View {
     let isActive = selection == .allSources
     return Button(action: onSelectTimeline) {
       HStack(spacing: 6) {
-        Image(systemName: "calendar")
+        MuiIcon(name: "calendar", size: .xs)
           .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
         Text("Timeline".uppercased())
@@ -526,7 +527,7 @@ struct LibrarySidebar: View {
     let isActive = selection == .map
     return Button(action: onSelectMap) {
       HStack(spacing: 6) {
-        Image(systemName: "map")
+        MuiIcon(name: "map", size: .xs)
           .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(isActive ? MapleTokens.primary : MapleTokens.textMuted)
         Text("Map".uppercased())
@@ -603,7 +604,7 @@ struct LibrarySidebar: View {
           onAddCloudServer()
         } label: {
           HStack {
-            Image(systemName: "plus.circle")
+            MuiIcon(name: "add_circle", size: .sm)
             Text("Add Maple Cloud server")
               .font(.callout)
           }
@@ -763,7 +764,7 @@ private struct SectionHeaderRow<Trailing: View>: View {
   var body: some View {
     Button(action: { withAnimation(.easeInOut(duration: 0.15)) { isOpen.toggle() } }) {
       HStack(spacing: 6) {
-        Image(systemName: "chevron.down")
+        MuiIcon(name: "expand_more", size: .xs)
           .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(MapleTokens.textMuted)
           .rotationEffect(.degrees(isOpen ? 0 : -90))
@@ -788,7 +789,7 @@ private struct AddButton: View {
   let action: () -> Void
   var body: some View {
     Button(action: action) {
-      Image(systemName: "plus")
+      MuiIcon(name: "add", size: .xs)
         .font(.system(size: 14, weight: .semibold))
         .foregroundStyle(MapleTokens.textMuted)
         .frame(width: 28, height: 28)
@@ -810,7 +811,7 @@ private struct NavItem: View {
   var body: some View {
     Button(action: action) {
       HStack(spacing: MapleTokens.Spacing.iconLabelGap) {
-        Image(systemName: icon)
+        MuiIcon(name: icon, size: .sm)
           .font(.system(size: 16))
           .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
           .frame(width: 22)
@@ -952,7 +953,7 @@ private struct SavedFolderRow: View {
       if isRoot { onTap() } else { onTapAncestor(url) }
     } label: {
       HStack(spacing: 6) {
-        Image(systemName: "folder")
+        MuiIcon(name: "folder", size: .xs)
           .font(.system(size: 10))
           .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
         Text(label)
@@ -997,7 +998,9 @@ private struct DisclosureRow<Content: View>: View {
       HStack(spacing: 4) {
         if hasChildren {
           Button(action: { withAnimation(.easeInOut(duration: 0.12)) { expanded.toggle() } }) {
-            Image(systemName: "chevron.right")
+            MuiIcon(name: "chevron_right", size: .xs)
+              .scaleEffect(8 / 14)
+              .frame(width: 8, height: 8)
               .font(.system(size: 8, weight: .semibold))
               .foregroundStyle(MapleTokens.textMuted)
               .opacity(0.5)
@@ -1011,7 +1014,7 @@ private struct DisclosureRow<Content: View>: View {
 
         Button(action: { onAdd?() }) {
           HStack(spacing: 6) {
-            Image(systemName: icon)
+            MuiIcon(name: icon, size: .xs)
               .font(.system(size: 10))
               .foregroundStyle(MapleTokens.textMuted)
             Text(label)
@@ -1019,7 +1022,7 @@ private struct DisclosureRow<Content: View>: View {
               .foregroundStyle(MapleTokens.textMain)
             Spacer()
             if onAdd != nil {
-              Image(systemName: "plus")
+              MuiIcon(name: "add", size: .xs)
                 .font(.system(size: 10))
                 .foregroundStyle(MapleTokens.textMuted)
             }

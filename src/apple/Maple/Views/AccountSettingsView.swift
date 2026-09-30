@@ -1,6 +1,7 @@
-// AccountSettingsView.swift
-import SwiftUI
 import MapleCore
+// AccountSettingsView.swift
+import MapleUI
+import SwiftUI
 
 struct AccountSettingsView: View {
   @Environment(AuthSession.self) private var session
@@ -21,11 +22,17 @@ struct AccountSettingsView: View {
             HStack {
               VStack(alignment: .leading) {
                 Text(c.device_label)
-                if let last = c.last_used_at { Text("Last used \(last)").font(.caption2).foregroundStyle(.secondary) }
+                if let last = c.last_used_at {
+                  Text("Last used \(last)").font(.caption2).foregroundStyle(.secondary)
+                }
               }
               Spacer()
               if creds.count > 1 {
-                Button(role: .destructive) { Task { await remove(c.id) } } label: { Image(systemName: "trash") }
+                Button(role: .destructive) {
+                  Task { await remove(c.id) }
+                } label: {
+                  MuiIcon(name: "delete", size: .sm)
+                }
               }
             }
           }
@@ -33,7 +40,9 @@ struct AccountSettingsView: View {
       }
       Section { Button("Sign out", role: .destructive) { Task { await session.signOut() } } }
     }
-    .task { me = try? await client.me(accessToken: TokenStore.load(server: client.server)?.access ?? "") }
+    .task {
+      me = try? await client.me(accessToken: TokenStore.load(server: client.server)?.access ?? "")
+    }
   }
 
   func remove(_ id: String) async {
@@ -51,16 +60,16 @@ struct AccountSettingsView: View {
 // Passkeys section empty — that's the expected preview behaviour.
 
 #Preview("Signed in (owner)") {
-    AccountSettingsView(client: AuthClient.preview())
-        .environment(AuthSession.preview(state: .signedInOwner))
+  AccountSettingsView(client: AuthClient.preview())
+    .environment(AuthSession.preview(state: .signedInOwner))
 }
 
 #Preview("Signed in (member)") {
-    AccountSettingsView(client: AuthClient.preview())
-        .environment(AuthSession.preview(state: .signedInMember))
+  AccountSettingsView(client: AuthClient.preview())
+    .environment(AuthSession.preview(state: .signedInMember))
 }
 
 #Preview("Signed out") {
-    AccountSettingsView(client: AuthClient.preview())
-        .environment(AuthSession.preview(state: .signedOut))
+  AccountSettingsView(client: AuthClient.preview())
+    .environment(AuthSession.preview(state: .signedOut))
 }
