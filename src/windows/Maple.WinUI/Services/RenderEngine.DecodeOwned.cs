@@ -70,6 +70,7 @@ namespace Maple.WinUI.Services
             m.VignetteAmount = 0; m.VignetteFeather = d.VignetteFeather;
             m.GrainAmount = 0; m.GrainSize = d.GrainSize; m.GrainRoughness = d.GrainRoughness;
             m.FilmLook = ""; m.FilmStrength = d.FilmStrength;
+            m.LocalAdjustments.Clear();
             m.SharpenAmount = 0; m.SharpenRadius = d.SharpenRadius;
             m.SharpenDetail = d.SharpenDetail; m.SharpenMasking = 0;
             m.NrLuminance = 0; m.NrColor = 0;

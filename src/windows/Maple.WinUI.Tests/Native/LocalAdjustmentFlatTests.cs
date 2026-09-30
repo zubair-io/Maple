@@ -28,6 +28,24 @@ namespace Maple.WinUI.Tests.Native
             Assert.Equal(80, LocalAdjustmentFlat.ToFlat(layers).Length);
         }
 
+        [Fact]
+        public void SpatialControlsUseTheSharedTailSlotsAndPresenceBits()
+        {
+            var layers = new List<LocalAdjustment>
+            {
+                new(new LinearMask(new MaskPoint(0, 0), new MaskPoint(1, 0), 0.5),
+                    new PartialAdjustments { Texture = 10, Clarity = 20, Dehaze = 30,
+                        Sharpness = 40, LuminanceNoise = 50, Defringe = 60 }),
+                new(new LinearMask(new MaskPoint(0, 0), new MaskPoint(1, 0), 0.5),
+                    new PartialAdjustments { Exposure = -1 }),
+            };
+            var flat = LocalAdjustmentFlat.ToFlat(layers);
+            Assert.Equal(new[] { 10f, 20f, 30f, 40f, 50f, 60f, 0f, 0f }, flat[32..40]);
+            Assert.Equal((float)(63u << 11), flat[8]);
+            Assert.Equal(1f, flat[48]);
+            Assert.Equal(-1f, flat[52]);
+        }
+
         /// <summary>Pins the exact fixture raw-core's own
         /// `the_shared_swift_fixture_serializes_to_the_documented_slots`
         /// test asserts: a linear layer, start (0.1, 0.2), end (0.9, 0.8),
