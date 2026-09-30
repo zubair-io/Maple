@@ -300,17 +300,17 @@ fn main() {
         }
         (Schema::FilmCatalog, Target::Swift) => film_catalog::emit_swift(FILM_CATALOG),
         (Schema::FilmCatalog, Target::Ts) => film_catalog::emit_ts(FILM_CATALOG),
+        (Schema::FilmCatalog, Target::Cs) => film_catalog::emit_cs(FILM_CATALOG),
         (
             Schema::FilmCatalog,
             Target::TsTables
             | Target::Scss
             | Target::Wgsl
             | Target::Xaml
-            | Target::Cs
             | Target::Md
             | Target::Json,
         ) => {
-            eprintln!("codegen: --schema film-catalog supports only the swift / ts targets");
+            eprintln!("codegen: --schema film-catalog supports only the swift / ts / cs targets");
             std::process::exit(2);
         }
         (Schema::CapabilityRegistry, Target::Swift) => {

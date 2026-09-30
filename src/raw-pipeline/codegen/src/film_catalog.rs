@@ -1,4 +1,4 @@
-//! Film-catalog emitters — Swift + TypeScript output for
+//! Film-catalog emitters — Swift + TypeScript + C# output for
 //! `raw_core::film_catalog::FILM_CATALOG` (epic #2683, Task 6).
 //!
 //! Mirrors `adjustment.rs`'s string-building style. `FILM_CATALOG` is
@@ -118,7 +118,11 @@ pub(crate) fn emit_ts(catalog: &[FilmLookEntry]) -> String {
 
     s.push_str("export type FilmCategory =\n");
     for (i, category) in ALL_CATEGORIES.iter().enumerate() {
-        let sep = if i == ALL_CATEGORIES.len() - 1 { ";" } else { "" };
+        let sep = if i == ALL_CATEGORIES.len() - 1 {
+            ";"
+        } else {
+            ""
+        };
         s.push_str(&format!("  | '{}'{}\n", category_snake(*category), sep));
     }
     s.push('\n');
@@ -164,10 +168,48 @@ fn emit_ts_entry(entry: &FilmLookEntry) -> String {
     }
 }
 
+pub(crate) fn emit_cs(catalog: &[FilmLookEntry]) -> String {
+    let mut s = String::from(BANNER_TS);
+    s.push_str("// Windows Film host integration: #3877.\n\n");
+    s.push_str("namespace Maple.WinUI.Generated;\n\n");
+    s.push_str("public sealed record FilmLookEntry(string Id, string Name, string Category);\n\n");
+    s.push_str("public static class FilmCatalog\n{\n");
+    s.push_str("    public static readonly System.Collections.Generic.IReadOnlyList<FilmLookEntry> All =\n");
+    s.push_str("        System.Array.AsReadOnly(new FilmLookEntry[]\n        {\n");
+    for entry in catalog {
+        s.push_str(&format!(
+            "            new(\"{}\", \"{}\", \"{}\"),\n",
+            entry.id.replace('\\', "\\\\").replace('"', "\\\""),
+            entry.name.replace('\\', "\\\\").replace('"', "\\\""),
+            category_snake(entry.category),
+        ));
+    }
+    s.push_str("        });\n}\n");
+    s
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use raw_core::film_catalog::FILM_CATALOG;
+
+    #[test]
+    fn cs_emits_every_shared_entry_in_order() {
+        let out = emit_cs(FILM_CATALOG);
+        assert_eq!(out.matches("            new(").count(), FILM_CATALOG.len());
+        let mut last = 0;
+        for entry in FILM_CATALOG {
+            let line = format!(
+                "new(\"{}\", \"{}\", \"{}\")",
+                entry.id,
+                entry.name,
+                category_snake(entry.category)
+            );
+            let offset = out.find(&line).expect("missing shared film entry");
+            assert!(offset > last);
+            last = offset;
+        }
+    }
 
     #[test]
     fn swift_emits_hundred_entries() {

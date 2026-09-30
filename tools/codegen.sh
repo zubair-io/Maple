@@ -21,7 +21,7 @@
 #                                            (epic #925 P2 / #990; TS #1944)
 #   - agx-coeffs     (src/scripts/derive_agx_lut.py) → WGSL
 #                                            (epic #925 P2 / #990)
-#   - film-catalog   (raw_core::film_catalog::FILM_CATALOG) → Swift + TS
+#   - film-catalog   (raw_core::film_catalog::FILM_CATALOG) → Swift + TS + C#
 #                                            (epic #2683, Task 6)
 #   - capability-registry (raw_core::capability_registry::CAPABILITY_REGISTRY
 #                                            judged against the evidence
@@ -202,14 +202,16 @@ python3 src/scripts/derive_agx_lut.py --wgsl "$AGX_WGSL_OUT"
 # --- Film catalog (epic #2683, Task 6) -------------------------------------
 # `raw_core::film_catalog::FILM_CATALOG` — the FilmCategory enum/union, the
 # FilmLookEntry shape, and the full 100-entry catalog — single-sourced to
-# both Swift and TS so neither platform hand-maintains the id/name/category
+# Swift, TS and C# so no platform hand-maintains the id/name/category
 # list independently of the ingested cube pack.
 
 FILM_SWIFT_OUT="src/apple/Packages/MapleCore/Sources/MapleCore/Generated/FilmCatalog+Generated.swift"
 FILM_TS_OUT="src/web/projects/maple-common/src/lib/generated/film-catalog.generated.ts"
+FILM_CS_OUT="src/windows/Maple.WinUI/Generated/FilmCatalog.g.cs"
 
 "$BIN" --schema film-catalog --target swift --out "$FILM_SWIFT_OUT"
 "$BIN" --schema film-catalog --target ts --out "$FILM_TS_OUT"
+"$BIN" --schema film-catalog --target cs --out "$FILM_CS_OUT"
 
 # --- Capability registry (#2430) ------------------------------------------
 # The registry table is reviewed Rust; the `core` / `integrated` /
@@ -266,6 +268,7 @@ echo "  - $COLOR_MATRICES_TS_OUT"
 echo "  - $AGX_WGSL_OUT"
 echo "  - $FILM_SWIFT_OUT"
 echo "  - $FILM_TS_OUT"
+echo "  - $FILM_CS_OUT"
 echo "  - $CAP_SWIFT_OUT"
 echo "  - $CAP_TS_OUT"
 echo "  - $CAP_CS_OUT"
