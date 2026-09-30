@@ -379,8 +379,21 @@ export function loadNativeBinding(): NativeBinding {
 
     rasterProbeMetadata(inputPath) {
       try {
-        const bytes = fs.readFileSync(inputPath);
-        return this.rasterProbeMetadataBuf(bytes);
+        // The legacy C path probe has no format output. The seekable
+        // analyze reply keeps content-based RAW detection without a JS read.
+        const reply = this.rasterAnalyzePath(inputPath, '{"v":1,"what":["metadata"]}');
+        if (!reply.ok || !reply.json) return { ok: false, error: reply.error };
+        const m = JSON.parse(reply.json).metadata;
+        return {
+          ok: true,
+          metadata: {
+            width: m.width,
+            height: m.height,
+            channels: m.channels,
+            orientation: m.orientation ?? 1,
+            format: m.format,
+          },
+        };
       } catch (e: any) {
         return { ok: false, error: e?.message || String(e) };
       }

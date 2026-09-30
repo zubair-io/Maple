@@ -6,7 +6,7 @@
  * the `BuilderState`; `builder.ts`'s class methods are thin wrappers that
  * call into these and (for the fluent setters) `return this`.
  *
- * Backed by `maple_raster_analyze_buf` (`native-raster-analyze.ts`) — see
+ * Backed by `maple_raster_analyze_buf` and `_path` (`native-raster-analyze.ts`) — see
  * `raw-pipeline/raw-core/src/raster_analyze.rs` for the JSON reply this
  * mirrors field-for-field, and `raster_recipe_meta.rs::RecipeMetadata` for
  * the recipe `metadata` block the `with*`/`keep*` methods populate.
@@ -18,9 +18,9 @@ import type { ImageMetadata, ImageStats } from './types';
  * non-RAW bitmap file path — the richer metadata block: alpha, embedded
  * colour profile, EXIF/ICC/XMP, density (#3507). A `rawInput` pixel buffer
  * or an actual camera RAW file (by extension, or content-sniffed for a
- * bytes input with no filename to route on) keeps Tier 1's cheap header
- * probe unchanged — analyze()'s container-sidecar reader is written and
- * tested against bitmap containers only.
+ * input with no recognised filename extension) keeps Tier 1's metadata
+ * shape. Both path operations use the seekable reader without decoding
+ * sensor pixels.
  */
 export declare function resolveMetadata(state: BuilderState): Promise<ImageMetadata>;
 /**

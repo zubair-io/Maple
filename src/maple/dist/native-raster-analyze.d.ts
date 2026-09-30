@@ -1,9 +1,14 @@
 /**
- * `bun:ffi` wrapper for `maple_raster_analyze_buf` — the read-only half of
+ * `bun:ffi` wrappers for `maple_raster_analyze_buf` and `_path` — the read-only half of
  * the raster surface (#3507). JSON request in, JSON reply out; see
  * `raw-pipeline/raw-core/src/raster_analyze.rs` for the schema.
  */
 export interface RasterAnalyzeBinding {
+    rasterAnalyzePath(inputPath: string, requestJson: string): {
+        ok: boolean;
+        json?: string;
+        error?: string;
+    };
     rasterAnalyzeBuf(input: Uint8Array, requestJson: string): {
         ok: boolean;
         json?: string;

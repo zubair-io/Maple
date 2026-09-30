@@ -218,6 +218,10 @@ function getFfiSymbols(FFIType) {
       ],
       returns: FFIType.i32
     },
+    maple_raster_analyze_path: {
+      args: [FFIType.cstring, FFIType.cstring, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32
+    },
     maple_last_error: {
       args: [],
       returns: FFIType.cstring
@@ -229,29 +233,38 @@ function getFfiSymbols(FFIType) {
 var NEED_LARGER_BUFFER = 100;
 var MAX_ANALYZE_REPLY_BYTES = 64 * 1024 * 1024;
 function createRasterAnalyzeBinding(lib, ptr, getLastError) {
+  const reply = (invoke) => {
+    const outLen = Buffer.alloc(8);
+    const needed = () => Number(outLen.readBigUInt64LE(0));
+    const first = Buffer.alloc(65536);
+    const rc0 = invoke(first, outLen);
+    if (rc0 === 0) {
+      return { ok: true, json: first.subarray(0, needed()).toString("utf-8") };
+    }
+    if (rc0 !== NEED_LARGER_BUFFER) {
+      return { ok: false, error: getLastError() || `Analyze failed with code ${rc0}` };
+    }
+    if (needed() > MAX_ANALYZE_REPLY_BYTES) {
+      return {
+        ok: false,
+        error: `Analyze reply of ${needed()} bytes exceeds the ${MAX_ANALYZE_REPLY_BYTES}-byte limit`
+      };
+    }
+    const grown = Buffer.alloc(needed());
+    const rc = invoke(grown, outLen);
+    return rc === 0 ? { ok: true, json: grown.subarray(0, needed()).toString("utf-8") } : { ok: false, error: getLastError() || `Analyze failed with code ${rc}` };
+  };
   return {
     rasterAnalyzeBuf(input, requestJson) {
       const requestBuf = Buffer.from(requestJson + "\x00", "utf-8");
-      const outLenBuf = Buffer.alloc(8);
-      const call = (outBuf) => lib.symbols.maple_raster_analyze_buf(ptr(input), BigInt(input.byteLength), ptr(requestBuf), outBuf ? ptr(outBuf) : null, BigInt(outBuf ? outBuf.byteLength : 0), ptr(outLenBuf));
-      const needed = () => Number(outLenBuf.readBigUInt64LE(0));
-      const first = Buffer.alloc(65536);
-      const rc0 = call(first);
-      if (rc0 === 0) {
-        return { ok: true, json: first.subarray(0, needed()).toString("utf-8") };
-      }
-      if (rc0 !== NEED_LARGER_BUFFER) {
-        return { ok: false, error: getLastError() || `Analyze failed with code ${rc0}` };
-      }
-      if (needed() > MAX_ANALYZE_REPLY_BYTES) {
-        return {
-          ok: false,
-          error: `Analyze reply of ${needed()} bytes exceeds the ${MAX_ANALYZE_REPLY_BYTES}-byte limit`
-        };
-      }
-      const grown = Buffer.alloc(needed());
-      const rc = call(grown);
-      return rc === 0 ? { ok: true, json: grown.subarray(0, needed()).toString("utf-8") } : { ok: false, error: getLastError() || `Analyze failed with code ${rc}` };
+      return reply((out, outLen) => lib.symbols.maple_raster_analyze_buf(ptr(input), BigInt(input.byteLength), ptr(requestBuf), ptr(out), BigInt(out.byteLength), ptr(outLen)));
+    },
+    rasterAnalyzePath(inputPath, requestJson) {
+      if (inputPath.includes("\x00"))
+        return { ok: false, error: "input_path contains a NUL byte" };
+      const pathBuf = Buffer.from(inputPath + "\x00", "utf-8");
+      const requestBuf = Buffer.from(requestJson + "\x00", "utf-8");
+      return reply((out, outLen) => lib.symbols.maple_raster_analyze_path(ptr(pathBuf), ptr(requestBuf), ptr(out), BigInt(out.byteLength), ptr(outLen)));
     }
   };
 }
@@ -587,6 +600,7 @@ function tryLoadNapiBinding() {
       rasterExtractTensor: wrap((inputBytes, targetSize, layout, normalize) => addon.rasterExtractTensor(inputBytes, targetSize, layout, normalize)),
       rasterPipelineBuf: wrap((input, recipeJson, aux) => addon.rasterPipelineBuf(input, recipeJson, aux)),
       rasterAnalyzeBuf: wrap((input, requestJson) => addon.rasterAnalyzeBuf(input, requestJson)),
+      rasterAnalyzePath: wrap((inputPath, requestJson) => addon.rasterAnalyzePath(inputPath, requestJson)),
       exportDevelopedToFile: wrap((rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath) => addon.exportDevelopedToFile(rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath)),
       exportRecipeToFile: wrap((rawPath, xmpXml, recipeJson, filmPath, outPath) => addon.exportRecipeToFile(rawPath, xmpXml, recipeJson, filmPath, outPath)),
       renderThumbnailAvifToFile: wrap((rawPath, outPath, maxPx, quality) => addon.renderThumbnailAvifToFile(rawPath, outPath, maxPx, quality ?? 55)),
@@ -749,8 +763,20 @@ function loadNativeBinding() {
     },
     rasterProbeMetadata(inputPath) {
       try {
-        const bytes = fs2.readFileSync(inputPath);
-        return this.rasterProbeMetadataBuf(bytes);
+        const reply = this.rasterAnalyzePath(inputPath, '{"v":1,"what":["metadata"]}');
+        if (!reply.ok || !reply.json)
+          return { ok: false, error: reply.error };
+        const m = JSON.parse(reply.json).metadata;
+        return {
+          ok: true,
+          metadata: {
+            width: m.width,
+            height: m.height,
+            channels: m.channels,
+            orientation: m.orientation ?? 1,
+            format: m.format
+          }
+        };
       } catch (e) {
         return { ok: false, error: e?.message || String(e) };
       }

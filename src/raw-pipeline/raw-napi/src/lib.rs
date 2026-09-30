@@ -59,7 +59,8 @@ pub use filename::{
     ValidateFilenameResult,
 };
 pub use pipeline::{
-    raster_analyze_buf, raster_pipeline_buf, RasterAnalyzeResult, RasterPipelineResult,
+    raster_analyze_buf, raster_analyze_path, raster_pipeline_buf, RasterAnalyzeResult,
+    RasterPipelineResult,
 };
 pub use raster_probe::{
     raster_decode_rgb8_buf, raster_probe_metadata, raster_probe_metadata_buf, RasterDecodeResult,

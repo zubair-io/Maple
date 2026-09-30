@@ -13,7 +13,7 @@
 
 use napi::Task;
 
-use crate::pipeline::{RasterAnalyzeBufTask, RasterPipelineBufTask};
+use crate::pipeline::{RasterAnalyzeBufTask, RasterAnalyzePathTask, RasterPipelineBufTask};
 
 fn png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
     let mut px = Vec::with_capacity((w * h * 3) as usize);
@@ -136,4 +136,58 @@ fn analyze_reports_an_error_for_a_malformed_request() {
     assert!(!result.ok);
     assert!(result.json.is_none());
     assert!(result.error.is_some());
+}
+
+#[test]
+fn analyze_file_matches_buffer_for_metadata_stats_and_combined_requests() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../src/apple/MapleUITests/Goldens/.calibration/a.png");
+    let bytes = std::fs::read(&path).unwrap();
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    for what in ["metadata", "stats", "metadata\",\"stats"] {
+        let request = format!(r#"{{"v":1,"what":["{what}"]}}"#);
+        let result = RasterAnalyzePathTask {
+            path: path.to_string_lossy().into_owned(),
+            request_json: request.clone(),
+        }
+        .compute()
+        .unwrap();
+        assert!(result.ok, "{:?}", result.error);
+        assert_eq!(
+            result.json.unwrap(),
+            raw_core::raster_analyze::analyze(&bytes, &request).unwrap()
+        );
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().modified().unwrap(),
+        modified
+    );
+}
+
+#[test]
+fn analyze_file_returns_expected_failure_shapes() {
+    for (path, request) in [
+        (
+            "/nonexistent/maple3622.png".to_string(),
+            r#"{"v":1,"what":["metadata"]}"#.to_string(),
+        ),
+        (
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../src/apple/MapleUITests/Goldens/.calibration/a.png")
+                .to_string_lossy()
+                .into_owned(),
+            "broken request".to_string(),
+        ),
+    ] {
+        let result = RasterAnalyzePathTask {
+            path,
+            request_json: request,
+        }
+        .compute()
+        .unwrap();
+        assert!(!result.ok);
+        assert!(result.json.is_none());
+        assert!(result.error.is_some());
+    }
 }
