@@ -415,13 +415,7 @@ namespace Maple.WinUI.ViewModels
             doc.ColorLabel = photo.ColorLabel;
             _cloudDoc = doc;
             _cloudPreviewPending = photo;
-            var xml = Services.Xmp.XmpWriter.Serialize(doc);
-            var serverPath = photo.FilePath;
-            _ = Task.Run(async () =>
-            {
-                if (!await _cloud.PostXmpAsync(serverPath, xml, CancellationToken.None))
-                    OnUi(() => CloudStatus = "Sidecar sync failed — see maple.log");
-            });
+            TrackCloudMetadataWrite(_cloud.UpdateDevelopSidecarAsync(photo.FilePath, doc.Adjustments));
         }
 
         /// <summary>Develop + publish the edited asset's preview when leaving
@@ -473,11 +467,9 @@ namespace Maple.WinUI.ViewModels
         {
             if (_cloud == null || photo.CloudAddress == null)
                 return;
-            var rating = photo.Rating;
-            var flag = photo.FlagStatus;
-            var label = photo.ColorLabel;
-            _ = Task.Run(() => _cloud.WriteCullingAsync(
-                photo.CloudAddress, rating, flag, label, CancellationToken.None));
+            TrackCloudMetadataWrite(_cloud.ApplyMetadataAsync(photo.FilePath, photo.CloudAddress,
+                new Services.Metadata.MetadataPatch(Rating: photo.Rating, Flag: photo.FlagStatus,
+                    SetLabel: true, Label: photo.ColorLabel), CancellationToken.None));
         }
     }
 }

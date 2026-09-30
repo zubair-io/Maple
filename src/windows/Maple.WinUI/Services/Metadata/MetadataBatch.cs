@@ -78,12 +78,8 @@ public sealed class MetadataBatch
                 if (item.Target.CloudAddress != null)
                 {
                     var cloud = _cloud ?? throw new InvalidOperationException("The server is not connected.");
-                    var current = await ReadAsync(item.Target, cloud, cancellation);
-                    cancellation.ThrowIfCancellationRequested();
-                    // Finish the in-flight write before honoring Cancel. It
-                    // must not abandon a response and pretend nothing saved.
-                    await cloud.WriteMetadataAsync(item.Target.CloudAddress, Patch.CloudFields(current), CancellationToken.None);
-                    item.Saved = Project(current);
+                    item.Saved = await cloud.ApplyMetadataAsync(item.Target.Path,
+                        item.Target.CloudAddress, Patch, cancellation);
                 }
                 else
                 {
