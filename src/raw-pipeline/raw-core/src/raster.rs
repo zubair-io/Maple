@@ -42,6 +42,13 @@ mod raster_probe_jpeg;
 pub(crate) use raster_probe::legacy::legacy_probe;
 pub use raster_probe::{container_orientation, probe_raster_metadata, RasterMetadata};
 
+/// Shared bitmap pixel ceiling, including rav1d's AVIF frame allocation.
+/// Allows supported 100 MP assets while rejecting absurd declared dimensions.
+pub(crate) const MAX_RASTER_PIXELS: u32 = 268_000_000;
+
+/// Allow high-resolution RGB16 inputs while retaining a finite decode budget.
+const MAX_BITMAP_DECODE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
 /// Representation of a decoded non-RAW raster image in memory.
 #[derive(Clone, Debug)]
 pub struct RasterImage {
@@ -142,14 +149,32 @@ pub fn decode_raster(bytes: &[u8], ext_hint: Option<&str>) -> Result<RasterImage
         })?;
     }
 
-    // Library assets are trusted inputs. Match the server's former Sharp
-    // `unlimited: true` behavior: image's default 512 MiB decoded-buffer
-    // ceiling rejects valid high-resolution RGB16 TIFF/PNG files (#3516).
-    reader.no_limits();
-    let dyn_img = reader.decode().map_err(|e| Error::Decode {
+    // Raise the 512 MiB default for valid RGB16 library assets (#3516),
+    // retaining both allocation accounting and the shared pixel ceiling.
+    let decode_error = |e: image::ImageError| Error::Decode {
         path: "<memory>".into(),
         reason: format!("failed to decode raster pixels: {e}"),
-    })?;
+    };
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_BITMAP_DECODE_BYTES);
+    reader.limits(limits.clone());
+    let mut decoder = reader.into_decoder().map_err(decode_error)?;
+    let (width, height) = decoder.dimensions();
+    if u64::from(width) * u64::from(height) > u64::from(MAX_RASTER_PIXELS) {
+        return Err(Error::Decode {
+            path: "<memory>".into(),
+            reason: format!(
+                "bitmap dimensions {width}x{height} exceed the {MAX_RASTER_PIXELS} pixel limit"
+            ),
+        });
+    }
+    // Match ImageReader::decode: reserve the output before passing the
+    // remaining budget to the decoder's intermediate allocations.
+    limits
+        .reserve(decoder.total_bytes())
+        .map_err(decode_error)?;
+    decoder.set_limits(limits).map_err(decode_error)?;
+    let dyn_img = DynamicImage::from_decoder(decoder).map_err(decode_error)?;
 
     let orientation = ExifOrientation::from_u16(container_orientation(bytes).unwrap_or(1));
 
