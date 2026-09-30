@@ -7,7 +7,7 @@ import type { Stats } from 'node:fs';
 import { t, type Context } from 'elysia';
 import {
   RAW_EXTENSIONS,
-  SHARP_EXTENSIONS,
+  BITMAP_EXTENSIONS,
   PSD_HDR_EXTENSIONS,
   STUB_IMAGE_EXTENSIONS,
   AUDIO_EXTENSIONS,
@@ -16,7 +16,7 @@ import {
 /** Union of all image extensions surfaced by library routes. */
 export const IMAGE_EXTENSIONS_SET = new Set<string>([
   ...RAW_EXTENSIONS,
-  ...SHARP_EXTENSIONS,
+  ...BITMAP_EXTENSIONS,
   ...PSD_HDR_EXTENSIONS,
 ]);
 

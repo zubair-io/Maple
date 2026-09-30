@@ -168,8 +168,8 @@ export const RAW_EXTENSIONS = new Set<string>([
 /** Non-RAW bitmap extensions decoded via maple / heic-convert (lowercase, no
  * dot). Lives here next to RAW_EXTENSIONS so the lightweight allowlist can be
  * imported without pulling in the thumbnail renderer (and its `maple` /
- * `heic-convert` deps). `thumbs/render.ts` re-exports it for back-compat. */
-export const SHARP_EXTENSIONS = new Set<string>([
+ * `heic-convert` deps). `fs/browse.ts` re-exports it for filesystem routes. */
+export const BITMAP_EXTENSIONS = new Set<string>([
   'jpg',
   'jpeg',
   'png',
@@ -187,7 +187,7 @@ export const SHARP_EXTENSIONS = new Set<string>([
  * on its own) — they get a first-pass decode via `ag-psd` / `hdr` into a
  * flattened RGBA8 raster before maple resizes + JPEG-encodes it. See
  * `thumbs/psd-hdr-decode.ts`. Kept as its own set, parallel to
- * `SHARP_EXTENSIONS`, rather than folded into it, since maple cannot open
+ * `BITMAP_EXTENSIONS`, rather than folded into it, since maple cannot open
  * these formats without that decode step. */
 export const PSD_HDR_EXTENSIONS = new Set<string>(['psd', 'psb', 'hdr']);
 

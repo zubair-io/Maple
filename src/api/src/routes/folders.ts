@@ -35,7 +35,7 @@ import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';
 import { rootsConnected } from '../fs/root-connectivity.ts';
 import { RAW_EXTENSIONS } from '../fs/browse.ts';
-import { SHARP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
+import { BITMAP_EXTENSIONS, PSD_HDR_EXTENSIONS } from '../fs/browse.ts';
 import { STUB_IMAGE_EXTENSIONS, AUDIO_EXTENSIONS } from '../fs/browse.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
@@ -611,7 +611,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // silently stored-but-uncataloged.
       const isMedia =
         RAW_EXTENSIONS.has(ext) ||
-        SHARP_EXTENSIONS.has(ext) ||
+        BITMAP_EXTENSIONS.has(ext) ||
         PSD_HDR_EXTENSIONS.has(ext) ||
         STUB_IMAGE_EXTENSIONS.has(ext) ||
         AUDIO_EXTENSIONS.has(ext);

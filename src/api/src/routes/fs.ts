@@ -42,7 +42,7 @@ import {
   browseRoots,
   isUnderRoot,
   RAW_EXTENSIONS,
-  SHARP_EXTENSIONS,
+  BITMAP_EXTENSIONS,
 } from '../fs/browse.ts';
 import { resolveOriginalReadSource } from '../fs/mirror-read.ts';
 import { child as childLogger } from '../log.ts';
@@ -227,7 +227,7 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
       // unsupported extensions (docs, etc.) 415. Without the bitmap branch,
       // non-RAW cloud images can be listed + thumbnailed but never opened
       // full-resolution in the editor (#782).
-      if (!RAW_EXTENSIONS.has(ext) && !SHARP_EXTENSIONS.has(ext)) {
+      if (!RAW_EXTENSIONS.has(ext) && !BITMAP_EXTENSIONS.has(ext)) {
         set.status = 415;
         return { error: `Unsupported file extension: "${ext}"` };
       }
