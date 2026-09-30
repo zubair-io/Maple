@@ -167,6 +167,7 @@ namespace Maple.UI
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (!IsEnabled || !e.GetCurrentPoint(_bar).Properties.IsLeftButtonPressed || _dragging) return;
+            Focus(FocusState.Pointer);
             GestureStarted?.Invoke(this, EventArgs.Empty);
             _dragging = true;
             _activePointerId = e.Pointer.PointerId;
