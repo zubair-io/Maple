@@ -4,38 +4,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { maple } from 'maple';
 import { applyExifOrientationInPlace } from './apply-orientation.ts';
-import { solidAvif, solidJpeg } from '../test-support/synth-image.ts';
+import { solidAvif, solidJpeg, withExifOrientation } from '../test-support/synth-image.ts';
 import { generateThumb } from '../indexer/thumbnailer.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 
 // Resolve the repo root so the indexer integration test can find the gitignored
 // fixture regardless of CWD. Mirrors the pattern in `src/api/tests/fs/thumb.test.ts`.
 const REPO_ROOT = path.resolve(import.meta.dir, '..', '..', '..', '..');
-
-/**
- * Minimal APP1 EXIF segment carrying a single IFD0 entry: Orientation
- * (tag 0x0112, SHORT) = `orientation`. Spliced in right after the SOI
- * marker, which is where a camera writes it. Copied from
- * `src/maple/test/raster-v2.test.ts`'s `withExifOrientation` — the same
- * hand-spliced-EXIF trick, not shared production code.
- */
-function withExifOrientation(jpeg: Buffer, orientation: number): Buffer {
-  const tiff = Buffer.alloc(26);
-  tiff.write('II', 0, 'ascii'); // little-endian TIFF header
-  tiff.writeUInt16LE(0x2a, 2);
-  tiff.writeUInt32LE(8, 4); // IFD0 starts right after the header
-  tiff.writeUInt16LE(1, 8); // one entry
-  tiff.writeUInt16LE(0x0112, 10); // Orientation
-  tiff.writeUInt16LE(3, 12); // type SHORT
-  tiff.writeUInt32LE(1, 14); // count
-  tiff.writeUInt16LE(orientation, 18); // inline value
-  tiff.writeUInt32LE(0, 22); // no next IFD
-  const header = Buffer.alloc(4);
-  header.writeUInt16BE(0xffe1, 0); // APP1
-  header.writeUInt16BE(2 + 6 + tiff.length, 2); // segment length
-  const app1 = Buffer.concat([header, Buffer.from('Exif\0\0', 'binary'), tiff]);
-  return Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]);
-}
 
 // A 16x8 JPEG: portrait when the orientation tag asks for 90° CW (orientation=6),
 // landscape on disk. After rotation, dimensions must swap to 8x16 and the tag
