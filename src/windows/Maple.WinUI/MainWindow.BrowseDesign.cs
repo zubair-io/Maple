@@ -156,12 +156,13 @@ public sealed partial class MainWindow
         _syncingBrowseSelection = true;
         try
         {
+            var availableSelection = selected.Where(ViewModel.Photos.Contains).ToArray();
             foreach (var list in new ListViewBase[] { PhotoGrid, BrowsePhotoList })
             {
                 list.SelectedItems.Clear();
-                foreach (var photo in selected.Where(ViewModel.Photos.Contains)) list.SelectedItems.Add(photo);
+                foreach (var photo in availableSelection) list.SelectedItems.Add(photo);
             }
-            ViewModel.SyncSelectedPhotos(selected.Where(ViewModel.Photos.Contains).ToArray());
+            ViewModel.SyncSelectedPhotos(availableSelection);
             if (primary != null && ViewModel.Photos.Contains(primary)) ViewModel.SelectedPhoto = primary;
         }
         finally { _syncingBrowseSelection = false; }
