@@ -12,11 +12,10 @@ use image::ImageEncoder;
 pub fn encode_u16(width: u32, height: u32, rgb: &[u16]) -> Result<Vec<u8>> {
     let expected_len = (width as usize) * (height as usize) * 3;
     if rgb.len() != expected_len {
-        return Err(Error::Png(format!(
-            "expected {} u16 values, got {}",
-            expected_len,
-            rgb.len()
-        )));
+        return Err(Error::encode(
+            "TIFF",
+            format!("expected {} u16 values, got {}", expected_len, rgb.len()),
+        ));
     }
     let mut out: Vec<u8> = Vec::with_capacity(expected_len * 2);
     {
@@ -24,7 +23,7 @@ pub fn encode_u16(width: u32, height: u32, rgb: &[u16]) -> Result<Vec<u8>> {
         let bytes = cast_slice::<u16, u8>(rgb);
         encoder
             .write_image(bytes, width, height, image::ExtendedColorType::Rgb16)
-            .map_err(|e| Error::Png(e.to_string()))?;
+            .map_err(|e| Error::encode("TIFF", e.to_string()))?;
     }
     Ok(out)
 }
@@ -52,6 +51,11 @@ mod tests {
 
     #[test]
     fn wrong_length_errors() {
-        assert!(encode_u16(2, 2, &[0u16; 10]).is_err());
+        let err = encode_u16(2, 2, &[0u16; 10]).unwrap_err();
+        assert!(matches!(err, Error::Encode { format: "TIFF", .. }));
+        assert_eq!(
+            err.to_string(),
+            "TIFF write error: expected 12 u16 values, got 10"
+        );
     }
 }

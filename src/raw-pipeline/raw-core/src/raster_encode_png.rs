@@ -44,7 +44,7 @@ impl Default for PngOptions {
 const XMP_KEYWORD: &str = "XML:com.adobe.xmp";
 
 fn png_error(e: impl std::fmt::Display) -> Error {
-    Error::Png(format!("png encode failed: {e}"))
+    Error::encode("PNG", format!("png encode failed: {e}"))
 }
 
 /// Map sharp's 0-9 to the `png` crate's tiers. Unlike `flate2`, the `png`
