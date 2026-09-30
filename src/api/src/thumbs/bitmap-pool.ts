@@ -2,8 +2,8 @@
  * Bitmap thumbnail/validation dispatch onto the FFI child pool. Replaces the
  * retired `imgdecode-pool.ts` (#3499): the same child that owns the
  * Maple bindings for RAW now renders JPEG/PNG/WebP/TIFF/AVIF/HEIC/PSD/HDR too,
- * so there is one isolated native process family, not two. Signatures are
- * unchanged from the retired module so call sites only change an import.
+ * so there is one isolated native process family. Cache derivatives are
+ * always AVIF; only paths and render settings cross IPC.
  */
 import { ffiPool } from '../ffi/ffi-pool.ts';
 
@@ -13,9 +13,8 @@ export function renderImageThumbToFileViaPool(
   maxPx: number,
   quality: number,
   ext: string,
-  format?: 'avif' | 'jpeg',
 ): Promise<{ ok: boolean; error?: string }> {
-  return ffiPool().renderBitmapThumbToFile(srcPath, outPath, maxPx, quality, ext, format);
+  return ffiPool().renderBitmapThumbToFile(srcPath, outPath, maxPx, quality, ext);
 }
 
 export function validateAvifViaPool(

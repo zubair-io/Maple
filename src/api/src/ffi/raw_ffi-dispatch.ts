@@ -95,7 +95,6 @@ export async function handleFfiRequest(
         req.maxPx,
         req.ext,
         req.quality,
-        req.format,
       );
       return { type: 'renderBitmap', id: req.id, ok };
     } catch (e) {
@@ -131,21 +130,6 @@ export async function handleFfiRequest(
     const ok = ffi.renderThumbnailAvifToFile(req.rawPath, req.outPath, req.maxPx, req.quality);
     return {
       type: 'renderThumb',
-      id: req.id,
-      ok,
-      error: ok ? undefined : 'render-failed (see child stderr)',
-    };
-  }
-
-  if (req.type === 'renderPreviewJpeg') {
-    const ok = ffi.renderThumbnailPreviewJpegToFile(
-      req.rawPath,
-      req.outPath,
-      req.maxPx,
-      req.quality,
-    );
-    return {
-      type: 'renderPreviewJpeg',
       id: req.id,
       ok,
       error: ok ? undefined : 'render-failed (see child stderr)',

@@ -7,7 +7,7 @@
  * would pull the `Bun.spawn`-ing manager into the child).
  *
  * Only small values cross the IPC boundary: a request carries paths + ints; a
- * response carries `ok`/`error` (renderThumb/renderPreviewJpeg/renderDevelop
+ * response carries `ok`/`error` (renderThumb/renderDevelop/exportRecipe
  * write straight to disk inside the child) or the 3×256 histogram bins
  * (~3 KB). The heavy buffers (the decoded RGB plane, the rendered image)
  * never leave the child.
@@ -30,7 +30,7 @@ export interface RegisterLensProfileResponse {
   error?: string;
 }
 
-/** Render a RAW's embedded preview to a JPEG file on disk (`_to_file` path). */
+/** Render a RAW's embedded preview to an AVIF file on disk (`_to_file` path). */
 export interface RenderThumbRequest {
   type: 'renderThumb';
   id: number;
@@ -63,26 +63,11 @@ export interface RenderDevelopRequest {
   quality: number;
 }
 
-/** Render a RAW's embedded preview to a JPEG file on disk. No production
- *  caller sends this request today — `indexer/previewer.ts`'s 1280px
- *  describe/OCR tier renders AVIF via `renderThumb` instead, and
- *  `describe.ts` re-encodes to JPEG in memory per provider call (every
- *  describe provider hardcodes `image/jpeg` as the media type it sends
- *  upstream). Kept wired pending a retire-or-keep decision (#3528). */
-export interface RenderPreviewJpegRequest {
-  type: 'renderPreviewJpeg';
-  id: number;
-  rawPath: string;
-  outPath: string;
-  maxPx: number;
-  quality: number;
-}
-
 /** Render a non-RAW bitmap (JPEG/PNG/WebP/TIFF/AVIF/HEIC/PSD/HDR) to a resized
- *  AVIF or JPEG on disk — the #3499 replacement for the previous
+ *  AVIF on disk — the #3499 replacement for the previous
  *  imgdecode child, now dispatched onto this same FFI child pool instead of
  *  a second isolated process family. `ext` is the lowercase source
- *  extension without dot; `format` defaults to `'avif'` in the child. */
+ *  extension without dot. */
 export interface RenderBitmapRequest {
   type: 'renderBitmap';
   id: number;
@@ -91,7 +76,6 @@ export interface RenderBitmapRequest {
   maxPx: number;
   quality: number;
   ext: string;
-  format?: 'avif' | 'jpeg';
 }
 
 /** Decode-validate an AVIF this pipeline just wrote (`thumbs/avif-checks.ts`). */
@@ -131,7 +115,6 @@ export type FfiRequest =
   | RenderThumbRequest
   | HistogramRequest
   | RenderDevelopRequest
-  | RenderPreviewJpegRequest
   | RenderBitmapRequest
   | ValidateAvifRequest;
 
@@ -144,7 +127,6 @@ export const FFI_REQUEST_TYPES = [
   'renderThumb',
   'histogram',
   'renderDevelop',
-  'renderPreviewJpeg',
   'renderBitmap',
   'validateAvif',
 ] as const satisfies readonly FfiRequest['type'][];
@@ -188,13 +170,6 @@ export interface RenderDevelopResponse {
   error?: string;
 }
 
-export interface RenderPreviewJpegResponse {
-  type: 'renderPreviewJpeg';
-  id: number;
-  ok: boolean;
-  error?: string;
-}
-
 export interface RenderBitmapResponse {
   type: 'renderBitmap';
   id: number;
@@ -216,7 +191,6 @@ export type FfiResponse =
   | RenderThumbResponse
   | HistogramResponse
   | RenderDevelopResponse
-  | RenderPreviewJpegResponse
   | RenderBitmapResponse
   | ValidateAvifResponse;
 
