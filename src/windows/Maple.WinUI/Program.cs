@@ -35,7 +35,7 @@ namespace Maple.WinUI
                 mainInstance.Activated += (_, redirected) => App.OnRedirectedActivation(redirected);
                 // The launching activation may itself be a protocol activation
                 // (app cold-started by the browser redirect).
-                App.OnRedirectedActivation(activation);
+                App.OnInitialActivation(activation, args);
             });
         }
     }

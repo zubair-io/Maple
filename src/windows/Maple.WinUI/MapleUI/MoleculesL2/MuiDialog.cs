@@ -147,12 +147,18 @@ namespace Maple.UI
         private readonly ContentControl _panel = new()
         {
             IsTabStop = true,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(20),
             Width = 360,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
+        };
+        // ContentControl's default presenter does not paint Background or
+        // BorderBrush. Use a real surface so underlying form text cannot bleed
+        // through the confirmation while retaining the focusable panel host.
+        private readonly Border _surface = new()
+        {
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(20),
         };
         private readonly StackPanel _panelBody = new() { Orientation = Orientation.Vertical, Spacing = 12 };
         private readonly MuiText _titleText = new() { Variant = MuiTextVariant.RowLabel };
@@ -170,7 +176,8 @@ namespace Maple.UI
             _actions.Children.Add(_cancelButton);
             _actions.Children.Add(_confirmButton);
             _panelBody.Children.Add(_actions);
-            _panel.Content = _panelBody;
+            _surface.Child = _panelBody;
+            _panel.Content = _surface;
             _scrim.Children.Add(_panel);
             _popup.Child = _scrim;
 
@@ -246,8 +253,8 @@ namespace Maple.UI
         private void Rebuild()
         {
             _scrim.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0xA0, 0, 0, 0));
-            _panel.Background = R("MapleSurface");
-            _panel.BorderBrush = R("MapleBorder");
+            _surface.Background = R("MapleSurface");
+            _surface.BorderBrush = R("MapleBorder");
 
             _titleText.Text = Title;
             AutomationProperties.SetName(_panel, Title);

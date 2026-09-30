@@ -25,6 +25,17 @@ namespace Maple.WinUI
         /// the same before-OnLaunched window as _pendingFileActivation.</summary>
         private static Uri? _pendingAuthCallback;
 
+        internal static void OnInitialActivation(Microsoft.Windows.AppLifecycle.AppActivationArguments activation, string[] arguments)
+        {
+            // Unpackaged Launch.Arguments may contain the executable as well
+            // as the file. Main's already-tokenized arguments are authoritative
+            // for this process's initial single-file open (#3889 native audit).
+            if (arguments.Length == 1 && IsLikelyFilePath(arguments[0]))
+                DeliverFileActivation(new[] { arguments[0] });
+            else
+                OnRedirectedActivation(activation);
+        }
+
         /// <summary>Activation entry: invoked by Program for both the
         /// cold-start activation and redirected activations from second
         /// instances. Routes maple-app:// sign-in callbacks and Explorer
@@ -159,7 +170,18 @@ namespace Maple.WinUI
             if (_pendingFileActivation is { } pending)
             {
                 _pendingFileActivation = null;
-                (_window as MainWindow)?.HandleFileActivation(pending);
+                var window = (MainWindow)_window;
+                var root = (FrameworkElement)window.Content;
+                if (root.IsLoaded) window.HandleFileActivation(pending);
+                else
+                {
+                    void OpenWhenLoaded(object sender, RoutedEventArgs eventArgs)
+                    {
+                        root.Loaded -= OpenWhenLoaded;
+                        window.HandleFileActivation(pending);
+                    }
+                    root.Loaded += OpenWhenLoaded;
+                }
             }
         }
     }

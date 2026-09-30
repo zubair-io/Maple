@@ -64,11 +64,19 @@ namespace Maple.WinUI
             WinRT.Interop.InitializeWithWindow.Initialize(
                 picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
 
-            var folder = await picker.PickSingleFolderAsync();
-            if (folder != null)
+            try
             {
-                ViewModel.AddLibraryFolder(folder.Path);
-                SetMode(ShellMode.Browse);
+                var folder = await picker.PickSingleFolderAsync();
+                if (folder != null)
+                {
+                    ViewModel.AddLibraryFolder(folder.Path);
+                    SetMode(ShellMode.Browse);
+                }
+            }
+            catch (System.Runtime.InteropServices.COMException error)
+            {
+                DiagLog.Write($"[folder-picker] {error}");
+                await ShowMessageAsync("Folder picker failed", "Windows could not open the selected folder. Try again, or open a photo from File Explorer.");
             }
         }
 
