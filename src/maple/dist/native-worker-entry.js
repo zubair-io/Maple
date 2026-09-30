@@ -256,10 +256,50 @@ function createRasterAnalyzeBinding(lib, ptr, getLastError) {
   };
 }
 
+// src/native-output-buffer.ts
+var MAX_PROBE_SIZED_PIXELS = 268000000;
+var MIN_CAPACITY = 65536;
+function targetPixels(width, height) {
+  const w = typeof width === "number" && Number.isSafeInteger(width) && width > 0 ? width : 0;
+  const h = typeof height === "number" && Number.isSafeInteger(height) && height > 0 ? height : 0;
+  const pixels = (w || h) * (h || w);
+  return Number.isSafeInteger(pixels) && pixels <= MAX_PROBE_SIZED_PIXELS ? pixels : 0;
+}
+function initialRenderCapacity(inputSize, width, height, format) {
+  if (!width && !height)
+    return Math.max(MIN_CAPACITY, inputSize * 2);
+  const pixels = targetPixels(width, height);
+  const perPixel = format === "jpeg" || format === "avif" ? 1 : format === "tiff" ? 8 : 4;
+  return Math.max(MIN_CAPACITY, pixels * perPixel + MIN_CAPACITY);
+}
+function initialPipelineCapacity(input, recipeJson, probeMetadata) {
+  let recipe;
+  try {
+    recipe = JSON.parse(recipeJson);
+  } catch {
+    return MIN_CAPACITY;
+  }
+  if (!recipe || !Array.isArray(recipe.ops))
+    return MIN_CAPACITY;
+  const target = recipe.ops.reduce((latest, op) => op?.op === "resize" || op?.op === "extract" ? op : latest, undefined);
+  const format = recipe.output?.format;
+  if (target && (target.width || target.height)) {
+    return initialRenderCapacity(input.byteLength, target.width, target.height, format);
+  }
+  if (format === "raw") {
+    const raw = recipe.input?.kind === "raw" ? recipe.input : null;
+    const probe = raw ? null : probeMetadata(input);
+    const meta = raw ?? (probe?.ok ? probe.metadata : null);
+    const pixels = meta && (raw || probe?.metadata?.format !== "dng") ? targetPixels(meta.width, meta.height) : 0;
+    return Math.max(MIN_CAPACITY, pixels * 4);
+  }
+  return Math.max(MIN_CAPACITY, input.byteLength * 2);
+}
+
 // src/native-raster-pipeline.ts
 var NEED_LARGER_BUFFER2 = 100;
 var EMPTY_AUX = Buffer.alloc(1);
-function createRasterPipelineBinding(lib, ptr, getLastError) {
+function createRasterPipelineBinding(lib, ptr, getLastError, probeMetadata) {
   return {
     rasterPipelineBuf(input, recipeJson, aux) {
       const recipeBuf = Buffer.from(recipeJson + "\x00", "utf-8");
@@ -275,7 +315,7 @@ function createRasterPipelineBinding(lib, ptr, getLastError) {
         ok: false,
         error: getLastError() || `Raster pipeline failed with code ${rc}`
       });
-      const first = Buffer.alloc(Math.max(65536, input.byteLength * 2));
+      const first = Buffer.alloc(initialPipelineCapacity(input, recipeJson, probeMetadata));
       const rc0 = call(first);
       if (rc0 === 0) {
         return {
@@ -304,7 +344,6 @@ function createRasterPipelineBinding(lib, ptr, getLastError) {
 
 // src/native-raster-v2.ts
 var NEED_LARGER_BUFFER3 = 100;
-var MAX_PROBE_SIZED_PIXELS = 268000000;
 function rgb8SizeFromProbe(probe, autoOrient) {
   const meta = probe.ok ? probe.metadata : undefined;
   if (!meta || meta.width <= 0 || meta.height <= 0 || meta.format === "dng") {
@@ -324,7 +363,7 @@ function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
       const fmtBuf = format ? Buffer.from(format + "\x00", "utf-8") : null;
       const outLenBuf = Buffer.alloc(8);
       const call = (outBuf) => lib.symbols.maple_raster_render_buf(ptr(inputBytes), BigInt(inputBytes.byteLength), width >>> 0, height >>> 0, flags >>> 0, filter >>> 0, fmtBuf ? ptr(fmtBuf) : null, quality & 255, effort & 255, ptr(outBuf), BigInt(outBuf.byteLength), ptr(outLenBuf));
-      const first = Buffer.alloc(Math.max(65536, inputBytes.byteLength * 2));
+      const first = Buffer.alloc(initialRenderCapacity(inputBytes.byteLength, width, height, format));
       const rc0 = call(first);
       const outBuf = rc0 === NEED_LARGER_BUFFER3 ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
       const rc = rc0 === NEED_LARGER_BUFFER3 ? call(outBuf) : rc0;
@@ -337,7 +376,7 @@ function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
       const fmtBuf = format ? Buffer.from(format + "\x00", "utf-8") : null;
       const outLenBuf = Buffer.alloc(8);
       const call = (outBuf) => lib.symbols.maple_raster_from_raw_render_buf(ptr(pixels), BigInt(pixels.byteLength), srcWidth >>> 0, srcHeight >>> 0, channels >>> 0, width >>> 0, height >>> 0, flags >>> 0, filter >>> 0, fmtBuf ? ptr(fmtBuf) : null, quality & 255, effort & 255, ptr(outBuf), BigInt(outBuf.byteLength), ptr(outLenBuf));
-      const first = Buffer.alloc(Math.max(65536, pixels.byteLength));
+      const first = Buffer.alloc(width || height ? initialRenderCapacity(pixels.byteLength, width, height, format) : Math.max(65536, pixels.byteLength));
       const rc0 = call(first);
       const outBuf = rc0 === NEED_LARGER_BUFFER3 ? Buffer.alloc(Number(outLenBuf.readBigUInt64LE(0))) : first;
       const rc = rc0 === NEED_LARGER_BUFFER3 ? call(outBuf) : rc0;
@@ -793,7 +832,7 @@ function loadNativeBinding() {
       return { ok: true, tensor: floatArr };
     },
     ...createRasterV2Binding(lib, ptr, getLastError, (bytes) => binding.rasterProbeMetadataBuf(bytes)),
-    ...createRasterPipelineBinding(lib, ptr, getLastError),
+    ...createRasterPipelineBinding(lib, ptr, getLastError, (bytes) => binding.rasterProbeMetadataBuf(bytes)),
     ...createRasterAnalyzeBinding(lib, ptr, getLastError),
     renderFilenameTemplate(args) {
       const templateBuf = Buffer.from(args.template + "\x00", "utf-8");

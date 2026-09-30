@@ -4,6 +4,7 @@
  * file-size budget; see `raw-pipeline/raw-ffi/src/raster_pipeline.rs` for the
  * C ABI and `raw-core/src/raster_recipe.rs` for the recipe schema.
  */
+import type { RasterMetadataProbe } from './native-raster-v2';
 export interface RasterPipelineResult {
     ok: boolean;
     buffer?: Buffer;
@@ -17,4 +18,4 @@ export interface RasterPipelineBinding {
 }
 export declare function createRasterPipelineBinding(lib: {
     symbols: Record<string, (...args: unknown[]) => unknown>;
-}, ptr: (buf: Uint8Array) => unknown, getLastError: () => string | null): RasterPipelineBinding;
+}, ptr: (buf: Uint8Array) => unknown, getLastError: () => string | null, probeMetadata: (inputBytes: Uint8Array) => RasterMetadataProbe): RasterPipelineBinding;
