@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="referrer" content="origin" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; img-src 'self' data: blob: http: https:; connect-src 'self' http: https:"
+    />
+    <title>Maple photo map</title>
+    <link rel="stylesheet" href="vendor/maplibre-gl.css" />
+    <style>
+      html,
+      body,
+      #map {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: #151311;
+      }
+      .pin {
+        border: 2px solid #c44836;
+        border-radius: 50%;
+        min-width: 32px;
+        min-height: 32px;
+        background: #262320;
+        color: #eee9e5;
+        cursor: pointer;
+        padding: 6px;
+      }
+      .pin:focus-visible {
+        outline: 3px solid white;
+        outline-offset: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="map"
+      aria-label="Photo locations. Use arrow keys to pan and plus or minus to zoom."
+    ></div>
+    <script type="module" src="map-host.mjs"></script>
+  </body>
+</html>

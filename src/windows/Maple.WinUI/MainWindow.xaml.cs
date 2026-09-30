@@ -161,6 +161,7 @@ namespace Maple.WinUI
             HookNativeDetail();
             HookFilmstripRail();   // #3402 — MainWindow.Filmstrip.cs
             InitializeBrowseDesign();
+            InitializeCloudMap();
             InitializeComparison();
             ViewModel.ModelSynced += OnEditorModelSynced;
             ViewModel.AdjustmentEdited += () => EditStatusText.Text = $"{ViewModel.SelectedPhoto?.Format} · Edited";
@@ -195,6 +196,7 @@ namespace Maple.WinUI
 
         private void SetMode(ShellMode mode)
         {
+            CloudMapContainer.Visibility = Visibility.Collapsed;
             if (_mode != mode) ResetComparison();
             if (_mode == ShellMode.Preview) _previewRailCompact = FilmstripRail.IsCollapsed;
             _mode = mode;

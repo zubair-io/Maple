@@ -4,7 +4,6 @@ using System.Text.Json.Serialization;
 
 namespace Maple.WinUI.Services.Cloud;
 
-// Transport for #3882; the production map host and navigation remain tracked there.
 public readonly record struct CloudMapViewport(double West, double South, double East, double North, int Zoom)
 {
     public string ToQueryString()

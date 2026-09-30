@@ -222,6 +222,7 @@
                     <StackPanel Spacing="14" Padding="10,12">
                         <mui:MuiButton x:Name="CloseCompactSources" Label="Close sources" IconName="x" Variant="Ghost" Visibility="Collapsed" Click="OnToggleSidebar" AutomationProperties.Name="Close sources" />
                         <mui:MuiButton Label="Timeline" IconName="calendar" Variant="Ghost" HorizontalAlignment="Stretch" Click="OnTimelineInvoked" AutomationProperties.Name="Timeline" />
+                        <mui:MuiButton x:Name="CloudMapButton" Label="Map" Variant="Ghost" Visibility="Collapsed" HorizontalAlignment="Stretch" Click="OnMapInvoked" AutomationProperties.Name="Map" />
 
                         <StackPanel Spacing="2">
                             <Grid Margin="8,0,4,6">
@@ -364,6 +365,8 @@
             <!-- Center -->
             <Grid Grid.Column="1">
 
+                <Grid x:Name="CloudMapContainer" Visibility="Collapsed" />
+
                 <!-- BROWSE -->
                 <Grid x:Name="BrowseGridContainer" Visibility="Visible">
                     <Grid.RowDefinitions>
@@ -435,6 +438,10 @@
                                             <ComboBoxItem Content="All labels" Tag="all"/><ComboBoxItem Content="Red" Tag="red"/><ComboBoxItem Content="Orange" Tag="orange"/><ComboBoxItem Content="Yellow" Tag="yellow"/><ComboBoxItem Content="Green" Tag="green"/><ComboBoxItem Content="Blue" Tag="blue"/><ComboBoxItem Content="Purple" Tag="purple"/>
                                         </ComboBox>
                                         <StackPanel x:Name="CloudSearchOptions" Visibility="Collapsed" Spacing="12">
+                                            <ComboBox x:Name="ScopeSearchBox" Header="Search scope" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Cloud search scope">
+                                                <ComboBoxItem Content="All photos"/>
+                                                <ComboBoxItem Content="Photos with a location"/>
+                                            </ComboBox>
                                             <ComboBox x:Name="PeopleSearchBox" Header="People" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by person"/>
                                             <ComboBox x:Name="PlaceSearchBox" Header="Places" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Filter by place"/>
                                             <ComboBox x:Name="HiddenSearchBox" Header="Hidden photos" SelectedIndex="0" SelectionChanged="OnSearchFacetSelected" AutomationProperties.Name="Hidden photos filter">

@@ -19,13 +19,20 @@ namespace Maple.WinUI.ViewModels
         private CloudSearchQuery? _timelineQuery;
         public bool IsServerSearch => _isCloudTimeline;
 
-        public async Task LoadCloudTimelineAsync()
+        public async Task LoadCloudTimelineAsync(bool preserveDateFilter = false)
         {
+            var dateStart = DateFilterStart;
+            var dateEnd = DateFilterEndExclusive;
             _libraryCts?.Cancel();
             _libraryCts = new CancellationTokenSource();
             _libraryWatcher?.Stop();
             _timelineQuery = null;
             BeginBrowse(timeline: true);
+            if (preserveDateFilter)
+            {
+                DateFilterStart = dateStart;
+                DateFilterEndExclusive = dateEnd;
+            }
             CurrentFolderPath = string.Empty;
             ActiveSectionName = "Timeline";
             _timelineCursor = null;
@@ -105,9 +112,10 @@ namespace Maple.WinUI.ViewModels
             FinishBrowse(owner, message);
         }
 
-        private CloudSearchQuery CurrentTimelineQuery() => new()
+        public CloudSearchQuery CurrentTimelineQuery() => new()
         {
             Text = SearchText.Trim(),
+            Scope = CloudSearchScope,
             MinimumRating = MinRatingFilter > 0 ? MinRatingFilter : null,
             Flag = FlagFilter == "all" ? null : FlagFilter,
             Color = ColorFilter == "all" ? null : ColorFilter,

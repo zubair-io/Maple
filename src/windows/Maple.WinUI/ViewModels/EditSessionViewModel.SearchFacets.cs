@@ -12,6 +12,7 @@ public partial class EditSessionViewModel
     [ObservableProperty] private string _cloudPeopleFilter = "";
     [ObservableProperty] private string _cloudPlaceFilter = "";
     [ObservableProperty] private CloudHiddenFilter _cloudHiddenFilter;
+    [ObservableProperty] private CloudSearchScope _cloudSearchScope;
     [ObservableProperty] private CloudSearchFacets? _searchFacets;
     [ObservableProperty] private string _searchFacetStatus = "";
 
@@ -19,6 +20,7 @@ public partial class EditSessionViewModel
     partial void OnCloudPeopleFilterChanged(string value) => ApplyFilters();
     partial void OnCloudPlaceFilterChanged(string value) => ApplyFilters();
     partial void OnCloudHiddenFilterChanged(CloudHiddenFilter value) => ApplyFilters();
+    partial void OnCloudSearchScopeChanged(CloudSearchScope value) => ApplyFilters();
 
     private async Task RefreshSearchFacetsAsync(CancellationTokenSource owner, CloudSearchQuery query)
     {

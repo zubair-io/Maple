@@ -78,6 +78,7 @@ namespace Maple.WinUI
                     await VerifyImmediateUndoAsync();
                     await EditSessionViewModel.VerifyCloudOpeningAsync(raw, output);
                     await EditSessionViewModel.VerifyCloudSearchAsync(output);
+                    await VerifyCloudMapAsync(output);
                 }
 
                 // Real queued UI present, held solely by this smoke's UI turn.
@@ -127,6 +128,7 @@ namespace Maple.WinUI
                     comparisonPreservesDocument = expectedPath != "empty",
                     cloudOpeningReadiness = expectedPath != "empty",
                     cloudSearchPagination = expectedPath != "empty",
+                    cloudMapHost = expectedPath != "empty",
                     responsiveDesign = expectedPath != "empty",
                     browseSelectionAndSort = expectedPath != "empty",
                     browseScrolling = expectedPath != "empty",

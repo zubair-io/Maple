@@ -22,6 +22,7 @@ namespace Maple.WinUI
             args.Handled = true;
             if (_closing) return;
             _closing = true;
+            DisposeCloudMap();
             ResetComparison();
             // Reject late producers before any already-queued present callback runs.
             ViewModel.Dispose();

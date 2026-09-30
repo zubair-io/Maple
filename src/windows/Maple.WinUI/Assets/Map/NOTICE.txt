@@ -1,0 +1,12 @@
+MapLibre GL JS 6.3.0, bundled for the Windows map host under BSD-3-Clause.
+See vendor/LICENSE.txt for the full upstream license and third-party notices.
+
+Source: https://registry.npmjs.org/maplibre-gl/-/maplibre-gl-6.3.0.tgz
+Package SHA-512 (base64):
+F0Is48MTzn3DvOEidPjh68E0kuSA7hdzY1YIR0ypPtFgcif3WPtzI1oZFgsv9WtHmarQnbwIXfsf+EfQYvM00A==
+
+The package version and integrity match src/web/bun.lock. Unmodified upstream
+files under vendor/: maplibre-gl.mjs, maplibre-gl-shared.mjs, maplibre-gl-worker.mjs,
+maplibre-gl.css, LICENSE.txt. Other files in this directory are Maple's host.
+No remote script/CDN dependency is used at runtime. Only configured map resources
+are fetched; Maple authentication and cluster requests stay in native code.

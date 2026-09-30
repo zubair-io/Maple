@@ -18,6 +18,7 @@ public sealed partial class MainWindow
         {
             CloudSearchOptions.Visibility = ViewModel.IsServerSearch ? Visibility.Visible : Visibility.Collapsed;
             var facets = ViewModel.SearchFacets;
+            ScopeSearchBox.SelectedIndex = (int)ViewModel.CloudSearchScope;
             Fill(PeopleSearchBox, facets?.People, ViewModel.CloudPeopleFilter, "All people");
             Fill(PlaceSearchBox, facets?.Places, ViewModel.CloudPlaceFilter, "All places");
             HiddenSearchBox.IsEnabled = facets?.SupportedFilters?.Contains("hidden", StringComparer.Ordinal) == true
@@ -47,6 +48,8 @@ public sealed partial class MainWindow
             ViewModel.ColorFilter = (string)color.Tag;
         else if (ViewModel.IsServerSearch)
         {
+            if (ReferenceEquals(sender, ScopeSearchBox) && ScopeSearchBox.SelectedIndex >= 0)
+                ViewModel.CloudSearchScope = (CloudSearchScope)ScopeSearchBox.SelectedIndex;
             if (ReferenceEquals(sender, PeopleSearchBox) && PeopleSearchBox.SelectedItem is ComboBoxItem person)
                 ViewModel.CloudPeopleFilter = (string)person.Tag;
             else if (ReferenceEquals(sender, PlaceSearchBox) && PlaceSearchBox.SelectedItem is ComboBoxItem place)

@@ -33,6 +33,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="Assets\Map\**\*" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="..\..\apple\Packages\MapleCore\Sources\MapleCore\Resources\builtin-presets.json" LogicalName="Maple.BuiltinPresets.json" />
     <Content Include="Assets\maple.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
