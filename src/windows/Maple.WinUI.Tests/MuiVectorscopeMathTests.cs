@@ -11,6 +11,46 @@ namespace Maple.WinUI.Tests
     public class MuiVectorscopeMathTests
     {
         [Fact]
+        public void Broadcast_targets_use_nonuniform_shared_rec709_directions()
+        {
+            Assert.InRange(MuiVectorscopeMath.TargetAngle(0), 102.90, 102.92);
+            Assert.InRange(MuiVectorscopeMath.TargetAngle(4), -5.25, -5.23);
+            var gaps = Enumerable.Range(0, 6).Select(i => MuiVectorscopeMath.NormalizeAngle(
+                MuiVectorscopeMath.TargetAngle((i + 1) % 6) - MuiVectorscopeMath.TargetAngle(i))).ToArray();
+            Assert.InRange(gaps.Min(), 53, 55);
+            Assert.InRange(gaps.Max(), 71, 73);
+            Assert.Equal(360, gaps.Sum(), 8);
+        }
+
+        [Fact]
+        public void Hue_ring_matches_all_six_markers_and_wraps_without_a_seam()
+        {
+            (double R, double G, double B)[] expected = [(1,0,0), (1,1,0), (0,1,0), (0,1,1), (0,0,1), (1,0,1)];
+            for (var i = 0; i < 6; i++)
+            {
+                var color = MuiVectorscopeMath.RingRgb(MuiVectorscopeMath.TargetAngle(i));
+                Assert.Equal(expected[i].R, color.R, 10);
+                Assert.Equal(expected[i].G, color.G, 10);
+                Assert.Equal(expected[i].B, color.B, 10);
+            }
+            Assert.Equal(MuiVectorscopeMath.RingRgb(0), MuiVectorscopeMath.RingRgb(360));
+            Assert.Equal(MuiVectorscopeMath.RingRgb(359), MuiVectorscopeMath.RingRgb(-1));
+        }
+
+        [Fact]
+        public void Native_positive_cr_density_appears_at_top_with_premultiplied_color()
+        {
+            uint[] bins = [1, 0, 255, 0];
+            var pixels = MuiVectorscopeMath.DensityPixels(bins, 2, 200, 100, 50);
+            Assert.Equal(new byte[] { 50, 100, 200, 255 }, pixels.Take(4));
+            Assert.All(pixels.Skip(4).Take(4), value => Assert.Equal(0, value));
+            Assert.InRange(pixels[11], 39, 254);
+            Assert.True(pixels[8] <= pixels[9] && pixels[9] <= pixels[10] && pixels[10] <= pixels[11]);
+            Assert.All(MuiVectorscopeMath.DensityPixels(new uint[4], 2, 255, 255, 255), value => Assert.Equal(0, value));
+            Assert.Throws<ArgumentException>(() => MuiVectorscopeMath.DensityPixels(new uint[3], 2, 0, 0, 0));
+        }
+
+        [Fact]
         public void ToChroma_White_IsNeutral()
         {
             var (cb, cr) = MuiVectorscopeMath.ToChroma(1, 1, 1);

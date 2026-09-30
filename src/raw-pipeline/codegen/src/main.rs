@@ -47,6 +47,7 @@ mod filename;
 mod film_catalog;
 mod local_mask_wire;
 mod raster_recipe;
+mod scope_targets;
 mod support_evidence;
 mod support_tiers;
 mod support_tiers_cs;
@@ -105,6 +106,8 @@ enum Target {
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
 enum Schema {
     LocalMaskWire,
+    /// Broadcast graticule directions from the shared Rec.709 scope producer.
+    ScopeTargets,
     /// Culling metadata XMP vocabulary, with no pixel-processing behavior.
     ColorLabels,
     /// Portable filename vocabulary (#3990).
@@ -234,6 +237,11 @@ fn main() {
         (Schema::AdjustmentTransfer, Target::Swift) => adjustment_transfer::emit_swift(),
         (Schema::AdjustmentTransfer, _) => {
             eprintln!("codegen: --schema adjustment-transfer supports only swift / ts targets");
+            std::process::exit(2);
+        }
+        (Schema::ScopeTargets, Target::Cs) => scope_targets::emit_cs(),
+        (Schema::ScopeTargets, _) => {
+            eprintln!("scope-targets supports cs");
             std::process::exit(2);
         }
         (Schema::WhiteBalancePresets, Target::Swift) => white_balance_presets::emit_swift(),

@@ -89,6 +89,9 @@ if [ -f "${BIN}.exe" ]; then
 	BIN="${BIN}.exe"
 fi
 
+# --- Windows scope graticule (#3885) --------------------------------------
+"$BIN" --schema scope-targets --target cs --out "src/windows/Maple.WinUI/Generated/ScopeTargets.g.cs"
+
 # --- Culling metadata vocabulary (#3662) ----------------------------------
 for color_label_out in \
 	"swift:src/apple/Packages/MapleCore/Sources/MapleCore/Generated/ColorLabel+Generated.swift" \

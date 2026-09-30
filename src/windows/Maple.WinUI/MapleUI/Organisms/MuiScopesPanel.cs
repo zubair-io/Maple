@@ -61,6 +61,10 @@ namespace Maple.UI
         public IReadOnlyList<double>? ParadeBlueValues { get => (IReadOnlyList<double>?)GetValue(ParadeBlueValuesProperty); set => SetValue(ParadeBlueValuesProperty, value); }
 
         public IReadOnlyList<double>? RedValues { get => (IReadOnlyList<double>?)GetValue(RedValuesProperty); set => SetValue(RedValuesProperty, value); }
+        public static readonly DependencyProperty VectorscopeBinsProperty =
+            DependencyProperty.Register(nameof(VectorscopeBins), typeof(IReadOnlyList<uint>), typeof(MuiScopesPanel),
+                new PropertyMetadata(null, (d, e) => ((MuiScopesPanel)d)._vectorscope.Bins = (IReadOnlyList<uint>?)e.NewValue));
+        public IReadOnlyList<uint>? VectorscopeBins { get => (IReadOnlyList<uint>?)GetValue(VectorscopeBinsProperty); set => SetValue(VectorscopeBinsProperty, value); }
         public IReadOnlyList<double>? GreenValues { get => (IReadOnlyList<double>?)GetValue(GreenValuesProperty); set => SetValue(GreenValuesProperty, value); }
         public IReadOnlyList<double>? BlueValues { get => (IReadOnlyList<double>?)GetValue(BlueValuesProperty); set => SetValue(BlueValuesProperty, value); }
         public IReadOnlyList<double>? LumaValues { get => (IReadOnlyList<double>?)GetValue(LumaValuesProperty); set => SetValue(LumaValuesProperty, value); }

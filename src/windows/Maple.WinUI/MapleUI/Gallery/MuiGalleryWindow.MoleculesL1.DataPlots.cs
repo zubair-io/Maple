@@ -56,6 +56,18 @@ namespace Maple.UI.Gallery
                 },
             });
 
+            var scopeDensity = new uint[128 * 128];
+            scopeDensity[64 * 128 + 64] = 10000;
+            foreach (var target in ScopeTargets.Values)
+            {
+                var column = Math.Clamp((int)((target.Cb + 0.5) * 128), 0, 127);
+                var row = Math.Clamp((int)((target.Cr + 0.5) * 128), 0, 127);
+                scopeDensity[row * 128 + column] = 255;
+            }
+            AddSpecimen(panel, "Vectorscope density", "Native Rec.709 bins; neutral and six pure colors. Default / rotated skin-tone band.", Row(
+                new MuiVectorscope { Bins = scopeDensity, ScopeSize = 180 },
+                new MuiVectorscope { Bins = scopeDensity, ScopeSize = 180, RedAt3OClock = true, ShowSkinToneLine = true }));
+
             AddSpecimen(panel, "Curve Plot", "Draggable point curve.", Row(
                 new MuiCurvePlot(),
                 new MuiCurvePlot
