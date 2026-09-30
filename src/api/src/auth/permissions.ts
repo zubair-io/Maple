@@ -25,7 +25,7 @@ export function userFileAccess(user: { role: UserRole; file_access?: boolean }):
  */
 export function accessClaimsFor(user: UserWithId): {
   sub: string;
-  email: string;
+  email: string | null;
   role: UserRole;
   file_access: boolean;
 } {
@@ -44,7 +44,7 @@ export function accessClaimsFor(user: UserWithId): {
  */
 export function toPublicAuthUser(user: UserWithId): {
   id: string;
-  email: string;
+  email: string | null;
   role: UserRole;
   file_access: boolean;
 } {

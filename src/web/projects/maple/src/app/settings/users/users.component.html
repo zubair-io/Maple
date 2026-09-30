@@ -3,9 +3,9 @@
     <div class="titles">
       <h1>Users</h1>
       <p>
-        Who can sign in to this Maple instance. Owners can change every setting and invite new
-        members. Members with file access can browse folders and move files; without it they keep
-        photo backup, timeline, and search.
+        Who can sign in to this Maple instance. New members use a passkey and do not need an email
+        address. Owners can change every setting and invite members. Members with file access can
+        browse folders and move files; without it they keep photo backup, timeline, and search.
       </p>
     </div>
     <div class="actions">
@@ -13,10 +13,12 @@
         variant="primary"
         size="sm"
         data-testid="invite-user-btn"
-        (pressed)="openInvite()"
+        [disabled]="busy()"
+        [loading]="busy()"
+        (pressed)="createInvite()"
       >
         <maple-settings-icon name="plus" [size]="13" [color]="'#fff'" />
-        Invite user
+        Create invite code
       </mui-button>
     </div>
   </header>
@@ -24,45 +26,17 @@
   <div
     class="users-body px-9 py-6 flex flex-col gap-7 max-w-[960px] max-[767px]:p-4 max-[767px]:gap-[22px]"
   >
-    @if (showInviteForm()) {
-      <form
-        class="invite-form flex gap-2 max-[767px]:flex-col"
-        (submit)="createInvite(); $event.preventDefault()"
-      >
-        <mui-input
-          [(value)]="email"
-          placeholder="invitee@example.com"
-          autocomplete="off"
-          ariaLabel="Invitee email"
-        />
-        <mui-button
-          class="max-[767px]:w-full"
-          variant="primary"
-          size="sm"
-          [disabled]="!email"
-          [loading]="busy()"
-          (pressed)="createInvite()"
-        >
-          Send invite
-        </mui-button>
-      </form>
-    }
-
     @if (freshInvite(); as fi) {
       <section
         class="fresh-invite border-[0.5px] border-[rgba(74,222,128,0.4)] bg-[rgba(74,222,128,0.05)] rounded-md p-4"
       >
-        <div class="set-subhead">New invite for {{ fi.email }}</div>
+        <div class="set-subhead">Invite code created</div>
+        <p class="mt-1 mb-3 text-[11.5px] text-[var(--s-text-muted)]">
+          Copy this code and share it directly with the new user. Maple will not email it.
+        </p>
         <div
           class="fresh-row flex gap-4 items-start max-[767px]:flex-col max-[767px]:items-center max-[767px]:text-center"
         >
-          <img
-            class="qr bg-white p-1 rounded-[4px]"
-            [src]="qrSrc(fi)"
-            alt="Invite QR"
-            width="120"
-            height="120"
-          />
           <div class="fresh-meta flex-1 flex flex-col gap-2 text-[12.5px]">
             <div>
               <span class="meta-label text-[var(--s-text-muted)] mr-2">Code</span>
@@ -112,9 +86,11 @@
                 class="avatar w-7 h-7 rounded-full flex items-center justify-center text-[12px] text-[var(--s-text)] font-medium"
                 [style.background]="avatarColor(u.email)"
               >
-                {{ u.email[0].toUpperCase() }}
+                {{ (u.email ?? 'M')[0].toUpperCase() }}
               </div>
-              <span class="set-mono email text-[12.5px] text-[var(--s-text)]">{{ u.email }}</span>
+              <span class="set-mono email text-[12.5px] text-[var(--s-text)]">{{
+                userLabel(u)
+              }}</span>
               @if (u.id === currentUser()?.id) {
                 <span
                   class="you-chip font-[var(--s-mono)] text-[9px] py-px px-[5px] rounded-[3px] bg-[rgba(74,222,128,0.15)] text-[var(--s-ok)] tracking-[0.4px]"
@@ -138,7 +114,7 @@
                 [disabled]="togglingId() === u.id"
                 [value]="u.role"
                 (change)="setRole(u, $any($event.target).value)"
-                [attr.aria-label]="'Role for ' + u.email"
+                [attr.aria-label]="'Role for ' + userLabel(u)"
               >
                 <option value="owner">OWNER</option>
                 <option value="member">MEMBER</option>
@@ -193,7 +169,9 @@
               class="invite-row grid items-center py-3 px-4 gap-3 border-b-[0.5px] border-b-[var(--s-border)] last:border-b-0 grid-cols-[minmax(0,1fr)_200px_100px_200px_80px] max-[1023px]:grid-cols-[minmax(0,1fr)_160px_80px_140px_70px] max-[767px]:grid-cols-1 max-[767px]:auto-rows-auto max-[767px]:gap-1 max-[767px]:py-3 max-[767px]:px-3.5 [&.is-consumed]:opacity-50 max-[767px]:[&_.invite-code]:text-left max-[767px]:[&_.invite-code]:justify-self-start max-[767px]:[&_.dim]:text-left max-[767px]:[&_.dim]:justify-self-start max-[767px]:[&_.actions-cell]:text-left max-[767px]:[&_.actions-cell]:justify-self-start"
               [class.is-consumed]="inv.consumed_at !== null"
             >
-              <span class="set-mono email text-[12.5px] text-[var(--s-text)]">{{ inv.email }}</span>
+              <span class="set-mono email text-[12.5px] text-[var(--s-text)]"
+                >Anyone with code</span
+              >
               <span class="invite-code inline-flex items-center gap-1.5">
                 <code class="set-mono text-[12px] text-[var(--s-text-mid)] tracking-[0.4px]">{{
                   inv.code

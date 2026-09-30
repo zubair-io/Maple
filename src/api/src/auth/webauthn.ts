@@ -98,7 +98,7 @@ export function credentialFromRegistration(args: {
 }
 
 export async function buildRegistrationOptions(args: {
-  email: string;
+  email: string | null;
   inviteCode: string | null;
   existingUserId: ObjectId | null;
   excludeCredentialIds: string[];
@@ -115,7 +115,7 @@ export async function buildRegistrationOptions(args: {
     userID: args.existingUserId
       ? new TextEncoder().encode(args.existingUserId.toHexString())
       : new Uint8Array(randomBytes(32)),
-    userName: args.email,
+    userName: args.email ?? 'Maple passkey user',
     attestationType: 'none',
     // residentKey 'required' (#1304): store a DISCOVERABLE credential so the user
     // can sign in without first typing an email — the authenticator offers the
@@ -127,7 +127,7 @@ export async function buildRegistrationOptions(args: {
     challenge: opts.challenge,
     purpose: args.existingUserId ? 'add_credential' : 'register',
     user_id: args.existingUserId,
-    email: args.email.toLowerCase(),
+    email: args.email?.toLowerCase() ?? null,
     invite_code: args.inviteCode,
   });
   return opts;
@@ -146,7 +146,7 @@ async function verifyRegistration(args: {
   });
 }
 
-export async function buildAuthenticationOptions(userId: ObjectId, email: string) {
+export async function buildAuthenticationOptions(userId: ObjectId, email: string | null) {
   // Ids and transports only — a passkey's COSE public key has no place in a
   // ceremony's options, and the repository's projection keeps it out.
   const allowed = await listCredentialDescriptorsForUser(userId);
@@ -162,7 +162,7 @@ export async function buildAuthenticationOptions(userId: ObjectId, email: string
     challenge: opts.challenge,
     purpose: 'authenticate',
     user_id: userId,
-    email: email.toLowerCase(),
+    email: email?.toLowerCase() ?? null,
     invite_code: null,
   });
   return opts;

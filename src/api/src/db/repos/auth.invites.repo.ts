@@ -1,21 +1,13 @@
 /**
  * `invites` — the SQLite port of `auth/invites.ts` (#3751).
  *
- * Same four functions, same signatures, same thrown errors. An invite is a
- * short base32 code an owner hands to someone so their WebAuthn registration
- * is allowed to create an account on a server that is already claimed.
+ * An invite is a short base32 code an owner shares with someone so their
+ * WebAuthn registration can create a member account on a claimed server.
  *
- * `expires_at` stays a `Date` on the way out because `InviteDoc` declares one —
- * on Mongo it had to be a `Date` for the TTL monitor to see it at all. The
- * column is ISO text, swept by {@link sweepExpiredAuthRows} instead.
+ * Expiry is checked before and during the atomic update that spends a code.
+ * The timestamp is stored as ISO text and returned as a Date.
  *
- * Redeeming is deliberately still read-then-write rather than a single
- * compare-and-swap. The four rejection reasons — unknown code, wrong email,
- * already consumed, expired — are distinct 410s the caller reports separately,
- * and a swap can only say "nothing matched". Two people racing the same code
- * could in principle both pass the check, which is exactly as true on Mongo;
- * the invite names one email address, so the race is between two attempts by
- * the same person.
+ * Codes are single-use, expire after fifteen minutes, and accept no email identity.
  */
 
 import type { ObjectId } from '../object-id.ts';
@@ -31,35 +23,29 @@ import type { InviteDoc } from '../schema.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
-// The alphabet and the lifetime are shared with the Mongo store rather than
-// redeclared — see `auth/invite-code.ts` for why one definition matters.
-
 interface InviteRow {
   code: string;
-  email: string;
   invited_by: string;
   expires_at: string;
   consumed_at: string | null;
 }
 
-/** Mint an invite for one email address. */
+/** Mint an invite code that can be shared directly, without an email address. */
 export async function createInvite(
   invitedBy: ObjectId,
-  email: string,
   dbOverride?: SqliteDb,
 ): Promise<InviteDoc & { code: string; expires_at: Date }> {
   const code = generateInviteCode();
   const doc: InviteDoc = {
     code,
-    email: email.toLowerCase(),
     invited_by: invitedBy,
     expires_at: new Date(Date.now() + INVITE_TTL_MS),
     consumed_at: null,
   };
   await sqliteDb(dbOverride).write(
-    `INSERT INTO invites (id, code, email, invited_by, expires_at, consumed_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [newObjectIdHex(), doc.code, doc.email, toHex(invitedBy), doc.expires_at.toISOString(), null],
+    `INSERT INTO invites (id, code, invited_by, expires_at, consumed_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [newObjectIdHex(), doc.code, toHex(invitedBy), doc.expires_at.toISOString(), null],
   );
   return doc;
 }
@@ -67,27 +53,33 @@ export async function createInvite(
 /**
  * Spend an invite, or throw a 410 naming the reason.
  *
- * The checks run in the order the Mongo version ran them, because the message
- * a caller sees is part of the behaviour: "invite/email mismatch" and "invite
- * expired" are different things to tell someone who cannot register.
+ * The guarded update elects exactly one winner when registrations race and
+ * refuses a code revoked or expired after the initial read.
  */
 export async function redeemInvite(
   code: string,
-  email: string,
   dbOverride?: SqliteDb,
 ): Promise<{ ok: true; invitedBy: ObjectId }> {
   const db = sqliteDb(dbOverride);
   const rows = await db.read<InviteRow>(
-    `SELECT code, email, invited_by, expires_at, consumed_at FROM invites WHERE code = ?`,
+    `SELECT code, invited_by, expires_at, consumed_at FROM invites WHERE code = ?`,
     [code],
   );
   const row = rows[0];
   // Named rather than passed inline so the assertion's narrowing lands on
   // something the rest of the function can use.
   const invite = row === undefined ? null : { ...row, expires_at: toDate(row.expires_at) };
-  assertInviteRedeemable(invite, email);
+  assertInviteRedeemable(invite);
 
-  await db.write(`UPDATE invites SET consumed_at = ? WHERE code = ?`, [nowIso(), code]);
+  const now = nowIso();
+  const spent = await db.write(
+    `UPDATE invites SET consumed_at = ?
+     WHERE code = ? AND consumed_at IS NULL AND expires_at >= ?`,
+    [now, code, now],
+  );
+  if (spent.changes !== 1) {
+    throw Object.assign(new Error('invite no longer redeemable'), { status: 410 });
+  }
   return { ok: true, invitedBy: toObjectId(invite.invited_by) };
 }
 
@@ -99,23 +91,21 @@ export async function redeemInvite(
  * not consume it — the registration is only allowed to spend the invite once
  * the authenticator has actually produced a credential, on `/register/verify`.
  * It also reports a narrower set of reasons than {@link redeemInvite} does (one
- * "invite invalid" covering unknown/consumed/expired, and a separate
- * "invite/email mismatch"), so it does its own checks on the row rather than
+ * "invite invalid" covering unknown/consumed/expired), so it checks the row rather than
  * borrowing the assertion.
  */
 export async function findInviteByCode(
   code: string,
   dbOverride?: SqliteDb,
-): Promise<Pick<InviteDoc, 'code' | 'email' | 'expires_at' | 'consumed_at'> | null> {
+): Promise<Pick<InviteDoc, 'code' | 'expires_at' | 'consumed_at'> | null> {
   const rows = await sqliteDb(dbOverride).read<InviteRow>(
-    `SELECT code, email, expires_at, consumed_at FROM invites WHERE code = ?`,
+    `SELECT code, expires_at, consumed_at FROM invites WHERE code = ?`,
     [code],
   );
   const row = rows[0];
   if (row === undefined) return null;
   return {
     code: row.code,
-    email: row.email,
     expires_at: toDate(row.expires_at),
     consumed_at: row.consumed_at,
   };
@@ -125,18 +115,16 @@ export async function findInviteByCode(
  * Every invite, for the owner's pending-invites list.
  *
  * Ordered by id, which is the order they were created in — an ObjectId's
- * leading bytes are its timestamp — and therefore the same order Mongo's
- * unsorted `find` returned them in, only stated rather than incidental.
+ * leading bytes are its timestamp.
  */
 export async function listInvites(
   dbOverride?: SqliteDb,
-): Promise<Pick<InviteDoc, 'code' | 'email' | 'expires_at' | 'consumed_at'>[]> {
+): Promise<Pick<InviteDoc, 'code' | 'expires_at' | 'consumed_at'>[]> {
   const rows = await sqliteDb(dbOverride).read<InviteRow>(
-    `SELECT code, email, expires_at, consumed_at FROM invites ORDER BY id ASC`,
+    `SELECT code, expires_at, consumed_at FROM invites ORDER BY id ASC`,
   );
   return rows.map((row) => ({
     code: row.code,
-    email: row.email,
     expires_at: toDate(row.expires_at),
     consumed_at: row.consumed_at,
   }));

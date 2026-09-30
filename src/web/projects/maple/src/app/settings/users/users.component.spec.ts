@@ -8,14 +8,6 @@
 // house pattern, AuthService is stubbed as a Partial rather than exercised
 // through HttpTestingController.
 //
-// The invite-form's `email` field is bound with plain `<form>` + `[(ngModel)]`
-// (template-driven forms, no `[formGroup]`). Angular's `NgForm.addControl`
-// wires up the real value accessor (`registerOnChange`, etc.) via a
-// `resolvedPromise.then(...)` microtask, not synchronously — so a test has to
-// let one microtask tick pass after the form first renders before dispatching
-// an `input` event, or the control's `onChange` is still the accessor's
-// no-op default and the typed value never reaches the component.
-
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -53,7 +45,6 @@ describe('UsersComponent', () => {
 
   const invite = (overrides: Partial<Record<string, unknown>> = {}) => ({
     code: 'ABC123',
-    email: 'new@justmaple.app',
     expires_at: '2026-09-01T00:00:00Z',
     consumed_at: null,
     ...overrides,
@@ -116,22 +107,6 @@ describe('UsersComponent', () => {
    * this.refresh()` → `await auth.listInvites()`, each its own hop. */
   async function settle(hops = 6): Promise<void> {
     for (let i = 0; i < hops; i++) await Promise.resolve();
-  }
-
-  /** Open the invite form and type an email into it. */
-  async function openFormAndTypeEmail(email: string): Promise<void> {
-    el().querySelector<HTMLButtonElement>('[data-testid="invite-user-btn"] button')!.click();
-    fixture.detectChanges();
-    // Let NgForm's addControl microtask wire up the real value accessor
-    // (see file header) before dispatching input.
-    await Promise.resolve();
-
-    const emailInput = el().querySelector<HTMLInputElement>(
-      'mui-input input[aria-label="Invitee email"]',
-    )!;
-    emailInput.value = email;
-    emailInput.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
   }
 
   it('renders the full roster with a YOU chip on the signed-in row (#2893)', async () => {
@@ -201,9 +176,7 @@ describe('UsersComponent', () => {
   });
 
   it('renders one invite-row per pending invite from listInvites()', async () => {
-    const listInvites = vi
-      .fn()
-      .mockResolvedValue([invite(), invite({ code: 'DEF456', email: 'b@justmaple.app' })]);
+    const listInvites = vi.fn().mockResolvedValue([invite(), invite({ code: 'DEF456' })]);
     await setup({ listInvites });
     fixture.detectChanges();
     await settle();
@@ -211,7 +184,7 @@ describe('UsersComponent', () => {
 
     const rows = el().querySelectorAll('.invite-row');
     expect(rows.length).toBe(2);
-    expect(el().textContent).toContain('new@justmaple.app');
+    expect(el().textContent).toContain('Anyone with code');
     expect(el().textContent).toContain('DEF456');
   });
 
@@ -239,7 +212,7 @@ describe('UsersComponent', () => {
     expect(row.querySelector('.revoke-btn')).toBeNull();
   });
 
-  it('Invite user opens the form; submitting calls createInvite and shows the fresh-invite card', async () => {
+  it('creates an email-free invite and tells the owner to share the code', async () => {
     const createInvite = vi
       .fn()
       .mockResolvedValue({ code: 'NEWCODE', expires_at: '2026-09-01T00:00:00Z' });
@@ -249,18 +222,19 @@ describe('UsersComponent', () => {
     await Promise.resolve();
     fixture.detectChanges();
 
-    await openFormAndTypeEmail('new@justmaple.app');
-    expect(el().querySelector('.invite-form')).toBeTruthy();
-
-    el().querySelector<HTMLButtonElement>('.invite-form mui-button button')!.click();
+    expect(el().textContent).not.toContain('Email-free testing access');
+    expect(
+      el().querySelector<HTMLButtonElement>('[data-testid="invite-user-btn"] button')?.disabled,
+    ).toBe(false);
+    el().querySelector<HTMLButtonElement>('[data-testid="invite-user-btn"] button')!.click();
     await settle();
     fixture.detectChanges();
 
-    expect(createInvite).toHaveBeenCalledWith('new@justmaple.app');
-    expect(el().querySelector('.invite-form')).toBeNull(); // form closes on success
+    expect(createInvite).toHaveBeenCalledWith();
     const fresh = el().querySelector('.fresh-invite')!;
     expect(fresh).toBeTruthy();
     expect(fresh.textContent).toContain('NEWCODE');
+    expect(fresh.textContent).toContain('Maple will not email it');
     expect(listInvites).toHaveBeenCalledTimes(2); // ngOnInit + post-create refresh
   });
 
@@ -271,8 +245,7 @@ describe('UsersComponent', () => {
     await Promise.resolve();
     fixture.detectChanges();
 
-    await openFormAndTypeEmail('x@justmaple.app');
-    el().querySelector<HTMLButtonElement>('.invite-form mui-button button')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="invite-user-btn"] button')!.click();
     await settle();
     fixture.detectChanges();
 
@@ -310,8 +283,7 @@ describe('UsersComponent', () => {
     await Promise.resolve();
     fixture.detectChanges();
 
-    await openFormAndTypeEmail('new@justmaple.app');
-    el().querySelector<HTMLButtonElement>('.invite-form mui-button button')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="invite-user-btn"] button')!.click();
     await settle();
     fixture.detectChanges();
     expect(el().querySelector('.fresh-invite')).toBeTruthy();

@@ -1,5 +1,6 @@
 import Security
 import XCTest
+
 @testable import MapleCore
 
 /// Covers the offline-tolerant bootstrap matrix introduced to stop the
@@ -12,7 +13,7 @@ final class AuthSessionTests: XCTestCase {
   private let server = URL(string: "https://authsession-test.invalid:8443")!
   private let tokens = AuthTokens(access: "A1", refresh: "R1")
   private let cachedUser = AuthUser(id: "u-cached", email: "cached@x", role: "member")
-  private let freshUser  = AuthUser(id: "u-fresh",  email: "fresh@x",  role: "member")
+  private let freshUser = AuthUser(id: "u-fresh", email: "fresh@x", role: "member")
 
   override func setUp() async throws {
     StubURLProtocol.register()
@@ -44,7 +45,8 @@ final class AuthSessionTests: XCTestCase {
     do {
       try TokenStore.save(tokens, server: server)
     } catch let nsErr as NSError
-      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement) {
+      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement)
+    {
       throw XCTSkip("Keychain entitlement not granted: \(nsErr)")
     }
   }
@@ -54,7 +56,8 @@ final class AuthSessionTests: XCTestCase {
     do {
       return try TokenStore.load(server: server)
     } catch let nsErr as NSError
-      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement) {
+      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement)
+    {
       throw XCTSkip("Keychain entitlement not granted: \(nsErr)")
     }
   }
@@ -171,7 +174,9 @@ final class AuthSessionTests: XCTestCase {
       case "/api/auth/me":
         let auth = req.value(forHTTPHeaderField: "Authorization")
         if auth == "Bearer A1" { return .http(status: 401, body: Data()) }
-        if auth == "Bearer A2" { return .http(status: 200, body: Self.meBody(user: self.freshUser)) }
+        if auth == "Bearer A2" {
+          return .http(status: 200, body: Self.meBody(user: self.freshUser))
+        }
         return .http(status: 500, body: Data())
       case "/api/auth/refresh":
         return .http(status: 200, body: Data(#"{"access_token":"A2","refresh_token":"R2"}"#.utf8))
@@ -257,8 +262,9 @@ final class AuthSessionTests: XCTestCase {
     }
     let s = makeSession()
     await s.bootstrapAndRestore()
-    XCTAssertEqual(try loadTokensOrSkip(), freshTokens,
-                   "rotated tokens must be saved even when post-refresh /me fails")
+    XCTAssertEqual(
+      try loadTokensOrSkip(), freshTokens,
+      "rotated tokens must be saved even when post-refresh /me fails")
     XCTAssertTrue(s.hasCredentials)
     // /me never returned a fresh user, so the cached one is the best
     // we have. Next bootstrap will fill it in.
@@ -291,7 +297,8 @@ final class AuthSessionTests: XCTestCase {
 
     await s.handleAuthExpired()
 
-    XCTAssertFalse(s.isSignedIn, "a rejected refresh must flip the observable session to signed-out")
+    XCTAssertFalse(
+      s.isSignedIn, "a rejected refresh must flip the observable session to signed-out")
     XCTAssertFalse(s.hasCredentials)
     XCTAssertNil(s.user)
     XCTAssertNil(try loadTokensOrSkip(), "forced sign-out must clear the Keychain")
@@ -382,7 +389,9 @@ final class AuthSessionTests: XCTestCase {
     // default fixtures keep exercising the pre-#2899 wire shape (absent
     // key ⇒ granted).
     let fileAccess = user.file_access.map { #","file_access":\#($0)"# } ?? ""
-    let json = #"{"user":{"id":"\#(user.id)","email":"\#(user.email)","role":"\#(user.role)"\#(fileAccess)},"credentials":[]}"#
+    let emailField = user.email.map { #""email":"\#($0)","# } ?? ""
+    let json =
+      #"{"user":{"id":"\#(user.id)",\#(emailField)"role":"\#(user.role)"\#(fileAccess)},"credentials":[]}"#
     return Data(json.utf8)
   }
 }

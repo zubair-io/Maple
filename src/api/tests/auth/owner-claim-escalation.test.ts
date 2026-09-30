@@ -65,14 +65,14 @@ function sentinelPlanted(): boolean {
 }
 
 /** The invited-member registration ceremony (options → soft-authn → verify). */
-async function registerInvited(email: string, inviteCode: string, ip: string) {
-  const optsRes = await post('/api/auth/register/options', { email, invite_code: inviteCode }, ip);
+async function registerInvited(inviteCode: string, ip: string) {
+  const optsRes = await post('/api/auth/register/options', { invite_code: inviteCode }, ip);
   expect(optsRes.status).toBe(200);
   const { challenge } = (await optsRes.json()) as { challenge: string };
   const built = await buildRegistrationResponse({ challenge, rpId: RP_ID, origin: ORIGIN });
   const verifyRes = await post(
     '/api/auth/register/verify',
-    { email, device_label: 'phone', credential: built.response },
+    { invite_code: inviteCode, device_label: 'phone', credential: built.response },
     ip,
   );
   return verifyRes;
@@ -84,14 +84,13 @@ describe('owner-claim escalation (#2920)', () => {
     const code = 'INVITE01';
     seedInvite(live.db, {
       code,
-      email: 'invitee@maple.test',
       invitedBy: ownerID,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
 
-    const res = await registerInvited('invitee@maple.test', code, '203.0.113.10');
+    const res = await registerInvited(code, '203.0.113.10');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { user?: { role: string } };
+    const body = (await res.json()) as { user?: { id: string; role: string } };
     expect(body.user?.role).toBe('member');
 
     // The invite was consumed on the member path.
@@ -101,28 +100,24 @@ describe('owner-claim escalation (#2920)', () => {
     expect(invite?.consumed_at).not.toBeNull();
 
     // And the stored row agrees with the response.
-    const stored = live.db
-      .query(`SELECT role FROM users WHERE email = ?`)
-      .get('invitee@maple.test') as { role: string } | null;
+    const stored = live.db.query(`SELECT role FROM users WHERE id = ?`).get(body.user!.id) as {
+      role: string;
+    } | null;
     expect(stored?.role).toBe('member');
   });
 
   it('a genuinely fresh install still claims ownership on first registration', async () => {
-    const optsRes = await post(
-      '/api/auth/register/options',
-      { email: 'first@maple.test' },
-      '203.0.113.11',
-    );
+    const optsRes = await post('/api/auth/register/options', {}, '203.0.113.11');
     expect(optsRes.status).toBe(200);
     const { challenge } = (await optsRes.json()) as { challenge: string };
     const built = await buildRegistrationResponse({ challenge, rpId: RP_ID, origin: ORIGIN });
     const verifyRes = await post(
       '/api/auth/register/verify',
-      { email: 'first@maple.test', device_label: 'laptop', credential: built.response },
+      { device_label: 'laptop', credential: built.response },
       '203.0.113.11',
     );
     expect(verifyRes.status).toBe(200);
-    const body = (await verifyRes.json()) as { user?: { role: string } };
+    const body = (await verifyRes.json()) as { user?: { id: string; role: string } };
     expect(body.user?.role).toBe('owner');
     expect(sentinelPlanted()).toBe(true);
   });

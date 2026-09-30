@@ -26,10 +26,14 @@ import { initialSchemaMigration } from './0001-initial-schema.ts';
 import { stageStateMediaKindMigration } from './0002-stage-state-media-kind.ts';
 import { facetStateMigration } from './0003-facet-state.ts';
 import { stageStateAssetClaimableMigration } from './0004-stage-state-asset-claimable.ts';
+import { optionalUserEmailMigration } from './0005-optional-user-email.ts';
+import { emailFreeInvitesMigration } from './0006-email-free-invites.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
   stageStateMediaKindMigration,
   facetStateMigration,
   stageStateAssetClaimableMigration,
+  optionalUserEmailMigration,
+  emailFreeInvitesMigration,
 ];

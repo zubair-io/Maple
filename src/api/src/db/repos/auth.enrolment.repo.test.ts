@@ -39,42 +39,36 @@ async function seedUser(db: SqliteDb, email = 'owner@example.com'): Promise<Obje
 }
 
 describe('invites', () => {
-  test('an invite redeems once, for the address it names', async () => {
+  test('an email-free invite redeems once', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const owner = await seedUser(db);
-    const invite = await createInvite(owner, 'Guest@Example.com', db);
-    expect(invite.email).toBe('guest@example.com');
+    const invite = await createInvite(owner, db);
+    expect(invite).not.toHaveProperty('email');
 
-    const redeemed = await redeemInvite(invite.code, 'guest@example.com', db);
+    const redeemed = await redeemInvite(invite.code, db);
     expect(redeemed.invitedBy.toHexString()).toBe(owner.toHexString());
-    await expect(redeemInvite(invite.code, 'guest@example.com', db)).rejects.toThrow(
-      /invite consumed/,
-    );
+    await expect(redeemInvite(invite.code, db)).rejects.toThrow(/invite consumed/);
   });
 
-  test('each rejection says which thing was wrong', async () => {
+  test('unknown, consumed, and expired invites report why redemption failed', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const owner = await seedUser(db);
-    const invite = await createInvite(owner, 'guest@example.com', db);
+    const invite = await createInvite(owner, db);
 
-    await expect(redeemInvite('NOSUCH', 'guest@example.com', db)).rejects.toThrow(
-      /invite not found/,
-    );
-    await expect(redeemInvite(invite.code, 'other@example.com', db)).rejects.toThrow(
-      /invite\/email mismatch/,
-    );
-    await db.write(`UPDATE invites SET expires_at = ?`, [PAST]);
-    await expect(redeemInvite(invite.code, 'guest@example.com', db)).rejects.toThrow(
-      /invite expired/,
-    );
+    await expect(redeemInvite('NOSUCH', db)).rejects.toThrow(/invite not found/);
+    await redeemInvite(invite.code, db);
+    await expect(redeemInvite(invite.code, db)).rejects.toThrow(/invite consumed/);
+    const expired = await createInvite(owner, db);
+    await db.write(`UPDATE invites SET expires_at = ? WHERE code = ?`, [PAST, expired.code]);
+    await expect(redeemInvite(expired.code, db)).rejects.toThrow(/invite expired/);
   });
 
   test('a rejection carries the 410 the route reports', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
-    const error = await redeemInvite('NOSUCH', 'g@x.com', db).catch((e: unknown) => e);
+    const error = await redeemInvite('NOSUCH', db).catch((e: unknown) => e);
     expect((error as { status?: number }).status).toBe(410);
   });
 
@@ -82,19 +76,19 @@ describe('invites', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const owner = await seedUser(db);
-    const first = await createInvite(owner, 'a@x.com', db);
-    await createInvite(owner, 'b@x.com', db);
-    expect((await listInvites(db)).map((i) => i.email)).toEqual(['a@x.com', 'b@x.com']);
+    const first = await createInvite(owner, db);
+    await createInvite(owner, db);
+    expect(await listInvites(db)).toHaveLength(2);
 
     await rescindInvite(first.code, db);
-    expect((await listInvites(db)).map((i) => i.email)).toEqual(['b@x.com']);
+    expect(await listInvites(db)).toHaveLength(1);
   });
 
   test('expires_at comes back as the Date the DTO promises', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const owner = await seedUser(db);
-    await createInvite(owner, 'a@x.com', db);
+    await createInvite(owner, db);
     expect((await listInvites(db))[0]?.expires_at).toBeInstanceOf(Date);
   });
 
@@ -102,17 +96,17 @@ describe('invites', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const owner = await seedUser(db);
-    const invite = await createInvite(owner, 'guest@example.com', db);
+    const invite = await createInvite(owner, db);
 
     const peeked = await findInviteByCode(invite.code, db);
-    expect(peeked?.email).toBe('guest@example.com');
+    expect(peeked).not.toHaveProperty('email');
     expect(peeked?.consumed_at).toBeNull();
     expect(peeked?.expires_at).toBeInstanceOf(Date);
 
     // Still redeemable afterwards — this is the whole point of the peek: the
     // invite may only be spent once the authenticator has produced a
     // credential, which happens on a later request.
-    await redeemInvite(invite.code, 'guest@example.com', db);
+    await redeemInvite(invite.code, db);
     expect((await findInviteByCode(invite.code, db))?.consumed_at).not.toBeNull();
   });
 
@@ -325,7 +319,7 @@ describe('the expiry sweep', () => {
     const db = testSqliteDb(handle.db);
     const owner = await seedUser(db);
 
-    await createInvite(owner, 'live@x.com', db);
+    await createInvite(owner, db);
     await storeChallenge(
       { challenge: 'live', purpose: 'register', user_id: null, email: null, invite_code: null },
       db,
@@ -345,8 +339,8 @@ describe('the expiry sweep', () => {
       [PAST],
     );
     await db.write(
-      `INSERT INTO invites (id, code, email, invited_by, expires_at)
-       VALUES ('000000000000000000000002', 'STALECODE', 'x@x.com', ?, ?)`,
+      `INSERT INTO invites (id, code, invited_by, expires_at)
+       VALUES ('000000000000000000000002', 'STALECODE', ?, ?)`,
       [owner.toHexString(), PAST],
     );
     await db.write(
@@ -378,7 +372,7 @@ describe('the expiry sweep', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const owner = await seedUser(db);
-    await createInvite(owner, 'a@x.com', db);
+    await createInvite(owner, db);
     // Far enough in the future that the fifteen-minute invite has lapsed.
     const result = await sweepExpiredAuthRows('2030-01-01T00:00:00.000Z', db);
     expect(result.removed.invites).toBe(1);

@@ -60,7 +60,7 @@ function req(
 // Each sensitive route with a schema-valid body, so a rejection is the step-up
 // gate (403), not body validation.
 const SENSITIVE: ReadonlyArray<readonly [string, string, unknown]> = [
-  ['POST', '/api/auth/invites', { email: 'invitee@maple.test' }],
+  ['POST', '/api/auth/invites', {}],
   ['DELETE', '/api/auth/invites/some-code', undefined],
   ['POST', '/api/auth/credentials/verify', { credential: {}, device_label: 'x' }],
   ['DELETE', `/api/auth/credentials/${new ObjectId().toHexString()}`, undefined],

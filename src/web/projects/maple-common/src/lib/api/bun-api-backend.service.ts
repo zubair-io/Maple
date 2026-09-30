@@ -31,7 +31,7 @@ export type { ApiFolder, ApiHistogram } from '../workspace/server-library-io';
 /** One row of the owner-only user roster (#2893). */
 export interface ApiUser {
   id: string;
-  email: string;
+  email: string | null;
   role: 'owner' | 'member';
   file_access: boolean;
   created_at: string;

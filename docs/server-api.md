@@ -34,21 +34,21 @@ Passkey ceremonies are two-step throughout: an `options` call returns the WebAut
 
 | Method | Path                            | Auth            | Purpose                                                                                                          |
 | ------ | ------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/auth/bootstrap`           | public          | Whether this server has been claimed yet, so a fresh client knows to show register-as-owner or redeem-invite     |
-| POST   | `/api/auth/register/options`    | public          | Registration challenge. Body carries email and, for a non-owner, an invite code                                  |
+| GET    | `/api/auth/bootstrap`           | public          | Whether the server is claimed and whether local dev login is enabled                                             |
+| POST   | `/api/auth/register/options`    | public          | Registration challenge. First owner needs no invite code; claimed servers require an invite code                 |
 | POST   | `/api/auth/register/verify`     | public          | Complete registration. First registration claims ownership; later ones consume an invite                         |
 | POST   | `/api/auth/login/options`       | public          | Authentication challenge                                                                                         |
 | POST   | `/api/auth/login/verify`        | public          | Complete sign-in; mints a 15-minute access token and a 90-day refresh token                                      |
 | POST   | `/api/auth/refresh`             | public          | Rotate a refresh token for a new pair. Replay inside the 60-second grace window is treated as a retry, not theft |
 | POST   | `/api/auth/logout`              | public          | Revoke the refresh family and clear the cookie. Body: optional `refresh_token`                                   |
 | POST   | `/api/auth/dev-login`           | public          | Passkey bypass. Only registered when `MAPLE_DEV_AUTH=1`; never in production                                     |
-| GET    | `/api/auth/me`                  | bearer          | The signed-in user: id, email, role, `file_access`                                                               |
+| GET    | `/api/auth/me`                  | bearer          | The signed-in user: id, optional legacy email, role, `file_access`                                               |
 | POST   | `/api/auth/step-up/options`     | bearer          | Challenge for a step-up re-authentication                                                                        |
 | POST   | `/api/auth/step-up/verify`      | bearer          | Mint the short-lived `X-Step-Up` token that gates sensitive actions                                              |
 | POST   | `/api/auth/credentials/options` | bearer          | Challenge for adding a passkey                                                                                   |
 | POST   | `/api/auth/credentials/verify`  | bearer +step-up | Register the new passkey                                                                                         |
 | DELETE | `/api/auth/credentials/:id`     | bearer +step-up | Remove a passkey                                                                                                 |
-| POST   | `/api/auth/invites`             | owner +step-up  | Mint an 8-character, single-use, 15-minute invite. Body: `{ email }`                                             |
+| POST   | `/api/auth/invites`             | owner +step-up  | Mint an 8-character, single-use, 15-minute invite for a new email-free passkey account                           |
 | GET    | `/api/auth/invites`             | owner           | List invites with their expiry and consumption state                                                             |
 | DELETE | `/api/auth/invites/:code`       | owner +step-up  | Rescind an invite                                                                                                |
 | POST   | `/api/auth/device-sessions`     | bearer          | Mint a paired-device session (Maple TV) on proof of a refresh token                                              |
@@ -64,7 +64,7 @@ Passkey ceremonies are two-step throughout: an `options` call returns the WebAut
 
 | Method | Path                                 | Auth           | Purpose                                                                                                                                                                  |
 | ------ | ------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/api/users`                         | owner          | Account roster: id, email, role, permissions                                                                                                                             |
+| GET    | `/api/users`                         | owner          | Account roster: id, optional email, role, permissions                                                                                                                    |
 | PATCH  | `/api/users/:id`                     | owner          | Set `file_access` and/or `role`. Refuses to demote the last owner. Changes land only in newly minted tokens — an in-flight one keeps its old claims for up to 15 minutes |
 | GET    | `/api/admin/service-api-keys`        | owner          | List service keys (metadata only; the secret is shown once at creation)                                                                                                  |
 | POST   | `/api/admin/service-api-keys`        | owner +step-up | Mint a key. Body: `{ name, scopes?, expiresAt? }`; the only scope today is `assets:search`                                                                               |
