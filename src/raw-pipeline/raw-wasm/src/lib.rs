@@ -64,6 +64,7 @@ pub mod export;
 /// pass-through over `raw_core::filename`, shared with Apple/Windows via
 /// `raw-ffi` so a template renders byte-identically on every surface.
 pub mod filename;
+pub mod guided_geometry;
 pub mod id;
 /// Imported LCP profiles on the render worker (#3479): register / resolve /
 /// clear bindings plus the sidecar-selection accessor the worker restores

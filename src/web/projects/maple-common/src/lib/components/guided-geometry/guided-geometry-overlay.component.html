@@ -1,0 +1,18 @@
+<svg
+  class="h-full w-full"
+  tabindex="0"
+  role="application"
+  aria-label="Draw geometry guides"
+  aria-describedby="guided-geometry-instructions"
+  (pointerdown)="onDown($event)"
+  (pointermove)="onMove($event)"
+  (pointerup)="onUp($event)"
+  (pointercancel)="onCancel($event)"
+  (keydown)="onKey($event)"
+>
+  @for (path of paths(); track $index) {
+    <path [attr.d]="path" class="guide" />
+  }
+  <path [attr.d]="pendingPath()" class="guide pending" />
+  <circle [attr.cx]="cursorPx().x" [attr.cy]="cursorPx().y" r="5" class="guide" />
+</svg>
