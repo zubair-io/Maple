@@ -19,7 +19,7 @@ import SwiftUI
 struct QRScannerView: View {
   /// Fired when the pasted/scanned payload parses as a `maple://join?…`
   /// invite. Callers typically present `AddMapleCloudSheet` pre-filled with
-  /// `invite.server` / `invite.email` / `invite.code`.
+  /// `invite.server` / `invite.code`.
   var onInvite: (InviteQR) -> Void = { _ in }
 
   /// Fired for any non-invite payload (e.g. legacy Self-Hosted pairing
@@ -38,9 +38,11 @@ struct QRScannerView: View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Scan or paste invite QR")
         .font(.title3.weight(.semibold))
-      Text("Paste the contents of a `maple://join?…` link, or the text decoded from an invite QR code.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
+      Text(
+        "Paste the contents of a `maple://join?…` link, or the text decoded from an invite QR code."
+      )
+      .font(.caption)
+      .foregroundStyle(.secondary)
 
       TextEditor(text: $pasted)
         .frame(minHeight: 80)
@@ -85,5 +87,5 @@ struct QRScannerView: View {
 // preview is just the default empty editor.
 
 #Preview("Default") {
-    QRScannerView()
+  QRScannerView()
 }

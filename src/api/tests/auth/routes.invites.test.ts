@@ -46,7 +46,7 @@ afterEach(() => {
   live.close();
 });
 
-const createInvite = (email: string) =>
+const createInvite = () =>
   app.handle(
     new Request('http://localhost/api/auth/invites', {
       method: 'POST',
@@ -55,7 +55,7 @@ const createInvite = (email: string) =>
         authorization: `Bearer ${ownerJwt}`,
         'x-step-up': ownerStepUp,
       },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({}),
     }),
   );
 
@@ -68,14 +68,14 @@ describe('invites CRUD', () => {
           'content-type': 'application/json',
           authorization: `Bearer ${memberJwt}`,
         },
-        body: JSON.stringify({ email: 'x@y.z' }),
+        body: JSON.stringify({}),
       }),
     );
     expect(r.status).toBe(403);
   });
 
   it('owner creates and lists an invite', async () => {
-    const r = await createInvite('alice@x.y');
+    const r = await createInvite();
     expect(r.status).toBe(200);
     const { code } = (await r.json()) as { code: string };
 
@@ -89,7 +89,7 @@ describe('invites CRUD', () => {
   });
 
   it('owner rescinds an invite', async () => {
-    const cr = await createInvite('alice@x.y');
+    const cr = await createInvite();
     const { code } = (await cr.json()) as { code: string };
     const dr = await app.handle(
       new Request(`http://localhost/api/auth/invites/${code}`, {

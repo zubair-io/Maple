@@ -210,34 +210,45 @@ export async function runMigrations(
     .map((migration) => migration.id);
   const durations: Record<string, number> = {};
 
-  for (const migration of pending) {
-    const startedAt = performance.now();
-    try {
-      await db.exec('BEGIN IMMEDIATE');
-      // Re-read inside the write lock: another process may have applied this
-      // migration between our pending check and our acquiring the lock.
-      const rows = await db.all<{ id: string }>(
-        `SELECT id FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE id = ?`,
-        [migration.id],
-      );
-      if (rows.length > 0) {
+  if (pending.length === 0) return { applied, skipped, durations };
+
+  // Table rebuilds need foreign keys off before BEGIN; changing this pragma
+  // inside a transaction has no effect. Restore the caller's setting on exit.
+  const [pragma] = await db.all<{ foreign_keys: number }>('PRAGMA foreign_keys');
+  const restoreForeignKeys = pragma?.foreign_keys === 1;
+  if (restoreForeignKeys) await db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    for (const migration of pending) {
+      const startedAt = performance.now();
+      try {
+        await db.exec('BEGIN IMMEDIATE');
+        // Re-read inside the write lock: another process may have applied this
+        // migration between our pending check and our acquiring the lock.
+        const rows = await db.all<{ id: string }>(
+          `SELECT id FROM ${SCHEMA_MIGRATIONS_TABLE} WHERE id = ?`,
+          [migration.id],
+        );
+        if (rows.length > 0) {
+          await db.exec('COMMIT');
+          skipped.push(migration.id);
+          continue;
+        }
+        await migration.up(db);
+        const elapsed = Math.round(performance.now() - startedAt);
+        await db.run(
+          `INSERT INTO ${SCHEMA_MIGRATIONS_TABLE} (id, applied_at, duration_ms) VALUES (?, ?, ?)`,
+          [migration.id, new Date().toISOString(), elapsed],
+        );
         await db.exec('COMMIT');
-        skipped.push(migration.id);
-        continue;
+        applied.push(migration.id);
+        durations[migration.id] = elapsed;
+      } catch (err) {
+        await rollbackQuietly(db);
+        throw new Error(`migration ${migration.id} failed: ${errorMessage(err)}`, { cause: err });
       }
-      await migration.up(db);
-      const elapsed = Math.round(performance.now() - startedAt);
-      await db.run(
-        `INSERT INTO ${SCHEMA_MIGRATIONS_TABLE} (id, applied_at, duration_ms) VALUES (?, ?, ?)`,
-        [migration.id, new Date().toISOString(), elapsed],
-      );
-      await db.exec('COMMIT');
-      applied.push(migration.id);
-      durations[migration.id] = elapsed;
-    } catch (err) {
-      await rollbackQuietly(db);
-      throw new Error(`migration ${migration.id} failed: ${errorMessage(err)}`, { cause: err });
     }
+  } finally {
+    if (restoreForeignKeys) await db.exec('PRAGMA foreign_keys = ON');
   }
 
   return { applied, skipped, durations };

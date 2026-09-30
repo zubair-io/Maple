@@ -17,7 +17,7 @@ const ALG = 'HS256';
 
 export interface AccessClaims {
   sub: string; // user_id
-  email: string;
+  email: string | null;
   role: 'owner' | 'member';
   /**
    * Per-user "file access" permission (#2893): may this user browse the
@@ -39,7 +39,7 @@ function secretKey(secret: string): Uint8Array {
  * Web-Crypto-backed signing has no synchronous API.
  */
 export async function signAccessToken(
-  payload: { sub: string; email: string; role: 'owner' | 'member'; file_access: boolean },
+  payload: { sub: string; email: string | null; role: 'owner' | 'member'; file_access: boolean },
   secret: string,
   opts: { expiresInSeconds?: number } = {},
 ): Promise<string> {
@@ -75,7 +75,7 @@ export async function verifyAccessToken(jwt: string, secret: string): Promise<Ac
   const { sub, email, role, file_access, iat, exp } = claims;
   if (
     typeof sub !== 'string' ||
-    typeof email !== 'string' ||
+    (email !== null && typeof email !== 'string') ||
     (role !== 'owner' && role !== 'member')
   ) {
     throw new Error('malformed claims');

@@ -79,15 +79,13 @@ function refreshCookie(res: Response): string {
 
 describe('WebAuthn end-to-end', () => {
   it('claim → sign in → refresh → reuse-detection', async () => {
-    const email = 'owner@maple.test';
-
     // 1. Bootstrap probe — fresh DB, nobody has claimed yet.
     const bootstrap = await app.handle(new Request('http://localhost/api/auth/bootstrap'));
     expect(bootstrap.status).toBe(200);
     expect(await bootstrap.json()).toEqual({ claimed: false, dev_login_enabled: false });
 
     // 2a. Registration options.
-    const regOptsRes = await postJson('/api/auth/register/options', { email });
+    const regOptsRes = await postJson('/api/auth/register/options', {});
     expect(regOptsRes.status).toBe(200);
     const regOpts = (await regOptsRes.json()) as { challenge: string };
     expect(regOpts.challenge).toBeDefined();
@@ -102,16 +100,15 @@ describe('WebAuthn end-to-end', () => {
 
     // 2c. Verify registration.
     const regVerifyRes = await postJson('/api/auth/register/verify', {
-      email,
       device_label: 'test-laptop',
       credential: built.response,
     });
     expect(regVerifyRes.status).toBe(200);
     const regBody = (await regVerifyRes.json()) as {
       access_token: string;
-      user: { id: string; email: string; role: 'owner' | 'member' };
+      user: { id: string; email: string | null; role: 'owner' | 'member' };
     };
-    expect(regBody.user.email).toBe(email);
+    expect(regBody.user.email).toBeNull();
     expect(regBody.user.role).toBe('owner');
     expect(regBody.access_token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     // #857: the refresh token rides ONLY in the httpOnly cookie, not the JSON body.
@@ -145,7 +142,7 @@ describe('WebAuthn end-to-end', () => {
     expect(loginVerifyRes.status).toBe(200);
     const loginBody = (await loginVerifyRes.json()) as {
       access_token: string;
-      user: { id: string; email: string; role: 'owner' | 'member' };
+      user: { id: string; email: string | null; role: 'owner' | 'member' };
     };
     expect(loginBody.user.role).toBe('owner');
     const loginRefresh = refreshCookie(loginVerifyRes);

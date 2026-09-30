@@ -57,17 +57,18 @@ describe('auth/bootstrap', () => {
 });
 
 describe('auth/register options', () => {
-  it('accepts when DB empty (claim flow)', async () => {
+  it('starts an email-free registration when DB empty (claim flow)', async () => {
     const r = await app.handle(
       new Request('http://localhost/api/auth/register/options', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: 'a@b.c' }),
+        body: JSON.stringify({}),
       }),
     );
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { challenge?: string };
+    const body = (await r.json()) as { challenge?: string; user?: { name?: string } };
     expect(body.challenge).toBeDefined();
+    expect(body.user?.name).toBe('Maple passkey user');
   });
 
   it('rejects when claimed and no invite', async () => {
@@ -76,7 +77,7 @@ describe('auth/register options', () => {
       new Request('http://localhost/api/auth/register/options', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: 'x@y.z' }),
+        body: JSON.stringify({}),
       }),
     );
     expect(r.status).toBe(403);

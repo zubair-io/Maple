@@ -10,7 +10,7 @@ const NATIVE_SCHEME_ALLOWLIST = new Set(['maple-app']);
 
 export interface AuthUser {
   id: string;
-  email: string;
+  email: string | null;
   role: 'owner' | 'member';
   /** Per-user "file access" permission (#2893) — wire format from the API.
    * Absent (pre-upgrade server) means granted. */
@@ -176,25 +176,28 @@ export class AuthService {
     return this.user() !== null;
   }
 
-  async bootstrap(): Promise<{ claimed: boolean; dev_login_enabled: boolean }> {
+  async bootstrap(): Promise<{
+    claimed: boolean;
+    dev_login_enabled: boolean;
+  }> {
     return firstValueFrom(
-      this.http.get<{ claimed: boolean; dev_login_enabled: boolean }>('/api/auth/bootstrap'),
+      this.http.get<{
+        claimed: boolean;
+        dev_login_enabled: boolean;
+      }>('/api/auth/bootstrap'),
     );
   }
 
-  async devSignIn(email = 'dev@maple.local'): Promise<void> {
-    const r = await firstValueFrom(this.http.post<any>('/api/auth/dev-login', { email }));
+  async devSignIn(): Promise<void> {
+    const r = await firstValueFrom(this.http.post<any>('/api/auth/dev-login', {}));
     this.acceptTokens(r);
   }
 
-  async claim(email: string, deviceLabel: string): Promise<void> {
-    const optionsJSON = await firstValueFrom(
-      this.http.post<any>('/api/auth/register/options', { email }),
-    );
+  async claim(deviceLabel: string): Promise<void> {
+    const optionsJSON = await firstValueFrom(this.http.post<any>('/api/auth/register/options', {}));
     const credential = await startRegistration({ optionsJSON });
     const r = await firstValueFrom(
       this.http.post<any>('/api/auth/register/verify', {
-        email,
         device_label: deviceLabel,
         credential,
       }),
@@ -202,18 +205,15 @@ export class AuthService {
     this.acceptTokens(r);
   }
 
-  async join(server: string, email: string, code: string, deviceLabel: string): Promise<void> {
-    // Server URL is implicit (same-origin). For a remote server, an optional baseUrl param could be added.
+  async join(code: string, deviceLabel: string): Promise<void> {
     const optionsJSON = await firstValueFrom(
       this.http.post<any>('/api/auth/register/options', {
-        email,
         invite_code: code,
       }),
     );
     const credential = await startRegistration({ optionsJSON });
     const r = await firstValueFrom(
       this.http.post<any>('/api/auth/register/verify', {
-        email,
         device_label: deviceLabel,
         invite_code: code,
         credential,
@@ -440,12 +440,12 @@ export class AuthService {
     return r.invites ?? [];
   }
 
-  async createInvite(email: string): Promise<{ code: string; expires_at: string }> {
+  async createInvite(): Promise<{ code: string; expires_at: string }> {
     const stepUp = await this.stepUp();
     return firstValueFrom(
       this.http.post<{ code: string; expires_at: string }>(
         '/api/auth/invites',
-        { email },
+        {},
         { headers: { 'X-Step-Up': stepUp } },
       ),
     );

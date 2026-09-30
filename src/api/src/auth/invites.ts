@@ -1,15 +1,14 @@
 /**
  * Invite codes — now stored in SQLite (#3787).
  *
- * The four operations moved verbatim to `db/repos/auth.invites.repo.ts`
- * under the same names and signatures, so this module is the re-export that
+ * Invite operations live in `db/repos/auth.invites.repo.ts`, so this module is the re-export that
  * keeps `routes/auth.ts` importing the path it always has. The alphabet, the
  * generator, the lifetime and the redeemability assertion never moved: they
  * live in `./invite-code.ts` and both stores share them, which is what stops a
  * code minted from one alphabet being read back against another.
  *
- * Removing MongoDB is #3785. Keeping the re-export is what made the cutover a
- * one-line change here rather than an edit to every caller.
+ * The invite code is shared directly with the joining user and carries no
+ * email address.
  */
 
 export {

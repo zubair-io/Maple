@@ -12,7 +12,7 @@ import {
   anyUserExists,
   deleteUser,
   findCredentialByCredentialId,
-  findUserByEmail,
+  listUsers,
   findUserById,
   insertCredential,
   insertUser,
@@ -51,17 +51,23 @@ function jwtSecret(): string {
   return s;
 }
 
-/** Find-or-create the dev-login user (owner role) and stamp last_seen_at.
- * Null only on the vanishingly-unlikely re-read miss after insert. */
-async function upsertDevUser(email: string): Promise<UserWithId | null> {
-  const existing = await findUserByEmail(email);
+/** Reuse the owner for local dev login, or atomically claim a fresh server. */
+async function upsertDevUser(): Promise<UserWithId | null> {
+  const users = await listUsers();
+  const existing = users.find((user) => user.role === 'owner');
   if (existing) {
     await touchUserLastSeen(existing._id);
     return existing;
   }
-  const now = new Date().toISOString();
-  const id = await insertUser({ email, role: 'owner', created_at: now, last_seen_at: now });
-  return await findUserById(id);
+  if (users.length > 0 || !(await tryClaimOwnership())) return null;
+  try {
+    const now = new Date().toISOString();
+    const id = await insertUser({ email: null, role: 'owner', created_at: now, last_seen_at: now });
+    return await findUserById(id);
+  } catch (error) {
+    await releaseOwnershipClaim();
+    throw error;
+  }
 }
 
 async function isClaimed(): Promise<boolean> {
@@ -83,16 +89,15 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
   // Bypasses the WebAuthn ceremony for local development. When the env flag
   // is unset, the route returns 404 so it's invisible in production builds.
   // When set, mints the same access + refresh token pair as /login/verify
-  // for an upserted dev user (default email "dev@maple.local", owner role).
+  // for the owner account, without collecting an email address.
   .post(
     '/dev-login',
-    async ({ body, set, cookie }) => {
+    async ({ set, cookie }) => {
       if (!devAuthEnabled()) {
         set.status = 404;
         return { error: 'not found' };
       }
-      const email = (body.email ?? 'dev@maple.local').toLowerCase();
-      const user = await upsertDevUser(email);
+      const user = await upsertDevUser();
       if (!user) {
         set.status = 500;
         return { error: 'failed to create dev user' };
@@ -116,7 +121,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         user: toPublicAuthUser(user),
       };
     },
-    { body: t.Object({ email: t.Optional(t.String({ format: 'email' })) }) },
+    { body: t.Object({}) },
   )
 
   // ----- register/options -----
@@ -128,7 +133,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 429;
         return { error: 'rate limited' };
       }
-      const email = body.email.toLowerCase();
+      const email = null;
       const claimed = await isClaimed();
       if (claimed) {
         if (!body.invite_code) {
@@ -141,10 +146,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           set.status = 410;
           return { error: 'invite invalid' };
         }
-        if (inv.email !== email) {
-          set.status = 410;
-          return { error: 'invite/email mismatch' };
-        }
       }
       return buildRegistrationOptions({
         email,
@@ -155,7 +156,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
     },
     {
       body: t.Object({
-        email: t.String({ format: 'email' }),
         invite_code: t.Optional(t.String()),
       }),
     },
@@ -165,16 +165,20 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
   .post(
     '/register/verify',
     async ({ body, set, cookie }) => {
-      const email = body.email.toLowerCase();
       const ceremony = await consumeRegistrationCeremony({
         credential: body.credential,
-        expect: (row) => row.purpose === 'register' && row.email === email,
+        expect: (row) => {
+          const inviteMatches =
+            body.invite_code === undefined || row.invite_code === body.invite_code;
+          return row.purpose === 'register' && row.email === null && inviteMatches;
+        },
       });
       if (!ceremony.ok) {
         set.status = 400;
         return { error: ceremony.error };
       }
       const { challengeRow } = ceremony;
+      const email = challengeRow.email;
 
       // Atomically decide ownership (#865): exactly one concurrent first
       // registration wins the single owner slot. A lost claim means the server
@@ -199,7 +203,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       let userId: ObjectId | null = null;
       try {
         if (!wonOwnership) {
-          await redeemInvite(challengeRow.invite_code!, email);
+          await redeemInvite(challengeRow.invite_code!);
         }
         const now = new Date().toISOString();
         userId = await insertUser({ email, role, created_at: now, last_seen_at: now });
@@ -239,7 +243,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
     },
     {
       body: t.Object({
-        email: t.String({ format: 'email' }),
         invite_code: t.Optional(t.String()),
         device_label: t.String({ minLength: 1, maxLength: 64 }),
         credential: t.Any(),
@@ -450,13 +453,13 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       .use(requireOwner)
       .post(
         '/',
-        async ({ body, auth }) => {
-          const inv = await createInvite(new ObjectId(auth.user.sub), body.email);
+        async ({ auth }) => {
+          const inv = await createInvite(new ObjectId(auth.user.sub));
           return { code: inv.code, expires_at: inv.expires_at };
         },
         // #861: creating an invite is sensitive — require a fresh step-up.
         {
-          body: t.Object({ email: t.String({ format: 'email' }) }),
+          body: t.Object({}),
           beforeHandle: stepUpBeforeHandle,
         },
       )

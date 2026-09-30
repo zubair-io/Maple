@@ -3,7 +3,7 @@
 // Two sections: the full member roster (GET /api/users, #2893) with a
 // per-member "file access" toggle, and Invite codes. Owners can issue
 // invites and rescind unconsumed ones. The fresh-invite card surfaces the
-// share URL + QR for quick handoff.
+// code and server URL for direct sharing.
 
 import {
   ChangeDetectionStrategy,
@@ -21,21 +21,18 @@ import {
   errorMessage,
   MuiButtonComponent,
   MuiCheckboxComponent,
-  MuiInputComponent,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
 interface Invite {
   code: string;
-  email: string;
   expires_at: string;
   consumed_at: string | null;
 }
 
 interface FreshInvite {
   code: string;
-  email: string;
   url: string;
   expires_at: string;
 }
@@ -48,7 +45,6 @@ interface FreshInvite {
     SettingsIconComponent,
     MuiButtonComponent,
     MuiCheckboxComponent,
-    MuiInputComponent,
   ],
   templateUrl: './users.component.html',
   host: { class: 'set-vars set-page-host' },
@@ -58,13 +54,11 @@ export class UsersComponent implements OnInit {
   protected auth = inject(AuthService);
   private readonly api = inject(BunApiBackendService);
 
-  protected email = '';
   protected readonly users = signal<ApiUser[]>([]);
   protected readonly invites = signal<Invite[]>([]);
   protected readonly freshInvite = signal<FreshInvite | null>(null);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
-  protected readonly showInviteForm = signal(false);
   /** User id whose file-access PATCH is in flight (disables that toggle). */
   protected readonly togglingId = signal<string | null>(null);
 
@@ -121,25 +115,16 @@ export class UsersComponent implements OnInit {
     return Number.isNaN(seen.getTime()) ? u.last_seen_at : seen.toLocaleString();
   }
 
-  openInvite(): void {
-    this.showInviteForm.set(true);
-  }
-
   async createInvite(): Promise<void> {
-    if (!this.email) return;
     this.busy.set(true);
     this.error.set(null);
     try {
-      const r = await this.auth.createInvite(this.email);
-      const url = `${window.location.origin}/join`;
+      const invite = await this.auth.createInvite();
       this.freshInvite.set({
-        code: r.code,
-        email: this.email,
-        url,
-        expires_at: r.expires_at,
+        code: invite.code,
+        url: `${window.location.origin}/join`,
+        expires_at: invite.expires_at,
       });
-      this.email = '';
-      this.showInviteForm.set(false);
       await this.refresh();
     } catch (e: unknown) {
       this.error.set(errorMessage(e));
@@ -169,16 +154,12 @@ export class UsersComponent implements OnInit {
     }
   }
 
-  qrSrc(payload: FreshInvite): string {
-    const data = JSON.stringify({
-      url: payload.url,
-      code: payload.code,
-      email: payload.email,
-    });
-    return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(data)}`;
+  userLabel(user: ApiUser): string {
+    return user.email ?? `${user.role === 'owner' ? 'Owner' : 'Member'} ${user.id.slice(-6)}`;
   }
 
-  avatarColor(email: string): string {
+  avatarColor(email: string | null): string {
+    if (!email) return 'hsl(210, 30%, 35%)';
     let hash = 0;
     for (let i = 0; i < email.length; i++) {
       hash = (hash * 31 + email.charCodeAt(i)) | 0;
