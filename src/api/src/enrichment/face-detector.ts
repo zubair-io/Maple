@@ -45,7 +45,7 @@
  * Spec: `docs/indexer-enrichment.md` §6.
  */
 
-import { maple } from 'maple';
+import { isNativeBindingError, maple } from 'maple';
 import { child as childLogger } from '../log.ts';
 import {
   ARCFACE_DST,
@@ -82,15 +82,10 @@ export class ThumbDecodeError extends Error {
   }
 }
 
-/** True when `err` is a `loadNativeBinding()` native-library-load failure
- * (missing/unbuildable dylib, or running outside Bun) rather than a genuine
- * image-decode failure. These two exact message shapes come from
- * `src/maple/src/native.ts`'s `loadNativeBinding()` — the only two throw
- * sites in that function. The distinction matters: a real decode failure is
- * a legitimate per-asset `ThumbDecodeError` (skip THIS one), while a missing
- * dylib is an environment misconfiguration that must fail loudly and retry
- * — not silently mark every asset as permanently undecodable. */
+/** Backend load/ABI failures must retry instead of permanently skipping an
+ * asset. Keep recognition of legacy message-only errors. */
 export function isNativeLoadFailure(err: unknown): boolean {
+  if (isNativeBindingError(err)) return true;
   if (!(err instanceof Error)) return false;
   return (
     err.message.startsWith('Maple native library (') ||

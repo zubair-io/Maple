@@ -34,6 +34,7 @@ export interface WorkerResponse {
   ok: boolean;
   result?: unknown;
   error?: string;
+  errorCode?: 'MAPLE_NATIVE_BINDING';
 }
 
 /** Marker key on a transferred-typed-array placeholder. The value names

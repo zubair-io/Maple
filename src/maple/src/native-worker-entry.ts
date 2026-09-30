@@ -14,6 +14,7 @@
  * the server. See `src/maple/README.md` § "Execution model".
  */
 
+import { isNativeBindingError } from './native-errors';
 import { loadNativeBinding, type NativeBinding } from './native';
 import { prepareForTransfer, type WorkerRequest, type WorkerResponse } from './worker-protocol';
 
@@ -55,6 +56,7 @@ function native(): NativeBinding {
       id,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
+      errorCode: isNativeBindingError(error) ? error.code : undefined,
     };
     postMessage(response);
   }

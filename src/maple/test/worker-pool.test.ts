@@ -11,6 +11,7 @@ import {
   _resetMaplePoolForTests,
   _setIsBunRuntimeForTests,
 } from '../src/worker-pool';
+import { isNativeBindingError } from '../src/native-errors';
 import { _resetNapiBindingForTests } from '../src/native-napi';
 
 /**
@@ -221,9 +222,11 @@ describe('worker pool execution mode', () => {
     const withReason = buildNoNativeBindingError(new Error('napi disabled via MAPLE_NAPI=0'));
     expect(withReason.message).toMatch(/napi disabled via MAPLE_NAPI=0/);
     expect(withReason.message).toMatch(/requires Bun/);
+    expect(isNativeBindingError(withReason)).toBe(true);
 
     const withoutReason = buildNoNativeBindingError(null);
     expect(withoutReason.message).toMatch(/no working native binding/);
+    expect(isNativeBindingError(withoutReason)).toBe(true);
     expect(withoutReason.message).not.toMatch(/\(\)/); // no empty parens when there's no reason
   });
 });

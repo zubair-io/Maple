@@ -15,7 +15,7 @@ import * as fs from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { maple } from 'maple';
+import { isNativeBindingError, maple } from 'maple';
 import { child as childLogger } from '../log.ts';
 import { ffmpegBinary } from '../thumbs/video-poster.ts';
 import {
@@ -26,16 +26,10 @@ import {
 
 const log = childLogger('video:frame-extract');
 
-/** True when `err` is a `loadNativeBinding()` native-library-load failure
- * (missing/unbuildable dylib, or running outside Bun) rather than a genuine
- * image-decode failure. These two exact message shapes come from
- * `src/maple/src/native.ts`'s `loadNativeBinding()` — the only two throw
- * sites in that function. The distinction matters: a real decode failure of
- * one timestamp is fine to skip and move on to the next, while a missing
- * dylib fails EVERY timestamp identically and is an environment
- * misconfiguration that must abort loudly and retry — not silently produce
- * an empty-frames result that gets diagnosed as "no decodable frame". */
+/** Backend load/ABI failures must retry instead of permanently skipping an
+ * asset. Keep recognition of legacy message-only errors. */
 export function isNativeLoadFailure(err: unknown): boolean {
+  if (isNativeBindingError(err)) return true;
   if (!(err instanceof Error)) return false;
   return (
     err.message.startsWith('Maple native library (') ||

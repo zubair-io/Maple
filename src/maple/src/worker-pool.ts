@@ -20,6 +20,7 @@
 
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as path from 'node:path';
+import { NativeBindingError } from './native-errors';
 import { loadNativeBinding, type NativeBinding } from './native';
 import { getNapiLoadError, tryLoadNapiBinding } from './native-napi';
 import { restoreFromTransfer, type WorkerRequest, type WorkerResponse } from './worker-protocol';
@@ -205,7 +206,11 @@ class NativeWorkerPool {
       const restored = restoreFromTransfer(response.result);
       setImmediate(() => pending.resolve(restored));
     } else {
-      const err = new Error(response.error || 'Maple native call failed');
+      const message = response.error || 'Maple native call failed';
+      const err =
+        response.errorCode === 'MAPLE_NATIVE_BINDING'
+          ? new NativeBindingError(message)
+          : new Error(message);
       setImmediate(() => pending.reject(err));
     }
   }
@@ -369,7 +374,7 @@ export function _setIsBunRuntimeForTests(fn: (() => boolean) | undefined): void 
  *  wording can be unit-tested without needing to fake `globalThis.Bun` (see
  *  `isBunRuntime` above) or actually reach `callNative`'s async dispatch. */
 export function buildNoNativeBindingError(napiError: Error | null): Error {
-  return new Error(
+  return new NativeBindingError(
     'Maple has no working native binding for this Node process: the raw-napi addon is ' +
       `unavailable${napiError ? ` (${napiError.message})` : ''}, and the bun:ffi ` +
       'worker-pool fallback requires Bun (it cannot run on plain Node). Build/install a ' +
