@@ -211,6 +211,8 @@
         "src/thumbs/video-poster.ts",
         "src/thumbs/video-poster.test.ts",
         "src/video/frame-extract.ts",
+        // #3535: synthetic clips and cleanup assertions use only os.tmpdir().
+        "src/video/frame-extract.test.ts",
         "src/workers/cache-gc.pano-preseed.test.ts",
         "src/workers/cache-gc.sidecars.test.ts",
         "src/workers/cache-gc.test.ts",
