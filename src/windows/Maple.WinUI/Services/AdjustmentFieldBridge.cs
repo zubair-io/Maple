@@ -35,6 +35,20 @@ public static class AdjustmentFieldBridge
         return result;
     }
 
+    // Transfer is dense: selected defaults must overwrite edited target values.
+    public static Dictionary<string, JsonElement> CaptureFields(AdjustmentState state, IEnumerable<string> names)
+    {
+        var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var name in names.Distinct(StringComparer.Ordinal))
+        {
+            if (!Specs.TryGetValue(name, out var spec) || !spec.Copyable || spec.Kind == "Curve"
+                || !Members.TryGetValue(name, out var member)) continue;
+            var value = member.GetValue(state);
+            result[name] = JsonSerializer.SerializeToElement(value is Enum ? value.ToString() : value);
+        }
+        return result;
+    }
+
     public static SparseAdjustmentResult Apply(AdjustmentState original, IReadOnlyDictionary<string, JsonElement> fields)
     {
         var state = original.Clone();

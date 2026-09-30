@@ -1,7 +1,8 @@
 //! Windows sparse presets and semantic transfer share this field contract (#3879/#3880).
 use crate::adjustment::f;
 use raw_core::types::{
-    transfer_mode, AdjustmentGroup, FieldKind, ADJUSTMENT_SCHEMA, NON_COPYABLE_FIELDS,
+    transfer_mode, AdjustmentGroup, AdjustmentModel, FieldKind, WbScaleVersion, ADJUSTMENT_SCHEMA,
+    NON_COPYABLE_FIELDS,
 };
 
 pub(crate) fn emit_cs() -> String {
@@ -42,7 +43,28 @@ pub(crate) fn emit_cs() -> String {
             group.label()
         ));
     }
-    out.push_str("    };\n}\n");
+    out.push_str("    };\n\n    public static readonly System.Collections.Generic.IReadOnlyDictionary<string, string> TransferModes = new System.Collections.Generic.Dictionary<string, string>\n    {\n");
+    let fields = AdjustmentGroup::ALL
+        .iter()
+        .flat_map(|g| g.fields().iter().copied())
+        .chain(NON_COPYABLE_FIELDS.iter().copied())
+        .collect::<std::collections::BTreeSet<_>>();
+    for field in fields {
+        out.push_str(&format!(
+            "        [\"{field}\"] = \"{}\",\n",
+            transfer_mode(field).expect("transfer decision").name()
+        ));
+    }
+    let scale = match AdjustmentModel::default().wb_scale_version {
+        WbScaleVersion::V1 => 1,
+        WbScaleVersion::V2 => 2,
+        WbScaleVersion::V3 => 3,
+        WbScaleVersion::V4 => 4,
+        WbScaleVersion::V5 => 5,
+    };
+    out.push_str(&format!(
+        "    }};\n\n    public const int CurrentWhiteBalanceScaleVersion = {scale};\n}}\n"
+    ));
     out
 }
 

@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Security.Cryptography;
 
 namespace Maple.WinUI.Services.Xmp
 {
@@ -17,6 +18,37 @@ namespace Maple.WinUI.Services.Xmp
         /// <summary>UTF-8 without BOM — the xpacket header carries its own U+FEFF marker.</summary>
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         private static readonly object WriteGate = new();
+
+        public static byte[]? ReadSnapshot(string rawPath)
+        {
+            lock (WriteGate)
+            {
+                try
+                {
+                    using var stream = new FileStream(SidecarPathFor(rawPath), FileMode.Open, FileAccess.Read, FileShare.Read);
+                    if (stream.Length > 4 * 1024 * 1024) throw new IOException("Sidecar exceeds the 4 MiB editing limit.");
+                    var bytes = new byte[checked((int)stream.Length)];
+                    stream.ReadExactly(bytes);
+                    return bytes;
+                }
+                catch (FileNotFoundException) { return null; }
+            }
+        }
+
+        public static string SnapshotHash(byte[]? bytes) => bytes == null ? "absent" : Convert.ToHexString(SHA256.HashData(bytes));
+
+        /// <summary>Batch recovery uses exact before/after hashes. The gate also
+        /// serializes editor autosaves; external editors are detected at this
+        /// check but are not participants in a cross-process filesystem transaction.</summary>
+        public static bool CompareExchange(string rawPath, string expectedHash, string replacement)
+        {
+            lock (WriteGate)
+            {
+                if (SnapshotHash(ReadSnapshot(rawPath)) != expectedHash) return false;
+                SaveText(SidecarPathFor(rawPath), replacement);
+                return true;
+            }
+        }
 
         /// <summary>Change owned fields in the latest sidecar, retaining imported
         /// metadata and unknown XML. Invalid/unreadable sidecars are never
