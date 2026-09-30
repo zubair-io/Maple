@@ -21,7 +21,10 @@
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use raw_core::raster::{decode_raster, probe_raster_metadata};
+use raw_core::raster::{
+    decode_raster, probe_raster_metadata, probe_raster_metadata_reader,
+    RasterMetadata as CoreMetadata,
+};
 
 use crate::error::error_message;
 
@@ -50,13 +53,9 @@ pub struct RasterProbeResult {
     pub error: Option<String>,
 }
 
-/// Probe `bytes`' header for metadata, without decoding pixels. Shared by
-/// both [`RasterProbeTask`] and [`RasterProbeBufTask`], the same way
-/// `raw-ffi/src/raster.rs`'s `maple_raster_probe_metadata` and
-/// `maple_raster_probe_metadata_buf` both call `raw_core`'s
-/// `probe_raster_metadata` and marshal the same `RasterMetadata` shape.
-fn probe_bytes(bytes: &[u8]) -> RasterProbeResult {
-    match probe_raster_metadata(bytes) {
+/// Marshal the shared core probe result for byte and seekable file inputs.
+fn probe_result(result: raw_core::error::Result<CoreMetadata>) -> RasterProbeResult {
+    match result {
         Ok(meta) => RasterProbeResult {
             ok: true,
             metadata: Some(RasterMetadata {
@@ -80,13 +79,7 @@ fn probe_bytes(bytes: &[u8]) -> RasterProbeResult {
     }
 }
 
-/// Backs [`raster_probe_metadata`] — path-based probe, mirroring
-/// `raw-ffi/src/raster.rs`'s `maple_raster_probe_metadata` (line 156): reads
-/// the file itself (on the libuv worker thread, off the JS thread) and reuses
-/// [`probe_bytes`] for the actual header parse, the same "read file then
-/// reuse the buf path" structure `native.ts`'s own `rasterProbeMetadata`
-/// bun:ffi implementation already uses (`rasterProbeMetadata` calls
-/// `rasterProbeMetadataBuf` on the bytes it read).
+/// Probe a seekable file on the libuv worker without buffering its payload.
 pub struct RasterProbeTask {
     pub(crate) path: String,
 }
@@ -96,7 +89,7 @@ impl Task for RasterProbeTask {
     type JsValue = RasterProbeResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let bytes = match std::fs::read(&self.path) {
+        let file = match std::fs::File::open(&self.path) {
             Ok(b) => b,
             Err(e) => {
                 return Ok(RasterProbeResult {
@@ -109,7 +102,9 @@ impl Task for RasterProbeTask {
                 });
             }
         };
-        Ok(probe_bytes(&bytes))
+        Ok(probe_result(probe_raster_metadata_reader(
+            &mut std::io::BufReader::new(file),
+        )))
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -136,7 +131,7 @@ impl Task for RasterProbeBufTask {
     type JsValue = RasterProbeResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(probe_bytes(&self.bytes))
+        Ok(probe_result(probe_raster_metadata(&self.bytes)))
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
