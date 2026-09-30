@@ -20,6 +20,35 @@ describe('napi binding resolution', () => {
     expect(() => tryLoadNapiBinding()).not.toThrow();
   });
 
+  it('rejects an older addon before caching a binding that cannot analyze paths', () => {
+    delete process.env.MAPLE_NAPI;
+    _resetNapiBindingForTests();
+    if (!tryLoadNapiBinding()) return;
+    _resetNapiBindingForTests();
+    const original = process.dlopen;
+    let restoreExport: (() => void) | undefined;
+    process.dlopen = (...args: Parameters<typeof process.dlopen>) => {
+      original(...args);
+      // Load the real addon, then simulate the exact missing export seen
+      // with the previous platform package in API CI.
+      const exports = args[0].exports;
+      const analyzePath = exports.rasterAnalyzePath;
+      restoreExport = () => {
+        exports.rasterAnalyzePath = analyzePath;
+      };
+      delete exports.rasterAnalyzePath;
+    };
+    try {
+      expect(tryLoadNapiBinding()).toBeNull();
+      expect(getNapiLoadError()?.message).toContain('lacks rasterAnalyzePath');
+      expect(getNapiLoadError()?.message).toContain('rebuild or update');
+      expect(tryLoadNapiBinding()).toBeNull();
+    } finally {
+      restoreExport?.();
+      process.dlopen = original;
+    }
+  });
+
   it('caches its result across calls (same reference, no re-resolution)', () => {
     const first = tryLoadNapiBinding();
     const second = tryLoadNapiBinding();

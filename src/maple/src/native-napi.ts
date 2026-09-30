@@ -146,6 +146,13 @@ export function tryLoadNapiBinding(): NativeBinding | null {
   }
   try {
     const addon = loadNapiModule(addonPath);
+    // An installed platform package can lag the JS package during local
+    // development. Reject the old ABI before caching a broken binding;
+    // Bun can then use its freshly built FFI library, while Node reports
+    // an actionable addon error through getNapiLoadError().
+    if (typeof addon.rasterAnalyzePath !== 'function') {
+      throw new Error(`N-API addon ${addonPath} lacks rasterAnalyzePath; rebuild or update it`);
+    }
     const binding = {
       // -- filename (synchronous, no I/O) --------------------------------
       renderFilenameTemplate: wrap<'renderFilenameTemplate'>((args) =>
