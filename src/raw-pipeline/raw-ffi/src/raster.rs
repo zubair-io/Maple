@@ -6,8 +6,8 @@
 use crate::error::set_last_error;
 use raw_core::export::{encode_raster, ExportFormat};
 use raw_core::raster::{
-    decode_raster, extract_tensor, probe_raster_metadata, resize_raster, FilterAlg, ResizeFit,
-    ResizeOptions, TensorLayout, TensorNormalize,
+    decode_raster, extract_tensor, probe_raster_metadata, probe_raster_metadata_reader,
+    resize_raster, FilterAlg, ResizeFit, ResizeOptions, TensorLayout, TensorNormalize,
 };
 use std::ffi::{c_char, CStr};
 use std::path::Path;
@@ -160,47 +160,49 @@ pub unsafe extern "C" fn maple_raster_probe_metadata(
     out_channels: *mut u32,
     out_orientation: *mut u32,
 ) -> i32 {
-    let in_str = match cstr_to_str(input_path) {
-        Some(s) => s,
-        None => {
-            set_last_error("input_path is null or invalid UTF-8".into());
-            return 1;
+    crate::error::catch_panic_rc("maple_raster_probe_metadata", || {
+        let in_str = match cstr_to_str(input_path) {
+            Some(s) => s,
+            None => {
+                set_last_error("input_path is null or invalid UTF-8".into());
+                return 1;
+            }
+        };
+
+        let file = match std::fs::File::open(Path::new(in_str)) {
+            Ok(b) => b,
+            Err(e) => {
+                set_last_error(format!("failed to read file {in_str}: {e}"));
+                return 2;
+            }
+        };
+
+        let meta = match probe_raster_metadata_reader(&mut std::io::BufReader::new(file)) {
+            Ok(m) => m,
+            Err(e) => {
+                set_last_error(format!("metadata probing failed: {e}"));
+                return 3;
+            }
+        };
+
+        if !out_width.is_null() {
+            *out_width = meta.width;
         }
-    };
-
-    let in_bytes = match std::fs::read(Path::new(in_str)) {
-        Ok(b) => b,
-        Err(e) => {
-            set_last_error(format!("failed to read file {in_str}: {e}"));
-            return 2;
+        if !out_height.is_null() {
+            *out_height = meta.height;
         }
-    };
-
-    let meta = match probe_raster_metadata(&in_bytes) {
-        Ok(m) => m,
-        Err(e) => {
-            set_last_error(format!("metadata probing failed: {e}"));
-            return 3;
+        if !out_channels.is_null() {
+            *out_channels = meta.channels as u32;
         }
-    };
+        if !out_orientation.is_null() {
+            // `None` (an AVIF, whose transform is baked into the pixels) is
+            // reported as 1 here: this C ABI has no way to say "absent", and
+            // 1 is the value a consumer should act on either way.
+            *out_orientation = meta.orientation.unwrap_or(1) as u32;
+        }
 
-    if !out_width.is_null() {
-        *out_width = meta.width;
-    }
-    if !out_height.is_null() {
-        *out_height = meta.height;
-    }
-    if !out_channels.is_null() {
-        *out_channels = meta.channels as u32;
-    }
-    if !out_orientation.is_null() {
-        // `None` (an AVIF, whose transform is baked into the pixels) is
-        // reported as 1 here: this C ABI has no way to say "absent", and
-        // 1 is the value a consumer should act on either way.
-        *out_orientation = meta.orientation.unwrap_or(1) as u32;
-    }
-
-    0
+        0
+    })
 }
 
 /// Extract Float32 tensor for AI/ML inference into a caller-allocated buffer.

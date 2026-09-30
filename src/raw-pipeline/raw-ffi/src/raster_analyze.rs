@@ -10,7 +10,7 @@
 //! failure) — see the `message.contains("request")` check below.
 
 use crate::error::{catch_panic_rc, set_last_error};
-use raw_core::raster_analyze::analyze;
+use raw_core::raster_analyze::{analyze, analyze_reader};
 use std::ffi::{c_char, CStr};
 
 const NEED_LARGER_BUFFER: i32 = 100;
@@ -39,24 +39,92 @@ pub unsafe extern "C" fn maple_raster_analyze_buf(
                 return 5;
             }
         };
-        let reply = match analyze(std::slice::from_raw_parts(input, input_len), request) {
-            Ok(json) => json,
-            Err(e) => {
-                let message = format!("{e}");
-                set_last_error(message.clone());
-                return if message.contains("request") { 5 } else { 3 };
+        write_reply(
+            analyze(std::slice::from_raw_parts(input, input_len), request),
+            out_buf,
+            out_cap,
+            out_len,
+        )
+    })
+}
+
+unsafe fn write_reply(
+    reply: raw_core::error::Result<String>,
+    out_buf: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    let reply = match reply {
+        Ok(json) => json,
+        Err(e) => {
+            let message = format!("{e}");
+            set_last_error(message.clone());
+            return if message.contains("request") { 5 } else { 3 };
+        }
+    };
+    let bytes = reply.as_bytes();
+    *out_len = bytes.len();
+    if out_buf.is_null() || out_cap < bytes.len() {
+        return NEED_LARGER_BUFFER;
+    }
+    std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
+    0
+}
+
+/// Analyze an image file using the same v1 JSON request/reply as the buffer
+/// entry point. Metadata-only requests read seekable headers and sidecars;
+/// stats requests load and decode pixels. File errors return rc 3.
+///
+/// # Safety
+/// `input_path` and `request_json` must be NUL-terminated strings, and
+/// `out_len` must be non-null. A non-null `out_buf` must hold `out_cap` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn maple_raster_analyze_path(
+    input_path: *const c_char,
+    request_json: *const c_char,
+    out_buf: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_raster_analyze_path", || {
+        if input_path.is_null() || request_json.is_null() || out_len.is_null() {
+            set_last_error("input_path, request or out_len is null".into());
+            return 1;
+        }
+        let path = match CStr::from_ptr(input_path).to_str() {
+            Ok(path) => path,
+            Err(_) => {
+                set_last_error("input_path is not valid UTF-8".into());
+                return 1;
             }
         };
-        let bytes = reply.as_bytes();
-        *out_len = bytes.len();
-        if out_buf.is_null() || out_cap < bytes.len() {
-            return NEED_LARGER_BUFFER;
-        }
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
-        0
+        let request = match CStr::from_ptr(request_json).to_str() {
+            Ok(request) => request,
+            Err(_) => {
+                set_last_error("analyze request is not valid UTF-8".into());
+                return 5;
+            }
+        };
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(e) => {
+                set_last_error(format!("failed to read file {path}: {e}"));
+                return 3;
+            }
+        };
+        write_reply(
+            analyze_reader(&mut std::io::BufReader::new(file), request),
+            out_buf,
+            out_cap,
+            out_len,
+        )
     })
 }
 
 #[cfg(test)]
 #[path = "raster_analyze_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "raster_analyze_path_tests.rs"]
+mod path_tests;
