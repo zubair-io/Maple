@@ -69,7 +69,9 @@ public sealed partial class MainWindow
             CloudMapContainer.Visibility = Visibility.Collapsed;
             CloudMapContainer.Visibility = Visibility.Visible;
             await Task.Delay(200);
-            if (!map.HostReady || map.Viewport != camera) throw new InvalidOperationException("Map host lost camera across navigation");
+            if (!map.HostReady || map.Viewport != camera)
+                throw new InvalidOperationException($"Map host lost camera across navigation: ready={map.HostReady}; "
+                    + $"before={camera}; after={map.Viewport}");
         }
         finally
         {

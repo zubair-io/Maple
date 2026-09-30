@@ -115,6 +115,8 @@ namespace Maple.WinUI
             ViewportImage.Visibility = Visibility.Visible;
         });
 
+        private void OnRetryPreview(object sender, Microsoft.UI.Xaml.RoutedEventArgs e) => ViewModel.RetryPreview();
+
         private void OnRenderFailed(string message) => App.MainDispatcherQueue?.TryEnqueue(() =>
         {
             if (_closing) return;

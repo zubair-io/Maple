@@ -87,6 +87,11 @@ namespace Maple.WinUI
                     OnSelectedPhotoChanged();
                 else if (e.PropertyName == nameof(ViewModel.SelectionSummary))
                     UpdateLibraryCountText();
+                else if (e.PropertyName == nameof(ViewModel.HasDecodeError))
+                {
+                    RenderErrorBar.Message = ViewModel.HasDecodeError ? ViewModel.DecodeStatus : string.Empty;
+                    RenderErrorBar.IsOpen = ViewModel.HasDecodeError;
+                }
             };
             // A cloud directory holding only subfolders is not "empty" — its
             // folder tiles ARE the content — so the empty-state text keys off

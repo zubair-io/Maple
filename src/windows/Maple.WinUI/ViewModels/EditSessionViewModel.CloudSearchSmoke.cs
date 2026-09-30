@@ -30,11 +30,12 @@ public partial class EditSessionViewModel
         {
             if (!value) throw new InvalidOperationException("Cloud search: " + reason);
         }
-        async Task Wait(Func<bool> condition)
+        async Task Wait(Func<bool> condition, [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
         {
             var end = Environment.TickCount64 + 10000;
             while (!condition() && Environment.TickCount64 < end) await Task.Delay(20);
-            Require(condition(), "timed out waiting for search state");
+            Require(condition(), $"timed out at line {line}; loading={session.IsLibraryLoading}; "
+                + $"status={session.LibraryLoadStatus}; requests={System.Text.Json.JsonSerializer.Serialize(handler.Queries)}");
         }
         try
         {

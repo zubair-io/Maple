@@ -921,7 +921,10 @@
                                    Margin="16" Padding="8" TextWrapping="Wrap" Foreground="{StaticResource MapleTextMain}" AutomationProperties.LiveSetting="Polite" />
                         <InfoBar x:Name="RenderErrorBar" Grid.Column="1" IsOpen="False" IsClosable="False"
                                  Severity="Error" Title="Preview unavailable" MaxWidth="640" Margin="16"
-                                 HorizontalAlignment="Center" VerticalAlignment="Bottom" AutomationProperties.LiveSetting="Assertive" />
+                                 HorizontalAlignment="Center" VerticalAlignment="Bottom" AutomationProperties.LiveSetting="Assertive">
+                            <InfoBar.ActionButton><mui:MuiButton Content="Retry" Click="OnRetryPreview"
+                                                                AutomationProperties.Name="Retry photo preview" /></InfoBar.ActionButton>
+                        </InfoBar>
                         <InfoBar Grid.Column="1" IsOpen="{Binding HasSidecarLoadError}" IsClosable="False"
                                  Severity="Error" Title="Saved adjustments unavailable" Message="{Binding SidecarLoadError}"
                                  MaxWidth="640" Margin="16" HorizontalAlignment="Center" VerticalAlignment="Bottom"

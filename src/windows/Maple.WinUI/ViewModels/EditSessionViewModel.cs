@@ -172,6 +172,7 @@ namespace Maple.WinUI.ViewModels
 
         partial void OnSelectedPhotoChanged(PhotoItem? value)
         {
+            HasDecodeError = false;
             PublishRasterCapabilities(false);
             if (value != null)
                 OpenForEditing(value);
@@ -249,21 +250,6 @@ namespace Maple.WinUI.ViewModels
             RequestEmbeddedPreview(photo);
         }
 
-        /// <summary>Extract the full-screen embedded JPEG for the Preview
-        /// screen (cached; instant after first visit).</summary>
-        private void RequestEmbeddedPreview(PhotoItem photo)
-        {
-            if (photo.PreviewPath != null)
-                return;
-            _ = Task.Run(async () =>
-            {
-                var path = await _thumbnails.GetOrCreateAsync(
-                    photo.FilePath, CancellationToken.None, ThumbnailService.PreviewMaxPx);
-                if (path != null)
-                    OnUi(() => photo.PreviewPath = new Uri(path).AbsoluteUri);
-            });
-        }
-
         /// <summary>Start the scene-linear decode for the current photo if it
         /// has not run yet — called when the Edit screen is entered. The
         /// embedded-JPEG preview stays on screen until the first chain frame.</summary>
@@ -304,6 +290,7 @@ namespace Maple.WinUI.ViewModels
             if (!preserveCurrentBase) Renderer.SetImage(null);
 
             IsDecoding = true;
+            HasDecodeError = false;
             DecodeStatus = $"Decoding {photo.FileName}…";
             var cancelFlag = RawFfi.maple_cancel_flag_new();
             _decodeCancel.Reset(cancelFlag);
@@ -332,6 +319,7 @@ namespace Maple.WinUI.ViewModels
                             if (_disposed || generation != _decodeGeneration) return;
                             IsDecoding = false;
                             DecodeStatus = $"Decode failed: {ex.Message}";
+                            HasDecodeError = true;
                             ReportLensProfileFailure(ex);
                         });
                 }

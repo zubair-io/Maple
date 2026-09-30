@@ -144,6 +144,8 @@ The live-scopes delivery (#3885) now has a non-blocking collection ABI, `maple_g
 
 `Services/ThumbCachePaths.cs` implements the shared-path derivation and pins the write contract: any client writing there must render at exactly 512px long edge, AVIF quality 55, because an existing entry is never re-rendered by anyone. The hash input is the **basename**, not the absolute path, so `.maple/` travels with the photos. See [caching](caching.md).
 
+For a selected local RAW without an extractable embedded preview, `EditSessionViewModel.Preview.cs` falls back to the bounded scene-linear preview renderer while staying in Preview. Selection/version guards reject late extraction results. Decode failures remain visible with a Retry action; retries and successful renders clear the error. Grid thumbnail extraction remains separate and does not trigger a full RAW decode for every tile.
+
 ## Maple Cloud
 
 `Services/Cloud/CloudClient.cs` is an HTTP client for the Self Hosted API: bearer auth with a `401 → /api/auth/refresh → retry once` loop, the refresh credential being the httpOnly `maple_refresh` cookie held in the handler's `CookieContainer`. Thumbs and previews are AVIF, disk-cached by address hash. Sign-in is the browser passkey ceremony over PKCE (`CloudPkce.cs`): the verifier never leaves the app, the web app sees only the S256 challenge, and the one-time code comes back through the `maple-app://` scheme registered by `Services/ProtocolRegistrar.cs`.

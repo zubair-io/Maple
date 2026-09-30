@@ -98,7 +98,7 @@ namespace Maple.WinUI
             UpdateBrowseDetailImage();
             var photo = ViewModel.SelectedPhoto;
             // Only refresh while the embedded preview is still what's on screen.
-            if (photo != null && ReferenceEquals(sender, photo) && _viewportBitmap == null)
+            if (photo != null && ReferenceEquals(sender, photo) && _viewportBitmap == null && _gpuFrameDims == null)
                 ShowEmbeddedPreview(photo);
         }
 

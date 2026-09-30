@@ -50,17 +50,25 @@ namespace Maple.WinUI
                 var actualPath = "empty";
                 if (expectedPath != "empty")
                 {
-                    SetMode(ShellMode.Edit);
+                    // The synthetic RAW has no embedded JPEG. Preview must
+                    // render it without requiring the user to enter Edit.
+                    SetMode(ShellMode.Preview);
                     ViewModel.SelectedPhoto = new PhotoItem
                     {
                         FilePath = raw,
                         FileName = Path.GetFileName(raw),
                         Format = "DNG"
                     };
-                    ViewModel.EnsureDecoded();
+                    var previewDeadline = Environment.TickCount64 + 90000;
+                    while (!frame.Task.IsCompleted && ViewModel.SelectedPhoto.PreviewPath == null
+                        && Environment.TickCount64 < previewDeadline) await Task.Delay(20);
+                    // Other callers may supply a camera RAW with an embedded
+                    // preview. Only that fast path needs explicit Edit entry.
+                    if (ViewModel.SelectedPhoto.PreviewPath != null) SetMode(ShellMode.Edit);
                     actualPath = await frame.Task.WaitAsync(TimeSpan.FromSeconds(90));
                     if (actualPath != expectedPath)
                         throw new InvalidOperationException($"Required {expectedPath} frame, got {actualPath}");
+                    SetMode(ShellMode.Edit);
                 }
                 renderer.GpuFrameReady -= Gpu;
                 renderer.FrameReady -= Cpu;
@@ -77,6 +85,7 @@ namespace Maple.WinUI
                     VerifyBrowseSelection();
                     await VerifyBrowseScrollingAsync();
                     await VerifyImmediateUndoAsync();
+                    await VerifyPreviewRecoveryAsync(raw, output);
                     await EditSessionViewModel.VerifyCloudOpeningAsync(raw, output);
                     await EditSessionViewModel.VerifyCloudSearchAsync(output);
                     await VerifyCloudMapAsync(output);
