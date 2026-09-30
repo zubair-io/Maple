@@ -225,6 +225,11 @@
   <ItemGroup>
     <Compile Include="..\Maple.WinUI\Services\Xmp\*.cs" LinkBase="Xmp" />
     <Compile Include="..\Maple.WinUI\Models\AdjustmentState.cs" LinkBase="Models" />
+    <Compile Include="..\Maple.WinUI\Models\PresetDocument.cs" LinkBase="Models" />
+    <Compile Include="..\Maple.WinUI\Services\PresetStore.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\AdjustmentFieldBridge.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Generated\AdjustmentFields.g.cs" LinkBase="Generated" />
+    <EmbeddedResource Include="..\..\apple\Packages\MapleCore\Sources\MapleCore\Resources\builtin-presets.json" LogicalName="Maple.BuiltinPresets.json" />
     <!-- RenderEngine.cs (#3234) + the Native\ raw-ffi mirrors it needs to
          compile: plain System.IO / System.Runtime.InteropServices, no WinUI.
          The `[DllImport("raw_ffi.dll")]` externs in RawFfi.cs are only

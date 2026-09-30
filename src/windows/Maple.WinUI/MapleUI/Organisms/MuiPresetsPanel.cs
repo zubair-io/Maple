@@ -7,7 +7,7 @@ using Maple.UI.Atoms;
 namespace Maple.UI
 {
     /// <summary>One saved preset.</summary>
-    public sealed record MuiPreset(string Id, string Name, DateTimeOffset SavedAt);
+    public sealed record MuiPreset(string Id, string Name, DateTimeOffset SavedAt, bool ReadOnly = false);
 
     /// <summary>
     /// Maple.UI Presets Panel organism (unified-component-catalog.md
@@ -33,6 +33,9 @@ namespace Maple.UI
         public event EventHandler<string>? PresetSaved;
         public event EventHandler<string>? PresetApplied;
         public event EventHandler<string>? PresetDeleted;
+        public event Action<string, string>? PresetRenamed;
+        public event EventHandler<string>? PresetExported;
+        public event EventHandler? ImportRequested;
 
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 12 };
         private readonly MuiButton _saveButton = new() { Variant = MuiButtonVariant.Secondary, Label = "Save current as preset…" };
@@ -41,14 +44,20 @@ namespace Maple.UI
         private readonly MuiDialog _saveDialog = new() { Variant = MuiDialogVariant.Prompt, Title = "Save preset", PromptPlaceholder = "Preset name", ConfirmLabel = "Save" };
         private readonly MuiDialog _deleteDialog = new() { Variant = MuiDialogVariant.Confirm, Title = "Delete preset?", Message = "This can't be undone.", ConfirmLabel = "Delete", Destructive = true };
         private string? _pendingDeleteId;
+        private string? _pendingRenameId;
+        private readonly MuiDialog _renameDialog = new() { Variant = MuiDialogVariant.Prompt, Title = "Rename preset", PromptPlaceholder = "Preset name", ConfirmLabel = "Rename" };
 
         public MuiPresetsPanel()
         {
             _root.Children.Add(_saveButton);
+            var import = new MuiButton { Label = "Import preset…", Variant = MuiButtonVariant.Secondary };
+            import.Click += (_, _) => ImportRequested?.Invoke(this, EventArgs.Empty);
+            _root.Children.Add(import);
             _root.Children.Add(_rows);
             _root.Children.Add(_empty);
             _root.Children.Add(_saveDialog);
             _root.Children.Add(_deleteDialog);
+            _root.Children.Add(_renameDialog);
             Content = _root;
 
             _saveButton.Click += (_, _) => _saveDialog.IsOpen = true;
@@ -60,6 +69,12 @@ namespace Maple.UI
                 if (_pendingDeleteId is not null) PresetDeleted?.Invoke(this, _pendingDeleteId);
             };
             _deleteDialog.Dismissed += (_, _) => _deleteDialog.IsOpen = false;
+            _renameDialog.Confirmed += (_, name) =>
+            {
+                _renameDialog.IsOpen = false;
+                if (_pendingRenameId != null) PresetRenamed?.Invoke(_pendingRenameId, name);
+            };
+            _renameDialog.Dismissed += (_, _) => _renameDialog.IsOpen = false;
 
             Rebuild();
         }
@@ -77,13 +92,28 @@ namespace Maple.UI
                 var apply = new MuiButton { Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm, Label = "Apply" };
                 var delete = new MuiButton { Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm, Label = "Delete" };
                 var presetId = preset.Id;
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(apply, $"Apply {preset.Name}");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(delete, $"Delete {preset.Name}");
                 apply.Click += (_, _) => PresetApplied?.Invoke(this, presetId);
                 delete.Click += (_, _) => { _pendingDeleteId = presetId; _deleteDialog.IsOpen = true; };
                 trailing.Children.Add(apply);
-                trailing.Children.Add(delete);
+                if (!preset.ReadOnly) trailing.Children.Add(delete);
 
                 var row = new MuiListRow { Label = preset.Name, IconName = "tool-presets", TrailingContent = trailing };
                 _rows.Children.Add(row);
+                var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                var export = new MuiButton { Label = "Export", Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm };
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(export, $"Export {preset.Name}");
+                export.Click += (_, _) => PresetExported?.Invoke(this, presetId);
+                actions.Children.Add(export);
+                if (!preset.ReadOnly)
+                {
+                    var rename = new MuiButton { Label = "Rename", Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm };
+                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(rename, $"Rename {preset.Name}");
+                    rename.Click += (_, _) => { _pendingRenameId = presetId; _renameDialog.PromptValue = preset.Name; _renameDialog.IsOpen = true; };
+                    actions.Children.Add(rename);
+                }
+                _rows.Children.Add(actions);
             }
         }
     }

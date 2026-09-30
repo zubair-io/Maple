@@ -134,6 +134,7 @@ namespace Maple.WinUI
             BuildGradePanel();
             BuildProfilePanel();
             BuildFilmPanel();
+            BuildPresetsPanel();
             BuildLensPanel();      // #3480 — MainWindow.LensProfile.cs
             BuildDemosaicPanel();
             BuildCropPanel();

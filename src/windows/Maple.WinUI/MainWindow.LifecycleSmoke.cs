@@ -67,6 +67,7 @@ namespace Maple.WinUI
                 if (expectedPath != "empty")
                 {
                     await VerifyNativeDetailAsync();
+                    await VerifyPresetUndoAsync();
                     VerifyViewerDesignNavigation();
                     await VerifyComparisonAsync(raw);
                     await VerifyResponsiveDesignAsync();
@@ -117,6 +118,7 @@ namespace Maple.WinUI
                     droppedClosingPresents = renderer.DroppedClosingPresents,
                     viewerDesignNavigation = expectedPath != "empty",
                     nativeDetailActualSize = expectedPath != "empty",
+                    presetUndoRedoAndReset = expectedPath != "empty",
                     comparisonPreservesDocument = expectedPath != "empty",
                     cloudOpeningReadiness = expectedPath != "empty",
                     responsiveDesign = expectedPath != "empty",

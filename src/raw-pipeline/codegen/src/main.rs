@@ -32,6 +32,7 @@
 
 mod adjustment;
 mod adjustment_api;
+mod adjustment_cs;
 mod adjustment_groups;
 mod adjustment_tables;
 mod adjustment_transfer;
@@ -257,11 +258,14 @@ fn main() {
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::Ts) => emit_ts(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::TsTables) => emit_ts_tables(ADJUSTMENT_SCHEMA),
+        (Schema::Adjustment, Target::Cs) => adjustment_cs::emit_cs(),
         (
             Schema::Adjustment,
-            Target::Scss | Target::Wgsl | Target::Xaml | Target::Cs | Target::Md | Target::Json,
+            Target::Scss | Target::Wgsl | Target::Xaml | Target::Md | Target::Json,
         ) => {
-            eprintln!("codegen: --schema adjustment supports only swift / ts / ts-tables targets");
+            eprintln!(
+                "codegen: --schema adjustment supports only swift / ts / ts-tables / cs targets"
+            );
             std::process::exit(2);
         }
         (Schema::UiTokens, Target::Swift) => {

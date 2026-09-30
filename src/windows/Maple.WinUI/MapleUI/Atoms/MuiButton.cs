@@ -258,8 +258,16 @@ namespace Maple.UI.Atoms
             Opacity = _desiredEnabled ? 1.0 : 0.45;
             IsHitTestVisible = effectiveEnabled;
 
-            if (!string.IsNullOrEmpty(Label))
-                AutomationProperties.SetName(this, Label);
+            // Preserve the caller's descriptive name across enabled/loading
+            // changes (for example "Apply Flat" rather than just "Apply").
+            var accessibleName = AutomationProperties.GetName(this);
+            if (string.IsNullOrEmpty(accessibleName) || accessibleName == _automaticName)
+            {
+                _automaticName = Label;
+                AutomationProperties.SetName(this, Label ?? "");
+            }
         }
+
+        private string? _automaticName;
     }
 }

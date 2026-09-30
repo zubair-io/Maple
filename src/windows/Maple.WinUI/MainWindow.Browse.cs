@@ -52,6 +52,8 @@ namespace Maple.WinUI
 
         private void OnSelectedPhotoChanged()
         {
+            _lastAppliedPreset = null;
+            _resetPreset.IsEnabled = false;
             ResetComparison();
             ClearNativeDetailSource();
             var photo = ViewModel.SelectedPhoto;

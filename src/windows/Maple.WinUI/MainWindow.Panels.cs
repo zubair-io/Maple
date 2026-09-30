@@ -117,6 +117,16 @@ namespace Maple.WinUI
             PanelCropHost.Visibility = group == "Crop" ? Visibility.Visible : Visibility.Collapsed;
             PanelMaskHost.Visibility = group == "Mask" ? Visibility.Visible : Visibility.Collapsed;
             PanelFilmHost.Visibility = group == "Film" ? Visibility.Visible : Visibility.Collapsed;
+            PanelPresetsHost.Visibility = group == "Presets" ? Visibility.Visible : Visibility.Collapsed;
+            GroupResetButton.Visibility = group == "Presets" ? Visibility.Collapsed : Visibility.Visible;
+
+            if (group == "Presets")
+            {
+                PanelBwHeader.Visibility = PanelDetailHeader.Visibility = PanelHslBands.Visibility = PanelSliders.Visibility = Visibility.Collapsed;
+                PanelSliders.ItemsSource = null;
+                _ = RunPresetOperationAsync(() => ReloadPresetsAsync());
+                return;
+            }
 
             if (group == "Film")
             {
