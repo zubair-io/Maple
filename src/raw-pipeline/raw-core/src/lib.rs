@@ -73,6 +73,7 @@ pub use raster::{
 /// (#3507, Task G2) — the piece `avif-parse` doesn't provide. Compiles
 /// unconditionally; only its real-encoder tests need the `avif` feature.
 pub mod avif_boxes;
+mod metadata_source;
 pub mod raster_alpha;
 /// `maple_raster_analyze_buf`'s read-only half of the raster surface
 /// (#3507, Task G4): one JSON-in/JSON-out entry point over the metadata
@@ -174,3 +175,6 @@ pub mod film;
 /// Generated film-look catalog — see `commands::film_pack` in `maple-cli`
 /// for the ingest that produces it (epic #2683, Task 5a).
 pub mod film_catalog;
+
+#[cfg(test)]
+mod raster_metadata_reader_tests;

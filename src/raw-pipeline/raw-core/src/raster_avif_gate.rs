@@ -29,7 +29,7 @@ pub(crate) fn decode(_bytes: &[u8]) -> Result<RasterImage> {
     })
 }
 
-#[cfg(feature = "avif")]
+#[cfg(all(test, feature = "avif"))]
 pub(crate) fn probe(bytes: &[u8]) -> Result<AvifProbeLite> {
     let probe = crate::avif_decode::probe_avif(bytes)?;
     Ok(AvifProbeLite {
@@ -39,9 +39,32 @@ pub(crate) fn probe(bytes: &[u8]) -> Result<AvifProbeLite> {
     })
 }
 #[cfg(not(feature = "avif"))]
-pub(crate) fn probe(_bytes: &[u8]) -> Result<AvifProbeLite> {
+fn unavailable_probe() -> Result<AvifProbeLite> {
     Err(Error::Decode {
         path: "<memory>".into(),
         reason: "AVIF probing requires the `avif` feature".into(),
     })
+}
+
+#[cfg(feature = "avif")]
+pub(crate) fn probe_reader<R: std::io::Read + std::io::Seek>(
+    reader: &mut R,
+) -> Result<AvifProbeLite> {
+    let probe = crate::avif_decode::probe_avif_reader(reader)?;
+    Ok(AvifProbeLite {
+        width: probe.width,
+        height: probe.height,
+        has_alpha: probe.has_alpha,
+    })
+}
+#[cfg(not(feature = "avif"))]
+pub(crate) fn probe_reader<R: std::io::Read + std::io::Seek>(
+    _reader: &mut R,
+) -> Result<AvifProbeLite> {
+    unavailable_probe()
+}
+
+#[cfg(all(test, not(feature = "avif")))]
+pub(crate) fn probe(_bytes: &[u8]) -> Result<AvifProbeLite> {
+    unavailable_probe()
 }

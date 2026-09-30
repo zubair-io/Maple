@@ -22,6 +22,7 @@
 //! entry without reflowing every offset in the original.
 
 use super::canonical_exif;
+use crate::metadata_source::MetadataSource;
 
 /// EXIF tag 0x0112, Orientation (SHORT).
 const TAG_ORIENTATION: u16 = 0x0112;
@@ -40,18 +41,18 @@ const TYPE_RATIONAL: u16 = 5;
 const RATIONAL_DENOMINATOR: u32 = 1000;
 
 /// A located IFD0, with the endianness its TIFF header declared.
-struct Ifd0<'a> {
-    bytes: &'a [u8],
+struct Ifd0<'a, S: MetadataSource + ?Sized> {
+    bytes: &'a S,
     little: bool,
     entries_start: usize,
     count: usize,
 }
 
-impl<'a> Ifd0<'a> {
+impl<'a, S: MetadataSource + ?Sized> Ifd0<'a, S> {
     /// `None` when `block` has no usable TIFF header or IFD0 — a corrupt,
     /// truncated or simply empty block, which every caller treats as "no
     /// tag to rewrite" rather than an error.
-    fn open(block: &'a [u8]) -> Option<Self> {
+    fn open(block: &'a S) -> Option<Self> {
         let little = block.starts_with(b"II");
         if block.len() < 8 || (!little && !block.starts_with(b"MM")) {
             return None;
@@ -141,7 +142,11 @@ impl<'a> Ifd0<'a> {
 /// sharp reports 96 for a JPEG whose only resolution is EXIF
 /// `XResolution = 96000/1000`, where Maple reported nothing).
 pub fn exif_resolution_dpi(block: &[u8]) -> Option<f64> {
-    let ifd = Ifd0::open(canonical_exif(block).0)?;
+    exif_resolution_dpi_source(canonical_exif(block).0)
+}
+
+pub(super) fn exif_resolution_dpi_source<S: MetadataSource + ?Sized>(block: &S) -> Option<f64> {
+    let ifd = Ifd0::open(block)?;
     let value = ifd.rational(TAG_X_RESOLUTION)?;
     match ifd.short(TAG_RESOLUTION_UNIT) {
         Some(3) => Some(value * 2.54),

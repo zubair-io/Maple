@@ -514,6 +514,9 @@ jobs:
       #
       # Quoted: an unquoted YAML scalar treats ` #` as the start of a comment,
       # which would silently truncate this name at the ticket reference.
+      - name: 'Seekable metadata parity and bounded reads (JPEG/PNG/WebP/TIFF/DNG/AVIF, #3620)'
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features avif metadata_reader --lib
       - name: 'cargo test -p raw-core --features avif (AVIF panic barrier, #3517)'
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features avif --test avif_corruption
