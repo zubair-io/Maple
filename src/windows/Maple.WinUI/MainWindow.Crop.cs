@@ -95,8 +95,9 @@ namespace Maple.WinUI
             double cw, ch;
             if (_gpuFrameDims is { } dims && ViewportSwapChainPanel.Visibility == Visibility.Visible)
             {
-                cw = dims.Width;
-                ch = dims.Height;                     // panel is 1 px = 1 DIP, centered
+                var scale = Math.Min(vw / dims.Width, vh / dims.Height);
+                cw = dims.Width * scale;
+                ch = dims.Height * scale;
             }
             else
             {

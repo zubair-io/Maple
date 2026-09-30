@@ -107,6 +107,14 @@ namespace Maple.UI.Atoms
             Spacing = 6,
         };
         private readonly MuiIcon _icon = new() { Size = MuiIconSize.Sm16 };
+        public static readonly DependencyProperty IconSizeProperty =
+            DependencyProperty.Register(nameof(IconSize), typeof(MuiIconSize), typeof(MuiButton),
+                new PropertyMetadata(MuiIconSize.Sm16, (d, _) => ((MuiButton)d).Rebuild()));
+        public MuiIconSize IconSize
+        {
+            get => (MuiIconSize)GetValue(IconSizeProperty);
+            set => SetValue(IconSizeProperty, value);
+        }
         private readonly TextBlock _label = new() { VerticalAlignment = VerticalAlignment.Center };
         private readonly ProgressRing _spinner = new()
         {
@@ -204,6 +212,7 @@ namespace Maple.UI.Atoms
 
             var hasIcon = !string.IsNullOrEmpty(IconName);
             _icon.IconName = IconName ?? string.Empty;
+            _icon.Size = IconSize;
             _icon.IconColor = IconColor;
             _icon.Visibility = hasIcon && !IsLoading ? Visibility.Visible : Visibility.Collapsed;
 

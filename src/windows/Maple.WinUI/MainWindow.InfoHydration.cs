@@ -62,13 +62,13 @@ public sealed partial class MainWindow
             else
             {
                 var path = SidecarStore.SidecarPathFor(photo.FilePath);
-                xml = await Task.Run(() =>
+                xml = await Task.Run(async () =>
                 {
                     if (!File.Exists(path)) return null;
                     using var stream = File.OpenRead(path);
                     if (stream.Length > 4 * 1024 * 1024) throw new IOException("Sidecar exceeds metadata read limit.");
                     using var reader = new StreamReader(stream);
-                    return reader.ReadToEnd();
+                    return await reader.ReadToEndAsync(token);
                 }, token);
             }
             var localRows = await Task.Run(() => InspectorMetadata.ReadXmp(xml), token);
@@ -85,8 +85,9 @@ public sealed partial class MainWindow
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Xml.XmlException or System.Net.Http.HttpRequestException)
+        catch (Exception error)
         {
+            Services.DiagLog.Write($"[inspector] {error.Message}");
             if (!token.IsCancellationRequested && !_closing && ReferenceEquals(photo, ViewModel.SelectedPhoto))
             {
                 ExtraInfoRows.Children.Clear();

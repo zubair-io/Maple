@@ -1,7 +1,7 @@
 # Windows vNext design delivery
 
 Tracking: #3889; implementation PR #3890; design #3887, inspector #3886,
-comparison #3884, visual/performance qualification #3875.
+comparison #3884, visual/performance qualification #3875. Confirmed screenshot regressions: #3892; raster export limitation: #3891.
 
 The baseline source audit used `ea110d622e3e48c35b6f3348f62581fb09e17203`.
 The user supplied `Windows-editor.png`, `Windows-browse-list.png`, and the
@@ -13,7 +13,7 @@ in #3887; they are not universal DIP constraints.
 
 | Area             | Delivery                                                                                                                                                                                                                                                                                                                                                                                         |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Browse           | List/detail presentation alongside the existing grid; folder tiles remain above photos. Filename, dimensions when available, format, size and culling state accompany the preview. Editor, Preview, Info/rating and Export actions use existing commands.                                                                                                                                        |
+| Browse           | List/detail presentation alongside the existing grid; folder tiles remain above photos. Filename, dimensions when available, format, size and culling state accompany the preview. Editor, Preview and Info/rating use existing navigation; Share offers original files or edited JPEG output.                                                                                                   |
 | Navigation       | Sources toggle, folder ancestor menu, search, name/capture/rating sort, and three grid densities. View, sort and density preferences persist. Selection and a visible-item anchor are restored when the presentation changes. Filmstrip traversal uses the same sorted photo collection.                                                                                                         |
 | Sort semantics   | Capture ordering falls back to file modified time when capture metadata is absent. Date sections use oldest/newest order when a date sort is selected; name and rating are global, ungrouped sorts. Paths break equal-name ties.                                                                                                                                                                 |
 | Preview          | Back, filename, Edit and Info in one floating bar. The pane-header toggle switches expanded metadata rows and a compact left rail. It preserves selection and Info state and does not navigate to Browse. Info starts closed and retains its state for the session.                                                                                                                              |
@@ -79,8 +79,48 @@ Floating panels now use ThemeShadow rather than strong outlines, comparison
 uses the split icon, and histogram layout changes replay the latest real bins.
 Release build, all 1,176 unit tests, and GPU lifecycle smoke pass, including
 compact slider height, seven primary tools, overflow access and Browse scrolling.
-Post-change screenshot fidelity is still unverified; the capture helper maps
-worktree windows to the installed app and rejects their ownership.
+The subsequent hands-on audit worked around capture identity confusion by
+building the same project with a diagnostic assembly name. This permits
+current-worktree window capture, rather than inspecting the installed app.
+
+## Element audit from live screenshots
+
+The first audit was insufficient: its scrolling fixture was too small and its
+layout assertions did not detect a clipped GPU canvas. The following findings
+come from the user's four actual captures, the supplied reference boards, a
+354-photo library, native accessibility trees, and current-build screenshots.
+
+| Element                           | Evidence and correction                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native menu/title/caption buttons | File/Edit/View/Photo and native window controls retained; platform affordances outside the floating reference chrome.                                                                                                                                                                                                                                    |
+| Sources and breadcrumb            | Real source tree and ancestor navigation retained; breadcrumb now initialized from the current folder rather than waiting for another navigation event.                                                                                                                                                                                                  |
+| Search/sort/options               | Wide windows use one control row; narrow layouts wrap. Search remains filename/camera/lens filtering; sort/filter/density handlers retained.                                                                                                                                                                                                             |
+| Folder tiles                      | Height bounded so numerous child folders cannot consume the photo scrolling viewport.                                                                                                                                                                                                                                                                    |
+| Grid scrolling                    | Mouse wheel moved visible rows in the real 354-photo library. Native overflow regression separately covers 120 items, end and return to top.                                                                                                                                                                                                             |
+| List/detail initial state         | Toggling into list selects the first item when no selection exists. Persisted startup without selection gives explicit guidance rather than an unexplained blank detail region.                                                                                                                                                                          |
+| List rows                         | 66×44 thumbnails, separators, red selection surface/indicator and selected thumbnail outline; accessibility exposes filenames instead of the PhotoItem class name.                                                                                                                                                                                       |
+| Browse selection/collapse         | Explicit Select/Done supports checkbox selection; Collapse/Expand preserves detail and photo selection. These controls are separate from Preview navigation.                                                                                                                                                                                             |
+| Detail image/summary              | Uniform image fit; real filename, dimensions, format, size and culling state. Example names, ratings and edited timestamps are not fabricated.                                                                                                                                                                                                           |
+| Detail commands                   | Editor, Preview and Info use working navigation. Share copies originals to temporary storage or prepares edited JPEGs through the immutable export snapshot/native encoder, then invokes Windows Share. Original-file Share reached the native sheet; edited raster-source output is unsupported (#3891). Export remains in the application menu/editor. |
+| Preview top bar                   | Bounded 480-DIP bar, regular filename weight, chevron/back, pencil and Info.                                                                                                                                                                                                                                                                             |
+| Preview navigation                | Compact/expanded left strip preserves photo and open Info; verified by live interaction.                                                                                                                                                                                                                                                                 |
+| GPU image fit                     | Live Info opening exposed cropping: a native-size swapchain exceeded the smaller viewport. Uniform parent scaling now fits it; crop/mask footprint and 1:1 zoom use the same fitted bounds.                                                                                                                                                              |
+| Info metadata                     | Consistent label column, early dimensions, selectable wrapped values. Verbose calibration explanations moved into a working expander.                                                                                                                                                                                                                    |
+| Rating and flag                   | Larger star icons; equal-width 44-DIP flag controls use selected tint/outline instead of a solid primary action. Existing persistence commands retained.                                                                                                                                                                                                 |
+| Editor header                     | Working histogram observed after decode. Runtime comparison no longer restores text after XAML initializes the split icon.                                                                                                                                                                                                                               |
+| Editor filmstrip                  | Height excludes the trailing inter-item gap, preventing a clipped sixth thumbnail in the five-row rail.                                                                                                                                                                                                                                                  |
+| Light inspector                   | Profile and six reference tone controls remain visible. Brightness remains reachable via a real slider, reset and bounded numeric editing in overflow.                                                                                                                                                                                                   |
+| Tool dock                         | Seven primary groups, 80-DIP width, 52-DIP targets and 24-DIP icons. Tool switching exposed stale icon brush colors; MuiIcon now redraws when inherited foreground changes. Lens and Geometry remain in overflow.                                                                                                                                        |
+| Other adjustment groups           | Source trace confirms Color Basic/HSL/B&W, Effects Basic/Grade, Detail, Curve, Mask, Crop, Lens and Geometry retain their existing bindings, reset paths and rendering hooks. This is not a claim of visual correspondence to unprovided group mockups.                                                                                                  |
+| Keyboard ownership                | Text, numeric, combo and slider focus is excluded from root photo-navigation shortcuts.                                                                                                                                                                                                                                                                  |
+| Dialog concurrency                | Numeric edits use the existing shared modal gate to reject duplicate opens. Apply uses Maple styling; Cancel was exercised without changing the photo.                                                                                                                                                                                                   |
+| Narrow/minimized window           | Sources/Info widths clamp at zero instead of assigning negative dimensions.                                                                                                                                                                                                                                                                              |
+| Async metadata errors             | Cancellation-aware local reads and error reporting prevent malformed server metadata from escaping an async-void handler.                                                                                                                                                                                                                                |
+| Comparison buffer                 | Checked dimensions/byte count guard the allocation; opening-state model and sidecar remain immutable.                                                                                                                                                                                                                                                    |
+
+Actual monitor-DPI combinations, Narrator behavior, all cloud/offline permission
+combinations and 100MP performance require separate qualification. A screenshot
+or passing unit suite does not certify those areas.
 
 Responsive smoke uses root layout sizes 1440×900, 1024×768, 960×600, 683×512,
 720×450 and 512×384 DIPs. These approximate the requested physical-size/scaling
@@ -88,29 +128,48 @@ combinations, but **are not screenshots or actual monitor-DPI qualification**.
 The fixture is a disposable copy of the repository's synthetic DNG. Comparison
 checks original and sidecar bytes, model serialization and undo depth.
 
-The Windows Computer Use helper prevented fixed-state capture of the new build.
-After refreshing window selection, it returned:
+## Captured evidence and limits
 
-> window id 985800 no longer belongs to C:\Users\zubai\AppData\Local\Programs\Maple\Maple.WinUI.exe; current owner is C:\Users\zubai\AppData\Local\Programs\Maple\Maple.WinUI.exe
+The initial capture-ownership error was resolved by building this worktree with
+a unique diagnostic assembly name. The native Windows Computer Use API then
+captured and operated that exact executable. Screenshots remain local under
+`%TEMP%/maple-full-audit-evidence` because they contain the user's photographs.
+They were not uploaded to GitHub.
 
-The enumerated HWND was the running worktree build; the helper associated it
-with the installed app path and rejected capture. This is a tooling limitation,
-not evidence that the new UI matches the mockups. PR #3890 is ready for review
-per the repository policy; leave the parent issues open and do not merge until
-these remaining gates are fulfilled:
+The reference comparison covers each visible region in the supplied Windows
+Browse/Editor mocks and shared Preview layouts: chrome, navigation, row/rail
+geometry, image fit, selection, metadata, tool order, typography, values, sliders,
+and commands. Current-build captures include Browse list/detail, compact Preview,
+expanded Preview with Info, GPU Preview with Info, Light, Color, Effects, scrolled
+Detail, Curve, Mask, Crop, Brightness and the native original-file Share sheet.
+The editor's rendered photo and histogram were checked after RAW decoding.
+Opening tools and cancelling numeric input did not apply adjustments to the
+user's photo. The native smoke uses a disposable synthetic DNG for mutations.
 
-1. Fixed-state current-build Browse, Preview expanded/compact/Info, and Editor
-   screenshots at 1024×768 and 1440×900 on actual 100/150/200% DPI; review spacing,
-   typography, shadows, focus indicators and OS-accent independence.
-2. Live keyboard/pointer/Narrator review, including numeric editing, slider key
-   ownership, focus restoration and long metadata. RangeValue support alone is
-   not a complete accessibility sign-off.
-3. Local, cloud, offline/unindexed and read-only inspector evidence. API mapping
-   tests do not qualify a live server or every filesystem permission case.
-4. Metadata authoring integration remains owned by #3878; this inspector adds
-   no second writer. Performance and 100MP behavior remain under #3875. A small
-   synthetic smoke fixture cannot qualify those budgets.
+This is a substantially broader audit than the original static pass, but not a
+claim of pixel-identical rendering or exhaustive functional qualification. The
+native menu bar, overflow access to existing tools, real metadata, and desktop
+responsive layouts are intentional adaptations. Non-Light tool panels have no
+supplied detailed reference art, so they were checked for visibility, scrolling,
+existing command bindings and preservation, not claimed as visual matches to
+unprovided designs.
 
-Once capture tooling is working, use the same worktree build and disposable
-fixtures for those gates. Do not replace missing evidence with screenshots of
-an older installed executable or mark the broad issues complete from unit tests.
+Known functional limitation: edited JPEG export from a JPEG source fails in the
+existing RAW-only recipe decoder. Original sharing does not substitute for edited
+export. #3891 records the reproduction and required shared-core work; no resized
+unadjusted image is silently substituted for an edited result. Native Share was
+opened without choosing a destination or sending a file. Its separate-window
+dismissal proved awkward in automation and the audit instance was restarted;
+that is not end-to-end receiver-delivery qualification.
+
+Actual 100/150/200% monitor scaling, full Narrator navigation, cloud/offline and
+read-only permission combinations, and 100MP timing remain unqualified under
+#3875. Metadata authoring remains #3878. The broad design/feature issues remain
+open. GitHub project assignment was unavailable because the current token lacks
+`read:project`; the new issues were created without changing account permissions.
+
+Final regression result: the rebuilt diagnostic assembly passed the GPU native
+lifecycle run, including the added drawn-icon color assertion. Release build:
+0 errors (28 existing warnings). Repeated Windows unit suite: 1,176 passed,
+0 failed. The copied synthetic DNG retains its original SHA-256. All changed
+non-allowlisted C# files remain below 570 lines; `git diff --check` passes.
