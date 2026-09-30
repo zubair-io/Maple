@@ -168,6 +168,11 @@ jobs:
       - name: cargo build --bin maple-cli --features pano (compile gate)
         working-directory: src/raw-pipeline
         run: cargo build --bin maple-cli --features pano
+      # Synthetic film-look, P3 and export-recipe tests need this feature;
+      # a default CLI build does not compile their callers (#3905).
+      - name: cargo test -p maple-cli --features test-support
+        working-directory: src/raw-pipeline
+        run: cargo test -p maple-cli --features test-support
       # napi-rs binding compile gate (#3509, epic #3495). Every other cargo
       # invocation in this repo's CI is scoped with `-p <crate>` — there is no
       # `--workspace` build anywhere — so without this step raw-napi would be a
