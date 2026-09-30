@@ -1,0 +1,12 @@
+:host {
+  cursor: crosshair;
+}
+.guide {
+  fill: none;
+  stroke: var(--pro-accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.pending {
+  stroke-dasharray: 5 4;
+}

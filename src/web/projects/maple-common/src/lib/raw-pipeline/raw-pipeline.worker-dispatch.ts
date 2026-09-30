@@ -184,6 +184,18 @@ const settleSampleRange: Settler<'sample-range'> = (msg, handler) => {
   return false;
 };
 
+const settleGuidedGeometry: Settler<'guided-geometry'> = (msg, handler) => {
+  if (msg.type === 'guided-geometry-success') {
+    handler.resolve(msg.correction);
+    return true;
+  }
+  if (msg.type === 'guided-geometry-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
 const settleRegisterMaskRaster: Settler<'register-mask-raster'> = (msg, handler) => {
   if (msg.type === 'register-mask-raster-success') {
     handler.resolve(msg.rasterId);
@@ -278,6 +290,7 @@ const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
   'auto-adjust': settleAutoAdjust,
   'sample-wb': settleSampleWb,
   'sample-range': settleSampleRange,
+  'guided-geometry': settleGuidedGeometry,
   'register-mask-raster': settleRegisterMaskRaster,
   'lens-profile': settleLensProfile,
   'lens-profile-compatible': settleLensProfileCompatible,

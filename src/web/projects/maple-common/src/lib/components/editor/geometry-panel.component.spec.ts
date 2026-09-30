@@ -16,6 +16,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { ADJUSTMENT_RANGES, defaultAdjustmentModel } from '../../models/adjustment-model';
 import { signal } from '@angular/core';
+import { GuidedGeometrySessionService } from '../guided-geometry/guided-geometry-session.service';
 
 const DEFAULTS = defaultAdjustmentModel();
 
@@ -38,6 +39,10 @@ function harness(focusedAssetId: string | null = 'asset-1') {
     providers: [
       { provide: LibraryStateService, useValue: library },
       { provide: EditorStateService, useValue: editorState },
+      {
+        provide: GuidedGeometrySessionService,
+        useValue: { active: () => false, canStart: () => true, message: () => '' },
+      },
     ],
   });
   const fixture = TestBed.createComponent(GeometryPanelComponent);

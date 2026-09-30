@@ -32,12 +32,14 @@
 //! Pixels the warp pulls from outside the source render as black exactly as
 //! Adobe renders them, and the user crops them away with the crop tool.
 
+mod guided;
 mod matrix;
 mod warp;
 
 #[cfg(test)]
 mod tests;
 
+pub use guided::{solve_guides, GuideFamily, GuideLine, GuidedCorrection};
 pub use matrix::{Homography, Perspective, ASPECT_MAX_RATIO, KEYSTONE_MAX, OFFSET_MAX};
 pub use warp::warp_f32_rgba;
 

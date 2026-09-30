@@ -3,6 +3,49 @@
      commit-on-release: each tick writes the model and the present shader
      re-warps, while one EditTransaction spans the whole gesture. -->
 <div class="flex min-h-0 flex-col gap-2.5 p-2.5" data-testid="geometry-panel">
+  @if (!guided.active()) {
+    <div class="flex flex-wrap gap-1">
+      <mui-button
+        size="sm"
+        [disabled]="panelDisabled() || !guided.canStart()"
+        (pressed)="guided.start('vertical')"
+        >Guide verticals</mui-button
+      >
+      <mui-button
+        size="sm"
+        [disabled]="panelDisabled() || !guided.canStart()"
+        (pressed)="guided.start('horizontal')"
+        >Guide horizontals</mui-button
+      >
+      <mui-button
+        size="sm"
+        [disabled]="panelDisabled() || !guided.canStart()"
+        (pressed)="guided.start('both')"
+        >Four guides</mui-button
+      >
+    </div>
+  } @else {
+    <p id="guided-geometry-instructions" class="text-xs text-text-muted" aria-live="polite">
+      {{ guided.canApply() ? 'Guides ready. Apply the correction.' : guided.instruction() }}
+      Drag along an edge, or choose its two endpoints. With the canvas focused, use arrow keys to
+      move and Enter to choose an endpoint. Escape cancels.
+    </p>
+    <div class="flex flex-wrap gap-1">
+      <mui-button size="sm" [disabled]="!guided.canApply()" (pressed)="guided.apply()"
+        >Apply guides</mui-button
+      >
+      <mui-button
+        size="sm"
+        [disabled]="guided.busy() || guided.lines().length === 0"
+        (pressed)="guided.removeLast()"
+        >Remove last guide</mui-button
+      >
+      <mui-button size="sm" (pressed)="guided.cancel()">Cancel guides</mui-button>
+    </div>
+  }
+  @if (guided.message()) {
+    <p class="text-xs text-text-muted" role="status">{{ guided.message() }}</p>
+  }
   @for (s of sliders; track s.field) {
     <mui-living-slider
       [label]="s.label"
@@ -12,7 +55,7 @@
       [step]="s.step"
       [bipolar]="s.bipolar"
       [unit]="s.unit"
-      [disabled]="panelDisabled()"
+      [disabled]="panelDisabled() || guided.active()"
       (valueChange)="onValueChange(s.field, $event)"
       (dragStart)="onDragStart()"
       (dragEnd)="onDragEnd()"
