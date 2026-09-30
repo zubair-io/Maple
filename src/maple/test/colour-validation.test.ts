@@ -11,6 +11,15 @@ const pixel = {
 };
 
 describe('Colour validation', () => {
+  it('rejects null and primitive colours from JavaScript callers with a validation error', () => {
+    for (const background of [null, false, 42]) {
+      for (const create of [maple, publishedMaple]) {
+        expect(() =>
+          create(pixel).flatten({ background: background as unknown as Colour }),
+        ).toThrow('Invalid colour: expected an RGB object or a hex string');
+      }
+    }
+  });
   it('validates colours through the compiled public package entry point', () => {
     expect(() => publishedMaple(pixel).flatten({ background: { r: 300, g: 0, b: 0 } })).toThrow(
       /Invalid colour channel r=300/,
