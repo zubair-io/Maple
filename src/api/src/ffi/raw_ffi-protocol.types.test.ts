@@ -5,15 +5,31 @@ import ts from 'typescript';
 
 const protocolPath = path.join(import.meta.dir, 'raw_ffi-protocol.ts');
 const source = await Bun.file(protocolPath).text();
-const configPath = path.join(import.meta.dir, '../../..', 'tsconfig.json');
+const configPath = path.join(import.meta.dir, '../..', 'tsconfig.json');
 const config = ts.readConfigFile(configPath, ts.sys.readFile);
-const { options } = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath));
+if (config.error) {
+  throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'));
+}
+const { options, errors } = ts.parseJsonConfigFileContent(
+  config.config,
+  ts.sys,
+  path.dirname(configPath),
+);
+if (errors.length > 0) {
+  throw new Error(
+    errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n')).join('\n'),
+  );
+}
+const canonicalPath = (fileName: string) => {
+  const resolved = path.resolve(fileName);
+  return ts.sys.useCaseSensitiveFileNames ? resolved : resolved.toLowerCase();
+};
 
 function diagnostics(mutated: string): string {
   const host = ts.createCompilerHost(options);
   const original = host.getSourceFile.bind(host);
   host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
-    path.resolve(fileName) === protocolPath
+    canonicalPath(fileName) === canonicalPath(protocolPath)
       ? ts.createSourceFile(fileName, mutated, languageVersion, true)
       : original(fileName, languageVersion, onError, shouldCreateNewSourceFile);
   const program = ts.createProgram([protocolPath], options, host);
