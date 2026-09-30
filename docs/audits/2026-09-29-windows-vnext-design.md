@@ -110,7 +110,7 @@ come from the user's four actual captures, the supplied reference boards, a
 | Editor header                     | Working histogram observed after decode. Runtime comparison no longer restores text after XAML initializes the split icon.                                                                                                                                                                                                                               |
 | Editor filmstrip                  | Height excludes the trailing inter-item gap, preventing a clipped sixth thumbnail in the five-row rail.                                                                                                                                                                                                                                                  |
 | Light inspector                   | Profile and six reference tone controls remain visible. Brightness remains reachable via a real slider, reset and bounded numeric editing in overflow.                                                                                                                                                                                                   |
-| Tool dock                         | Seven primary groups, 80-DIP width, 52-DIP targets and 24-DIP icons. Tool switching exposed stale icon brush colors; MuiIcon now redraws when inherited foreground changes. Lens and Geometry remain in overflow.                                                                                                                                        |
+| Tool dock                         | Seven primary groups, 80-DIP width, 52-DIP targets and 24-DIP icons. Tool switching exposed stale icon brush colors; Tool icons and labels now receive the selected/unselected brush explicitly, including after WinUI template realization. Lens and Geometry remain in overflow.                                                                       |
 | Other adjustment groups           | Source trace confirms Color Basic/HSL/B&W, Effects Basic/Grade, Detail, Curve, Mask, Crop, Lens and Geometry retain their existing bindings, reset paths and rendering hooks. This is not a claim of visual correspondence to unprovided group mockups.                                                                                                  |
 | Keyboard ownership                | Text, numeric, combo and slider focus is excluded from root photo-navigation shortcuts.                                                                                                                                                                                                                                                                  |
 | Dialog concurrency                | Numeric edits use the existing shared modal gate to reject duplicate opens. Apply uses Maple styling; Cancel was exercised without changing the photo.                                                                                                                                                                                                   |
@@ -173,3 +173,12 @@ lifecycle run, including the added drawn-icon color assertion. Release build:
 0 errors (28 existing warnings). Repeated Windows unit suite: 1,176 passed,
 0 failed. The copied synthetic DNG retains its original SHA-256. All changed
 non-allowlisted C# files remain below 570 lines; `git diff --check` passes.
+
+The final live check also caught WinUI's default-dialog accent overriding the
+numeric Apply style. Dialog-local accent resources now keep its normal, hover
+and pressed states in Maple colors. Build 9 was visually checked after that
+correction: Light → Color → Light updates the icon/label colors, the decoded
+image and histogram render, and numeric Apply is red. Cancel left Exposure at
+0.00 EV. Evidence: `editor-color-final.jpg`, `editor-light-final.jpg`, and
+`numeric-dialog-final.jpg` in the local evidence directory. The GPU regression
+was run on build 8; build 9 adds only the dialog accent resource override.
