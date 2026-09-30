@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
+import { maple as publishedMaple } from '../dist/index.js';
 import type { Colour } from '../src/types.ts';
 
 const pixel = {
@@ -10,6 +11,14 @@ const pixel = {
 };
 
 describe('Colour validation', () => {
+  it('validates colours through the compiled public package entry point', () => {
+    expect(() => publishedMaple(pixel).flatten({ background: { r: 300, g: 0, b: 0 } })).toThrow(
+      /Invalid colour channel r=300/,
+    );
+    expect(() =>
+      publishedMaple(pixel).extend({ left: 1, background: { r: 1, g: 2, b: 3, alpha: NaN } }),
+    ).toThrow(/Invalid colour alpha=NaN/);
+  });
   it('rejects invalid RGB bytes at each public colour caller', () => {
     for (const field of ['r', 'g', 'b'] as const) {
       for (const invalid of [-1, 256, 300, 1.5, NaN, Infinity, -Infinity]) {
