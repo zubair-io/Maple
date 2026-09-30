@@ -1747,6 +1747,9 @@ async function resolveToRaw(state) {
     ops: [...state.ops, { op: "removeAlpha" }]
   };
   const out = await runPipeline(rgbState, bytes, { format: "raw" });
+  if (out.channels !== 3 || out.buffer.byteLength !== out.width * out.height * 3) {
+    throw new Error("Raster pipeline returned an invalid RGB8 pixel layout");
+  }
   return {
     data: new Uint8Array(out.buffer.buffer, out.buffer.byteOffset, out.buffer.byteLength),
     width: out.width,
