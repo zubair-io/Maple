@@ -14,7 +14,7 @@ The **worker child** is spawned from `runtime/child-process-worker.ts` running `
 
 Because the worker tier lives in another process, the API process's in-memory `stageRegistry` is empty. Worker control routes therefore never use IPC: `POST /api/workers/:name/pause` writes the stage's paused flag into the `worker_config` table and the worker picks it up on its next poll tick (`workers/routes-main.ts`).
 
-A third tier of processes sits under the FFI pool (`ffi/ffi-pool.ts`): each RAW thumbnail, preview, or histogram decode runs in a short-lived child that `dlopen`s `native/libraw_ffi.{dylib,so}`. The pool queues requests, lazy-spawns children up to the operator-configured target, and drains in-flight work before shrinking. A native crash rejects only that one request.
+A third tier of processes sits under the FFI pool (`ffi/ffi-pool.ts`): each RAW thumbnail, preview, or histogram decode runs in a short-lived child that `dlopen`s the shared library selected by Maple’s resolver. The pool queues requests, lazy-spawns children up to the operator-configured target, and drains in-flight work before shrinking. A native crash rejects only that one request.
 
 `SIGTERM`/`SIGINT` drains in a fixed order: stop the event-loop probe, stop the change-feed tailer and the APNs push trigger, terminate the worker child (its own handler drains the tier), flush OpenTelemetry, wait up to 5 seconds for in-flight mirror replication, and close the database pool last, so anything above it that still wanted a query got one.
 
@@ -153,7 +153,7 @@ Both derived tiers are path-keyed rather than content- or id-keyed, so a client 
 
 ## Native decoding
 
-`src/api/native/libraw_ffi.{dylib,so}` is the Rust core (`raw-ffi`) compiled as a shared library and loaded through `bun:ffi`. Build it with:
+`src/api/native/libraw_ffi.{dylib,so}` is the conventional build output for the Rust core (`raw-ffi`), loaded through `bun:ffi`. The API’s availability gate and actual loader use Maple’s shared resolver, including the existing `MAPLE_NATIVE_LIB` override, Cargo release outputs, installed platform packages, and runtime locations. The gate checks file presence without loading native code. Build the conventional API output with:
 
 ```bash
 ./src/api/scripts/build-raw-ffi.sh          # auto-detects platform

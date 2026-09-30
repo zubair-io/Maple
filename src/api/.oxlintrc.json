@@ -108,6 +108,8 @@
         "src/enrichment/face-models.ts",
         "src/enrichment/face-pool.test.ts",
         "src/ffi/raw_ffi.ts",
+        // #3529: temporary binary symlink and synthetic fixtures under os.tmpdir().
+        "src/ffi/native-resolution.test.ts",
         "src/fs/browse-roots-memo.test.ts",
         "src/fs/browse.ts",
         "src/fs/browse.stub-audio.test.ts",

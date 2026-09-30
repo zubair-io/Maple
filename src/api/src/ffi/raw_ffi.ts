@@ -1,7 +1,9 @@
 /**
  * Bun FFI wrapper for libraw_ffi.dylib (macOS) / libraw_ffi.so (Linux).
  *
- * The shared library must be present at:
+ * Library resolution uses Maple’s shared resolver, including source builds,
+ * the existing MAPLE_NATIVE_LIB override and installed platform packages.
+ * The conventional API build outputs are:
  *   src/api/native/libraw_ffi.dylib  (macOS)
  *   src/api/native/libraw_ffi.so     (Linux)
  *
@@ -14,6 +16,8 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import {
+  findNativeLib,
+  isNativeAvailable,
   loadNativeBinding,
   renderFilenameTemplate as mapleRenderFilenameTemplate,
   validateFilename as mapleValidateFilename,
@@ -171,14 +175,16 @@ export function setRawFfiForTests(ffi: RawFfi | null | undefined): void {
  * does NOT `dlopen` — so callers can decide whether RAW decode is possible
  * without loading libraw into their process. The FFI decode pool uses this to
  * gate work to its isolated child processes (which do the real `dlopen`),
- * keeping native code — and any segfault it might hit — out of the main HTTP
- * process entirely.
+ * keeping this availability check free of native code.
  */
 export function nativeLibAvailable(): boolean {
-  return fs.existsSync(nativeLibPath());
+  return isNativeAvailable();
 }
 
 export function nativeLibPath(): string {
+  const resolved = findNativeLib();
+  if (resolved) return resolved;
+  // Preserve the conventional build path for missing-library diagnostics.
   const dir = path.join(
     import.meta.dir, // src/ffi/
     '..', // src/

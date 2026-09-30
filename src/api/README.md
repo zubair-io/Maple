@@ -21,7 +21,7 @@ Required for thumbnail generation from RAW files (`.dng`, `.cr2`, etc.):
 ./scripts/build-raw-ffi.sh
 ```
 
-This compiles `libraw_ffi.dylib` (macOS) and places it in `native/`. Without it, the server starts fine but skips RAW thumbnail generation.
+This compiles `libraw_ffi.dylib` (macOS) and places it in `native/`. The API’s availability gate and loader share Maple’s resolver: the existing `MAPLE_NATIVE_LIB` override, source-built Cargo outputs, installed platform packages, and runtime library locations also work. Availability checks inspect file presence; child processes load the library for pixel work.
 
 ### 2. Install dependencies and start the server
 
