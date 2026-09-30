@@ -32,6 +32,8 @@ pub mod nlm;
 pub mod noise_reduction;
 pub mod perspective;
 pub mod removal_selection;
+pub mod removal_smart;
+mod removal_smart_strokes;
 /// Clone / heal repair spots (#3409) — a decode-product edit, applied
 /// after DCP colorimetry and upstream of the chroma pre-filter.
 pub mod retouch;

@@ -100,6 +100,76 @@ fn stroke_bounds(w: u32, h: u32, stroke: &RemovalStroke) -> [u32; 4] {
     bounds
 }
 
+/// Preserve all model expansion except where the ordered painted footprint
+/// adds/removes intent. Used by Smart paint; inference cannot erase user paint.
+pub fn apply_to_mask(
+    base: &RemovalMask,
+    strokes: &[RemovalStroke],
+) -> Result<Option<RemovalMask>, String> {
+    base.validate()?;
+    if strokes.is_empty() {
+        return Ok(Some(base.clone()));
+    }
+    let mut bounds = [base.x, base.y, base.x + base.width, base.y + base.height];
+    for stroke in strokes {
+        stroke.validate()?;
+        if !stroke.subtract {
+            let b = stroke_bounds(base.source_width, base.source_height, stroke);
+            bounds = [
+                bounds[0].min(b[0]),
+                bounds[1].min(b[1]),
+                bounds[2].max(b[2]),
+                bounds[3].max(b[3]),
+            ];
+        }
+    }
+    let [x, y, end_x, end_y] = bounds;
+    let (width, height) = (end_x - x, end_y - y);
+    let n = validate_mask_layout(base.source_width, base.source_height, x, y, width, height)?;
+    let mut pixels = Vec::new();
+    pixels
+        .try_reserve_exact(n)
+        .map_err(|_| "removal selection: insufficient memory".to_string())?;
+    pixels.resize(n, 0);
+    for row in 0..base.height as usize {
+        let offset =
+            (base.y - y) as usize * width as usize + (base.x - x) as usize + row * width as usize;
+        pixels[offset..offset + base.width as usize].copy_from_slice(
+            &base.pixels[row * base.width as usize..(row + 1) * base.width as usize],
+        );
+    }
+    let mut mask = RemovalMask {
+        source_width: base.source_width,
+        source_height: base.source_height,
+        x,
+        y,
+        width,
+        height,
+        pixels,
+    };
+    for stroke in strokes {
+        apply_stroke(&mut mask, stroke);
+    }
+    Ok(mask.pixels.iter().any(|v| *v == 255).then_some(mask))
+}
+
+pub(super) fn covers_point(w: u32, h: u32, stroke: &RemovalStroke, point: [f64; 2]) -> bool {
+    let native = |p: [f32; 2]| {
+        [
+            f64::from(p[0]) * f64::from(w),
+            f64::from(p[1]) * f64::from(h),
+        ]
+    };
+    let point = [point[0] * f64::from(w), point[1] * f64::from(h)];
+    let radius = f64::from(stroke.radius) * f64::from(w);
+    let start = native(stroke.points[0]);
+    segment_distance_squared(point, start, start) <= radius * radius
+        || stroke
+            .points
+            .windows(2)
+            .any(|p| segment_distance_squared(point, native(p[0]), native(p[1])) <= radius * radius)
+}
+
 fn apply_stroke(mask: &mut RemovalMask, stroke: &RemovalStroke) {
     let point = |p: [f32; 2]| {
         [

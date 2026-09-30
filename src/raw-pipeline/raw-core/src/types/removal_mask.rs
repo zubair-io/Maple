@@ -57,7 +57,7 @@ pub(crate) fn validate_mask_layout(
 
 /// One continuous Paint/Subtract gesture. Points and radius are normalized to
 /// the source; radius is a fraction of source WIDTH, so circles stay circular.
-#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RemovalStroke {
     pub points: Vec<[f32; 2]>,
