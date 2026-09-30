@@ -19,7 +19,8 @@ namespace Maple.WinUI
     /// The run decodes, then times TICKS wiggling Exposure ±0.01 through the
     /// real render loop (GPU presents, or CPU ticks under MAPLE_FORCE_CPU=1;
     /// combine the CPU run with MAPLE_DUMP_FRAME for the pixel-exact parity
-    /// frame), writes the timing report, and exits.
+    /// frame), writes the timing report and a production export on the CPU
+    /// run, and exits.
     /// </summary>
     public sealed partial class MainWindow
     {
@@ -94,6 +95,11 @@ namespace Maple.WinUI
                 var decodeMs = System.Diagnostics.Stopwatch.GetElapsedTime(decodeStarted).TotalMilliseconds;
                 await NextFrameAsync();
 
+                // Capture the production export snapshot before timing edits,
+                // exactly as the export dialog does. Export after measurement
+                // so full-resolution work cannot contaminate fast-tick samples.
+                var exportInputs = await ViewModel.CaptureExportInputsAsync();
+
                 for (var i = 0; i < QualifyTicks; i++)
                 {
                     ViewModel.Adjustments.Exposure += i % 2 == 0 ? 0.01 : -0.01;
@@ -127,6 +133,7 @@ namespace Maple.WinUI
                 // Give the histogram quiet-tick (and MAPLE_DUMP_FRAME on the
                 // CPU run) time to land before exiting.
                 await Task.Delay(1500);
+                if (path == "cpu") await WriteQualificationExportAsync(exportInputs, outDir);
             }
             catch (Exception ex)
             {
@@ -147,6 +154,32 @@ namespace Maple.WinUI
                 _closeReady = true;
                 Close();
             }
+        }
+
+        private static async Task WriteQualificationExportAsync(
+            System.Collections.Generic.IReadOnlyList<Services.Export.ExportInput> inputs, string outDir)
+        {
+            var destination = Path.Combine(outDir, "export");
+            Directory.CreateDirectory(destination);
+            var runner = new Services.Export.ExportQueueRunner(
+                new Services.Export.ExportQueueStore(Path.Combine(outDir, "export-ledger")),
+                new Services.Export.NativeExportRecipeExecutor());
+            var recipe = new Generated.ExportRecipe
+            {
+                SchemaVersion = 1, Name = "Qualification full resolution", Format = "tiff",
+                Quality = null, BitDepth = 16, MaxLongEdge = null, OutputProfile = "srgb",
+                RenderingIntent = "maple-display", MetadataPolicy = "strip",
+                NamingTemplate = "qualification.{ext}", Destination = "directory",
+                Directory = destination, Watermark = null, OverwritePolicy = "error",
+            };
+            var job = runner.Create(recipe, inputs, inputs.Select(input => input.SourcePath));
+            var result = await runner.RunAsync(job.Id, false, System.Threading.CancellationToken.None);
+            if (result.Entries.Count != 1 || result.Entries[0].Status != "applied")
+                throw new IOException("Qualification export failed: " +
+                    string.Join("; ", result.Entries.Select(entry => entry.Reason ?? entry.Status)));
+            await File.WriteAllTextAsync(Path.Combine(outDir, "export-result.json"),
+                JsonSerializer.Serialize(new { output = result.Entries[0].OutputPath,
+                    sha256 = result.Entries[0].AfterHash, source_sha256 = result.Entries[0].SourceHash }));
         }
     }
 }

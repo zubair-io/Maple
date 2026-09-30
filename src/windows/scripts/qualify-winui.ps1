@@ -4,7 +4,8 @@
 # Two app runs in MAPLE_QUALIFY mode (see MainWindow.Qualify.cs):
 #   1. GPU  — tick timing (the product path).
 #   2. CPU  — MAPLE_FORCE_CPU=1 + MAPLE_DUMP_FRAME for the pixel-exact frame,
-#             compared against `maple-cli render` of the same RAW + sidecar.
+#             plus a full-resolution production export; both compared
+#             against `maple-cli render` of the same RAW + sidecar.
 #
 # ΔE verdict needs python3 (compare_images.py via `maple-cli diff`); without
 # it the parity artifacts are still produced, but qualification fails.
@@ -49,7 +50,7 @@ $sidecar = [IO.Path]::ChangeExtension($Raw, ".xmp")
     cli_sha256 = (Get-FileHash -LiteralPath $MapleCli -Algorithm SHA256).Hash
     native_pipeline_sha256 = (Get-FileHash -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $AppExe).Path)) 'raw_ffi.dll') -Algorithm SHA256).Hash
     physical_reference_qualified = $false
-    qualification_limits = @('Physical reference hardware and 100MP source dimensions require separate verification.', 'GPU screenshot/export perceptual parity is not covered by this CPU-frame comparison.')
+    qualification_limits = @('Physical reference hardware and 100MP source dimensions require separate verification.', 'GPU screenshot perceptual parity is not covered by these CPU-preview and production-export comparisons.')
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $work 'provenance.json')
 $sidecarArgs = if (Test-Path -LiteralPath $sidecar) { @("--params", $sidecar) } else { @() }
 
@@ -104,8 +105,28 @@ try { $null = & python3 --version 2>&1; $pythonWorks = ($LASTEXITCODE -eq 0) } c
 if ($pythonWorks) {
     Write-Output "== Delta-E00 (compare_images.py via maple-cli diff) =="
     & $MapleCli diff $appFrame $refFrame --budget $ParityBudgetMean
-    if ($LASTEXITCODE -ne 0) { throw "parity FAIL: mean Delta-E exceeds $ParityBudgetMean" }
-    Write-Output "parity verdict: PASS (mean <= $ParityBudgetMean)"
+    $previewParityFailed = $LASTEXITCODE -ne 0
+    Write-Output "preview/full-reference parity failed: $previewParityFailed (budget $ParityBudgetMean)"
+    # Independently exercise the production Windows snapshot/queue/encoder,
+    # not just a reduced preview buffer. Keep both verdicts even when preview
+    # parity fails; a passing export must never hide a failing preview.
+    $exportResult = Get-Content -LiteralPath (Join-Path $work 'cpu/export-result.json') -Raw | ConvertFrom-Json
+    if (-not (Test-Path -LiteralPath $exportResult.output -PathType Leaf)) { throw 'Production export artifact missing.' }
+    if ((Get-FileHash -LiteralPath $exportResult.output -Algorithm SHA256).Hash -ne $exportResult.sha256) {
+        throw 'Production export artifact changed after publication.'
+    }
+    Write-Output "== Production export / full-reference Delta-E00 =="
+    # The shared perceptual comparator can resize previews; export parity
+    # instead requires matching dimensions before it is allowed to compare.
+    & python3 -c 'import sys; from PIL import Image; a=Image.open(sys.argv[1]); b=Image.open(sys.argv[2]); print("export dimensions:", a.size, "reference:", b.size); sys.exit(0 if a.size == b.size else 1)' $exportResult.output $refFrame
+    if ($LASTEXITCODE -ne 0) { throw 'Production export dimensions differ from the full reference.' }
+    & $MapleCli diff $exportResult.output $refFrame --budget $ParityBudgetMean
+    $exportParityFailed = $LASTEXITCODE -ne 0
+    Write-Output "export/full-reference parity failed: $exportParityFailed (budget $ParityBudgetMean)"
+    @{ preview_parity_failed = $previewParityFailed; export_parity_failed = $exportParityFailed;
+       mean_budget = $ParityBudgetMean; tick_verdict = $tickVerdict } |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $work 'verdict.json')
+    if ($previewParityFailed -or $exportParityFailed) { throw "Parity FAIL. Evidence: $work" }
 } else {
     Write-Output "python3 not found - parity artifacts written, no Delta-E verdict:"
     Write-Output "  candidate: $appFrame"
