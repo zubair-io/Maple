@@ -168,7 +168,7 @@ describe('preview handler — video, ffmpeg available', () => {
 
       const previewPath = previewPathFor(doc);
       const meta = await maple(previewPath).metadata();
-      expect(meta.format).toBe('avif');
+      expect(meta.format).toBe('heif');
       expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(PREVIEW_LONG_EDGE_PX);
       // Aspect ratio preserved from the source frame, not squashed to square.
       expect(meta.width).toBe(1280);

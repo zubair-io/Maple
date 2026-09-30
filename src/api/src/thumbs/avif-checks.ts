@@ -35,7 +35,7 @@ function errMessage(e: unknown): string {
  * AVIF matching this pipeline's encode conventions. Checks run cheapest
  * (metadata-only) to most expensive (a full pixel decode):
  *
- *  1. Format: Maple's metadata probe must report `avif` — confirming this is
+ *  1. Format: metadata must report `heif` with AV1 compression — confirming this is
  *     genuinely AVIF, not e.g. a HEIC file or non-image bytes with an
  *     `.avif` extension.
  *  2. Dimensions: both the width and height must be within
@@ -73,8 +73,11 @@ export async function checkAvifOutput(
   if ('error' in meta) {
     return { ok: false, reason: `metadata decode failed: ${meta.error}` };
   }
-  if (meta.format !== 'avif') {
-    return { ok: false, reason: `unexpected format "${meta.format || 'unknown'}" (expected avif)` };
+  if (meta.format !== 'heif' || meta.compression !== 'av1') {
+    return {
+      ok: false,
+      reason: `unexpected format "${meta.format || 'unknown'}" with compression "${meta.compression || 'unknown'}" (expected AVIF/AV1)`,
+    };
   }
   if (!meta.width || !meta.height) {
     return { ok: false, reason: 'metadata missing width/height' };

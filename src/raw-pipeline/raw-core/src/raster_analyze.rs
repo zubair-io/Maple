@@ -77,11 +77,13 @@ fn capped(block: Option<&[u8]>) -> Option<&[u8]> {
 fn metadata_value(bytes: &[u8]) -> Result<Value> {
     let probe = crate::raster::probe_raster_metadata(bytes)?;
     let sidecars = crate::raster_meta::read_sidecars(bytes);
+    let fields = header_fields(&mut std::io::Cursor::new(bytes), &probe.format)?;
     Ok(metadata_reply(
         &probe,
         &sidecars,
         depth_value(bytes, &probe.format),
         bytes.len(),
+        fields,
     ))
 }
 
@@ -90,20 +92,39 @@ fn metadata_reply(
     sidecars: &crate::raster_meta::RasterSidecars,
     depth: &str,
     size: usize,
+    fields: crate::raster_metadata_fields::HeaderFields,
 ) -> Value {
-    json!({
+    let depth = if fields.bits_per_sample == Some(16)
+        || (probe.format == "avif" && fields.bits_per_sample.is_some_and(|bits| bits > 8))
+    {
+        "ushort"
+    } else {
+        depth
+    };
+    let channels = fields.source_channels.unwrap_or(probe.channels);
+    let space = match (channels <= 2 || fields.grayscale, depth) {
+        (true, "ushort") => "grey16",
+        (true, _) => "b-w",
+        (false, "ushort") => "rgb16",
+        _ => "srgb",
+    };
+    let swap = probe
+        .orientation
+        .is_some_and(|orientation| matches!(orientation, 5..=8));
+    let unit = sidecars
+        .exif
+        .as_deref()
+        .and_then(crate::raster_metadata_fields::exif_unit)
+        .or(fields.resolution_unit);
+    let mut reply = json!({
         "width": probe.width,
         "height": probe.height,
         "format": probe.format,
-        "channels": probe.channels,
+        "channels": channels,
         "orientation": probe.orientation,
-        "hasAlpha": probe.has_alpha,
+        "hasAlpha": fields.source_channels.map(|n| n == 2).unwrap_or(probe.has_alpha),
         "hasProfile": sidecars.icc.is_some(),
-        // Every container Maple decodes is sRGB (a wider space would have
-        // been converted by the decoder) — but sample *depth* genuinely
-        // varies: TIFF and PNG can carry 16-bit-per-channel samples, unlike
-        // this crate's JPEG/WebP/AVIF encoders, which are always 8-bit.
-        "space": "srgb",
+        "space": space,
         "depth": depth,
         "density": sidecars.density,
         "size": size,
@@ -113,7 +134,21 @@ fn metadata_reply(
         // item 3 — see `RasterSidecars::exif_as_stored`).
         "exif": capped(sidecars.exif_as_stored().as_deref()).map(base64),
         "xmp": capped(sidecars.xmp.as_deref()).map(base64),
-    })
+        "autoOrient": {
+            "width": if swap { probe.height } else { probe.width },
+            "height": if swap { probe.width } else { probe.height },
+        },
+    });
+    let object = reply.as_object_mut().unwrap();
+    object.extend(
+        serde_json::to_value(fields)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    object.insert("resolutionUnit".into(), json!(unit));
+    reply
 }
 
 /// Sample depth ('uchar' / 'ushort', matching sharp's own `metadata().depth`
@@ -225,7 +260,13 @@ pub fn analyze_reader<R: std::io::BufRead + std::io::Seek>(
                 let depth = depth_reader(reader, &probe.format)?;
                 reply.insert(
                     "metadata".into(),
-                    metadata_reply(&probe, &sidecars, depth, size),
+                    metadata_reply(
+                        &probe,
+                        &sidecars,
+                        depth,
+                        size,
+                        header_fields(reader, &probe.format)?,
+                    ),
                 );
             }
             "stats" => {
@@ -272,4 +313,31 @@ fn depth_reader<R: std::io::BufRead + std::io::Seek>(
         }
         Err(_) => Ok("uchar"),
     }
+}
+
+fn header_fields<R: std::io::BufRead + std::io::Seek>(
+    reader: &mut R,
+    format: &str,
+) -> Result<crate::raster_metadata_fields::HeaderFields> {
+    let fields =
+        crate::raster_metadata_fields::read(reader, format).map_err(|source| Error::Io {
+            path: "<metadata>".into(),
+            source,
+        })?;
+    #[cfg(feature = "avif")]
+    let fields = if format == "avif" {
+        reader
+            .seek(std::io::SeekFrom::Start(0))
+            .map_err(|source| Error::Io {
+                path: "<metadata>".into(),
+                source,
+            })?;
+        crate::raster_metadata_fields::HeaderFields {
+            bits_per_sample: Some(crate::avif_decode::probe_avif_reader(reader)?.bit_depth),
+            ..fields
+        }
+    } else {
+        fields
+    };
+    Ok(fields)
 }

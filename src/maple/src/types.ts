@@ -40,7 +40,7 @@ export interface ImageMetadata {
    */
   hasAlpha?: boolean;
   hasProfile?: boolean;
-  /** Colour space interpretation. Always `'srgb'` for Maple's bitmap decode. */
+  /** Header colour interpretation: srgb, rgb16, b-w, or grey16. */
   space?: string;
   /**
    * Sample depth the container declares, in sharp's own vocabulary:
@@ -61,6 +61,19 @@ export interface ImageMetadata {
   icc?: Buffer;
   exif?: Buffer;
   xmp?: Buffer;
+  /** Valid UTF-8 XMP packet, absent when the stored bytes are not UTF-8. */
+  xmpAsString?: string;
+  isProgressive?: boolean;
+  isPalette?: boolean;
+  bitsPerSample?: number;
+  paletteBitDepth?: number;
+  chromaSubsampling?: string;
+  pages?: number;
+  pagePrimary?: number;
+  compression?: string;
+  resolutionUnit?: string;
+  /** Dimensions after applying the declared orientation (pixels are not decoded). */
+  autoOrient?: { width: number; height: number };
 }
 
 export interface ChannelStats {

@@ -12,6 +12,7 @@
  * the recipe `metadata` block the `with*`/`keep*` methods populate.
  */
 
+import { isUtf8 } from 'node:buffer';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
@@ -39,10 +40,11 @@ function decodeBlock(value: unknown): Buffer | undefined {
 /** `analyze()`'s `metadata` reply, mapped onto the public `ImageMetadata` shape. */
 function metadataFromReply(reply: Record<string, unknown>): ImageMetadata {
   const m = reply.metadata as Record<string, unknown>;
+  const xmp = decodeBlock(m.xmp);
   return {
     width: m.width as number,
     height: m.height as number,
-    format: m.format as string,
+    format: m.format === 'avif' ? 'heif' : (m.format as string),
     channels: m.channels as number,
     // JSON `null` for an AVIF, which reports no orientation at all (#3507
     // round 3) — mapped to `undefined`, the shape sharp uses.
@@ -58,7 +60,20 @@ function metadataFromReply(reply: Record<string, unknown>): ImageMetadata {
     size: m.size as number,
     icc: decodeBlock(m.icc),
     exif: decodeBlock(m.exif),
-    xmp: decodeBlock(m.xmp),
+    xmp,
+    // Derive from the existing bytes so a large XMP packet crosses the
+    // bounded native JSON reply once; invalid UTF-8 stays binary-only.
+    xmpAsString: xmp && isUtf8(xmp) ? xmp.toString('utf-8') : undefined,
+    isProgressive: m.isProgressive as boolean,
+    isPalette: m.isPalette as boolean,
+    bitsPerSample: (m.bitsPerSample as number | null) ?? undefined,
+    paletteBitDepth: (m.paletteBitDepth as number | null) ?? undefined,
+    chromaSubsampling: (m.chromaSubsampling as string | null) ?? undefined,
+    pages: (m.pages as number | null) ?? undefined,
+    pagePrimary: (m.pagePrimary as number | null) ?? undefined,
+    compression: (m.compression as string | null) ?? undefined,
+    resolutionUnit: (m.resolutionUnit as string | null) ?? undefined,
+    autoOrient: m.autoOrient as { width: number; height: number },
   };
 }
 

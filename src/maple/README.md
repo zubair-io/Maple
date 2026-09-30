@@ -458,6 +458,16 @@ the content differs even though the call succeeds: a kept XMP packet is
 absent from WebP, TIFF and AVIF output, and a TIFF carries no EXIF block at
 all (its orientation still lands in IFD0 tag 274 — see footnote ¹).
 
+**Header metadata.** `metadata()` reports progressive/interlaced scans, palette and
+sample bit depths, JPEG chroma sampling, TIFF/GIF/WebP frame counts, AVIF primary
+page and AV1 compression, resolution units, orientation-adjusted dimensions,
+and valid UTF-8 XMP strings. Grayscale sources report `b-w` (or `grey16`), and
+16-bit RGB sources report `rgb16`. AVIF's metadata format is `heif`, matching
+Sharp's decoder name; encode formats and output-info formats remain `avif`.
+GIF supports header metadata only; GIF pixel decoding and encoding remain
+unsupported. File metadata uses seekable Rust I/O without loading the input into
+JavaScript. Statistics decode pixels and retain their full-file read.
+
 **Reading metadata back.** `metadata().exif` is the block exactly as its
 container stores it — `Exif\0\0` + TIFF header for JPEG, WebP and AVIF, the
 bare TIFF header for PNG, and absent for a TIFF, whose IFD0 _is_ its EXIF.

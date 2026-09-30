@@ -127,7 +127,7 @@ describe('GET /api/fs/thumb — video', () => {
     // Decode-verified, not merely non-empty: serving undecodable bytes under
     // `image/avif` is the exact failure mode the thumb caches guard against.
     const meta = await maple(Buffer.from(await res.arrayBuffer())).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(512);
   });
 
@@ -147,7 +147,7 @@ describe('GET /api/fs/thumb — video', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('image/avif');
     const meta = await maple(Buffer.from(await res.arrayBuffer())).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
   });
 
   it('leaves no intermediate poster JPEG in the thumb cache dir', async () => {

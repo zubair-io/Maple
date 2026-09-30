@@ -65,7 +65,7 @@ describe('Encoder options', () => {
       .avif({ quality: 55, effort: 8, chromaSubsampling: '4:4:4' })
       .toBuffer();
     const meta = await maple(out).metadata();
-    expect([meta.width, meta.height, meta.format]).toEqual([48, 48, 'avif']);
+    expect([meta.width, meta.height, meta.format]).toEqual([48, 48, 'heif']);
   });
 
   it('avif({ chromaSubsampling: "4:2:0" }) is a named rejection', async () => {
@@ -434,6 +434,6 @@ describe('Encoder options', () => {
       .avif({ tune: 'ssim' } as never)
       .toBuffer();
     const meta = await maple(out).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
   });
 });

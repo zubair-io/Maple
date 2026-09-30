@@ -83,7 +83,7 @@ describe('renderImageThumbToFile', () => {
     expect(ok).toBe(true);
 
     const meta = await maple(out).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width, meta.height)).toBeLessThanOrEqual(1280);
   });
 
@@ -96,7 +96,7 @@ describe('renderImageThumbToFile', () => {
     expect(ok).toBe(true);
 
     const meta = await maple(out).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width, meta.height)).toBeLessThanOrEqual(256);
   });
 
@@ -108,7 +108,7 @@ describe('renderImageThumbToFile', () => {
     expect(ok).toBe(true);
 
     const meta = await maple(out).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width, meta.height)).toBeLessThanOrEqual(256);
   });
 });
@@ -145,7 +145,7 @@ describe('renderImageThumbToFile — HEIC parity', () => {
     const dispatchBytes = await readFile(viaDispatch);
     const directBytes = await readFile(viaDirect);
     const dispatchMeta = await maple(viaDispatch).metadata();
-    expect(dispatchMeta.format).toBe('avif');
+    expect(dispatchMeta.format).toBe('heif');
     expect(dispatchBytes.equals(directBytes)).toBe(true);
   });
 
@@ -155,7 +155,7 @@ describe('renderImageThumbToFile — HEIC parity', () => {
     const out = path.join(dir, 'heic.avif');
     await renderHeicThumbToFile(FIXTURE_HEIC, out, 48);
     const meta = await maple(out).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
     expect(Math.max(meta.width, meta.height)).toBeLessThanOrEqual(48);
   });
 });

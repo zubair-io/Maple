@@ -2042,6 +2042,7 @@ function pushTrim(state, options) {
 }
 
 // src/builder-metadata.ts
+import { isUtf8 } from "node:buffer";
 import * as fs7 from "node:fs/promises";
 import * as path8 from "node:path";
 
@@ -2123,10 +2124,11 @@ function decodeBlock(value) {
 }
 function metadataFromReply(reply) {
   const m = reply.metadata;
+  const xmp = decodeBlock(m.xmp);
   return {
     width: m.width,
     height: m.height,
-    format: m.format,
+    format: m.format === "avif" ? "heif" : m.format,
     channels: m.channels,
     orientation: m.orientation ?? undefined,
     isRaw: false,
@@ -2138,7 +2140,18 @@ function metadataFromReply(reply) {
     size: m.size,
     icc: decodeBlock(m.icc),
     exif: decodeBlock(m.exif),
-    xmp: decodeBlock(m.xmp)
+    xmp,
+    xmpAsString: xmp && isUtf8(xmp) ? xmp.toString("utf-8") : undefined,
+    isProgressive: m.isProgressive,
+    isPalette: m.isPalette,
+    bitsPerSample: m.bitsPerSample ?? undefined,
+    paletteBitDepth: m.paletteBitDepth ?? undefined,
+    chromaSubsampling: m.chromaSubsampling ?? undefined,
+    pages: m.pages ?? undefined,
+    pagePrimary: m.pagePrimary ?? undefined,
+    compression: m.compression ?? undefined,
+    resolutionUnit: m.resolutionUnit ?? undefined,
+    autoOrient: m.autoOrient
   };
 }
 function statsFromReply(reply) {

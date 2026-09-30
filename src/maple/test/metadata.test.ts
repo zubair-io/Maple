@@ -104,7 +104,12 @@ describe('Metadata and stats', () => {
     async (format) => {
       const buf = await maple(ramp(16, 16)).toFormat(format).toBuffer();
       const meta = await maple(buf).metadata();
-      expect([meta.width, meta.height, meta.format, meta.channels]).toEqual([16, 16, format, 3]);
+      expect([meta.width, meta.height, meta.format, meta.channels]).toEqual([
+        16,
+        16,
+        format === 'avif' ? 'heif' : format,
+        3,
+      ]);
     },
   );
 
@@ -314,7 +319,7 @@ describe('Metadata and stats', () => {
     // report for this tracked read/write gap.
     const avif = await maple(ramp(24, 24)).withMetadata({ orientation: 6 }).avif().toBuffer();
     const meta = await maple(avif).metadata();
-    expect(meta.format).toBe('avif');
+    expect(meta.format).toBe('heif');
     expect(Buffer.isBuffer(meta.exif)).toBe(true);
     expect(orientationOf(meta.exif!)).toBe(6);
   });
