@@ -90,18 +90,22 @@ pub(super) fn reject_untileable(
             "tile path is not supported when deep denoise != 0 (the BM3D reference-patch grid is frame-anchored; use the full-image render entry instead). See #1105.",
         );
     }
-    // DNG OpcodeList3 (#1932, #4288): tile develop supports bounded source
+// DNG OpcodeList3 (#1932, #4288): tile develop supports bounded source
     // gathering for a single radial WarpRectilinear opcode without lateral CA
-    // or GainMap (matching the mandatory Hasselblad L3D-100c opcode). Refuse
-    // other opcode forms (GainMap, FixVignetteRadial, multi-opcode, tangential
-    // distortion kt != [0, 0], differing per-plane lateral CA) so they fall back
-    // to the full-image render.
-    if let Some((list, _aa)) = raw.opcode_list3.as_ref() {
-        if !is_supported_tile_opcode_list(list) {
-            return reject(
-                "tile path is not supported when the DNG carries unsupported OpcodeList3 (only radial WarpRectilinear without lateral CA or GainMap is supported in tile path; use full-image render instead). See #1932, #4288.",
-            );
+    // or GainMap. When all lens corrections are disabled, the full chain skips
+    // these opcodes too, so their presence alone is safe for a tile render.
+    if raw.opcode_list3.is_some()
+        && crate::pipeline::pano::opcode_apply::LensCorrectionScales::from_model(model)
+            != crate::pipeline::pano::opcode_apply::LensCorrectionScales::NONE
+    {
+        if let Some((list, _aa)) = raw.opcode_list3.as_ref() {
+            if !is_supported_tile_opcode_list(list) {
+                return reject(
+                    "tile path is not supported when the DNG carries unsupported OpcodeList3 (only radial WarpRectilinear without lateral CA or GainMap is supported in tile path; use full-image render instead). See #1932, #4288.",
+                );
+            }
         }
+    }
     }
     let TileRect {
         src_w,
