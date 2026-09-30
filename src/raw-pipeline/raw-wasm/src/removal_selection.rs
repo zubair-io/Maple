@@ -2,6 +2,26 @@
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
+pub fn removal_smart_strokes(request: &str) -> Result<String, JsError> {
+    raw_core::stages::removal_smart::prepare_strokes_json(request).map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
+pub fn removal_smart_prompts(request: &str) -> Result<String, JsError> {
+    raw_core::stages::removal_smart::model_prompts_json(request).map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
+pub fn removal_smart_mask(
+    request: &str,
+    logits: &[f32],
+    scores: &[f32],
+) -> Result<Vec<u8>, JsError> {
+    raw_core::stages::removal_smart::mask_from_logits_json(request, logits, scores)
+        .map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
 pub fn removal_source_verify(records: &str, original: &str) -> Result<(), JsError> {
     raw_core::pipeline::verify_removal_source(records, original).map_err(|e| JsError::new(&e))
 }

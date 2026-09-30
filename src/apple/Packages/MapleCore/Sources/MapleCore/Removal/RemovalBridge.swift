@@ -38,6 +38,45 @@ public enum RemovalBridge {
     }
   }
 
+  /// Prepare continuous add/erase gestures once, outside the live render loop.
+  /// The immutable returned request identifies the model inference it belongs to.
+  public static func smartStrokes(request: String) throws -> String {
+    try requireCString(request)
+    let data = try request.withCString { request in
+      try buffer { output, cap, length in
+        maple_removal_smart_strokes_buf(request, output, cap, length)
+      }
+    }
+    return String(decoding: data, as: UTF8.self)
+  }
+
+  public static func smartPrompts(request: String) throws -> String {
+    try requireCString(request)
+    let data = try request.withCString { request in
+      try buffer { output, cap, length in
+        maple_removal_smart_prompts_buf(request, output, cap, length)
+      }
+    }
+    return String(decoding: data, as: UTF8.self)
+  }
+
+  /// Reject nonfinite or prompt-violating output; callers retain their previous
+  /// selection on failure. Run off the main actor after the model task completes.
+  public static func smartMask(request: String, logits: [Float], scores: [Float]) throws -> Data {
+    try requireCString(request)
+    return try request.withCString { request in
+      try logits.withUnsafeBufferPointer { logits in
+        try scores.withUnsafeBufferPointer { scores in
+          try buffer { output, cap, length in
+            maple_removal_smart_mask_buf(
+              request, logits.baseAddress, UInt(logits.count), scores.baseAddress,
+              UInt(scores.count), output, cap, length)
+          }
+        }
+      }
+    }
+  }
+
   public static func prepare(request: String, prior: String, mask: Data, patch: Data) throws
     -> String
   {

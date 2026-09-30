@@ -118,6 +118,7 @@ mod removal_assets;
 mod removal_composite;
 mod removal_prepare;
 mod removal_selection;
+mod removal_smart;
 mod render;
 mod render_develop;
 // Film-look sibling of `maple_render_file` (epic #2683, Task 8) — split out
@@ -203,6 +204,9 @@ pub use removal_assets::{
 pub use removal_composite::maple_removal_composite_window_f32;
 pub use removal_prepare::{maple_removal_content_digest, maple_removal_prepare_buf};
 pub use removal_selection::{maple_removal_mask_decode_buf, maple_removal_selection_buf};
+pub use removal_smart::{
+    maple_removal_smart_mask_buf, maple_removal_smart_prompts_buf, maple_removal_smart_strokes_buf,
+};
 pub use scene_linear_chain::MapleAdjustmentParams;
 // #3272: cbindgen needs visibility on the struct; ungated (the CPU fused
 // entry writes through it even without the `gpu` feature).
