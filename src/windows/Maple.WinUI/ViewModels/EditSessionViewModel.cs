@@ -203,7 +203,7 @@ namespace Maple.WinUI.ViewModels
                 SyncSlidersFromModel();
                 _cloudDoc = null;
                 RequestCloudPreview(photo);
-                _ = LoadCloudSidecarAsync(photo);
+                _cloudSidecarLoad = LoadCloudSidecarAsync(photo);
                 return;
             }
 
@@ -380,6 +380,11 @@ namespace Maple.WinUI.ViewModels
 
         private void FlushSidecarNow()
         {
+            lock (_localMetadataGate) FlushSidecarLocked();
+        }
+
+        private void FlushSidecarLocked()
+        {
             var photo = _openPhoto;
             if (photo == null || !_sidecarDirty)
                 return;
@@ -398,9 +403,12 @@ namespace Maple.WinUI.ViewModels
                     doc.Flag = photo.FlagStatus;
                     doc.ColorLabel = photo.ColorLabel;
                 });
+                _localMetadataError = null;
             }
             catch (Exception ex)
             {
+                _sidecarDirty = true;
+                _localMetadataError = ex;
                 System.Diagnostics.Debug.WriteLine($"[Sidecar] write failed: {ex.Message}");
             }
         }

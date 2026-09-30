@@ -19,6 +19,7 @@ namespace Maple.WinUI.Services
     public sealed class SingleFlightGate
     {
         private bool _inFlight;
+        public bool IsEntered => _inFlight;
 
         /// <summary>True — and marks the gate busy — if no run is already
         /// in flight; false (and does nothing) if one is. Callers wrap

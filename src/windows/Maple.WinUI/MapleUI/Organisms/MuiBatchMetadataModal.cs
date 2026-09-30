@@ -45,7 +45,28 @@ namespace Maple.UI
         public double ApplyProgress { get => (double)GetValue(ApplyProgressProperty); set => SetValue(ApplyProgressProperty, value); }
 
         public event EventHandler? Dismissed;
+        public event EventHandler? CancelRequested;
         public event EventHandler<MuiBatchMetadataEdit>? ApplyRequested;
+
+        // Production metadata fields and preview are supplied by the selection
+        // adapter; the shared organism owns confirmation, progress and cancel.
+        public UIElement? EditorContent
+        {
+            set
+            {
+                _fields.Children.Clear();
+                if (value != null) _fields.Children.Add(value);
+            }
+        }
+        public bool CanApply { get => _canApply; set { _canApply = value; Rebuild(); } }
+        public string ApplyLabel { set { _apply.Label = value; _confirmDialog.ConfirmLabel = value; } }
+        public string ConfirmationMessage { set { _confirmationMessage = value; Rebuild(); } }
+        private string? _confirmationMessage;
+        public string CancelLabel { set => _cancel.Label = value; }
+        private bool _canApply = true;
+        private readonly StackPanel _fields = new() { Spacing = 14 };
+        private readonly ScrollViewer _embeddedScroll = new() { MaxHeight = 480 };
+        public double EditorMaxHeight { set => _embeddedScroll.MaxHeight = value; }
 
         private readonly MuiOverlayShell _shell = new() { Size = MuiOverlayShellSize.Md, AriaLabel = "Batch Metadata" };
         private readonly MuiInput _caption = new() { Placeholder = "Caption" };
@@ -56,12 +77,15 @@ namespace Maple.UI
         private readonly MuiButton _apply = new() { Variant = MuiButtonVariant.Primary, Label = "Apply" };
         private readonly MuiDialog _confirmDialog = new() { Variant = MuiDialogVariant.Confirm, Title = "Apply to all selected?", ConfirmLabel = "Apply" };
 
-        public MuiBatchMetadataModal()
+        public MuiBatchMetadataModal() : this(false) { }
+
+        public MuiBatchMetadataModal(bool embedded)
         {
             var body = new StackPanel { Orientation = Orientation.Vertical, Spacing = 14 };
-            body.Children.Add(new MuiFormField { Label = "Caption", ControlContent = _caption });
-            body.Children.Add(new MuiFormField { Label = "Copyright", ControlContent = _copyright });
-            body.Children.Add(new MuiFormField { Label = "Location", ControlContent = _location });
+            _fields.Children.Add(new MuiFormField { Label = "Caption", ControlContent = _caption });
+            _fields.Children.Add(new MuiFormField { Label = "Copyright", ControlContent = _copyright });
+            _fields.Children.Add(new MuiFormField { Label = "Location", ControlContent = _location });
+            body.Children.Add(_fields);
             body.Children.Add(_confirmDialog);
 
             var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
@@ -69,15 +93,36 @@ namespace Maple.UI
             footer.Children.Add(_cancel);
             footer.Children.Add(_apply);
 
-            _shell.Header = new MuiText { Text = "Batch Metadata", Variant = MuiTextVariant.SheetTitle };
-            _shell.Body = body;
-            _shell.Footer = footer;
-            Content = _shell;
+            var heading = new MuiText { Text = "Batch Metadata", Variant = MuiTextVariant.SheetTitle };
+            if (embedded)
+            {
+                // ContentDialog supplies the modal surface, focus trap and
+                // scrim. Do not nest a second overlay inside its body.
+                var panel = new Grid { RowSpacing = 16 };
+                panel.RowDefinitions.Add(new() { Height = GridLength.Auto });
+                panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+                panel.RowDefinitions.Add(new() { Height = GridLength.Auto });
+                _embeddedScroll.Content = body;
+                _embeddedScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                Grid.SetRow(_embeddedScroll, 1);
+                Grid.SetRow(footer, 2);
+                panel.Children.Add(heading);
+                panel.Children.Add(_embeddedScroll);
+                panel.Children.Add(footer);
+                Content = panel;
+            }
+            else
+            {
+                _shell.Header = heading;
+                _shell.Body = body;
+                _shell.Footer = footer;
+                Content = _shell;
+            }
             HorizontalContentAlignment = HorizontalAlignment.Stretch;
             VerticalContentAlignment = VerticalAlignment.Stretch;
 
-            _shell.Dismissed += (_, _) => { IsOpen = false; Dismissed?.Invoke(this, EventArgs.Empty); };
-            _cancel.Click += (_, _) => { IsOpen = false; Dismissed?.Invoke(this, EventArgs.Empty); };
+            _shell.Dismissed += (_, _) => RequestDismiss();
+            _cancel.Click += (_, _) => RequestDismiss();
             _apply.Click += (_, _) => _confirmDialog.IsOpen = true;
             _confirmDialog.Dismissed += (_, _) => _confirmDialog.IsOpen = false;
             _confirmDialog.Confirmed += (_, _) =>
@@ -91,9 +136,16 @@ namespace Maple.UI
 
         private void Rebuild()
         {
-            _confirmDialog.Message = $"This will overwrite metadata on {AssetCount} asset{(AssetCount == 1 ? "" : "s")}.";
+            _confirmDialog.Message = _confirmationMessage ?? $"This will overwrite metadata on {AssetCount} asset{(AssetCount == 1 ? "" : "s")}.";
             _progress.Visibility = IsApplying ? Visibility.Visible : Visibility.Collapsed;
-            _apply.IsEnabled = !IsApplying;
+            _apply.IsEnabled = !IsApplying && CanApply;
+        }
+
+        private void RequestDismiss()
+        {
+            if (IsApplying) { CancelRequested?.Invoke(this, EventArgs.Empty); return; }
+            IsOpen = false;
+            Dismissed?.Invoke(this, EventArgs.Empty);
         }
     }
 }

@@ -18,6 +18,9 @@ namespace Maple.WinUI
 
         private void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
         {
+            // A modal's buttons and result list can hold focus too. Root
+            // culling/navigation shortcuts must not mutate the frozen selection.
+            if (_modalFlowGate.IsEntered) return;
             if (FocusManager.GetFocusedElement(this.Content.XamlRoot) is TextBox or Slider or NumberBox or ComboBox)
                 return;
             var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)

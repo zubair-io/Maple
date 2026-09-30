@@ -308,6 +308,8 @@ namespace Maple.WinUI.ViewModels
         /// passthrough intact so the full-document POST on flush preserves
         /// server-side metadata this app doesn't model.</summary>
         private Services.Xmp.XmpSidecarDocument? _cloudDoc;
+        private Task _cloudSidecarLoad = Task.CompletedTask;
+        private Exception? _cloudSidecarLoadError;
         /// <summary>Cloud photo whose developed preview should re-publish when
         /// the session moves off it (set on every cloud adjustment flush).</summary>
         private PhotoItem? _cloudPreviewPending;
@@ -316,14 +318,15 @@ namespace Maple.WinUI.ViewModels
         /// No sidecar (404) keeps the default state.</summary>
         private async Task LoadCloudSidecarAsync(PhotoItem photo)
         {
+            _cloudSidecarLoadError = null;
             if (_cloud == null)
                 return;
             try
             {
-                var xml = await _cloud.GetXmpAsync(photo.FilePath, CancellationToken.None);
+                var xml = await _cloud.ReadMetadataXmpAsync(photo.FilePath, CancellationToken.None);
                 if (xml == null || !ReferenceEquals(_openPhoto, photo))
                     return;
-                var doc = Services.Xmp.XmpParser.Parse(xml);
+                var doc = Services.Xmp.XmpParser.Parse(xml) ?? throw new InvalidOperationException("The server sidecar is invalid.");
                 OnUi(() =>
                 {
                     if (!ReferenceEquals(_openPhoto, photo))
@@ -342,6 +345,7 @@ namespace Maple.WinUI.ViewModels
             }
             catch (Exception ex)
             {
+                if (ReferenceEquals(_openPhoto, photo)) _cloudSidecarLoadError = ex;
                 DiagLog.Write($"[cloud] sidecar fetch failed for {photo.FileName}: {ex.Message}");
             }
         }
@@ -415,7 +419,9 @@ namespace Maple.WinUI.ViewModels
             doc.ColorLabel = photo.ColorLabel;
             _cloudDoc = doc;
             _cloudPreviewPending = photo;
-            TrackCloudMetadataWrite(_cloud.UpdateDevelopSidecarAsync(photo.FilePath, doc.Adjustments));
+            var client = _cloud;
+            var snapshot = doc.Adjustments.Clone();
+            TrackCloudMetadataWrite(() => client.UpdateDevelopSidecarAsync(photo.FilePath, snapshot));
         }
 
         /// <summary>Develop + publish the edited asset's preview when leaving
@@ -467,9 +473,11 @@ namespace Maple.WinUI.ViewModels
         {
             if (_cloud == null || photo.CloudAddress == null)
                 return;
-            TrackCloudMetadataWrite(_cloud.ApplyMetadataAsync(photo.FilePath, photo.CloudAddress,
-                new Services.Metadata.MetadataPatch(Rating: photo.Rating, Flag: photo.FlagStatus,
-                    SetLabel: true, Label: photo.ColorLabel), CancellationToken.None));
+            var client = _cloud;
+            var patch = new Services.Metadata.MetadataPatch(Rating: photo.Rating, Flag: photo.FlagStatus,
+                SetLabel: true, Label: photo.ColorLabel);
+            TrackCloudMetadataWrite(() => client.ApplyMetadataAsync(photo.FilePath, photo.CloudAddress,
+                patch, CancellationToken.None));
         }
     }
 }
