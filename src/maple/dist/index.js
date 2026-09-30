@@ -1512,7 +1512,17 @@ function resolveColour(value, fallback) {
     return fallback;
   }
   if (typeof value !== "string") {
-    const a = value.alpha === undefined ? 255 : Math.round(value.alpha * 255);
+    for (const channel of ["r", "g", "b"]) {
+      const byte = value[channel];
+      if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+        throw new Error(`Invalid colour channel ${channel}=${byte}: expected an integer from 0 to 255`);
+      }
+    }
+    const alpha = value.alpha === undefined ? 1 : value.alpha;
+    if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) {
+      throw new Error(`Invalid colour alpha=${alpha}: expected a finite number from 0 to 1`);
+    }
+    const a = Math.round(alpha * 255);
     return [value.r, value.g, value.b, a];
   }
   const hex = value.replace(/^#/, "");
@@ -2297,6 +2307,7 @@ class MapleImageBuilder {
   }
   resize(optionsOrWidth, height) {
     const opts = typeof optionsOrWidth === "number" || optionsOrWidth === null || optionsOrWidth === undefined ? { width: optionsOrWidth ?? 0, height: height ?? 0 } : optionsOrWidth;
+    const background = resolveColour(opts.background, [0, 0, 0, 255]);
     this.s.ops = this.s.ops.filter((op) => op.op !== "resize");
     this.s.ops.push({
       op: "resize",
@@ -2307,7 +2318,7 @@ class MapleImageBuilder {
       kernel: opts.kernel ?? opts.filter ?? "lanczos3",
       withoutEnlargement: opts.withoutEnlargement ?? true,
       withoutReduction: opts.withoutReduction ?? false,
-      background: resolveColour(opts.background, [0, 0, 0, 255])
+      background
     });
     return this;
   }
