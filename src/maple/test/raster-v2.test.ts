@@ -52,8 +52,10 @@ describe('Raster v2 surface', () => {
     expect([meta.width, meta.height, meta.format]).toEqual([24, 16, 'avif']);
     const jpeg = await maple(avif).toFormat('jpeg', { quality: 90 }).toBuffer();
     expect(jpeg[0]).toBe(0xff);
-    expect(await maple(avif).validateIntegrity()).toBe(true);
-    expect(await maple(avif.subarray(0, 40)).validateIntegrity()).toBe(false);
+    expect(await maple(avif).validateIntegrity()).toEqual({ ok: true });
+    const invalid = await maple(avif.subarray(0, 40)).validateIntegrity();
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.error.length).toBeGreaterThan(0);
   });
 
   it('recovers a truncated JPEG', async () => {

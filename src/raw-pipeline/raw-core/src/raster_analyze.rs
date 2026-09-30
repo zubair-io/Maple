@@ -5,7 +5,9 @@
 //! header probe (`raster::probe_raster_metadata`) plus the container's
 //! metadata blocks (`raster_meta::read_sidecars`); `stats` decodes the
 //! pixels (`raster::decode_raster`) and runs `raster_stats::compute_stats`.
-//! Asking for only `metadata` never decodes.
+//! Asking for only `metadata` never decodes. `integrity` fully decodes the
+//! input and returns `true` without encoding or returning its pixels. RAW
+//! callers may supply `rawExtension` as their decoder hint.
 //!
 //! EXIF, ICC and XMP come back base64-encoded, because the reply is one JSON
 //! document and those blocks are binary. They are small (an ICC profile is a
@@ -25,10 +27,12 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct AnalyzeRequest {
     v: u32,
     what: Vec<String>,
+    #[serde(default)]
+    raw_extension: Option<String>,
 }
 
 const BASE64_ALPHABET: &[u8; 64] =
@@ -165,6 +169,23 @@ fn stats_value(stats: &RasterStats) -> Value {
     })
 }
 
+fn integrity_value(bytes: &[u8], raw_extension: Option<&str>) -> Result<Value> {
+    let detected_raw =
+        crate::raster::probe_raster_metadata(bytes).is_ok_and(|metadata| metadata.format == "dng");
+    let extension = raw_extension.or(detected_raw.then_some("dng"));
+    let (width, height) = if let Some(extension) = extension {
+        let raw = crate::decode::decode_bytes(bytes, &extension.to_ascii_lowercase())?;
+        (raw.width, raw.height)
+    } else {
+        let raster = crate::raster::decode_raster(bytes, None)?;
+        (raster.width, raster.height)
+    };
+    if width == 0 || height == 0 {
+        return Err(Error::Pipeline("decoded image has zero dimensions".into()));
+    }
+    Ok(json!(true))
+}
+
 /// Answer an analyze `request` (schema v1, see the module doc) about
 /// `bytes`, returning the JSON reply as a string.
 pub fn analyze(bytes: &[u8], request: &str) -> Result<String> {
@@ -186,6 +207,12 @@ pub fn analyze(bytes: &[u8], request: &str) -> Result<String> {
                 let raster = crate::raster::decode_raster(bytes, None)?;
                 reply.insert("stats".into(), stats_value(&compute_stats(&raster)?));
             }
+            "integrity" => {
+                reply.insert(
+                    "integrity".into(),
+                    integrity_value(bytes, request.raw_extension.as_deref())?,
+                );
+            }
             other => return Err(bad(format!("unknown analyze request '{other}'"))),
         }
     }
@@ -196,3 +223,7 @@ pub fn analyze(bytes: &[u8], request: &str) -> Result<String> {
 #[cfg(test)]
 #[path = "raster_analyze_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "raster_analyze_integrity_tests.rs"]
+mod integrity_tests;

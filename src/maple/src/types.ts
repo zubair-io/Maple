@@ -133,6 +133,9 @@ export interface ResizeOptions {
   withoutReduction?: boolean;
 }
 
+/** Full input decode succeeded, or its read/decode failure reason. */
+export type IntegrityResult = { ok: true } | { ok: false; error: string };
+
 export interface RawPixelInput {
   data: Uint8Array;
   width: number;

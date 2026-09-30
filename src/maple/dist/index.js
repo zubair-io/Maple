@@ -1803,16 +1803,40 @@ async function resolveTensor(state, options) {
 import * as crypto from "node:crypto";
 import * as fs5 from "node:fs/promises";
 import * as path6 from "node:path";
-async function validateIntegrity(metadata, decode) {
+async function validateIntegrity(state) {
   try {
-    const meta = await metadata();
-    if (meta.width <= 0 || meta.height <= 0) {
-      return false;
+    if (state.rawInput) {
+      const { width, height, channels, data } = state.rawInput;
+      if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) {
+        throw new Error("Invalid raw pixel dimensions: width and height must be positive integers");
+      }
+      if (![1, 3, 4].includes(channels)) {
+        throw new Error(`Invalid raw pixel channels: expected 1, 3 or 4, got ${channels}`);
+      }
+      const expected = width * height * channels;
+      if (!Number.isSafeInteger(expected) || data.byteLength !== expected) {
+        throw new Error(`Invalid raw pixel length: expected ${expected} bytes, got ${data.byteLength}`);
+      }
+      return { ok: true };
     }
-    await decode();
-    return true;
-  } catch {
-    return false;
+    const bytes = await inputBytes(state);
+    if (bytes.length === 0) {
+      throw new Error("Input image is empty");
+    }
+    const rawExtension = state.inputPath && isRawPath(state.inputPath) ? path6.extname(state.inputPath).slice(1).toLowerCase() : undefined;
+    const result = await callNative("rasterAnalyzeBuf", [
+      bytes,
+      JSON.stringify({ v: 1, what: ["integrity"], rawExtension })
+    ]);
+    if (!result.ok || !result.json) {
+      throw new Error(result.error || "Image integrity decode failed");
+    }
+    if (JSON.parse(result.json).integrity !== true) {
+      throw new Error("Image integrity decode returned an invalid reply");
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 async function normalizeOrientationInPlace(state, metadata, develop) {
@@ -2503,7 +2527,7 @@ class MapleImageBuilder {
     return resolveMetadata(this.s);
   }
   async validateIntegrity() {
-    return validateIntegrity(() => this.metadata(), () => this.toBuffer());
+    return validateIntegrity(this.s);
   }
   async normalizeOrientationInPlace() {
     return normalizeOrientationInPlace(this.s, () => this.metadata(), (format, out) => this.rotate().format(format).toFile(out));
