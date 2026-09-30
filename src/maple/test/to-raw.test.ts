@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { maple } from '../src/index.ts';
+import { maple as publishedMaple } from '../dist/index.js';
 
 const source = {
   data: new Uint8Array([255, 0, 0, 77, 0, 255, 0, 128, 0, 0, 255, 0, 40, 50, 60, 255]),
@@ -12,6 +13,15 @@ const source = {
 };
 
 describe('toRaw recipe execution (#3579)', () => {
+  it('executes queued edits through the compiled public package entry point', async () => {
+    const png = await maple(source).png().toBuffer();
+    const image = publishedMaple(png).extract({ left: 0, top: 0, width: 1, height: 1 }).greyscale();
+    const output = await image.toRaw();
+    expect([output.width, output.height, output.channels]).toEqual([1, 1, 3]);
+    expect(Array.from(output.data)).toEqual([127, 127, 127]);
+    const alpha = await image.toRawAlpha();
+    expect(Array.from(alpha.data)).toEqual([127, 127, 127, 77]);
+  });
   it('runs colour operations on raw and encoded inputs before dropping alpha', async () => {
     const png = await maple(source).png().toBuffer();
     for (const input of [source, png]) {
