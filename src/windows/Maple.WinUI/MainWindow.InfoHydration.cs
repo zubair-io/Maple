@@ -45,19 +45,19 @@ public sealed partial class MainWindow
             string? xml = null;
             Services.Cloud.CloudInspectorMetadata? cloud = null;
             var unavailable = false;
+            var sidecarUnavailable = false;
             if (photo.IsCloud)
             {
                 var client = ViewModel.ActiveCloudClient;
                 if (client != null)
                 {
-                    var xmp = client.GetXmpAsync(photo.FilePath, token);
-                    var enrichment = client.GetInspectorMetadataAsync(photo.FilePath, token);
-                    await Task.WhenAll(xmp, enrichment);
-                    xml = xmp.Result;
-                    cloud = enrichment.Result;
-                    unavailable = cloud == null;
+                    var snapshot = await client.ReadInspectorAsync(photo.FilePath, token);
+                    xml = snapshot.Xmp;
+                    cloud = snapshot.Enrichment;
+                    unavailable = snapshot.EnrichmentUnavailable;
+                    sidecarUnavailable = snapshot.SidecarUnavailable;
                 }
-                else unavailable = true;
+                else sidecarUnavailable = unavailable = true;
             }
             else
             {
@@ -71,10 +71,18 @@ public sealed partial class MainWindow
                     return await reader.ReadToEndAsync(token);
                 }, token);
             }
-            var localRows = await Task.Run(() => InspectorMetadata.ReadXmp(xml), token);
+            System.Collections.Generic.IReadOnlyList<(string Label, string Value)> localRows;
+            try { localRows = await Task.Run(() => InspectorMetadata.ReadXmp(xml), token); }
+            catch (System.Xml.XmlException error)
+            {
+                Services.DiagLog.Write($"[inspector] unreadable sidecar: {error.Message}");
+                sidecarUnavailable = true;
+                localRows = Array.Empty<(string, string)>();
+            }
             if (token.IsCancellationRequested || _closing || !ReferenceEquals(photo, ViewModel.SelectedPhoto)) return;
             ExtraInfoRows.Children.Clear();
-            if (localRows.Count == 0) AddInspectorText("No caption, keywords or location in the sidecar.");
+            if (sidecarUnavailable) AddInspectorText("Sidecar metadata is currently unavailable.");
+            else if (localRows.Count == 0) AddInspectorText("No caption, keywords or location in the sidecar.");
             foreach (var (label, value) in localRows) AddInspectorField(label, value);
             if (photo.IsCloud)
             {
@@ -83,6 +91,7 @@ public sealed partial class MainWindow
                 else if (cloud!.Rows().Count == 0) AddInspectorText("No enrichment available for this photo.");
                 else foreach (var (label, value) in cloud.Rows()) AddInspectorField(label, value);
             }
+            if (sidecarUnavailable || unavailable) AddInspectorRetry();
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
@@ -92,8 +101,17 @@ public sealed partial class MainWindow
             {
                 ExtraInfoRows.Children.Clear();
                 AddInspectorText("Metadata could not be read. The photo remains available for browsing.");
+                AddInspectorRetry();
             }
         }
+    }
+
+    private void AddInspectorRetry()
+    {
+        var retry = new Maple.UI.Atoms.MuiButton { Content = "Retry metadata" };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(retry, "Retry photo metadata");
+        retry.Click += (_, _) => { CancelInspectorHydration(); HydrateInspector(); };
+        ExtraInfoRows.Children.Add(retry);
     }
 
     private void AddInspectorText(string value) => ExtraInfoRows.Children.Add(new TextBlock
