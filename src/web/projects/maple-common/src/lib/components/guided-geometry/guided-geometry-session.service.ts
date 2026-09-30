@@ -3,7 +3,10 @@ import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
-import type { GuideFamily } from '../../raw-pipeline/raw-pipeline.guided-geometry';
+import type {
+  GuideFamily,
+  GuidedCorrection,
+} from '../../raw-pipeline/raw-pipeline.guided-geometry';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 
@@ -56,12 +59,7 @@ export class GuidedGeometrySessionService {
     effect(() => {
       const s = this.session();
       if (!s) return;
-      if (
-        this.library.focusedAssetId() !== s.assetId ||
-        this.editor.armedTool() !== 'geometry' ||
-        s.adjustment() !== s.model
-      )
-        this.cancel();
+      if (!this.isCurrent(s)) this.cancel();
     });
   }
 
@@ -126,29 +124,36 @@ export class GuidedGeometrySessionService {
         aspect: s.aspect,
         xmp: this.serializer.serialize(s.model),
       });
-      // Asset/tool changes and cancellation invalidate even a queued reply.
-      if (
-        this.session() !== s ||
-        this.library.focusedAssetId() !== s.assetId ||
-        s.adjustment() !== s.model ||
-        this.editor.armedTool() !== 'geometry'
-      )
-        return;
-      const { limited, ...patch } = correction;
-      this.cancel();
-      this.editor.commit('adjustment', 'Guided geometry');
-      this.library.updateAdjustment(s.assetId, patch);
-      this.editor.endEdit();
-      this.message.set(
-        limited
-          ? 'Correction reached the geometry slider limits. Fine-tune or redraw the guides.'
-          : 'Guided correction applied.',
-      );
+      this.acceptCorrection(s, correction);
     } catch (error) {
       if (this.session() === s)
         this.message.set(error instanceof Error ? error.message : String(error));
     } finally {
       if (this.session() === s) this.busy.set(false);
     }
+  }
+
+  private isCurrent(s: GuideSession): boolean {
+    return (
+      this.session() === s &&
+      this.library.focusedAssetId() === s.assetId &&
+      s.adjustment() === s.model &&
+      this.editor.armedTool() === 'geometry'
+    );
+  }
+
+  private acceptCorrection(s: GuideSession, correction: GuidedCorrection): void {
+    // Asset/tool changes and cancellation invalidate even a queued reply.
+    if (!this.isCurrent(s)) return;
+    const { limited, ...patch } = correction;
+    this.cancel();
+    this.editor.commit('adjustment', 'Guided geometry');
+    this.library.updateAdjustment(s.assetId, patch);
+    this.editor.endEdit();
+    this.message.set(
+      limited
+        ? 'Correction reached the geometry slider limits. Fine-tune or redraw the guides.'
+        : 'Guided correction applied.',
+    );
   }
 }
