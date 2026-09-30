@@ -9,6 +9,11 @@ namespace Maple.WinUI.Services.Cloud
     {
         [JsonPropertyName("results")] public CloudTimelinePhoto[] Results { get; set; } = Array.Empty<CloudTimelinePhoto>();
         [JsonPropertyName("nextCursor")] public string? NextCursor { get; set; }
+        [JsonPropertyName("cursorPaging")] public bool CursorPaging { get; set; }
+        [JsonPropertyName("total")] public long Total { get; set; }
+        [JsonPropertyName("page")] public int Page { get; set; }
+        [JsonPropertyName("limit")] public int Limit { get; set; }
+        [JsonPropertyName("notImplemented")] public bool NotImplemented { get; set; }
 
         /// <summary>Keep server order, omitting existing paths and duplicates within this page.</summary>
         public CloudTimelinePhoto[] NewPhotos(IEnumerable<string> existingPaths)
