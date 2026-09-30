@@ -164,7 +164,7 @@ public sealed class LocalTransferJob
         return reader.ReadToEnd();
     }
 
-    private static async Task WriteAtomicAsync(string path, string content)
+    internal static async Task WriteAtomicAsync(string path, string content)
     {
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try

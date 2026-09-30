@@ -2,7 +2,7 @@
 use crate::adjustment::f;
 use raw_core::types::{
     transfer_mode, AdjustmentGroup, AdjustmentModel, FieldKind, WbScaleVersion, ADJUSTMENT_SCHEMA,
-    NON_COPYABLE_FIELDS,
+    NON_COPYABLE_FIELDS, TRANSFER_XMP_ATTRIBUTES, TRANSFER_XMP_ELEMENTS,
 };
 
 pub(crate) fn emit_cs() -> String {
@@ -63,8 +63,22 @@ pub(crate) fn emit_cs() -> String {
         WbScaleVersion::V5 => 5,
     };
     out.push_str(&format!(
-        "    }};\n\n    public const int CurrentWhiteBalanceScaleVersion = {scale};\n}}\n"
+        "    }};\n\n    public const int CurrentWhiteBalanceScaleVersion = {scale};\n"
     ));
+    out.push_str("\n    public static readonly System.Collections.Generic.IReadOnlyDictionary<string, string[]> TransferAttributes = new System.Collections.Generic.Dictionary<string, string[]>\n    {\n");
+    for (field, attributes) in TRANSFER_XMP_ATTRIBUTES {
+        let values = attributes
+            .iter()
+            .map(|key| format!("\"{key}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!("        [\"{field}\"] = new[] {{ {values} }},\n"));
+    }
+    out.push_str("    };\n\n    public static readonly System.Collections.Generic.IReadOnlyDictionary<string, string> TransferElements = new System.Collections.Generic.Dictionary<string, string>\n    {\n");
+    for (field, element) in TRANSFER_XMP_ELEMENTS {
+        out.push_str(&format!("        [\"{field}\"] = \"{element}\",\n"));
+    }
+    out.push_str("    };\n}\n");
     out
 }
 
@@ -80,6 +94,15 @@ mod tests {
         }
         for group in AdjustmentGroup::ALL {
             assert!(out.contains(&format!("new(\"{}\", \"{}\",", group.id(), group.label())));
+        }
+        for (field, attributes) in TRANSFER_XMP_ATTRIBUTES {
+            assert!(out.contains(&format!("[\"{field}\"] = new[]")));
+            for attribute in *attributes {
+                assert!(out.contains(&format!("\"{attribute}\"")));
+            }
+        }
+        for (field, element) in TRANSFER_XMP_ELEMENTS {
+            assert!(out.contains(&format!("[\"{field}\"] = \"{element}\"")));
         }
         assert!(out.contains("\"lens_profile\", \"LensProfile\", \"String\", 0.0, 0.0, 0.0, false"));
         assert!(out.contains("\"temperature\", \"Temperature\", \"Number\", 2000.0, 12000.0, 6500.0, true, \"Relative\""));
