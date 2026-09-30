@@ -19,6 +19,10 @@ public unsafe struct MapleScopeStats
 
 public static unsafe partial class RawFfi
 {
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int maple_scope_from_display_f32(float* rgba, nuint lanes, uint width, uint height,
+        MapleScopeStats* output);
+
     /// <summary>448 values: 64-bin RGB counts, then 64-column luma and RGB means.</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int maple_scope_panel_reduce(byte* rgb, uint rgbLength, uint width, uint height,

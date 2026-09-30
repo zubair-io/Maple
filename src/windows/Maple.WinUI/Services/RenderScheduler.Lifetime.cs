@@ -16,7 +16,7 @@ namespace Maple.WinUI.Services
         internal int DroppedClosingPresents { get; private set; }
 
         private int DispatchPresent(Microsoft.UI.Dispatching.DispatcherQueue queue, DecodedImage image,
-            AdjustmentState state, IntPtr panel, ulong generation, bool useHalf, int width, int height)
+            AdjustmentState state, IntPtr panel, ulong generation, bool useHalf, int width, int height, bool sampleScopes)
         {
             var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             Volatile.Write(ref _presentPending, 1);
@@ -34,7 +34,7 @@ namespace Maple.WinUI.Services
                             return;
                         }
                     }
-                    completion.TrySetResult(GpuPresentOnUiThread(image, state, panel, generation, useHalf, width, height));
+                    completion.TrySetResult(GpuPresentOnUiThread(image, state, panel, generation, useHalf, width, height, sampleScopes));
                 }
                 catch (Exception error) { completion.TrySetException(error); }
             }))
@@ -63,7 +63,7 @@ namespace Maple.WinUI.Services
 
         private async Task FinishStopAsync()
         {
-            try { await _loopTask; }
+            try { await Task.WhenAll(_loopTask, _scopeLoopTask); }
             finally
             {
                 lock (_gate)

@@ -11,6 +11,30 @@ namespace Maple.WinUI.Tests;
 public sealed unsafe class ScopeReadbackNativeTests(ITestOutputHelper output)
 {
     [Fact]
+    public void Cpu_display_buffer_produces_bounded_plots_without_redeveloping_the_photo()
+    {
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MAPLE_RAW_FFI_DLL")))
+        {
+            output.WriteLine("SKIP-PASS: CPU scope collection requires MAPLE_RAW_FFI_DLL.");
+            return;
+        }
+        RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var pixels = new float[1024 * 2 * 4];
+        for (var p = 0; p < 2048; p++) pixels[p * 4 + (p % 1024 < 512 ? 0 : 2)] = 1;
+        var readback = new ScopeReadback();
+        readback.FromCpu(pixels, 1024, 2);
+        var sample = readback.Reduce(42);
+        Assert.Equal(42, sample.Version);
+        Assert.Equal(512, sample.Values.Take(64).Sum());
+        Assert.Equal(256, sample.Values[63]);
+        Assert.Equal(256, sample.Values[128 + 63]);
+        Assert.Equal(0.2126, sample.Values[192], 10);
+        Assert.Equal(0.0722, sample.Values[192 + 63], 10);
+        Assert.Equal(2048UL * 255, sample.ChromaBins.Aggregate(0UL, (sum, count) => sum + count));
+        Assert.Throws<ArgumentException>(() => readback.FromCpu(new float[3], 1, 1));
+    }
+
+    [Fact]
     public void Shared_panel_reducer_preserves_histogram_counts_and_column_values()
     {
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MAPLE_RAW_FFI_DLL")))

@@ -85,18 +85,22 @@ namespace Maple.UI
             _root.ColumnSpacing = 10;
             _root.RowSpacing = 10;
 
-            Place(_histogram, 0, 0);
-            Place(_waveform, 0, 1);
-            Place(_parade, 1, 0);
-            Place(_vectorscope, 1, 1);
+            Place(_histogram, "Histogram", 0, 0);
+            Place(_waveform, "Luma waveform", 0, 1);
+            Place(_parade, "RGB parade", 1, 0);
+            Place(_vectorscope, "Vectorscope", 1, 1);
             Content = _root;
         }
 
-        private void Place(FrameworkElement element, int row, int column)
+        private void Place(FrameworkElement element, string title, int row, int column)
         {
-            Grid.SetRow(element, row);
-            Grid.SetColumn(element, column);
-            _root.Children.Add(element);
+            var cell = new StackPanel { Spacing = 4 };
+            cell.Children.Add(new TextBlock { Text = title, FontSize = 12 });
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(element, title);
+            cell.Children.Add(element);
+            Grid.SetRow(cell, row);
+            Grid.SetColumn(cell, column);
+            _root.Children.Add(cell);
         }
     }
 }

@@ -64,6 +64,9 @@ namespace Maple.WinUI
             ViewModel.Renderer.GpuFrameReady += OnGpuFrameReady;
             ViewModel.Renderer.ClipSourceReady += OnClipSourceReady;
             ViewModel.Renderer.HistogramReady += OnHistogramReady;
+            ViewModel.Renderer.ScopeReady += OnScopeReady;
+            ViewModel.Renderer.ScopeInvalidated += OnScopeInvalidated;
+            ViewModel.Renderer.ScopeFailed += OnScopeFailed;
             ViewModel.Renderer.GpuUnavailable += OnGpuUnavailable;
             ViewModel.Renderer.RenderFailed += OnRenderFailed;
 
@@ -199,6 +202,7 @@ namespace Maple.WinUI
             UpdateInfoPane();
             var browse = mode == ShellMode.Browse;
             var edit = mode == ShellMode.Edit;
+            UpdateScopesVisibility();
 
             SidebarPane.Visibility = browse ? Visibility.Visible : Visibility.Collapsed;
             SidebarColDef.Width = browse

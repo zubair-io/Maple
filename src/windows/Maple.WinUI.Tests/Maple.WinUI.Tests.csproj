@@ -238,6 +238,8 @@
          DECLARATIONS — nothing in this suite invokes them, so no native
          library is needed at test time. -->
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\ScopeReadback.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\ScopeSampleTracker.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.DecodeOwned.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Raster.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\NativeDetailDecoder.cs" LinkBase="Services" />

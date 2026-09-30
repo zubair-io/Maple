@@ -68,6 +68,9 @@ namespace Maple.WinUI
             renderer.GpuFrameReady -= OnGpuFrameReady;
             renderer.ClipSourceReady -= OnClipSourceReady;
             renderer.HistogramReady -= OnHistogramReady;
+            renderer.ScopeReady -= OnScopeReady;
+            renderer.ScopeInvalidated -= OnScopeInvalidated;
+            renderer.ScopeFailed -= OnScopeFailed;
             renderer.GpuUnavailable -= OnGpuUnavailable;
             renderer.RenderFailed -= OnRenderFailed;
             ViewModel.Dispose();

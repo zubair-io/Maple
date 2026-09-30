@@ -75,6 +75,7 @@ namespace Maple.WinUI.Services
         public RenderScheduler()
         {
             _loopTask = Task.Run(LoopAsync);
+            _scopeLoopTask = Task.Run(ScopeLoopAsync);
         }
 
         /// <summary>The QI'd ISwapChainPanelNative* for the canvas panel. Set
@@ -134,6 +135,7 @@ namespace Maple.WinUI.Services
                 }
             }
             InvalidateDetail();
+            ScopeInvalidated?.Invoke();
         }
 
         public void RequestRender(AdjustmentState snapshot)
@@ -142,8 +144,10 @@ namespace Maple.WinUI.Services
             {
                 if (_stopping) return;
                 _pending = snapshot;
+                _scopes.Invalidate();
             }
             InvalidateDetail();
+            ScopeInvalidated?.Invoke();
             try { _signal.Release(); } catch (SemaphoreFullException) { }
         }
 
@@ -187,6 +191,7 @@ namespace Maple.WinUI.Services
 
         private unsafe void CloseGpuSessionLocked()
         {
+            _scopes.ResetSession();
             if (_gpuSessionHalfOpen)
             {
                 fixed (MapleGpuLiveSession* handle = &_gpuSessionHalf)
@@ -314,18 +319,18 @@ namespace Maple.WinUI.Services
                 }
                 // Quiet refine: full-res present, then the histogram tick.
                 GpuPresent(image, state, panel, generation, useHalf: false,
-                    image.Width, image.Height);
+                    image.Width, image.Height, sampleScopes: true);
                 EmitHistogram(halfImage ?? image, state);
                 return true;
             }
 
             var target = fastPass ? halfImage ?? image : image;
-            return CpuRender(target, state, emitFrame: true);
+            return CpuRender(target, state, emitFrame: true, sampleScopes: !fastPass);
         }
 
         private bool GpuPresent(
             DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation,
-            bool useHalf, int targetWidth, int targetHeight)
+            bool useHalf, int targetWidth, int targetHeight, bool sampleScopes = false)
         {
             // The present must run on the UI thread: the first configure calls
             // ISwapChainPanelNative::SetSwapChain, which rejects background
@@ -339,12 +344,12 @@ namespace Maple.WinUI.Services
                 {
                     DisableGpuLocked("no UI dispatcher for SwapChainPanel present");
                 }
-                return CpuRender(_halfImage ?? image, state, emitFrame: true);
+                return CpuRender(sampleScopes ? image : _halfImage ?? image, state, emitFrame: true, sampleScopes: sampleScopes);
             }
 
             var started = Environment.TickCount64;
             var rc = DispatchPresent(queue,
-                image, state, panel, generation, useHalf, targetWidth, targetHeight);
+                image, state, panel, generation, useHalf, targetWidth, targetHeight, sampleScopes);
             if (rc == int.MinValue)
                 return true;  // superseded by a newer SetImage — dropped
             if (rc == 0)
@@ -366,7 +371,7 @@ namespace Maple.WinUI.Services
             {
                 DisableGpuLocked($"present rc={rc}: {_lastGpuError ?? "unknown"}");
             }
-            return CpuRender(_halfImage ?? image, state, emitFrame: true);
+            return CpuRender(sampleScopes ? image : _halfImage ?? image, state, emitFrame: true, sampleScopes: sampleScopes);
         }
 
         private string? _lastGpuError;
@@ -375,7 +380,7 @@ namespace Maple.WinUI.Services
         /// when the session was superseded before the call.</summary>
         private unsafe int GpuPresentOnUiThread(
             DecodedImage image, AdjustmentState state, IntPtr panel, ulong generation,
-            bool useHalf, int targetWidth, int targetHeight)
+            bool useHalf, int targetWidth, int targetHeight, bool sampleScopes)
         {
             var p = MapleGpuLiveParams.From(state, image);
             // Point tone curves (#2576): flat knot pairs, borrowed for the call.
@@ -399,6 +404,9 @@ namespace Maple.WinUI.Services
                     : _gpuSessionOpen && ReferenceEquals(_gpuImage, image);
                 if (_stopping || !sessionValid)
                     return int.MinValue;
+                p.scope_enabled = (byte)(sampleScopes && !useHalf && _scopes.Enabled
+                    && _pending == null && ReferenceEquals(state, _lastRendered) ? 1 : 0);
+                p.scope_layer = -1;
                 int rc;
                 fixed (float* noisePtr = image.NoiseProfile)
                 fixed (float* curvePtr = image.ProfileCurve)
@@ -460,6 +468,7 @@ namespace Maple.WinUI.Services
                     _lastFfiMillis = Environment.TickCount64 - ffiStarted;
                 }
                 _lastGpuError = rc == 0 ? null : RawFfi.LastError();
+                if (rc == 0 && p.scope_enabled != 0) _scopes.Submitted();
                 return rc;
             }
         }
@@ -469,7 +478,7 @@ namespace Maple.WinUI.Services
         public long LastFfiMillis => _lastFfiMillis;
         private long _lastFfiMillis;
 
-        private bool CpuRender(DecodedImage image, AdjustmentState state, bool emitFrame)
+        private bool CpuRender(DecodedImage image, AdjustmentState state, bool emitFrame, bool sampleScopes = false)
         {
             try
             {
@@ -486,6 +495,7 @@ namespace Maple.WinUI.Services
                         ComputeHistogram(_bgra), elapsed);
                 EmitClipSource(image.Width, image.Height);
                 DumpFrameIfRequested(_bgra, image.Width, image.Height);
+                if (sampleScopes) EmitCpuScope(image, state);
                 return true;
             }
             catch (Exception ex)

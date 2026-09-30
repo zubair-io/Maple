@@ -67,6 +67,7 @@ namespace Maple.WinUI
                 if (expectedPath != "empty")
                 {
                     await VerifyNativeDetailAsync();
+                    await VerifyScopesAsync();
                     await VerifyPresetUndoAsync();
                     await VerifyTransferUndoAsync(output);
                     VerifyViewerDesignNavigation();
@@ -120,6 +121,7 @@ namespace Maple.WinUI
                     viewerDesignNavigation = expectedPath != "empty",
                     nativeDetailActualSize = expectedPath != "empty",
                     presetUndoRedoAndReset = expectedPath != "empty",
+                    scopesLifecycle = expectedPath != "empty",
                     transferWatcherUndoRedo = expectedPath != "empty",
                     comparisonPreservesDocument = expectedPath != "empty",
                     cloudOpeningReadiness = expectedPath != "empty",

@@ -851,7 +851,7 @@
                                                IsEnabled="{Binding AdjustmentsReady}"
                                                ToolTipService.ToolTip="More editing actions" AutomationProperties.Name="More editing actions">
                                     <mui:MuiButton.Flyout>
-                                        <MenuFlyout Placement="Bottom">
+                                        <MenuFlyout Placement="Bottom" Closed="OnEditActionsClosed">
                                             <MenuFlyoutItem Text="Auto adjust" Click="OnApplyAuto" />
                                             <MenuFlyoutItem Text="Reset all adjustments" Click="OnResetAll" />
                                             <MenuFlyoutItem Text="Revert to state at open" Click="OnRevert" />
@@ -861,6 +861,7 @@
                                             <MenuFlyoutItem Text="Presets" Click="OnPresetTools" />
                                             <MenuFlyoutItem Text="Geometry" Click="OnGeometryTools" />
                                             <MenuFlyoutItem Text="Brightness…" Click="OnBrightnessValue" />
+                                            <ToggleMenuFlyoutItem x:Name="ScopesMenuItem" Text="Scopes" Click="OnToggleScopes" AutomationProperties.Name="Show scopes" />
                                         </MenuFlyout>
                                     </mui:MuiButton.Flyout>
                                 </mui:MuiButton>
@@ -872,6 +873,25 @@
                                         AutomationProperties.Name="Export photo" />
                                 </StackPanel>
                             </Grid>
+                        </Border>
+
+                        <Border x:Name="ScopesPanelHost" Grid.Column="1" Visibility="Collapsed"
+                                HorizontalAlignment="Left" VerticalAlignment="Top" Margin="16,96,16,16"
+                                Padding="12" Background="{StaticResource MapleSidebar}" CornerRadius="12" Translation="0,0,24"
+                                AutomationProperties.Name="Scopes" AutomationProperties.AutomationId="editor-scopes-panel">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Spacing="8">
+                                    <Grid>
+                                        <TextBlock Text="Scopes" VerticalAlignment="Center" />
+                                        <mui:MuiButton x:Name="CloseScopesButton" IconName="x" Variant="Ghost" ButtonSize="Sm"
+                                                       HorizontalAlignment="Right" Click="OnCloseScopes" AutomationProperties.Name="Close scopes" />
+                                    </Grid>
+                                    <TextBlock x:Name="ScopeStatus" Text="Updating scopes…" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                                    <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
+                                        <muim:MuiScopesPanel x:Name="ScopesPlots" Visibility="Collapsed" Width="310" />
+                                    </Viewbox>
+                                </StackPanel>
+                            </ScrollViewer>
                         </Border>
 
                         <!-- Edit tool rail -->

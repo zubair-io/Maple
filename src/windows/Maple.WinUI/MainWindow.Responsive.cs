@@ -13,6 +13,7 @@ public sealed partial class MainWindow
     {
         UpdateResponsiveShell();
         UpdateViewerChromeSize();
+        UpdateScopesSize();
     }
 
     private void UpdateResponsiveShell()
