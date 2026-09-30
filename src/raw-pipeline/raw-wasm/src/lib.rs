@@ -81,6 +81,7 @@ pub mod mask_registry;
 pub mod native_detail;
 mod open_metadata;
 pub mod preview;
+pub mod removal_selection;
 /// Legacy 8-bit sRGB render surface — `MapleRender`, `render_bytes`,
 /// `render_bytes_sized`, plus the `as_shot_wb` helper shared with every
 /// other render family in this crate. Split out of this file for the
