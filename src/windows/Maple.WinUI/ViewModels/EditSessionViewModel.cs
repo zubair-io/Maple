@@ -145,7 +145,9 @@ namespace Maple.WinUI.ViewModels
             }
         }
 
-        public EditSessionViewModel()
+        public EditSessionViewModel() : this(restoreSources: true) { }
+
+        internal EditSessionViewModel(bool restoreSources)
         {
             _cloudMetadataWrites.Failed += OnCloudMetadataFailure;
             // Both slots share _cancelGate (#3417 Jules review) so every
@@ -159,9 +161,11 @@ namespace Maple.WinUI.ViewModels
             HslBands = AdjustmentSections.BuildHslBands(this);
             GradeZones = AdjustmentSections.BuildGradeZones(this);
             _sidecarWatcher.SidecarChangedOnDisk += OnSidecarChangedOnDisk;
-            InitializeLibrary();
-
-            _ = RestoreCloudSessionAsync();
+            if (restoreSources)
+            {
+                InitializeLibrary();
+                _ = RestoreCloudSessionAsync();
+            }
         }
 
         // --- Open / decode ---

@@ -72,6 +72,7 @@ namespace Maple.WinUI
                     VerifyBrowseSelection();
                     await VerifyBrowseScrollingAsync();
                     await VerifyImmediateUndoAsync();
+                    await EditSessionViewModel.VerifyCloudOpeningAsync(raw, output);
                 }
 
                 // Real queued UI present, held solely by this smoke's UI turn.
@@ -115,6 +116,7 @@ namespace Maple.WinUI
                     droppedClosingPresents = renderer.DroppedClosingPresents,
                     viewerDesignNavigation = expectedPath != "empty",
                     comparisonPreservesDocument = expectedPath != "empty",
+                    cloudOpeningReadiness = expectedPath != "empty",
                     responsiveDesign = expectedPath != "empty",
                     browseSelectionAndSort = expectedPath != "empty",
                     browseScrolling = expectedPath != "empty",
