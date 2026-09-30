@@ -33,6 +33,66 @@ fn scope_test_case() -> Case {
     }
 }
 
+#[test]
+fn nonblocking_poll_delivers_final_edit_without_another_render() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (64u32, 48u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let session = LiveSession::new(&ctx, &input, w, h).unwrap();
+    assert!(session.poll_scope_stats(&ctx).is_none());
+    let mut inputs = scope_test_case().gpu_inputs_for(&input);
+    inputs.scope = ScopeRequest {
+        layer: -1,
+        enabled: true,
+    };
+    let index = session
+        .render_chain_to_f32(&ctx, &inputs, &CancelToken::new())
+        .unwrap()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut calls = 0;
+    let mut worst_poll = std::time::Duration::ZERO;
+    let stats = loop {
+        let start = std::time::Instant::now();
+        let sample = session.poll_scope_stats(&ctx);
+        worst_poll = worst_poll.max(start.elapsed());
+        calls += 1;
+        if let Some(sample) = sample {
+            break sample;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "final scope sample never arrived"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
+    eprintln!("final-edit scope: {calls} polls, longest {worst_poll:?}; host observation, not reference-hardware qualification");
+    assert_eq!(stats.frame, 1);
+    assert!(
+        session.poll_scope_stats(&ctx).is_none(),
+        "sample consumed exactly once"
+    );
+    let bytes = u64::from(w) * u64::from(h) * 16;
+    let frame = read_f32_buffer(&ctx, session.ping_pong_buffer(index), bytes);
+    let want = snapshot_rgba_f32(&frame, w, h);
+    assert_eq!((stats.snapshot.width, stats.snapshot.height), (w, h));
+    assert!(stats
+        .snapshot
+        .rgb
+        .iter()
+        .zip(&want.rgb)
+        .all(|(a, b)| a.abs_diff(*b) <= 1));
+    let histogram = vectorscope_histogram_rgba(&frame, false);
+    assert_eq!(histogram.total, stats.total);
+    let l1: u64 = histogram
+        .bins
+        .iter()
+        .zip(&stats.bins)
+        .map(|(a, b)| u64::from(a.abs_diff(*b)))
+        .sum();
+    assert!((l1 as f32 / histogram.total.max(1) as f32) < 0.005);
+}
+
 /// Copy `src` (a ping-pong buffer — `STORAGE | COPY_SRC | COPY_DST`, no
 /// `MAP_READ`) into a fresh staging buffer and map THAT, since a ping-pong
 /// buffer can't be mapped directly. Mirrors what `dehaze_split.rs` already

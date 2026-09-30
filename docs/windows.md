@@ -105,6 +105,8 @@ Once the Preview decode is on screen, `EditSessionViewModel.RefineUpgrade.cs`'s 
 
 Mask groups (#3408) preserve a layer's controls, colour range and imported XMP metadata while adding ordered geometric components. `Services/MaskGroupEditing.cs` applies immutable edits; `MainWindow.MaskGroups.cs` owns transient component selection and connects `MuiMaskComposition` to the model. The overlay edits only the selected component. Discrete operations close their own undo boundaries; pointer gestures from mask controls/handles suppress the idle undo timer until release or cancellation, so pauses inside a drag do not split it into multiple entries. Component rows are reused when only opacity or local controls change. Windows imports a group containing unsupported bitmap/AI leaves as opaque XML, preserving its complete correction on save.
 
+The live-scopes delivery (#3885) now has a non-blocking collection ABI, `maple_gpu_live_poll_scope`, mirrored by `Native/RawFfi.Scopes.cs`. It polls completed shared-core scope samples (128×128 chroma bins and an RGB snapshot capped at 512 pixels on the long edge), returns immediately when the GPU lock or sample is pending, and can collect the final edit without a priming render. A successful sample has a session-local frame number; hosts must gate collection while closed, coalesce requests and reject stale image/edit generations. This is the tested readback foundation, not a production scopes-panel delivery: scheduler/toggle integration, waveform/parade plotting, keyboard/Narrator and on-device latency qualification remain open in #3885.
+
 ## Sidecars
 
 `Services/Xmp/` is the fourth implementation of the sidecar contract described in [xmp-canonical-format](xmp-canonical-format.md).

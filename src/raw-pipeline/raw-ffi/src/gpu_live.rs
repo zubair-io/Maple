@@ -233,6 +233,11 @@ mod present_winui;
 // The C-params -> FullChainInputs marshalling lives in a sibling module
 // (600-LOC file budget; same split pattern as raw_gpu's live_session/limits).
 mod params;
+mod scope_poll;
+
+#[cfg(test)]
+#[path = "gpu_live_scope_poll_tests.rs"]
+mod scope_poll_tests;
 
 // Tests live in sibling files (600-LOC budget). The dehaze / on-GPU-airlight
 // host gate is split out (#1098), mirroring raw-gpu's `live_session` /

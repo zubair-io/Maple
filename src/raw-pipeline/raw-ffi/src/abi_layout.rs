@@ -42,6 +42,17 @@ macro_rules! layout {
 /// without the `gpu` feature).
 pub(crate) fn describe(name: &str) -> Option<String> {
     match name {
+        "MapleScopeStats" => Some(layout!(crate::scope_stats::MapleScopeStats {
+            frame,
+            total,
+            _pad,
+            bins_ptr,
+            bins_len,
+            snapshot_width,
+            snapshot_height,
+            snapshot_len,
+            snapshot_ptr
+        })),
         "MapleAdjustmentParams" => {
             Some(layout!(crate::scene_linear_chain::MapleAdjustmentParams {
                 temperature,
@@ -447,6 +458,7 @@ mod tests {
     #[test]
     fn exported_layouts_are_ordered_and_bounded() {
         let names = [
+            "MapleScopeStats",
             "MapleAdjustmentParams",
             "MapleToneCurves",
             "MapleSceneLinearBufferF32",

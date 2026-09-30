@@ -68,6 +68,7 @@ namespace Maple.WinUI.Tests
             new object[] { typeof(MapleWbSample) },
             new object[] { typeof(MapleGpuLiveParams) },
             new object[] { typeof(MapleGpuLiveSession) },
+            new object[] { typeof(MapleScopeStats) },
         };
 
         [Theory]

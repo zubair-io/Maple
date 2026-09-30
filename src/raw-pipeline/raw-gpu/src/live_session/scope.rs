@@ -1,7 +1,8 @@
 //! Scope readback for [`LiveSession`] (#3272, #3251): the histogram buffer,
 //! the RGB8 snapshot buffer, a pair of `MAP_READ` staging buffers each
-//! holding both, and the one-tick-late, never-blocking
-//! [`LiveSession::take_scope_stats`]. Sibling file so `live_session.rs`
+//! holding both, and native readback APIs. [`LiveSession::poll_scope_stats`]
+//! never waits for a submission; the legacy previous-tick API may wait.
+//! Sibling file so `live_session.rs`
 //! stays under the 600-line budget.
 //!
 //! ## Why one tick late
@@ -10,8 +11,8 @@
 //! device needs to actually finish the copy first, and `LiveSession` never
 //! blocks a render on that (the whole point of the live path is a bounded
 //! per-tick cost). So each render REQUESTS a map for the sample it just
-//! produced, and [`LiveSession::take_scope_stats`] reports the map that
-//! completed by then — the PREVIOUS tick's. Two staging slots, alternating,
+//! produced, and [`LiveSession::take_scope_stats`] reads the PREVIOUS tick's
+//! map, waiting for its submission if necessary. Two staging slots, alternating,
 //! is what lets tick N's request and tick N-1's map coexist without either
 //! blocking the other: while slot A is still mapping (or waiting to be
 //! read), slot B is free to receive tick N's copy.
@@ -100,6 +101,39 @@ impl ScopeBuffers {
 }
 
 impl LiveSession {
+    /// Poll either completed scope slot without waiting for GPU work (#3885).
+    /// Unlike the legacy previous-tick API, this can deliver the final edit's
+    /// sample without submitting another render just to advance the slots.
+    /// The host serializes access and drops frames older than its last sample.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn poll_scope_stats(&self, ctx: &GpuContext) -> Option<ScopeStats> {
+        ctx.device.poll(wgpu::Maintain::Poll);
+        let s = &self.scope;
+        let mut pending = s.pending.borrow_mut();
+        let newest = 1 - s.slot.get();
+        let mut result = None;
+        for slot in [newest, 1 - newest] {
+            let Some((frame, submission, mut rx)) = pending[slot].take() else {
+                continue;
+            };
+            match rx.try_recv() {
+                Ok(Some(Ok(()))) => {
+                    let buffer = &s.staging[slot];
+                    if result.is_none() {
+                        let words: Vec<u32> =
+                            bytemuck::cast_slice(&buffer.slice(..s.used_len).get_mapped_range())
+                                .to_vec();
+                        result = Some(unpack_scope(&words, frame, s.snapshot_dims));
+                    }
+                    buffer.unmap();
+                }
+                Ok(None) => pending[slot] = Some((frame, submission, rx)),
+                _ => s.staging[slot].unmap(),
+            }
+        }
+        result
+    }
+
     /// Called by the chain encoders AFTER the chain passes are encoded and
     /// BEFORE submit: histogram `chain_buf`, downsample it into the snapshot
     /// (#3251), copy both into this tick's staging slot. The map is
@@ -153,10 +187,10 @@ impl LiveSession {
         s.slot.set(1 - slot);
     }
 
-    /// The previous tick's stats if its map has completed, without blocking:
-    /// polls the device once (`Maintain::Poll`), then checks the receiver.
-    /// `None` until a render has been encoded with the scope enabled, or
-    /// while the map is still in flight (try again after the next render).
+    /// Legacy previous-tick readback: waits for that slot's GPU submission,
+    /// then checks its map receiver. Use `poll_scope_stats` for nonblocking
+    /// native polling, including delivery after the final edit.
+    /// Returns `None` when the previous slot has no pending sample.
     ///
     /// Reads slot `s.slot.get()` — NOT the slot the most recent
     /// [`Self::scope_after_submit`] call just wrote to (that one is `1 -
