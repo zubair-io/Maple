@@ -5,6 +5,7 @@ export * from './types';
 export { MAPLE_VERSION } from './version';
 export * from './platform';
 export * from './native';
+export { NativeBindingError, isNativeBindingError } from './native-errors';
 export * from './export';
 export * from './recipe';
 export * from './builder-state';

@@ -32,6 +32,7 @@ export interface WorkerResponse {
     ok: boolean;
     result?: unknown;
     error?: string;
+    errorCode?: 'MAPLE_NATIVE_BINDING';
 }
 /**
  * Recursively walk a plain object/array/typed-array `value` (the shape every

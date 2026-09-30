@@ -158,11 +158,58 @@ function resolvePlatformPackageLib() {
   }
   return null;
 }
-// src/native.ts
+// src/native-errors.ts
+class NativeBindingError extends Error {
+  code = "MAPLE_NATIVE_BINDING";
+  constructor(message, options) {
+    super(message, options);
+    this.name = "NativeBindingError";
+  }
+}
+function isNativeBindingError(error) {
+  return error instanceof Error && "code" in error && error.code === "MAPLE_NATIVE_BINDING";
+}
+
+// src/native-library.ts
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
-
+function nativeLibFilename() {
+  if (process.platform === "win32")
+    return "raw_ffi.dll";
+  if (process.platform === "darwin")
+    return "libraw_ffi.dylib";
+  return "libraw_ffi.so";
+}
+function firstExisting(candidates) {
+  const hit = candidates.find((candidate) => fs2.existsSync(candidate));
+  return hit ? path2.resolve(hit) : null;
+}
+function findNativeLib() {
+  if (process.env.MAPLE_NATIVE_LIB && fs2.existsSync(process.env.MAPLE_NATIVE_LIB)) {
+    return process.env.MAPLE_NATIVE_LIB;
+  }
+  const libName = nativeLibFilename();
+  const currentDir = import.meta.dir || path2.dirname(fileURLToPath2(import.meta.url));
+  const cargoTarget = path2.join(currentDir, "..", "..", "raw-pipeline", "target");
+  const sourceBuilt = [
+    path2.join(cargoTarget, "release", libName),
+    path2.join(cargoTarget, "aarch64-apple-darwin", "release", libName),
+    path2.join(cargoTarget, "x86_64-apple-darwin", "release", libName),
+    path2.join(cargoTarget, "x86_64-unknown-linux-gnu", "release", libName),
+    path2.join(cargoTarget, "aarch64-unknown-linux-gnu", "release", libName),
+    path2.join(cargoTarget, "x86_64-pc-windows-msvc", "release", libName),
+    path2.join(currentDir, "..", "..", "api", "native", libName)
+  ];
+  const runtime = [
+    path2.join(currentDir, "..", "native", libName),
+    path2.join(process.cwd(), "native", libName),
+    path2.join("/app", "native", libName),
+    path2.join("/usr/local/lib", libName),
+    path2.join("/usr/lib", libName)
+  ];
+  return firstExisting(sourceBuilt) ?? resolvePlatformPackageLib() ?? firstExisting(runtime);
+}
 // src/ffi-symbols.ts
 function getFfiSymbols(FFIType) {
   return {
@@ -624,55 +671,25 @@ function tryLoadNapiBinding() {
 // src/native.ts
 var RENDER_OUT_CAP = 1024;
 var _cachedBinding = undefined;
-function nativeLibFilename() {
-  if (process.platform === "win32")
-    return "raw_ffi.dll";
-  if (process.platform === "darwin")
-    return "libraw_ffi.dylib";
-  return "libraw_ffi.so";
-}
-function firstExisting(candidates) {
-  const hit = candidates.find((candidate) => fs2.existsSync(candidate));
-  return hit ? path2.resolve(hit) : null;
-}
-function findNativeLib() {
-  if (process.env.MAPLE_NATIVE_LIB && fs2.existsSync(process.env.MAPLE_NATIVE_LIB)) {
-    return process.env.MAPLE_NATIVE_LIB;
-  }
-  const libName = nativeLibFilename();
-  const currentDir = import.meta.dir || path2.dirname(fileURLToPath2(import.meta.url));
-  const cargoTarget = path2.join(currentDir, "..", "..", "raw-pipeline", "target");
-  const sourceBuilt = [
-    path2.join(cargoTarget, "release", libName),
-    path2.join(cargoTarget, "aarch64-apple-darwin", "release", libName),
-    path2.join(cargoTarget, "x86_64-apple-darwin", "release", libName),
-    path2.join(cargoTarget, "x86_64-unknown-linux-gnu", "release", libName),
-    path2.join(cargoTarget, "aarch64-unknown-linux-gnu", "release", libName),
-    path2.join(cargoTarget, "x86_64-pc-windows-msvc", "release", libName),
-    path2.join(currentDir, "..", "..", "api", "native", libName)
-  ];
-  const runtime = [
-    path2.join(currentDir, "..", "native", libName),
-    path2.join(process.cwd(), "native", libName),
-    path2.join("/app", "native", libName),
-    path2.join("/usr/local/lib", libName),
-    path2.join("/usr/lib", libName)
-  ];
-  return firstExisting(sourceBuilt) ?? resolvePlatformPackageLib() ?? firstExisting(runtime);
-}
 function loadNativeBinding() {
   if (_cachedBinding !== undefined && _cachedBinding !== null) {
     return _cachedBinding;
   }
   const libPath = findNativeLib();
   if (!libPath) {
-    throw new Error(`Maple native library (${nativeLibFilename()}) not found. Build it with cargo build --release -p raw-ffi or set MAPLE_NATIVE_LIB.`);
+    throw new NativeBindingError(`Maple native library (${nativeLibFilename()}) not found. Build it with cargo build --release -p raw-ffi or set MAPLE_NATIVE_LIB.`);
   }
   if (typeof globalThis.Bun === "undefined") {
-    throw new Error("Maple native bindings currently require Bun (bun:ffi).");
+    throw new NativeBindingError("Maple native bindings currently require Bun (bun:ffi).");
   }
   const { dlopen, FFIType, ptr } = __require("bun:ffi");
-  const lib = dlopen(libPath, getFfiSymbols(FFIType));
+  const lib = (() => {
+    try {
+      return dlopen(libPath, getFfiSymbols(FFIType));
+    } catch (cause) {
+      throw new NativeBindingError(`Maple native library (${libPath}) could not be loaded: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    }
+  })();
   function getLastError() {
     const res = lib.symbols.maple_last_error();
     return res ? String(res) : null;
@@ -1058,7 +1075,8 @@ class NativeWorkerPool {
       const restored = restoreFromTransfer(response.result);
       setImmediate(() => pending.resolve(restored));
     } else {
-      const err = new Error(response.error || "Maple native call failed");
+      const message = response.error || "Maple native call failed";
+      const err = response.errorCode === "MAPLE_NATIVE_BINDING" ? new NativeBindingError(message) : new Error(message);
       setImmediate(() => pending.reject(err));
     }
   }
@@ -1138,7 +1156,7 @@ function getPool() {
 }
 var isBunRuntime = () => typeof globalThis.Bun !== "undefined";
 function buildNoNativeBindingError(napiError) {
-  return new Error("Maple has no working native binding for this Node process: the raw-napi addon is " + `unavailable${napiError ? ` (${napiError.message})` : ""}, and the bun:ffi ` + "worker-pool fallback requires Bun (it cannot run on plain Node). Build/install a " + "raw-napi addon for this platform, or run under Bun instead.");
+  return new NativeBindingError("Maple has no working native binding for this Node process: the raw-napi addon is " + `unavailable${napiError ? ` (${napiError.message})` : ""}, and the bun:ffi ` + "worker-pool fallback requires Bun (it cannot run on plain Node). Build/install a " + "raw-napi addon for this platform, or run under Bun instead.");
 }
 async function callNative(method, args) {
   if (executionMode === "sync") {
@@ -2903,6 +2921,7 @@ export {
   MAPLE_VERSION,
   MapleImageBuilder,
   MapleWorkerPoolOverloadedError,
+  NativeBindingError,
   applyEffort,
   applyFormat,
   applyQuality,
@@ -2922,6 +2941,7 @@ export {
   getPlatformPackageName,
   isMusl,
   isNativeAvailable,
+  isNativeBindingError,
   isRawPath,
   lastResizeWidth,
   loadNativeBinding,

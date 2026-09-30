@@ -653,6 +653,13 @@ cargo build --release -p raw-ffi --target x86_64-unknown-linux-gnu
 ./src/api/scripts/build-raw-ffi.sh linux
 ```
 
+Native backend loading failures throw `NativeBindingError` with code
+`MAPLE_NATIVE_BINDING`; `isNativeBindingError(error)` recognizes it across
+worker dispatch and package copies. Missing binaries, loader/ABI failures,
+and an unavailable Node backend are deployment errors that callers should
+retry. Image decode failures keep their existing error behavior, so callers
+can distinguish an unreadable asset from an unavailable processing engine.
+
 ## Execution model
 
 `toBuffer()`/`toFile()`/`metadata()`/`stats()`/`toRaw()`/`toRawAlpha()`/`toRawRgb()`

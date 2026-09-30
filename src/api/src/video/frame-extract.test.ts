@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { NativeBindingError } from 'maple';
 import { isNativeLoadFailure } from './frame-extract.ts';
 
 /**
@@ -33,4 +34,9 @@ describe('isNativeLoadFailure', () => {
     expect(isNativeLoadFailure(null)).toBe(false);
     expect(isNativeLoadFailure(undefined)).toBe(false);
   });
+});
+
+it('recognises typed loader/ABI failures without relying on their message', () => {
+  expect(isNativeLoadFailure(new NativeBindingError('dlopen: wrong architecture'))).toBe(true);
+  expect(isNativeLoadFailure(new Error('dlopen: wrong architecture'))).toBe(false);
 });

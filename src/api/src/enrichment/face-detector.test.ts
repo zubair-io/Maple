@@ -357,6 +357,7 @@ describe('OnnxFaceDetector — native dylib load failure propagation (#3623 foll
         paths: { detector: 'stub', recognizer: 'stub' },
       }),
     );
+    const jpegBytes = await makeTinyJpeg();
     const nativeErr = new Error('Maple native bindings currently require Bun (bun:ffi).');
     const mapleSpy = spyOn(mapleMod, 'maple').mockImplementation(() => {
       throw nativeErr;
@@ -366,7 +367,7 @@ describe('OnnxFaceDetector — native dylib load failure propagation (#3623 foll
       const detector = new OnnxFaceDetector();
       let err: unknown = null;
       try {
-        await detector.detectFaces(await makeTinyJpeg());
+        await detector.detectFaces(jpegBytes);
       } catch (e) {
         err = e;
       }
@@ -386,6 +387,7 @@ describe('OnnxFaceDetector — native dylib load failure propagation (#3623 foll
         paths: { detector: 'stub', recognizer: 'stub' },
       }),
     );
+    const jpegBytes = await makeTinyJpeg();
     const nativeErr = new Error(
       'Maple native library (libmaple_core.dylib) not found. Build it with cargo build --release -p raw-ffi or set MAPLE_NATIVE_LIB.',
     );
@@ -402,7 +404,7 @@ describe('OnnxFaceDetector — native dylib load failure propagation (#3623 foll
       };
       let err: unknown = null;
       try {
-        await detector.embedFace(await makeTinyJpeg(), detection);
+        await detector.embedFace(jpegBytes, detection);
       } catch (e) {
         err = e;
       }
@@ -412,4 +414,42 @@ describe('OnnxFaceDetector — native dylib load failure propagation (#3623 foll
       mapleSpy.mockRestore();
     }
   });
+});
+
+describe('typed native backend errors (#3623)', () => {
+  it.each(['detectFaces', 'embedFace'] as const)(
+    '%s rethrows loader/ABI errors without a message heuristic',
+    async (method) => {
+      const jpegBytes = await makeTinyJpeg();
+      setFaceModelLoaderForTests(
+        async (): Promise<FaceModels> => ({
+          detector: { run: async () => ({}) },
+          recognizer: { run: async () => ({}) },
+          Tensor: FakeTensorCtor,
+          paths: { detector: 'stub', recognizer: 'stub' },
+        }),
+      );
+      const nativeErr = new mapleMod.NativeBindingError('dlopen: missing maple_decode symbol');
+      const mapleSpy = spyOn(mapleMod, 'maple').mockImplementation(() => {
+        throw nativeErr;
+      });
+      try {
+        const detector = new OnnxFaceDetector();
+        const result =
+          method === 'detectFaces'
+            ? detector.detectFaces(jpegBytes)
+            : detector.embedFace(jpegBytes, {
+                bbox: { x: 0.2, y: 0.2, w: 0.4, h: 0.4 },
+                confidence: 0.9,
+                landmarks: [],
+              });
+        await expect(result).rejects.toBe(nativeErr);
+        expect(mapleSpy).toHaveBeenCalledTimes(1);
+        expect(isNativeLoadFailure(nativeErr)).toBe(true);
+        expect(nativeErr).not.toBeInstanceOf(ThumbDecodeError);
+      } finally {
+        mapleSpy.mockRestore();
+      }
+    },
+  );
 });

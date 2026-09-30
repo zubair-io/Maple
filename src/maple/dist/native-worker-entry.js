@@ -1,11 +1,217 @@
 import { createRequire } from "node:module";
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// src/native.ts
+// src/native-errors.ts
+class NativeBindingError extends Error {
+  code = "MAPLE_NATIVE_BINDING";
+  constructor(message, options) {
+    super(message, options);
+    this.name = "NativeBindingError";
+  }
+}
+function isNativeBindingError(error) {
+  return error instanceof Error && "code" in error && error.code === "MAPLE_NATIVE_BINDING";
+}
+
+// src/native-library.ts
 import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
+// src/platform.ts
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+function isMusl() {
+  if (process.platform !== "linux")
+    return false;
+  try {
+    const report = process.report?.getReport?.();
+    if (report?.header?.glibcVersionRuntime) {
+      return false;
+    }
+  } catch {}
+  try {
+    if (fs.existsSync("/proc/self/maps")) {
+      const maps = fs.readFileSync("/proc/self/maps", "utf-8");
+      if (maps.includes("libc.so") || maps.includes("ld-linux")) {
+        return false;
+      }
+      if (maps.includes("ld-musl-") || maps.includes("libc.musl-")) {
+        return true;
+      }
+    }
+  } catch {}
+  try {
+    if (fs.existsSync("/etc/alpine-release")) {
+      return true;
+    }
+  } catch {}
+  try {
+    const bun = globalThis.Bun;
+    if (bun) {
+      const res = bun.spawnSync(["ldd", "--version"]);
+      const text = ((res.stdout?.toString() || "") + (res.stderr?.toString() || "")).toLowerCase();
+      if (text.includes("musl")) {
+        return true;
+      }
+      if (text.includes("glibc") || text.includes("gnu libc")) {
+        return false;
+      }
+    }
+  } catch {}
+  try {
+    for (const dir of ["/lib", "/lib64", "/usr/lib"]) {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        if (files.some((f) => f.startsWith("ld-musl-"))) {
+          return true;
+        }
+      }
+    }
+  } catch {}
+  return false;
+}
+function getPlatformPackageName(platform = process.platform, arch = process.arch, musl = isMusl()) {
+  if (platform === "darwin") {
+    if (arch === "arm64")
+      return "@justmaple/maple-darwin-arm64";
+    if (arch === "x64")
+      return "@justmaple/maple-darwin-x64";
+  } else if (platform === "linux") {
+    const libc = musl ? "musl" : "gnu";
+    if (arch === "x64")
+      return `@justmaple/maple-linux-x64-${libc}`;
+    if (arch === "arm64")
+      return `@justmaple/maple-linux-arm64-${libc}`;
+  } else if (platform === "win32") {
+    if (arch === "x64")
+      return "@justmaple/maple-win32-x64-msvc";
+  }
+  return null;
+}
+function getPlatformBinaryFilename(platform = process.platform) {
+  if (platform === "win32")
+    return "raw_ffi.dll";
+  if (platform === "darwin")
+    return "libraw_ffi.dylib";
+  return "libraw_ffi.so";
+}
+function getPlatformNapiFilename(platform = process.platform, arch = process.arch, musl = isMusl()) {
+  if (platform === "darwin")
+    return `raw-napi.darwin-${arch === "arm64" ? "arm64" : "x64"}.node`;
+  if (platform === "win32")
+    return "raw-napi.win32-x64-msvc.node";
+  const libc = musl ? "musl" : "gnu";
+  return `raw-napi.linux-${arch === "arm64" ? "arm64" : "x64"}-${libc}.node`;
+}
+function napiCargoLibFilename(platform = process.platform) {
+  if (platform === "win32")
+    return "raw_napi.dll";
+  if (platform === "darwin")
+    return "libraw_napi.dylib";
+  return "libraw_napi.so";
+}
+function resolvePlatformNapiAddon() {
+  const pkgName = getPlatformPackageName();
+  if (!pkgName)
+    return null;
+  const napiName = getPlatformNapiFilename();
+  try {
+    const resolved = __require.resolve(`${pkgName}/${napiName}`);
+    if (fs.existsSync(resolved))
+      return path.resolve(resolved);
+  } catch {}
+  const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
+  const shortName = pkgName.replace("@justmaple/maple-", "");
+  const napiCargoTarget = path.join(currentDir, "..", "..", "raw-pipeline", "target");
+  const napiLibName = napiCargoLibFilename();
+  const candidates = [
+    path.join(currentDir, "..", "..", pkgName, napiName),
+    path.join(currentDir, "..", "node_modules", pkgName, napiName),
+    path.join(process.cwd(), "node_modules", pkgName, napiName),
+    path.join(currentDir, "..", "npm", shortName, napiName),
+    path.join(process.cwd(), "npm", shortName, napiName),
+    path.join(napiCargoTarget, "release", napiLibName),
+    path.join(napiCargoTarget, "aarch64-apple-darwin", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-apple-darwin", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-unknown-linux-gnu", "release", napiLibName),
+    path.join(napiCargoTarget, "aarch64-unknown-linux-gnu", "release", napiLibName),
+    path.join(napiCargoTarget, "x86_64-pc-windows-msvc", "release", napiLibName)
+  ];
+  return candidates.find((c) => fs.existsSync(c)) ?? null;
+}
+function resolvePlatformPackageLib() {
+  const pkgName = getPlatformPackageName();
+  if (!pkgName)
+    return null;
+  const libName = getPlatformBinaryFilename();
+  try {
+    const resolvedMain = __require.resolve(pkgName);
+    if (fs.existsSync(resolvedMain) && fs.statSync(resolvedMain).isFile()) {
+      return path.resolve(resolvedMain);
+    }
+  } catch {}
+  try {
+    const resolvedFile = __require.resolve(`${pkgName}/${libName}`);
+    if (fs.existsSync(resolvedFile)) {
+      return path.resolve(resolvedFile);
+    }
+  } catch {}
+  const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
+  const shortName = pkgName.replace("@justmaple/maple-", "");
+  const candidateDirs = [
+    path.join(currentDir, "..", "..", pkgName, libName),
+    path.join(currentDir, "..", "node_modules", pkgName, libName),
+    path.join(process.cwd(), "node_modules", pkgName, libName),
+    path.join(currentDir, "..", "npm", shortName, libName),
+    path.join(process.cwd(), "npm", shortName, libName)
+  ];
+  for (const candidate of candidateDirs) {
+    if (fs.existsSync(candidate)) {
+      return path.resolve(candidate);
+    }
+  }
+  return null;
+}
+
+// src/native-library.ts
+function nativeLibFilename() {
+  if (process.platform === "win32")
+    return "raw_ffi.dll";
+  if (process.platform === "darwin")
+    return "libraw_ffi.dylib";
+  return "libraw_ffi.so";
+}
+function firstExisting(candidates) {
+  const hit = candidates.find((candidate) => fs2.existsSync(candidate));
+  return hit ? path2.resolve(hit) : null;
+}
+function findNativeLib() {
+  if (process.env.MAPLE_NATIVE_LIB && fs2.existsSync(process.env.MAPLE_NATIVE_LIB)) {
+    return process.env.MAPLE_NATIVE_LIB;
+  }
+  const libName = nativeLibFilename();
+  const currentDir = import.meta.dir || path2.dirname(fileURLToPath2(import.meta.url));
+  const cargoTarget = path2.join(currentDir, "..", "..", "raw-pipeline", "target");
+  const sourceBuilt = [
+    path2.join(cargoTarget, "release", libName),
+    path2.join(cargoTarget, "aarch64-apple-darwin", "release", libName),
+    path2.join(cargoTarget, "x86_64-apple-darwin", "release", libName),
+    path2.join(cargoTarget, "x86_64-unknown-linux-gnu", "release", libName),
+    path2.join(cargoTarget, "aarch64-unknown-linux-gnu", "release", libName),
+    path2.join(cargoTarget, "x86_64-pc-windows-msvc", "release", libName),
+    path2.join(currentDir, "..", "..", "api", "native", libName)
+  ];
+  const runtime = [
+    path2.join(currentDir, "..", "native", libName),
+    path2.join(process.cwd(), "native", libName),
+    path2.join("/app", "native", libName),
+    path2.join("/usr/local/lib", libName),
+    path2.join("/usr/lib", libName)
+  ];
+  return firstExisting(sourceBuilt) ?? resolvePlatformPackageLib() ?? firstExisting(runtime);
+}
 // src/ffi-symbols.ts
 function getFfiSymbols(FFIType) {
   return {
@@ -400,163 +606,6 @@ function createRasterV2Binding(lib, ptr, getLastError, probeMetadata) {
   };
 }
 
-// src/platform.ts
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-function isMusl() {
-  if (process.platform !== "linux")
-    return false;
-  try {
-    const report = process.report?.getReport?.();
-    if (report?.header?.glibcVersionRuntime) {
-      return false;
-    }
-  } catch {}
-  try {
-    if (fs.existsSync("/proc/self/maps")) {
-      const maps = fs.readFileSync("/proc/self/maps", "utf-8");
-      if (maps.includes("libc.so") || maps.includes("ld-linux")) {
-        return false;
-      }
-      if (maps.includes("ld-musl-") || maps.includes("libc.musl-")) {
-        return true;
-      }
-    }
-  } catch {}
-  try {
-    if (fs.existsSync("/etc/alpine-release")) {
-      return true;
-    }
-  } catch {}
-  try {
-    const bun = globalThis.Bun;
-    if (bun) {
-      const res = bun.spawnSync(["ldd", "--version"]);
-      const text = ((res.stdout?.toString() || "") + (res.stderr?.toString() || "")).toLowerCase();
-      if (text.includes("musl")) {
-        return true;
-      }
-      if (text.includes("glibc") || text.includes("gnu libc")) {
-        return false;
-      }
-    }
-  } catch {}
-  try {
-    for (const dir of ["/lib", "/lib64", "/usr/lib"]) {
-      if (fs.existsSync(dir)) {
-        const files = fs.readdirSync(dir);
-        if (files.some((f) => f.startsWith("ld-musl-"))) {
-          return true;
-        }
-      }
-    }
-  } catch {}
-  return false;
-}
-function getPlatformPackageName(platform = process.platform, arch = process.arch, musl = isMusl()) {
-  if (platform === "darwin") {
-    if (arch === "arm64")
-      return "@justmaple/maple-darwin-arm64";
-    if (arch === "x64")
-      return "@justmaple/maple-darwin-x64";
-  } else if (platform === "linux") {
-    const libc = musl ? "musl" : "gnu";
-    if (arch === "x64")
-      return `@justmaple/maple-linux-x64-${libc}`;
-    if (arch === "arm64")
-      return `@justmaple/maple-linux-arm64-${libc}`;
-  } else if (platform === "win32") {
-    if (arch === "x64")
-      return "@justmaple/maple-win32-x64-msvc";
-  }
-  return null;
-}
-function getPlatformBinaryFilename(platform = process.platform) {
-  if (platform === "win32")
-    return "raw_ffi.dll";
-  if (platform === "darwin")
-    return "libraw_ffi.dylib";
-  return "libraw_ffi.so";
-}
-function getPlatformNapiFilename(platform = process.platform, arch = process.arch, musl = isMusl()) {
-  if (platform === "darwin")
-    return `raw-napi.darwin-${arch === "arm64" ? "arm64" : "x64"}.node`;
-  if (platform === "win32")
-    return "raw-napi.win32-x64-msvc.node";
-  const libc = musl ? "musl" : "gnu";
-  return `raw-napi.linux-${arch === "arm64" ? "arm64" : "x64"}-${libc}.node`;
-}
-function napiCargoLibFilename(platform = process.platform) {
-  if (platform === "win32")
-    return "raw_napi.dll";
-  if (platform === "darwin")
-    return "libraw_napi.dylib";
-  return "libraw_napi.so";
-}
-function resolvePlatformNapiAddon() {
-  const pkgName = getPlatformPackageName();
-  if (!pkgName)
-    return null;
-  const napiName = getPlatformNapiFilename();
-  try {
-    const resolved = __require.resolve(`${pkgName}/${napiName}`);
-    if (fs.existsSync(resolved))
-      return path.resolve(resolved);
-  } catch {}
-  const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
-  const shortName = pkgName.replace("@justmaple/maple-", "");
-  const napiCargoTarget = path.join(currentDir, "..", "..", "raw-pipeline", "target");
-  const napiLibName = napiCargoLibFilename();
-  const candidates = [
-    path.join(currentDir, "..", "..", pkgName, napiName),
-    path.join(currentDir, "..", "node_modules", pkgName, napiName),
-    path.join(process.cwd(), "node_modules", pkgName, napiName),
-    path.join(currentDir, "..", "npm", shortName, napiName),
-    path.join(process.cwd(), "npm", shortName, napiName),
-    path.join(napiCargoTarget, "release", napiLibName),
-    path.join(napiCargoTarget, "aarch64-apple-darwin", "release", napiLibName),
-    path.join(napiCargoTarget, "x86_64-apple-darwin", "release", napiLibName),
-    path.join(napiCargoTarget, "x86_64-unknown-linux-gnu", "release", napiLibName),
-    path.join(napiCargoTarget, "aarch64-unknown-linux-gnu", "release", napiLibName),
-    path.join(napiCargoTarget, "x86_64-pc-windows-msvc", "release", napiLibName)
-  ];
-  return candidates.find((c) => fs.existsSync(c)) ?? null;
-}
-function resolvePlatformPackageLib() {
-  const pkgName = getPlatformPackageName();
-  if (!pkgName)
-    return null;
-  const libName = getPlatformBinaryFilename();
-  try {
-    const resolvedMain = __require.resolve(pkgName);
-    if (fs.existsSync(resolvedMain) && fs.statSync(resolvedMain).isFile()) {
-      return path.resolve(resolvedMain);
-    }
-  } catch {}
-  try {
-    const resolvedFile = __require.resolve(`${pkgName}/${libName}`);
-    if (fs.existsSync(resolvedFile)) {
-      return path.resolve(resolvedFile);
-    }
-  } catch {}
-  const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
-  const shortName = pkgName.replace("@justmaple/maple-", "");
-  const candidateDirs = [
-    path.join(currentDir, "..", "..", pkgName, libName),
-    path.join(currentDir, "..", "node_modules", pkgName, libName),
-    path.join(process.cwd(), "node_modules", pkgName, libName),
-    path.join(currentDir, "..", "npm", shortName, libName),
-    path.join(process.cwd(), "npm", shortName, libName)
-  ];
-  for (const candidate of candidateDirs) {
-    if (fs.existsSync(candidate)) {
-      return path.resolve(candidate);
-    }
-  }
-  return null;
-}
-
 // src/native-napi.ts
 function wrap(fn) {
   return fn;
@@ -624,55 +673,25 @@ function tryLoadNapiBinding() {
 // src/native.ts
 var RENDER_OUT_CAP = 1024;
 var _cachedBinding = undefined;
-function nativeLibFilename() {
-  if (process.platform === "win32")
-    return "raw_ffi.dll";
-  if (process.platform === "darwin")
-    return "libraw_ffi.dylib";
-  return "libraw_ffi.so";
-}
-function firstExisting(candidates) {
-  const hit = candidates.find((candidate) => fs2.existsSync(candidate));
-  return hit ? path2.resolve(hit) : null;
-}
-function findNativeLib() {
-  if (process.env.MAPLE_NATIVE_LIB && fs2.existsSync(process.env.MAPLE_NATIVE_LIB)) {
-    return process.env.MAPLE_NATIVE_LIB;
-  }
-  const libName = nativeLibFilename();
-  const currentDir = import.meta.dir || path2.dirname(fileURLToPath2(import.meta.url));
-  const cargoTarget = path2.join(currentDir, "..", "..", "raw-pipeline", "target");
-  const sourceBuilt = [
-    path2.join(cargoTarget, "release", libName),
-    path2.join(cargoTarget, "aarch64-apple-darwin", "release", libName),
-    path2.join(cargoTarget, "x86_64-apple-darwin", "release", libName),
-    path2.join(cargoTarget, "x86_64-unknown-linux-gnu", "release", libName),
-    path2.join(cargoTarget, "aarch64-unknown-linux-gnu", "release", libName),
-    path2.join(cargoTarget, "x86_64-pc-windows-msvc", "release", libName),
-    path2.join(currentDir, "..", "..", "api", "native", libName)
-  ];
-  const runtime = [
-    path2.join(currentDir, "..", "native", libName),
-    path2.join(process.cwd(), "native", libName),
-    path2.join("/app", "native", libName),
-    path2.join("/usr/local/lib", libName),
-    path2.join("/usr/lib", libName)
-  ];
-  return firstExisting(sourceBuilt) ?? resolvePlatformPackageLib() ?? firstExisting(runtime);
-}
 function loadNativeBinding() {
   if (_cachedBinding !== undefined && _cachedBinding !== null) {
     return _cachedBinding;
   }
   const libPath = findNativeLib();
   if (!libPath) {
-    throw new Error(`Maple native library (${nativeLibFilename()}) not found. Build it with cargo build --release -p raw-ffi or set MAPLE_NATIVE_LIB.`);
+    throw new NativeBindingError(`Maple native library (${nativeLibFilename()}) not found. Build it with cargo build --release -p raw-ffi or set MAPLE_NATIVE_LIB.`);
   }
   if (typeof globalThis.Bun === "undefined") {
-    throw new Error("Maple native bindings currently require Bun (bun:ffi).");
+    throw new NativeBindingError("Maple native bindings currently require Bun (bun:ffi).");
   }
   const { dlopen, FFIType, ptr } = __require("bun:ffi");
-  const lib = dlopen(libPath, getFfiSymbols(FFIType));
+  const lib = (() => {
+    try {
+      return dlopen(libPath, getFfiSymbols(FFIType));
+    } catch (cause) {
+      throw new NativeBindingError(`Maple native library (${libPath}) could not be loaded: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    }
+  })();
   function getLastError() {
     const res = lib.symbols.maple_last_error();
     return res ? String(res) : null;
@@ -962,7 +981,8 @@ globalThis.onmessage = (event) => {
     const response = {
       id,
       ok: false,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
+      errorCode: isNativeBindingError(error) ? error.code : undefined
     };
     postMessage(response);
   }
