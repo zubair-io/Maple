@@ -155,8 +155,7 @@ export interface RawPixelsAny {
   channels: 3 | 4;
 }
 
-/** `{ r, g, b, alpha }`, each 0-255 for r/g/b and 0-1 for alpha. */
-/** RGB channels are integer bytes (0-255); alpha is finite and between 0 and 1. */
+/** RGB channels are integer bytes (0-255); optional alpha is finite and between 0 and 1. */
 export type Colour = { r: number; g: number; b: number; alpha?: number };
 
 export interface CompositeLayer {

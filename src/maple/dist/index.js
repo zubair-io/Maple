@@ -1512,6 +1512,9 @@ function resolveColour(value, fallback) {
     return fallback;
   }
   if (typeof value !== "string") {
+    if (value === null || typeof value !== "object") {
+      throw new Error("Invalid colour: expected an RGB object or a hex string");
+    }
     for (const channel of ["r", "g", "b"]) {
       const byte = value[channel];
       if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
