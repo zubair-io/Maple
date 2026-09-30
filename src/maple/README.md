@@ -60,7 +60,17 @@ await maple('input.dng').xmp('input.xmp').maxLongEdge(2048).toFile('web_preview.
 
 // Batch recipe export
 await maple('input.dng').recipe(exportRecipeConfig).toFile('export.jpg');
+
+// Decode the original input without rendering edits or encoding an output.
+const integrity = await maple('input.avif').validateIntegrity();
+if (!integrity.ok) console.error(integrity.error);
 ```
+
+`validateIntegrity()` returns `{ ok: true }` or `{ ok: false, error: string }`,
+replacing its former boolean result. It checks the full image payload, including
+RAW sensor data, and ignores queued edits and output options. Invalid raw pixel
+dimensions, channels or byte lengths are reported as failures too. No original
+file is written.
 
 ### Direct Export Functions
 

@@ -4,7 +4,7 @@
  * Provides a unified chaining interface for RAW photo development,
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
-import type { AvifOutputOptions, Colour, CompositeLayer, ConvolveKernel, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, ImageStats, JpegOutputOptions, PngOutputOptions, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, SharpenOptions, TensorOptions, TensorResult, TiffOutputOptions, TrimOptions, WebpOutputOptions } from './types';
+import type { AvifOutputOptions, Colour, CompositeLayer, ConvolveKernel, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, ImageStats, IntegrityResult, JpegOutputOptions, PngOutputOptions, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, SharpenOptions, TensorOptions, TensorResult, TiffOutputOptions, TrimOptions, WebpOutputOptions } from './types';
 export declare class MapleImageBuilder {
     private readonly s;
     constructor(input: string | Uint8Array | Buffer | RawPixelInput);
@@ -166,7 +166,7 @@ export declare class MapleImageBuilder {
     /** Inspect image dimensions, format, orientation without full decode */
     metadata(): Promise<ImageMetadata>;
     /** Check if image file or buffer is valid and uncorrupted by decoding payload */
-    validateIntegrity(): Promise<boolean>;
+    validateIntegrity(): Promise<IntegrityResult>;
     /** Normalize image orientation in-place on disk */
     normalizeOrientationInPlace(): Promise<boolean>;
     /** Extract raw Float32Array tensor for AI/ML inference (SCRFD / ArcFace) */

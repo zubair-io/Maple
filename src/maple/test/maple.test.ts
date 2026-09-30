@@ -190,17 +190,19 @@ describe('Maple Native Binding', () => {
   it('validates file integrity and normalizes orientation', async () => {
     const pngPath = fixturePng;
     const isValid = await maple(pngPath).validateIntegrity();
-    expect(isValid).toBe(true);
+    expect(isValid).toEqual({ ok: true });
 
     const isGarbageValid = await maple(Buffer.from('not an image')).validateIntegrity();
-    expect(isGarbageValid).toBe(false);
+    expect(isGarbageValid.ok).toBe(false);
+    if (!isGarbageValid.ok) expect(isGarbageValid.error.length).toBeGreaterThan(0);
 
     // Truncated payload with valid JPEG header
     const truncatedJpg = Buffer.from([
       0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00,
     ]);
     const isTruncatedValid = await maple(truncatedJpg).validateIntegrity();
-    expect(isTruncatedValid).toBe(false);
+    expect(isTruncatedValid.ok).toBe(false);
+    if (!isTruncatedValid.ok) expect(isTruncatedValid.error.length).toBeGreaterThan(0);
   });
 
   it('develops real RAW DNG photo to JPEG with AgX view transform', async () => {

@@ -68,6 +68,7 @@ import type {
   ExtractRegion,
   ImageMetadata,
   ImageStats,
+  IntegrityResult,
   JpegOutputOptions,
   PngOutputOptions,
   RawPixelInput,
@@ -455,11 +456,8 @@ export class MapleImageBuilder {
   }
 
   /** Check if image file or buffer is valid and uncorrupted by decoding payload */
-  async validateIntegrity(): Promise<boolean> {
-    return validateIntegrity(
-      () => this.metadata(),
-      () => this.toBuffer(),
-    );
+  async validateIntegrity(): Promise<IntegrityResult> {
+    return validateIntegrity(this.s);
   }
 
   /** Normalize image orientation in-place on disk */
