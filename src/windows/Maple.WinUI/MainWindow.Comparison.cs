@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
+using System.Threading;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -19,6 +20,7 @@ public sealed partial class MainWindow
     private bool _comparePointer;
     private bool _ignoreCompareClick;
     private int _openingSnapshotVersion;
+    private CancellationTokenSource? _compareWork;
 
     private void OnEditorModelSynced()
     {
@@ -95,6 +97,7 @@ public sealed partial class MainWindow
     {
         _compareGeneration++;
         _compareCancel.Cancel();
+        _compareWork?.Cancel();
         _compare.Reset();
         _comparePointer = _ignoreCompareClick = false;
         _compareLoading = false;
@@ -136,13 +139,17 @@ public sealed partial class MainWindow
         var flag = RawFfi.maple_cancel_flag_new();
         _compareCancel.Reset(flag);
         _compareLoading = true;
+        using var work = new CancellationTokenSource();
+        _compareWork = work;
         ComparisonStatus.Text = "Preparing comparison…";
         try
         {
-            var frame = await Task.Run(() =>
+            var frame = await Task.Run(async () =>
             {
                 try
                 {
+                    var film = await ViewModel.Renderer.LoadDetailFilmAsync(baseline.FilmLook, work.Token);
+                    work.Token.ThrowIfCancellationRequested();
                     var decoded = RenderEngine.Decode(path, baseline, 1600, RefineDecodeQuality.Preview, flag);
                     // Same as-shot identity normalization as the live opening render.
                     if (baseline.Temperature == 6500 && baseline.Tint == 0 && decoded.DecodedTemperature > 0)
@@ -152,7 +159,7 @@ public sealed partial class MainWindow
                     if (decoded.Width <= 0 || decoded.Height <= 0 || pixelCount > 268_000_000)
                         throw new System.IO.InvalidDataException("Comparison dimensions exceed the image limit.");
                     var pixels = new byte[checked((int)(pixelCount * 4))];
-                    RenderEngine.RenderTick(decoded, baseline, ref scratch, pixels);
+                    RenderEngine.RenderTick(decoded, baseline, ref scratch, pixels, film);
                     return (decoded.Width, decoded.Height, pixels);
                 }
                 finally { _compareCancel.Release(flag); }
@@ -172,6 +179,10 @@ public sealed partial class MainWindow
                 DiagLog.Write($"[compare] {error.Message}");
             }
         }
-        finally { if (generation == _compareGeneration) _compareLoading = false; }
+        finally
+        {
+            if (ReferenceEquals(_compareWork, work)) _compareWork = null;
+            if (generation == _compareGeneration) _compareLoading = false;
+        }
     }
 }
