@@ -121,4 +121,11 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
         finally { _gate.Release(); }
     }
 
+    public async Task ResetAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try { _handle?.Dispose(); _handle = null; _key = null; }
+        finally { _gate.Release(); }
+    }
+
 }

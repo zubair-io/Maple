@@ -56,6 +56,14 @@ namespace Maple.WinUI
             _infoCancellation?.Dispose();
             _infoCancellation = null;
             var renderer = ViewModel.Renderer;
+            renderer.DetailInvalidated -= OnDetailInvalidated;
+            _detailCancellation?.Cancel();
+            _geometryCancellation.Cancel();
+            await _geometryWork;
+            _geometryCancellation.Dispose();
+            await _detailWork;
+            _detailCancellation?.Dispose();
+            await _detailDecoder.DisposeAsync();
             renderer.FrameReady -= OnFrameReady;
             renderer.GpuFrameReady -= OnGpuFrameReady;
             renderer.ClipSourceReady -= OnClipSourceReady;

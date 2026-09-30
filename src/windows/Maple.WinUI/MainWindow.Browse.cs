@@ -53,6 +53,7 @@ namespace Maple.WinUI
         private void OnSelectedPhotoChanged()
         {
             ResetComparison();
+            ClearNativeDetailSource();
             var photo = ViewModel.SelectedPhoto;
             RefreshPhotoInfo();
             UpdateBrowseDetailImage();

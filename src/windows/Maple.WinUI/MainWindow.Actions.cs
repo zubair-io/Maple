@@ -89,7 +89,7 @@ namespace Maple.WinUI
         private void OnMenuZoomOneToOne(object sender, RoutedEventArgs e)
         {
             if (_mode != ShellMode.Browse)
-                SetZoom(OneToOneZoomFactor());
+                _ = SetActualSizeAsync();
         }
 
         private void OnMenuZoomIn(object sender, RoutedEventArgs e)

@@ -34,6 +34,7 @@ namespace Maple.WinUI
                 }
                 ViewportSwapChainPanel.Visibility = Visibility.Visible;
                 ViewportImage.Visibility = Visibility.Collapsed;
+                QueueDetailRefresh();
                 RenderStatsText.Text =
                     $"{width}×{height} · GPU {millis:0} ms{(fullRes ? string.Empty : " (fast)")}";
                 ViewModel.LastRenderMillis = millis;
@@ -63,6 +64,7 @@ namespace Maple.WinUI
             SizeZoomHost();
             UpdateCropDisplay();
             UpdateMaskDisplay();
+            QueueDetailRefresh();
         }
 
         private void UpdateViewerChromeSize()
@@ -93,38 +95,32 @@ namespace Maple.WinUI
             var height = ViewerScroll.ViewportHeight;
             if (width > 0 && height > 0)
             {
-                ZoomHost.Width = width;
-                ZoomHost.Height = height;
+                var scale = _nativeZoomLayout && _nativeGeometry is { } geometry
+                    ? Math.Max(geometry.CropWidth / width, geometry.CropHeight / height) / DisplayScale : 1;
+                ZoomHost.Width = width * scale;
+                ZoomHost.Height = height * scale;
             }
         }
 
-        private void ResetZoom() =>
+        private void ResetZoom()
+        {
+            _nativeZoomLayout = false;
+            SizeZoomHost();
             ViewerScroll.ChangeView(0, 0, 1.0f, disableAnimation: true);
+            QueueDetailRefresh();
+        }
 
-        /// <summary>1:1 = one content pixel (GPU session, rendered frame, or
-        /// embedded-preview JPEG) per physical screen pixel.</summary>
+        /// <summary>1:1 uses oriented RAW pixels per physical display pixel.</summary>
         private float OneToOneZoomFactor()
         {
-            double contentPixels = _gpuFrameDims?.Width
-                ?? _viewportBitmap?.PixelWidth
-                ?? (ViewportImage.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage)?.PixelWidth
-                ?? 0;
-            var displayedDips = _gpuFrameDims is { } dims
-                ? dims.Width * Math.Min(ZoomHost.ActualWidth / dims.Width, ZoomHost.ActualHeight / dims.Height)
-                : ViewportImage.ActualWidth;
-            var rasterScale = ViewportSwapChainPanel.CompositionScaleX is > 0 and var s ? s : 1.0;
-            if (contentPixels <= 0 || displayedDips <= 0)
-                return 1f;
-            // Content pixels per displayed DIP at zoom 1, corrected to physical.
-            return (float)Math.Clamp(contentPixels / (displayedDips * rasterScale), 0.4, 8.0);
+            return _nativeGeometry is { } geometry && ContentFitRect() is { } fit && fit.W > 0
+                ? (float)(geometry.CropWidth / (fit.W * DisplayScale)) : 1f;
         }
 
         private void SetZoom(float factor, Windows.Foundation.Point? focus = null)
         {
             factor = Math.Clamp(factor, (float)ViewerScroll.MinZoomFactor, (float)ViewerScroll.MaxZoomFactor);
             var current = ViewerScroll.ZoomFactor;
-            if (Math.Abs(factor - current) < 0.001f)
-                return;
             // Keep the focus point (content coords) stationary in the viewport.
             var focusContent = focus ?? new Windows.Foundation.Point(
                 (ViewerScroll.HorizontalOffset + ViewerScroll.ViewportWidth / 2) / current,
@@ -138,7 +134,8 @@ namespace Maple.WinUI
         private void OnViewerDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             var position = e.GetPosition(ZoomHost);
-            SetZoom(ViewerScroll.ZoomFactor > 1.01f ? 1f : OneToOneZoomFactor(), position);
+            if (_nativeZoomLayout || Math.Abs(ViewerScroll.ZoomFactor - 1) > .001f) ResetZoom();
+            else _ = SetActualSizeAsync(position);
             e.Handled = true;
         }
 
@@ -146,7 +143,7 @@ namespace Maple.WinUI
         {
             ZoomHost.PointerPressed += (_, e) =>
             {
-                if (ViewerScroll.ZoomFactor <= 1.01f)
+                if (ViewerScroll.ScrollableWidth <= 0 && ViewerScroll.ScrollableHeight <= 0)
                     return;
                 _panning = true;
                 _panStart = e.GetCurrentPoint(this.Content).Position;
@@ -192,6 +189,7 @@ namespace Maple.WinUI
                     stream.Write(copy, 0, copy.Length);
                 }
                 _viewportBitmap.Invalidate();
+                QueueDetailRefresh();
                 RenderStatsText.Text = $"{millis:0} ms";
                 ViewModel.LastRenderMillis = millis;
                 _lastHistogramBins = bins;

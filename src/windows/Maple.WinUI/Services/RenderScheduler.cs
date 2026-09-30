@@ -112,9 +112,7 @@ namespace Maple.WinUI.Services
             var half = image == null ? null : RenderEngine.DownsampleHalf(image);
             lock (_gate)
             {
-                // Check after downsampling and under the same lock as image
-                // invalidation. A decode superseded during preparation must
-                // not replace the new photo's cleared or decoded base.
+                // Reject a decode superseded while preparing its half-resolution buffer.
                 if (_stopping || (isCurrent != null && !isCurrent())) return;
                 _image = image;
                 _halfImage = half;
@@ -135,6 +133,7 @@ namespace Maple.WinUI.Services
                         OpenGpuHalfSessionLocked(half);
                 }
             }
+            InvalidateDetail();
         }
 
         public void RequestRender(AdjustmentState snapshot)
@@ -144,6 +143,7 @@ namespace Maple.WinUI.Services
                 if (_stopping) return;
                 _pending = snapshot;
             }
+            InvalidateDetail();
             try { _signal.Release(); } catch (SemaphoreFullException) { }
         }
 

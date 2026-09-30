@@ -154,6 +154,7 @@ namespace Maple.WinUI
                 SyncMaskFromModel();
             };
             HookViewerPan();
+            HookNativeDetail();
             HookFilmstripRail();   // #3402 — MainWindow.Filmstrip.cs
             InitializeBrowseDesign();
             InitializeComparison();
@@ -193,6 +194,7 @@ namespace Maple.WinUI
             if (_mode != mode) ResetComparison();
             if (_mode == ShellMode.Preview) _previewRailCompact = FilmstripRail.IsCollapsed;
             _mode = mode;
+            ClearNativeDetailSource();
             UpdateInfoPane();
             var browse = mode == ShellMode.Browse;
             var edit = mode == ShellMode.Edit;

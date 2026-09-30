@@ -722,6 +722,9 @@
                                                     HorizontalAlignment="Center" VerticalAlignment="Center"
                                                     AutomationProperties.Name="GPU preview canvas" />
                                     </Viewbox>
+                                    <Image x:Name="NativeDetailOverlay" Visibility="Collapsed" Stretch="Fill"
+                                           IsHitTestVisible="False" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                           AutomationProperties.Name="Native resolution detail" />
                                     <!-- Clipping overlay (#2574): transparent except
                                          red (blown highlights) / blue (crushed shadows);
                                          zooms and pans with the frame. -->
@@ -759,6 +762,12 @@
                                          VerticalAlignment="Center" />
                         </StackPanel>
 
+                        <Border Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="16"
+                                Background="{StaticResource MapleSurface}" CornerRadius="6" Padding="8,4" IsHitTestVisible="False">
+                            <TextBlock x:Name="ZoomReadout" Text="Fit" Foreground="{StaticResource MapleTextMuted}"
+                                       FontSize="11" MaxWidth="560" TextWrapping="Wrap"
+                                       AutomationProperties.HelpText="Image zoom and detail status" AutomationProperties.LiveSetting="Polite" />
+                        </Border>
                         <!-- Preview top pill -->
                         <Border x:Name="PreviewTopBar" Grid.Column="1"
                                 Background="#F22A2724" BorderThickness="0" CornerRadius="12" Translation="0,0,24"

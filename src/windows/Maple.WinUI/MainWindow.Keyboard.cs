@@ -86,7 +86,7 @@ namespace Maple.WinUI
                     ResetZoom();
                     break;
                 case VirtualKey.Number1 when ctrl && _mode != ShellMode.Browse:
-                    SetZoom(OneToOneZoomFactor());
+                    _ = SetActualSizeAsync();
                     break;
                 case (VirtualKey)0xBB when ctrl && _mode != ShellMode.Browse:  // '=' / '+'
                     SetZoom(ViewerScroll.ZoomFactor * 1.5f);
