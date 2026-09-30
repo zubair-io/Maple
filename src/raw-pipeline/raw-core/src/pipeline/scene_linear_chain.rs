@@ -554,11 +554,7 @@ pub use patches::{
     apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
 };
 
-/// Canonical display encode (#877, generalized to any target primaries in
-/// #3190). Split into a sibling submodule for the file-size budget;
-/// re-exported here so the public path
-/// `pipeline::scene_linear_chain::encode_display_srgb_f32` (and the
-/// `pipeline::encode_display_srgb_f32` re-export in `mod.rs`) is unchanged.
+/// Canonical display encode (#877, #3190), re-exported to preserve public paths.
 mod encode_display;
 pub use encode_display::{encode_display_f32, encode_display_srgb_f32};
 

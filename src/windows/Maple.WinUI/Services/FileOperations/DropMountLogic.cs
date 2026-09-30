@@ -101,12 +101,12 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 if (Directory.Exists(path))
                 {
-                    accepted.Add((path, true));
+                    accepted.Add((Path.GetFullPath(path), true));
                     continue;
                 }
                 if (File.Exists(path) && SupportedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
                 {
-                    accepted.Add((path, false));
+                    accepted.Add((Path.GetFullPath(path), false));
                     continue;
                 }
                 rejected.Add(path);
@@ -115,6 +115,10 @@ namespace Maple.WinUI.Services.FileOperations
             if (accepted.Count == 0)
                 return Unsupported(BuildUnsupportedReason(rejected));
 
+            // Explorer and command-line activations can spell the same path
+            // with alternate separators or dot segments. Use the scanner's
+            // absolute spelling for selection, and deduplicate after resolving.
+            accepted = accepted.DistinctBy(a => a.Path, StringComparer.OrdinalIgnoreCase).ToList();
             var files = accepted.Where(a => !a.IsDirectory).Select(a => a.Path).ToList();
             var isSingleFile = accepted.Count == 1 && !accepted[0].IsDirectory;
             var kind = isSingleFile ? DropOutcomeKind.OpenFile : DropOutcomeKind.Browse;

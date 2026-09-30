@@ -60,6 +60,20 @@ namespace Maple.WinUI.Tests
             Assert.Null(plan.UnsupportedReason);
         }
 
+        [Fact]
+        public void Classify_AlternatePathSpellings_SelectsOneCanonicalFile()
+        {
+            var file = MakeFile(Path.Combine("Trip", "IMG_0001.dng"));
+            var dotted = Path.Combine(_dir, "Trip", ".", "IMG_0001.dng");
+            var alternate = file.Replace(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            var plan = DropMountLogic.Classify(new[] { dotted, alternate, file }, Array.Empty<string>());
+
+            Assert.Equal(DropOutcomeKind.OpenFile, plan.Kind);
+            Assert.Equal(new[] { file }, plan.SelectFiles);
+            Assert.Equal(Path.GetDirectoryName(file), plan.NavigateFolder);
+        }
+
         // --- Case 2: folder -> mount + Browse ---
 
         [Fact]
