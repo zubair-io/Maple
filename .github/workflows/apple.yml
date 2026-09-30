@@ -58,7 +58,7 @@ env:
 
 jobs:
   validation-result:
-    needs: [swift-build, swift-regressions-coverage, swift-regressions]
+    needs: [swift-build, swift-ui, swift-regressions-coverage, swift-regressions]
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
@@ -136,6 +136,17 @@ jobs:
       - name: swift build
         working-directory: src/apple/Packages/MapleCore
         run: swift build
+
+  swift-ui:
+    name: swift-ui (MapleUI tests)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Dependency-free package: verify its real bundled resources and
+      # SwiftUI rendering as well as its math/control regression suite.
+      - name: Execute MapleUI tests
+        working-directory: src/apple/Packages/MapleUI
+        run: swift test
 
   swift-regressions-coverage:
     name: swift-regressions-coverage (every test class is run or excluded on purpose)

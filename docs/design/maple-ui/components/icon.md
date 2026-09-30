@@ -4,15 +4,16 @@
 
 ## Purpose
 
-A single glyph rendered at a fixed size scale, `currentColor`-tinted by default. The audit found
-three _different_ icon systems in use today — Apple uses SF Symbols, Web uses a hand-rolled
-stroke-SVG registry (`MapleIconComponent`), Windows uses raw `FontIcon` with Segoe Fluent glyph
-codes — so this atom's contract is the most consequential single alignment point in the whole set,
-and also the one this plan does **not** resolve: picking a single cross-platform icon set (the
-unified guide recommends converging on Material Symbols Rounded for _new_ work, while treating each
-platform's current stroked/native set as a legacy exception) is implementation-plan scope, not
-foundation-plan scope. This contract defines the _shape_ every platform's icon atom must have,
-regardless of which glyph set backs it.
+A single glyph rendered at a fixed size scale, `currentColor`-tinted by default.
+Apple's shared MapleUI component bundles Google Material Symbols Rounded, available
+on macOS, iOS and iPadOS offline. New Apple callers use Google's canonical names.
+Web currently uses a stroke-SVG registry and Windows uses Segoe Fluent glyphs.
+
+The Apple migration is tracked by #3686: the bundled-library slice is #3898 and
+caller migration is #3899. The [baseline inventory](../apple-icon-inventory.json)
+records direct SF Symbol uses and MuiIcon callers, including dynamic inputs.
+Until #3899 lands, legacy SF names remain supported. This compatibility path
+is deliberate staging, not a completed migration.
 
 ## Variants
 
@@ -37,15 +38,16 @@ interactive atom wraps it.
 
 ## Props
 
-- `name`: the glyph identifier — the _meaning_ of this string is platform/backing-set-specific
-  until the icon-system decision above is made (an SF Symbol name, an SVG registry key, a Material
-  Symbols ligature name, etc.) — the contract is stable even though the value space isn't yet.
-  One bounded exception (#3024): `"cloud"` and `"calendar"` resolve to a custom-drawn glyph
-  (`MuiIconRegistry`) mirroring Windows' `MapleIconShapes.cs` path data byte-for-byte, rather than
-  an SF Symbol — Windows drew these first for its chrome, and the three platforms needed to look
-  pixel-identical rather than falling back to whatever each platform's native glyph happens to
-  look like. Every other name still resolves to an SF Symbol; this is a two-icon carve-out, not a
-  reopening of the backing-set decision above.
+- `name`: on Apple, a canonical Google Material Symbols Rounded name from the
+  bundled `glyphs.json`, such as `lan`, `public`, `photo_camera`, or `tune`.
+  The component draws bundled vector outlines at weight 400, optical size 24,
+  grade 0, fill 0. Legacy SF names remain during #3899's migration only.
+  `cloud` and `calendar` intentionally retain the custom 16×16 outlines shared
+  with Web/Windows (#3024); migrating their custom path treatment requires
+  coordinated changes to those platforms. Native-system exceptions are
+  recorded with the caller migration, rather than silently falling back.
+  [Attribution and update instructions](../../../licenses/google-material-symbols.md)
+  cover adding names and updating the bundled library.
 - `size`: `xs | sm | md | lg | xl` (default `md`).
 - `color`: optional override; defaults to `currentColor`.
 
