@@ -56,6 +56,9 @@ namespace Maple.WinUI
             var photo = ViewModel.SelectedPhoto;
             RefreshPhotoInfo();
             UpdateBrowseDetailImage();
+            if (_previewSubscribed != null)
+                _previewSubscribed.PropertyChanged -= OnCurrentPhotoPropertyChanged;
+            _previewSubscribed = null;
             if (photo == null)
                 return;
             if (!_syncingBrowseSelection && PhotoGrid.SelectedItem != photo)
@@ -75,8 +78,6 @@ namespace Maple.WinUI
             // A stale clipping overlay must never sit over the next photo.
             ClipOverlayImage.Visibility = Visibility.Collapsed;
             ShowEmbeddedPreview(photo);
-            if (_previewSubscribed != null)
-                _previewSubscribed.PropertyChanged -= OnCurrentPhotoPropertyChanged;
             _previewSubscribed = photo;
             photo.PropertyChanged += OnCurrentPhotoPropertyChanged;
 

@@ -42,8 +42,8 @@ namespace Maple.WinUI
         /// <summary>Size the SwapChainPanel to exactly the session dims in DIPs:
         /// a SwapChainPanel composites its swapchain at 1 buffer pixel = 1 DIP
         /// (no stretch-to-element), so any other element size leaves bands or
-        /// crops. Fit-to-viewport is achieved by choosing the decode size, not
-        /// by scaling the panel.</summary>
+        /// crops. Its parent Viewbox scales that surface uniformly to the current
+        /// viewport, including when Info or the expanded filmstrip opens.</summary>
         private void UpdatePanelFit()
         {
             if (_gpuFrameDims is not { } dims)
@@ -73,7 +73,7 @@ namespace Maple.WinUI
             EditPanel.MaxHeight = Math.Max(100, CanvasHost.ActualHeight - 132);
             EditRail.MaxHeight = Math.Max(100, CanvasHost.ActualHeight - 116);
             FilmstripRail.MaxHeight = _mode == ShellMode.Edit
-                ? 50 + Math.Max(1, Math.Min(5, Math.Floor((CanvasHost.ActualHeight - 162) / 60))) * 60
+                ? 42 + Math.Max(1, Math.Min(5, Math.Floor((CanvasHost.ActualHeight - 162) / 60))) * 60
                 : double.PositiveInfinity;
         }
 
@@ -108,7 +108,7 @@ namespace Maple.WinUI
                 ?? (ViewportImage.Source as Microsoft.UI.Xaml.Media.Imaging.BitmapImage)?.PixelWidth
                 ?? 0;
             var displayedDips = _gpuFrameDims is { } dims
-                ? dims.Width
+                ? dims.Width * Math.Min(ZoomHost.ActualWidth / dims.Width, ZoomHost.ActualHeight / dims.Height)
                 : ViewportImage.ActualWidth;
             var rasterScale = ViewportSwapChainPanel.CompositionScaleX is > 0 and var s ? s : 1.0;
             if (contentPixels <= 0 || displayedDips <= 0)

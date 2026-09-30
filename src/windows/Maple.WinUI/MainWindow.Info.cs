@@ -23,6 +23,7 @@ namespace Maple.WinUI
                     IconName = "star",
                     Variant = MuiButtonVariant.Ghost,
                     ButtonSize = MuiButtonSize.Sm,
+                    IconSize = MuiIconSize.Md24,
                     IconColor = (SolidColorBrush)Application.Current.Resources["MapleBorderHi"],
                 };
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Set rating {stars}");
@@ -76,9 +77,9 @@ namespace Maple.WinUI
             var photo = ViewModel.SelectedPhoto;
             HydrateInspector();
             UpdateStarRow();
-            UnflaggedBtn.Variant = photo?.FlagStatus is not ("pick" or "reject") ? MuiButtonVariant.Primary : MuiButtonVariant.Secondary;
-            PickBtn.Variant = photo?.FlagStatus == "pick" ? MuiButtonVariant.Primary : MuiButtonVariant.Secondary;
-            RejectBtn.Variant = photo?.FlagStatus == "reject" ? MuiButtonVariant.Primary : MuiButtonVariant.Secondary;
+            UnflaggedBtn.Selected = photo?.FlagStatus is not ("pick" or "reject");
+            PickBtn.Selected = photo?.FlagStatus == "pick";
+            RejectBtn.Selected = photo?.FlagStatus == "reject";
             ExifRows.Children.Clear();
             FileRows.Children.Clear();
             if (photo == null)
@@ -88,12 +89,13 @@ namespace Maple.WinUI
             {
                 host.Children.Add(new Maple.UI.MuiLabelValueGrid
                 {
+                    LabelWidth = 76,
                     Rows = new[] { new Maple.UI.MuiLabelValueRow(label, value) },
                 });
             }
 
             AddRow(ExifRows, "Camera", photo.CameraModel);
-            AddCameraSupport(ExifRows, photo);
+            AddRow(ExifRows, "Dimensions", photo.Dimensions);
             AddRow(ExifRows, "Lens", photo.LensInfo);
             AddRow(ExifRows, "ISO", photo.IsoDisplay);
             AddRow(ExifRows, "Aperture", photo.Aperture);
@@ -105,6 +107,11 @@ namespace Maple.WinUI
             AddRow(FileRows, "Pixels", photo.Dimensions);
             AddRow(FileRows, photo.IsCloud ? "Server path" : "Path", photo.FilePath);
             AddRow(FileRows, "Color label", photo.ColorLabel ?? "None");
+            var support = new StackPanel();
+            AddCameraSupport(support, photo);
+            if (support.Children.Count > 0)
+                FileRows.Children.Add(new Expander { Header = "Camera and lens support", Content = support,
+                    HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
         }
     }
 }

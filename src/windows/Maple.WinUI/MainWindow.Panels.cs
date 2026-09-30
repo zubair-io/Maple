@@ -54,8 +54,10 @@ namespace Maple.WinUI
                 {
                     IconName = icon,
                     Label = title == "Tone Curve" ? "Curve" : title,
-                    ButtonSize = MuiActionButtonSize.Sm,
+                    ButtonSize = MuiActionButtonSize.Md,
                     Orientation = MuiActionButtonOrientation.Stacked,
+                    Height = 52,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
                     IsEnabled = disabledNote == null,
                 };
                 ToolTipService.SetToolTip(button, disabledNote ?? title);
@@ -69,6 +71,19 @@ namespace Maple.WinUI
 
         private void OnLensTools(object sender, RoutedEventArgs e) => ToggleGroupPanel("Lens");
         private void OnGeometryTools(object sender, RoutedEventArgs e) => ToggleGroupPanel("Geometry");
+        private void OnBrightnessValue(object sender, RoutedEventArgs e)
+        {
+            var slider = AdjustmentSections.Section(ViewModel.Sections, "Light").Sliders
+                .First(s => s.Label == "Brightness");
+            var body = new StackPanel { Width = 240, Spacing = 8 };
+            body.Children.Add(new ContentControl { Content = slider,
+                ContentTemplate = (DataTemplate)((FrameworkElement)Content).Resources["SliderRowTemplate"],
+                HorizontalContentAlignment = HorizontalAlignment.Stretch });
+            var reset = new MuiButton { Label = "Reset brightness", Variant = MuiButtonVariant.Ghost };
+            reset.Click += (_, _) => slider.Reset();
+            body.Children.Add(reset);
+            new Flyout { Content = body }.ShowAt(MoreEditActions);
+        }
         private void OnHistogramSizeChanged(object sender, SizeChangedEventArgs e)
         {
             if (_lastHistogramBins != null) HistogramView.Draw(HistogramCanvas, _lastHistogramBins);
@@ -142,7 +157,8 @@ namespace Maple.WinUI
             PanelHslBands.ItemsSource = null;
             PanelHslBands.Visibility = Visibility.Collapsed;
             PanelSliders.Visibility = Visibility.Visible;
-            PanelSliders.ItemsSource = AdjustmentSections.Section(ViewModel.Sections, group).Sliders;
+            var sliders = AdjustmentSections.Section(ViewModel.Sections, group).Sliders;
+            PanelSliders.ItemsSource = group == "Light" ? sliders.Where(s => s.Label != "Brightness").ToArray() : sliders;
             if (group == "Tone Curve")
                 RefreshCurvePlot();
         }

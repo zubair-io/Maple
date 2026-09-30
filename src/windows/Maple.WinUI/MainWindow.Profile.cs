@@ -15,6 +15,8 @@ namespace Maple.WinUI
         private void BuildProfilePanel()
         {
             var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.Children.Add(new TextBlock
             {
                 Text = "Profile",
@@ -29,6 +31,7 @@ namespace Maple.WinUI
                 if (!_profileSyncing)
                     ViewModel.SelectProfile(_profilePicker.SelectedIndex == 1 ? ProfileMode.Neutral : ProfileMode.Auto);
             };
+            Grid.SetColumn(_profilePicker, 1);
             row.Children.Add(_profilePicker);
             PanelProfileHost.Children.Add(row);
             SyncProfilePanel();

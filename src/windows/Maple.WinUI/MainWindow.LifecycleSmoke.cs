@@ -157,6 +157,17 @@ namespace Maple.WinUI
                 PanelWhiteBalanceHost.Visibility != Microsoft.UI.Xaml.Visibility.Collapsed)
                 throw new InvalidOperationException("Editor did not open Light with its profile selector");
             ToggleGroupPanel("Color");
+            Content.UpdateLayout();
+            foreach (var name in new[] { "Light", "Color" })
+            {
+                var content = (Microsoft.UI.Xaml.Controls.StackPanel)_railButtons[name].Content;
+                var icon = content.Children.OfType<Maple.UI.Atoms.MuiIcon>().Single();
+                var drawing = (Microsoft.UI.Xaml.Controls.Canvas)((Microsoft.UI.Xaml.Controls.Viewbox)icon.Content).Child;
+                var stroke = drawing.Children.OfType<Microsoft.UI.Xaml.Shapes.Shape>().First().Stroke as Microsoft.UI.Xaml.Media.SolidColorBrush;
+                var foreground = _railButtons[name].Foreground as Microsoft.UI.Xaml.Media.SolidColorBrush;
+                if (stroke == null || foreground == null || stroke.Color != foreground.Color)
+                    throw new InvalidOperationException($"{name} icon retained a stale selection color");
+            }
             if (PanelWhiteBalanceHost.Visibility != Microsoft.UI.Xaml.Visibility.Visible ||
                 PanelProfileHost.Visibility != Microsoft.UI.Xaml.Visibility.Collapsed)
                 throw new InvalidOperationException("White balance and profile groups overlap");
@@ -200,7 +211,7 @@ namespace Maple.WinUI
             var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(slider);
             if (peer?.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.RangeValue) == null)
                 throw new InvalidOperationException("Adjustment slider lost native range accessibility");
-            if (slider.ActualHeight > 24 || EditRailStack.Children.Count != 7 || CompareButton.IconName != "split")
+            if (slider.ActualHeight > 24 || EditRailStack.Children.Count != 7 || CompareButton.IconName != "split" || CompareButton.Label.Length != 0)
                 throw new InvalidOperationException("Editor density or primary tool dock differs from the design");
             if (FindDescendant<Microsoft.UI.Xaml.Controls.Border>(FilmstripRail)?.Background == null)
                 throw new InvalidOperationException("Filmstrip is missing its shared surface");
@@ -221,6 +232,17 @@ namespace Maple.WinUI
                 root.UpdateLayout();
                 await Task.Delay(30);
                 root.UpdateLayout();
+                if (ContentFitRect() is { } imageBounds &&
+                    (imageBounds.X < -.5 || imageBounds.Y < -.5 || imageBounds.X + imageBounds.W > ZoomHost.ActualWidth + .5 ||
+                     imageBounds.Y + imageBounds.H > ZoomHost.ActualHeight + .5))
+                    throw new InvalidOperationException($"Photo is clipped at fit zoom at {size}");
+                if (ViewportSwapChainPanel.Visibility == Microsoft.UI.Xaml.Visibility.Visible)
+                {
+                    var displayed = ViewportSwapChainPanel.TransformToVisual(ZoomHost).TransformBounds(
+                        new Windows.Foundation.Rect(0, 0, ViewportSwapChainPanel.ActualWidth, ViewportSwapChainPanel.ActualHeight));
+                    if (displayed.Left < -.5 || displayed.Top < -.5 || displayed.Right > ZoomHost.ActualWidth + .5 || displayed.Bottom > ZoomHost.ActualHeight + .5)
+                        throw new InvalidOperationException($"GPU surface exceeds fitted viewport at {size}");
+                }
                 var buttonBounds = CompareButton.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, CompareButton.ActualWidth, CompareButton.ActualHeight));
                 if (buttonBounds.Right > size.Item1 || buttonBounds.Left < 0 || EditPanel.ActualHeight > size.Item2 ||
                     EditPanel.Visibility != Microsoft.UI.Xaml.Visibility.Visible || EditPanel.ActualHeight <= 0)

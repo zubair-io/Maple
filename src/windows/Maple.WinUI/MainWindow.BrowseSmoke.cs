@@ -51,9 +51,17 @@ public sealed partial class MainWindow
                 if (bounds.Bottom <= 0 || bounds.Top >= list.ActualHeight)
                     throw new InvalidOperationException("Last photo remains outside the viewport");
                 scroll.ChangeView(null, 0, null, true);
-                await Task.Delay(100);
+                // ChangeView completion is asynchronous, even with animation disabled.
+                // Wait for the actual offset instead of assuming a loaded machine
+                // completes its dispatcher/layout work within one fixed 100ms delay.
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                do
+                {
+                    await Task.Delay(50);
+                    root.UpdateLayout();
+                } while (scroll.VerticalOffset > 1 && DateTime.UtcNow < deadline);
                 if (scroll.VerticalOffset > 1)
-                    throw new InvalidOperationException("Browse could not scroll back to the top");
+                    throw new InvalidOperationException($"Browse could not scroll back to the top (list={listDetail}, offset={scroll.VerticalOffset}, extent={scroll.ScrollableHeight})");
             }
         }
         finally

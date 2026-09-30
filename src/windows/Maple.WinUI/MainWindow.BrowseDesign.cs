@@ -15,21 +15,44 @@ public sealed partial class MainWindow
     private bool _browseDesignReady;
     private bool _browseListDetail;
     private bool _syncingBrowseSelection;
+    private bool _browseListCollapsed;
+    private DataTemplate? _expandedBrowseTemplate;
 
     private void InitializeBrowseDesign()
     {
         _browseListDetail = _settings.BrowseListDetail;
+        _expandedBrowseTemplate = BrowsePhotoList.ItemTemplate;
+        foreach (var key in new[] { "ListViewItemBackgroundSelected", "ListViewItemBackgroundSelectedPointerOver", "ListViewItemBackgroundSelectedPressed" })
+            BrowsePhotoList.Resources[key] = Application.Current.Resources["MaplePrimaryDim"];
+        BrowsePhotoList.Resources["ListViewItemSelectionIndicatorBrush"] = Application.Current.Resources["MaplePrimary"];
+        BrowsePhotoList.ContainerContentChanging += (_, e) =>
+        {
+            if (e.Item is PhotoItem photo)
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(e.ItemContainer, photo.FileName);
+            if (!e.InRecycleQueue)
+                e.RegisterUpdateCallback((_, next) =>
+                {
+                    if (next.ItemContainer.ContentTemplateRoot is FrameworkElement root &&
+                        root.FindName("BrowseSelectionOutline") is Border outline)
+                        outline.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding
+                        {
+                            Source = next.ItemContainer,
+                            Path = new PropertyPath("IsSelected"),
+                            Converter = new Converters.BoolVisibleConverter()
+                        });
+                });
+        };
         BrowseSortBox.SelectedIndex = (int)ViewModel.PhotoSort;
         BrowseDensityBox.SelectedIndex = _settings.ThumbnailSize <= 128 ? 0 : _settings.ThumbnailSize >= 240 ? 2 : 1;
         _browseDesignReady = true;
+        UpdateBrowseLocation();
         PhotoGrid.Loaded += (_, _) => ApplyBrowseDensity();
         ViewModel.PropertyChanged += (_, e) =>
         {
             if (_closing) return;
             if (e.PropertyName is nameof(ViewModel.ActiveSectionName) or nameof(ViewModel.CurrentFolderPath))
             {
-                BrowseLocationButton.Label = "Library › " + ViewModel.ActiveSectionName;
-                ToolTipService.SetToolTip(BrowseLocationButton, ViewModel.CurrentFolderPath);
+                UpdateBrowseLocation();
             }
         };
         UpdateBrowsePresentation();
@@ -44,6 +67,8 @@ public sealed partial class MainWindow
         AppSettings.Update(s => s.BrowseListDetail = _browseListDetail);
         UpdateBrowsePresentation();
         RestoreBrowseSelection(selected, primary);
+        if (_browseListDetail && ViewModel.SelectedPhoto == null && ViewModel.Photos.Count > 0)
+            RestoreBrowseSelection(new[] { ViewModel.Photos[0] }, ViewModel.Photos[0]);
         RestoreBrowseAnchor(anchor);
     }
 
@@ -52,6 +77,8 @@ public sealed partial class MainWindow
         PhotoGrid.Visibility = _browseListDetail ? Visibility.Collapsed : Visibility.Visible;
         BrowseListDetail.Visibility = _browseListDetail ? Visibility.Visible : Visibility.Collapsed;
         BrowseViewButton.Label = _browseListDetail ? "Grid view" : "List / detail";
+        BrowseCollapseButton.Visibility = _browseListDetail ? Visibility.Visible : Visibility.Collapsed;
+        LibraryCountText.Visibility = _browseListDetail ? Visibility.Collapsed : Visibility.Visible;
         UpdateBrowseDetailImage();
     }
 
@@ -61,13 +88,58 @@ public sealed partial class MainWindow
         var path = photo?.PreviewPath ?? photo?.ThumbnailPath;
         BrowseDetailImage.Source = path == null ? null : new BitmapImage(new Uri(path));
         BrowseDetailPane.Visibility = photo == null ? Visibility.Collapsed : Visibility.Visible;
+        BrowseDetailEmpty.Visibility = photo == null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdateBrowseLocation()
+    {
+        var section = ViewModel.ActiveSectionName;
+        BrowseLocationButton.Label = string.IsNullOrWhiteSpace(section) || section == "Library"
+            ? "Library" : "Library › " + section;
+        ToolTipService.SetToolTip(BrowseLocationButton, ViewModel.CurrentFolderPath);
     }
 
     private void OnBrowseDetailSizeChanged(object sender, SizeChangedEventArgs e)
     {
         // Desktop keeps list/detail at smaller widths; controls scroll instead of
         // borrowing the phone editor's interaction model.
-        BrowseListColumn.Width = new GridLength(Math.Clamp(e.NewSize.Width * .30, 180, 340));
+        BrowseListColumn.Width = new GridLength(_browseListCollapsed ? 100 : Math.Clamp(e.NewSize.Width * .30, 180, 340));
+    }
+
+    private void OnCollapseBrowseList(object sender, RoutedEventArgs e)
+    {
+        var anchor = BrowseScrollAnchor();
+        _browseListCollapsed = !_browseListCollapsed;
+        BrowseCollapseButton.Label = _browseListCollapsed ? "Expand list ›" : "Collapse list ‹";
+        BrowseSelectButton.Visibility = _browseListCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        BrowsePhotoList.ItemTemplate = _browseListCollapsed
+            ? (DataTemplate)BrowseListDetail.Resources["CompactBrowsePhotoTemplate"] : _expandedBrowseTemplate;
+        BrowseListColumn.Width = new GridLength(_browseListCollapsed ? 100 : Math.Clamp(BrowseListDetail.ActualWidth * .30, 180, 340));
+        RestoreBrowseAnchor(anchor);
+    }
+
+    private void OnBrowseSelectMode(object sender, RoutedEventArgs e)
+    {
+        var selected = ViewModel.SelectedPhotos.ToArray();
+        var primary = ViewModel.SelectedPhoto;
+        _syncingBrowseSelection = true;
+        try
+        {
+            BrowsePhotoList.SelectionMode = BrowsePhotoList.SelectionMode == ListViewSelectionMode.Multiple
+                ? ListViewSelectionMode.Extended : ListViewSelectionMode.Multiple;
+            BrowseSelectButton.Label = BrowsePhotoList.SelectionMode == ListViewSelectionMode.Multiple ? "Done" : "Select";
+        }
+        finally { _syncingBrowseSelection = false; }
+        RestoreBrowseSelection(selected, primary);
+    }
+
+    private void OnBrowseToolbarSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var wide = e.NewSize.Width >= 1000;
+        Grid.SetRow(BrowseSearchControls, wide ? 0 : 1);
+        Grid.SetColumn(BrowseSearchControls, wide ? 1 : 0);
+        Grid.SetColumnSpan(BrowseSearchControls, wide ? 1 : 2);
+        SearchBox.Width = wide ? 200 : double.NaN;
     }
 
     private void OnBrowseListSelectionChanged(object sender, SelectionChangedEventArgs e)
