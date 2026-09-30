@@ -122,6 +122,17 @@ export class GuidedGeometryOverlayComponent implements AfterViewInit, OnDestroy 
       return;
     }
     if (this.session.busy() || this.session.canApply()) return;
+    if (this.moveCursor(ev)) return;
+    if (!['Enter', ' '].includes(ev.key)) return;
+    ev.preventDefault();
+    const a = this.anchor();
+    if (a) {
+      this.session.add({ start: a, end: this.cursor() });
+      this.anchor.set(null);
+    } else this.anchor.set(this.cursor());
+  }
+
+  private moveCursor(ev: KeyboardEvent): boolean {
     const delta = ev.shiftKey ? 0.01 : 0.002;
     const movement: Record<string, GuidePoint> = {
       ArrowLeft: { x: -delta, y: 0 },
@@ -129,20 +140,13 @@ export class GuidedGeometryOverlayComponent implements AfterViewInit, OnDestroy 
       ArrowUp: { x: 0, y: -delta },
       ArrowDown: { x: 0, y: delta },
     };
-    if (movement[ev.key]) {
-      ev.preventDefault();
-      const d = movement[ev.key];
-      this.cursor.update((p) => ({
-        x: Math.max(0, Math.min(1, p.x + d.x)),
-        y: Math.max(0, Math.min(1, p.y + d.y)),
-      }));
-    } else if (ev.key === 'Enter' || ev.key === ' ') {
-      ev.preventDefault();
-      const a = this.anchor();
-      if (a) {
-        this.session.add({ start: a, end: this.cursor() });
-        this.anchor.set(null);
-      } else this.anchor.set(this.cursor());
-    }
+    const d = movement[ev.key];
+    if (!d) return false;
+    ev.preventDefault();
+    this.cursor.update((p) => ({
+      x: Math.max(0, Math.min(1, p.x + d.x)),
+      y: Math.max(0, Math.min(1, p.y + d.y)),
+    }));
+    return true;
   }
 }
