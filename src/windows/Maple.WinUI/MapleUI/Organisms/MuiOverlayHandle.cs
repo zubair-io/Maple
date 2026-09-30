@@ -2,31 +2,34 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace Maple.UI
 {
-    /// <summary>Focusable crop surface without a button's click semantics.</summary>
-    internal sealed class MuiCropTarget : ContentControl
+    /// <summary>Focusable canvas handle without a button's click semantics.</summary>
+    internal sealed class MuiOverlayHandle : ContentControl
     {
         internal Border Frame { get; } = new();
 
-        internal MuiCropTarget(string name)
+        internal MuiOverlayHandle(string name, string helpText)
         {
-            Content = Frame;
+            var hitArea = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+            hitArea.Children.Add(Frame);
+            Content = hitArea;
             IsTabStop = true;
             UseSystemFocusVisuals = true;
             HorizontalContentAlignment = HorizontalAlignment.Stretch;
             VerticalContentAlignment = VerticalAlignment.Stretch;
             AutomationProperties.SetName(this, name);
             AutomationProperties.SetHelpText(this,
-                "Use arrow keys to adjust the crop. Hold Shift for larger steps.");
+                helpText);
         }
 
-        protected override AutomationPeer OnCreateAutomationPeer() => new CropTargetPeer(this);
+        protected override AutomationPeer OnCreateAutomationPeer() => new OverlayHandlePeer(this);
 
-        private sealed class CropTargetPeer(MuiCropTarget owner) : FrameworkElementAutomationPeer(owner)
+        private sealed class OverlayHandlePeer(MuiOverlayHandle owner) : FrameworkElementAutomationPeer(owner)
         {
-            protected override string GetClassNameCore() => nameof(MuiCropTarget);
+            protected override string GetClassNameCore() => nameof(MuiOverlayHandle);
             protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Thumb;
             protected override bool IsKeyboardFocusableCore() => owner.IsEnabled && owner.IsTabStop;
             protected override bool HasKeyboardFocusCore() => owner.FocusState != FocusState.Unfocused;

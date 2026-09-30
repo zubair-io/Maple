@@ -183,6 +183,17 @@ namespace Maple.UI
             }
         }
 
+        public static MuiMaskShape ApplyKeyboardStep(
+            MuiMaskShape shape, MuiMaskHandle handle, double dx, double dy, double boundsW, double boundsH)
+        {
+            if (boundsW <= 0 || boundsH <= 0) return shape;
+            if (shape is MuiRadialMaskShape radial && handle == MuiMaskHandle.RadialRotate)
+                return radial with { Angle = radial.Angle + (dx - dy) * Math.PI / 180 };
+            if (!HandlePositions(shape).TryGetValue(handle, out var position)) return shape;
+            var screen = ToScreen(position, boundsW, boundsH);
+            return ApplyDrag(shape, handle, screen + new MuiMaskPoint(dx, dy), boundsW, boundsH);
+        }
+
         /// <summary>Translates both linear endpoints so the pointer sits at
         /// the new midpoint (dragging the gradient's body handle).</summary>
         private static MuiLinearMaskShape Translate(MuiLinearMaskShape l, MuiMaskPoint pointer)

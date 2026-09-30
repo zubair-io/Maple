@@ -159,6 +159,7 @@ namespace Maple.UI
             AutomationProperties.SetName(_resetButton, "Reset mask adjustments");
             AutomationProperties.SetName(this, "Mask panel");
 
+            SetFeatherSilently(Feather);
             RebuildLayerList();
         }
 

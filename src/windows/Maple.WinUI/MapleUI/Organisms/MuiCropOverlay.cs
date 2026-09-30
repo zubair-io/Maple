@@ -31,6 +31,7 @@ namespace Maple.UI
     public sealed class MuiCropOverlay : ContentControl
     {
         private const double HandleSize = 12;
+        private const string KeyboardHelp = "Use arrow keys to adjust the crop. Hold Shift for larger steps.";
 
         public static readonly DependencyProperty RectProperty =
             DependencyProperty.Register(nameof(Rect), typeof(MuiCropRect), typeof(MuiCropOverlay),
@@ -86,10 +87,10 @@ namespace Maple.UI
         // Transparent (not null) background: a null-background Border only
         // hit-tests its 1px border stroke, which would make the drag-the-
         // region-body gesture ungrabbable everywhere but the frame line.
-        private readonly MuiCropTarget _region = new("Move crop region");
+        private readonly MuiOverlayHandle _region = new("Move crop region", KeyboardHelp);
         private readonly Canvas _gridLines = new() { IsHitTestVisible = false };
-        private readonly List<MuiCropTarget> _handles = new();
-        private readonly Dictionary<MuiCropTarget, MuiCropHandle> _handleKind = new();
+        private readonly List<MuiOverlayHandle> _handles = new();
+        private readonly Dictionary<MuiOverlayHandle, MuiCropHandle> _handleKind = new();
         private bool _keyboardGesture;
 
         private bool _draggingRegion;
@@ -111,7 +112,7 @@ namespace Maple.UI
 
             foreach (MuiCropHandle kind in Enum.GetValues(typeof(MuiCropHandle)))
             {
-                var handle = new MuiCropTarget($"Crop {HandleName(kind)} handle")
+                var handle = new MuiOverlayHandle($"Crop {HandleName(kind)} handle", KeyboardHelp)
                 {
                     Width = HandleSize,
                     Height = HandleSize,
@@ -146,7 +147,7 @@ namespace Maple.UI
             _ => kind.ToString().ToLowerInvariant(),
         };
 
-        private void WireKeyboard(MuiCropTarget target, MuiCropHandle? handle)
+        private void WireKeyboard(MuiOverlayHandle target, MuiCropHandle? handle)
         {
             target.PointerPressed += (_, _) => target.Focus(FocusState.Pointer);
             target.KeyDown += (_, e) =>

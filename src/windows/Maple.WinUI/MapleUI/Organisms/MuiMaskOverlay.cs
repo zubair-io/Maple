@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using Microsoft.UI.Input;
+using Windows.System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -65,13 +67,13 @@ namespace Maple.UI
         private readonly Canvas _canvas = new();
         private readonly Polyline _outline = new() { StrokeDashArray = new DoubleCollection { 4, 3 }, StrokeThickness = 1.5 };
         private readonly Line _axis = new() { StrokeDashArray = new DoubleCollection { 4, 3 }, StrokeThickness = 1.5 };
-        private readonly Border _startPin = Pin();
-        private readonly Border _endPin = Pin();
-        private readonly Border _bodyHandle = Pin(BodyHandleSize);
-        private readonly Border _centerPin = Pin();
-        private readonly Border _radiusXPin = Pin();
-        private readonly Border _radiusYPin = Pin();
-        private readonly Border _rotatePin = Pin();
+        private readonly MuiOverlayHandle _startPin = Pin();
+        private readonly MuiOverlayHandle _endPin = Pin();
+        private readonly MuiOverlayHandle _bodyHandle = Pin(BodyHandleSize);
+        private readonly MuiOverlayHandle _centerPin = Pin();
+        private readonly MuiOverlayHandle _radiusXPin = Pin();
+        private readonly MuiOverlayHandle _radiusYPin = Pin();
+        private readonly MuiOverlayHandle _rotatePin = Pin();
 
         // Hoisted so a drag (Shape reassigned, and therefore Rebuild(), on
         // every PointerMoved) never allocates a fresh SolidColorBrush or
@@ -86,6 +88,7 @@ namespace Maple.UI
 
         private MuiMaskHandle? _draggingHandle;
         private uint? _activePointerId;
+        private bool _keyboardGesture;
 
         public MuiMaskOverlay()
         {
@@ -98,6 +101,8 @@ namespace Maple.UI
                 (_radiusYPin, MuiMaskHandle.RadialRadiusY), (_rotatePin, MuiMaskHandle.RadialRotate),
             })
             {
+                AutomationProperties.SetAutomationId(pin, $"mask-handle-{handle}");
+                WireKeyboard(pin, handle);
                 pin.PointerPressed += (_, e) => OnHandlePressed(handle, e);
                 _canvas.Children.Add(pin);
             }
@@ -106,7 +111,7 @@ namespace Maple.UI
             PointerReleased += OnPointerEnded;
             PointerCanceled += OnPointerEnded;
             PointerCaptureLost += OnPointerEnded;
-            Unloaded += (_, _) => EndDrag();
+            Unloaded += (_, _) => { EndDrag(); EndKeyboardGesture(); };
 
             _pinBackground = R("MapleSurface");
             _rotateBackground = R("MaplePrimary");
@@ -114,24 +119,79 @@ namespace Maple.UI
             _outline.Stroke = StrokeBrush;
             foreach (var pin in new[] { _startPin, _endPin, _bodyHandle, _centerPin, _radiusXPin, _radiusYPin })
             {
-                pin.Background = _pinBackground;
-                pin.BorderBrush = PinBorderBrush;
+                pin.Frame.Background = _pinBackground;
+                pin.Frame.BorderBrush = PinBorderBrush;
             }
-            _rotatePin.Background = _rotateBackground;
-            _rotatePin.BorderBrush = PinBorderBrush;
+            _rotatePin.Frame.Background = _rotateBackground;
+            _rotatePin.Frame.BorderBrush = PinBorderBrush;
 
             Content = _canvas;
             IsHitTestVisible = true;
             Rebuild();
         }
 
-        private static Border Pin(double size = PinSize) => new()
+        private static MuiOverlayHandle Pin(double size = PinSize)
         {
-            Width = size,
-            Height = size,
-            CornerRadius = new CornerRadius(size / 2),
-            BorderThickness = new Thickness(1.5),
-        };
+            var pin = new MuiOverlayHandle("Mask handle",
+                "Use arrow keys to adjust the mask. Hold Shift for larger steps. Rotation uses degrees.")
+            {
+                Width = 2 * MuiMaskOverlayMath.GrabToleranceScreenPx,
+                Height = 2 * MuiMaskOverlayMath.GrabToleranceScreenPx,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            };
+            pin.Frame.Width = size;
+            pin.Frame.Height = size;
+            pin.Frame.HorizontalAlignment = HorizontalAlignment.Center;
+            pin.Frame.VerticalAlignment = VerticalAlignment.Center;
+            pin.Frame.CornerRadius = new CornerRadius(size / 2);
+            pin.Frame.BorderThickness = new Thickness(1.5);
+            return pin;
+        }
+
+        private void WireKeyboard(MuiOverlayHandle pin, MuiMaskHandle handle)
+        {
+            pin.PointerPressed += (_, _) => pin.Focus(FocusState.Pointer);
+            pin.KeyDown += (_, e) =>
+            {
+                var (dx, dy) = e.Key switch
+                {
+                    VirtualKey.Left => (-1.0, 0.0), VirtualKey.Right => (1.0, 0.0),
+                    VirtualKey.Up => (0.0, -1.0), VirtualKey.Down => (0.0, 1.0),
+                    _ => (0.0, 0.0),
+                };
+                if (dx == 0 && dy == 0) return;
+                e.Handled = true;
+                if (!IsEnabled || _activePointerId != null || Shape is not { } shape) return;
+                var step = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+                    .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down) ? 10 : 1;
+                var next = MuiMaskOverlayMath.ApplyKeyboardStep(shape, handle,
+                    dx * step, dy * step, Bounds.Width, Bounds.Height);
+                if (next == shape) return;
+                if (!_keyboardGesture)
+                {
+                    _keyboardGesture = true;
+                    GestureStarted?.Invoke(this, EventArgs.Empty);
+                }
+                Shape = next;
+                ShapeChanged?.Invoke(this, next);
+            };
+            pin.KeyUp += (_, e) =>
+            {
+                if (e.Key is VirtualKey.Left or VirtualKey.Right or VirtualKey.Up or VirtualKey.Down)
+                {
+                    EndKeyboardGesture();
+                    e.Handled = true;
+                }
+            };
+            pin.LostFocus += (_, _) => EndKeyboardGesture();
+        }
+
+        private void EndKeyboardGesture()
+        {
+            if (!_keyboardGesture) return;
+            _keyboardGesture = false;
+            GestureCompleted?.Invoke(this, EventArgs.Empty);
+        }
 
         private static Brush R(string key) => (Brush)Application.Current.Resources[key];
 
@@ -139,6 +199,7 @@ namespace Maple.UI
         {
             if (!IsEnabled || Shape == null || _activePointerId != null
                 || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+            EndKeyboardGesture();
             _draggingHandle = handle;
             _activePointerId = e.Pointer.PointerId;
             GestureStarted?.Invoke(this, EventArgs.Empty);
@@ -206,9 +267,9 @@ namespace Maple.UI
                     var mid = MuiMaskOverlayMath.ToScreen(
                         new MuiMaskPoint((l.Start.X + l.End.X) / 2, (l.Start.Y + l.End.Y) / 2), w, h);
                     _axis.X1 = start.X; _axis.Y1 = start.Y; _axis.X2 = end.X; _axis.Y2 = end.Y;
-                    Place(_startPin, start, PinSize);
-                    Place(_endPin, end, PinSize);
-                    Place(_bodyHandle, mid, BodyHandleSize);
+                    Place(_startPin, start);
+                    Place(_endPin, end);
+                    Place(_bodyHandle, mid);
                     AutomationProperties.SetName(_startPin, "Mask handle: gradient start");
                     AutomationProperties.SetName(_endPin, "Mask handle: gradient end");
                     AutomationProperties.SetName(_bodyHandle, "Mask handle: gradient");
@@ -219,10 +280,10 @@ namespace Maple.UI
                     foreach (var p in outline.Append(outline[0]))
                         _outline.Points.Add(MuiMaskOverlayMath.ToScreen(p, w, h).ToWindowsPoint());
                     var positions = MuiMaskOverlayMath.HandlePositions(r);
-                    Place(_centerPin, MuiMaskOverlayMath.ToScreen(positions[MuiMaskHandle.RadialCenter], w, h), PinSize);
-                    Place(_radiusXPin, MuiMaskOverlayMath.ToScreen(positions[MuiMaskHandle.RadialRadiusX], w, h), PinSize);
-                    Place(_radiusYPin, MuiMaskOverlayMath.ToScreen(positions[MuiMaskHandle.RadialRadiusY], w, h), PinSize);
-                    Place(_rotatePin, MuiMaskOverlayMath.ToScreen(positions[MuiMaskHandle.RadialRotate], w, h), PinSize);
+                    Place(_centerPin, MuiMaskOverlayMath.ToScreen(positions[MuiMaskHandle.RadialCenter], w, h));
+                    Place(_radiusXPin, MuiMaskOverlayMath.ToScreen(positions[MuiMaskHandle.RadialRadiusX], w, h));
+                    Place(_radiusYPin, MuiMaskOverlayMath.ToScreen(positions[MuiMaskHandle.RadialRadiusY], w, h));
+                    Place(_rotatePin, MuiMaskOverlayMath.ToScreen(positions[MuiMaskHandle.RadialRotate], w, h));
                     AutomationProperties.SetName(_centerPin, "Mask handle: center");
                     AutomationProperties.SetName(_radiusXPin, "Mask handle: horizontal radius");
                     AutomationProperties.SetName(_radiusYPin, "Mask handle: vertical radius");
@@ -231,10 +292,10 @@ namespace Maple.UI
             }
         }
 
-        private static void Place(Border pin, MuiMaskPoint screen, double size)
+        private static void Place(MuiOverlayHandle pin, MuiMaskPoint screen)
         {
-            Canvas.SetLeft(pin, screen.X - size / 2);
-            Canvas.SetTop(pin, screen.Y - size / 2);
+            Canvas.SetLeft(pin, screen.X - pin.Width / 2);
+            Canvas.SetTop(pin, screen.Y - pin.Height / 2);
         }
 
         private static string ShapeDescription(MuiMaskShape? shape, bool invert) => shape switch
