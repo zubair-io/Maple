@@ -169,6 +169,11 @@ namespace Maple.WinUI.Models
         public ToggleMode AutoExposure = ToggleMode.On;
         public LookMode Look = LookMode.Default;
         public ProfileMode Profile = ProfileMode.Auto;
+        // #3877: shared film identity (free-form for forward-compatible XMP)
+        // and display-linear blend percentage. Resource validation belongs
+        // to the Film host; sidecar parsing must retain newer catalog ids.
+        public string FilmLook = "";
+        public double FilmStrength = 100.0;
 
         // --- Lens corrections ---
         public ToggleMode LensProfileEnable = ToggleMode.On;

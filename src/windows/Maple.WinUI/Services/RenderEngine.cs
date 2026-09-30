@@ -203,8 +203,10 @@ namespace Maple.WinUI.Services
         /// </summary>
         public static void RenderTick(
             DecodedImage image, AdjustmentState model,
-            ref float[]? chainScratch, byte[] bgraOut)
+            ref float[]? chainScratch, byte[] bgraOut, FilmLut? film = null)
         {
+            if (!string.IsNullOrEmpty(model.FilmLook) && (film?.Id != model.FilmLook || film.NativeHandle == null))
+                throw new InvalidOperationException($"Film look '{model.FilmLook}' has not been loaded.");
             var pixelCount = image.Width * image.Height;
             var floatCount = pixelCount * 4;
             if (bgraOut.Length < pixelCount * 4)
@@ -279,8 +281,12 @@ namespace Maple.WinUI.Services
                     display_blue_ptr = displayBluePtr,
                     display_blue_len = (nuint)displayCurveBlue.Length,
                 };
-                var rc = RawFfi.maple_apply_chain_and_encode_display_curves_f32(
-                    inPtr, (uint)image.Width, (uint)image.Height, &p, &curves, outPtr);
+                var rc = string.IsNullOrEmpty(model.FilmLook)
+                    ? RawFfi.maple_apply_chain_and_encode_display_curves_f32(
+                        inPtr, (uint)image.Width, (uint)image.Height, &p, &curves, outPtr)
+                    : RawFfi.maple_apply_chain_and_encode_display_curves_film_f32(
+                        inPtr, (uint)image.Width, (uint)image.Height, &p, &curves,
+                        film!.NativeHandle!, (float)model.FilmStrength, outPtr);
                 if (rc != 0)
                     throw new InvalidOperationException(
                         $"per-tick chain failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");

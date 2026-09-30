@@ -86,6 +86,50 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
     curves: *const MapleToneCurves,
     out_ptr: *mut f32,
 ) -> i32 {
+    chain_with_film(in_ptr, width, height, params, curves, None, 0.0, out_ptr)
+}
+
+/// Film-aware sibling for a cached LUT; no LUT decoding/copying per tick.
+/// # Safety
+/// Same buffer contracts as the curves entry. `film` must be null or a live
+/// `maple_film_lut_create` handle retained until this call returns.
+#[no_mangle]
+pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_film_f32(
+    in_ptr: *const f32,
+    width: u32,
+    height: u32,
+    params: *const MapleAdjustmentParams,
+    curves: *const MapleToneCurves,
+    film: *const crate::film::MapleFilmLut,
+    strength: f32,
+    out_ptr: *mut f32,
+) -> i32 {
+    if !strength.is_finite() || !(0.0..=100.0).contains(&strength) {
+        set_last_error("film chain: strength must be finite and in 0..100".into());
+        return 4;
+    }
+    chain_with_film(
+        in_ptr,
+        width,
+        height,
+        params,
+        curves,
+        film.as_ref().map(|handle| &handle.lut),
+        strength,
+        out_ptr,
+    )
+}
+
+unsafe fn chain_with_film(
+    in_ptr: *const f32,
+    width: u32,
+    height: u32,
+    params: *const MapleAdjustmentParams,
+    curves: *const MapleToneCurves,
+    film: Option<&raw_core::film::FilmLut>,
+    strength: f32,
+    out_ptr: *mut f32,
+) -> i32 {
     if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
         set_last_error("apply_chain_and_encode_display_curves_f32: null pointer".into());
         return 1;
@@ -115,6 +159,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
     // Same shared slider -> model mapping as every chain entry (#1486), then
     // inject the point curves the scalar ABI cannot carry.
     let mut ci = chain_inputs_from_params(p);
+    ci.model.film_strength = strength;
     if !curves.is_null() {
         let c = &*curves;
         ci.model.tone_curve_luma = curve_from_flat(c.luma_ptr, c.luma_len);
@@ -134,8 +179,8 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
     let opts = ci.options(p.skip_agx != 0);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
-    let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
-        in_slice, width, height, &ci.model, &opts,
+    let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32_with_film(
+        in_slice, width, height, &ci.model, &opts, film,
     ) {
         Ok(v) => v,
         Err(e) => {

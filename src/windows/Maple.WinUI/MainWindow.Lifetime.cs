@@ -104,7 +104,10 @@ namespace Maple.WinUI
 
         private void OnRenderFailed(string message) => App.MainDispatcherQueue?.TryEnqueue(() =>
         {
-            if (!_closing) RenderStatsText.Text = $"render error: {message}";
+            if (_closing) return;
+            RenderStatsText.Text = $"render error: {message}";
+            RenderErrorBar.Message = message;
+            RenderErrorBar.IsOpen = true;
         });
     }
 }

@@ -161,12 +161,20 @@ namespace Maple.UI
 
             if (Mode == MuiChipRowMode.Select)
             {
-                pill.Tapped += (_, _) =>
+                var button = new Button
+                {
+                    Content = pill, Padding = new Thickness(0), BorderThickness = new Thickness(0),
+                    MinWidth = 0, MinHeight = 0, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                    IsEnabled = IsEnabled,
+                };
+                AutomationProperties.SetName(button, chip.Label + (selected ? ", selected" : ""));
+                button.Click += (_, _) =>
                 {
                     if (!IsEnabled) return;
                     SelectedId = chip.Id;
                     SelectionChanged?.Invoke(this, chip.Id);
                 };
+                return button;
             }
 
             return pill;

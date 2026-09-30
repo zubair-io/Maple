@@ -133,6 +133,7 @@ namespace Maple.WinUI
             BuildEditRail();
             BuildGradePanel();
             BuildProfilePanel();
+            BuildFilmPanel();
             BuildLensPanel();      // #3480 — MainWindow.LensProfile.cs
             BuildCropPanel();
             BuildMaskPanel();
@@ -142,6 +143,7 @@ namespace Maple.WinUI
             {
                 if (_closing) return;
                 SyncProfilePanel();
+                SyncFilmPanel();
                 SyncLensPanel();
                 SyncGradeWheels();
                 if (_activeGroup == "Tone Curve")

@@ -17,28 +17,31 @@ public sealed class FilmLut
     public uint Size { get; }
     public uint Key { get; }
     internal float[] Data { get; }
-    internal FilmLut(string id, uint size, float[] data)
+    internal FilmLutHandle? NativeHandle { get; }
+    internal FilmLut(string id, uint size, float[] data, FilmLutHandle? nativeHandle = null)
     {
         Id = id;
         Size = size;
         Data = data;
+        NativeHandle = nativeHandle;
         uint hash = 2166136261;
         foreach (var value in System.Text.Encoding.UTF8.GetBytes(id)) hash = unchecked((hash ^ value) * 16777619);
         Key = hash == 0 ? 1 : hash;
     }
 }
 
-/// <summary>#3877 staged host resource integration. Load outside the render
+/// <summary>#3877 shared host resource integration. Load outside the render
 /// loop, then retain the returned lattice through slider ticks and look switches.
 /// Decoding uses raw-core's MLUT parser, not a second C# format implementation.</summary>
 public sealed class FilmLutCache
 {
     private readonly string _directory;
     private readonly Func<byte[], (uint Size, float[] Data)> _decode;
+    private readonly bool _prepareNative;
     private readonly HashSet<string> _ids = FilmCatalog.All.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Lazy<Task<FilmLut>>> _loads = new(StringComparer.Ordinal);
 
-    public FilmLutCache(string? directory = null) : this(directory ?? Path.Combine(AppContext.BaseDirectory, "film-luts"), Decode) { }
+    public FilmLutCache(string? directory = null) : this(directory ?? Path.Combine(AppContext.BaseDirectory, "film-luts"), Decode) { _prepareNative = true; }
 
     internal FilmLutCache(string directory, Func<byte[], (uint Size, float[] Data)> decode) =>
         (_directory, _decode) = (directory, decode);
@@ -59,7 +62,8 @@ public sealed class FilmLutCache
             if (decoded.Size < 2 || decoded.Data.LongLength != checked((long)decoded.Size * decoded.Size * decoded.Size * 3)
                 || decoded.Data.Any(value => !float.IsFinite(value)))
                 throw new InvalidDataException("Film resource contains an invalid lattice.");
-            return new FilmLut(key, decoded.Size, decoded.Data);
+            var native = _prepareNative ? FilmLutHandle.Create(decoded.Size, decoded.Data) : null;
+            return new FilmLut(key, decoded.Size, decoded.Data, native);
         }), LazyThreadSafetyMode.ExecutionAndPublication));
         try { return await load.Value.WaitAsync(cancellation); }
         catch

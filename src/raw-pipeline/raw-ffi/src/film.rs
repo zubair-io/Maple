@@ -13,6 +13,55 @@
 use crate::error::set_last_error;
 use raw_core::film::decode_mlut;
 
+/// Owned, immutable LUT for repeated CPU preview ticks (#3877).
+/// Hosts release it only after every borrowing render call has returned.
+pub struct MapleFilmLut {
+    pub(crate) lut: raw_core::film::FilmLut,
+}
+
+/// Copy a validated lattice once, outside the render loop. Returns null on error.
+/// # Safety
+/// `data` must be readable for `len` aligned floats for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn maple_film_lut_create(
+    size: u32,
+    data: *const f32,
+    len: usize,
+) -> *mut MapleFilmLut {
+    let expected = (size as usize)
+        .checked_pow(3)
+        .and_then(|n| n.checked_mul(3));
+    if !(2..=129).contains(&size)
+        || expected != Some(len)
+        || data.is_null()
+        || (data as usize) % std::mem::align_of::<f32>() != 0
+    {
+        set_last_error("film_lut_create: invalid lattice shape or pointer".into());
+        return std::ptr::null_mut();
+    }
+    let values = std::slice::from_raw_parts(data, len);
+    if values.iter().any(|value| !value.is_finite()) {
+        set_last_error("film_lut_create: non-finite lattice".into());
+        return std::ptr::null_mut();
+    }
+    Box::into_raw(Box::new(MapleFilmLut {
+        lut: raw_core::film::FilmLut {
+            size: size as usize,
+            data: values.to_vec(),
+        },
+    }))
+}
+
+/// # Safety
+/// `handle` must be null or an unreleased result of `maple_film_lut_create`.
+/// No other call may borrow the handle while it is released.
+#[no_mangle]
+pub unsafe extern "C" fn maple_film_lut_destroy(handle: *mut MapleFilmLut) {
+    if !handle.is_null() {
+        drop(Box::from_raw(handle));
+    }
+}
+
 /// Decode a `.mlut` v1 byte buffer into a flat `size³·3` f32 RGB lattice
 /// (layout `((b*N+g)*N+r)*3+c` — [`raw_core::film::FilmLut`]'s layout,
 /// matched by [`raw_core::film::tetra_sample`] and its WGSL twin), written

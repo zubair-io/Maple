@@ -21,6 +21,7 @@ namespace Maple.WinUI
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
                 if (_closing) return;
+                RenderErrorBar.IsOpen = false;
                 // Both phases present into ONE surface pinned at the full
                 // session dims (#2587) — the half-res fast pass is upscaled in
                 // the present shader — so the panel size never changes between
@@ -177,6 +178,7 @@ namespace Maple.WinUI
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
                 if (_closing) return;
+                RenderErrorBar.IsOpen = false;
                 ViewportSwapChainPanel.Visibility = Visibility.Collapsed;
                 ViewportImage.Visibility = Visibility.Visible;
                 if (_viewportBitmap == null || _viewportBitmap.PixelWidth != width

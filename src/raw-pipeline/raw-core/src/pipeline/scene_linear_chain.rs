@@ -32,6 +32,8 @@ mod endcaps;
 // file-size budget (same split shape as `composite` / `endcaps`).
 mod options;
 pub use options::ChainOptions;
+mod film;
+pub use film::apply_scene_linear_chain_f32_with_film;
 
 use super::stage;
 use crate::{
@@ -339,7 +341,7 @@ pub fn apply_scene_linear_chain_f32(
     model: &AdjustmentModel,
     opts: &ChainOptions<'_>,
 ) -> Result<Vec<f32>> {
-    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, None)
+    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, None, None)
         .map(|(out, _weights)| out)
 }
 
@@ -358,7 +360,7 @@ pub fn apply_scene_linear_chain_f32_scoped(
     opts: &ChainOptions<'_>,
     scope_layer: Option<usize>,
 ) -> Result<(Vec<f32>, Option<Vec<f32>>)> {
-    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, scope_layer)
+    apply_scene_linear_chain_f32_inner(in_f32_rgba, width, height, model, opts, scope_layer, None)
 }
 
 /// Shared implementation behind [`apply_scene_linear_chain_f32`] and
@@ -373,6 +375,7 @@ fn apply_scene_linear_chain_f32_inner(
     model: &AdjustmentModel,
     opts: &ChainOptions<'_>,
     scope_layer: Option<usize>,
+    film_lut: Option<&crate::film::FilmLut>,
 ) -> Result<(Vec<f32>, Option<Vec<f32>>)> {
     let ChainOptions {
         decoded_temp,
@@ -513,6 +516,11 @@ fn apply_scene_linear_chain_f32_inner(
     stage("ffi_chain_color_grade", || {
         color_grade::apply_model(&mut img, model)
     });
+    if let Some(lut) = film_lut {
+        stage("ffi_chain_film_look", || {
+            crate::stages::film_look::apply(&mut img, lut, model.film_strength)
+        });
+    }
     stage("ffi_chain_grain", || {
         grain::apply(
             &mut img,

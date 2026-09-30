@@ -1,6 +1,8 @@
 using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -41,7 +43,14 @@ namespace Maple.UI
 
         public static readonly DependencyProperty ValueProperty =
             DependencyProperty.Register(nameof(Value), typeof(double), typeof(MuiLivingSlider),
-                new PropertyMetadata(0.0, (d, _) => ((MuiLivingSlider)d).Rebuild()));
+                new PropertyMetadata(0.0, (d, e) =>
+                {
+                    var slider = (MuiLivingSlider)d;
+                    slider._valueText.Text = MuiSliderMath.FormatSignedValue(slider.Value, slider.Step > 0 ? slider.Step : 1, slider.Unit ?? string.Empty);
+                    slider.PositionThumb();
+                    FrameworkElementAutomationPeer.FromElement(slider)?.RaisePropertyChangedEvent(
+                        RangeValuePatternIdentifiers.ValueProperty, e.OldValue, e.NewValue);
+                }));
 
         public static readonly DependencyProperty MinimumProperty =
             DependencyProperty.Register(nameof(Minimum), typeof(double), typeof(MuiLivingSlider),
@@ -165,6 +174,7 @@ namespace Maple.UI
             _root.Children.Add(_headerRow);
             _root.Children.Add(_track);
             Content = _root;
+            HorizontalContentAlignment = HorizontalAlignment.Stretch;
             IsTabStop = true;
 
             _track.PointerPressed += OnPointerPressed;
@@ -181,6 +191,30 @@ namespace Maple.UI
         }
 
         private static Brush R(string key) => (Brush)Application.Current.Resources[key];
+
+        protected override AutomationPeer OnCreateAutomationPeer() => new LivingSliderPeer(this);
+
+        private sealed class LivingSliderPeer(MuiLivingSlider slider) : FrameworkElementAutomationPeer(slider), IRangeValueProvider
+        {
+            protected override string GetClassNameCore() => nameof(MuiLivingSlider);
+            protected override string GetNameCore() => slider.Label;
+            protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Slider;
+            protected override object GetPatternCore(PatternInterface pattern) =>
+                pattern == PatternInterface.RangeValue ? this : base.GetPatternCore(pattern);
+            public bool IsReadOnly => !slider.IsEnabled;
+            public double LargeChange => SmallChange * 10;
+            public double SmallChange => slider.Step > 0 ? slider.Step : 1;
+            public double Maximum => slider.Maximum;
+            public double Minimum => slider.Minimum;
+            public double Value => slider.Value;
+            public void SetValue(double value)
+            {
+                if (IsReadOnly) throw new InvalidOperationException("Slider is disabled.");
+                if (!double.IsFinite(value) || value < Minimum || value > Maximum) throw new ArgumentOutOfRangeException(nameof(value));
+                slider.Value = value;
+                slider.ValueChanged?.Invoke(slider, value);
+            }
+        }
         // The `Maple*Color` tokens are raw Color resources (Themes/Tokens.xaml
         // defines the brushes FROM them) — read them directly; casting
         // through SolidColorBrush throws InvalidCastException at first

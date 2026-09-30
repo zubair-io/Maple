@@ -229,6 +229,7 @@ namespace Maple.WinUI.Services.Xmp
         /// </summary>
         public static readonly IReadOnlyList<XmpNumericField> NumericFields = new[]
         {
+            F("papp:FilmStrength", a => a.FilmStrength, (a, v) => a.FilmStrength = v),
             F("crs:Temperature", a => a.Temperature, (a, v) => a.Temperature = v),
             F("crs:Tint", a => a.Tint, (a, v) => a.Tint = v),
             F("crs:Exposure2012", a => a.Exposure, (a, v) => a.Exposure = v),

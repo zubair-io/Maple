@@ -836,6 +836,7 @@
                                             <MenuFlyoutItem Text="Revert to state at open" Click="OnRevert" />
                                             <MenuFlyoutSeparator />
                                             <MenuFlyoutItem Text="Lens corrections" Click="OnLensTools" />
+                                            <MenuFlyoutItem Text="Film looks" Click="OnFilmTools" />
                                             <MenuFlyoutItem Text="Geometry" Click="OnGeometryTools" />
                                             <MenuFlyoutItem Text="Brightness…" Click="OnBrightnessValue" />
                                         </MenuFlyout>
@@ -854,6 +855,9 @@
                         <!-- Edit tool rail -->
                         <TextBlock x:Name="ComparisonStatus" Grid.Column="1" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Bottom"
                                    Margin="16" Padding="8" TextWrapping="Wrap" Foreground="{StaticResource MapleTextMain}" AutomationProperties.LiveSetting="Polite" />
+                        <InfoBar x:Name="RenderErrorBar" Grid.Column="1" IsOpen="False" IsClosable="False"
+                                 Severity="Error" Title="Preview unavailable" MaxWidth="640" Margin="16"
+                                 HorizontalAlignment="Center" VerticalAlignment="Bottom" AutomationProperties.LiveSetting="Assertive" />
                         <Border x:Name="EditRail" Grid.Column="1" Visibility="Collapsed"
                                 Background="#F22A2724" BorderThickness="0" CornerRadius="12" Translation="0,0,24"
                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,100,16,16"
@@ -906,6 +910,7 @@
                                     <StackPanel>
                                         <!-- Point tone-curve plot (#2576): channel tabs, plot,
                                              reset footer — above the parametric sliders. -->
+                                        <StackPanel x:Name="PanelFilmHost" Visibility="Collapsed" Spacing="8" />
                                         <StackPanel x:Name="PanelCurveHost" Visibility="Collapsed" Spacing="6"
                                                     Margin="0,0,0,8">
                                             <StackPanel x:Name="CurveChannelRow" Orientation="Horizontal" Spacing="4">

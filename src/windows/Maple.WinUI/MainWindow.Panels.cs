@@ -116,6 +116,15 @@ namespace Maple.WinUI
             PanelCurveHost.Visibility = group == "Tone Curve" ? Visibility.Visible : Visibility.Collapsed;
             PanelCropHost.Visibility = group == "Crop" ? Visibility.Visible : Visibility.Collapsed;
             PanelMaskHost.Visibility = group == "Mask" ? Visibility.Visible : Visibility.Collapsed;
+            PanelFilmHost.Visibility = group == "Film" ? Visibility.Visible : Visibility.Collapsed;
+
+            if (group == "Film")
+            {
+                PanelBwHeader.Visibility = PanelDetailHeader.Visibility = PanelHslBands.Visibility = PanelSliders.Visibility = Visibility.Collapsed;
+                PanelSliders.ItemsSource = null;
+                SyncFilmPanel();
+                return;
+            }
 
             if (group == "Color")
             {
@@ -379,6 +388,11 @@ namespace Maple.WinUI
         {
             if (_activeGroup == null)
                 return;
+            if (_activeGroup == "Film")
+            {
+                ViewModel.SelectFilm(string.Empty);
+                return;
+            }
             if (_activeGroup == "Color" && _colorTab == "HSL")
             {
                 foreach (var band in ViewModel.HslBands)

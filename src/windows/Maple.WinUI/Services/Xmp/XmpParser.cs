@@ -34,7 +34,7 @@ namespace Maple.WinUI.Services.Xmp
                 "papp:WbScaleVersion",
                 "crs:Version", "crs:ProcessVersion", "crs:HasSettings",
                 "papp:HighlightRecoveryMode", "papp:AutoExposure",
-                "papp:Look", "papp:Profile",
+                "papp:Look", "papp:Profile", "papp:FilmLook",
                 "papp:HotPixelSuppression", "crs:LensProfileEnable",
                 "papp:LensProfile",
                 "crs:AutoLateralCA",
@@ -170,6 +170,9 @@ namespace Maple.WinUI.Services.Xmp
                         break;
                     case "papp:Look":
                         ParseLook(attr.Value, state, ref profileSeen);
+                        break;
+                    case "papp:FilmLook":
+                        state.FilmLook = attr.Value;
                         break;
                     case "papp:Profile":
                         profileSeen = true;

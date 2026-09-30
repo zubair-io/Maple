@@ -283,6 +283,10 @@ namespace Maple.WinUI.Services
             if (image == null || state == null)
                 return false;
 
+            if (!PrepareFilm(state)) return false;
+            lock (_gate)
+                if (_stopping || !ReferenceEquals(image, _image) || _pending != null) return true;
+
             if (gpuActive)
             {
                 if (fastPass)
@@ -401,10 +405,19 @@ namespace Maple.WinUI.Services
                 fixed (float* tcGreen = curveGreen)
                 fixed (float* tcBlue = curveBlue)
                 fixed (float* localPtr = localFlat)
+                fixed (float* filmPtr = _activeFilm?.Data)
                 fixed (MapleGpuLiveSession* fullHandle = &_gpuSession)
                 fixed (MapleGpuLiveSession* halfHandle = &_gpuSessionHalf)
                 {
                     var handle = useHalf ? halfHandle : fullHandle;
+                    if (_activeFilm != null)
+                    {
+                        p.film_lut_ptr = filmPtr;
+                        p.film_lut_len = (nuint)_activeFilm.Data.Length;
+                        p.film_lut_size = _activeFilm.Size;
+                        p.film_lut_key = _activeFilm.Key;
+                        p.film_strength = (float)state.FilmStrength;
+                    }
                     if (localFlat.Length > 0)
                     {
                         p.local_adjustments_ptr = localPtr;
@@ -462,7 +475,7 @@ namespace Maple.WinUI.Services
                     _bgra = new byte[byteCount];
 
                 var started = Environment.TickCount64;
-                RenderEngine.RenderTick(image, state, ref _chainScratch, _bgra);
+                RenderEngine.RenderTick(image, state, ref _chainScratch, _bgra, _activeFilm);
                 var elapsed = (double)(Environment.TickCount64 - started);
 
                 if (emitFrame)
@@ -486,7 +499,7 @@ namespace Maple.WinUI.Services
                 var byteCount = image.Width * image.Height * 4;
                 if (_bgra == null || _bgra.Length != byteCount)
                     _bgra = new byte[byteCount];
-                RenderEngine.RenderTick(image, state, ref _chainScratch, _bgra);
+                RenderEngine.RenderTick(image, state, ref _chainScratch, _bgra, _activeFilm);
                 HistogramReady?.Invoke(ComputeHistogram(_bgra));
                 EmitClipSource(image.Width, image.Height);
             }

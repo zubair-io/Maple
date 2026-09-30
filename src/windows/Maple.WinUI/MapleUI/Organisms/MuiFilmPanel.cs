@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Automation;
+using Maple.UI.Atoms;
 
 namespace Maple.UI
 {
@@ -13,9 +16,8 @@ namespace Maple.UI
     /// Maple.UI Film Panel organism (unified-component-catalog.md §4.3,
     /// "Film Panel" row: "Look catalog with strength", built from Chip
     /// Row, Card, Living Slider) — a category <see cref="MuiChipRow"/>
-    /// filters a wrapped grid of look <see cref="MuiCard"/>s; picking one
-    /// selects it (badge shows "Applied") and reveals the Strength
-    /// <see cref="MuiLivingSlider"/> beneath the grid.
+    /// filters look cards (or named buttons when no preview image exists);
+    /// picking one selects it and reveals the Strength slider above the list.
     /// </summary>
     public sealed class MuiFilmPanel : ContentControl
     {
@@ -52,13 +54,16 @@ namespace Maple.UI
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 14 };
         private readonly MuiChipRow _categoryChips = new() { Mode = MuiChipRowMode.Select };
         private readonly StackPanel _looksRows = new() { Orientation = Orientation.Vertical, Spacing = 8 };
-        private readonly MuiLivingSlider _strength = new() { Label = "Strength", Minimum = 0, Maximum = 100, Unit = "%" };
+        private readonly MuiLivingSlider _strength = new() { Label = "Strength", Minimum = 0, Maximum = 100, Value = 100, Unit = "%" };
 
         public MuiFilmPanel()
         {
-            _root.Children.Add(_categoryChips);
-            _root.Children.Add(_looksRows);
+            _root.Children.Add(new ScrollViewer { Content = _categoryChips,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Disabled });
             _root.Children.Add(_strength);
+            _root.Children.Add(_looksRows);
+            HorizontalContentAlignment = HorizontalAlignment.Stretch;
             Content = _root;
 
             _categoryChips.SelectionChanged += (_, id) => { SelectedCategoryId = id; CategorySelected?.Invoke(this, id); };
@@ -74,29 +79,47 @@ namespace Maple.UI
 
             _looksRows.Children.Clear();
             var looks = Looks ?? Array.Empty<MuiFilmLook>();
-            const int perRow = 3;
-            StackPanel? row = null;
-            var visible = 0;
+            var none = new MuiButton { Label = "None", Variant = string.IsNullOrEmpty(SelectedLookId)
+                ? MuiButtonVariant.Primary : MuiButtonVariant.Ghost, HorizontalAlignment = HorizontalAlignment.Stretch };
+            none.Tag = string.Empty;
+            none.Click += (_, _) => ChooseLook(string.Empty);
+            AutomationProperties.SetName(none, "No film look");
+            _looksRows.Children.Add(none);
             foreach (var look in looks)
             {
                 if (!string.IsNullOrEmpty(SelectedCategoryId) && look.CategoryId != SelectedCategoryId) continue;
-                if (visible % perRow == 0)
+                var lookId = look.Id;
+                // A real image is optional. Without a rendered look thumbnail,
+                // show its catalog name rather than an empty image placeholder.
+                if (look.Preview == null)
                 {
-                    row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-                    _looksRows.Children.Add(row);
+                    var button = new MuiButton { Label = look.Title,
+                        Variant = look.Id == SelectedLookId ? MuiButtonVariant.Primary : MuiButtonVariant.Ghost,
+                        HorizontalAlignment = HorizontalAlignment.Stretch, Tag = lookId };
+                    ToolTipService.SetToolTip(button, look.Title);
+                    AutomationProperties.SetName(button, look.Title + (look.Id == SelectedLookId ? ", applied" : ""));
+                    button.Click += (_, _) => ChooseLook(lookId);
+                    _looksRows.Children.Add(button);
+                    continue;
                 }
                 var card = new MuiCard
                 {
                     Title = look.Title,
                     Source = look.Preview,
                     BadgeLabel = look.Id == SelectedLookId ? "Applied" : null,
-                    Width = 120,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    Tag = lookId,
                 };
-                var lookId = look.Id;
-                card.Pressed += (_, _) => { SelectedLookId = lookId; LookSelected?.Invoke(this, lookId); };
-                row!.Children.Add(card);
-                visible++;
+                card.Pressed += (_, _) => ChooseLook(lookId);
+                _looksRows.Children.Add(card);
             }
+        }
+
+        private void ChooseLook(string id)
+        {
+            SelectedLookId = id;
+            LookSelected?.Invoke(this, id);
+            _looksRows.Children.OfType<Control>().FirstOrDefault(control => Equals(control.Tag, id))?.Focus(FocusState.Keyboard);
         }
     }
 }

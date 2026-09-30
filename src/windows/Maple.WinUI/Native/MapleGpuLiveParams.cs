@@ -134,12 +134,8 @@ namespace Maple.WinUI.Native
         public float* noise_profile_ptr;
         public uint noise_profile_len;
         public uint iso;
-        // Film look (epic #2683, Task 8) — the C# side has no LUT-provisioning
-        // path yet (out of scope here), so these are always left at their
-        // struct-default zero/null, which raw-ffi's own doc contract reads as
-        // "no look loaded" — a bit-identical no-op, same as every pre-#2683
-        // host. Present ONLY to keep this mirror's memory layout aligned with
-        // the real Rust struct for the fields appended after them (#3152).
+        // Film look (#3877): RenderScheduler pins the cached shared lattice
+        // for the present call. None retains zero/null for an exact no-op.
         public float film_strength;
         public uint film_lut_size;
         public uint film_lut_key;
