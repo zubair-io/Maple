@@ -93,7 +93,8 @@
         "src/routes/fs.raw-symlink-jail.test.ts",
         "src/routes/fs.etag.test.ts",
         "src/routes/static_ui.ts",
-        "src/thumbs/apply-orientation.test.ts",
+        // Orientation regression fixtures are temporary files, never durable writes.
+        "src/thumbs/render-orientation.test.ts",
         "src/thumbs/avif-checks.test.ts",
         "src/thumbs/psd-hdr-decode.test.ts",
         "src/workers/migration/restructure-fs.ts",
@@ -201,7 +202,6 @@
         "src/routes/xmp.get.test.ts",
         "src/routes/xmp.post-content-type.test.ts",
         "src/routes/xmp.sidecar-contract.test.ts",
-        "src/thumbs/apply-orientation.ts",
         "src/thumbs/render.test.ts",
         "src/thumbs/render.ts",
         "src/thumbs/validate-avif.test.ts",

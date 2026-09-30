@@ -41,7 +41,7 @@ import { decodeHdrIsolated } from './hdr-decode-isolated.ts';
  * lower. 55 is a starting point favoring smaller files/faster decode over
  * encode cost (thumbs are decoded on every grid scroll, encoded once at
  * index time) — tune visually against real thumbnails if this drifts.
- * Shared with `apply-orientation.ts`, `indexer/thumbnailer.ts`, and
+ * Shared with `indexer/thumbnailer.ts` and
  * `routes/fs-thumbs.ts` so the default lives in exactly one place. */
 export const THUMB_AVIF_QUALITY = 55;
 
@@ -224,10 +224,8 @@ export async function renderImageThumbToFile(
   }
 
   const builder = maple(srcPath)
-    // Honour EXIF orientation so portraits don't render sideways. A no-op for
-    // an AVIF source today: Maple's AVIF metadata probe hardcodes
-    // `orientation: 1` (no irot/imir/EXIF handling yet), so `.rotate()` has
-    // nothing to act on until that lands (#3507).
+    // Bake bitmap EXIF orientation into pixels. AVIF's irot/imir is already
+    // applied by the decoder; its EXIF tag is not applied again (#3586).
     .rotate()
     .resize(inside(sizePx));
   const buf = await encodeToBuffer(builder, quality);

@@ -7,7 +7,7 @@
  * unhandled rejection, and `publishValidatedAvif` must never leave an
  * invalid (or unverified) file at the real cache path.
  *
- * The actual decode-based check semantics (format/dimensions/orientation/
+ * The actual decode-based check semantics (format/dimensions/
  * full-decode) now live in `thumbs/avif-checks.ts` and are tested directly
  * there (`avif-checks.test.ts`) — this file only exercises the dispatch +
  * publish wiring. `validateAvifViaPool` is stubbed via `spyOn` to call the
