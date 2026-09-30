@@ -218,6 +218,16 @@
             <!-- Sources sidebar (Browse only) -->
             <Border x:Name="SidebarPane" Grid.Column="0" Background="{StaticResource MapleSidebar}"
                     BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,1,0">
+                <Border.Resources>
+                    <!-- Native tree selection keeps its keyboard/UIA behavior,
+                         with the same active-row palette as Maple list rows. -->
+                    <StaticResource x:Key="TreeViewItemSelectionIndicatorForeground" ResourceKey="MaplePrimary" />
+                    <StaticResource x:Key="TreeViewItemSelectionIndicatorForegroundPointerOver" ResourceKey="MaplePrimary" />
+                    <StaticResource x:Key="TreeViewItemSelectionIndicatorForegroundPressed" ResourceKey="MaplePrimary" />
+                    <StaticResource x:Key="TreeViewItemBackgroundSelected" ResourceKey="MapleSurfaceAlt" />
+                    <StaticResource x:Key="TreeViewItemBackgroundSelectedPointerOver" ResourceKey="MapleSurfaceHover" />
+                    <StaticResource x:Key="TreeViewItemBackgroundSelectedPressed" ResourceKey="MapleSurfaceAlt" />
+                </Border.Resources>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Spacing="14" Padding="10,12">
                         <mui:MuiButton x:Name="CloseCompactSources" Label="Close sources" IconName="x" Variant="Ghost" Visibility="Collapsed" Click="OnToggleSidebar" AutomationProperties.Name="Close sources" />
