@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { maple } from '../src/index.ts';
+import { loadSharpOracle } from './support/sharp-oracle.ts';
 
 /**
  * Gate for #3507: richer `metadata()`, `stats()`, and metadata passthrough
@@ -11,7 +12,7 @@ import { maple } from '../src/index.ts';
  * Several assertions below diverge from the original task brief's own draft
  * — verified against real behaviour (this package's own FFI output and, for
  * the numbers a real sharp install can produce, sharp 0.34.5 itself at
- * `src/api/node_modules/sharp`) rather than the brief's text, per the
+ * this package's test dependency) rather than the brief's text, per the
  * project rule that landed behaviour outranks a stale planning doc:
  *
  * - `hasProfile`/`icc` stay `false`/`undefined` unless `keepMetadata()`,
@@ -465,21 +466,12 @@ describe('Metadata and stats', () => {
     });
   });
 
-  describe('sharp oracle (skips loudly if sharp is not installed at src/api)', () => {
-    const apiDir = path.join(repoRoot, 'src/api');
-    let sharpPath: string | null;
-    try {
-      sharpPath = require.resolve('sharp', { paths: [apiDir] });
-    } catch {
-      sharpPath = null;
-      console.warn('sharp oracle test skipped: no sharp install found under', apiDir);
-    }
+  describe('sharp oracle (required in CI)', () => {
+    const sharp = loadSharpOracle();
 
-    it.skipIf(sharpPath === null)(
+    it.skipIf(sharp === null)(
       'a Maple-written EXIF orientation and default ICC round-trip identically through real sharp',
       async () => {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const sharp = require(sharpPath as string);
         const jpeg = await maple(ramp(16, 16)).withMetadata({ orientation: 5 }).jpeg().toBuffer();
         const mapleMeta = await maple(jpeg).metadata();
         const sharpMeta = await sharp(jpeg).metadata();
@@ -488,11 +480,9 @@ describe('Metadata and stats', () => {
       },
     );
 
-    it.skipIf(sharpPath === null)(
+    it.skipIf(sharp === null)(
       "fix-round-1 item 2: withIccProfile('srgb') is a real ICC profile a real reader accepts",
       async () => {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const sharp = require(sharpPath as string);
         for (const name of ['srgb'] as const) {
           const png = await maple(ramp(8, 8)).withIccProfile(name).png().toBuffer();
           const mapleIcc = (await maple(png).metadata()).icc!;
