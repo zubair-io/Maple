@@ -24,7 +24,8 @@
  * per child; the pool fans out across N children for parallel decodes.
  */
 
-import { tryGetRawFfi } from './raw_ffi.ts';
+import { setMapleExecutionMode } from 'maple';
+import { nativeLibPath, tryGetRawFfi } from './raw_ffi.ts';
 import {
   coerceFfiRequest,
   rejectedFfiReply,
@@ -39,6 +40,12 @@ import { installChildHardening } from '../runtime/child-process-worker.ts';
 installChildHardening('ffi-decode');
 
 const ffi = tryGetRawFfi();
+
+// This process already isolates native work from the HTTP server. Use the
+// same API-built core for Maple's bitmap calls as for the RAW binding above:
+// a published N-API addon can otherwise lack a newly added analyze operation.
+process.env.MAPLE_NATIVE_LIB = nativeLibPath();
+setMapleExecutionMode('sync');
 
 function send(msg: FfiResponse | FfiRejectedResponse): void {
   // `process.send` exists only when spawned with an IPC channel (always true in
