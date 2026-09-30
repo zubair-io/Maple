@@ -95,14 +95,11 @@ export class GuidedGeometryOverlayComponent implements AfterViewInit, OnDestroy 
     if (this.pointer?.id !== ev.pointerId) return;
     const p = this.point(ev);
     const distance = Math.hypot(ev.clientX - this.pointer.x, ev.clientY - this.pointer.y);
+    const anchor = this.anchor();
     this.pointer = null;
     (ev.currentTarget as Element).releasePointerCapture(ev.pointerId);
-    if (
-      p &&
-      this.anchor() &&
-      (distance >= 8 || Math.hypot(p.x - this.anchor()!.x, p.y - this.anchor()!.y) >= 0.01)
-    ) {
-      this.session.add({ start: this.anchor()!, end: p });
+    if (p && anchor && (distance >= 8 || Math.hypot(p.x - anchor.x, p.y - anchor.y) >= 0.01)) {
+      this.session.add({ start: anchor, end: p });
       this.anchor.set(null);
     }
   }
