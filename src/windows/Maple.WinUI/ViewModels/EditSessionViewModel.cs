@@ -147,6 +147,7 @@ namespace Maple.WinUI.ViewModels
 
         public EditSessionViewModel()
         {
+            _cloudMetadataWrites.Failed += OnCloudMetadataFailure;
             // Both slots share _cancelGate (#3417 Jules review) so every
             // cancel-flag signal/free on the session is serialized under one
             // lock, not just within each flag's own lifecycle.
