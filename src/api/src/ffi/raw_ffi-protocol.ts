@@ -135,19 +135,23 @@ export type FfiRequest =
   | RenderBitmapRequest
   | ValidateAvifRequest;
 
-/** Every `type` the child dispatches. Kept as a value (not just the union)
- *  so the wire guard below can check an incoming payload against it. */
-export const FFI_REQUEST_TYPES = [
-  'asShot',
-  'exportRecipe',
-  'registerLensProfile',
-  'renderThumb',
-  'histogram',
-  'renderDevelop',
-  'renderPreviewJpeg',
-  'renderBitmap',
-  'validateAvif',
-] as const satisfies readonly FfiRequest['type'][];
+/** Every `type` the child dispatches. `Record` rejects both missing and
+ * unknown variants; the value below drives the runtime wire guard. */
+const requestTypes = {
+  asShot: true,
+  exportRecipe: true,
+  registerLensProfile: true,
+  renderThumb: true,
+  histogram: true,
+  renderDevelop: true,
+  renderPreviewJpeg: true,
+  renderBitmap: true,
+  validateAvif: true,
+} satisfies Record<FfiRequest['type'], true>;
+
+export const FFI_REQUEST_TYPES: readonly FfiRequest['type'][] = Object.keys(
+  requestTypes,
+) as FfiRequest['type'][];
 
 /**
  * Wire-format guard the child applies to every IPC message before dispatch.
