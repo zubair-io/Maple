@@ -51,8 +51,7 @@ class FfiWorkerPool {
   /** True iff the native lib is present. False = caller should degrade (skip
    * RAW thumb/preview/histogram). Deliberately a file-existence check, NOT a
    * `dlopen` probe: pixel decode/encode is isolated in child processes, so a
-   * crash there only ever takes down a child — though the parent still loads
-   * these bindings for cheap metadata-only reads (`apply-orientation.ts`).
+   * crash there only ever takes down a child.
    * The child does the real `dlopen`, degrading cleanly (ok=false) if unloadable. */
   available(): boolean {
     if (this.availableOverride !== null) return this.availableOverride;

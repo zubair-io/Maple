@@ -2,7 +2,7 @@
  * Coverage for the decode-based AVIF check predicate (#2011, extracted from
  * `thumbs/validate-avif.ts` into its own module by #2257 so the parent
  * process never imports the native bitmap bindings): a completed-but-corrupt
- * encode (truncated write, wrong dimensions, a stray orientation tag) must
+ * encode (truncated write or wrong dimensions) must
  * be rejected. This file tests `checkAvifOutput` directly — no IPC, no
  * child process — the same real-decode assertions `validate-avif.test.ts`
  * used to make against `validateAvifOutput` before that function became a
