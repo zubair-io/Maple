@@ -39,6 +39,7 @@ import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
 import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
 import { handleSampleRange } from './raw-pipeline.sample-range-handler';
+import { handleGuidedGeometry } from './raw-pipeline.guided-geometry-handler';
 import {
   handleRegisterMaskRaster,
   handleReleaseMaskRaster,
@@ -151,6 +152,9 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
     case 'sample-range':
       await ensureReady();
       handleSampleRange(req);
+      return;
+    case 'guided-geometry':
+      await handleGuidedGeometry(req, ensureReady);
       return;
     // Bitmap-mask raster registry (#3300): synchronous on the wasm side and
     // independent of the live session's `&mut self` borrow, so neither needs

@@ -23,6 +23,8 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
+import { GuidedGeometrySessionService } from '../guided-geometry/guided-geometry-session.service';
 import {
   ADJUSTMENT_RANGES,
   defaultAdjustmentModel,
@@ -87,14 +89,16 @@ export const GEOMETRY_SLIDERS: readonly GeometrySlider[] = [
 @Component({
   selector: 'geometry-panel',
   standalone: true,
-  imports: [MuiLivingSliderComponent],
+  imports: [MuiLivingSliderComponent, MuiButtonComponent],
   templateUrl: './geometry-panel.component.html',
+  styleUrl: './geometry-panel.component.scss',
   host: { class: 'block min-h-0' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class GeometryPanelComponent {
   private readonly library = inject(LibraryStateService);
   private readonly editorState = inject(EditorStateService);
+  readonly guided = inject(GuidedGeometrySessionService);
 
   readonly sliders = GEOMETRY_SLIDERS;
 

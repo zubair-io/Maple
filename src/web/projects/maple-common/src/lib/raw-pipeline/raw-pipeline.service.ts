@@ -36,6 +36,11 @@ import {
 } from './raw-pipeline.samplers';
 import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
 import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
+import {
+  dispatchGuidedGeometry,
+  type GuidedCorrection,
+  type GuidedGeometryRequest,
+} from './raw-pipeline.guided-geometry';
 import { dispatchWithMark } from './raw-pipeline.dispatch-with-mark';
 import { developNonRaw } from './raw-pipeline.non-raw-develop';
 import {
@@ -428,6 +433,15 @@ export class RawPipelineService implements OnDestroy {
   ): Promise<LensProfileEvidence> {
     return this.sampleQueue((worker, id, register) =>
       dispatchLensProfileEvidence(worker, id, register, bytes, ext, reference),
+    );
+  }
+
+  /** One-shot guide solve on the worker that already owns WASM. */
+  solveGuidedGeometry(
+    input: Omit<GuidedGeometryRequest, 'id' | 'type'>,
+  ): Promise<GuidedCorrection> {
+    return this.sampleQueue((worker, id, register) =>
+      dispatchGuidedGeometry(worker, id, register, input),
     );
   }
 

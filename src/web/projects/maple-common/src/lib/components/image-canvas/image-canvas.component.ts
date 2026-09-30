@@ -42,6 +42,8 @@ import { CropOverlayComponent } from '../crop-overlay/crop-overlay.component';
 import { MaskOverlayComponent } from '../mask-overlay/mask-overlay.component';
 import { RetouchOverlayComponent } from '../retouch-overlay/retouch-overlay.component';
 import { CropSessionService } from '../crop-overlay/crop-session.service';
+import { GuidedGeometryOverlayComponent } from '../guided-geometry/guided-geometry-overlay.component';
+import { GuidedGeometrySessionService } from '../guided-geometry/guided-geometry-session.service';
 import { type AdjustmentModel } from '../../models/adjustment-model';
 import { cropStraightenTransform, renderModelForCrop } from './image-canvas.crop';
 import { CanvasPickOverlayComponent } from './canvas-pick-overlay.component';
@@ -63,6 +65,7 @@ import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './imag
   standalone: true,
   imports: [
     CropOverlayComponent,
+    GuidedGeometryOverlayComponent,
     MaskOverlayComponent,
     RetouchOverlayComponent,
     CanvasPickOverlayComponent,
@@ -93,6 +96,7 @@ export class ImageCanvasComponent
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
   protected readonly cropSession = inject(CropSessionService);
+  protected readonly guidedGeometry = inject(GuidedGeometrySessionService);
   // Read via `this.host.filmLut` in ImageCanvasFilmSync (image-canvas.film.ts),
   // where `this` satisfies `FilmSyncHost` structurally; fallow's dead-code pass
   // doesn't trace property access through a type-only-imported interface field.
@@ -199,11 +203,7 @@ export class ImageCanvasComponent
     return computeEffectivePx(this.zoomHost.cssZoom(), w, h, this.wrapW(), this.wrapH());
   });
 
-  // ── Crop tool (#638; helpers in image-canvas.crop.ts) ───────────────────────
-  // While Crop is armed the canvas shows the image UNCROPPED (crop stripped from
-  // the render model) + rotated by the straighten angle; `CropOverlayComponent`
-  // draws the interactive rect (mounted on `cropSession.active()`). Exiting
-  // re-renders the cropped result.
+  // Crop shows the full frame + live straighten under its interactive rect.
   /** CSS transform for the live straighten preview (rotate only). */
   protected readonly cropCanvasTransform = computed<string>(() => {
     const a = this.state.focusedAsset();
@@ -211,9 +211,7 @@ export class ImageCanvasComponent
     return cropStraightenTransform(this.cropSession.active(), angle);
   });
 
-  /** Serialize for the renderer, crop-stripped while cropping so the canvas
-   *  shows the full frame under the overlay. Public: also satisfies
-   *  `GpuPresentHost` so the GPU cold-open dedup matches the 2D path. */
+  /** Crop-stripped render model, shared by GPU and CPU cold-open dedup. */
   serializeForRender(model: AdjustmentModel): string {
     return this.xmpSerializer.serialize(renderModelForCrop(model, this.cropSession.active()));
   }
