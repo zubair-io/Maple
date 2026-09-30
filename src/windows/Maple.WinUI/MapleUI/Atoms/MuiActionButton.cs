@@ -154,7 +154,8 @@ namespace Maple.UI.Atoms
 
             _label.Text = Label;
             _label.FontSize = ButtonSize == MuiActionButtonSize.Sm ? 10 : 11;
-            _label.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
+            _label.FontWeight = Orientation == MuiActionButtonOrientation.Stacked
+                ? Microsoft.UI.Text.FontWeights.Normal : Microsoft.UI.Text.FontWeights.Bold;
 
             Padding = ButtonSize == MuiActionButtonSize.Sm ? new Thickness(6, 3, 6, 3) : new Thickness(8, 4, 8, 4);
 

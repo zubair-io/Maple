@@ -217,9 +217,11 @@ namespace Maple.UI
             _renameField.Value = Filename;
             _renameField.AccessibleLabel = $"Rename {Filename}";
 
-            _chrome.Background = R("MapleSurface");
+            _chrome.Background = ShowMetadata ? R("MapleSurface") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
             _chrome.BorderBrush = Selected ? R("MaplePrimary") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            _chrome.Padding = new Thickness(6);
+            _chrome.Padding = new Thickness(ShowMetadata ? 6 : 0);
+            _chrome.CornerRadius = new CornerRadius(ShowMetadata ? 10 : 3);
+            _image.ImageCornerRadius = ShowMetadata ? 6 : 1;
 
             Opacity = IsEnabled ? 1.0 : 0.45;
 

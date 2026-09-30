@@ -200,6 +200,17 @@ namespace Maple.WinUI
             var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement(slider);
             if (peer?.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.RangeValue) == null)
                 throw new InvalidOperationException("Adjustment slider lost native range accessibility");
+            if (slider.ActualHeight > 24 || EditRailStack.Children.Count != 7 || CompareButton.IconName != "split")
+                throw new InvalidOperationException("Editor density or primary tool dock differs from the design");
+            if (FindDescendant<Microsoft.UI.Xaml.Controls.Border>(FilmstripRail)?.Background == null)
+                throw new InvalidOperationException("Filmstrip is missing its shared surface");
+            ToggleGroupPanel("Lens");
+            if (PanelLensHost.Visibility != Microsoft.UI.Xaml.Visibility.Visible)
+                throw new InvalidOperationException("Overflow lens tools are unavailable");
+            ToggleGroupPanel("Geometry");
+            if (PanelSliders.ItemsSource == null)
+                throw new InvalidOperationException("Overflow geometry tools are unavailable");
+            ToggleGroupPanel("Light");
             // DIP-equivalent content sizes cover the requested physical sizes
             // at 100/150/200% without changing the user's desktop DPI setting.
             var root = (Microsoft.UI.Xaml.FrameworkElement)Content;
