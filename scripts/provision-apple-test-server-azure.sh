@@ -17,6 +17,7 @@ ADMIN_USER="${MAPLE_AZURE_ADMIN_USER:-maple}"
 BUILD_SIZE="${MAPLE_AZURE_BUILD_SIZE:-Standard_B2s}"
 RUNTIME_SIZE="${MAPLE_AZURE_RUNTIME_SIZE:-Standard_B2s}"
 ROOT="$(git rev-parse --show-toplevel)"
+SOURCE_REVISION="$(git rev-parse HEAD)"
 SSH_KEY="${MAPLE_AZURE_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 SSH_PUB_KEY="${SSH_KEY}.pub"
 ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/maple-apple-dev.XXXXXX")"
@@ -48,8 +49,19 @@ if [[ ! -f "$SSH_PUB_KEY" ]]; then
 fi
 
 SOURCE_IP="$(curl -4fsS https://api.ipify.org)"
-WEB_SOURCE="${SOURCE_IP}/32"
-az group create --name "$RESOURCE_GROUP" --location "$REGION" --output none
+WEB_SOURCE="${MAPLE_AZURE_OWNER_CIDR:-${SOURCE_IP}/32}"
+[[ "$WEB_SOURCE" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/32$ ]] || {
+	echo 'Owner access must be an IPv4 address with a /32 suffix.' >&2
+	exit 1
+}
+IFS=. read -r -a owner_octets <<<"${WEB_SOURCE%/32}"
+for owner_octet in "${owner_octets[@]}"; do
+	((10#$owner_octet <= 255)) || {
+		echo 'Invalid owner IPv4 address.' >&2
+		exit 1
+	}
+done
+az group create --name "$RESOURCE_GROUP" --location "$REGION" --tags "maple-test-server=$VM_NAME" --output none
 az network nsg create --resource-group "$RESOURCE_GROUP" --name "$NSG_NAME" --location "$REGION" --output none
 az network nsg rule create --resource-group "$RESOURCE_GROUP" --nsg-name "$NSG_NAME" \
 	--name maple-ssh-from-setup-machine --priority 100 --direction Inbound --access Allow \
@@ -90,7 +102,7 @@ for attempt in $(seq 1 90); do
 	sleep 5
 done
 
-ssh "${SSH_OPTS[@]}" "${ADMIN_USER}@${PUBLIC_IP}" 'sudo cloud-init status --wait && sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 docker-buildx && sudo systemctl enable --now docker && sudo usermod -aG docker "$USER" && sudo fallocate -l 6G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile >/dev/null && sudo swapon /swapfile && echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null && sudo mkdir -p /opt/maple /var/lib/maple/data /var/lib/maple/config && sudo chown -R "$USER":"$USER" /opt/maple /var/lib/maple'
+ssh "${SSH_OPTS[@]}" "${ADMIN_USER}@${PUBLIC_IP}" 'sudo cloud-init status --wait && sudo apt-get update && sudo apt-get install -y curl docker.io docker-compose-v2 docker-buildx && sudo systemctl enable --now docker && sudo usermod -aG docker "$USER" && sudo fallocate -l 6G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile >/dev/null && sudo swapon /swapfile && echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null && sudo mkdir -p /opt/maple /var/lib/maple/data /var/lib/maple/config && sudo chown -R "$USER":"$USER" /opt/maple /var/lib/maple'
 
 # Include only committed repository files; never upload local databases,
 # credentials, environment files, or ignored build output from this machine.
@@ -100,12 +112,14 @@ scp "${SSH_OPTS[@]}" "$ARCHIVE" "${ADMIN_USER}@${PUBLIC_IP}:/tmp/maple-apple-dev
 
 # The validated Azure hostname is intentionally expanded on this machine.
 # shellcheck disable=SC2029
-ssh "${SSH_OPTS[@]}" "${ADMIN_USER}@${PUBLIC_IP}" "bash -s -- '$HOSTNAME' <<'REMOTE'
+ssh "${SSH_OPTS[@]}" "${ADMIN_USER}@${PUBLIC_IP}" "bash -s -- '$HOSTNAME' '$SOURCE_REVISION' <<'REMOTE'
 set -euo pipefail
 HOSTNAME=\$1
+SOURCE_REVISION=\$2
 tar --warning=no-unknown-keyword -xzf /tmp/maple-apple-dev.tgz -C /opt/maple
 cd /opt/maple
-docker buildx build --load -f src/api/Dockerfile -t maple:apple-dev .
+docker buildx build --load -f src/api/Dockerfile -t maple:apple-dev \
+  --label org.opencontainers.image.revision=\$SOURCE_REVISION .
 cat > /opt/maple/Caddyfile <<CADDY
 \$HOSTNAME {
   encode zstd gzip
@@ -140,6 +154,25 @@ volumes:
   caddy_config:
 COMPOSE
 docker compose -f compose.yaml up -d
+healthy=false
+for attempt in \$(seq 1 60); do
+  if docker compose exec -T maple curl -fsS http://localhost:3000/api/health >/dev/null; then
+    healthy=true
+    break
+  fi
+  sleep 1
+done
+[[ \$healthy == true ]] || { echo 'Maple did not become healthy.' >&2; exit 1; }
+https_ready=false
+for attempt in \$(seq 1 60); do
+  if curl -fsS --max-time 10 --resolve \"\$HOSTNAME:443:127.0.0.1\" \
+    \"https://\$HOSTNAME/api/health\" >/dev/null; then
+    https_ready=true
+    break
+  fi
+  sleep 2
+done
+[[ \$https_ready == true ]] || { echo 'HTTPS did not become healthy.' >&2; exit 1; }
 rm -f /tmp/maple-apple-dev.tgz
 REMOTE"
 
@@ -155,11 +188,13 @@ Apple dev server deployed.
 URL: https://${HOSTNAME}
 Resource group: ${RESOURCE_GROUP}
 VM: ${VM_NAME} (${RUNTIME_SIZE})
+Source revision: ${SOURCE_REVISION}
 SQLite database: /var/lib/maple/data/maple.sqlite
 
-Claim the owner account from this setup machine with a passkey and no invite code. Then open the
+Claim the owner account from ${WEB_SOURCE} with a passkey and no invite code. Then open the
 URL for testing, and create an invite code in Settings → Users.
-Copy and share the code with the new member; it is single-use and expires after 15 minutes. SSH and HTTPS initially allow only
-${SOURCE_IP}/32. After the owner account is claimed, open web access with:
+Copy and share the code with the new member; it is single-use and expires after 15 minutes.
+HTTPS initially allows only ${WEB_SOURCE}; SSH allows ${SOURCE_IP}/32.
+After the owner account is claimed, open web access with:
   az network nsg rule update --resource-group ${RESOURCE_GROUP} --nsg-name ${NSG_NAME} --name maple-public-web --source-address-prefixes Internet
 INFO
