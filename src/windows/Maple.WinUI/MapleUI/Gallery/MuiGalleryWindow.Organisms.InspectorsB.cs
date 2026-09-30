@@ -38,6 +38,9 @@ namespace Maple.UI.Gallery
                     RedValues = SampleHistogramLane(1.05),
                     GreenValues = SampleHistogramLane(1.0),
                     BlueValues = SampleHistogramLane(0.9),
+                    ParadeRedValues = SampleHistogramLane(1.05),
+                    ParadeGreenValues = SampleHistogramLane(1.0),
+                    ParadeBlueValues = SampleHistogramLane(0.9),
                     LumaValues = SampleHistogramLane(1.0),
                     Samples = SampleVectorscopeSamples(),
                 }, 340, 240));

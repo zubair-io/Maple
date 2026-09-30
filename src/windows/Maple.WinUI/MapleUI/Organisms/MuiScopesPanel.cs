@@ -18,7 +18,6 @@ namespace Maple.UI
                 {
                     var self = (MuiScopesPanel)d;
                     self._histogram.RedValues = (IReadOnlyList<double>?)e.NewValue;
-                    self._parade.RedValues = (IReadOnlyList<double>?)e.NewValue;
                 }));
 
         public static readonly DependencyProperty GreenValuesProperty =
@@ -27,7 +26,6 @@ namespace Maple.UI
                 {
                     var self = (MuiScopesPanel)d;
                     self._histogram.GreenValues = (IReadOnlyList<double>?)e.NewValue;
-                    self._parade.GreenValues = (IReadOnlyList<double>?)e.NewValue;
                 }));
 
         public static readonly DependencyProperty BlueValuesProperty =
@@ -36,7 +34,6 @@ namespace Maple.UI
                 {
                     var self = (MuiScopesPanel)d;
                     self._histogram.BlueValues = (IReadOnlyList<double>?)e.NewValue;
-                    self._parade.BlueValues = (IReadOnlyList<double>?)e.NewValue;
                 }));
 
         public static readonly DependencyProperty LumaValuesProperty =
@@ -46,6 +43,22 @@ namespace Maple.UI
         public static readonly DependencyProperty SamplesProperty =
             DependencyProperty.Register(nameof(Samples), typeof(IReadOnlyList<MuiVectorscopeSample>), typeof(MuiScopesPanel),
                 new PropertyMetadata(null, (d, e) => ((MuiScopesPanel)d)._vectorscope.Samples = (IReadOnlyList<MuiVectorscopeSample>?)e.NewValue));
+
+        // Histogram counts and parade column means are different quantities.
+        // Keep separate inputs, matching the Apple/web scopes sample (#3885).
+        public static readonly DependencyProperty ParadeRedValuesProperty =
+            DependencyProperty.Register(nameof(ParadeRedValues), typeof(IReadOnlyList<double>), typeof(MuiScopesPanel),
+                new PropertyMetadata(null, (d, e) => ((MuiScopesPanel)d)._parade.RedValues = (IReadOnlyList<double>?)e.NewValue));
+        public static readonly DependencyProperty ParadeGreenValuesProperty =
+            DependencyProperty.Register(nameof(ParadeGreenValues), typeof(IReadOnlyList<double>), typeof(MuiScopesPanel),
+                new PropertyMetadata(null, (d, e) => ((MuiScopesPanel)d)._parade.GreenValues = (IReadOnlyList<double>?)e.NewValue));
+        public static readonly DependencyProperty ParadeBlueValuesProperty =
+            DependencyProperty.Register(nameof(ParadeBlueValues), typeof(IReadOnlyList<double>), typeof(MuiScopesPanel),
+                new PropertyMetadata(null, (d, e) => ((MuiScopesPanel)d)._parade.BlueValues = (IReadOnlyList<double>?)e.NewValue));
+
+        public IReadOnlyList<double>? ParadeRedValues { get => (IReadOnlyList<double>?)GetValue(ParadeRedValuesProperty); set => SetValue(ParadeRedValuesProperty, value); }
+        public IReadOnlyList<double>? ParadeGreenValues { get => (IReadOnlyList<double>?)GetValue(ParadeGreenValuesProperty); set => SetValue(ParadeGreenValuesProperty, value); }
+        public IReadOnlyList<double>? ParadeBlueValues { get => (IReadOnlyList<double>?)GetValue(ParadeBlueValuesProperty); set => SetValue(ParadeBlueValuesProperty, value); }
 
         public IReadOnlyList<double>? RedValues { get => (IReadOnlyList<double>?)GetValue(RedValuesProperty); set => SetValue(RedValuesProperty, value); }
         public IReadOnlyList<double>? GreenValues { get => (IReadOnlyList<double>?)GetValue(GreenValuesProperty); set => SetValue(GreenValuesProperty, value); }

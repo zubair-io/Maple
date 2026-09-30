@@ -10,6 +10,38 @@ namespace Maple.WinUI.Tests;
 
 public sealed unsafe class ScopeReadbackNativeTests(ITestOutputHelper output)
 {
+    [Fact]
+    public void Shared_panel_reducer_preserves_histogram_counts_and_column_values()
+    {
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MAPLE_RAW_FFI_DLL")))
+        {
+            output.WriteLine("SKIP-PASS: native scope reduction requires MAPLE_RAW_FFI_DLL.");
+            return;
+        }
+        RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        byte[] pixels = [255, 0, 0, 0, 255, 0, 0, 0, 255];
+        var values = Enumerable.Repeat(-7.0, 448).ToArray();
+        fixed (byte* rgb = pixels)
+        fixed (double* plots = values)
+        {
+            Assert.Equal(-1, RawFfi.maple_scope_panel_reduce(rgb, 9, 3, 1, plots, 447));
+            Assert.All(values, value => Assert.Equal(-7.0, value));
+            Assert.Equal(-1, RawFfi.maple_scope_panel_reduce(rgb, 8, 3, 1, plots, 448));
+            Assert.All(values, value => Assert.Equal(-7.0, value));
+            Assert.Equal(0, RawFfi.maple_scope_panel_reduce(rgb, 9, 3, 1, plots, 448));
+            Assert.Equal(2, values[0]);
+            Assert.Equal(1, values[63]);
+            Assert.Equal(0.2126, values[192], 10);
+            Assert.Equal(0.7152, values[192 + 21], 10);
+            Assert.Equal(0.0722, values[192 + 42], 10);
+            Assert.Equal(1, values[256]);
+            Assert.Equal(1, values[320 + 21]);
+            Assert.Equal(1, values[384 + 42]);
+            Assert.Equal(0, RawFfi.maple_scope_panel_reduce(null, 0, 0, 0, plots, 448));
+            Assert.All(values, value => Assert.Equal(0, value));
+        }
+    }
+
     [DllImport("raw_ffi.dll", CallingConvention = CallingConvention.Cdecl)]
     private static extern int maple_gpu_live_render(MapleGpuLiveSession* session, MapleGpuLiveParams* p, byte* output);
 
@@ -66,6 +98,27 @@ public sealed unsafe class ScopeReadbackNativeTests(ITestOutputHelper output)
                 Assert.InRange(Math.Abs(snapshot[pixel * 3 + channel] - gpu[pixel * 3 + channel]), 0, 2);
                 Assert.InRange(Math.Abs(snapshot[pixel * 3 + channel] - cpu[pixel * 4 + 2 - channel]), 0, 2);
             }
+            var cpuRgb = new byte[gpu.Length];
+            for (var pixel = 0; pixel < 256; pixel++)
+            for (var channel = 0; channel < 3; channel++)
+                cpuRgb[pixel * 3 + channel] = cpu[pixel * 4 + 2 - channel];
+            var cpuPlots = new double[448];
+            var gpuPlots = new double[448];
+            fixed (byte* cpuPixels = cpuRgb)
+            fixed (byte* gpuPixels = snapshot)
+            fixed (double* cpuValues = cpuPlots)
+            fixed (double* gpuValues = gpuPlots)
+            {
+                Assert.Equal(0, RawFfi.maple_scope_panel_reduce(cpuPixels, 768, 16, 16, cpuValues, 448));
+                Assert.Equal(0, RawFfi.maple_scope_panel_reduce(gpuPixels, 768, 16, 16, gpuValues, 448));
+            }
+            for (var channel = 0; channel < 3; channel++)
+            {
+                Assert.Equal(256, cpuPlots.Skip(channel * 64).Take(64).Sum());
+                Assert.Equal(256, gpuPlots.Skip(channel * 64).Take(64).Sum());
+            }
+            for (var value = 192; value < 448; value++)
+                Assert.InRange(Math.Abs(cpuPlots[value] - gpuPlots[value]), 0, 2.0 / 255);
         }
         finally
         {

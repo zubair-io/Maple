@@ -123,6 +123,7 @@ mod scene_linear_chain;
 // The C-visible vectorscope statistics block (#3272) — `MapleScopeStats` +
 // `write_stats`. No `gpu` gate: the CPU fused entry (`scene_linear_chain_fused`)
 // writes through it too, so it stays available in every build.
+mod scope_panel;
 mod scope_stats;
 // #2092 (follow-on to #1959 / PR #2083): the fused per-tick FFI entry —
 // chain + display-encode in one call over one buffer, no intervening

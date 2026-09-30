@@ -19,6 +19,11 @@ public unsafe struct MapleScopeStats
 
 public static unsafe partial class RawFfi
 {
+    /// <summary>448 values: 64-bin RGB counts, then 64-column luma and RGB means.</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int maple_scope_panel_reduce(byte* rgb, uint rgbLength, uint width, uint height,
+        double* output, uint outputLength);
+
     /// <summary>1 = sample copied, 0 = pending/busy with output unchanged; negative = error.</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern int maple_gpu_live_poll_scope(MapleGpuLiveSession* session, MapleScopeStats* output);
