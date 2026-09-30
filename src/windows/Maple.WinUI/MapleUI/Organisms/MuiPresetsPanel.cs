@@ -99,7 +99,8 @@ namespace Maple.UI
                 trailing.Children.Add(apply);
                 if (!preset.ReadOnly) trailing.Children.Add(delete);
 
-                var row = new MuiListRow { Label = preset.Name, IconName = "tool-presets", TrailingContent = trailing };
+                var row = new MuiListRow { Label = preset.Name, IconName = "tool-presets", TrailingContent = trailing, IsTabStop = false };
+                ToolTipService.SetToolTip(row, preset.Name);
                 _rows.Children.Add(row);
                 var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
                 var export = new MuiButton { Label = "Export", Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm };
