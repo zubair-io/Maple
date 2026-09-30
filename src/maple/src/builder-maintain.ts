@@ -10,36 +10,68 @@
  * other op family already uses (`builder-geometry.ts`, `builder-colour.ts`,
  * `builder-metadata.ts`).
  *
- * Each takes the builder's own terminals as callbacks rather than importing
- * `builder.ts`, which would be a cycle — the same pattern
- * `builder-raw-develop.ts`'s `rawDevelopToBuffer` already uses for `toFile`.
+ * The orientation helper takes the builder's own terminals as callbacks
+ * rather than importing `builder.ts`, which would be a cycle. Integrity
+ * reads the original input directly and uses the read-only native transport.
  */
 
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { inputBytes, runPipeline } from './builder-exec';
-import { formatForPath, stateToOutput, type BuilderState } from './builder-state';
-import type { ExportFormat, ExportResult, ImageMetadata } from './types';
+import { formatForPath, isRawPath, stateToOutput, type BuilderState } from './builder-state';
+import { callNative } from './worker-pool';
+import type { ExportFormat, ExportResult, ImageMetadata, IntegrityResult } from './types';
 
 /**
- * `true` when the input decodes to a real image: non-zero dimensions from
- * the header probe AND a full decode that does not throw. The decode is the
- * point — a truncated `mdat` or a broken bitstream leaves the header intact.
+ * Fully decode the original input without applying edits or encoding an
+ * output. A truncated payload may retain valid metadata, so the header
+ * alone cannot prove integrity. Failures keep their read/decode reason.
  */
-export async function validateIntegrity(
-  metadata: () => Promise<ImageMetadata>,
-  decode: () => Promise<Buffer>,
-): Promise<boolean> {
+export async function validateIntegrity(state: BuilderState): Promise<IntegrityResult> {
   try {
-    const meta = await metadata();
-    if (meta.width <= 0 || meta.height <= 0) {
-      return false;
+    if (state.rawInput) {
+      const { width, height, channels, data } = state.rawInput;
+      if (
+        !Number.isSafeInteger(width) ||
+        !Number.isSafeInteger(height) ||
+        width <= 0 ||
+        height <= 0
+      ) {
+        throw new Error('Invalid raw pixel dimensions: width and height must be positive integers');
+      }
+      if (![1, 3, 4].includes(channels)) {
+        throw new Error(`Invalid raw pixel channels: expected 1, 3 or 4, got ${channels}`);
+      }
+      const expected = width * height * channels;
+      if (!Number.isSafeInteger(expected) || data.byteLength !== expected) {
+        throw new Error(
+          `Invalid raw pixel length: expected ${expected} bytes, got ${data.byteLength}`,
+        );
+      }
+      return { ok: true };
     }
-    await decode();
-    return true;
-  } catch {
-    return false;
+    const bytes = await inputBytes(state);
+    if (bytes.length === 0) {
+      throw new Error('Input image is empty');
+    }
+    const rawExtension =
+      state.inputPath && isRawPath(state.inputPath)
+        ? path.extname(state.inputPath).slice(1).toLowerCase()
+        : undefined;
+    const result = await callNative('rasterAnalyzeBuf', [
+      bytes,
+      JSON.stringify({ v: 1, what: ['integrity'], rawExtension }),
+    ]);
+    if (!result.ok || !result.json) {
+      throw new Error(result.error || 'Image integrity decode failed');
+    }
+    if (JSON.parse(result.json).integrity !== true) {
+      throw new Error('Image integrity decode returned an invalid reply');
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 

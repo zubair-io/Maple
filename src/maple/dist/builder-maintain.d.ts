@@ -10,18 +10,18 @@
  * other op family already uses (`builder-geometry.ts`, `builder-colour.ts`,
  * `builder-metadata.ts`).
  *
- * Each takes the builder's own terminals as callbacks rather than importing
- * `builder.ts`, which would be a cycle — the same pattern
- * `builder-raw-develop.ts`'s `rawDevelopToBuffer` already uses for `toFile`.
+ * The orientation helper takes the builder's own terminals as callbacks
+ * rather than importing `builder.ts`, which would be a cycle. Integrity
+ * reads the original input directly and uses the read-only native transport.
  */
 import { type BuilderState } from './builder-state';
-import type { ExportFormat, ExportResult, ImageMetadata } from './types';
+import type { ExportFormat, ExportResult, ImageMetadata, IntegrityResult } from './types';
 /**
- * `true` when the input decodes to a real image: non-zero dimensions from
- * the header probe AND a full decode that does not throw. The decode is the
- * point — a truncated `mdat` or a broken bitstream leaves the header intact.
+ * Fully decode the original input without applying edits or encoding an
+ * output. A truncated payload may retain valid metadata, so the header
+ * alone cannot prove integrity. Failures keep their read/decode reason.
  */
-export declare function validateIntegrity(metadata: () => Promise<ImageMetadata>, decode: () => Promise<Buffer>): Promise<boolean>;
+export declare function validateIntegrity(state: BuilderState): Promise<IntegrityResult>;
 /**
  * Rewrite `state.inputPath` with its EXIF Orientation applied to the pixels
  * and the tag reset, via a temp file and an atomic rename.

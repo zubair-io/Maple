@@ -10,6 +10,27 @@ fn png() -> Vec<u8> {
     raw_core::png::encode(4, 2, &vec![90u8; 4 * 2 * 3]).unwrap()
 }
 
+#[test]
+fn integrity_returns_a_small_reply_in_one_call() {
+    let mut output = [0u8; 64];
+    let (rc, written) = call(&png(), r#"{"v":1,"what":["integrity"]}"#, Some(&mut output));
+    assert_eq!(rc, 0);
+    assert_eq!(&output[..written], br#"{"integrity":true}"#);
+}
+
+#[test]
+fn integrity_reports_the_decode_failure_through_last_error() {
+    let mut output = [0u8; 64];
+    let (rc, _) = call(
+        b"not an image",
+        r#"{"v":1,"what":["integrity"]}"#,
+        Some(&mut output),
+    );
+    assert_eq!(rc, 3);
+    let error = unsafe { std::ffi::CStr::from_ptr(crate::error::maple_last_error()) };
+    assert!(!error.to_bytes().is_empty());
+}
+
 /// A baseline JPEG with a hand-spliced APP1 EXIF and APP2 ICC segment, same
 /// shape as `raw-core`'s own `raster_analyze` tests — kept local since that
 /// crate's fixture helpers are private to its own test tree.

@@ -188,6 +188,22 @@ async function main() {
     `PASS maple(...).resize(32, 32).png().toBuffer() -> ${calibrationBuf.length} bytes, real PNG (napi dispatch path)`,
   );
 
+  assertEqual(
+    await maple(calibrationBuf).validateIntegrity(),
+    { ok: true },
+    'decode-only integrity',
+  );
+  const corruptIntegrity = await maple(Buffer.from('not an image')).validateIntegrity();
+  assert(
+    !corruptIntegrity.ok &&
+      typeof corruptIntegrity.error === 'string' &&
+      corruptIntegrity.error.length > 0,
+    'corrupt integrity must preserve the decode failure',
+  );
+  console.log(
+    'PASS validateIntegrity() -> decode-only result and corrupt-input reason (napi dispatch path)',
+  );
+
   // 6. The real RAW-development pipeline end to end, when the (gitignored)
   //    reference fixture is resolvable.
   if (!existsSync(fixtureDng)) {

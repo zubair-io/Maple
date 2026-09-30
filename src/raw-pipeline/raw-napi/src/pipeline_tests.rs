@@ -137,3 +137,26 @@ fn analyze_reports_an_error_for_a_malformed_request() {
     assert!(result.json.is_none());
     assert!(result.error.is_some());
 }
+
+#[test]
+fn analyze_integrity_returns_only_the_validation_reply() {
+    let mut task = RasterAnalyzeBufTask {
+        input: png(4, 2, [90, 90, 90]),
+        request_json: r#"{"v":1,"what":["integrity"]}"#.to_string(),
+    };
+    let result = task.compute().unwrap();
+    assert!(result.ok, "{:?}", result.error);
+    assert_eq!(result.json.as_deref(), Some(r#"{"integrity":true}"#));
+}
+
+#[test]
+fn analyze_integrity_keeps_the_decode_error() {
+    let mut task = RasterAnalyzeBufTask {
+        input: b"not an image".to_vec(),
+        request_json: r#"{"v":1,"what":["integrity"]}"#.to_string(),
+    };
+    let result = task.compute().unwrap();
+    assert!(!result.ok);
+    assert!(result.json.is_none());
+    assert!(!result.error.unwrap().is_empty());
+}

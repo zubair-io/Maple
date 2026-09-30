@@ -89,6 +89,23 @@ describe('checkAvifOutput (maple)', () => {
       expect(r.ok).toBe(false);
     }));
 
+  it('keeps the pixel decoder reason when the AVIF header is intact', () =>
+    withDir(async (dir) => {
+      const full = await solidAvif(120, 80, [200, 100, 50]);
+      const mdat = full.indexOf('mdat');
+      expect(mdat).toBeGreaterThan(0);
+      const corrupted = Buffer.from(full);
+      const boxSize = corrupted.readUInt32BE(mdat - 4);
+      // Preserve the sequence header read by metadata; corrupt the frame payload.
+      corrupted.fill(0, mdat + 4 + 8, mdat - 4 + boxSize);
+      const p = join(dir, 'corrupt-pixels.avif');
+      await writeFile(p, corrupted);
+      expect((await maple(p).metadata()).width).toBe(120);
+      const result = await checkAvifOutput(p, 256);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toMatch(/^pixel decode failed: .+/);
+    }));
+
   // #2011/#2014 ordering guard: the cheap dimension check must reject BEFORE
   // the expensive full pixel decode ever runs — otherwise a wildly-oversized
   // AVIF (the exact class of resize bug this validator exists to catch) gets
