@@ -15,7 +15,7 @@ namespace Maple.WinUI.Services
     /// only while newer than the original and sidecar. Read-only libraries
     /// fall back to the local cache, keyed by both mtimes and pipeline version.
     /// Local entries older than 30 days are swept on construction.</summary>
-    public sealed class ThumbnailService
+    public sealed partial class ThumbnailService
     {
         public const int ThumbnailMaxPx = 512;
         /// <summary>Full-screen JPEG preview tier — what the Preview
@@ -54,9 +54,19 @@ namespace Maple.WinUI.Services
         public async Task<string?> GetOrCreateAsync(
             string rawPath, CancellationToken ct, int maxPx = ThumbnailMaxPx)
         {
-            return maxPx == ThumbnailMaxPx
-                ? await GetOrCreateSharedThumbAsync(rawPath, ct)
-                : await GetOrCreateLocalAsync(rawPath, maxPx, ct);
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if (maxPx != ThumbnailMaxPx) return await GetOrCreateLocalAsync(rawPath, maxPx, ct);
+                var embedded = await GetOrCreateSharedThumbAsync(rawPath, ct);
+                return embedded ?? await GetOrCreateDevelopedThumbAsync(rawPath, ct);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                ct.ThrowIfCancellationRequested();
+                DiagLog.Write($"[thumb] unavailable source or cache: {error.Message}");
+                return null;
+            }
         }
 
         // --- 512px grid tier: shared `.maple/thumbs/` (#3083) ---
@@ -75,6 +85,8 @@ namespace Maple.WinUI.Services
             var fallbackPath = LocalCachePathFor(rawPath, ThumbnailMaxPx, "avif");
             if (File.Exists(fallbackPath))
                 return fallbackPath;
+            var developedPath = DevelopedThumbPath(rawPath);
+            if (File.Exists(developedPath)) return developedPath;
 
             await Gate.WaitAsync(ct);
             try

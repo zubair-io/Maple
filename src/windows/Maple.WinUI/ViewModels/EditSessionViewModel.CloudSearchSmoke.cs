@@ -33,8 +33,17 @@ public partial class EditSessionViewModel
         async Task Wait(Func<bool> condition, [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
         {
             var end = Environment.TickCount64 + 10000;
-            while (!condition() && Environment.TickCount64 < end) await Task.Delay(20);
+            var polls = 0;
+            long longestGap = 0;
+            while (!condition() && Environment.TickCount64 < end)
+            {
+                var before = Environment.TickCount64;
+                await Task.Delay(20);
+                longestGap = Math.Max(longestGap, Environment.TickCount64 - before);
+                polls++;
+            }
             Require(condition(), $"timed out at line {line}; loading={session.IsLibraryLoading}; "
+                + $"polls={polls}; longestDispatcherGapMs={longestGap}; cancelled={session._libraryCts?.IsCancellationRequested}; "
                 + $"status={session.LibraryLoadStatus}; requests={System.Text.Json.JsonSerializer.Serialize(handler.Queries)}");
         }
         try
@@ -86,6 +95,11 @@ public partial class EditSessionViewModel
                 "facet changes did not reach the server together");
             facetsPage.SetResult(Page("facet-match.dng", false, null, 0, 1));
             await Wait(() => !session.IsLibraryLoading);
+            var requestsBeforeClose = handler.Queries.Count;
+            session.SearchText = "abandoned query";
+            session.Dispose();
+            await Task.Delay(350);
+            Require(handler.Queries.Count == requestsBeforeClose, "disposed session sent a queued search");
         }
         finally
         {

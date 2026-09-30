@@ -43,8 +43,8 @@ namespace Maple.WinUI
                 if (!unattached.IsStopped) throw new InvalidOperationException("Unattached scheduler did not stop");
                 var renderer = ViewModel.Renderer;
                 var frame = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                void Gpu(int w, int h, double ms, bool full) => frame.TrySetResult("gpu");
-                void Cpu(byte[] px, int w, int h, uint[] bins, double ms) => frame.TrySetResult("cpu");
+                void Gpu(DecodedImage source, int w, int h, double ms, bool full) => frame.TrySetResult("gpu");
+                void Cpu(DecodedImage source, byte[] px, int w, int h, uint[] bins, double ms) => frame.TrySetResult("cpu");
                 renderer.GpuFrameReady += Gpu;
                 renderer.FrameReady += Cpu;
                 var actualPath = "empty";
@@ -86,6 +86,7 @@ namespace Maple.WinUI
                     await VerifyBrowseScrollingAsync();
                     await VerifyImmediateUndoAsync();
                     await VerifyPreviewRecoveryAsync(raw, output);
+                    await VerifyThumbnailFallbackAsync(raw, output);
                     await EditSessionViewModel.VerifyCloudOpeningAsync(raw, output);
                     await EditSessionViewModel.VerifyCloudSearchAsync(output);
                     await VerifyCloudMapAsync(output);

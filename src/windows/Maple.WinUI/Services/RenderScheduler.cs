@@ -43,17 +43,18 @@ namespace Maple.WinUI.Services
         private bool _gpuSessionHalfOpen;
         private DecodedImage? _gpuHalfImage;
 
-        /// <summary>CPU-path frame: (bgra, width, height, histogram bins,
-        /// renderMillis). Raised on the render thread.</summary>
-        public event Action<byte[], int, int, uint[], double>? FrameReady;
-        /// <summary>GPU-path present completed: (width, height, presentMillis,
+        /// <summary>CPU-path frame: (source, bgra, width, height, histogram bins,
+        /// renderMillis). Raised on the render thread. UI consumers must check
+        /// IsCurrentFrame after dispatching.</summary>
+        public event Action<DecodedImage, byte[], int, int, uint[], double>? FrameReady;
+        /// <summary>GPU-path present completed: (source, width, height, presentMillis,
         /// fullRes). width/height are the SURFACE (full-image) dims for both
         /// phases — a half-res fast pass is upscaled inside the present shader
         /// (#2587), so the host panel never resizes. fullRes=false means the
         /// half session sourced the frame; fullRes=true means the full session
         /// did — normally the quiet refine, but also any fast tick where the
         /// half session is unavailable. The pixels are already on screen.</summary>
-        public event Action<int, int, double, bool>? GpuFrameReady;
+        public event Action<DecodedImage, int, int, double, bool>? GpuFrameReady;
         /// <summary>Histogram bins for the newest state (GPU path only — the
         /// CPU path carries bins on FrameReady).</summary>
         public event Action<uint[]>? HistogramReady;
@@ -359,7 +360,7 @@ namespace Maple.WinUI.Services
                 // The presented surface is ALWAYS the target (full) size — the
                 // half session was upscaled in the present shader — so the panel
                 // never needs resizing between phases.
-                GpuFrameReady?.Invoke(targetWidth, targetHeight, total, !useHalf);
+                GpuFrameReady?.Invoke(image, targetWidth, targetHeight, total, !useHalf);
                 return true;
             }
 
@@ -483,24 +484,37 @@ namespace Maple.WinUI.Services
             try
             {
                 var byteCount = image.Width * image.Height * 4;
-                if (_bgra == null || _bgra.Length != byteCount)
-                    _bgra = new byte[byteCount];
+                // SetImage can clear the shared caches while this native call
+                // is running. Keep the buffers owned by this tick until it ends.
+                byte[] pixels;
+                float[]? scratch;
+                lock (_gate)
+                {
+                    pixels = _bgra != null && _bgra.Length == byteCount ? _bgra : new byte[byteCount];
+                    scratch = _chainScratch;
+                }
 
                 var started = Environment.TickCount64;
-                RenderEngine.RenderTick(image, state, ref _chainScratch, _bgra, _activeFilm);
+                RenderEngine.RenderTick(image, state, ref scratch, pixels, _activeFilm);
                 var elapsed = (double)(Environment.TickCount64 - started);
 
-                if (emitFrame)
-                    FrameReady?.Invoke(_bgra, image.Width, image.Height,
-                        ComputeHistogram(_bgra), elapsed);
-                EmitClipSource(image.Width, image.Height);
-                DumpFrameIfRequested(_bgra, image.Width, image.Height);
+                lock (_gate)
+                {
+                    if (!IsCurrentFrame(image)) return true;
+                    _bgra = pixels;
+                    _chainScratch = scratch;
+                    if (emitFrame)
+                        FrameReady?.Invoke(image, pixels, image.Width, image.Height,
+                            ComputeHistogram(pixels), elapsed);
+                    EmitClipSource(image.Width, image.Height);
+                }
+                DumpFrameIfRequested(pixels, image.Width, image.Height);
                 if (sampleScopes) EmitCpuScope(image, state);
                 return true;
             }
             catch (Exception ex)
             {
-                RenderFailed?.Invoke(ex.Message);
+                if (IsCurrentFrame(image)) RenderFailed?.Invoke(ex.Message);
                 return false;
             }
         }

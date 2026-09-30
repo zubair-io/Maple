@@ -11,6 +11,8 @@ public sealed partial class MainWindow
     {
         var originalPhoto = ViewModel.SelectedPhoto!;
         var originalMode = _mode;
+        var originalFrame = ViewModel.Renderer.DetailSource
+            ?? throw new InvalidOperationException("Preview recovery requires a rendered original");
         var delayedPath = Path.Combine(output, "preview-delayed.dng");
         async Task Wait(Func<bool> condition, string reason)
         {
@@ -26,6 +28,17 @@ public sealed partial class MainWindow
                 FilePath = delayedPath, FileName = "preview-delayed.dng", Format = "DNG",
             };
             await Wait(() => ViewModel.HasDecodeError, "missing original did not report failure");
+            // Simulate worker completions queued across the selection change.
+            // Neither presentation path may replace the unavailable photo or
+            // dismiss its accessible failure with an old photo's frame.
+            var previousSource = ViewportImage.Source;
+            OnFrameReady(originalFrame, new byte[4], 1, 1, new uint[256], 0);
+            OnGpuFrameReady(originalFrame, 1, 1, 0, true);
+            var drained = new TaskCompletionSource();
+            DispatcherQueue.TryEnqueue(() => drained.SetResult());
+            await drained.Task;
+            if (!ReferenceEquals(previousSource, ViewportImage.Source))
+                throw new InvalidOperationException("Stale frame replaced the unavailable preview");
             if (!RenderErrorBar.IsOpen || !RenderErrorBar.Message.Contains("Decode failed"))
                 throw new InvalidOperationException("Missing preview did not expose an accessible error");
             // A previously unavailable original becomes available. This writes
@@ -35,7 +48,8 @@ public sealed partial class MainWindow
             await Wait(() => !ViewModel.IsDecoding && ViewModel.Renderer.DetailSource != null,
                 "retry did not render the newly available original");
             if (ViewModel.HasDecodeError || RenderErrorBar.IsOpen || _mode != ShellMode.Preview)
-                throw new InvalidOperationException("Preview retry retained failure or entered Edit");
+                throw new InvalidOperationException($"Preview retry: decodeError={ViewModel.HasDecodeError}, " +
+                    $"barOpen={RenderErrorBar.IsOpen}, message={RenderErrorBar.Message}, mode={_mode}");
         }
         finally
         {

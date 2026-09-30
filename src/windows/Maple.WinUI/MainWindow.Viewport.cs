@@ -16,11 +16,11 @@ namespace Maple.WinUI
 
         // --- Rendering ---
 
-        private void OnGpuFrameReady(int width, int height, double millis, bool fullRes)
+        private void OnGpuFrameReady(Services.DecodedImage source, int width, int height, double millis, bool fullRes)
         {
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
-                if (_closing) return;
+                if (_closing || !ViewModel.Renderer.IsCurrentFrame(source)) return;
                 RenderErrorBar.IsOpen = false;
                 // Both phases present into ONE surface pinned at the full
                 // session dims (#2587) — the half-res fast pass is upscaled in
@@ -171,13 +171,13 @@ namespace Maple.WinUI
             ZoomHost.PointerCanceled += (_, _) => _panning = false;
         }
 
-        private void OnFrameReady(byte[] bgra, int width, int height, uint[] bins, double millis)
+        private void OnFrameReady(Services.DecodedImage source, byte[] bgra, int width, int height, uint[] bins, double millis)
         {
             var copy = new byte[bgra.Length];
             Buffer.BlockCopy(bgra, 0, copy, 0, bgra.Length);
             App.MainDispatcherQueue?.TryEnqueue(() =>
             {
-                if (_closing) return;
+                if (_closing || !ViewModel.Renderer.IsCurrentFrame(source)) return;
                 RenderErrorBar.IsOpen = false;
                 ViewportSwapChainPanel.Visibility = Visibility.Collapsed;
                 ViewportImage.Visibility = Visibility.Visible;

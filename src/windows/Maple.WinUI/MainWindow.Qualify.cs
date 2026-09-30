@@ -53,12 +53,12 @@ namespace Maple.WinUI
                 // next measured tick.
                 var frameTimes = new System.Collections.Concurrent.ConcurrentQueue<double>();
                 var frameSignal = new SemaphoreSlim(0);
-                ViewModel.Renderer.GpuFrameReady += (_, _, ms, _) =>
+                ViewModel.Renderer.GpuFrameReady += (_, _, _, ms, _) =>
                 {
                     frameTimes.Enqueue(ms);
                     frameSignal.Release();
                 };
-                ViewModel.Renderer.FrameReady += (_, _, _, _, ms) =>
+                ViewModel.Renderer.FrameReady += (_, _, _, _, _, ms) =>
                 {
                     path = "cpu";
                     frameTimes.Enqueue(ms);
