@@ -66,7 +66,7 @@ export const THUMB_LONG_EDGE_PX = 512;
  * — see `avifEffortWire` in `maple` for how that maps onto the underlying
  * encoder's speed knob. 4 favors encode throughput for the indexer backlog —
  * effort has no effect on decode cost. */
-export const THUMB_AVIF_EFFORT = 4;
+const THUMB_AVIF_EFFORT = 4;
 
 /** Output codec for `renderImageThumbToFile` and its two format-specific
  * helpers. `'avif'` is the 256px grid-thumbnail tier (default) and also
