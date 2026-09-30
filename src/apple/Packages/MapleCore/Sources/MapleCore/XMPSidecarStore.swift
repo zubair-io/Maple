@@ -4,6 +4,7 @@
 // File naming: <raw-basename>.xmp (lowercase extension) in the same folder.
 // Writes via temp → rename so partial writes are never visible.
 
+import Darwin
 import Foundation
 
 // MARK: - XMPSidecarStore
@@ -25,6 +26,7 @@ import Foundation
 /// ```
 public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   let primarySidecarURL: URL
+  private let rawURL: URL?
   private let sidecarURL: URL
   private let variantId: String
 
@@ -46,12 +48,14 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   public init(rawURL: URL) {
     self.primarySidecarURL = SidecarPath.sidecarURL(for: rawURL)
+    self.rawURL = rawURL
     self.sidecarURL = SidecarPath.sidecarURL(for: rawURL)
     self.variantId = WorkflowContract.primaryVariantID
   }
 
   /// PhotoKit's canonical App Support file shares the same writer (#4047).
   init(sidecarURL: URL) {
+    self.rawURL = nil
     self.primarySidecarURL = sidecarURL
     self.sidecarURL = sidecarURL
     self.variantId = WorkflowContract.primaryVariantID
@@ -59,6 +63,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   /// Bind the existing writer to a validated UUID sibling, including Photos' canonical root (#4063).
   public init(primarySidecarURL: URL, variantId: String) throws {
+    self.rawURL = nil
     self.primarySidecarURL = primarySidecarURL
     let filename = try WorkflowSidecarCore.variantFilename(
       primaryName: primarySidecarURL.lastPathComponent, variantId: variantId)
@@ -171,7 +176,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       self.pendingModel = model
       self.pendingCulling = culling
       self.cached = (model, culling)
-      try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination)
+      try self.writeSidecar(
+        model: model, culling: culling, existingXML: existing, at: destination,
+        removalChange: removalChange)
       self.pendingModel = nil
       self.pendingCulling = nil
     }
@@ -192,7 +199,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     try coordinateSidecarWrite { destination, existing in
       let xml: String
       if let model = self.pendingModel, let culling = self.pendingCulling {
-        xml = self.serializedSidecar(model: model, culling: culling, existingXML: existing)
+        xml = try self.serializedSidecar(model: model, culling: culling, existingXML: existing)
       } else {
         xml = existing ?? XMPSerializer.serialize(model: .default, culling: CullingState())
       }
@@ -239,6 +246,22 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     try writeAtomically(model: model, culling: culling)
     pendingModel = nil
     pendingCulling = nil
+    cached = (model, culling)
+  }
+
+  /// Confirm an accepted stack only after its companions were published.
+  /// Comparing the loaded stack under the same lock as every local write
+  /// prevents an older Maple writer from replacing a newer removal (#3940).
+  public func writeRemovalConfirmed(
+    records: String, expectedRecords: String, model: AdjustmentModel, culling: CullingState
+  ) throws {
+    _ = try RemovalBridge.assetNames(records: records)
+    pendingTask?.cancel()
+    pendingTask = nil
+    pendingModel = nil
+    pendingCulling = nil
+    try writeAtomically(
+      model: model, culling: culling, removalChange: (expectedRecords, records))
     cached = (model, culling)
   }
 
@@ -302,19 +325,24 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     }
   }
 
-  private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
+  private func writeAtomically(
+    model: AdjustmentModel, culling: CullingState,
+    removalChange: (expected: String, records: String)? = nil
+  ) throws {
     try coordinateSidecarWrite { destination, existing in
       try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination)
     }
   }
 
   private func writeSidecar(
-    model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL
+    model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL,
+    removalChange: (expected: String, records: String)? = nil
   ) throws {
     if let existingXML { try requireVariantWorkflow(in: existingXML) }
     let xml = try appendingSemanticHistory(
-      to: serializedSidecar(model: model, culling: culling, existingXML: existingXML))
-    try publishSidecarXML(xml, at: destination)
+      to: serializedSidecar(
+        model: model, culling: culling, existingXML: existingXML, removalChange: removalChange))
+    try publishSidecarXML(xml, at: destination, durable: removalChange != nil)
     pendingSemanticEdits.removeAll()
     pendingMetadata = nil
   }
@@ -351,6 +379,13 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   /// Cooperate with separate editor/variant store instances on this same file.
   private func coordinateSidecarWrite<T>(_ write: (URL, String?) throws -> T) throws -> T {
+    let lockURL = sidecarURL.deletingLastPathComponent().appendingPathComponent(
+      ".\(sidecarURL.lastPathComponent).lock")
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
+    guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    defer { close(descriptor) }
+    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw RemovalError.saveConflict }
+    defer { flock(descriptor, LOCK_UN) }
     let coordinator = NSFileCoordinator(filePresenter: nil)
     var error: NSError?
     var result: Result<T, Error>?
@@ -370,8 +405,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   }
 
   private func serializedSidecar(
-    model: AdjustmentModel, culling: CullingState, existingXML: String?
-  ) -> String {
+    model: AdjustmentModel, culling: CullingState, existingXML: String?,
+    removalChange: (expected: String, records: String)? = nil
+  ) throws -> String {
     // Non-destructive: a model/culling-only write must NOT drop an existing
     // IPTC/EXIF metadata block (e.g. one authored by the batch editor). Use
     // the pending metadata if this write carries one, otherwise preserve
@@ -385,7 +421,39 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     // Likewise for every field Maple does not model at all (#2233) — the
     // Lightroom masks, history, snapshots and display-referred curves that
     // this writer used to delete on the first slider nudge.
-    let passthrough = existingXML.map(XMPParser.parsePassthrough) ?? .empty
+    let passthroughOnDisk = existingXML.map(XMPParser.parsePassthrough) ?? .empty
+    let passthrough: XMPPassthrough
+    if let removalChange {
+      guard let rawURL else { throw RemovalError.invalid("Removal requires a local RAW") }
+      let current =
+        passthroughOnDisk.unknownAttributes.first {
+          $0.name == "papp:InpaintRemovals"
+        }?.value ?? "[]"
+      guard current == removalChange.expected else { throw RemovalError.saveConflict }
+      try RemovalBridge.verifySource(records: removalChange.records, rawURL: rawURL)
+      // Companion publication is checked again at the visibility boundary.
+      // A missing prior asset cannot turn into a successful partial save.
+      let names = try RemovalBridge.assetNames(records: removalChange.records)
+      let assetDirectory = rawURL.deletingLastPathComponent()
+        .appendingPathComponent(".maple/inpaint", isDirectory: true)
+      for name in names {
+        let assetURL = assetDirectory.appendingPathComponent(name)
+        guard FileManager.default.fileExists(atPath: assetURL.path) else {
+          throw RemovalError.missingCompanion(name)
+        }
+        try RemovalBridge.verifyAsset(name: name, data: Data(contentsOf: assetURL))
+      }
+      let attributes = passthroughOnDisk.unknownAttributes.filter {
+        $0.name != "papp:InpaintRemovals"
+      }
+      passthrough = XMPPassthrough(
+        unknownAttributes: attributes + [
+          .init(name: "papp:InpaintRemovals", value: removalChange.records)
+        ],
+        unknownNodes: passthroughOnDisk.unknownNodes)
+    } else {
+      passthrough = passthroughOnDisk
+    }
     let xml: String
     if let metadata, !metadata.isEmpty {
       xml = XMPSerializer.serialize(
@@ -397,19 +465,33 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     return xml
   }
 
-  private func publishSidecarXML(_ xml: String, at destination: URL) throws {
+  private func publishSidecarXML(_ xml: String, at destination: URL, durable: Bool = false) throws {
     guard let data = xml.data(using: .utf8) else {
       throw XMPStoreError.encodingError
     }
     let tmpURL = destination.deletingLastPathComponent()
       .appendingPathComponent(".\(destination.lastPathComponent).tmp")
     try data.write(to: tmpURL, options: .atomic)
+    if durable {
+      let handle = try FileHandle(forWritingTo: tmpURL)
+      defer { try? handle.close() }
+      try handle.synchronize()
+    }
     // Atomic rename
     if FileManager.default.fileExists(atPath: destination.path) {
       _ = try FileManager.default.replaceItemAt(destination, withItemAt: tmpURL)
     } else {
       try FileManager.default.moveItem(at: tmpURL, to: destination)
     }
+    if durable {
+      let directoryFD = open(sidecarURL.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY)
+      guard directoryFD >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+      defer { close(directoryFD) }
+      guard fsync(directoryFD) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      }
+    }
+    pendingMetadata = nil
   }
 }
 

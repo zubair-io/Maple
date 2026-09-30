@@ -33,6 +33,8 @@ export interface HostedSidecarBinding {
   readonly filename: string;
   readonly variantId: string;
 }
+import { hasXmlParseError } from './xmp-dom-utils';
+import { withRemovalWriteLock } from '../removal/removal-write-lock';
 
 @Injectable({ providedIn: 'root' })
 export class XmpStoreService {
@@ -393,6 +395,75 @@ export class XmpStoreService {
     }
   }
 
+  /** Commit after immutable companion publication; failure never reports Saved. */
+  async writeRemovalConfirmed(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+    model: AdjustmentModel,
+    culling: XmpCulling,
+    expectedRecords: string,
+    records: string,
+  ): Promise<void> {
+    const pending = this._pendingWrites.get(assetId);
+    if (pending) clearTimeout(pending.timeout);
+    this._pendingWrites.delete(assetId);
+    const revision = this.saveState.queued(assetId);
+    const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
+    const write = prior
+      .catch(() => undefined)
+      .then(async () => {
+        this.saveState.saving(assetId, revision);
+        try {
+          const { LocalRemovalAssets } = await import('../removal/local-removal-assets');
+          const assets = new LocalRemovalAssets(this.folderAccess, folder, rawFilename);
+          await withRemovalWriteLock(folder, rawFilename, async () => {
+            const source = await this.sourcePassthrough(folder, rawFilename);
+            const current =
+              source?.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value ??
+              '[]';
+            if (current !== expectedRecords)
+              throw new Error('The photo changed before this removal could be saved.');
+            await assets.verifySource(records);
+            await assets.read(records);
+            const passthrough: PassthroughBucket = {
+              ...source,
+              unknownAttributes: [
+                ...(source?.unknownAttributes ?? []).filter(
+                  (a) => a.name !== 'papp:InpaintRemovals',
+                ),
+                { name: 'papp:InpaintRemovals', value: records },
+              ],
+              unknownNodes: source?.unknownNodes ?? [],
+            };
+            const xml = this.serializer.serialize(model, passthrough, culling);
+            await this.folderAccess.writeFile(
+              folder,
+              this._sidecarFilename(rawFilename),
+              new TextEncoder().encode(xml),
+            );
+            const reopened = await this.sourcePassthrough(folder, rawFilename);
+            if (
+              reopened?.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value !==
+              records
+            ) {
+              throw new Error('Removal sidecar verification failed.');
+            }
+            this._passthroughs.set(assetId, passthrough);
+          });
+          this.saveState.saved(assetId, revision);
+        } catch (error) {
+          this.saveState.failed(assetId, revision, error);
+          throw error;
+        }
+      })
+      .finally(() => {
+        if (this._inFlightWrites.get(assetId) === write) this._inFlightWrites.delete(assetId);
+      });
+    this._inFlightWrites.set(assetId, write);
+    return write;
+  }
+
   // ── Flush all (beforeunload) ────────────────────────────────────────────────
 
   /**
@@ -534,7 +605,21 @@ export class XmpStoreService {
       // FolderAccessService.writeFile uses FS Access writable-stream on Chromium,
       // whose close() is atomic at the OS level.  The fallback backend writes to
       // IndexedDB which is also atomic.
-      await this.folderAccess.writeFile(folder, sidecarName, bytes);
+      const commit = async () => {
+        const preserved = folder.native
+          ? await this.sourcePassthrough(folder, rawFilename)
+          : passthrough;
+        const metadata = preserved ? undefined : this._metadata.get(assetId);
+        const xml = this.serializer.serialize(model, preserved, culling, metadata);
+        await this.folderAccess.writeFile(
+          folder,
+          this._sidecarFilename(rawFilename),
+          new TextEncoder().encode(xml),
+        );
+        if (preserved) this._passthroughs.set(assetId, preserved);
+      };
+      if (folder.native && navigator.locks) await withRemovalWriteLock(folder, rawFilename, commit);
+      else await commit();
       this.saveState.saved(assetId, revision);
     } catch (e) {
       this.saveState.failed(assetId, revision, e);
@@ -545,5 +630,22 @@ export class XmpStoreService {
 
   private _sidecarFilename(rawFilename: string): string {
     return rawFilename.replace(/\.[^.]+$/, '.xmp');
+  }
+
+  private async sourcePassthrough(
+    folder: MapleFolderHandle,
+    rawFilename: string,
+  ): Promise<PassthroughBucket | undefined> {
+    try {
+      const bytes = await this.folderAccess.readFile(folder, this._sidecarFilename(rawFilename));
+      const xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (hasXmlParseError(new DOMParser().parseFromString(xml, 'application/xml'))) {
+        throw new Error('Cannot replace a malformed photo sidecar.');
+      }
+      return this.parser.parseAdjustmentModel(xml).passthrough;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotFoundError') return undefined;
+      throw error;
+    }
   }
 }

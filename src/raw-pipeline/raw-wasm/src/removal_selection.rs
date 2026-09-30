@@ -1,6 +1,22 @@
 //! Thin WASM selection and durable-mask bridge (#3934), shared with C-FFI.
 use wasm_bindgen::prelude::*;
 
+#[wasm_bindgen]
+pub fn removal_source_verify(records: &str, original: &str) -> Result<(), JsError> {
+    raw_core::pipeline::verify_removal_source(records, original).map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
+pub fn removal_asset_names(records: &str) -> Result<String, JsError> {
+    let names = raw_core::pipeline::removal_asset_names(records).map_err(|e| JsError::new(&e))?;
+    serde_json::to_string(&names).map_err(|e| JsError::new(&e.to_string()))
+}
+
+#[wasm_bindgen]
+pub fn removal_asset_verify(name: &str, bytes: &[u8]) -> Result<(), JsError> {
+    raw_core::pipeline::verify_removal_asset(name, bytes).map_err(|e| JsError::new(&e))
+}
+
 /// Digest durable bytes once during source/model preparation or publication.
 #[wasm_bindgen]
 pub fn removal_content_digest(bytes: &[u8]) -> String {

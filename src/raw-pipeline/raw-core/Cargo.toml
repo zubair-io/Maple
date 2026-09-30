@@ -96,6 +96,10 @@ name = "synth-grey"
 required-features = ["test-support"]
 
 [[example]]
+name = "removal-fixture"
+required-features = ["test-support"]
+
+[[example]]
 name = "synth-chart"
 required-features = ["test-support"]
 

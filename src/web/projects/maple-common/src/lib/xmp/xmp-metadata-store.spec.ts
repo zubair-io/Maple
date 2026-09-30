@@ -5,7 +5,7 @@ import { TestBed } from '@angular/core/testing';
 import { expect, it } from 'vitest';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 import { FolderAccessService } from '../folder-access/folder-access.service';
-import { fsAccessWriteFile } from '../folder-access/fs-access-backend';
+import { fsAccessReadFile, fsAccessWriteFile } from '../folder-access/fs-access-backend';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
@@ -28,7 +28,12 @@ it('retains source languages and authors when ordinary hydration also caches typ
     </x:xmpmeta>`,
     );
     TestBed.configureTestingModule({
-      providers: [{ provide: FolderAccessService, useValue: { writeFile: fsAccessWriteFile } }],
+      providers: [
+        {
+          provide: FolderAccessService,
+          useValue: { writeFile: fsAccessWriteFile, readFile: fsAccessReadFile },
+        },
+      ],
     });
     const parser = TestBed.inject(XmpParserService);
     const store = TestBed.inject(XmpStoreService);
