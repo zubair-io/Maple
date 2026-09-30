@@ -927,8 +927,12 @@
                         </Border>
 
                         <!-- Edit tool rail -->
-                        <TextBlock x:Name="ComparisonStatus" Grid.Column="1" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                                   Margin="16" Padding="8" TextWrapping="Wrap" Foreground="{StaticResource MapleTextMain}" AutomationProperties.LiveSetting="Polite" />
+                        <Border Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                                Margin="16" Padding="12,6" CornerRadius="6" Background="{StaticResource MapleSurface}"
+                                IsHitTestVisible="False" Visibility="{Binding Visibility, ElementName=ComparisonStatus}">
+                            <TextBlock x:Name="ComparisonStatus" Visibility="Collapsed" TextWrapping="Wrap"
+                                       Foreground="{StaticResource MapleTextMain}" AutomationProperties.LiveSetting="Polite" />
+                        </Border>
                         <InfoBar x:Name="RenderErrorBar" Grid.Column="1" IsOpen="False" IsClosable="False"
                                  Severity="Error" Title="Preview unavailable" MaxWidth="640" Margin="16"
                                  HorizontalAlignment="Center" VerticalAlignment="Bottom" AutomationProperties.LiveSetting="Assertive">
