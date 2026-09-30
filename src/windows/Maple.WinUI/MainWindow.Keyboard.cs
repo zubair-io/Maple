@@ -18,7 +18,7 @@ namespace Maple.WinUI
 
         private void OnRootKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (FocusManager.GetFocusedElement(this.Content.XamlRoot) is TextBox)
+            if (FocusManager.GetFocusedElement(this.Content.XamlRoot) is TextBox or Slider or NumberBox or ComboBox)
                 return;
             var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);

@@ -30,6 +30,11 @@ namespace Maple.UI
         }
 
         private readonly Grid _root = new() { ColumnSpacing = 16, RowSpacing = 8 };
+        public double LabelWidth
+        {
+            get => _root.ColumnDefinitions[0].Width.Value;
+            set => _root.ColumnDefinitions[0].Width = new GridLength(value);
+        }
 
         public MuiLabelValueGrid()
         {

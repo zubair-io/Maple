@@ -101,7 +101,9 @@ public sealed partial class MainWindow
         ComparisonImage.Source = null;
         ComparisonImage.Visibility = Visibility.Collapsed;
         ComparisonStatus.Visibility = Visibility.Collapsed;
-        CompareButton.Label = "Compare";
+        CompareButton.Label = string.Empty;
+        CompareButton.IconColor = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["MapleTextMain"];
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CompareButton, "Compare before and after");
     }
 
     private void UpdateComparison()
@@ -109,7 +111,10 @@ public sealed partial class MainWindow
         if (_closing) return;
         var showing = _mode == ShellMode.Edit && _compare.ShowingBefore;
         ComparisonImage.Visibility = showing && ComparisonImage.Source != null ? Visibility.Visible : Visibility.Collapsed;
-        CompareButton.Label = showing ? "Before" : "Compare";
+        CompareButton.Label = string.Empty;
+        CompareButton.IconColor = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[showing ? "MaplePrimary" : "MapleTextMain"];
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CompareButton,
+            showing ? "Showing before; show edited photo" : "Compare before and after");
         ComparisonStatus.Visibility = showing ? Visibility.Visible : Visibility.Collapsed;
         if (!showing) return;
         if (ComparisonImage.Source == null && !_compareLoading) _ = PrepareComparisonAsync();
@@ -143,7 +148,10 @@ public sealed partial class MainWindow
                     if (baseline.Temperature == 6500 && baseline.Tint == 0 && decoded.DecodedTemperature > 0)
                     { baseline.Temperature = decoded.DecodedTemperature; baseline.Tint = decoded.DecodedTint; }
                     float[]? scratch = null;
-                    var pixels = new byte[decoded.Width * decoded.Height * 4];
+                    var pixelCount = checked((long)decoded.Width * decoded.Height);
+                    if (decoded.Width <= 0 || decoded.Height <= 0 || pixelCount > 268_000_000)
+                        throw new System.IO.InvalidDataException("Comparison dimensions exceed the image limit.");
+                    var pixels = new byte[checked((int)(pixelCount * 4))];
                     RenderEngine.RenderTick(decoded, baseline, ref scratch, pixels);
                     return (decoded.Width, decoded.Height, pixels);
                 }

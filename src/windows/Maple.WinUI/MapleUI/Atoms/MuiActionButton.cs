@@ -41,6 +41,17 @@ namespace Maple.UI.Atoms
             DependencyProperty.Register(nameof(Orientation), typeof(MuiActionButtonOrientation), typeof(MuiActionButton),
                 new PropertyMetadata(MuiActionButtonOrientation.Horizontal, (d, _) => ((MuiActionButton)d).Rebuild()));
 
+        public static readonly DependencyProperty OutlinedProperty =
+            DependencyProperty.Register(nameof(Outlined), typeof(bool), typeof(MuiActionButton),
+                new PropertyMetadata(false, (d, _) => ((MuiActionButton)d).Rebuild()));
+
+        // Culling choices keep a visible boundary even when unselected.
+        public bool Outlined
+        {
+            get => (bool)GetValue(OutlinedProperty);
+            set => SetValue(OutlinedProperty, value);
+        }
+
         public string IconName
         {
             get => (string)GetValue(IconNameProperty);
@@ -129,13 +140,13 @@ namespace Maple.UI.Atoms
             else if (_isPointerOver)
             {
                 Background = R("MapleSurfaceHover");
-                BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                BorderBrush = Outlined ? R("MapleBorder") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
                 Foreground = R("MapleTextMain");
             }
             else
             {
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                BorderBrush = Outlined ? R("MapleBorder") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
                 Foreground = R("MapleTextMuted");
             }
         }
@@ -153,8 +164,8 @@ namespace Maple.UI.Atoms
             _icon.Size = iconSize;
 
             _label.Text = Label;
-            _label.FontSize = ButtonSize == MuiActionButtonSize.Sm ? 10 : 11;
-            _label.FontWeight = Orientation == MuiActionButtonOrientation.Stacked
+            _label.FontSize = Outlined ? 12 : ButtonSize == MuiActionButtonSize.Sm ? 10 : 11;
+            _label.FontWeight = Outlined || Orientation == MuiActionButtonOrientation.Stacked
                 ? Microsoft.UI.Text.FontWeights.Normal : Microsoft.UI.Text.FontWeights.Bold;
 
             Padding = ButtonSize == MuiActionButtonSize.Sm ? new Thickness(6, 3, 6, 3) : new Thickness(8, 4, 8, 4);

@@ -56,9 +56,9 @@ namespace Maple.WinUI
 
         // --- Culling ---
 
-        private void OnFlagPick(object sender, RoutedEventArgs e) => ViewModel.SetFlag("pick");
-        private void OnFlagReject(object sender, RoutedEventArgs e) => ViewModel.SetFlag("reject");
-        private void OnClearFlag(object sender, RoutedEventArgs e) => ViewModel.SetFlag("none");
+        private void OnFlagPick(object sender, RoutedEventArgs e) { ViewModel.SetFlag("pick"); RefreshPhotoInfo(); }
+        private void OnFlagReject(object sender, RoutedEventArgs e) { ViewModel.SetFlag("reject"); RefreshPhotoInfo(); }
+        private void OnClearFlag(object sender, RoutedEventArgs e) { ViewModel.SetFlag("none"); RefreshPhotoInfo(); }
         private void OnClearRating(object sender, RoutedEventArgs e) => ViewModel.SetRating(0);
 
         // --- Menu (#2586) — thin shims over the same actions the shortcut

@@ -9,6 +9,7 @@ namespace Maple.WinUI;
 public sealed partial class MainWindow
 {
     private async void OnEditSliderValue(object sender, RoutedEventArgs e)
+        => await RunModalFlowGuardedAsync(async () =>
     {
         if (sender is not FrameworkElement { DataContext: AdjustmentSliderViewModel slider }) return;
         var photo = ViewModel.SelectedPhoto;
@@ -21,6 +22,7 @@ public sealed partial class MainWindow
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
         };
         AutomationProperties.SetName(number, slider.Label);
+        number.Resources["TextControlBorderBrushFocused"] = Application.Current.Resources["MaplePrimary"];
         var dialog = new ContentDialog
         {
             XamlRoot = Content.XamlRoot,
@@ -28,6 +30,7 @@ public sealed partial class MainWindow
             Content = number,
             PrimaryButtonText = "Apply",
             CloseButtonText = "Cancel",
+            PrimaryButtonStyle = (Style)Application.Current.Resources["MuiButtonPrimaryStyle"],
             DefaultButton = ContentDialogButton.Primary
         };
         if (await dialog.ShowAsync() == ContentDialogResult.Primary && ReferenceEquals(photo, ViewModel.SelectedPhoto) && double.IsFinite(number.Value))
@@ -35,5 +38,5 @@ public sealed partial class MainWindow
             slider.Value = Math.Clamp(number.Value, slider.Minimum, slider.Maximum);
             slider.CommitDeferred();
         }
-    }
+    });
 }

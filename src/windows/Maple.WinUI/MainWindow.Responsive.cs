@@ -24,7 +24,7 @@ public sealed partial class MainWindow
         // preference is retained; resizing never changes the selected document.
         Grid.SetColumnSpan(SidebarPane, compact ? 2 : 1);
         Canvas.SetZIndex(SidebarPane, compact ? 5 : 0);
-        SidebarPane.Width = compact ? Math.Min(280, ShellColumns.ActualWidth - 32) : double.NaN;
+        SidebarPane.Width = compact ? Math.Clamp(ShellColumns.ActualWidth - 32, 0, 280) : double.NaN;
         SidebarPane.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
         SidebarPane.Visibility = browse && (compact ? _compactSourcesOpen : !_settings.LeftPanelHidden)
             ? Visibility.Visible : Visibility.Collapsed;
@@ -33,7 +33,7 @@ public sealed partial class MainWindow
         var overlayInfo = compact && _mode == ShellMode.Preview && _infoPaneOpen;
         Grid.SetColumn(InfoPane, overlayInfo ? 0 : 1);
         Grid.SetColumnSpan(InfoPane, overlayInfo ? 2 : 1);
-        InfoPane.Width = overlayInfo ? Math.Min(320, ShellColumns.ActualWidth - 24) : double.NaN;
+        InfoPane.Width = overlayInfo ? Math.Clamp(ShellColumns.ActualWidth - 24, 0, 320) : double.NaN;
         InfoPane.HorizontalAlignment = overlayInfo ? HorizontalAlignment.Right : HorizontalAlignment.Stretch;
         InfoColDef.Width = new GridLength(_mode == ShellMode.Preview && _infoPaneOpen && !overlayInfo ? 320 : 0);
     }
