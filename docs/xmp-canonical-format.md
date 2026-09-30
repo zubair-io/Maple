@@ -219,6 +219,26 @@ Band suffixes are `Red`, `Orange`, `Yellow`, `Green`, `Aqua`, `Blue`, `Purple`, 
 
 One `papp:` key is read by `raw-core` alone and is unmodelled everywhere else, so it survives a Swift/TypeScript/C# read-modify-write through passthrough rather than through the model: `papp:InpaintRemovals` (an array of baked-removal records — region, patch content hash, model id, bake grade; the patch pixels live out of band in `.maple/inpaint/`; `raw-core/src/types/inpaint.rs`). It uses a _tolerant_ reader for unknown element kinds, while a recognized removal with corrupt fields or an unsupported explicit schema version fails loudly. The reader accepts legacy schema `2` (including records with no schema stamp) and accepted-edit schema `3`; other explicit versions fail. Schema 3 adds the immutable original and fixed decode-anchor digests, source dimensions, intent-mask digest, native patch/context windows, exact model/recipe digests and ordered preceding context dependencies. Every content identity is a lowercase `blake3:` digest. Both companions must pass checksum and native-geometry validation; selected intent pixels require opaque replacement coverage. Changing a context dependency marks the later edit for review while retaining its accepted pixels. Shared preparation preserves unknown element kinds when appending a record. Regions must be finite, non-empty and inside the normalized source frame. Bake-grade values must be finite, and patch/model identities must be non-empty. The shared encoder returns an error rather than writing invalid metadata. This reader/codec foundation is not an editor authoring flow; completion is tracked by #1472. Local adjustments used to be the second member of this pair (`papp:LocalAdjustments`, a compact-JSON attribute); #358 moved it onto a canonical, nested-element wire form — see "Local adjustments" below.
 
+### Removal publication and confirmed saving
+
+The local Apple and browser-folder persistence boundaries (#3940) publish and
+verify companions before changing XMP. They recheck the original's digest and
+the expected removal-stack text at the commit boundary. A missing or corrupt
+prior companion, replaced original, or stale stack refuses the save. Publication
+may leave unreferenced immutable blobs after cancellation or a failed commit;
+those bytes must not be treated as a saved edit or deleted as cache entries.
+
+Apple writers use a persistent advisory `.photo.xmp.lock` file, synchronize new
+assets and the accepted sidecar, and publish through atomic filesystem operations.
+Browser folder writes coordinate through Web Locks, close each companion before
+committing XMP, and verify the reopened bytes. Ordinary local writes reread
+passthrough XMP so an old in-memory snapshot cannot erase a newly accepted stack.
+These locks coordinate cooperating writers: browser Web Locks cannot acquire
+Apple's filesystem advisory lock, and the File System Access API exposes no
+atomic compare-and-swap against another application. Cross-application conflict
+handling, server/SMB publication, portable packages and editor integration remain
+part of #3940 and #1472; these storage APIs do not enable authoring on their own.
+
 ## Enum fields and parse strictness
 
 The wire spelling of every enum is the canonical variant name (`ChromaticAdaptation`, `RatioPreserving`, `DiagonalRec2020`), except `crs:ConvertToGrayscale` (Adobe's `True`/`False`) and the two ACR checkboxes `crs:LensProfileEnable` and `crs:AutoLateralCA` (Adobe's `1`/`0`).
