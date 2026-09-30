@@ -230,6 +230,7 @@ namespace Maple.WinUI
         private async Task VerifyResponsiveDesignAsync()
         {
             VerifyDragBarAccessibility();
+            VerifyMaskSelection();
             var photo = ViewModel.SelectedPhoto;
             var model = ViewModel.Adjustments;
             if (_activeGroup != "Light") ToggleGroupPanel("Light");

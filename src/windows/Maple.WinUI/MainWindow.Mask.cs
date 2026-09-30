@@ -41,14 +41,7 @@ namespace Maple.WinUI
             MaskOverlay.GestureStarted += (sender, _) => ViewModel.BeginAdjustmentGesture(sender!);
             MaskOverlay.GestureCompleted += (sender, _) => ViewModel.EndAdjustmentGesture(sender!);
             MaskPanel.AddRadialRequested += (_, _) => AddMaskLayer(linear: false);
-            MaskPanel.LayerSelected += (_, index) =>
-            {
-                MaskOverlay.CancelDrag();
-                ViewModel.EndAdjustmentGesture();
-                _selectedMaskIndex = index;
-                _selectedMaskComponentIndex = 0;
-                UpdateMaskDisplay();
-            };
+            MaskPanel.LayerSelected += (_, index) => SelectMaskLayer(index);
             MaskPanel.LayerDeleteRequested += (_, index) => DeleteMaskLayer(index);
             MaskPanel.FeatherChanged += (_, value) => EditSelectedMask(l => MaskGroupEditing.WithLeaf(l, _selectedMaskComponentIndex, mask => WithFeather(mask, value / 100.0)));
             MaskPanel.InvertChanged += (_, value) =>
@@ -66,7 +59,17 @@ namespace Maple.WinUI
             if (_selectedMaskIndex < 0 || _selectedMaskIndex >= layers.Count)
                 _selectedMaskIndex = layers.Count > 0 ? 0 : -1;
             ResetZoom();                              // overlay math assumes fit, same as Crop
-            UpdateMaskDisplay();
+            SyncMaskFromModel();
+        }
+
+        private void SelectMaskLayer(int index)
+        {
+            if (index < 0 || index >= ViewModel.Adjustments.LocalAdjustments.Count) return;
+            MaskOverlay.CancelDrag();
+            ViewModel.EndAdjustmentGesture();
+            _selectedMaskIndex = index;
+            _selectedMaskComponentIndex = 0;
+            SyncMaskFromModel();
         }
 
         private void ExitMaskMode()
