@@ -375,6 +375,9 @@
                         <mui:MuiSpinner IsSpinning="{Binding IsLibraryLoading}" SpinnerSize="Sm" DelayMs="0"
                                         Visibility="{Binding IsLibraryLoading, Converter={StaticResource BoolVisible}}" />
                         <TextBlock Text="{Binding LibraryLoadStatus}" Foreground="{StaticResource MapleTextMuted}" VerticalAlignment="Center" />
+                        <mui:MuiButton Label="Retry" Variant="Secondary" ButtonSize="Sm" Click="OnRetryCloudSearch"
+                                       Visibility="{Binding CanRetryCloudSearch, Converter={StaticResource BoolVisible}}"
+                                       AutomationProperties.Name="Retry cloud search" />
                         <mui:MuiButton Label="Load more" Variant="Secondary" ButtonSize="Sm" Click="OnLoadMoreTimeline"
                                        Visibility="{Binding HasMoreTimeline, Converter={StaticResource BoolVisible}}"
                                        AutomationProperties.Name="Load more timeline photos" />

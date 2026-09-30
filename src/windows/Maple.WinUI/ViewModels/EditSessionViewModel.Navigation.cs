@@ -46,6 +46,7 @@ namespace Maple.WinUI.ViewModels
             _selectedCloudFolder = cloud;
             _isCloudTimeline = timeline;
             HasMoreTimeline = false;
+            CanRetryCloudSearch = false;
             DateFilterStart = null;
             DateFilterEndExclusive = null;
             IsLibraryLoading = true;

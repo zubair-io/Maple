@@ -13,6 +13,7 @@ namespace Maple.WinUI.ViewModels
     public partial class EditSessionViewModel
     {
         [ObservableProperty] private bool _hasMoreTimeline;
+        [ObservableProperty] private bool _canRetryCloudSearch;
         private string? _timelineCursor;
         private int _timelinePage;
         private CloudSearchQuery? _timelineQuery;
@@ -46,8 +47,20 @@ namespace Maple.WinUI.ViewModels
             await LoadTimelinePageAsync(_libraryCts);
         }
 
+        public async Task RetryCloudSearchAsync()
+        {
+            if (!_isCloudTimeline || !CanRetryCloudSearch || IsLibraryLoading || _libraryCts == null) return;
+            if (_cloud == null || !CloudConnected) return;
+            IsLibraryLoading = true;
+            LibraryLoadStatus = "Retrying cloud search…";
+            // Keep the failed page/cursor and query. Already loaded pages and
+            // the date range must not be lost when recovering a network error.
+            await LoadTimelinePageAsync(_libraryCts);
+        }
+
         private async Task LoadTimelinePageAsync(CancellationTokenSource owner)
         {
+            CanRetryCloudSearch = false;
             var client = _cloud!;
             try
             {
@@ -70,14 +83,25 @@ namespace Maple.WinUI.ViewModels
             {
                 var message = error.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
                     ? "Sign in to Maple Cloud to search."
-                    : error.StatusCode == null ? "Cloud search is offline. Select Timeline to retry."
-                    : "Cloud search failed. Select Timeline to retry.";
-                FinishBrowse(owner, message);
+                    : error.StatusCode == null ? "Cloud search is offline. Retry when connected."
+                    : "Cloud search failed. Retry to try again.";
+                FailCloudSearch(owner, message);
+            }
+            catch (OperationCanceledException)
+            {
+                FailCloudSearch(owner, "Cloud search timed out. Retry to try again.");
             }
             catch (Exception)
             {
-                FinishBrowse(owner, "Could not load the timeline. Select Timeline to retry.");
+                FailCloudSearch(owner, "Could not load cloud search. Retry to try again.");
             }
+        }
+
+        private void FailCloudSearch(CancellationTokenSource owner, string message)
+        {
+            if (_libraryCts != owner || owner.IsCancellationRequested || !_isCloudTimeline) return;
+            CanRetryCloudSearch = true;
+            FinishBrowse(owner, message);
         }
 
         private CloudSearchQuery CurrentTimelineQuery() => new()
@@ -108,6 +132,7 @@ namespace Maple.WinUI.ViewModels
             _timelinePage = 0;
             _timelineCursor = null;
             HasMoreTimeline = false;
+            CanRetryCloudSearch = false;
             SelectedPhoto = null;
             SyncSelectedPhotos(Array.Empty<PhotoItem>());
             AllPhotos.Clear();

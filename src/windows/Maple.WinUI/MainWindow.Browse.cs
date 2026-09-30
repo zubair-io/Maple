@@ -151,6 +151,9 @@ namespace Maple.WinUI
         private async void OnLoadMoreTimeline(object sender, RoutedEventArgs e) =>
             await ViewModel.LoadMoreTimelineAsync();
 
+        private async void OnRetryCloudSearch(object sender, RoutedEventArgs e) =>
+            await ViewModel.RetryCloudSearchAsync();
+
         private void OnFormatFilterChanged(object sender, SelectionChangedEventArgs e)
         {
             if (FormatFilterBox.SelectedItem is ComboBoxItem item && item.Tag is string tag)

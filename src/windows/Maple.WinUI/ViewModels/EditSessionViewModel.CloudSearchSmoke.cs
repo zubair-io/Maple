@@ -67,6 +67,12 @@ public partial class EditSessionViewModel
             filtered.SetResult(new(HttpStatusCode.ServiceUnavailable));
             await Wait(() => !session.IsLibraryLoading);
             Require(session.LibraryLoadStatus.Contains("failed") && session.Photos.Count == 0, "failure was presented as a result");
+            Require(session.CanRetryCloudSearch, "failed search did not offer retry");
+            var failedQuery = handler.Queries[^1];
+            handler.Next().SetResult(Page("recovered.dng", false, null, 0, 1));
+            await session.RetryCloudSearchAsync();
+            Require(handler.Queries[^1] == failedQuery && session.Photos.Count == 1 && !session.CanRetryCloudSearch,
+                "retry lost filters or did not recover");
         }
         finally
         {
