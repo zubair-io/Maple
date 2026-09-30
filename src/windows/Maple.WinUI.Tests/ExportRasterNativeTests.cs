@@ -22,7 +22,7 @@ public sealed class ExportRasterNativeTests(ITestOutputHelper output)
         return true;
     }
 
-    private static ExportRecipe Recipe(string root) => new()
+    internal static ExportRecipe Recipe(string root) => new()
     {
         SchemaVersion = 1, Name = "Raster native", Format = "jpeg", Quality = 100, BitDepth = 8,
         MaxLongEdge = null, OutputProfile = "srgb", RenderingIntent = "maple-display",
@@ -30,7 +30,7 @@ public sealed class ExportRasterNativeTests(ITestOutputHelper output)
         Directory = root, Watermark = null, OverwritePolicy = "error",
     };
 
-    private static string Snapshot(double exposure = 0, double contrast = 0) => XmpWriter.Serialize(
+    internal static string Snapshot(double exposure = 0, double contrast = 0) => XmpWriter.Serialize(
         new XmpSidecarDocument { Adjustments = new AdjustmentState
             { Exposure = exposure, Contrast = contrast, SharpenAmount = 0, NrColor = 0 } });
 

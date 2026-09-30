@@ -36,14 +36,29 @@ public sealed partial class MainWindow
             var progress = new TextBlock { Text = originals ? "Preparing original files…" : "Preparing edited JPEGs…", TextWrapping = TextWrapping.Wrap };
             var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Share photos",
                 Content = progress, CloseButtonText = "Cancel" };
-            dialog.CloseButtonClick += (_, _) => cancellation.Cancel();
+            var preparing = true;
+            dialog.Closing += (_, args) =>
+            {
+                if (!preparing) return;
+                args.Cancel = true;
+                cancellation.Cancel();
+                progress.Text = "Cancelling after the current file…";
+            };
+            void WindowClosed(object sender, WindowEventArgs args) => cancellation.Cancel();
+            Closed += WindowClosed;
             var shown = dialog.ShowAsync();
+            async Task HidePreparationAsync()
+            {
+                preparing = false;
+                dialog.Hide();
+                await shown;
+            }
             try
             {
+                using var prepared = new PreparedShareFiles(Path.Combine(Path.GetTempPath(), "Maple", "Share"));
                 var files = new List<StorageFile>();
                 // Temporary outputs only; receivers may read them after this window closes.
-                var directory = Path.Combine(Path.GetTempPath(), "Maple", "Share", Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(directory);
+                var directory = prepared.DirectoryPath;
                 if (originals)
                 {
                     var photos = ViewModel.SelectedPhotos.Count > 0 ? ViewModel.SelectedPhotos.ToArray() : new[] { ViewModel.SelectedPhoto };
@@ -68,22 +83,13 @@ public sealed partial class MainWindow
                     var inputs = await ViewModel.CaptureExportInputsAsync(cancellation.Token);
                     var recipe = DefaultWindowsRecipe() with { Directory = directory, MaxLongEdge = 2560 };
                     var executor = new NativeExportRecipeExecutor();
-                    await Task.Run(() => executor.Validate(recipe));
-                    foreach (var input in inputs)
-                    {
-                        cancellation.Token.ThrowIfCancellationRequested();
-                        progress.Text = $"Preparing {files.Count + 1} of {inputs.Count}…";
-                        var output = Path.Combine(directory, executor.Filename(recipe, input, (ulong)files.Count + 1));
-                        var item = new ExportQueueItem { Id = Guid.NewGuid().ToString("N"), Input = input,
-                            SequenceIndex = (ulong)files.Count + 1, OutputPath = output, TempPath = output };
-                        await Task.Run(() => executor.Render(recipe, item));
-                        cancellation.Token.ThrowIfCancellationRequested();
+                    var outputs = await prepared.RenderEditedAsync(inputs, recipe, executor, cancellation.Token,
+                        (current, total) => progress.Text = $"Preparing {current} of {total}…");
+                    foreach (var output in outputs)
                         files.Add(await StorageFile.GetFileFromPathAsync(output));
-                    }
                 }
                 cancellation.Token.ThrowIfCancellationRequested();
-                dialog.Hide();
-                await shown;
+                await HidePreparationAsync();
                 if (_closing || files.Count == 0) return;
                 _shareFiles = files;
                 var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -103,13 +109,14 @@ public sealed partial class MainWindow
                     Closed += (_, _) => _shareFiles = Array.Empty<StorageFile>();
                 }
                 interop.ShowShareUIForWindow(hwnd);
+                prepared.RetainForReceiver();
             }
-            catch (OperationCanceledException) { dialog.Hide(); await shown; }
+            catch (OperationCanceledException) { await HidePreparationAsync(); }
             catch (Exception error)
             {
-                dialog.Hide();
-                await shown;
+                await HidePreparationAsync();
                 if (!_closing) await ShowMessageAsync("Share photos", error.Message);
             }
+            finally { Closed -= WindowClosed; }
         });
 }
