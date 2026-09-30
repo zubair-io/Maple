@@ -47,6 +47,13 @@ bash tools/check-budget-headroom.sh --self-test  # exercise the checker itself
 - **Rebase and merge only.** No merge commits on `main`; keep feature branches linear (`git rebase origin/main`, never `git merge origin/main`). See `CLAUDE.md` § Conventions for the full rule.
 - **No `--amend` after pushing.** Make a new commit; the diff in review is the diff that lands.
 - **No `--no-verify`.** If the hook fails, fix it. The hook is the contract.
+- **Commit under your own Git identity.** Before committing, inspect `git var GIT_AUTHOR_IDENT`
+  and `git var GIT_COMMITTER_IDENT`. Repository-local settings override global settings; remove
+  accidental test overrides with `git config --local --unset-all user.name` and
+  `git config --local --unset-all user.email` when the global identity is correct. The commit hook
+  rejects `.invalid` placeholder addresses, Claude's tool address, and the GitHub Actions bot
+  address. Agent-created commits use the user's identity and do not add AI co-author trailers.
+  Release automation uses the repository owner's name and GitHub noreply address.
 - PR body: one-line summary, a short "why" paragraph, and a `Closes #N` line. Include a test plan when the change isn't covered by an existing harness.
 
 ## Tooling

@@ -10,6 +10,10 @@
 pre-commit:
   parallel: true
   commands:
+    # Check every commit, including explicit author overrides.
+    git-identity:
+      run: bash tools/check-git-identity.sh
+
     # --- oxlint for src/api (TS correctness + fs-import guardrail, #1467). ---
     # Runs only on staged src/api/src/*.ts files. Soft-skips if oxlint isn't
     # installed locally (CI is the gate).
