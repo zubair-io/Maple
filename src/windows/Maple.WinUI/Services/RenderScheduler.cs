@@ -508,7 +508,7 @@ namespace Maple.WinUI.Services
                             ComputeHistogram(pixels), elapsed);
                     EmitClipSource(image.Width, image.Height);
                 }
-                DumpFrameIfRequested(pixels, image.Width, image.Height);
+                if (sampleScopes) DumpFrameIfRequested(pixels, image.Width, image.Height);
                 if (sampleScopes) EmitCpuScope(image, state);
                 return true;
             }

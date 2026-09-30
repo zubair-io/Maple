@@ -139,10 +139,10 @@ namespace Maple.WinUI
             }
             finally
             {
-                // Hard exit: Application.Exit() trips over XAML teardown in
-                // WinUI 3 desktop apps and can leave the process alive; the
-                // report is already flushed and nothing here needs disposal.
-                Environment.Exit(exitCode);
+                Environment.ExitCode = exitCode;
+                await ShutdownAsync();
+                _closeReady = true;
+                Close();
             }
         }
     }

@@ -6,7 +6,7 @@ namespace Maple.WinUI.Services;
 public sealed partial class RenderScheduler
 {
     /// <summary>Diagnostic: MAPLE_DUMP_FRAME=&lt;path.png&gt; writes the next
-    /// CPU-rendered frame to disk — pixel-exact app output for the color
+    /// settled CPU-rendered frame to disk — pixel-exact app output for the color
     /// parity harness, independent of screenshots/DWM.</summary>
     private static void DumpFrameIfRequested(byte[] bgra, int width, int height)
     {
