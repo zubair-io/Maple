@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceBase": "ed4930959",
+  "kind": "diagnostic-only",
+  "hypothesis": "Resolution-dependent scene anchoring contributes to fixed-fit Auto preview/export drift",
+  "result": "Ruled out for fixed-fit Auto: all twelve outputs are byte-identical to reconstruction249.",
+  "explanation": "pipeline/render/mod.rs pins auto_exposure Off whenever cached curve/LUT or extracted preview enables Auto fitting, before either sized or native develop.",
+  "temporaryExperiment": "Set auto_exposure Off only on each matrix render, keep both fitted artifacts unchanged, use --render-matrix --native-auto at default1600 edge.",
+  "temporaryOptionRemoved": true,
+  "renderBuild": "release succeeded, seven existing warnings",
+  "renderCompleted": true,
+  "comparisonNote": "Initial shared comparator invocation lacked colour in PYTHONPATH. Recovered with existing maple-colour-python dependencies for two pairs; byte identity against prior qualified images proves all twelve outputs unchanged without recomputing all perceptual metrics.",
+  "verifiedMeans": {
+    "nativeDefault": 3.1297011922392493,
+    "nativeNoNr": 2.0534844261231675
+  },
+  "outputs": [
+    {
+      "name": "test_0000-native-fit-12288-default-auto-ae-off.png",
+      "sha256": "F69304B384BAD6E29A2A07527CEF221708791AD70A1176AF865EEC32A0D6E1B3",
+      "referenceSha256": "F69304B384BAD6E29A2A07527CEF221708791AD70A1176AF865EEC32A0D6E1B3",
+      "identical": true
+    },
+    {
+      "name": "test_0000-native-fit-12288-no-noise-profile-auto-ae-off.png",
+      "sha256": "7A00ECFC7EE08D8A256C81CC3655B9694E99698E3B4C47F97FF5426FE0971529",
+      "referenceSha256": "7A00ECFC7EE08D8A256C81CC3655B9694E99698E3B4C47F97FF5426FE0971529",
+      "identical": true
+    },
+    {
+      "name": "test_0000-native-fit-12288-no-nr-auto-ae-off.png",
+      "sha256": "EE35BC04FCA622145F9FB0E284DB83AF6BC318016F15189BCF3E4AE78943AA87",
+      "referenceSha256": "EE35BC04FCA622145F9FB0E284DB83AF6BC318016F15189BCF3E4AE78943AA87",
+      "identical": true
+    },
+    {
+      "name": "test_0000-native-fit-1600-default-ae-off.png",
+      "sha256": "E404CDEF2BA2AD2DFED60E3E6BB1E57222F0FDF94879E03C40097C29DAF312F0",
+      "referenceSha256": "E404CDEF2BA2AD2DFED60E3E6BB1E57222F0FDF94879E03C40097C29DAF312F0",
+      "identical": true
+    },
+    {
+      "name": "test_0000-native-fit-1600-no-noise-profile-ae-off.png",
+      "sha256": "E978181D7D5C90AE328EE19B0981573A74DABEDB4DBB98C5AEE7446F0035252E",
+      "referenceSha256": "E978181D7D5C90AE328EE19B0981573A74DABEDB4DBB98C5AEE7446F0035252E",
+      "identical": true
+    },
+    {
+      "name": "test_0000-native-fit-1600-no-nr-ae-off.png",
+      "sha256": "E64F1CDFD5AAAF260CCD266F7B05F40B20A138CB34A6B27D3AADD00F3E6E03A4",
+      "referenceSha256": "E64F1CDFD5AAAF260CCD266F7B05F40B20A138CB34A6B27D3AADD00F3E6E03A4",
+      "identical": true
+    },
+    {
+      "name": "test_0000-proxy-fit-12288-default-auto-ae-off.png",
+      "sha256": "9E6053F6C1398CA89CDEF10E2B75FF95B77D653D9146D98BA31BB852ECB81EE3",
+      "referenceSha256": "9E6053F6C1398CA89CDEF10E2B75FF95B77D653D9146D98BA31BB852ECB81EE3",
+      "identical": true
+    },
+    {
+      "name": "test_0000-proxy-fit-12288-no-noise-profile-auto-ae-off.png",
+      "sha256": "47764BFFFC8B8186E398F5B0AF8155BEA1B09ED96C3EAA4F8077C99F2759E3C0",
+      "referenceSha256": "47764BFFFC8B8186E398F5B0AF8155BEA1B09ED96C3EAA4F8077C99F2759E3C0",
+      "identical": true
+    },
+    {
+      "name": "test_0000-proxy-fit-12288-no-nr-auto-ae-off.png",
+      "sha256": "06E88A2F92FEC8BB26150D2A913DD0E52E3919087D88B41B493835516D0A752F",
+      "referenceSha256": "06E88A2F92FEC8BB26150D2A913DD0E52E3919087D88B41B493835516D0A752F",
+      "identical": true
+    },
+    {
+      "name": "test_0000-proxy-fit-1600-default-ae-off.png",
+      "sha256": "B39FA5F9665792025F251527FD723CA89C02589E887B86E2759CD101EFB20829",
+      "referenceSha256": "B39FA5F9665792025F251527FD723CA89C02589E887B86E2759CD101EFB20829",
+      "identical": true
+    },
+    {
+      "name": "test_0000-proxy-fit-1600-no-noise-profile-ae-off.png",
+      "sha256": "8FB0F6B570844528E35697ADFDFCF1195EEB25875EF5C203A3B0FBDC38D577F0",
+      "referenceSha256": "8FB0F6B570844528E35697ADFDFCF1195EEB25875EF5C203A3B0FBDC38D577F0",
+      "identical": true
+    },
+    {
+      "name": "test_0000-proxy-fit-1600-no-nr-ae-off.png",
+      "sha256": "F8051B1C683B5A0A858B9F23A5E8D69B02A4EE79AD1BFE5185EEBD9BE8A69095",
+      "referenceSha256": "F8051B1C683B5A0A858B9F23A5E8D69B02A4EE79AD1BFE5185EEBD9BE8A69095",
+      "identical": true
+    }
+  ],
+  "nextInvestigation": "Demosaic and nonlinear/spatial processing before vs after early resize; Auto anchoring is not an independent variable in this fixed-fit matrix.",
+  "productionChange": false,
+  "parityPassed": false
+}

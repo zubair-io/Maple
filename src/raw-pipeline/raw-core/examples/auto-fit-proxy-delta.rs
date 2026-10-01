@@ -18,6 +18,8 @@
 //! reconstruction from Auto fitting. This is not production cache behavior.
 //! `--preview-edge=N` changes only the matrix preview working resolution;
 //! compare all outputs at the same final viewport size to isolate early resize.
+//! Auto with cached fits already disables scene anchoring in render/mod.rs;
+//! toggling model.auto_exposure cannot isolate any further stage in this matrix.
 use raw_core::pipeline::{
     fit_auto_profile_from_raw_at_cap, render_sized_from_raw_with_quality_and_source, FitCap,
     RawInput, RenderQuality,
