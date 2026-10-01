@@ -4,7 +4,8 @@
 //! two PNGs (+ timings) so `compare_images.py` can CIEDE2000 them.
 //! Usage: auto-fit-proxy-delta <raw-dir> <out-dir>
 //! Add `--render-matrix` to hold each fit fixed across native/1600px renders,
-//! with default detail and with chroma NR disabled (#3875). Diagnostic only:
+//! with default detail, chroma NR disabled, and sensor noise calibration
+//! omitted while retaining NR (#3875). Diagnostic only:
 //! deliberately overriding render-origin cache entries is not host behavior.
 use raw_core::pipeline::{
     fit_auto_profile_from_raw_at_cap, render_sized_from_raw_with_quality_and_source, FitCap,
@@ -45,7 +46,7 @@ fn main() {
             Err(_) => continue,
         };
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw = match raw_core::decode::decode_bytes(&bytes, ext) {
+        let mut raw = match raw_core::decode::decode_bytes(&bytes, ext) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("{name}: decode failed: {e}");
@@ -125,19 +126,35 @@ fn main() {
                         ));
                     cache::insert(key.clone(), curve.clone());
                     cache::insert_lut(key, residual.clone());
-                    for (nr_color, detail) in [(auto_model.nr_color, "default"), (0.0, "no-nr")] {
+                    for (nr_color, detail) in [
+                        (auto_model.nr_color, "default"),
+                        (0.0, "no-nr"),
+                        (auto_model.nr_color, "no-noise-profile"),
+                    ] {
                         let model = AdjustmentModel {
                             nr_color,
                             ..auto_model.clone()
                         };
-                        let (rw, rh, rgb) = render_sized_from_raw_with_quality_and_source(
+                        // Remove calibration only during this counterfactual render;
+                        // both Auto fits above still use the original decoded RAW.
+                        // Restore before the next render/fit so the experiment has
+                        // one independent variable and never changes source bytes.
+                        let saved_profile = if detail == "no-noise-profile" {
+                            raw.noise_profile.take()
+                        } else {
+                            None
+                        };
+                        let rendered = render_sized_from_raw_with_quality_and_source(
                             &raw,
                             &model,
                             RenderQuality::Preview,
                             Some(RawInput::Path(&path)),
                             edge,
-                        )
-                        .expect("fixed-fit render");
+                        );
+                        if detail == "no-noise-profile" {
+                            raw.noise_profile = saved_profile;
+                        }
+                        let (rw, rh, rgb) = rendered.expect("fixed-fit render");
                         let png = raw_core::png::encode(rw, rh, &rgb).unwrap();
                         std::fs::write(
                             out.join(format!("{name}-{label}-fit-{edge}-{detail}.png")),
