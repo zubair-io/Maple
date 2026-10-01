@@ -178,7 +178,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       self.cached = (model, culling)
       try self.writeSidecar(
         model: model, culling: culling, existingXML: existing, at: destination,
-        removalChange: removalChange)
+        removalChange: nil)
       self.pendingModel = nil
       self.pendingCulling = nil
     }
@@ -330,7 +330,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     removalChange: (expected: String, records: String)? = nil
   ) throws {
     try coordinateSidecarWrite { destination, existing in
-      try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination)
+      try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination, removalChange: removalChange)
     }
   }
 
@@ -422,13 +422,20 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     // Lightroom masks, history, snapshots and display-referred curves that
     // this writer used to delete on the first slider nudge.
     let passthroughOnDisk = existingXML.map(XMPParser.parsePassthrough) ?? .empty
-    let passthrough: XMPPassthrough
+    let existingRemoval = try existingXML.flatMap {
+      try RemovalXMPRecords.attribute(Data($0.utf8))
+    }
+    let canonicalRemovalName = "papp:InpaintRemovals"
+    // Canonical serialization binds papp to Maple. A foreign namespace using
+    // that spelling cannot become a Maple edit or be silently discarded.
+    if existingRemoval?.name != canonicalRemovalName,
+      passthroughOnDisk.unknownAttributes.contains(where: { $0.name == canonicalRemovalName })
+    {
+      throw RemovalError.invalid("Foreign removal attribute conflicts with Maple's XMP namespace")
+    }
     if let removalChange {
       guard let rawURL else { throw RemovalError.invalid("Removal requires a local RAW") }
-      let current =
-        passthroughOnDisk.unknownAttributes.first {
-          $0.name == "papp:InpaintRemovals"
-        }?.value ?? "[]"
+      let current = existingRemoval?.records ?? "[]"
       guard current == removalChange.expected else { throw RemovalError.saveConflict }
       try RemovalBridge.verifySource(records: removalChange.records, rawURL: rawURL)
       // Companion publication is checked again at the visibility boundary.
@@ -443,12 +450,15 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
         }
         try RemovalBridge.verifyAsset(name: name, data: Data(contentsOf: assetURL))
       }
+    }
+    let passthrough: XMPPassthrough
+    if let records = removalChange?.records ?? existingRemoval?.records {
       let attributes = passthroughOnDisk.unknownAttributes.filter {
-        $0.name != "papp:InpaintRemovals"
+        $0.name != canonicalRemovalName && $0.name != existingRemoval?.name
       }
       passthrough = XMPPassthrough(
         unknownAttributes: attributes + [
-          .init(name: "papp:InpaintRemovals", value: removalChange.records)
+          .init(name: canonicalRemovalName, value: records)
         ],
         unknownNodes: passthroughOnDisk.unknownNodes)
     } else {
