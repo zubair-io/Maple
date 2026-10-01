@@ -85,7 +85,7 @@ namespace Maple.WinUI.ViewModels
         public string RatingStars =>
             Rating <= 0 ? string.Empty : new string('★', Rating) + new string('☆', 5 - Rating);
 
-        public string BrowseSummary => $"{Format} · {FileSizeBytes / (1024.0 * 1024.0):0.0} MB" +
+        public string BrowseSummary => $"{Format} · {Services.StorageReport.FormatBytes(FileSizeBytes)}" +
             (Rating > 0 ? $" · {RatingStars}" : string.Empty) +
             (FlagStatus is "pick" or "reject" ? $" · {FlagStatus}" : string.Empty);
         public string DetailSummary => (Dimensions is "—" or "" ? string.Empty : Dimensions + " · ") + BrowseSummary;

@@ -67,7 +67,7 @@ namespace Maple.WinUI
                 .Select((photo, i) => new MuiFilmstripItem(
                     ViewerFilmstripLogic.IdAt(i), bitmaps[i], photo.FileName,
                     ViewerFilmstripLogic.CullingBadgesFor(photo.Rating, photo.FlagStatus),
-                    $"{photo.Format} · {photo.FileSizeBytes / (1024.0 * 1024.0):0.0} MB · {string.Join(" ", ViewerFilmstripLogic.CullingBadgesFor(photo.Rating, photo.FlagStatus))}"))
+                    $"{photo.Format} · {Services.StorageReport.FormatBytes(photo.FileSizeBytes)} · {string.Join(" ", ViewerFilmstripLogic.CullingBadgesFor(photo.Rating, photo.FlagStatus))}"))
                 .ToList();
             SyncFilmstripRailActive();
         }
@@ -100,7 +100,7 @@ namespace Maple.WinUI
                 {
                     Alt = photo.FileName,
                     Badges = badges,
-                    Metadata = $"{photo.Format} · {photo.FileSizeBytes / (1024.0 * 1024.0):0.0} MB · {string.Join(" ", badges)}",
+                    Metadata = $"{photo.Format} · {Services.StorageReport.FormatBytes(photo.FileSizeBytes)} · {string.Join(" ", badges)}",
                 };
                 FilmstripRail.Items = items;
                 return;
