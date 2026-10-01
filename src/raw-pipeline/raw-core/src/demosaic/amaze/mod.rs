@@ -62,6 +62,10 @@ use super::flatten_mosaic;
 use super::hamilton_adams::hamilton_adams;
 use scratch::{Scratch, Tile, BAND, TS};
 
+/// Global output-grid stride for source-aligned bounded AMaZE contexts (#3955).
+/// Share the kernel's actual stride; crop-local grids can differ at Nyquist edges.
+pub(crate) const TILE_STRIDE: u32 = scratch::BAND as u32;
+
 /// AMaZE demosaic. `mosaic` must be `CameraNativeMosaic` produced by
 /// `sensor_linearize` (single channel populated per pixel, normalised to
 /// `[0, 1]`). Output is `CameraNativeLinearRgb`.

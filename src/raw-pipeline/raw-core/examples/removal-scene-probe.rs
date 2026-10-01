@@ -15,6 +15,8 @@ use raw_core::xmp::{AdjustmentModel, AutoExposureMode, Profile};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+#[path = "removal_scene/calibration.rs"]
+mod calibration;
 #[path = "removal_scene/encoding.rs"]
 mod encoding;
 #[path = "removal_scene/masks.rs"]
@@ -39,6 +41,16 @@ enum Command {
         /// Its approximate inverse is measured; it is not assumed lossless.
         #[arg(long)]
         fixed_sdr: bool,
+        /// Qualify the bounded pre-WB linear calibration context (#3955).
+        #[arg(long)]
+        linear_calibration: bool,
+    },
+    /// Compare bounded and whole-frame pre-WB plates exactly (#3955).
+    CalibrationParity {
+        raw: PathBuf,
+        x: u32,
+        y: u32,
+        output: PathBuf,
     },
     Bake {
         raw: PathBuf,
@@ -59,9 +71,18 @@ enum Command {
     },
 }
 
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+enum ProbePlate {
+    #[default]
+    PostDcpV1,
+    LinearCalibrationV1,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Context {
+    #[serde(default)]
+    plate: ProbePlate,
     original: ContentDigest,
     window: NativeWindow,
     source_width: u32,
@@ -103,7 +124,14 @@ fn read_rgb(bytes: &[u8], side: u32, planar: bool) -> ProbeResult<Vec<[f32; 3]>>
         .collect())
 }
 
-fn encode(path: &Path, x: u32, y: u32, output: &Path, fixed_sdr: bool) -> ProbeResult<()> {
+fn encode(
+    path: &Path,
+    x: u32,
+    y: u32,
+    output: &Path,
+    fixed_sdr: bool,
+    linear_calibration: bool,
+) -> ProbeResult<()> {
     let (bytes, raw) = decode_raw(path)?;
     let window = NativeWindow {
         x,
@@ -111,7 +139,15 @@ fn encode(path: &Path, x: u32, y: u32, output: &Path, fixed_sdr: bool) -> ProbeR
         width: 1024,
         height: 1024,
     };
-    let scene = render_removal_context(&raw, window)?;
+    let scene = if linear_calibration {
+        raw_core::pipeline::render_removal_calibration_context(
+            &raw,
+            window,
+            raw_core::cancel::CancelToken::never(),
+        )?
+    } else {
+        render_removal_context(&raw, window)?
+    };
     let encoding = encoding::ProbeEncoding::fit(&scene.pixels, fixed_sdr)?;
     let model = encoding.encode(&scene.pixels)?;
     let scene_bytes = pack(scene.pixels.iter().flatten().copied());
@@ -123,6 +159,11 @@ fn encode(path: &Path, x: u32, y: u32, output: &Path, fixed_sdr: bool) -> ProbeR
         (w, h)
     };
     let context = Context {
+        plate: if linear_calibration {
+            ProbePlate::LinearCalibrationV1
+        } else {
+            ProbePlate::PostDcpV1
+        },
         original: ContentDigest::for_bytes(&bytes),
         window,
         source_width,
@@ -200,6 +241,19 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
     // Exercise the real durable fp16 codec and source-window composition.
     let identity_bytes = patch_to_bytes(&patch_for(identity.clone()))?;
     let replacement_bytes = patch_to_bytes(&patch_for(replacement))?;
+    if context.plate == ProbePlate::LinearCalibrationV1 {
+        return calibration::bake(calibration::Bake {
+            raw: &raw,
+            path,
+            context: &context,
+            output,
+            identity: &identity_bytes,
+            replacement: &replacement_bytes,
+            coverage: &coverage,
+            generation_masks,
+            model_result: ContentDigest::for_bytes(&result_bytes),
+        });
+    }
     let base = rgba(&scene);
     let identity_plate = composite_window_into_f32(
         &base,
@@ -348,7 +402,11 @@ fn main() -> ProbeResult<()> {
             y,
             output,
             fixed_sdr,
-        } => encode(&raw, x, y, &output, fixed_sdr),
+            linear_calibration,
+        } => encode(&raw, x, y, &output, fixed_sdr, linear_calibration),
+        Command::CalibrationParity { raw, x, y, output } => {
+            calibration::compare(&raw, x, y, &output)
+        }
         Command::Bake {
             raw,
             context,

@@ -25,7 +25,10 @@
 //! * [`overlap`] — the per-render pad calculator.
 //! * [`develop`] — the develop chain run on the padded crop.
 
+mod camera;
 mod develop;
+mod removal;
+pub(super) use removal::render_removal_camera_context;
 mod guards;
 mod overlap;
 mod region;
@@ -235,24 +238,7 @@ fn develop_tile_oriented_f32(
         s_w / divisor,
         s_h / divisor,
     );
-    let active_area = crate::pipeline::develop::highlight_active_area(raw, divisor).map(|area| {
-        let x = area.x.saturating_sub(rx / divisor);
-        let y = area.y.saturating_sub(ry / divisor);
-        crate::image::CropRect {
-            x,
-            y,
-            w: area
-                .x
-                .saturating_add(area.w)
-                .saturating_sub(rx / divisor)
-                .saturating_sub(x),
-            h: area
-                .y
-                .saturating_add(area.h)
-                .saturating_sub(ry / divisor)
-                .saturating_sub(y),
-        }
-    });
+    let active_area = region::active_area_for_padded_crop(raw, rx, ry, divisor);
     let developed = develop_scene_linear_from_padded_mosaic(
         &mosaic,
         raw,

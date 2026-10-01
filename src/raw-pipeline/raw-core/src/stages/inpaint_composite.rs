@@ -89,7 +89,7 @@ pub fn sampling_map(image_size: [u32; 2], patch: &InpaintPatch, window: [f32; 4]
 pub fn apply(img: &mut Image, patches: &[InpaintPatch]) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     for patch in patches.iter().filter(|p| p.is_valid()) {
-        composite_patch(img, patch, [0.0, 0.0, 1.0, 1.0]);
+        composite_patch(img, patch, [0.0, 0.0, 1.0, 1.0], |rgb| rgb);
     }
 }
 
@@ -108,12 +108,32 @@ pub fn apply_window(
         patch.validate()?;
     }
     for patch in patches {
-        composite_patch(img, patch, window);
+        composite_patch(img, patch, window, |rgb| rgb);
     }
     Ok(())
 }
 
-fn composite_patch(img: &mut Image, patch: &InpaintPatch, window: [f32; 4]) {
+/// Fixed linear calibration-to-camera transport for the #3955 qualification
+/// entry. Caller validates the entire stack and transform before mutation.
+pub(crate) fn apply_camera_patches(
+    img: &mut Image,
+    patches: &[InpaintPatch],
+    camera_from_calibration: crate::math::Matrix3,
+) {
+    img.assert_space(ColorSpace::CameraNativeLinearRgb);
+    for patch in patches {
+        composite_patch(img, patch, [0.0, 0.0, 1.0, 1.0], |rgb| {
+            camera_from_calibration.mul_vec(rgb)
+        });
+    }
+}
+
+fn composite_patch(
+    img: &mut Image,
+    patch: &InpaintPatch,
+    window: [f32; 4],
+    to_output: impl Fn([f32; 3]) -> [f32; 3],
+) {
     let (iw, ih) = (img.width, img.height);
     let (pw, ph) = (patch.width, patch.height);
     let [sx, sy, ox, oy] = sampling_map([iw, ih], patch, window);
@@ -131,7 +151,7 @@ fn composite_patch(img: &mut Image, patch: &InpaintPatch, window: [f32; 4]) {
             if cov <= 0.0 {
                 continue;
             }
-            let pp = sample_rgb(&patch.pixels, pw, ph, pu, pv);
+            let pp = to_output(sample_rgb(&patch.pixels, pw, ph, pu, pv));
             let idx = (y * iw + x) as usize;
             img.pixels[idx] = lerp3(img.pixels[idx], pp, cov);
         }
