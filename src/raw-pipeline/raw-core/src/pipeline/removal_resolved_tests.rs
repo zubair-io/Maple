@@ -127,7 +127,7 @@ fn saved_stack_reopens_from_real_sidecar_and_companions_without_inference() {
     std::fs::write(&source_path, RAW).unwrap();
     let wire = crate::types::inpaint::encode_removals(&model.inpaint_removals).unwrap();
     let xml = format!(
-        r#"<rdf:Description xmlns:rdf="x" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="{}"/>"#,
+        r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="{}"/>"#,
         wire.replace('"', "&quot;")
     );
     let sidecar = dir.path().join("photo.xmp");

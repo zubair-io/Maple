@@ -14,7 +14,7 @@ const root = resolve(process.cwd(), '../../test-fixtures/removal/basic');
 const fixture = (name: string) => new Uint8Array(readFileSync(resolve(root, name)));
 const text = (name: string) => new TextDecoder().decode(fixture(name));
 const xmpFor = (records: string, exposure = 0) =>
-  `<rdf:Description xmlns:rdf="x" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" crs:Exposure2012="${exposure}" papp:InpaintRemovals="${records.replaceAll('"', '&quot;')}"/>`;
+  `<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" crs:Exposure2012="${exposure}" papp:InpaintRemovals="${records.replaceAll('"', '&quot;')}"/>`;
 
 // Actual release WASM, real RAW and companion codecs; no inference dependency.
 describe('saved-removal rendering through retained RAW WASM bindings', () => {
@@ -106,6 +106,36 @@ describe('saved-removal rendering through retained RAW WASM bindings', () => {
         reopened.free();
       }
       expect(raw).toEqual(before);
+    } finally {
+      session.free();
+    }
+  });
+
+  it('renders namespace aliases and scalar property payloads identically after reopening', () => {
+    const session = new NativeDetailSession(fixture('source.dng'), 'dng');
+    try {
+      const { xmp, records, bundle } = prepare(session);
+      const reference = session.render_saved_removals(xmp, 64, new Uint8Array());
+      const expected = reference.take_rgb();
+      reference.free();
+      for (const uri of ['http://ns.justmaple.app/photo/1.0/', 'http://ns.justmaple.app/1.0/']) {
+        const alias = xmp
+          .replaceAll('papp:', 'm:')
+          .replace('xmlns:papp=', 'xmlns:m=')
+          .replace('http://ns.justmaple.app/photo/1.0/', uri);
+        const property = `<r:Description xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:m="${uri}"><m:InpaintRemovals><![CDATA[${records}]]></m:InpaintRemovals></r:Description>`;
+        for (const document of [alias, property]) {
+          expect(session.prepare_saved_removals(document, bundle.manifest, bundle.bytes)).toBe(
+            '[]',
+          );
+          const result = session.render_saved_removals(document, 64, new Uint8Array());
+          try {
+            expect(result.take_rgb()).toEqual(expected);
+          } finally {
+            result.free();
+          }
+        }
+      }
     } finally {
       session.free();
     }

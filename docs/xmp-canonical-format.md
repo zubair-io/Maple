@@ -230,8 +230,11 @@ those bytes must not be treated as a saved edit or deleted as cache entries.
 
 Apple writers use a persistent advisory `.photo.xmp.lock` file, synchronize new
 assets and the accepted sidecar, and publish through atomic filesystem operations.
-Apple confirmation resolves the owned removal attribute by its namespace URI,
-including renamed prefixes and the legacy Maple URI. Ordinary saves preserve
+The shared core and Apple resolve owned removal attributes and direct scalar
+property elements on RDF descriptions by namespace URI, including renamed
+prefixes and the legacy Maple URI. Duplicate owned fields and nested XML
+payloads fail closed. Apple refuses to rewrite fields outside the primary
+description rather than duplicating or dropping them. Ordinary saves preserve
 that stack under canonical `papp:InpaintRemovals`; confirmation compares its
 exact text under the write lock. Malformed owned records and a foreign namespace
 claiming the canonical spelling refuse the write and preserve the sidecar.

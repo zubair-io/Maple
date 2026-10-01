@@ -44,6 +44,7 @@ final class RemovalXMPRecordsTests: XCTestCase {
       <r:Description m:InpaintRemovals="[]"/><r:Description m:InpaintRemovals="[]"/></r:RDF>
       """.utf8)
     XCTAssertThrowsError(try RemovalXMPRecords.read(duplicate))
+    XCTAssertThrowsError(try RemovalXMPRecords.read(document("missing:InpaintRemovals=\"[]\"")))
     XCTAssertThrowsError(try RemovalXMPRecords.read(Data("<broken m:InpaintRemovals=\"[]\"".utf8)))
     XCTAssertThrowsError(try RemovalXMPRecords.read(document("m:InpaintRemovals=\"invalid JSON\"")))
     XCTAssertThrowsError(

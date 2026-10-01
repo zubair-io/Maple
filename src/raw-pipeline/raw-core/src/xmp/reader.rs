@@ -110,6 +110,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
         model.local_adjustments = canonical_layers;
     }
     retouch.finish(&mut model);
+    model.inpaint_removals = removal_records::parse(xml)?;
     let unstamped_is_v1 = papp_seen && (model.temperature_seen || model.tint_seen);
     // Unstamped, non-Maple (or WB-less) documents are V5 (#1894): an
     // ACR/Lightroom-authored crs:Tint is expressed in ACR's own convention,
