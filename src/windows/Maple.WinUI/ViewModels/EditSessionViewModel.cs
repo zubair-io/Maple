@@ -424,16 +424,21 @@ namespace Maple.WinUI.ViewModels
                     photo.Rating, photo.FlagStatus, photo.ColorLabel);
             }
             _localMetadataError = null;
+            var failures = new List<string>();
             foreach (var result in _localMetadataWrites.Flush())
             {
                 if (result.Error is { } error)
                 {
                     _localMetadataError = error;
+                    failures.Add($"{System.IO.Path.GetFileName(result.Path)}: {error.Message}");
                     DiagLog.Write($"[Sidecar] write failed for {result.Path}: {error.Message}");
                 }
                 else if (string.Equals(result.Path, photo?.FilePath, StringComparison.OrdinalIgnoreCase))
                     _lastSidecarWriteText = result.Xml;
             }
+            var message = failures.Count == 0 ? string.Empty :
+                "Changes are kept in this session but have not been saved. " + string.Join("\n", failures);
+            OnUi(() => LocalSaveError = message);
         }
 
         private void OnSidecarChangedOnDisk(object? sender, string path)

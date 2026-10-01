@@ -12,6 +12,18 @@ public partial class EditSessionViewModel
     private readonly object _localMetadataGate = new();
     private readonly Services.Xmp.PendingLocalSidecarWrites _localMetadataWrites = new();
     private Exception? _localMetadataError;
+    private string _localSaveError = string.Empty;
+    public string LocalSaveError
+    {
+        get => _localSaveError;
+        private set
+        {
+            if (SetProperty(ref _localSaveError, value)) OnPropertyChanged(nameof(HasLocalSaveError));
+        }
+    }
+    public bool HasLocalSaveError => !string.IsNullOrEmpty(LocalSaveError);
+
+    public Task RetryLocalSaveAsync() => Task.Run(FlushSidecarNow);
 
     private void TrackCloudMetadataWrite(Func<Task> write) => _cloudMetadataWrites.Enqueue(write);
 

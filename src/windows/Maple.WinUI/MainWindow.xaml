@@ -1125,5 +1125,14 @@
                 </Grid>
             </Grid>
         </Grid>
+        <InfoBar x:Name="LocalSaveErrorBar" Grid.RowSpan="2" IsOpen="{Binding HasLocalSaveError}"
+                 IsClosable="False" Severity="Error" Title="Changes not saved" Message="{Binding LocalSaveError}"
+                 MaxWidth="640" Margin="16" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                 AutomationProperties.LiveSetting="Assertive">
+            <InfoBar.ActionButton>
+                <mui:MuiButton x:Name="LocalSaveRetry" Label="Retry" Click="OnRetryLocalSave"
+                               AutomationProperties.Name="Retry saving local changes" />
+            </InfoBar.ActionButton>
+        </InfoBar>
     </Grid>
 </Window>

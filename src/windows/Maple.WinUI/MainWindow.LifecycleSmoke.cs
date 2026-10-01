@@ -81,18 +81,33 @@ namespace Maple.WinUI
                     await VerifyRetouchUndoAsync();
                     await VerifyTransferUndoAsync(output);
                     VerifyViewerDesignNavigation();
+                    RecordSmokeStage(output, "filmstrip-metadata");
                     await VerifyFilmstripMetadataAsync();
+                    RecordSmokeStage(output, "local-save-failure");
+                    await VerifyLocalSaveFailureAsync();
+                    RecordSmokeStage(output, "comparison");
                     await VerifyComparisonAsync(raw);
+                    RecordSmokeStage(output, "film-comparison");
                     await VerifyFilmComparisonAsync(raw, output);
+                    RecordSmokeStage(output, "responsive-layout");
                     await VerifyResponsiveDesignAsync();
+                    RecordSmokeStage(output, "browse-selection");
                     VerifyBrowseSelection();
+                    RecordSmokeStage(output, "browse-scrolling");
                     await VerifyBrowseScrollingAsync();
+                    RecordSmokeStage(output, "immediate-undo");
                     await VerifyImmediateUndoAsync();
+                    RecordSmokeStage(output, "preview-recovery");
                     await VerifyPreviewRecoveryAsync(raw, output);
+                    RecordSmokeStage(output, "thumbnail-fallback");
                     await VerifyThumbnailFallbackAsync(raw, output);
+                    RecordSmokeStage(output, "cloud-opening");
                     await EditSessionViewModel.VerifyCloudOpeningAsync(raw, output);
+                    RecordSmokeStage(output, "cloud-search");
                     await EditSessionViewModel.VerifyCloudSearchAsync(output);
+                    RecordSmokeStage(output, "cloud-map");
                     await VerifyCloudMapAsync(output);
+                    RecordSmokeStage(output, "shutdown");
                 }
 
                 // Real queued UI present, held solely by this smoke's UI turn.
@@ -135,6 +150,7 @@ namespace Maple.WinUI
                     rendererStopped = renderer.IsStopped,
                     droppedClosingPresents = renderer.DroppedClosingPresents,
                     viewerDesignNavigation = expectedPath != "empty",
+                    localSaveFailureRecovery = expectedPath != "empty",
                     nativeDetailActualSize = expectedPath != "empty",
                     presetUndoRedoAndReset = expectedPath != "empty",
                     adjustmentGestureUndoRedo = expectedPath != "empty",

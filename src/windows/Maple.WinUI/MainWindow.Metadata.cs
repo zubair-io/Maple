@@ -14,6 +14,13 @@ namespace Maple.WinUI;
 
 public sealed partial class MainWindow
 {
+    private async void OnRetryLocalSave(object sender, RoutedEventArgs e)
+    {
+        LocalSaveRetry.IsEnabled = false;
+        try { await ViewModel.RetryLocalSaveAsync(); }
+        finally { LocalSaveRetry.IsEnabled = true; }
+    }
+
     private async void OnEditSelectionMetadata(object sender, RoutedEventArgs e) =>
         await RunModalFlowGuardedAsync(() => EditMetadataAsync(ViewModel.SelectedPhotos.ToArray()));
 
