@@ -14,6 +14,9 @@ use std::ffi::{c_char, CStr};
 #[path = "removal_saved_detail.rs"]
 mod detail;
 pub use detail::maple_removal_saved_detail;
+#[path = "removal_saved_selection.rs"]
+mod selection;
+pub use selection::maple_removal_saved_selection_proxy;
 
 /// Immutable prepared stack plus original bytes for RAW-pinned Auto fitting.
 /// Caller keeps the associated RAW handle alive and frees this exactly once.

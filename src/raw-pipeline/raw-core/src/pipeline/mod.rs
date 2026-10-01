@@ -46,6 +46,8 @@ mod removal_encoding;
 pub use removal_encoding::RemovalModelEncoding;
 mod removal_mask_store;
 pub use removal_assets::{removal_asset_names, verify_removal_asset, verify_removal_source};
+mod removal_selection_proxy;
+pub use removal_selection_proxy::render_removal_selection_proxy;
 mod removal_resolved;
 pub use removal_resolved::ResolvedCalibrationRemovals;
 mod removal_prepare;

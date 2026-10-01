@@ -106,6 +106,15 @@ public actor NativeSavedRemovalSession {
     return indices
   }
 
+  /// Fixed As-Shot, unwarped, unoriented DefaultCrop RGB8 for selection.
+  /// Includes accepted pixels but excludes creative grade, lens and crop; the
+  /// shared Auto view is retained. Use only off main when preparing AI inputs.
+  public func selectionProxy(xmp: String) throws -> NativeRemovalRender {
+    try render(xmp: xmp, film: Data()) { owner, xmp, _, output in
+      maple_removal_saved_selection_proxy(handle.pointer, owner.pointer, xmp, output)
+    }
+  }
+
   /// Returns packed RGB8 for the existing sRGB image presentation boundary.
   /// Cancellation discards completed output; it does not interrupt CPU render.
   public func preview(xmp: String, maxLongEdge: UInt32, film: Data = Data()) throws

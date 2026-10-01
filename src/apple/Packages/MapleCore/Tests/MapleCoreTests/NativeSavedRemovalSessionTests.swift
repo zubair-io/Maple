@@ -187,4 +187,25 @@ final class NativeSavedRemovalSessionTests: XCTestCase {
     XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), xmp)
   }
 
+  func testSelectionProxyIncludesSavedPixelsAndExcludesCreativeGradeAndGeometry() async throws {
+    let (session, source, xmp, assets) = try fixture()
+    _ = try await session.prepare(source: source, ext: "dng", xmp: xmp, assets: assets)
+    let proxy = try await session.selectionProxy(xmp: xmp)
+    XCTAssertEqual(proxy.width, 16)
+    XCTAssertEqual(proxy.height, 8)
+    XCTAssertEqual(proxy.bytes.count, 384)
+    let creative = xmp.replacingOccurrences(
+      of: "papp:InpaintRemovals=",
+      with: """
+        xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="3" crs:Temperature="9000" crs:HasCrop="True" crs:CropLeft="0.25" crs:CropRight="0.75" crs:CropAngle="7" crs:PerspectiveX="50" papp:InpaintRemovals=
+        """)
+    let changed = try await session.selectionProxy(xmp: creative)
+    XCTAssertEqual(changed.bytes, proxy.bytes)
+    do {
+      _ = try await session.selectionProxy(
+        xmp: "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>")
+      XCTFail("Another saved stack cannot become a selection proxy")
+    } catch { XCTAssertTrue(error is RemovalError) }
+  }
+
 }
