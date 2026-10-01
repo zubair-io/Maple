@@ -1,0 +1,59 @@
+{
+  "kind": "diagnostic-only",
+  "issue": 3875,
+  "sourceBase": "76b5a05ea",
+  "fixtureSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+  "exampleSha256": "c469501130874a9758aa29ae2f62bb2ea5a80cde338adb9401ddb9e167eca8be",
+  "scene": {
+    "height": 4096,
+    "profile": "Neutral",
+    "quality": "Preview",
+    "nrColor": 25,
+    "iso": 200,
+    "width": 6144,
+    "noiseProfile": [
+      8.354687E-05,
+      2.8952401E-08
+    ]
+  },
+  "output": {
+    "width": 1600,
+    "height": 1067
+  },
+  "reference": "NR applied to common scene before downsampling, not full export or ACR",
+  "metrics": {
+    "no-nr": {
+      "mean_deltaE": 1.1269876161111307,
+      "p95_deltaE": 2.5880841754570563,
+      "max_deltaE": 10.020965384027164,
+      "bias_r": 0.00016968407726380974,
+      "bias_g": -0.0002028285089181736,
+      "bias_b": -0.0004190236213617027,
+      "n_pixels": 1707200
+    },
+    "oklab-average-no-nr": {
+      "mean_deltaE": 1.2174859256290829,
+      "p95_deltaE": 2.8736156754429536,
+      "max_deltaE": 19.60010714515659,
+      "bias_r": -0.0026605587918311357,
+      "bias_g": -0.0025560345966368914,
+      "bias_b": -0.0023413205053657293,
+      "n_pixels": 1707200
+    },
+    "nr-after-resize": {
+      "mean_deltaE": 2.0773010900617677,
+      "p95_deltaE": 5.101602117501494,
+      "max_deltaE": 34.075264947424714,
+      "bias_r": 0.00040737984818406403,
+      "bias_g": 8.539031114196405E-05,
+      "bias_b": 0.0001908874837681651,
+      "n_pixels": 1707200
+    }
+  },
+  "interpretation": "Oklab averaging without NR does not improve the no-NR control and adds a negative RGB bias. Current NR after resize differs more than either no-NR diagnostic control. Neither disabling NR nor changing averaging space is accepted as a fix.",
+  "limitations": [
+    "One fixture and one common half-resolution scene",
+    "No production algorithm or budget changed",
+    "No claim of full-resolution export parity or performance qualification"
+  ]
+}

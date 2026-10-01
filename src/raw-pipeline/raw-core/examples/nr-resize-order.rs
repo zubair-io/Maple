@@ -6,6 +6,7 @@
 //! Add `--sweep` after the long edge to measure intermediate NR resolutions
 //! without changing the amount, noise model, or production render path.
 use raw_core::{
+    color::oklab::{oklab_to_rec2020, rec2020_to_oklab},
     image::Image,
     pipeline::{
         develop_scene_linear_from_raw_with_quality, downsample_image_area,
@@ -58,6 +59,16 @@ fn main() {
     let mut resized = scene.clone();
     downsample_image_area(&mut resized, edge);
     write_frame(out, "no-nr", resized.clone(), &model);
+    // Separate nonlinear colour-space averaging from NLM neighbourhood effects.
+    let mut perceptual_average = scene.clone();
+    for pixel in &mut perceptual_average.pixels {
+        *pixel = rec2020_to_oklab(*pixel);
+    }
+    downsample_image_area(&mut perceptual_average, edge);
+    for pixel in &mut perceptual_average.pixels {
+        *pixel = oklab_to_rec2020(*pixel);
+    }
+    write_frame(out, "oklab-average-no-nr", perceptual_average, &model);
     let started = Instant::now();
     noise_reduction::apply_color(&mut resized, amount, raw.noise_profile.as_deref(), raw.iso);
     println!("NR after resize: {:?}", started.elapsed());
