@@ -6,6 +6,18 @@ use raw_core::{
     types::accepted_removal::ContentDigest,
 };
 
+/// Ordinary entries have no companion owner. They must not claim a complete
+/// RAW render while silently ignoring a persisted accepted edit.
+pub(crate) fn require_no_unresolved_removals(
+    model: &raw_core::xmp::AdjustmentModel,
+) -> Result<(), String> {
+    if model.inpaint_removals.is_empty() {
+        Ok(())
+    } else {
+        Err("saved removal companions are required; use the verified saved renderer".into())
+    }
+}
+
 pub(crate) fn prepare(
     raw: &RawImage,
     original: &ContentDigest,

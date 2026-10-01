@@ -55,6 +55,8 @@ pub(crate) use raw_core::gpu_host::prepare::prefix_model_for;
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) use raw_core::gpu_host::prepare::{chain_inputs_with_status, develop_prefix_rgba};
 #[cfg(any(target_arch = "wasm32", test))]
+use raw_core::gpu_host::prepare::effective_ae_mode;
+#[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_gpu::{GpuContext, LiveSession};
@@ -198,6 +200,11 @@ mod primaries_tests {
     }
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "gpu_render/prefix.rs"]
+mod prefix;
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) use prefix::{develop_prefix_rgba_saved, require_prepared_removals};
 /// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
 /// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
 /// runs — `render_bytes_gpu` is `#[wasm_bindgen]` (wasm-only), but everything

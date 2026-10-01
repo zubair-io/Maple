@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 /// or render an accepted result. Hosts retain this outside the slider loop.
 pub struct ResolvedCalibrationRemovals {
     source: SourceAnchor,
-    records: ContentDigest,
+    records: Vec<Removal>,
     patches: Vec<InpaintPatch>,
     needs_review: Vec<usize>,
 }
@@ -64,6 +64,12 @@ impl ResolvedCalibrationRemovals {
         Self::prepare(raw, original, records, &assets)
     }
 
+    /// Allocation-free stack check for a retained immutable RAW owner. Source
+    /// validation remains at preparation and prefix development boundaries.
+    pub fn matches_records(&self, records: &[Removal]) -> bool {
+        self.records == records
+    }
+
     pub fn needs_review(&self) -> &[usize] {
         &self.needs_review
     }
@@ -100,9 +106,7 @@ impl ResolvedCalibrationRemovals {
         model: &AdjustmentModel,
     ) -> crate::Result<()> {
         let source = super::removal_calibration_source_anchor(raw, original)?;
-        let encoded = crate::types::inpaint::encode_removals(&model.inpaint_removals)
-            .map_err(crate::Error::Pipeline)?;
-        if self.source != source || self.records != ContentDigest::for_bytes(encoded.as_bytes()) {
+        if self.source != source || !self.matches_records(&model.inpaint_removals) {
             return Err(crate::Error::Pipeline(
                 "saved removal source or stack changed".into(),
             ));
@@ -121,7 +125,7 @@ impl ResolvedCalibrationRemovals {
     ) -> Result<Self, String> {
         let source =
             super::removal_calibration_source_anchor(raw, original).map_err(|e| e.to_string())?;
-        let encoded = crate::types::inpaint::encode_removals(records)?;
+        crate::types::inpaint::encode_removals(records)?;
         let mut patches = Vec::with_capacity(records.len());
         let mut needs_review = Vec::new();
         for (index, removal) in records.iter().enumerate() {
@@ -148,7 +152,7 @@ impl ResolvedCalibrationRemovals {
         }
         Ok(Self {
             source,
-            records: ContentDigest::for_bytes(encoded.as_bytes()),
+            records: records.to_vec(),
             patches,
             needs_review,
         })
@@ -176,7 +180,7 @@ impl ResolvedCalibrationRemovals {
         .map(|(scene, _)| scene)
     }
 
-    pub(crate) fn develop_with_gain(
+    pub fn develop_with_gain(
         &self,
         raw: &RawImage,
         original: &ContentDigest,

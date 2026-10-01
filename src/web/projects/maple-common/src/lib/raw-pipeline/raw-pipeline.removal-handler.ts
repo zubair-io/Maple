@@ -66,6 +66,15 @@ export function runRemovalAuthoring(
         rgb: rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength) as ArrayBuffer,
       };
     }
+    case 'prepare-saved':
+      return {
+        kind: 'prepared',
+        review: session.prepare_saved_removals(
+          command.xmp,
+          command.manifest,
+          new Uint8Array(command.companions),
+        ),
+      };
     case 'selection': {
       const mask = removal_selection(anchor.width, anchor.height, command.request);
       return {

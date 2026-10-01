@@ -14,6 +14,7 @@ const root = resolve("src/web/projects/maple-common/src/lib/raw-pipeline");
 for (const [entry, name] of [
   ["raw-pipeline.worker.ts", "worker.mjs"],
   ["raw-pipeline.removal-client.ts", "client.mjs"],
+  ["raw-pipeline.gpu-live-session.ts", "session-client.mjs"],
 ]) {
   await build({
     entryPoints: [resolve(root, entry)],
@@ -28,6 +29,7 @@ const pkg = resolve(root, "pkg");
 const routes = new Map([
   ["/worker.mjs", resolve(out, "worker.mjs")],
   ["/client.mjs", resolve(out, "client.mjs")],
+  ["/session-client.mjs", resolve(out, "session-client.mjs")],
   ["/raw_wasm_bg.wasm", resolve(pkg, "raw_wasm_bg.wasm")],
   ["/source.dng", resolve("test-fixtures/removal/basic/source.dng")],
   ["/saved.xmp", resolve("test-fixtures/removal/calibration/saved.xmp")],
@@ -74,7 +76,10 @@ const server = createServer(async (request, response) => {
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const browser = await chromium.launch({
   headless: true,
-  args: ["--enable-unsafe-webgpu"],
+  args: [
+    "--enable-unsafe-webgpu",
+    ...(process.platform === "darwin" ? ["--use-angle=metal"] : []),
+  ],
 });
 try {
   const page = await browser.newPage(),
@@ -88,6 +93,7 @@ try {
   await page.goto("http://127.0.0.1:" + server.address().port);
   const report = await page.evaluate(async () => {
     const { RemovalAuthoringClient } = await import("/client.mjs");
+    const { openLiveSessionRequest } = await import("/session-client.mjs");
     const raw = new Uint8Array(
       await (await fetch("/source.dng")).arrayBuffer(),
     );
@@ -105,7 +111,12 @@ try {
       const waiter = pending.get(data.id);
       if (waiter) {
         pending.delete(data.id);
-        if (data.type === "removal-authoring-success")
+        if (
+          waiter.kind === "open-session" &&
+          data.type === "open-session-success"
+        )
+          waiter.resolve(data);
+        else if (data.type === "removal-authoring-success")
           waiter.resolve(data.value);
         else waiter.reject(Error(data.message ?? "Unexpected authoring reply"));
       }
@@ -132,6 +143,24 @@ try {
       '<rdf:Description xmlns:rdf="x" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:PerspectiveX="100"/>';
     const cropXmp =
       '<rdf:Description xmlns:rdf="x" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:HasCrop="True" crs:CropLeft="0.25" crs:CropRight="0.75" crs:CropTop="0" crs:CropBottom="1" crs:CropAngle="90"/>';
+    const records = await (await fetch("/records.json")).json();
+    const savedXmp = await (await fetch("/saved.xmp")).text();
+    const maskBytes = new Uint8Array(
+      await (await fetch("/mask.mimf")).arrayBuffer(),
+    );
+    const patchBytes = new Uint8Array(
+      await (await fetch("/patch.f16")).arrayBuffer(),
+    );
+    const manifest = JSON.stringify([
+      {
+        name: records[0].accepted.mask.slice(7) + ".mask",
+        length: maskBytes.length,
+      },
+      { name: records[0].patch.slice(7) + ".f16", length: patchBytes.length },
+    ]);
+    const companions = new Uint8Array(maskBytes.length + patchBytes.length);
+    companions.set(maskBytes);
+    companions.set(patchBytes, maskBytes.length);
     async function measure() {
       const source = await client.open({
         sourceId: "synthetic",
@@ -167,24 +196,11 @@ try {
           strokes: [{ points: [[0.5, 0.5]], radius: 0.1, subtract: false }],
         }),
       );
-      const records = await (await fetch("/records.json")).json();
-      const savedXmp = await (await fetch("/saved.xmp")).text();
-      const maskBytes = new Uint8Array(
-        await (await fetch("/mask.mimf")).arrayBuffer(),
-      );
-      const patchBytes = new Uint8Array(
-        await (await fetch("/patch.f16")).arrayBuffer(),
-      );
-      const manifest = JSON.stringify([
-        {
-          name: records[0].accepted.mask.slice(7) + ".mask",
-          length: maskBytes.length,
-        },
-        { name: records[0].patch.slice(7) + ".f16", length: patchBytes.length },
-      ]);
-      const companions = new Uint8Array(maskBytes.length + patchBytes.length);
-      companions.set(maskBytes);
-      companions.set(patchBytes, maskBytes.length);
+      const preparedReview = await client.prepareSaved(savedXmp, {
+        manifest,
+        bytes: companions,
+      });
+      if (preparedReview !== "[]") throw Error("Unexpected saved stack review");
       const generationContext = await client.generationContext(
         savedXmp,
         [1, 1, 7, 5],
@@ -241,6 +257,7 @@ try {
       if (!closedRejected) throw Error("Closed authoring session accepted");
       return {
         source,
+        preparedReview,
         mapped,
         crop,
         context: Array.from(context),
@@ -254,19 +271,28 @@ try {
     }
     try {
       const cpu = await measure();
-      const bytes = raw.slice().buffer,
-        canvas = new OffscreenCanvas(64, 64);
-      await rpc(
-        {
-          type: "open-session",
-          bytes,
-          ext: "dng",
-          canvas,
-          maxLongEdge: 64,
-          targetColorSpace: "srgb",
-        },
-        [bytes, canvas],
+      const canvas = new OffscreenCanvas(64, 64);
+      const opened = await openLiveSessionRequest(
+        worker,
+        ++id,
+        (key, handler) => pending.set(key, handler),
+        canvas,
+        raw,
+        "dng",
+        savedXmp,
+        64,
+        "srgb",
+        { manifest, bytes: companions },
       );
+      if (
+        opened.width !== 16 ||
+        opened.height !== 8 ||
+        !raw.length ||
+        !companions.length
+      )
+        throw Error(
+          "Production saved session open lost geometry or detached original/companion ownership",
+        );
       const gpu = await measure();
       if (JSON.stringify(cpu) !== JSON.stringify(gpu))
         throw Error("CPU/WebGPU retained authoring drift");

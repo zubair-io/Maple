@@ -106,6 +106,17 @@ export interface WebLiveSessionInstance {
   free(): void;
 }
 export interface WebLiveSessionCtor {
+  open_with_saved_removals?(
+    raw: Uint8Array,
+    ext: string,
+    xmp: string,
+    canvas: OffscreenCanvas,
+    maxLongEdge: number | undefined,
+    targetColorSpace: string | undefined,
+    manifest: string,
+    companions: Uint8Array,
+  ): Promise<WebLiveSessionInstance>;
+
   open(
     raw: Uint8Array,
     ext: string,

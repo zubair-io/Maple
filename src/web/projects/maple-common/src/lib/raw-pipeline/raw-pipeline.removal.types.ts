@@ -17,7 +17,8 @@ export type RemovalAuthoringCommand =
       manifest: string;
       companions: ArrayBuffer;
     }
-  | { kind: 'selection'; request: string };
+  | { kind: 'selection'; request: string }
+  | { kind: 'prepare-saved'; xmp: string; manifest: string; companions: ArrayBuffer };
 
 export interface RemovalAuthoringRequest {
   id: number;
@@ -33,7 +34,8 @@ export type RemovalAuthoringValue =
   | { kind: 'source'; source: string }
   | { kind: 'map'; mapping: string }
   | { kind: 'context'; rgb: ArrayBuffer }
-  | { kind: 'selection'; mask: ArrayBuffer };
+  | { kind: 'selection'; mask: ArrayBuffer }
+  | { kind: 'prepared'; review: string };
 
 export type RemovalAuthoringResponse =
   | { id: number; type: 'removal-authoring-success'; value: RemovalAuthoringValue }

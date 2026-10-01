@@ -187,6 +187,7 @@ impl NativeDetailSession {
             // keeping only native frame evidence that remains exact.
             let previous = self.prepared.take().map(|prepared| prepared.context);
             let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(js_error)?;
+            crate::removal_saved::require_no_unresolved_removals(&model).map_err(js_error)?;
             let film = if film_bytes.is_empty() {
                 None
             } else {

@@ -78,6 +78,19 @@ export class RemovalAuthoringClient {
     return new Float32Array(result.rgb);
   }
 
+  async prepareSaved(xmp: string, bundle: RemovalCompanionBundle): Promise<string> {
+    if (!this.input) throw new Error('Removal RAW session is not open');
+    const companions = bundle.bytes.slice().buffer as ArrayBuffer;
+    const result = await this.send(
+      this.input,
+      { kind: 'prepare-saved', xmp, manifest: bundle.manifest, companions },
+      this.epoch,
+      [companions],
+    );
+    if (result.kind !== 'prepared') throw new Error('Invalid saved removal preparation reply');
+    return result.review;
+  }
+
   async selection(request: string): Promise<Uint8Array> {
     const result = await this.operation({ kind: 'selection', request });
     if (result.kind !== 'selection') throw new Error('Invalid removal selection reply');
