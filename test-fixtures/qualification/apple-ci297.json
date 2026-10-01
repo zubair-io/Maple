@@ -1,0 +1,35 @@
+{
+  "issue": 3875,
+  "sourceRevision": "cb84aee62a32204bb2ab2783680427b88525017b",
+  "appleRun": "https://github.com/zubair-io/Maple/actions/runs/36933156379",
+  "compile": "passed",
+  "mapleUiTests": "passed",
+  "mapleCoreExecution": {
+    "job": "https://github.com/zubair-io/Maple/actions/runs/36933156379/job/110607123675",
+    "executed": 1920,
+    "failures": 0,
+    "newSamplingTests": {
+      "executed": 5,
+      "failures": 0,
+      "cases": [
+        "testCachedExportUsesSamplingDensity",
+        "testCpuAndGpuParameterBuildersRetainSamplingDensity",
+        "testResamplingComposesDensityWithoutTreatingUpscaleAsMoreDetail",
+        "testSamplingDensityInvalidatesCachedChainOutput",
+        "testSnapshotRetainsSamplingDensityUntilInvalidation"
+      ]
+    }
+  },
+  "metalGpu": {
+    "job": "https://github.com/zubair-io/Maple/actions/runs/36933156279/job/110607122790",
+    "passed": 252,
+    "failed": 0,
+    "ignored": 3
+  },
+  "limitations": [
+    "This supersedes the missing Apple compile/execution evidence in apple-sampling-binding296.json for the recorded revision only.",
+    "The registered regression allowlist does not execute every MapleCore test class.",
+    "The Metal unit-test job is not the separate 18-case capability-registry corpus and does not refresh that stale qualification record.",
+    "No physical-device performance, Windows visual qualification or production preview/export color pass is claimed."
+  ]
+}

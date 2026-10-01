@@ -59,7 +59,7 @@ pub fn validate_raster_adjustments(model: &AdjustmentModel) -> Result<()> {
 /// Untagged inputs use sRGB. Tagged RGB inputs transform directly to linear
 /// Rec.2020 in f32, preserving wide gamut without an sRGB/8-bit intermediate.
 fn decode(bytes: &[u8]) -> Result<(Image, ExifOrientation)> {
-    let reader = ImageReader::new(Cursor::new(bytes))
+    let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|e| unsupported(&e.to_string()))?;
     if !matches!(
@@ -68,8 +68,21 @@ fn decode(bytes: &[u8]) -> Result<(Image, ExifOrientation)> {
     ) {
         return Err(unsupported("only JPEG and TIFF inputs are supported"));
     }
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(crate::raster::MAX_BITMAP_DECODE_BYTES);
+    reader.limits(limits.clone());
     let mut decoder = reader
         .into_decoder()
+        .map_err(|e| unsupported(&e.to_string()))?;
+    let (width, height) = decoder.dimensions();
+    if u64::from(width) * u64::from(height) > u64::from(crate::raster::MAX_RASTER_PIXELS) {
+        return Err(unsupported("dimensions exceed the 268000000 pixel limit"));
+    }
+    limits
+        .reserve(decoder.total_bytes())
+        .map_err(|e| unsupported(&e.to_string()))?;
+    decoder
+        .set_limits(limits)
         .map_err(|e| unsupported(&e.to_string()))?;
     // The image TIFF decoder omits BYTE-typed ICC tags; Maple's bounded
     // container reader also handles that legal representation.
@@ -160,6 +173,9 @@ fn input_transform(profile: &[u8]) -> Result<std::sync::Arc<moxcms::TransformF32
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod bounds_tests;
 
 pub fn render_export_raster(
     bytes: &[u8],

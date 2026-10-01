@@ -10,7 +10,7 @@ fn model() -> AdjustmentModel {
     }
 }
 
-fn jpeg() -> Vec<u8> {
+pub(super) fn jpeg() -> Vec<u8> {
     let pixels = RgbImage::from_fn(32, 24, |x, y| Rgb([40 + x as u8, 50 + y as u8, 60]));
     let mut bytes = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 100)
