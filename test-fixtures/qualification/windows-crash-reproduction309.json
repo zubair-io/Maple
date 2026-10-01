@@ -1,0 +1,76 @@
+{
+  "issue": 3875,
+  "managedSourceRevision": "35c7c987a",
+  "nativeSourceRevision": "caab4ea736537a18a9fa27b2c04f71b9811a3284",
+  "purpose": "Two monitored GPU lifecycle attempts to reproduce visual303 XAML crash and capture full process memory if Windows logged Application Error",
+  "results": [
+    {
+      "exitCode": 0,
+      "report": {
+        "passed": true,
+        "exportRecipeEditorRoundTrip": true,
+        "hwnd": 4788898,
+        "renderPath": "gpu",
+        "panelReleases": 1,
+        "rendererStopped": true,
+        "droppedClosingPresents": 1,
+        "viewerDesignNavigation": true,
+        "localSaveFailureRecovery": true,
+        "nativeDetailActualSize": true,
+        "presetUndoRedoAndReset": true,
+        "adjustmentGestureUndoRedo": true,
+        "repairControlsUndoRedo": true,
+        "scopesLifecycle": true,
+        "transferWatcherUndoRedo": true,
+        "comparisonPreservesDocument": true,
+        "cloudOpeningReadiness": true,
+        "cloudSearchPagination": true,
+        "cloudMapHost": true,
+        "responsiveDesign": true,
+        "browseSelectionAndSort": true,
+        "browseScrolling": true,
+        "immediateUndo": true
+      },
+      "repairCycles": 4,
+      "fullCrashDumpCaptured": false,
+      "fixtureSha256": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276"
+    },
+    {
+      "exitCode": 0,
+      "report": {
+        "passed": true,
+        "exportRecipeEditorRoundTrip": true,
+        "hwnd": 36901130,
+        "renderPath": "gpu",
+        "panelReleases": 1,
+        "rendererStopped": true,
+        "droppedClosingPresents": 1,
+        "viewerDesignNavigation": true,
+        "localSaveFailureRecovery": true,
+        "nativeDetailActualSize": true,
+        "presetUndoRedoAndReset": true,
+        "adjustmentGestureUndoRedo": true,
+        "repairControlsUndoRedo": true,
+        "scopesLifecycle": true,
+        "transferWatcherUndoRedo": true,
+        "comparisonPreservesDocument": true,
+        "cloudOpeningReadiness": true,
+        "cloudSearchPagination": true,
+        "cloudMapHost": true,
+        "responsiveDesign": true,
+        "browseSelectionAndSort": true,
+        "browseScrolling": true,
+        "immediateUndo": true
+      },
+      "repairCycles": 4,
+      "fullCrashDumpCaptured": false,
+      "fixtureSha256": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276"
+    }
+  ],
+  "conclusion": "Both attempts passed. The earlier XAML crash remains unresolved; these passes demonstrate intermittent behavior, not a fix.",
+  "limitations": [
+    "No production source or binary changed between visual303 failure and these two attempts.",
+    "One attempted manual capture after run308 had already exited failed with Windows error 87; no dump was created.",
+    "No repeated-until-green qualification claim. Both outcomes are reported and the original failure remains a release blocker."
+  ]
+}
