@@ -119,12 +119,12 @@ namespace Maple.WinUI
                     timing_high_resolution = System.Diagnostics.Stopwatch.IsHighResolution,
                     decode_ms = decodeMs,
                     tick_ms = ticks,
-                    median_ms = sorted[sorted.Count / 2],
+                    median_ms = (sorted[(sorted.Count - 1) / 2] + sorted[sorted.Count / 2]) / 2,
                     p95_ms = sorted[(int)Math.Min(sorted.Count - 1, Math.Ceiling(sorted.Count * 0.95) - 1)],
                     target_ms = 16.0,
                     hard_limit_ms = 50.0,
                     refine_ms = refines,
-                    refine_median_ms = sortedRefines[sortedRefines.Count / 2],
+                    refine_median_ms = (sortedRefines[(sortedRefines.Count - 1) / 2] + sortedRefines[sortedRefines.Count / 2]) / 2,
                 };
                 await File.WriteAllTextAsync(
                     Path.Combine(outDir, "report.json"),
