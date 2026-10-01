@@ -297,6 +297,7 @@ namespace Maple.WinUI.ViewModels
             {
                 var path = await _cloud!.FetchImageAsync(
                     "preview", address, CancellationToken.None);
+                path = await DisplayImageCache.PrepareAsync(path, ThumbnailService.PreviewMaxPx, CancellationToken.None);
                 if (path != null)
                     OnUi(() => photo.PreviewPath = new Uri(path).AbsoluteUri);
             });

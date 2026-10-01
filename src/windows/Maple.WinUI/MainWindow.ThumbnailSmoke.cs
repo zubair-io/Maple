@@ -20,7 +20,9 @@ public sealed partial class MainWindow
         var thumbnails = new ThumbnailService();
         var path = await thumbnails.GetOrCreateAsync(fixture, CancellationToken.None)
             ?? throw new InvalidOperationException("Valid RAW did not produce a thumbnail");
-        using (var file = File.OpenRead(path))
+        var display = await DisplayImageCache.PrepareAsync(path, ThumbnailService.ThumbnailMaxPx, CancellationToken.None)
+            ?? throw new InvalidOperationException("Thumbnail display decode failed");
+        using (var file = File.OpenRead(display))
         {
             var decoder = await BitmapDecoder.CreateAsync(file.AsRandomAccessStream());
             if (decoder.PixelWidth == 0 || decoder.PixelHeight == 0 ||
@@ -42,7 +44,7 @@ public sealed partial class MainWindow
         if (!before.SequenceEqual(SHA256.HashData(await File.ReadAllBytesAsync(fixture)))
             || File.Exists(Services.Xmp.SidecarStore.SidecarPathFor(fixture)))
             throw new InvalidOperationException("Thumbnail generation changed the original or created a sidecar");
-        VerifyBrowseDetailImageReuse(path, output);
+        VerifyBrowseDetailImageReuse(display, output);
     }
 
     private void VerifyBrowseDetailImageReuse(string thumbnail, string output)

@@ -153,6 +153,7 @@ namespace Maple.WinUI.ViewModels
         {
             var thumb = await _thumbnails.GetOrCreateAsync(photo.FilePath, CancellationToken.None)
                 .ConfigureAwait(false);
+            thumb = await DisplayImageCache.PrepareAsync(thumb, ThumbnailService.ThumbnailMaxPx, CancellationToken.None);
             var effectiveThumb = thumb
                 ?? (photo.Format is "JPG" or "JPEG" ? photo.FilePath : null);
             if (effectiveThumb == null)

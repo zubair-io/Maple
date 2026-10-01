@@ -33,6 +33,7 @@ namespace Maple.WinUI.ViewModels
                 snapshot[item.FileName] = new RenameReconciliationLogic.Fingerprint(
                     item.FileSizeBytes, exif?.DateTimeOriginal, exif?.CameraSerial);
                 var thumb = await _thumbnails.GetOrCreateAsync(item.FilePath, ct);
+                thumb = await Services.DisplayImageCache.PrepareAsync(thumb, Services.ThumbnailService.ThumbnailMaxPx, ct);
 
                 App.MainDispatcherQueue?.TryEnqueue(() =>
                 {

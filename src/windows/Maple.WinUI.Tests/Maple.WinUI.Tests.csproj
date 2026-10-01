@@ -331,6 +331,7 @@
     <Compile Include="..\Maple.WinUI\Services\StorageReport.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\ThumbCachePaths.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\ThumbnailRenderer.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\DisplayImageCache.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiTimestampFormatter.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiRemoteImageLoader.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Atoms\MuiAvatarPalette.cs" LinkBase="MapleUI" />

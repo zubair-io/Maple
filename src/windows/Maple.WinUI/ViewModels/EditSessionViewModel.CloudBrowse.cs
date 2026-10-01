@@ -329,6 +329,7 @@ namespace Maple.WinUI.ViewModels
                 try
                 {
                     var path = await _cloud!.FetchImageAsync("thumb", item.CloudAddress!, ct);
+                    path = await DisplayImageCache.PrepareAsync(path, ThumbnailService.ThumbnailMaxPx, ct);
                     if (path != null)
                         App.MainDispatcherQueue?.TryEnqueue(() =>
                             item.ThumbnailPath = new Uri(path).AbsoluteUri);
