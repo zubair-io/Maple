@@ -31,6 +31,7 @@ pub mod mask_range_sample;
 pub mod nlm;
 pub mod noise_reduction;
 pub mod perspective;
+pub mod removal_generation;
 pub mod removal_selection;
 pub mod removal_smart;
 mod removal_smart_strokes;

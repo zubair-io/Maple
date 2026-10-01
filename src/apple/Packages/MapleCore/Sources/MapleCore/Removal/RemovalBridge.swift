@@ -77,6 +77,41 @@ public enum RemovalBridge {
     }
   }
 
+  /// One-shot native reconstruction hole then blend coverage. Each contiguous
+  /// f32 plane has the context's pixel count; selection interiors stay opaque.
+  public static func generationMasks(request: String, intent: Data, protected: Data = Data()) throws
+    -> [Float]
+  {
+    try requireCString(request)
+    return try request.withCString { request in
+      try intent.withUnsafeBytes { intentBytes in
+        try protected.withUnsafeBytes { protectedBytes in
+          let call: (UnsafeMutablePointer<Float>?, UInt, UnsafeMutablePointer<UInt>) -> Int32 = {
+            output, cap, length in
+            maple_removal_generation_masks_f32(
+              request, intentBytes.bindMemory(to: UInt8.self).baseAddress, UInt(intent.count),
+              protectedBytes.bindMemory(to: UInt8.self).baseAddress, UInt(protected.count), output,
+              cap, length)
+          }
+          var length: UInt = 0
+          let probe = call(nil, 0, &length)
+          guard probe == 100, let count = Int(exactly: length), count > 0 else {
+            try check(probe)
+            throw RemovalError.invalid("Invalid generation mask output length")
+          }
+          var output = [Float](repeating: 0, count: count)
+          let capacity = length
+          let rc = output.withUnsafeMutableBufferPointer { call($0.baseAddress, capacity, &length) }
+          try check(rc)
+          guard length == capacity else {
+            throw RemovalError.invalid("Generation masks changed during preparation")
+          }
+          return output
+        }
+      }
+    }
+  }
+
   public static func prepare(request: String, prior: String, mask: Data, patch: Data) throws
     -> String
   {

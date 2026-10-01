@@ -34,11 +34,19 @@ def session(path, provider):
 
 
 def prompt_checks(mask, points, labels):
+    def selected(point):
+        return bool(
+            mask[
+                min(1023, int(np.floor(point[1] + 0.5))),
+                min(1023, int(np.floor(point[0] + 0.5))),
+            ]
+        )
+
     return [
         {
             "label": int(label),
-            "selected": bool(mask[int(point[1]), int(point[0])]),
-            "satisfied": bool(mask[int(point[1]), int(point[0])]) == bool(label == 1),
+            "selected": selected(point),
+            "satisfied": selected(point) == bool(label == 1),
         }
         for point, label in zip(points, labels, strict=True)
         if label in (0, 1)
@@ -87,7 +95,12 @@ def probe(source, artifacts, image_path, query_path, output, provider):
             or (points >= 1024).any()
         ):
             raise ValueError("Invalid source prompt")
-        if not (labels == 1).any() and not np.isin(labels, [2, 3]).all():
+        has_box = (
+            np.count_nonzero(labels == 2) == 1 and np.count_nonzero(labels == 3) == 1
+        )
+        if np.isin(labels, [2, 3]).any() and not has_box:
+            raise ValueError("Box prompts require one ordered corner pair")
+        if not (labels == 1).any() and not has_box:
             raise ValueError(
                 "Negative-only refinement needs an existing positive selection"
             )

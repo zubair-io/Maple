@@ -1,6 +1,6 @@
 """Measure removal scene probes through Maple's canonical comparator (#3941).
 
-Uses a native central ROI so unchanged pixels cannot dilute the error.
+Uses native replacement coverage so unchanged pixels cannot dilute the error.
 Run with the environment used by src/scripts/compare_images.py.
 """
 
@@ -23,18 +23,29 @@ def measure(directories, output, browser_directory=None):
     comparator = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(comparator)
     output.mkdir(parents=True, exist_ok=True)
-    mask = np.zeros((1024, 1024), dtype=np.uint8)
-    mask[412:612, 412:612] = 255
-    roi = output / "roi.png"
-    Image.fromarray(mask).save(roi)
     cases = []
-    for directory in directories:
+    for index, directory in enumerate(directories):
+        mask = np.zeros((1024, 1024), dtype=np.uint8)
+        mask[412:612, 412:612] = 255
         report = json.loads((directory / "report.json").read_text())
+        coverage = directory / "coverage.png"
+        if coverage.exists():
+            with Image.open(coverage) as image:
+                mask = np.asarray(image.convert("L"))
+            if mask.shape != (1024, 1024) or not np.isin(mask, [0, 255]).all():
+                raise ValueError("Invalid native replacement coverage")
+        roi = output / f"roi-{index}.png"
+        Image.fromarray(mask).save(roi)
+        selected_pixels = int(np.count_nonzero(mask))
+        if selected_pixels == 0:
+            raise ValueError("Empty native replacement ROI")
         if browser_directory:
             browser_report = json.loads((browser_directory / "report.json").read_text())
             for field in ("original", "native_context", "encoding"):
                 if report[field] != browser_report[field]:
                     raise ValueError("Browser/native probe contexts differ")
+            if report.get("generation_masks") != browser_report.get("generation_masks"):
+                raise ValueError("Browser/native generation masks differ")
         if report["outside_mask_max_error"] != 0:
             raise ValueError("Probe changed unselected source pixels")
         grades = []
@@ -42,7 +53,7 @@ def measure(directories, output, browser_directory=None):
             prefix = truth.name.removesuffix("-truth.png")
             identity = directory / f"{prefix}-identity.png"
             metrics = comparator.diff(str(identity), str(truth), roi_path=str(roi))
-            if metrics["n_pixels"] != 40000:
+            if metrics["n_pixels"] != selected_pixels:
                 raise ValueError("Comparator did not measure the native removal ROI")
             grade = {"grade": prefix, "identity": metrics}
             if browser_directory:
