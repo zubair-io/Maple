@@ -93,6 +93,7 @@ export interface GpuPresentHost {
    * `width`/`height` are no longer the native dims.
    */
   recordNativeDims(w: number, h: number): void;
+  recordPaintedDims(w: number, h: number): void;
 }
 
 /**
@@ -356,6 +357,8 @@ export class ImageCanvasGpuPresent {
       const nativeH = info.nativeHeight ?? info.height;
       this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
       this.host.recordNativeDims(nativeW, nativeH);
+      this.host.recordPaintedDims(info.width, info.height);
+      this.applyView();
       this.host.state.seedAsShotWhiteBalance(
         assetId,
         info.asShotTemperature,
@@ -425,6 +428,8 @@ export class ImageCanvasGpuPresent {
       // profile it consumed; a scalar-params tick carries no verdict.
       if (!fastParams && this.host.currentAssetId)
         this.host.state.seedLensProfile(this.host.currentAssetId, rendered.lensProfile ?? null);
+      this.host.recordPaintedDims(rendered.width, rendered.height);
+      this.applyView();
       this.scalarPrefixReady = params !== undefined;
       // Scopes are no longer fed from this reply (#3397): the readback now
       // arrives as a `scope-sample` broadcast, mirrored into `currentPixels`

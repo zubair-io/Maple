@@ -58,6 +58,12 @@ struct Params {
     geom_row0: vec4<f32>,
     geom_row1: vec4<f32>,
     geom_row2: vec4<f32>,
+    orientation0: vec4<f32>,
+    orientation1: vec4<f32>,
+    crop0: vec4<f32>,
+    crop1: vec4<f32>,
+    crop_rotation: vec4<f32>,
+    tail_dimensions: vec4<u32>,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -412,6 +418,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // if the rasterizer ever emits an edge fragment one texel past the surface).
     if (px >= params.width || py >= params.height) {
         return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    if (params.tail_dimensions.z != 0u) {
+        return vec4<f32>(quantized_display_tail(vec2<u32>(px, py)) / 255.0, 1.0);
     }
     let off = blue_noise_offset_lsb(px, py);
     var c: vec4<f32>;

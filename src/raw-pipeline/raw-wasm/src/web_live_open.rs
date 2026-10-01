@@ -155,6 +155,9 @@ impl WebLiveSession {
         // persistent present surface ONCE (surface + configure + colour-space
         // retag + present-pipeline compile) — every tick reuses it. `None` (the
         // pre-#3191 call shape) preserves the historical always-P3 request.
+        let geometry =
+            crate::gpu_render::display_geometry(raw_img.orientation, (width, height), &model);
+        let (width, height) = geometry.surface_dimensions((width, height));
         canvas.set_width(width);
         canvas.set_height(height);
         let requested_color_space = resolve_target_color_space(target_color_space.as_deref());
@@ -163,7 +166,7 @@ impl WebLiveSession {
                 .map_err(|e| JsError::new(&e))?;
 
         let lens_profile_json = crate::lens_profile::metadata(&raw_img, &model);
-        let handle = WebLiveSession {
+        let mut handle = WebLiveSession {
             ctx,
             raw_img,
             original,

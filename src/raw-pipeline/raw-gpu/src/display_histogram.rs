@@ -29,8 +29,9 @@ impl DisplayHistogram {
                     label: Some("display-histogram"),
                     source: wgpu::ShaderSource::Wgsl(
                         format!(
-                            "{}\n{}",
+                            "{}\n{}\n{}",
                             include_str!("present_chain.wgsl"),
+                            include_str!("present_geometry.wgsl"),
                             include_str!("display_histogram.wgsl")
                         )
                         .into(),
@@ -71,10 +72,11 @@ impl DisplayHistogram {
                 // Only the leading dims are read here; the rest is zeroed,
                 // which is also the "no warp" encoding, so the histogram keeps
                 // counting the chain buffer's own pixels.
-                contents: bytemuck::cast_slice(&[
-                    width, height, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
-                    0u32, 0u32, 0u32, 0u32,
-                ]),
+                contents: bytemuck::bytes_of(&crate::present_chain_pipeline::present_params(
+                    (width, height),
+                    (0, 0),
+                    crate::PresentGeometry::IDENTITY,
+                )),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
         let layout = pipeline.get_bind_group_layout(0);

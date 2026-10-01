@@ -41,7 +41,9 @@
 //! actually used at. Revisit if a feature adds large-angle creative tilts.
 
 mod axis_aligned;
+mod presentation;
 mod selection;
+pub use presentation::CropPresentation;
 pub(crate) use selection::map_output_uv;
 // `pub(crate)` for the bilinear sampler alone: `stages::perspective` (#3410)
 // inverse-warps through the same one, so the two geometry stages cannot drift

@@ -122,7 +122,12 @@ const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
   if (msg.type === 'render-session-success') {
     // No scopePixels here (#3397): the sample arrives out-of-band as a
     // 'scope-sample' broadcast so this reply doesn't wait on a GPU sync.
-    handler.resolve({ colorSpace: msg.colorSpace, lensProfile: msg.lensProfile });
+    handler.resolve({
+      colorSpace: msg.colorSpace,
+      lensProfile: msg.lensProfile,
+      width: msg.width,
+      height: msg.height,
+    });
     return true;
   }
   if (msg.type === 'session-error') {

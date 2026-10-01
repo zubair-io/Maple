@@ -152,6 +152,15 @@ pub(super) fn stripped_prefix_model(
         sharpen_masking: 0.0,
         nr_luminance: 0.0,
         nr_color: 0.0,
+        // Geometry is the presentation tail, not part of the developed upload.
+        crop: raw_core::types::Crop::IDENTITY,
+        perspective_vertical: 0.0,
+        perspective_horizontal: 0.0,
+        perspective_rotate: 0.0,
+        perspective_scale: 100.0,
+        perspective_aspect: 0.0,
+        perspective_x: 0.0,
+        perspective_y: 0.0,
         // KEEP: highlight_recovery, capture_sharpening_*, profile,
         // `retouch_spots` (#3409 — a decode-product edit with no GPU pass of
         // its own, so it must stay in the prefix; placing a spot correctly

@@ -124,9 +124,14 @@ fn auto_will_fit(model: &AdjustmentModel, bytes: &[u8], ext: &str) -> bool {
         || auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some()
 }
 
+// The stripped-prefix model + FullChainInputs assembly (pure model
+// arithmetic, no GPU calls) live in the sibling `gpu_render/model.rs` —
+// split out to keep this file under the 600-LOC budget (#1170).
+mod geometry;
 #[cfg(any(target_arch = "wasm32", test))]
 #[path = "gpu_render/model.rs"]
 mod model;
+pub(crate) use geometry::display_geometry;
 #[cfg(any(target_arch = "wasm32", test))]
 use model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
 #[cfg(any(target_arch = "wasm32", test))]
