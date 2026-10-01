@@ -148,6 +148,7 @@ public actor RenderActor {
   /// image so `NativeDetailRenderer` threads the SAME gain into its tile refine.
   var decodedAeGain: Float = 1.0
   var decodedWhitesAnchorEv: Float = .nan
+  var decodedNrSamplingScale: Float = 1
 
   /// Actual camera and lens resolver metadata owned by the cached decoded RAW.
   var decodedCameraSupport: RawCameraSupport?
@@ -198,14 +199,14 @@ public actor RenderActor {
   /// from it never accidentally matches a different asset's upload).
   var decodeGeneration: UInt64 = 0
 
-  /// (image, noiseProfile, iso, wbFrame, aeGain, whitesAnchorEv, hasLensCorrections, lensCorrectionCaInert,
+  /// (image, noiseProfile, iso, wbFrame, aeGain, whitesAnchorEv, nrSamplingScale, hasLensCorrections, lensCorrectionCaInert,
   /// lensCorrectionDistortionInert, cameraSupport) — see `SceneLinearDecodeResult`'s doc for each field
   /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189). Non-RAW yields
-  /// (image, nil, 0, nil, 1.0, .nan, false, true, true, nil).
+  /// (image, nil, 0, nil, 1.0, .nan, 1.0, false, true, true, nil).
   var decodeTask:
     Task<
       (
-        CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Bool, Bool, Bool, RawCameraSupport?
+        CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool, RawCameraSupport?
       )?,
       Never
     >?
@@ -389,7 +390,8 @@ public actor RenderActor {
       assetID: asset.id,
       noiseProfile: decodeResult.noiseProfile,
       iso: decodeResult.iso,
-      wbFrame: decodeResult.wbFrame, whitesAnchorEv: decodeResult.whitesAnchorEv
+      wbFrame: decodeResult.wbFrame, whitesAnchorEv: decodeResult.whitesAnchorEv,
+      nrSamplingScale: decodeResult.nrSamplingScale
     )
   }
 

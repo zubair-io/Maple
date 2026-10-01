@@ -126,7 +126,7 @@ extension RenderActor {
     let task:
       Task<
         (
-          CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Bool, Bool, Bool,
+          CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool,
           RawCameraSupport?
         )?,
         Never
@@ -184,7 +184,7 @@ extension RenderActor {
             }
             guard let nonRawImage else { return nil }
             return (
-              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0), Float.nan,
+              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0), Float.nan, Float(1.0),
               false, true, true, nil
             )
           }
@@ -235,7 +235,7 @@ extension RenderActor {
             guard let sizedResult else { return nil }
             return (
               sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
-              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.whitesAnchorEv,
+              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.whitesAnchorEv, sizedResult.nrSamplingScale,
               sizedResult.hasLensCorrections,
               sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert,
               sizedResult.cameraSupport
@@ -257,7 +257,7 @@ extension RenderActor {
           guard let refineResult else { return nil }
           return (
             refineResult.image, refineResult.noiseProfile, refineResult.iso,
-            refineResult.wbFrame, refineResult.aeGain, refineResult.whitesAnchorEv,
+            refineResult.wbFrame, refineResult.aeGain, refineResult.whitesAnchorEv, refineResult.nrSamplingScale,
             refineResult.hasLensCorrections,
             refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert,
             refineResult.cameraSupport
@@ -279,7 +279,7 @@ extension RenderActor {
 
     guard
       let (
-        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv,
+        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv, decodeNrSamplingScale,
         decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert,
         decodeCameraSupport
       ) = decodeResult
@@ -372,6 +372,7 @@ extension RenderActor {
       // on screen, not a stale one from a superseded decode.
       decodedAeGain = decodeAeGain
       decodedWhitesAnchorEv = decodeWhitesAnchorEv
+      decodedNrSamplingScale = decodeNrSamplingScale
       // Camera/lens support rides the same write gate (describes this decoded buffer).
       decodedHasLensCorrections = decodeHasLensCorrections
       decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
@@ -444,6 +445,7 @@ extension RenderActor {
     decodedWbFrame = nil
     decodedAeGain = 1.0
     decodedWhitesAnchorEv = .nan
+    decodedNrSamplingScale = 1
     decodedHasLensCorrections = false
     decodedLensCorrectionCaInert = true
     decodedLensCorrectionDistortionInert = true
@@ -485,7 +487,7 @@ extension RenderActor {
       iso: decodedISO,
       wbFrame: decodedWbFrame,
       aeGain: decodedAeGain,
-      whitesAnchorEv: decodedWhitesAnchorEv,
+      whitesAnchorEv: decodedWhitesAnchorEv, nrSamplingScale: decodedNrSamplingScale,
       decodeGeneration: decodeGeneration,
       hasLensCorrections: decodedHasLensCorrections,
       lensCorrectionCaInert: decodedLensCorrectionCaInert,

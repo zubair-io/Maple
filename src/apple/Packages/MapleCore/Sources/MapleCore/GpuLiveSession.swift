@@ -87,6 +87,7 @@ public actor GpuLiveSession {
   /// meaningless without the other, so they travel together.
   private let iso: UInt32
   private let whitesAnchorEv: Float
+  private let nrSamplingScale: Float
 
   /// The per-image Auto Profile artifacts (fit once via `fitAutoProfile`); `nil`
   /// until fit, or when the image has no Auto tail (plain AgX / Neutral).
@@ -148,13 +149,15 @@ public actor GpuLiveSession {
   /// naturally gets a fresh pair alongside the fresh pixels.
   public init(
     pixels: [Float], width: Int, height: Int, noiseProfile: [Float]? = nil, iso: UInt32 = 0,
-    whitesAnchorEv: Float = .nan
+    whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1
   ) throws {
     self.width = width
     self.height = height
     self.noiseProfile = noiseProfile ?? []
     self.iso = iso
     self.whitesAnchorEv = whitesAnchorEv
+    self.nrSamplingScale = nrSamplingScale
     let expected = width * height * 4
     guard pixels.count == expected, width > 0, height > 0 else {
       throw GpuLiveError(
@@ -304,6 +307,7 @@ public actor GpuLiveSession {
     let params = PipelineRenderer.makeGpuLiveParams(
       from: model, asShotCCT: asShotCCT, asShotTint: asShotTint,
       inputShape: inputShape, wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv,
+      nrSamplingScale: nrSamplingScale,
       targetColorSpace: targetColorSpace,
       scopeEnabled: scopeEnabled, scopeLayer: scopeLayer
     )
@@ -367,7 +371,7 @@ public actor GpuLiveSession {
       asShotCCT: asShotCCT,
       asShotTint: asShotTint,
       inputShape: inputShape,
-      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv
+      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: nrSamplingScale
     )
     var out = [UInt8](repeating: 0, count: width * height * 3)
     let rc = withGpuLiveParams(params, curves: model) { pp in

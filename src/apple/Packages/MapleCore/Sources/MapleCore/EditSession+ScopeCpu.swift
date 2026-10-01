@@ -85,6 +85,7 @@ extension EditSession {
     let decoded: CIImage
     let noiseProfile: [Float]?
     let whitesAnchorEv: Float
+    let nrSamplingScale: Float
     if asset.isRaw {
       guard let result = await pipeline.decodeSceneLinearSized(asset: asset, targetSize: target)
       else {
@@ -93,6 +94,7 @@ extension EditSession {
       decoded = result.image
       noiseProfile = result.noiseProfile
       whitesAnchorEv = result.whitesAnchorEv
+      nrSamplingScale = result.nrSamplingScale
     } else {
       guard let result = await pipeline.decodeSceneLinearNonRaw(asset: asset, targetSize: target)
       else {
@@ -101,12 +103,14 @@ extension EditSession {
       decoded = result
       noiseProfile = nil
       whitesAnchorEv = .nan
+      nrSamplingScale = 1
     }
     guard let floats = pipeline.sceneLinearFloats(from: decoded, targetSize: nil) else {
       throw PipelineError.renderFailed(code: -2, message: "scope readback failed")
     }
     let inputBytes = floats.pixels.withUnsafeBufferPointer { Data(buffer: $0) }
-    let params = PipelineRenderer.makeParams(from: model, whitesAnchorEv: whitesAnchorEv)
+    let params = PipelineRenderer.makeParams(from: model, whitesAnchorEv: whitesAnchorEv,
+      nrSamplingScale: nrSamplingScale)
     return try PipelineRenderer.applyChainAndEncodeDisplayScoped(
       inputBytes: inputBytes,
       width: floats.width,

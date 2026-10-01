@@ -167,7 +167,7 @@ extension EditSession {
           assetID: nil,
           noiseProfile: snapshot.noiseProfile,
           iso: snapshot.iso,
-          wbFrame: snapshot.wbFrame, whitesAnchorEv: snapshot.whitesAnchorEv,
+          wbFrame: snapshot.wbFrame, whitesAnchorEv: snapshot.whitesAnchorEv, nrSamplingScale: 1,
           targetPrimariesOverride: filmActive ? .srgb : nil
         )
         // Film look (#2683): `processSceneLinear`'s output is

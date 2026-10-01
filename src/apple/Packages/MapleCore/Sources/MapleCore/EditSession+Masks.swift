@@ -250,7 +250,8 @@ extension EditSession {
         decoded: decoded.image, model: model, targetSize: nil,
         asShot: nil, decodedAtModel: nil, profileLUT: nil,
         assetID: asset.id, noiseProfile: decoded.noiseProfile, iso: decoded.iso,
-        wbFrame: decoded.wbFrame, whitesAnchorEv: decoded.whitesAnchorEv
+        wbFrame: decoded.wbFrame, whitesAnchorEv: decoded.whitesAnchorEv,
+        nrSamplingScale: decoded.nrSamplingScale
       )
     } else {
       guard let decoded = await pipeline.decodeSceneLinearNonRaw(asset: asset, targetSize: target)

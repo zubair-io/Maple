@@ -110,7 +110,8 @@ extension EditSession {
     appliedCrop: Crop,
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
-    whitesAnchorEv: Float = .nan
+    whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1
   ) async -> Bool {
     guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else {
       editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
@@ -189,13 +190,17 @@ extension EditSession {
       guard gen == (await renderActor.currentGeneration()), !Task.isCancelled else { return true }
     }
     guard !Task.isCancelled else { return true }
+    let uploadNrSamplingScale = NoiseSamplingScale.reduced(
+      nrSamplingScale, from: decoded.extent.size,
+      to: CGSize(width: dims.width, height: dims.height))
     let uploadIdentity = GpuUploadIdentity(decodeGeneration: decodeGeneration, crop: appliedCrop)
     if !driver.isOpen(coveringWidth: dims.width, height: dims.height, identity: uploadIdentity) {
       do {
         try await driver.open(
           width: dims.width, height: dims.height,
           inputShape: inputShape, identity: uploadIdentity,
-          noiseProfile: noiseProfile, iso: iso, whitesAnchorEv: whitesAnchorEv
+          noiseProfile: noiseProfile, iso: iso, whitesAnchorEv: whitesAnchorEv,
+          nrSamplingScale: uploadNrSamplingScale
         ) {
           try Task.checkCancellation()
           guard let buf = pipeline.sceneLinearFloats(from: decoded, targetSize: targetSize) else {

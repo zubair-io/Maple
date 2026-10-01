@@ -229,10 +229,12 @@ final class SceneLinearChainCache: @unchecked Sendable {
     width: Int,
     height: Int,
     wbFrame: WbSliderFrame? = nil,
-    whitesAnchorEv: Float = .nan
+    whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1
   ) -> Key {
     var h = Hasher()
     h.combine(whitesAnchorEv.bitPattern)
+    h.combine(nrSamplingScale.bitPattern)
 
     // Every scene-linear develop field the FFI chain
     // (`apply_scene_linear_chain`) applies, in chain order. The chain

@@ -40,6 +40,7 @@ extension RenderActor {
     public let aeGain: Float
     /// Full-frame Whites anchor; retain this when a tile buffer exports NaN.
     public let whitesAnchorEv: Float
+    public let nrSamplingScale: Float
     /// The decode-cache write generation the cached buffer was written
     /// under (#2049) — see `RenderActor.decodeGeneration`. Threaded into
     /// `presentViaGpuLive` so the GPU-live upload identity can detect a

@@ -90,6 +90,7 @@ extension PipelineRenderer {
     inputShape: UInt32 = 0,
     wbFrame: WbSliderFrame? = nil,
     whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1,
     targetColorSpace: CanvasColorSpace = .current,
     scopeEnabled: Bool = false,
     scopeLayer: Int32 = -1
@@ -99,6 +100,7 @@ extension PipelineRenderer {
     // as `makeParams` documents for the 18-field `MapleAdjustmentParams`.
     var p = MapleGpuLiveParams()
     p.whites_anchor_ev = whitesAnchorEv
+    p.nr_sampling_scale = nrSamplingScale
 
     // --- white balance (DELTA when `asShotCCT/asShotTint` are supplied:
     //     the FFI computes `M_net = M_live · M_decoded⁻¹` matching

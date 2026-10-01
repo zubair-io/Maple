@@ -1,0 +1,29 @@
+{
+  "issue": 3875,
+  "sourceBase": "f029d1a93",
+  "implementation": [
+    "Retain C-ABI decode sampling density in Swift scene buffers and actor snapshots, including seed and invalidation resets.",
+    "Forward density through CPU preview, comparison, masks, scope and export parameter builders, and GPU session creation and presents.",
+    "Compose density when display or GPU upload resamples the decoded buffer; native-detail crops use density one.",
+    "Include density in the scene-linear chain cache key."
+  ],
+  "checks": {
+    "diffWhitespace": "passed",
+    "swiftRegressionInventory": "passed: 420 classes, 224 selected to run, 196 excluded",
+    "fileBudget": "passed: zero hard violations for the new helper, tests and four touched files nearest the limit",
+    "swiftBuildAndTests": "not run: no Swift or Apple toolchain on this Windows host"
+  },
+  "registeredTests": [
+    "Sampling-density composition for display reduction and upscaling",
+    "Scene-linear cache invalidation when sampling density changes",
+    "Snapshot retention and invalidation reset",
+    "CPU and GPU C-ABI parameter forwarding",
+    "Cached export output changes with sampling density using synthetic chroma variation"
+  ],
+  "limitations": [
+    "Registration and source review do not prove that the Swift tests compile or pass. Run NoiseSamplingScaleHostTests with a freshly built Rust static library on Apple.",
+    "No Apple pixel-parity or device-performance result is claimed.",
+    "This closes a host metadata propagation gap; it does not establish that the Windows production preview/export mismatch is fixed.",
+    "Epic 3889 and qualification issue 3875 remain incomplete."
+  ]
+}

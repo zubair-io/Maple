@@ -397,6 +397,7 @@ public actor ImageEditPipeline {
     /// thread the SAME gain into a deep-zoom / native-detail tile.
     public let aeGain: Float
     public let whitesAnchorEv: Float
+    public let nrSamplingScale: Float
     /// Whether this RAW carries lens-correction opcodes at all, and
     /// whether the CA/distortion sliders specifically are inert
     /// (#2231, #3189) — see `MapleSceneLinearImageData`'s matching doc
@@ -483,7 +484,7 @@ public actor ImageEditPipeline {
       iso: imageData.iso,
       wbFrame: imageData.wbFrame,
       aeGain: imageData.aeGain,
-      whitesAnchorEv: imageData.whitesAnchorEv,
+      whitesAnchorEv: imageData.whitesAnchorEv, nrSamplingScale: imageData.nrSamplingScale,
       hasLensCorrections: imageData.hasLensCorrections,
       lensCorrectionCaInert: imageData.lensCorrectionCaInert,
       lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
@@ -602,7 +603,7 @@ public actor ImageEditPipeline {
       iso: imageData.iso,
       wbFrame: imageData.wbFrame,
       aeGain: imageData.aeGain,
-      whitesAnchorEv: imageData.whitesAnchorEv,
+      whitesAnchorEv: imageData.whitesAnchorEv, nrSamplingScale: imageData.nrSamplingScale,
       hasLensCorrections: imageData.hasLensCorrections,
       lensCorrectionCaInert: imageData.lensCorrectionCaInert,
       lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
@@ -905,6 +906,7 @@ public actor ImageEditPipeline {
     decodedTint: Double,
     wbFrame: WbSliderFrame? = nil,
     whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1,
     skipAgX: Bool,
     assetID: UUID? = nil,
     noiseProfile: [Float]? = nil,
@@ -932,7 +934,7 @@ public actor ImageEditPipeline {
         skipAgX: skipAgX,
         width: w,
         height: h,
-        wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv
+        wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: nrSamplingScale
       )
     }
     if let cacheKey, let hit = sceneLinearChainCache.get(cacheKey) {
@@ -953,7 +955,7 @@ public actor ImageEditPipeline {
       decodedTint: decodedTint,
       skipAgX: skipAgX,
       iso: iso,
-      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv
+      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: nrSamplingScale
     )
 
     // #1959 — input-readback cache check. `scaled` is a pure function
@@ -1122,6 +1124,7 @@ public actor ImageEditPipeline {
     decodedTint: Double,
     wbFrame: WbSliderFrame? = nil,
     whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1,
     skipAgX: Bool,
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
@@ -1144,7 +1147,7 @@ public actor ImageEditPipeline {
       decodedTint: decodedTint,
       skipAgX: skipAgX,
       iso: iso,
-      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv
+      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: nrSamplingScale
     )
 
     // Same input-readback cache check as `applySceneLinearChainViaFFI` —
@@ -1554,6 +1557,7 @@ public actor ImageEditPipeline {
     iso: UInt32 = 0,
     wbFrame: WbSliderFrame? = nil,
     whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1,
     // #3190 review follow-up: `FilmLookCube.apply` (baked/fit in sRGB,
     // same as the Auto Profile cube) runs on THIS function's output at
     // every call site that has a film look active. When nil (every
@@ -1567,6 +1571,8 @@ public actor ImageEditPipeline {
     targetPrimariesOverride: CanvasColorSpace? = nil
   ) -> CIImage {
     let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
+    let renderNrSamplingScale = NoiseSamplingScale.reduced(
+      nrSamplingScale, from: decoded.extent.size, to: scaled.extent.size)
 
     // FFI-collapse path: white_balance → scene_tone_controls →
     // vibrance → saturation → clarity → texture → dehaze →
@@ -1644,7 +1650,8 @@ public actor ImageEditPipeline {
           let key = SceneLinearChainCache.make(
             assetID: assetID, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
-            skipAgX: false, width: w, height: h, wbFrame: frame, whitesAnchorEv: whitesAnchorEv
+            skipAgX: false, width: w, height: h, wbFrame: frame, whitesAnchorEv: whitesAnchorEv,
+            nrSamplingScale: renderNrSamplingScale
           )
           return sceneLinearChainCache.get(key) == nil
         }()
@@ -1652,7 +1659,7 @@ public actor ImageEditPipeline {
           let fusedEncoded = applyChainAndEncodeViaFusedFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
-            wbFrame: frame, whitesAnchorEv: whitesAnchorEv,
+            wbFrame: frame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: renderNrSamplingScale,
             skipAgX: false,
             noiseProfile: noiseProfile,
             iso: iso,
@@ -1686,7 +1693,7 @@ public actor ImageEditPipeline {
     let chained = applySceneLinearChainViaFFI(
       scaled, model: model,
       decodedTemperature: decodedTemp, decodedTint: decodedTint,
-      wbFrame: frame, whitesAnchorEv: whitesAnchorEv,
+      wbFrame: frame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: renderNrSamplingScale,
       skipAgX: false,
       assetID: assetID,
       noiseProfile: noiseProfile,
