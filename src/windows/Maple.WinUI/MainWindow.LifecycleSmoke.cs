@@ -294,6 +294,7 @@ namespace Maple.WinUI
                 root.UpdateLayout();
                 await Task.Delay(30);
                 root.UpdateLayout();
+                VerifyEditorHeaderBounds();
                 if (ContentFitRect() is { } imageBounds &&
                     (imageBounds.X < -.5 || imageBounds.Y < -.5 || imageBounds.X + imageBounds.W > ZoomHost.ActualWidth + .5 ||
                      imageBounds.Y + imageBounds.H > ZoomHost.ActualHeight + .5))

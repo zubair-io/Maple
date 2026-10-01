@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-01",
+  "issues": [
+    3887,
+    3875,
+    3889
+  ],
+  "sourceBase": "fa0537d4e",
+  "build": "Maple.DesignAudit222",
+  "assemblySha256": "08F03E79D4B4AEA9FDA2EF360B8C10C14AD79D8C0B4AE5094E816D801F78BA08",
+  "change": "All five editor header actions retain a 44px height and minimum 44px width through enabled-state changes; centered bounded header retained.",
+  "validation": {
+    "buildErrors": 0,
+    "buildWarnings": 26,
+    "lifecyclePassed": true,
+    "renderPath": "gpu",
+    "outputDirectory": "maple-lifecycle222-73460bcc54684482891f7b9cec5272c7",
+    "logicalLayoutSizes": [
+      "1440x900",
+      "1024x768",
+      "960x600",
+      "683x512",
+      "720x450",
+      "512x384"
+    ],
+    "assertions": "All five named header actions exist, are visible tab stops, have at least 44x44 layout bounds, and fit inside the header. Header stays centered, at most 720px wide, with outer margins. Existing histogram, responsive, scrolling and full lifecycle checks also pass."
+  },
+  "initialFailures": [
+    "Build 220: stronger header test rejected the smaller More actions target.",
+    "Build 221: minimum height was overwritten by shared button Rebuild after enabled-state changes; Undo measured 44x34.67. Explicit Height fixes the header without altering generic button sizing."
+  ],
+  "limitations": [
+    "Logical root sizes exercise WinUI layout but are not physical window/DPI screenshots.",
+    "No new visual screenshot, physical DPI, Narrator, live cloud, color-parity or performance sign-off."
+  ],
+  "fullQualificationPassed": false
+}

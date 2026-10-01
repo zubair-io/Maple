@@ -848,7 +848,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <mui:MuiButton IconName="chevron-left" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" Click="OnExitEdit"
+                                <mui:MuiButton IconName="chevron-left" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" MinWidth="44" Height="44" Click="OnExitEdit"
                                         ToolTipService.ToolTip="Back to Preview (Esc)"
                                         AutomationProperties.Name="Back to preview" />
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
@@ -881,13 +881,13 @@
                                         </Button>
                                     </Grid>
                                 </Border>
-                                <mui:MuiButton IconName="revert" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" Click="OnMenuUndo"
+                                <mui:MuiButton IconName="revert" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" MinWidth="44" Height="44" Click="OnMenuUndo"
                                                IsEnabled="{Binding AdjustmentsReady}"
                                                ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.Name="Undo adjustment" />
-                                <mui:MuiButton x:Name="CompareButton" IconName="split" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" Click="OnCompareClick"
+                                <mui:MuiButton x:Name="CompareButton" IconName="split" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" MinWidth="44" Height="44" Click="OnCompareClick"
                                                IsEnabled="{Binding AdjustmentsReady}"
                                                ToolTipService.ToolTip="Tap to toggle; hold to peek (B or backslash). Before shows the state at open." AutomationProperties.Name="Compare before and after" />
-                                <mui:MuiButton x:Name="MoreEditActions" Label="…" Variant="Ghost" ButtonSize="Sm"
+                                <mui:MuiButton x:Name="MoreEditActions" Label="…" Variant="Ghost" ButtonSize="Sm" MinWidth="44" Height="44"
                                                IsEnabled="{Binding AdjustmentsReady}"
                                                ToolTipService.ToolTip="More editing actions" AutomationProperties.Name="More editing actions">
                                     <mui:MuiButton.Flyout>
@@ -908,7 +908,7 @@
                                 </mui:MuiButton>
                                 <TextBlock x:Name="RenderStatsText" Visibility="Collapsed" FontSize="10" VerticalAlignment="Center"
                                            Foreground="{StaticResource MapleTextMuted}" />
-                                <mui:MuiButton IconName="export" IconSize="Md24" Variant="Ghost" ButtonSize="Sm"
+                                <mui:MuiButton IconName="export" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" MinWidth="44" Height="44"
                                         IconColor="{StaticResource MapleTextMain}" Click="OnExportPhotos"
                                         ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
                                         AutomationProperties.Name="Export photo" />
