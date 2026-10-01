@@ -148,7 +148,8 @@ use `toRawAlpha()` to retain it.
 | `stats()`                                          | ✅    | per-channel moments, `isOpaque`, `entropy`, `sharpness`, `dominant`                                                                                                                                                                                                                                                                                                      |
 | `keepMetadata()`                                   | ✅    | never fails: each container keeps every field it can carry and drops the rest silently, as sharp does — JPEG and PNG keep all four, WebP all but XMP, TIFF ICC only, AVIF EXIF only                                                                                                                                                                                      |
 | `withMetadata()`                                   | ✅    | `{orientation, density}`, same validation as sharp; `autoOrient`/`.rotate()` neutralises a kept Orientation tag to `1` unless you also pass an explicit `orientation`                                                                                                                                                                                                    |
-| `withExif()`                                       | ⚠️    | takes a raw EXIF `Buffer`, not sharp's IFD object (`{IFD0: {...}}`) — rejected by name (#3588); not yet supported when developing a RAW file (`.jpg`/etc. from a `.dng` and friends)                                                                                                                                                                                     |
+| `withExif()`                                       | ⚠️    | accepts sharp-style IFD0–IFD4 string tag objects or the raw EXIF `Buffer` extension; RAW development remains unsupported (#3507)                                                                                                                                                                                                                                         |
+| `withExifMerge()`                                  | ⚠️    | authors IFD tags over the input EXIF, preserving unknown tags, MakerNote offsets and thumbnails; RAW development remains unsupported (#3507)                                                                                                                                                                                                                             |
 | `withIccProfile()`                                 | ⚠️    | `'srgb'`/`'p3'` CONVERT and tag, as sharp does (max 2 codes from sharp's lcms rotation); supplied bytes or a path tag WITHOUT converting; `'cmyk'` rejected by name; no ICC on AVIF output (#3580); not yet supported when developing a RAW file                                                                                                                         |
 | `withXmp()`                                        | ⚠️    | JPEG and PNG only — WebP, TIFF and AVIF have no XMP writer, and asking for one explicitly is a named error (see below); not yet supported when developing a RAW file                                                                                                                                                                                                     |
 | `blur()`                                           | ✅    | no argument = 3x3 box; a sigma = separable Gaussian. Byte-identical to sharp                                                                                                                                                                                                                                                                                             |
@@ -490,6 +491,24 @@ That is byte-for-byte what sharp returns for the same input. Internally every
 block is canonicalised to its TIFF header, so a cross-container
 `keepMetadata()` (a WebP or AVIF source to JPEG output) writes a block a
 reader can parse, and `withExif()` accepts either form.
+
+`withExif({ IFD0: { Copyright: 'Photographer 2026' } })` replaces the
+input EXIF. `withExifMerge()` updates those tags while preserving the input's
+other EXIF; it does not implicitly keep ICC or XMP. IFD names are insensitive
+to case, tag names follow libexif's vocabulary, and values are strings:
+integers (`'100'`), rationals (`'1/125'` or `'2.8'`), or space-separated
+components (`GPSLatitude: '51/1 30/1 3230/100'`). Unknown tags and invalid
+values produce an explicit error. Successive calls accumulate tags; the last
+method selects replacement or merge, matching [sharp](https://sharp.pixelplumbing.com/api-output/#withexifmerge).
+
+The pipeline writes actual output dimensions, orientation and resolution over
+IFD-object tags for those image properties. Use `withMetadata({ orientation,
+density })` for explicit orientation or density overrides. The raw-block
+extension retains its existing verbatim behavior. Unlike sharp's ASCII
+transliteration, Maple retains UTF-8 text bytes, UTF-16LE Windows XP fields and
+encoding-prefixed Unicode UserComment values. Merging appends directories to a
+copy of the existing block, keeping opaque payload offsets and thumbnail bytes
+in place; the input image bytes are never modified.
 
 `metadata().density` follows libvips too: the EXIF `XResolution` wins over a
 JFIF or `pHYs` value, a JPEG that states no resolution reports 72, the value
