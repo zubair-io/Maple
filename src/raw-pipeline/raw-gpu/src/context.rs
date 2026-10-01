@@ -296,6 +296,7 @@ pub struct GpuContext {
     /// [`GpuContext::dither_pipeline`]. Unlike every other pipeline its output is
     /// not f32, so it runs as a terminal encode, not a ping-pong chain `Pass`.
     pub(crate) dither_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) dither_noise: OnceCell<wgpu::Buffer>,
     /// Lazily-compiled vectorscope-scope pipeline (`scope_vectorscope.wgsl`,
     /// #3272). Runs at the end of the view tail, before dither: a mask-weighted
     /// Rec.709 Cb/Cr histogram of the display-encoded chain buffer, into a
@@ -441,6 +442,7 @@ impl GpuContext {
             cs_multiply_pipeline: OnceCell::new(),
             cs_apply_pipeline: OnceCell::new(),
             dither_pipeline: OnceCell::new(),
+            dither_noise: OnceCell::new(),
             vectorscope_pipeline: OnceCell::new(),
             scope_snapshot_pipeline: OnceCell::new(),
             frame_pool: RefCell::new(FramePool::default()),

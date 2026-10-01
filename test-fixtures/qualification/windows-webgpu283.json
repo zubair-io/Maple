@@ -1,0 +1,22 @@
+{
+  "purpose": "Issue #3875: sampled CPU/WebGPU NR and Windows FXC terminal dither failure",
+  "baseCommit": "5ad23c990a96141e821c7cf7a4e6f7ad7ce79f1c",
+  "changes": [
+    "WebGPU one-shot and persistent prefix uploads retain decoded sampling scale",
+    "Shared CPU sized develop uses sampled chroma NR",
+    "Dither ranks uploaded once per device rather than materialized as shader constants"
+  ],
+  "tests": [
+    "4 raw-gpu dither tests passed; 0 of 12288 output bytes differ from CPU",
+    "5 raw-wasm sizing tests passed with MAPLE_REQUIRE_GPU=1 on Windows native host",
+    "f32 repeated-render pooled allocation test passed",
+    "u8 repeated-render pooled allocations: neutral, mild and aggressive all zero after first render"
+  ],
+  "limits": [
+    "Native host tests are not browser/WASM-target execution",
+    "Only Windows Rust target installed",
+    "Apple host propagation pending",
+    "Real-photo default Auto preview/export color gate not rerun",
+    "No UI, crash, cloud, accessibility or physical performance sign-off"
+  ]
+}

@@ -492,8 +492,20 @@ pub fn encode_dither(
         _pad0: 0,
         _pad1: 0,
     };
+    // Upload once per device. This immutable table cannot consume per-thread
+    // shader temporaries on FXC, or the dither pipeline fails to compile.
+    let noise = ctx.dither_noise.get_or_init(|| {
+        use wgpu::util::DeviceExt;
+        let ranks: Vec<u32> = BLUE_NOISE_64X64.iter().map(|&v| u32::from(v)).collect();
+        ctx.device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("dither-blue-noise"),
+                contents: bytemuck::cast_slice(&ranks),
+                usage: wgpu::BufferUsages::STORAGE,
+            })
+    });
     // Pool-routed like every other dispatch (P4b-core C3): params @0, f32-in @1,
-    // packed-u8-out @2. Inside a live render window the uniform + bind group are
+    // packed-u8-out @2, immutable noise @3. Inside a live render window the uniform + bind group are
     // cached (zero alloc on a same-signature re-render); outside one (the dither
     // unit test) the pool is dormant and this falls back to a plain create.
     crate::spatial::encode_simple(
@@ -501,7 +513,7 @@ pub fn encode_dither(
         encoder,
         ctx.dither_pipeline(),
         bytemuck::bytes_of(&params),
-        &[src, dst],
+        &[src, dst, noise],
         count,
         "dither",
     );

@@ -65,20 +65,21 @@ fn effective_target_long_edge_clamps_to_device_texture_cap() {
 }
 
 /// The sized develop actually SHRINKS the buffer: a 16-px cap on the 64×64
-/// fixture develops to 16×16 with an exactly-sized RGBA pack. Fixture-gated,
+/// fixture develops to 16×16 with an exactly-sized RGBA pack. Generated fixture,
 /// no GPU needed (the develop + pack are pure CPU).
 #[test]
 fn develop_prefix_rgba_caps_long_edge() {
-    let Some(path) = synthetic_dng_path() else {
-        eprintln!("develop_prefix_rgba cap: synthetic DNG fixture absent — skipping (soft pass)");
-        return;
-    };
-    let bytes = std::fs::read(&path).expect("read synthetic DNG");
+    let bytes = raw_core::test_support::synth_dng::SyntheticGreyDng {
+        width: 64,
+        height: 64,
+        ..Default::default()
+    }
+    .write_to_bytes();
     let ext = "dng";
     let raw_img = raw_core::decode::decode_bytes(&bytes, ext).expect("decode synthetic DNG");
     let model = AdjustmentModel::default();
 
-    let (rgba, w, h, _prefix, _whites_anchor_ev) =
+    let (rgba, w, h, _prefix, _whites_anchor_ev, nr_sampling_scale) =
         super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, 16).expect("sized develop");
     assert_eq!(
         (w, h),
@@ -90,6 +91,9 @@ fn develop_prefix_rgba_caps_long_edge() {
         (w * h * 4) as usize,
         "RGBA pack must be exactly w*h*4 lanes"
     );
+    // #1637 selects half-res Bayer demosaic at small caps: 32 → 16.
+    // NR density is relative to that developed buffer, not the sensor grid.
+    assert_eq!(nr_sampling_scale, 0.5);
     // Alpha lane pinned to 1.0 — the LiveSession upload shape.
     assert!(
         rgba.chunks_exact(4).all(|p| p[3] == 1.0),
@@ -101,21 +105,22 @@ fn develop_prefix_rgba_caps_long_edge() {
 /// pre-#1080 full-res develop (raw-core's `downsample_image_area` early-returns;
 /// the sized chain runs the same stage math under `sized_*` labels). This is what
 /// keeps the W1 parity gate above meaningful and the small-image path unchanged.
-/// Fixture-gated, no GPU needed.
+/// Generated fixture, no GPU needed.
 #[test]
 fn develop_prefix_rgba_uncapped_matches_unsized_develop() {
     use raw_core::pipeline::develop_scene_linear_from_raw_with_quality;
 
-    let Some(path) = synthetic_dng_path() else {
-        eprintln!("develop_prefix_rgba no-op: synthetic DNG fixture absent — skipping (soft pass)");
-        return;
-    };
-    let bytes = std::fs::read(&path).expect("read synthetic DNG");
+    let bytes = raw_core::test_support::synth_dng::SyntheticGreyDng {
+        width: 64,
+        height: 64,
+        ..Default::default()
+    }
+    .write_to_bytes();
     let ext = "dng";
     let raw_img = raw_core::decode::decode_bytes(&bytes, ext).expect("decode synthetic DNG");
     let model = AdjustmentModel::default();
 
-    let (rgba, w, h, prefix, whites_anchor_ev) = super::develop_prefix_rgba(
+    let (rgba, w, h, prefix, whites_anchor_ev, nr_sampling_scale) = super::develop_prefix_rgba(
         &raw_img,
         &bytes,
         ext,
@@ -134,6 +139,7 @@ fn develop_prefix_rgba_uncapped_matches_unsized_develop() {
         "cap ≥ source must not change dims"
     );
     assert_eq!(Some(whites_anchor_ev), scene.whites_anchor_ev);
+    assert_eq!(nr_sampling_scale, 1.0);
     let mut reference: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
     for p in &scene.pixels {
         reference.extend_from_slice(&[p[0], p[1], p[2], 1.0]);

@@ -262,7 +262,7 @@ pub(crate) fn prefix_model_for(
 
 /// Develop the STRIPPED PREFIX to the post-`auto_exposure` scene-linear Rec.2020
 /// buffer the GPU chain consumes, packed to interleaved RGBA f32 (alpha 1.0) — the
-/// upload shape [`LiveSession::new`] expects. Returns `(rgba, w, h, prefix_model, whites_anchor_ev)`;
+/// upload shape [`LiveSession::new`] expects, with model, white anchor and sampling scale.
 /// the returned `prefix_model` is the EXACT model this buffer was developed from
 /// (equal to [`prefix_model_for`]), so a caller can cache it and re-develop ONLY
 /// when it changes (the persistent session's zero-re-upload boundary — an identical
@@ -284,7 +284,7 @@ pub(crate) fn develop_prefix_rgba(
     ext: &str,
     model: &AdjustmentModel,
     max_long_edge: u32,
-) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32), String> {
+) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32), String> {
     let ae_mode = effective_ae_mode(model, raw, ext);
     let prefix_model = stripped_prefix_model(model, ae_mode);
     // AMaZE by default (#940): this develop runs at live-session open and
@@ -305,12 +305,20 @@ pub(crate) fn develop_prefix_rgba(
         .whites_anchor_ev
         .ok_or("RAW prefix develop did not produce a Whites anchor")?;
     let (w, h) = (scene.width, scene.height);
+    let nr_sampling_scale = scene.nr_sampling_scale;
     // Pack RGB → RGBA; sized develop bounds both resident buffers (#1080).
     let mut rgba: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
     for p in &scene.pixels {
         rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
     }
-    Ok((rgba, w, h, prefix_model, whites_anchor_ev))
+    Ok((
+        rgba,
+        w,
+        h,
+        prefix_model,
+        whites_anchor_ev,
+        nr_sampling_scale,
+    ))
 }
 
 /// Fit the Auto Profile curve + residual LUT against the embedded JPEG (the SAME
@@ -434,11 +442,12 @@ async fn render_gpu_core(
         .map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let target = effective_target_long_edge(max_long_edge, &ctx);
 
-    let (rgba, w, h, _prefix_model, whites_anchor_ev) =
+    let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale) =
         develop_prefix_rgba(raw_img, raw, ext, model, target)?;
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
     let mut inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
     GpuWhiteBalance::resolve(raw_img)?.apply(model, &mut inputs);
+    inputs.nr_sampling_scale = nr_sampling_scale;
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.
@@ -534,12 +543,8 @@ pub async fn render_bytes_gpu(
     ))
 }
 
-// Native (Metal) host parity gate for the decode-boundary + GPU-chain plumbing
-// `render_bytes_gpu` adds on top of the merged P4b-core. wasm-only entry can't
-// run on the host, so the test drives `render_gpu_core` (platform-neutral) via
-// pollster and compares to the CPU `render_bytes` equivalent. Native test builds
-// only; skips when the synthetic DNG fixture is absent (mirrors the color-harness
-// skip-pass pattern).
+// Native-host tests drive the shared decode/GPU core; browser-only presentation
+// requires separate qualification. Legacy fixture-gated cases may skip locally.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests.rs"]
 mod tests;
@@ -553,11 +558,7 @@ mod tests_zero_alloc;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests_sizing.rs"]
 mod tests_sizing;
-// Film-look session plumbing gates (epic #2683, Task 9) — `WebLiveSession`
-// itself is wasm32-only (owns an `OffscreenCanvas` + drives WebGPU via
-// `wasm_bindgen_futures`), so these drive the SAME platform-neutral core it
-// calls (`chain_inputs_for_model` / `LiveSession`) on the host, mirroring how
-// `tests.rs` proves `render_gpu_core` without the wasm-only entry point.
+// Film tests exercise the platform-neutral inputs used by WebLiveSession.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests_film.rs"]
 mod tests_film;

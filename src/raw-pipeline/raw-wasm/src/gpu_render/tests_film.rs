@@ -129,7 +129,7 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
 
     let ctx = pollster::block_on(GpuContext::new_async()).expect("gpu context");
     let target = super::effective_target_long_edge(None, &ctx);
-    let (rgba, w, h, _prefix, whites_anchor_ev) =
+    let (rgba, w, h, _prefix, whites_anchor_ev, _nr_sampling_scale) =
         super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, target).expect("develop");
     let session = LiveSession::new(&ctx, &rgba, w, h).expect("session upload");
 

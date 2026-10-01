@@ -96,6 +96,7 @@ pub struct WebLiveSession {
     /// Pre-AE anchor measured alongside the uploaded prefix, reused on every tick.
     whites_anchor_ev: f32,
     white_balance: GpuWhiteBalance,
+    nr_sampling_scale: f32,
     /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
     /// normalized + clamped to the device texture cap in `open`. Fixed for the
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
@@ -220,7 +221,7 @@ impl WebLiveSession {
         // cached for the re-develop check. Native dims ride the handle so the
         // editor's zoom math stays full-res-aware (#1101 contract).
         let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-        let (rgba, width, height, prefix_model, whites_anchor_ev) =
+        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale) =
             develop_prefix_rgba(&raw_img, &raw, &ext, &model, target_long_edge)
                 .map_err(|e| JsError::new(&e))?;
 
@@ -253,6 +254,7 @@ impl WebLiveSession {
             prefix_model,
             whites_anchor_ev,
             white_balance,
+            nr_sampling_scale,
             target_long_edge,
             width,
             height,
@@ -292,14 +294,15 @@ impl WebLiveSession {
         // branch: same buffer, same LiveSession, zero new GPU buffers.
         let new_prefix = prefix_model_for(&self.raw_img, &self.raw, &self.ext, &model);
         if new_prefix != self.prefix_model {
-            let (rgba, w, h, prefix_model, whites_anchor_ev) = develop_prefix_rgba(
-                &self.raw_img,
-                &self.raw,
-                &self.ext,
-                &model,
-                self.target_long_edge,
-            )
-            .map_err(|e| JsError::new(&e))?;
+            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) =
+                develop_prefix_rgba(
+                    &self.raw_img,
+                    &self.raw,
+                    &self.ext,
+                    &model,
+                    self.target_long_edge,
+                )
+                .map_err(|e| JsError::new(&e))?;
             // Dims are stable across ticks (same image, same session-pinned
             // target), but assert so a future quality/target switch can't
             // silently desync the canvas surface.
@@ -312,6 +315,7 @@ impl WebLiveSession {
             self.session.update_image(&self.ctx, &rgba);
             self.prefix_model = prefix_model;
             self.whites_anchor_ev = whites_anchor_ev;
+            self.nr_sampling_scale = nr_sampling_scale;
             self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, &model);
         }
 
@@ -512,6 +516,7 @@ impl WebLiveSession {
             self.whites_anchor_ev,
         );
         self.white_balance.apply(model, &mut inputs);
+        inputs.nr_sampling_scale = self.nr_sampling_scale;
         // #1913 (generalised by #3191): the display-encode primaries MUST match
         // the canvas colour-space tag the present surface ACHIEVED — not the
         // `target_color_space` `open` was asked for, which the browser may not

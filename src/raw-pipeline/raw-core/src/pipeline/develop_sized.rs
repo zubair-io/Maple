@@ -480,13 +480,15 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
+    let nr_sampling_scale = scene.nr_sampling_scale;
     stage("sized_nr_color", || {
-        noise_reduction::apply_color_cancellable(
+        noise_reduction::apply_color_sampled_cancellable(
             &mut scene,
             model.nr_color,
             cancel,
             raw.noise_profile.as_deref(),
             raw.iso,
+            nr_sampling_scale,
         )
     });
     dump_after("15_nr_color", &scene);
