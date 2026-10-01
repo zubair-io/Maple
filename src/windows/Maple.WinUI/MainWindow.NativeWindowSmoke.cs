@@ -16,8 +16,26 @@ public sealed partial class MainWindow
         var photo = ViewModel.SelectedPhoto;
         var adjustments = ViewModel.Adjustments;
         var group = _activeGroup;
+        var originalExposure = adjustments.Exposure;
+        var originalDepth = ViewModel.UndoCount;
+        var originalZoom = ViewerScroll.ZoomFactor;
+        var originalX = ViewerScroll.HorizontalOffset;
+        var originalY = ViewerScroll.VerticalOffset;
+        var gesture = new object();
+        ViewModel.BeginAdjustmentGesture(gesture);
+        adjustments.Exposure = originalExposure + .25;
+        ViewModel.NotifyAdjustmentEdited();
+        ViewModel.EndAdjustmentGesture(gesture);
+        var editedState = Services.Xmp.XmpWriter.Serialize(
+            new Services.Xmp.XmpSidecarDocument { Adjustments = adjustments });
         try
         {
+            ViewerScroll.ChangeView(null, null, 1.75f, true);
+            var zoomDeadline = Environment.TickCount64 + 5000;
+            while (Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 && Environment.TickCount64 < zoomDeadline)
+                await Task.Delay(50);
+            if (Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 || ViewModel.UndoCount != originalDepth + 1)
+                throw new InvalidOperationException("Resize qualification could not establish edited, zoomed state");
             foreach (var size in new[] { new SizeInt32(1440, 900), new SizeInt32(1024, 768) })
             {
                 AppWindow.Resize(size);
@@ -46,14 +64,27 @@ public sealed partial class MainWindow
                 if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(adjustments, ViewModel.Adjustments) ||
                     group != _activeGroup || EditPanel.Visibility != Visibility.Visible)
                     throw new InvalidOperationException("Native resize changed the selected document or active tool");
+                if (ViewModel.UndoCount != originalDepth + 1 || Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 ||
+                    editedState != Services.Xmp.XmpWriter.Serialize(
+                        new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments }))
+                    throw new InvalidOperationException("Native resize changed edits, undo history or zoom");
                 await WaitForNativeVisualCheckpointAsync(output, size);
             }
+            ViewModel.Undo();
+            if (ViewModel.Adjustments.Exposure != originalExposure || ViewModel.UndoCount != originalDepth)
+                throw new InvalidOperationException("Undo after native resize failed to restore the edit");
+            ViewModel.Redo();
+            if (editedState != Services.Xmp.XmpWriter.Serialize(
+                new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments }))
+                throw new InvalidOperationException("Redo after native resize failed to restore the edit");
+            ViewModel.Undo();
         }
         finally
         {
             AppWindow.Resize(originalSize);
             await Task.Delay(200);
             root.UpdateLayout();
+            ViewerScroll.ChangeView(originalX, originalY, originalZoom, true);
         }
     }
 
