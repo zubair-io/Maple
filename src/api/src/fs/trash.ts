@@ -81,6 +81,18 @@ export function computeTrashPath(absPath: string, folderRoot: string): string {
   return path.join(root, '.maple', 'trash', rel);
 }
 
+/** A dangling symlink still occupies its directory entry. Only ENOENT means
+ * absence; permission and other lookup failures must stop restore. */
+async function restorePathOccupied(candidate: string): Promise<boolean> {
+  try {
+    await fs.lstat(candidate);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
 /** Append `.restored[.N]<ext>` until the path is free. Bounded to 1000 attempts.
  *
  * Throws after exhausting all candidates rather than returning the last
@@ -92,18 +104,10 @@ export async function pickFreeRestoredPath(basePath: string): Promise<string> {
   const ext = path.extname(basePath);
   const stem = ext ? basePath.slice(0, -ext.length) : basePath;
   const first = `${stem}.restored${ext}`;
-  try {
-    await fs.stat(first);
-  } catch {
-    return first;
-  }
+  if (!(await restorePathOccupied(first))) return first;
   for (let n = 1; n <= 1000; n++) {
     const cand = `${stem}.restored.${n}${ext}`;
-    try {
-      await fs.stat(cand);
-    } catch {
-      return cand;
-    }
+    if (!(await restorePathOccupied(cand))) return cand;
   }
   throw new Error(
     `pickFreeRestoredPath: restore collision — exceeded 1000 candidate paths for ${basePath}`,
@@ -176,20 +180,21 @@ export async function moveOutOfTrash(
   trashAbsPath: string,
   targetAbsPath: string,
 ): Promise<MoveResult> {
-  // If the target is free, use it as-is; otherwise apply .restored[.N].
-  let freeTarget = targetAbsPath;
   try {
-    await fs.stat(targetAbsPath);
-    freeTarget = await pickFreeRestoredPath(targetAbsPath);
-  } catch {
-    /* free */
+    // Allocation must succeed before relocation. In particular, exhausted
+    // suffixes must not be treated as absence and replace the original target.
+    const freeTarget = (await restorePathOccupied(targetAbsPath))
+      ? await pickFreeRestoredPath(targetAbsPath)
+      : targetAbsPath;
+    const outcome = await relocateFile({
+      sourceAbsPath: trashAbsPath,
+      destAbsPath: freeTarget,
+      mode: 'move',
+      collision: 'replace',
+      callerTag: 'moveOutOfTrash',
+    });
+    return toMoveResult(outcome);
+  } catch (error) {
+    return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
   }
-  const outcome = await relocateFile({
-    sourceAbsPath: trashAbsPath,
-    destAbsPath: freeTarget,
-    mode: 'move',
-    collision: 'replace',
-    callerTag: 'moveOutOfTrash',
-  });
-  return toMoveResult(outcome);
 }
