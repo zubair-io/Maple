@@ -24,6 +24,7 @@ pub(crate) struct ChainInputs<'a> {
     pub noise_profile: Option<&'a [f32]>,
     pub iso: u32,
     pub whites_anchor_ev: f32,
+    pub nr_sampling_scale: f32,
 }
 
 impl<'a> ChainInputs<'a> {
@@ -37,7 +38,7 @@ impl<'a> ChainInputs<'a> {
             target_primaries: self.primaries,
             noise_profile: self.noise_profile,
             iso: self.iso,
-            nr_sampling_scale: 1.0, // #3875: native ABI metadata integration follows.
+            nr_sampling_scale: self.nr_sampling_scale,
             // The per-tick buffer is the whole frame at viewport scale, so the
             // S/H detail mask anchors on the buffer itself (#2476).
             mask_long_edge: None,
@@ -270,5 +271,6 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         noise_profile: noise_profile_slice,
         iso,
         whites_anchor_ev: p.whites_anchor_ev,
+        nr_sampling_scale: p.nr_sampling_scale,
     }
 }

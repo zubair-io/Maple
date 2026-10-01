@@ -364,4 +364,6 @@ pub struct MapleGpuLiveParams {
     pub defringe_green_hue_hi: f32,
     /// Full-frame pre-AE scene-white anchor in EV above 0.18 (#3601).
     pub whites_anchor_ev: f32,
+    /// Output pixels per developed full-frame pixel. Nonpositive/nonfinite means native.
+    pub nr_sampling_scale: f32,
 }

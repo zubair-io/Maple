@@ -32,6 +32,7 @@ use crate::MapleScopeStats;
 /// fields per test.
 fn default_params() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: f32::NAN,
         temperature: 5500.0,
         tint: 0.0,

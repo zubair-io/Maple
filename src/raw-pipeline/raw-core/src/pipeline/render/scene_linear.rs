@@ -141,7 +141,7 @@ pub fn render_scene_linear_from_raw_with_quality_f32_cancellable_with_gain(
     quality: RenderQuality,
     cancel: CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>, f32)> {
-    let (w, h, pixels, gain, _) =
+    let (w, h, pixels, gain, _, _) =
         render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
             raw, model, quality, cancel,
         )?;
@@ -153,7 +153,7 @@ pub fn render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
     model: &AdjustmentModel,
     quality: RenderQuality,
     cancel: CancelToken<'_>,
-) -> Result<(u32, u32, Vec<f32>, f32, f32)> {
+) -> Result<(u32, u32, Vec<f32>, f32, f32, f32)> {
     let (scene, ae_gain) = develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         raw, model, quality, cancel,
     )?;
@@ -179,6 +179,7 @@ pub fn render_scene_linear_from_raw_with_quality_f32_cancellable_with_anchors(
         scene
             .whites_anchor_ev
             .expect("develop captures full-frame Whites anchor"),
+        scene.nr_sampling_scale,
     ))
 }
 
@@ -299,7 +300,7 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain
     max_long_edge: u32,
     cancel: CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>, f32)> {
-    let (w, h, pixels, gain, _) =
+    let (w, h, pixels, gain, _, _) =
         render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors(
             raw,
             model,
@@ -316,7 +317,7 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anch
     quality: RenderQuality,
     max_long_edge: u32,
     cancel: CancelToken<'_>,
-) -> Result<(u32, u32, Vec<f32>, f32, f32)> {
+) -> Result<(u32, u32, Vec<f32>, f32, f32, f32)> {
     let (scene, ae_gain) = develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         raw,
         model,
@@ -346,5 +347,6 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anch
         scene
             .whites_anchor_ev
             .expect("develop captures full-frame Whites anchor"),
+        scene.nr_sampling_scale,
     ))
 }

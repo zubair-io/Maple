@@ -52,6 +52,7 @@ namespace Maple.WinUI.Native
         // Owned UTF-8 JSON, released with the scene-linear buffer (#3313).
         public byte* camera_support_json;
         public float whites_anchor_ev;
+        public float nr_sampling_scale;
     }
 
     /// <summary>

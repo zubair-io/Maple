@@ -18,6 +18,7 @@ pub(crate) fn write_scene_linear_buf_f32(
     wb_frame: &raw_core::stages::wb_camera::SliderFrameExport,
     ae_gain: f32,
     whites_anchor_ev: f32,
+    nr_sampling_scale: f32,
     has_lens_corrections: bool,
     lens_correction_ca_inert: bool,
     lens_correction_distortion_inert: bool,
@@ -70,6 +71,7 @@ pub(crate) fn write_scene_linear_buf_f32(
             wb_frame_render_fm_warm: flatten_matrix(wb_frame.render_fm_warm),
             ae_gain,
             whites_anchor_ev,
+            nr_sampling_scale,
             has_lens_corrections: has_lens_corrections as u32,
             lens_correction_ca_inert: lens_correction_ca_inert as u32,
             lens_correction_distortion_inert: lens_correction_distortion_inert as u32,
@@ -96,6 +98,40 @@ mod tests {
     use crate::scene_linear_f32::maple_render_file_scene_linear_sized_f32;
     use raw_core::test_support::synth_dng::SyntheticGreyDng;
     use std::ffi::{CStr, CString};
+
+    #[test]
+    fn sized_decode_exports_sampling_density_for_cpu_and_gpu_hosts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sampling.dng");
+        SyntheticGreyDng {
+            width: 64,
+            height: 32,
+            ..Default::default()
+        }
+        .write_to(&path)
+        .unwrap();
+        let path = CString::new(path.to_str().unwrap()).unwrap();
+        for (cap, expected) in [(64, 1.0), (16, 0.5), (8, 0.25)] {
+            let mut buffer = MapleSceneLinearBufferF32::empty();
+            unsafe {
+                let rc = maple_render_file_scene_linear_sized_f32(
+                    path.as_ptr(),
+                    std::ptr::null(),
+                    cap,
+                    1,
+                    std::ptr::null(),
+                    &mut buffer,
+                );
+                assert_eq!(rc, 0);
+                let actual = buffer.nr_sampling_scale;
+                maple_free_scene_linear_buffer_f32(&mut buffer);
+                assert_eq!(
+                    actual, expected,
+                    "cap {cap}: Preview demosaic baseline is 32 pixels"
+                );
+            }
+        }
+    }
 
     #[test]
     fn support_json_escapes_camera_key_nul_for_ffi() {
@@ -171,6 +207,7 @@ mod tests {
                     (16, 16, 4096)
                 );
                 let omitted = buffer.camera_support_json.is_null();
+                assert_eq!(buffer.nr_sampling_scale, 1.0, "native crop retains density");
                 let pixels = std::slice::from_raw_parts(buffer.f32_rgba, 1024).to_vec();
                 maple_free_scene_linear_buffer_f32(&mut buffer);
                 assert!(omitted, "tiles must not allocate camera-support metadata");

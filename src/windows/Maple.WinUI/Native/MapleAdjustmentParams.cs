@@ -124,6 +124,7 @@ namespace Maple.WinUI.Native
         public float defringe_green_hue_lo;
         public float defringe_green_hue_hi;
         public float whites_anchor_ev;
+        public float nr_sampling_scale;
 
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference
@@ -132,11 +133,12 @@ namespace Maple.WinUI.Native
         /// scoped to the FFI invocation.
         /// </summary>
         public static MapleAdjustmentParams From(
-            AdjustmentState m, float decodedTemperature, float decodedTint, uint iso, float whitesAnchorEv)
+            AdjustmentState m, float decodedTemperature, float decodedTint, uint iso, float whitesAnchorEv, float nrSamplingScale = 1f)
         {
             var p = new MapleAdjustmentParams
             {
                 whites_anchor_ev = whitesAnchorEv,
+                nr_sampling_scale = nrSamplingScale,
                 temperature = (float)m.Temperature,
                 tint = (float)m.Tint,
                 exposure = (float)m.Exposure,

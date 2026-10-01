@@ -136,6 +136,7 @@ pub(super) fn make_params(
         WbMethod::Cat16 => 0,
     };
     MapleGpuLiveParams {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: input_whites_anchor(input),
         temperature: model.temperature,
         tint: model.tint,

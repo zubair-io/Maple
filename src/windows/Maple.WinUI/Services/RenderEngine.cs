@@ -23,6 +23,7 @@ namespace Maple.WinUI.Services
         public required uint Iso { get; init; }
         public required float AeGain { get; init; }
         public required float WhitesAnchorEv { get; init; }
+        public float NrSamplingScale { get; init; } = 1f;
         public required float DecodedTemperature { get; init; }
         public required float DecodedTint { get; init; }
         /// <summary>Raw copy of the wb_frame_* export block, in struct order,
@@ -128,6 +129,7 @@ namespace Maple.WinUI.Services
                         Iso = buffer.iso,
                         AeGain = buffer.ae_gain,
                         WhitesAnchorEv = buffer.whites_anchor_ev,
+                        NrSamplingScale = buffer.nr_sampling_scale,
                         DecodedTemperature = framePresent ? buffer.wb_frame_scene_cct : 6500f,
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
@@ -220,7 +222,7 @@ namespace Maple.WinUI.Services
                 chainScratch = new float[floatCount];
 
             var p = MapleAdjustmentParams.From(
-                model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv);
+                model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv, image.NrSamplingScale);
             ApplyWbFrame(ref p, image.WbFrame);
             p.skip_agx = image.IsRaster ? 1u : 0u;
 
@@ -468,6 +470,7 @@ namespace Maple.WinUI.Services
                 Iso = src.Iso,
                 AeGain = src.AeGain,
                 WhitesAnchorEv = src.WhitesAnchorEv,
+                NrSamplingScale = src.NrSamplingScale,
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
                 WbFrame = src.WbFrame,

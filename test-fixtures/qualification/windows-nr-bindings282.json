@@ -1,0 +1,17 @@
+{
+  "purpose": "Issue #3875: NR sampling metadata through f32 decode ABI and Windows CPU/GPU render parameters",
+  "baseCommit": "c56e2ac79e0b57af7915144c72b1f17d5eaa2c08",
+  "nativeDllSha256": "3E77C7B3720B4C7F35EF00FC0BDE5A1CB839D7B3C589F386B263C3AA03618D0E",
+  "checks": [
+    "Release raw-ffi GPU build succeeded",
+    "Windows test project Release build succeeded",
+    "10 Windows ABI/host parameter tests passed, zero skipped",
+    "4 FFI decode-buffer tests passed, zero ignored"
+  ],
+  "limits": [
+    "No new end-to-end color parity result",
+    "Apple and WASM host sampling propagation remains pending",
+    "Native detail crop uses native NR support; resized-tile metadata requires separate coverage",
+    "No new UI/DPI, accessibility, cloud or physical performance sign-off"
+  ]
+}

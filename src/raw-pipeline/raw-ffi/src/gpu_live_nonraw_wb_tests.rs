@@ -82,6 +82,7 @@ fn gpu_params_nonraw(
 /// it is directly comparable to the GPU chain's pre-view-tail WB-only effect.
 fn cpu_params_nonraw() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: f32::NAN,
         temperature: LIVE_TEMP,
         tint: LIVE_TINT,
