@@ -1,0 +1,28 @@
+{
+  "issue": 3875,
+  "sourceRevision": "caab4ea736537a18a9fa27b2c04f71b9811a3284",
+  "change": "Four-entry LRU for neutral/active shapes across fast/refine sessions; GPU resources remain bounded.",
+  "before": {
+    "test": "fast_and_refine_sessions_crossing_zero_stay_warm",
+    "passed": false,
+    "warmedAllocations": 68,
+    "allocationsAfterNextFrame": 83
+  },
+  "after": {
+    "command": "cargo test --release -p raw-gpu --lib pool -- --nocapture",
+    "passed": 11,
+    "failed": 0,
+    "ignored": 0,
+    "checks": [
+      "Four warm phase/shape combinations allocate no new GPU resources.",
+      "Repeated output is byte-identical and exposure changes both phase outputs.",
+      "A fifth shape evicts the least recently used bucket; recreated bindings write to the correct buffer.",
+      "Existing uniform/data upload, changed-value correctness and session isolation tests pass."
+    ]
+  },
+  "limitations": [
+    "No new uninstrumented real-app timing result yet.",
+    "No claim that this change resolves the repair lifecycle timeout.",
+    "Apple/Metal and browser qualification require CI and platform evidence."
+  ]
+}
