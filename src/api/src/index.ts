@@ -437,6 +437,7 @@ async function start(): Promise<void> {
   const server = buildApp();
   // listenOptions wires in TLS_CONFIG (validated at module load) when configured.
   server.listen(listenOptions(PORT));
+  log.info({ port: server.server?.port }, 'HTTP listener ready');
   managedHttps.start(httpsListenerFactory(buildApp));
 }
 
