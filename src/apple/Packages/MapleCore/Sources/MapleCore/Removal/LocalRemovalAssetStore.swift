@@ -32,6 +32,10 @@ public actor LocalRemovalAssetStore {
   }
 
   public func readAssets(records: String) throws -> [String: Data] {
+    try Self.readAssets(records: records, directory: directory)
+  }
+
+  nonisolated static func readAssets(records: String, directory: URL) throws -> [String: Data] {
     let names = try RemovalBridge.assetNames(records: records)
     return try Dictionary(
       uniqueKeysWithValues: names.map { name in

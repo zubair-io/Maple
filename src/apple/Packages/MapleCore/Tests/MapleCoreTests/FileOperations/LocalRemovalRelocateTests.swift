@@ -231,4 +231,20 @@ final class LocalRemovalRelocateTests: XCTestCase {
     }
   #endif
 
+  func testExtensionRenameKeepsSharedStemSidecarAndFinishesJournal() async throws {
+    let (raw, records) = try await stage()
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    let before = try Data(contentsOf: sidecar)
+    let outcome = try await LocalFileOperations.relocate(
+      raw,
+      to: raw.deletingLastPathComponent(), newBasename: "photo.nef", mode: .move)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: raw.path))
+    XCTAssertEqual(try Data(contentsOf: sidecar), before)
+    XCTAssertEqual(outcome.sidecarPath, sidecar.path)
+    let target = URL(fileURLWithPath: outcome.primaryPath)
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: LocalRelocationJournal.url(for: target).path))
+    try RemovalBridge.verifySource(records: records, rawURL: target)
+  }
+
 }
