@@ -4,6 +4,66 @@
 use crate::error::{catch_panic_rc, set_last_error};
 use std::ffi::{c_char, CStr};
 
+/// Union reviewed source masks, or subtract protected intent. Empty input or
+/// output means no selection, never a zero-sized MIMF. Geometry and binary
+/// mask validation use the same core as WASM. Return codes match selection.
+/// # Safety
+/// Non-null inputs are readable for their lengths. out_len is writable and
+/// non-null out_buf writable for out_cap bytes, disjoint from every input.
+#[no_mangle]
+pub unsafe extern "C" fn maple_removal_combine_masks_buf(
+    left: *const u8,
+    left_len: usize,
+    right: *const u8,
+    right_len: usize,
+    subtract: i32,
+    out_buf: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_removal_combine_masks_buf", || {
+        if out_len.is_null() {
+            return 1;
+        }
+        *out_len = 0;
+        if !matches!(subtract, 0 | 1) || out_cap > isize::MAX as usize {
+            set_last_error("invalid combined mask operation/capacity".into());
+            return 5;
+        }
+        let input = |pointer: *const u8, length: usize| -> Result<&[u8], String> {
+            if length > isize::MAX as usize || (length > 0 && pointer.is_null()) {
+                return Err("invalid combined mask input".into());
+            }
+            Ok(if length == 0 {
+                &[]
+            } else {
+                std::slice::from_raw_parts(pointer, length)
+            })
+        };
+        let result = input(left, left_len).and_then(|left| {
+            input(right, right_len).and_then(|right| {
+                raw_core::stages::removal_selection::combine_masks(left, right, subtract == 1)
+            })
+        });
+        let bytes = match result {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                set_last_error(e);
+                return 5;
+            }
+        };
+        *out_len = bytes.len();
+        if bytes.is_empty() {
+            return 0;
+        }
+        if out_buf.is_null() || out_cap < bytes.len() {
+            return 100;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
+        0
+    })
+}
+
 /// Rasterize a schema-1 JSON gesture request into a lossless MIMF asset.
 /// Returns 0 success (out_len=0 means empty selection), 1 null pointer,
 /// 5 invalid request, 99 caught panic, 100 size probe/insufficient capacity.

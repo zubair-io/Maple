@@ -1,6 +1,9 @@
 use super::*;
 use std::ffi::CString;
 
+#[path = "removal_mask_combine_tests.rs"]
+mod combine;
+
 const REQUEST: &str =
     r#"{"schema":1,"strokes":[{"points":[[0.2,0.5],[0.8,0.5]],"radius":0.05,"subtract":false}]}"#;
 
