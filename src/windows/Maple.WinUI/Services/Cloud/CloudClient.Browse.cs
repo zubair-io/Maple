@@ -78,6 +78,7 @@ namespace Maple.WinUI.Services.Cloud
         private async Task<string?> FetchCachedImageAsync(
             string kind, string cacheKey, string route, CancellationToken ct)
         {
+            if (kind == "preview") return await FetchRevalidatedPreviewAsync(cacheKey, route, ct);
             var hash = Convert.ToHexString(
                 SHA256.HashData(Encoding.UTF8.GetBytes($"{ServerUrl}|{cacheKey}")))[..32];
             var cachePath = Path.Combine(_cacheDir, $"{hash}-{kind}.avif");

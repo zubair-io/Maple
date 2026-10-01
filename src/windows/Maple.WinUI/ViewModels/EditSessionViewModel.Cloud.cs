@@ -291,15 +291,33 @@ namespace Maple.WinUI.ViewModels
         private void RequestCloudPreview(PhotoItem photo)
         {
             var address = photo.CloudAddress;
-            if (address == null)
+            var client = _cloud;
+            if (address == null || client == null)
                 return;
+            CancelPreviewRequest();
+            var request = new CancellationTokenSource();
+            _previewRequest = request;
+            var version = _photoOpenVersion;
             _ = Task.Run(async () =>
             {
-                var path = await _cloud!.FetchImageAsync(
-                    "preview", address, CancellationToken.None);
-                path = await DisplayImageCache.PrepareAsync(path, ThumbnailService.PreviewMaxPx, CancellationToken.None);
-                if (path != null)
-                    OnUi(() => photo.PreviewPath = new Uri(path).AbsoluteUri);
+                string? path = null;
+                try
+                {
+                    path = await client.FetchImageAsync("preview", address, request.Token);
+                    path = await DisplayImageCache.PrepareAsync(path, ThumbnailService.PreviewMaxPx, request.Token);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception error) { DiagLog.Write($"[cloud] preview failed: {error.Message}"); }
+                OnUi(() =>
+                {
+                    var current = ReferenceEquals(_previewRequest, request);
+                    if (current) _previewRequest = null;
+                    var cancelled = request.IsCancellationRequested;
+                    request.Dispose();
+                    if (_disposed || cancelled || !current || version != _photoOpenVersion
+                        || !ReferenceEquals(client, _cloud) || !ReferenceEquals(photo, SelectedPhoto)) return;
+                    photo.PreviewPath = path == null ? null : new Uri(path).AbsoluteUri;
+                });
             });
         }
 
