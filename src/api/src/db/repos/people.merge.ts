@@ -12,8 +12,9 @@
  * The Mongo version issues five independent writes, and a process that dies
  * between the first and the second leaves the faces repointed at a survivor
  * while the orphan is still a live, listable person holding a duplicate name.
- * All four writes below go through `transaction`, so the merge either happens
- * or does not. That is a behaviour improvement rather than a port artefact, and
+ * The merge writes and its search-stage reset go through `transaction`, so the
+ * merge and its durable search work either both happen or neither does (#3969).
+ * That is a behaviour improvement rather than a port artefact, and
  * it is available only because the single writer worker makes `BEGIN IMMEDIATE`
  * free of contention.
  *
@@ -31,7 +32,7 @@ import { caseFoldKey } from '../sqlite/case-fold.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { peopleDb, type SqliteDb } from './db-handle.ts';
 import { readPerson, type PersonRow } from './people.rows.ts';
-import { markAssetsForMeiliReindexBestEffort } from './people.search-reindex.ts';
+import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
 import {
   CLAIM_SURVIVOR_SQL,
   CLEAR_SUGGESTIONS_POINTING_AT_SQL,
@@ -82,7 +83,10 @@ export async function mergeInto(
   dbOverride?: SqliteDb,
 ): Promise<void> {
   const db = peopleDb(dbOverride);
-  await db.transaction(mergeStatements(survivor.toHexString(), orphan.toHexString(), name));
+  await db.transaction([
+    ...mergeStatements(survivor.toHexString(), orphan.toHexString(), name),
+    peopleMeiliRearmStatement([survivor.toHexString()]),
+  ]);
 }
 
 /**
@@ -115,18 +119,15 @@ export async function mergePeopleInto(
   const mergeable = sources.filter((row) => row.merged_into === null);
 
   if (mergeable.length > 0) {
-    await db.transaction(
-      mergeable.flatMap((row) => mergeStatements(targetHex, row.id, target.name)),
-    );
+    await db.transaction([
+      ...mergeable.flatMap((row) => mergeStatements(targetHex, row.id, target.name)),
+      // After repointing, the survivor holds both its own and the sources' faces.
+      peopleMeiliRearmStatement([targetHex]),
+    ]);
   }
 
   const survivor = await readPerson(db, targetHex);
   if (!survivor) throw new Error('target disappeared mid-merge');
 
-  if (mergeable.length > 0) {
-    // The survivor's name now applies to every absorbed person's photos, so the
-    // search documents of all of them are stale.
-    markAssetsForMeiliReindexBestEffort([targetId, ...sourceIds], dbOverride);
-  }
   return { survivor, mergedCount: mergeable.length };
 }

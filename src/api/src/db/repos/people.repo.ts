@@ -6,14 +6,8 @@
  * changes an import path and nothing else. The one substitution is the optional
  * trailing `dbOverride`, which accepts a SQLite handle instead of a Mongo `Db`.
  *
- * ## Why both repositories exist right now
- *
- * MongoDB is still the live database. Nothing here is wired into a route, and
- * the Mongo repo is untouched and still serving every request. That is staged
- * work tracked by the cutover ticket, in the same shape the pool (#3742), the
- * schema (#3743) and the assets port (#3746) landed in: build the replacement
- * beside the original, prove it, then switch the imports in one commit. There
- * is deliberately no runtime switch and no factory choosing between the two.
+ * SQLite is the live database after the atomic cutover (#3787). People
+ * mutations and their durable search work requests commit together (#3969).
  *
  * ## Layout
  *
@@ -58,10 +52,8 @@ import {
 import { mergeInto } from './people.merge.ts';
 import { loadSuggestedMergeInfo, type SuggestedMergeInfo } from './people.merge-suggestions.ts';
 import { toAssetFace, toPerson, type PersonFaceRow, type PersonRow } from './people.rows.ts';
-import {
-  markAssetIdsForMeiliReindexBestEffort,
-  markAssetsForMeiliReindexBestEffort,
-} from './people.search-reindex.ts';
+import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
+import { meiliRearmStatement } from './assets.stage-rearm.ts';
 import {
   ASSET_EXISTS_SQL,
   DIRTY_CENTROID_SQL,
@@ -182,17 +174,16 @@ async function applyRename(
   db: SqliteDb,
   subject: PersonWithId,
   trimmed: string,
-  dbOverride?: SqliteDb,
 ): Promise<RenameResult> {
-  await db.write(RENAME_PERSON_SQL, [
-    trimmed,
-    caseFoldKey(trimmed),
-    nowIso(),
-    subject._id.toHexString(),
+  await db.transaction([
+    {
+      sql: RENAME_PERSON_SQL,
+      params: [trimmed, caseFoldKey(trimmed), nowIso(), subject._id.toHexString()],
+    },
+    peopleMeiliRearmStatement([subject._id.toHexString()]),
   ]);
   // A case-only rename still changes the indexed token ("alice" → "Alice"), so
   // it re-indexes too.
-  markAssetsForMeiliReindexBestEffort([subject._id], dbOverride);
   return { survivor: { ...subject, name: trimmed } };
 }
 
@@ -221,22 +212,19 @@ export async function renamePerson(
 
   if (sameNameCI(subject.name, trimmed)) {
     if (subject.name === trimmed) return { survivor: subject };
-    return applyRename(db, subject, trimmed, dbOverride);
+    return applyRename(db, subject, trimmed);
   }
 
   const collision = await findByNameCI(db, trimmed);
   // No collision, or the only match is this row itself.
   if (!collision || collision._id.equals(id)) {
-    return applyRename(db, subject, trimmed, dbOverride);
+    return applyRename(db, subject, trimmed);
   }
 
   const survivorIsSubject = subject._id.toString() < collision._id.toString();
   const survivor = survivorIsSubject ? subject : collision;
   const orphan = survivorIsSubject ? collision : subject;
   await mergeInto(survivor._id, orphan._id, trimmed, dbOverride);
-  // Both sides need re-indexing: the orphan's faces moved to the survivor, and
-  // the survivor's display name may have changed.
-  markAssetsForMeiliReindexBestEffort([survivor._id, orphan._id], dbOverride);
 
   const fresh = await findById(db, survivor._id.toHexString());
   if (!fresh) throw new Error('survivor disappeared mid-merge');
@@ -397,8 +385,8 @@ export async function assignFaceToPerson(
   await db.transaction([
     { sql: SET_FACE_PERSON_SQL, params: [personHex, assetId.toHexString(), faceIndex] },
     ...dirty,
+    meiliRearmStatement(assetId.toHexString()),
   ]);
-  markAssetIdsForMeiliReindexBestEffort([assetId], dbOverride);
 }
 
 /**
@@ -420,9 +408,9 @@ export async function hideFace(
   const statements: SqlStatement[] = [
     { sql: HIDE_FACE_SQL, params: [assetId.toHexString(), faceIndex] },
     ...(priorHex === null ? [] : [dirtyCentroid(priorHex, nowIso())]),
+    ...(priorHex === null ? [] : [meiliRearmStatement(assetId.toHexString())]),
   ];
   await db.transaction(statements);
-  if (priorHex !== null) markAssetIdsForMeiliReindexBestEffort([assetId], dbOverride);
 }
 
 /**

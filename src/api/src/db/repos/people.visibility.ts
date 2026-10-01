@@ -19,7 +19,7 @@ import {
   type ListPeopleOptions,
   type PersonWithCount,
 } from './people.list.ts';
-import { markAssetsForMeiliReindexBestEffort } from './people.search-reindex.ts';
+import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
 import { flaggedPersonIdsSql, setVisibilitySql } from './people.sql.ts';
 
 /**
@@ -79,12 +79,13 @@ async function setVisibilityFlag(
   dbOverride?: SqliteDb,
 ): Promise<void> {
   const db = peopleDb(dbOverride);
-  await db.write(setVisibilitySql(column), [
-    value ? 1 : 0,
-    new Date().toISOString(),
-    id.toHexString(),
+  await db.transaction([
+    {
+      sql: setVisibilitySql(column),
+      params: [value ? 1 : 0, new Date().toISOString(), id.toHexString()],
+    },
+    peopleMeiliRearmStatement([id.toHexString()]),
   ]);
-  markAssetsForMeiliReindexBestEffort([id], dbOverride);
 }
 
 export function hidePerson(id: ObjectId, dbOverride?: SqliteDb): Promise<void> {

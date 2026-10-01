@@ -265,22 +265,72 @@ describe('runOnlineClustering', () => {
 
     await runOnlineClustering({}, testDb(db));
 
-    // Fire-and-forget: a search-index hiccup must not fail the pass.
-    await waitFor(() => stageRow(db, assigned, MEILI_STAGE)?.version === 0);
+    // The local search work commits with the assignment.
     expect(stageRow(db, assigned, MEILI_STAGE)?.version).toBe(0);
     // An asset the pass did not touch keeps its place in the queue — re-arming
     // every asset of every touched person would re-queue an entire library.
     expect(stageRow(db, untouched, MEILI_STAGE)?.version).toBe(6);
   });
-});
 
-/** Poll a condition for up to half a second. */
-async function waitFor(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
+  test('a failed later chunk leaves earlier assignments queued and retries the uncommitted face', async () => {
+    using handle = await createTestDatabase('file');
+    const db = handle.db;
+    const library = insertLibrary(db);
+    insertPerson(db, {
+      name: 'Seed',
+      centroid: nearAxis(0, 0.02),
+      centroidFaceCount: 1,
+    });
+    for (let index = 0; index < 1001; index += 1) {
+      const assetId = insertLiveAsset(db, library);
+      insertFace(db, { assetId, embedding: nearAxis(0, 0.05) });
+      insertStageState(db, assetId, MEILI_STAGE, { version: 6 });
+    }
+    const untouched = insertLiveAsset(db, library);
+    insertStageState(db, untouched, MEILI_STAGE, { version: 6 });
+    const inner = testDb(db);
+    let assignmentChunks = 0;
+    const failing: SqliteDb = {
+      ...inner,
+      transaction: (statements) => {
+        if (statements.some((statement) => statement.sql.includes('UPDATE faces SET person_id'))) {
+          assignmentChunks += 1;
+          if (assignmentChunks === 2) {
+            db.exec(`CREATE TRIGGER reject_later_search BEFORE UPDATE ON stage_state
+              WHEN NEW.stage = 'meili' BEGIN SELECT RAISE(ABORT, 'search work unavailable'); END`);
+          }
+        }
+        return inner.transaction(statements);
+      },
+    };
+    await expect(runOnlineClustering({}, failing)).rejects.toThrow('search work unavailable');
+    expect(assignmentChunks).toBe(2);
+    expect(db.query('SELECT COUNT(*) AS n FROM faces WHERE person_id IS NOT NULL').get()).toEqual({
+      n: 1000,
+    });
+    expect(
+      db.query("SELECT COUNT(*) AS n FROM stage_state WHERE stage = 'meili' AND version = 0").get(),
+    ).toEqual({ n: 1000 });
+    expect(
+      db
+        .query(
+          `SELECT s.version FROM faces f JOIN stage_state s ON s.asset_id = f.asset_id
+        WHERE f.person_id IS NULL AND s.stage = 'meili'`,
+        )
+        .all(),
+    ).toEqual([{ version: 6 }]);
+
+    db.exec('DROP TRIGGER reject_later_search');
+    expect(await runOnlineClustering({}, inner)).toMatchObject({ assigned: 1, scanned: 1 });
+    expect(db.query('SELECT COUNT(*) AS n FROM faces WHERE person_id IS NULL').get()).toEqual({
+      n: 0,
+    });
+    expect(
+      db.query("SELECT COUNT(*) AS n FROM stage_state WHERE stage = 'meili' AND version = 0").get(),
+    ).toEqual({ n: 1001 });
+    expect(stageRow(db, untouched, MEILI_STAGE)?.version).toBe(6);
+  });
+});
 
 describe('backfillCoverAssets', () => {
   test('gives an uncovered person their highest-confidence face', async () => {
