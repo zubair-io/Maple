@@ -68,7 +68,7 @@ describe('the list query keeps assets as the outer loop', () => {
   test('walks the ordered partial index with no sort', async () => {
     using handle = await createTestDatabase();
     const detail = plan(handle.db, listItemsSql([], true), 1000);
-    expect(detail).toContain('USING INDEX assets_live_captured');
+    expect(detail).toContain('USING INDEX assets_live_sorted');
     expect(detail).not.toContain('TEMP B-TREE');
   });
 
@@ -77,14 +77,15 @@ describe('the list query keeps assets as the outer loop', () => {
     // Without the INDEXED BY directive the planner takes assets_live here and
     // sorts the whole live set to satisfy the ORDER BY.
     const detail = plan(handle.db, listItemsSql(['has_xmp = ?', 'rating >= ?'], true), 1, 3, 1000);
-    expect(detail).toContain('USING INDEX assets_live_captured');
+    expect(detail).toContain('USING INDEX assets_live_sorted');
     expect(detail).not.toContain('TEMP B-TREE');
   });
 
-  test('turns a captured_after filter into a range on the same index', async () => {
+  test('keeps a captured_after filter on the capture-date range index without sorting', async () => {
     using handle = await createTestDatabase();
     const detail = plan(handle.db, listItemsSql(['captured_at > ?'], true), '2026-01-01', 1000);
     expect(detail).toContain('SEARCH assets USING INDEX assets_live_captured (captured_at>?)');
+    expect(detail).not.toContain('TEMP B-TREE');
   });
 
   test('never joins asset_locations — the locations are fetched afterwards, by key', async () => {
