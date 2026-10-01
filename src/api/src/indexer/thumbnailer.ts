@@ -1,8 +1,9 @@
 /**
  * Thumbnail generation for the indexer thumb stage.
  *
- * For RAW files: delegates to `maple_render_thumbnail_avif_to_file` via
- * raw-ffi — extracts the embedded preview JPEG, downsamples, and writes an
+ * For RAW files: develops with an authored XMP sidecar when present; otherwise
+ * delegates to `maple_render_thumbnail_avif_to_file` via raw-ffi to extract
+ * the embedded preview JPEG, downsample, and write an
  * AVIF directly to `<dir>/.maple/thumbs/<sha256_prefix16>.avif`. No buffer
  * crosses the `bun:ffi` boundary (Bun 1.3.x's `toBuffer`-backed Buffers
  * double-free during JSC GC and segfault the process — the older
@@ -36,6 +37,7 @@ import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
+import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('thumbnailer');
@@ -198,6 +200,13 @@ async function renderRawThumbToFile(rawPath: string, outPath: string): Promise<b
     );
     return false;
   }
+  const sidecarRender = await renderRawSidecarDerivative(
+    rawPath,
+    outPath,
+    THUMB_LONG_EDGE_PX,
+    THUMB_AVIF_QUALITY,
+  );
+  if (sidecarRender !== null) return sidecarRender;
   // Extraction failure REJECTS rather than returning false — the pool
   // marshals the child's error across the process boundary as a throw, and
   // the underlying rc (8 = "no embedded preview / thumbnail in RAW") does
