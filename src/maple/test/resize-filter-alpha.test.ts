@@ -1,9 +1,25 @@
 import { describe, expect, it } from 'bun:test';
-import type { Sharp } from 'sharp';
 import { maple } from '../src/index.ts';
 import { loadSharpOracle } from './support/sharp-oracle.ts';
 
-const sharp = loadSharpOracle() as typeof import('sharp') | null;
+interface SharpImage {
+  resize(options: { width: number; kernel: string }): SharpImage;
+  threshold(value: number): SharpImage;
+  median(size: number): SharpImage;
+  blur(sigma: number): SharpImage;
+  sharpen(): SharpImage;
+  convolve(options: { width: number; height: number; kernel: number[]; scale: number }): SharpImage;
+  toColourspace(space: string): SharpImage;
+  raw(): SharpImage;
+  toBuffer(): Promise<Buffer>;
+}
+
+type SharpFactory = (
+  input: Buffer,
+  options: { raw: { width: number; height: number; channels: 3 | 4 } },
+) => SharpImage;
+
+const sharp = loadSharpOracle() as SharpFactory | null;
 const source = {
   width: 32,
   height: 32,
@@ -17,7 +33,7 @@ const source = {
 };
 
 type Maple = ReturnType<typeof maple>;
-const filters: [string, (image: Maple) => Maple, (image: Sharp) => Sharp][] = [
+const filters: [string, (image: Maple) => Maple, (image: SharpImage) => SharpImage][] = [
   ['resize', (image) => image, (image) => image],
   ['threshold', (image) => image.threshold(128), (image) => image.threshold(128)],
   ['median', (image) => image.median(3), (image) => image.median(3)],
