@@ -629,7 +629,19 @@ jobs:
 
       - name: Install API devDeps (provides fallow)
         working-directory: src/api
-        run: HOME=/tmp/xbun bun install --frozen-lockfile
+        run: bun install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: api-native-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Build native RAW library for measured API tests
+        run: bash src/api/scripts/build-raw-ffi.sh
 
       # `fallow audit` scopes dead-code/complexity/dupes analysis to files
       # changed vs the merge base and gates (exit 1) only on findings the
