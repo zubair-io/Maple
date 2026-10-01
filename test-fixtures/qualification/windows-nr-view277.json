@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceBase": "e74fbdad7f985291cc29060e671e6a35d76376b4",
+  "kind": "fixed-Auto-view-tail diagnostic",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "inputEvidence": "windows-nr-support276.json",
+  "command": "view-preview-noise RAW INPUT_EXR_DIRECTORY OUTPUT_DIRECTORY",
+  "method": "Apply the same real proxy Auto curve and residual LUT to each diagnostic scene and reference, after AgX and sRGB encoding in float, before one dither/quantization. Compare the resulting PNGs using compare_images.diff.",
+  "metrics": {
+    "unchanged": {
+      "mean_deltaE": 2.8099582044810507,
+      "p95_deltaE": 7.094833880028236,
+      "max_deltaE": 35.9530791153287,
+      "bias_r": -0.00463206646963954,
+      "bias_g": -0.004850300494581461,
+      "bias_b": -0.004116757772862911,
+      "n_pixels": 1707200
+    },
+    "linear": {
+      "mean_deltaE": 2.579895118960722,
+      "p95_deltaE": 6.331460957904053,
+      "max_deltaE": 25.999286619347313,
+      "bias_r": -0.0045445384457707405,
+      "bias_g": -0.004814814776182175,
+      "bias_b": -0.004095764365047216,
+      "n_pixels": 1707200
+    },
+    "area": {
+      "mean_deltaE": 2.0416341904900723,
+      "p95_deltaE": 4.878250252856869,
+      "max_deltaE": 21.32224004628126,
+      "bias_r": -0.004220574162900448,
+      "bias_g": -0.004754158668220043,
+      "bias_b": -0.004406885243952274,
+      "n_pixels": 1707200
+    },
+    "radius-one": {
+      "mean_deltaE": 1.6739726949481444,
+      "p95_deltaE": 4.60448126034088,
+      "max_deltaE": 20.832695859711535,
+      "bias_r": -0.004272391088306904,
+      "bias_g": -0.004752079490572214,
+      "bias_b": -0.004661933984607458,
+      "n_pixels": 1707200
+    },
+    "area-radius-one": {
+      "mean_deltaE": 1.4804993999225133,
+      "p95_deltaE": 4.025747579227248,
+      "max_deltaE": 21.32224004628126,
+      "bias_r": -0.004180935211479664,
+      "bias_g": -0.0047288862988352776,
+      "bias_b": -0.00474453205242753,
+      "n_pixels": 1707200
+    }
+  },
+  "limitations": [
+    "Fixed 1600x1067 scene buffers and one shared Auto fit isolate the view tail; this is not the production preview/export gate.",
+    "Native reference was reduced in scene-linear space before this transform. Actual export resizing order and fit-origin differences remain outside this comparison.",
+    "No production pipeline, defaults, GPU code or acceptance budget changed.",
+    "One fixture and default adjustments do not establish a general resolution-scaling policy."
+  ]
+}

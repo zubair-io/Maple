@@ -118,3 +118,7 @@ required-features = ["stage-dump"]
 [[example]]
 name = "probe-preview-noise"
 required-features = ["stage-dump"]
+
+[[example]]
+name = "view-preview-noise"
+required-features = ["stage-dump"]
