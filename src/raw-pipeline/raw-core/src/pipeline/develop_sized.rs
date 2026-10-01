@@ -164,9 +164,11 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             // Full/Amaze. The full-res RGB buffer (~1.4 GB on a 100 MP sensor)
             // is then never allocated — that buffer (held twice on a cold Auto
             // open: render + auto-profile fit) is what jetsam-killed iOS on
-            // large RAWs. After the early downsample to `max_long_edge` the
-            // on-screen result is unchanged (half-sensor still exceeds the
-            // sub-half-sensor target). `crop_divisor` follows to 2 so the
+            // large RAWs. Half-sensor still exceeds the sub-half-sensor target,
+            // but this is an approximation: reconstruction and nonlinear
+            // colour/NR stages do not commute with resizing. #3875 tracks
+            // preview/export qualification; adequate pixel dimensions alone
+            // do not prove perceptual parity. `crop_divisor` follows to 2 so the
             // DefaultCrop coords still land on the (now half-res) buffer.
             let sensor_le = mosaic.width.max(mosaic.height);
             let demosaic_half =
