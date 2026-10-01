@@ -86,6 +86,12 @@ impl NativeDetailSession {
         crate::removal_context::source(&self.raw, &self.original).map_err(js_error)
     }
 
+    /// Gesture batch in oriented post-perspective, pre-user-crop UV. Null
+    /// results are surround, never clamped edge selection (#3934).
+    pub fn removal_map_points(&self, xmp: &str, request: &str) -> Result<String, JsError> {
+        crate::removal_context::map_points(&self.raw, xmp, request).map_err(js_error)
+    }
+
     /// Verify the complete saved stack once after companion reads. Manifest is
     /// [{"name":"<digest>.mask|f16","length":N}], bytes concatenated in that order.
     /// A failed preparation clears the old stack; no partial result is renderable.

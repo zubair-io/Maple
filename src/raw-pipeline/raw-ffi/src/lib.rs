@@ -118,6 +118,7 @@ mod removal_assets;
 mod removal_composite;
 mod removal_context;
 mod removal_generation;
+mod removal_geometry;
 #[cfg(any(feature = "removal", feature = "removal-ios"))]
 mod removal_inference;
 mod removal_prepare;
@@ -213,6 +214,7 @@ pub use removal_context::{
     maple_removal_calibration_context_f32, maple_removal_calibration_source_buf,
 };
 pub use removal_generation::maple_removal_generation_masks_f32;
+pub use removal_geometry::maple_removal_map_points_buf;
 #[cfg(any(feature = "removal", feature = "removal-ios"))]
 pub use removal_inference::{
     maple_removal_inference_cancel, maple_removal_inference_free, maple_removal_inference_new,

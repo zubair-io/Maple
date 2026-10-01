@@ -29,6 +29,14 @@ window.probe=async()=>{
   ]);
   const bundle=new Uint8Array(mask.length+patch.length);bundle.set(mask);bundle.set(patch,mask.length);
   async function measure(session){
+    const geometryXmp='<rdf:Description xmlns:rdf="x" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:PerspectiveX="100"/>';
+    const mapped=JSON.parse(session.removal_map_points(geometryXmp,JSON.stringify({schema:1,points:[[0,.5],[.8,.5],[1.1,.5]]})));
+    if(JSON.stringify(mapped.source_size)!=='[16,8]'||mapped.points.length!==3||mapped.points[0]!==null||mapped.points[2]!==null||Math.abs(mapped.points[1][0]-.3)>1e-7||mapped.points[1][1]!==.5)throw Error('Retained gesture mapping differs from native RAW geometry');
+    let invalidGeometryRejected=false;try{session.removal_map_points(geometryXmp,'{"schema":2,"points":[]}');}catch{invalidGeometryRejected=true;}
+    if(!invalidGeometryRejected)throw Error('Unsupported gesture schema accepted');
+    const cropXmp='<rdf:Description xmlns:rdf="x" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:HasCrop="True" crs:CropLeft="0.25" crs:CropRight="0.75" crs:CropTop="0" crs:CropBottom="1" crs:CropAngle="90"/>';
+    const cropMapped=JSON.parse(session.removal_map_points(cropXmp,JSON.stringify({schema:1,crop_input_size:[16,8],points:[[.5,.25]]})));
+    if(JSON.stringify(cropMapped.points)!=='[[0.375,0.5]]')throw Error('Cropped quarter-turn gesture differs from native rendering');
     const source=session.removal_calibration_source();
     const records=wasm.removal_prepare(JSON.stringify({...request,plate:'linear-calibration-v1',source:JSON.parse(source)}),'[]',mask,patch);
     const xmp=xmpFor(records);
@@ -57,7 +65,7 @@ window.probe=async()=>{
     if(!corruptRejected||!oldStackCleared)throw Error('Failed preparation retained old accepted pixels');
     session.prepare_saved_removals(xmp,manifest,bundle);
     if(session.removal_calibration_source()!==source)throw Error('Saved rendering changed original source');
-    return {renders,staleRejected,corruptRejected,oldStackCleared,sourceUnchanged:true};
+    return {mapped,cropMapped,invalidGeometryRejected,renders,staleRejected,corruptRejected,oldStackCleared,sourceUnchanged:true};
   }
   const cpu=new wasm.NativeDetailSession(raw,'dng');let cpuResult;
   try{cpuResult=await measure(cpu);}finally{cpu.free();}

@@ -109,7 +109,7 @@ pub fn resolve_for_model(
 /// acknowledgement before it is applied. An imported LCP is a deliberate
 /// choice the user can ratify; a bundled match is the product default, so
 /// its out-of-range clamps are reported, not gated.
-pub(super) fn needs_acknowledgement(reference: &str, resolution: &Resolution) -> bool {
+pub(crate) fn needs_acknowledgement(reference: &str, resolution: &Resolution) -> bool {
     !resolution.approximations.is_empty()
         && matches!(resolution.source, Source::Lcp)
         && !matches!(

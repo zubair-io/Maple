@@ -42,6 +42,8 @@
 //!   remain unbounded, including the kernel’s negative lobes (#3633).
 
 mod cubic;
+mod point_map;
+pub(crate) use point_map::WarpPointMap;
 
 use rayon::prelude::*;
 

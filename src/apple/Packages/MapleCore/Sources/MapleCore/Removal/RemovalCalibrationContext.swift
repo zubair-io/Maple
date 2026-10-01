@@ -3,6 +3,29 @@ import Foundation
 import RawPipeline
 
 extension RemovalBridge {
+  /// One gesture batch, oriented post-perspective PRE-user-crop UV -> native
+  /// pre-lens DefaultCrop UV. Optional crop_input_size supplies actual pre-crop
+  /// buffer dimensions for cropped output UV; otherwise undo crop presentation.
+  /// JSON null must break a stroke across the surround, not become edge paint.
+  /// Metadata only: no model inference, RAW decode or image allocation (#3934).
+  public static func mapDisplayPoints(handle: MapleRawHandle, xmp: String, request: String) throws
+    -> String
+  {
+    guard !xmp.utf8.contains(0), !request.utf8.contains(0) else {
+      throw RemovalError.invalid("Removal geometry request contains NUL")
+    }
+    let data = try withExtendedLifetime(handle) {
+      try xmp.withCString { xmp in
+        try request.withCString { request in
+          try buffer { output, cap, length in
+            maple_removal_map_points_buf(handle.pointer, xmp, request, output, cap, length)
+          }
+        }
+      }
+    }
+    return String(decoding: data, as: UTF8.self)
+  }
+
   /// Shared source-anchor JSON from original bytes captured at handle open and
   /// the fixed calibration recipe. Read once when opening removal authoring.
   public static func calibrationSource(handle: MapleRawHandle) throws -> String {
