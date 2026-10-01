@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -44,6 +45,29 @@ public partial class EditSessionViewModel
         catch (InvalidOperationException error) when (error.Message.StartsWith("Pending cloud save failed:")) { }
         if (photo.PreviewPath != acknowledged || session._previewRequest != null)
             throw new InvalidOperationException("Rejected cloud save refreshed saved pixels");
+        var publication = session._cloudPreviewPending ?? throw new InvalidOperationException("Acknowledged preview was not retained");
+        if (XmpParser.Parse(publication.Xmp)?.Adjustments.Exposure != 2)
+            throw new InvalidOperationException("Rejected save replaced the acknowledged publication");
+        session.PublishPendingCloudPreview();
+        session._cloudDoc!.Adjustments.Exposure = 9;
+        await session._cloudPreviewPublication;
+        var expectedXmp = Path.Combine(output, "expected-cloud-preview.xmp");
+        var expectedJpeg = Path.Combine(output, "expected-cloud-preview.jpg");
+        await File.WriteAllTextAsync(expectedXmp, publication.Xmp);
+        if (Native.RawFfi.maple_render_develop_jpeg_to_file(raw, expectedXmp, 1280, 82, expectedJpeg) != 0
+            || handler.Published.Count != 1
+            || !System.Linq.Enumerable.SequenceEqual(handler.Published[0], await File.ReadAllBytesAsync(expectedJpeg)))
+            throw new InvalidOperationException("Cloud publication used mutable or unacknowledged adjustments");
+
+        // Retry the failed save after navigating away. Its acknowledgement
+        // must publish the captured photo without borrowing the new session.
+        handler.Reject = false;
+        session.SelectedPhoto = null;
+        await session._cloudMetadataWrites.DrainAsync(retryFailed: true);
+        await Wait(() => handler.Published.Count == 2);
+        await session._cloudPreviewPublication;
+        if (session._cloudPreviewPending != null)
+            throw new InvalidOperationException("Late cloud acknowledgement waited for another navigation");
 
         static async Task Wait(Func<bool> ready)
         {
@@ -57,8 +81,14 @@ public partial class EditSessionViewModel
     {
         public int Writes;
         public bool Reject;
+        public readonly List<byte[]> Published = new();
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellation)
         {
+            if (request.Method == HttpMethod.Put && request.RequestUri?.AbsolutePath == "/api/preview")
+            {
+                Published.Add(await request.Content!.ReadAsByteArrayAsync(cancellation));
+                return new(HttpStatusCode.OK);
+            }
             if (request.RequestUri?.AbsolutePath != "/api/xmp") throw new InvalidOperationException("Unexpected saved-preview route");
             if (request.Method == HttpMethod.Post)
             {

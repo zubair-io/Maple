@@ -330,7 +330,7 @@ namespace Maple.WinUI.ViewModels
         private Task _cloudSidecarLoad = Task.CompletedTask;
         /// <summary>Cloud photo whose developed preview should re-publish when
         /// the session moves off it (set on every cloud adjustment flush).</summary>
-        private PhotoItem? _cloudPreviewPending;
+        private CloudPreviewPublication? _cloudPreviewPending;
 
         /// <summary>Cloud flush path: fold the session state into the fetched
         /// server document (passthrough intact) and overwrite the server
@@ -345,14 +345,25 @@ namespace Maple.WinUI.ViewModels
             doc.Flag = photo.FlagStatus;
             doc.ColorLabel = photo.ColorLabel;
             _cloudDoc = doc;
-            _cloudPreviewPending = photo;
             var client = _cloud;
             var snapshot = doc.Adjustments.Clone();
             var version = _photoOpenVersion;
+            var serverPath = photo.FilePath;
+            var publication = photo.LocalCachePath is { } original
+                ? new CloudPreviewPublication(client, serverPath, original, Services.Xmp.XmpWriter.Serialize(doc)) : null;
             TrackCloudMetadataWrite(async () =>
             {
-                await client.UpdateDevelopSidecarAsync(photo.FilePath, snapshot);
-                OnUi(() => RequestSavedCloudPreview(photo, snapshot, client, version));
+                await client.UpdateDevelopSidecarAsync(serverPath, snapshot);
+                OnUi(() =>
+                {
+                    if (publication != null)
+                    {
+                        if (!_disposed && version == _photoOpenVersion && ReferenceEquals(photo, SelectedPhoto))
+                            _cloudPreviewPending = publication;
+                        else QueueCloudPreviewPublication(publication);
+                    }
+                    RequestSavedCloudPreview(photo, snapshot, client, version);
+                });
             });
         }
 
@@ -361,42 +372,9 @@ namespace Maple.WinUI.ViewModels
         /// Best-effort — a failure only logs.</summary>
         private void PublishPendingCloudPreview()
         {
-            var photo = _cloudPreviewPending;
+            var publication = _cloudPreviewPending;
             _cloudPreviewPending = null;
-            if (photo?.LocalCachePath == null || _cloud == null)
-                return;
-            var doc = _cloudDoc;
-            var cloud = _cloud;
-            _ = Task.Run(async () =>
-            {
-                var xmpTemp = System.IO.Path.Combine(
-                    System.IO.Path.GetTempPath(), $"maple-preview-{Guid.NewGuid():N}.xmp");
-                var jpegTemp = System.IO.Path.Combine(
-                    System.IO.Path.GetTempPath(), $"maple-preview-{Guid.NewGuid():N}.jpg");
-                try
-                {
-                    System.IO.File.WriteAllText(xmpTemp, Services.Xmp.XmpWriter.Serialize(
-                        doc ?? new Services.Xmp.XmpSidecarDocument()));
-                    var rc = Native.RawFfi.maple_render_develop_jpeg_to_file(
-                        photo.LocalCachePath!, xmpTemp, 1280, 82, jpegTemp);
-                    if (rc != 0)
-                    {
-                        DiagLog.Write($"[cloud] preview develop failed rc={rc}: {Native.RawFfi.LastError()}");
-                        return;
-                    }
-                    var bytes = await System.IO.File.ReadAllBytesAsync(jpegTemp);
-                    await cloud.PublishPreviewAsync(photo.FilePath, bytes, CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    DiagLog.Write($"[cloud] preview publish failed for {photo.FileName}: {ex.Message}");
-                }
-                finally
-                {
-                    try { System.IO.File.Delete(xmpTemp); } catch { /* best effort */ }
-                    try { System.IO.File.Delete(jpegTemp); } catch { /* best effort */ }
-                }
-            });
+            if (publication != null) QueueCloudPreviewPublication(publication);
         }
 
         /// <summary>Push a cloud asset's culling change to the server
