@@ -4,6 +4,47 @@ export function isFinalReview(state: string, message: string): boolean {
   return state === 'completed' && /^`?VERDICT:\s*(approve|comment|block)`?\s*$/im.test(message);
 }
 
+export async function verifyPublishedSession(
+  repo: string,
+  prNumber: string,
+  sessionId: string,
+  githubToken: string,
+  request: typeof fetch,
+): Promise<void> {
+  if (
+    !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo) ||
+    !/^[1-9][0-9]*$/.test(prNumber) ||
+    !/^[a-zA-Z0-9_-]+$/.test(sessionId)
+  ) {
+    throw new Error('Invalid cleanup target');
+  }
+  for (let page = 1; ; page++) {
+    const response = await request(
+      `https://api.github.com/repos/${repo}/issues/${prNumber}/comments?per_page=100&page=${page}`,
+      {
+        headers: { authorization: `Bearer ${githubToken}`, accept: 'application/vnd.github+json' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    if (!response.ok) throw new Error(`Review verification failed (HTTP ${response.status})`);
+    const comments = (await response.json()) as {
+      user?: { login?: string };
+      body?: string;
+    }[];
+    const published = comments.some(
+      ({ user, body }) =>
+        user?.login === 'github-actions[bot]' &&
+        typeof body === 'string' &&
+        body.startsWith('<!-- jules-pr-reviewer -->\n## 🤖 Jules Review\n') &&
+        body.trimEnd().endsWith(`_Session: \`${sessionId}\`_`) &&
+        isFinalReview('completed', body),
+    );
+    if (published) return;
+    if (comments.length < 100) throw new Error('No completed review published for this session');
+  }
+}
+
 export async function publishThenDelete(
   sessionId: string,
   apiKey: string,

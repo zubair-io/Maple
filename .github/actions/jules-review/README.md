@@ -15,6 +15,13 @@ Ported from [Sugar Maple PR #29](https://github.com/zubair-io/Sugar-Maple/pull/2
 
 The existing `JULES_API_KEY` repository secret is reused. Completed approve, comment and block reviews are deleted only after their GitHub comment and status are published. Failed, timed-out or unpublished reviews remain available. Cleanup retries HTTP 408, 429 and 5xx responses, request timeouts and network failures up to three attempts, waiting one then two seconds between attempts. Each attempt has a fresh 30-second timeout. Other HTTP failures stop immediately. An unresolved deletion failure fails the workflow without replacing the saved review and reports only its HTTP status or timeout/network category; upstream response bodies and exception messages are never logged. HTTP 404 counts as already deleted. Manual cancellation or runner loss can still leave a session. Runs for the same PR are serialized without cancelling an active review.
 
+The workflow's manual dispatch retries one previously published review session with the repository secret. It verifies the exact session footer and completed verdict in a `github-actions[bot]` review comment on the named PR before deleting anything. Human-authored comments, in-progress or failed reviews, and mismatched session IDs are rejected. It preserves the saved review and commit status. For example, recovery of the approved review on #3946 uses:
+
+```sh
+gh workflow run jules-pr-review.yml --repo zubair-io/Maple \
+  -f pull_request_number=3946 -f session_id=16609676986017950712
+```
+
 To retry cleanup manually with `JULES_API_KEY` in your environment, replace `SESSION_ID` with the exact ID from the saved review:
 
 ```sh

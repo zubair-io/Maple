@@ -14,6 +14,16 @@
 # The real fix belongs upstream in the action's rule set.
 name: Jules PR Review
 on:
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: PR containing the published review
+        required: true
+        type: string
+      session_id:
+        description: Exact Jules session ID from that published review
+        required: true
+        type: string
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
@@ -27,7 +37,7 @@ concurrency:
 
 jobs:
   review:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     timeout-minutes: 80
     runs-on: ubuntu-latest
     permissions:
@@ -62,3 +72,38 @@ jobs:
           # Large diffs (~120 KB+) routinely exceed the 30-minute default and fail
           # the required check with "did not return a review in time".
           timeout_minutes: 60
+
+  recover-session:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Verify published review and retry its session cleanup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          CLEANUP_PR: ${{ inputs.pull_request_number }}
+          CLEANUP_SESSION: ${{ inputs.session_id }}
+        run: |
+          node --input-type=module <<'JS'
+          import { verifyPublishedSession, publishThenDelete } from './.github/actions/jules-review/src/cleanup.ts';
+          const { GITHUB_REPOSITORY, GH_TOKEN, JULES_API_KEY, CLEANUP_PR, CLEANUP_SESSION } = process.env;
+          if (!GH_TOKEN || !JULES_API_KEY) throw new Error('Cleanup credential is unavailable');
+          await publishThenDelete(
+            CLEANUP_SESSION,
+            JULES_API_KEY,
+            () => verifyPublishedSession(GITHUB_REPOSITORY, CLEANUP_PR, CLEANUP_SESSION, GH_TOKEN, fetch),
+            fetch,
+            (message) => { throw new Error(message); },
+          );
+          console.log(`Published session ${CLEANUP_SESSION} cleanup completed`);
+          JS
