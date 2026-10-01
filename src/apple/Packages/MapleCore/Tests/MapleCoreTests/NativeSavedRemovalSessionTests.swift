@@ -157,4 +157,34 @@ final class NativeSavedRemovalSessionTests: XCTestCase {
       XCTFail("Reset must retire native-detail anchors with their owner")
     } catch { XCTAssertTrue(error is RemovalError) }
   }
+  func testOrdinaryNativeFileRendererAndFilmExportConsumeSavedCompanions() throws {
+    let (_, source, xmp, assets) = try fixture()
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let raw = folder.appendingPathComponent("photo.dng")
+    let sidecar = folder.appendingPathComponent("photo.xmp")
+    let directory = folder.appendingPathComponent(".maple/inpaint", isDirectory: true)
+    try source.write(to: raw)
+    try Data(xmp.utf8).write(to: sidecar)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    for (name, data) in assets { try data.write(to: directory.appendingPathComponent(name)) }
+    let expected = try data("preview-64", "rgb")
+    let ordinary = try PipelineRenderer.render(rawPath: raw, xmpPath: sidecar, quality: .full)
+    XCTAssertEqual(ordinary.pixels, expected)
+    let film = try PipelineRenderer.render(
+      rawPath: raw, xmpPath: sidecar, quality: .full, filmLut: nil)
+    XCTAssertEqual(film.pixels, ordinary.pixels)
+    let missing = try XCTUnwrap(assets.keys.sorted().first)
+    try FileManager.default.removeItem(at: directory.appendingPathComponent(missing))
+    XCTAssertThrowsError(
+      try PipelineRenderer.render(rawPath: raw, xmpPath: sidecar, quality: .full)
+    ) {
+      guard case PipelineError.renderFailed(let code, _) = $0 else { return XCTFail("\($0)") }
+      XCTAssertEqual(code, 8)
+    }
+    XCTAssertEqual(try Data(contentsOf: raw), source)
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), xmp)
+  }
+
 }
