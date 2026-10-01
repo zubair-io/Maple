@@ -8,6 +8,24 @@ use crate::{
 
 #[test]
 fn sized_lateral_ca_corrects_before_demosaic_and_matches_full_without_resize() {
+    verify_sized_lateral_ca(crate::image::CfaPattern::Rggb);
+}
+
+#[test]
+fn sized_xtrans_lateral_ca_matches_full_and_honors_vendor_correction() {
+    #[rustfmt::skip]
+    let pattern = [
+        1, 2, 1, 1, 0, 1,
+        0, 1, 0, 2, 1, 2,
+        1, 2, 1, 1, 0, 1,
+        1, 0, 1, 1, 2, 1,
+        2, 1, 2, 0, 1, 0,
+        1, 0, 1, 1, 2, 1,
+    ];
+    verify_sized_lateral_ca(crate::image::CfaPattern::XTrans(pattern));
+}
+
+fn verify_sized_lateral_ca(cfa: crate::image::CfaPattern) {
     let bytes = SyntheticGreyDng {
         width: 512,
         height: 384,
@@ -16,6 +34,9 @@ fn sized_lateral_ca_corrects_before_demosaic_and_matches_full_without_resize() {
     }
     .write_to_bytes();
     let mut raw = crate::decode::decode_bytes(&bytes, "dng").unwrap();
+    // Generate sensor sites for the requested CFA; the DNG supplies only
+    // metadata. This is an in-memory sensor fixture, not a RAF decoder test.
+    raw.cfa = cfa;
     raw.black_level = [0; 4];
     raw.white_level = 60_000;
     raw.crop_rect = None;
