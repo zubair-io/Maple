@@ -70,7 +70,11 @@ fn lookup_digest(digest: &str) -> Option<Arc<MaskRaster>> {
 ///   -3   the 16 bytes at `digest_ptr` are not valid lowercase hex (or not
 ///        valid UTF-8 at all)
 #[no_mangle]
-pub extern "C" fn maple_mask_raster_register(
+/// # Safety
+/// A non-null digest_ptr is readable for 16 bytes. Non-null data_ptr is
+/// readable for data_len bytes. Both allocations remain live and immutable
+/// throughout the call (#3970); null pointers are accepted only as documented.
+pub unsafe extern "C" fn maple_mask_raster_register(
     digest_ptr: *const u8,
     width: u32,
     height: u32,

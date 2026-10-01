@@ -317,7 +317,8 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const lensProfile = lensProfileFromJson(result.lens_profile_json); // #3479
   const rgb = result.take_rgb();
   result.free();
-  const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
+  // One owned transfer copy, including when the source backing store is shared (#3970).
+  const buffer = rgb.slice().buffer;
   const response: WorkerResponse = {
     id: req.id,
     type: 'decode-success',

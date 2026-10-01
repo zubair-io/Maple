@@ -66,7 +66,11 @@ export async function handleExport(req: ExportRequest): Promise<void> {
       const total = handle.byteLength;
       const parts: BlobPart[] = [];
       for (let offset = 0; offset < total; offset += CHUNK_BYTES) {
-        parts.push(handle.chunk(offset, CHUNK_BYTES));
+        const bytes = handle.chunk(offset, CHUNK_BYTES);
+        const owner = bytes.buffer;
+        // Rust returns owned chunks; preserve that ownership without a copy (#3970).
+        if (!(owner instanceof ArrayBuffer)) throw new Error('Unexpected shared export chunk');
+        parts.push(new Uint8Array(owner, bytes.byteOffset, bytes.byteLength));
       }
       const response: ExportSuccess = {
         id: req.id,
