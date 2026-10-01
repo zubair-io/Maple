@@ -44,6 +44,22 @@ fn absent_metadata_defaults_to_strip_everything() {
 }
 
 #[test]
+fn ambiguous_exif_authoring_requests_fail_before_any_output_is_written() {
+    for (json, message) in [
+        (r#"{"exifMerge":true}"#, "requires metadata.exifTags"),
+        (
+            r#"{"exif":{"off":0,"len":0},"exifTags":{}}"#,
+            "mutually exclusive",
+        ),
+    ] {
+        let metadata = parse_metadata(json);
+        let error =
+            resolve_metadata(&metadata, &[], &[], false, TargetPrimaries::Srgb).unwrap_err();
+        assert!(error.to_string().contains(message), "{error}");
+    }
+}
+
+#[test]
 fn keep_and_orientation_parse() {
     let m = parse_metadata(r#"{"keep":true,"orientation":6,"density":72.0}"#);
     assert!(m.keep);
