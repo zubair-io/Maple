@@ -9,7 +9,9 @@
 //! deliberately overriding render-origin cache entries is not host behavior.
 //! `--variance-ratio=<0..1>` restricts the matrix to default and a diagnostic
 //! noise-profile variance scale at 1600px; native rendering remains unchanged.
-//! Supply a measured output/input area ratio, not a fitted image-error value.
+//! Supply an independently derived variance ratio (for example, normalized
+//! resize-kernel energy), not a value fitted against image error. An area ratio
+//! alone does not describe the Mitchell resize kernel.
 use raw_core::pipeline::{
     fit_auto_profile_from_raw_at_cap, render_sized_from_raw_with_quality_and_source, FitCap,
     RawInput, RenderQuality,

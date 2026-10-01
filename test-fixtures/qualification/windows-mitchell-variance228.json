@@ -1,0 +1,77 @@
+{
+  "kind": "diagnostic-only",
+  "issue": 3875,
+  "date": "2026-10-01",
+  "sourceBase": "214e3bbfe",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "exampleSha256": "fcd86bc3a87438231ce15093a57532f92359c86af61b1f8a91d7190177aa83ff",
+  "command": "auto-fit-proxy-delta <isolated-fixture-directory> <output> --render-matrix --variance-ratio=0.031529486041192184",
+  "renderQuality": "Preview",
+  "nrColor": 25,
+  "profile": "Auto",
+  "method": "Hold native and proxy Auto curve/LUT artifacts fixed separately. Shared compare_images.diff with reference_size=(1600,1067). Native references verified byte-identical for each fit.",
+  "varianceDerivation": {
+    "source": [
+      6144,
+      4096
+    ],
+    "target": [
+      1600,
+      1067
+    ],
+    "xEnergy": 0.177524002046565,
+    "yEnergy": 0.17760689077368774,
+    "varianceRatio": 0.031529486041192184,
+    "areaRatio": 0.06783803304036458,
+    "assumption": "Independent input noise; normalized Mitchell weights with clamped duplicate taps combined. Analytic double precision, not a demosaic covariance calibration."
+  },
+  "nativeReferencesByteIdentical": true,
+  "metrics": {
+    "native-default": {
+      "mean_deltaE": 2.594881464394683,
+      "p95_deltaE": 6.686651863122471,
+      "max_deltaE": 35.80057364302396,
+      "bias_r": 0.0003046835772693157,
+      "bias_g": -0.00021247747645247728,
+      "bias_b": 1.830245128076058e-05,
+      "n_pixels": 1707200
+    },
+    "native-variance-scaled": {
+      "mean_deltaE": 1.6723673647585822,
+      "p95_deltaE": 4.228255912658366,
+      "max_deltaE": 33.80692433905328,
+      "bias_r": 0.0008318822365254164,
+      "bias_g": 9.922333265421912e-05,
+      "bias_b": -0.00016679539112374187,
+      "n_pixels": 1707200
+    },
+    "proxy-default": {
+      "mean_deltaE": 3.074502683357385,
+      "p95_deltaE": 7.664913187691284,
+      "max_deltaE": 36.75531098098828,
+      "bias_r": 0.00047800448373891413,
+      "bias_g": 0.0001127899085986428,
+      "bias_b": 0.0005876459181308746,
+      "n_pixels": 1707200
+    },
+    "proxy-variance-scaled": {
+      "mean_deltaE": 1.8761265723047373,
+      "p95_deltaE": 4.475728174934669,
+      "max_deltaE": 35.24403166622927,
+      "bias_r": 0.0010862338822335005,
+      "bias_g": 0.00023630958457943052,
+      "bias_b": 8.373309538001195e-05,
+      "n_pixels": 1707200
+    }
+  },
+  "interpretation": "Kernel-derived independent-noise variance scaling improves both fixed-fit means below 2.0 on this fixture. This supports investigating resize-aware noise calibration, not a production parity pass. The prior area-ratio experiment did not account for the implemented Mitchell filter.",
+  "limitations": [
+    "One camera fixture; demosaic covariance remains uncalibrated.",
+    "The scalar averages spatially varying filter energy; double-precision analytic weights are not exact Rust f32 execution.",
+    "Reference uses Preview reconstruction at native output size, not production full-resolution export.",
+    "Auto fit cache is deliberately seeded; ordinary host fitting and CPU/GPU parity remain unqualified.",
+    "No production rendering math, default, or acceptance budget changed."
+  ],
+  "nextRequiredEvidence": "Validate noise propagation through reconstruction and resizing, then run ordinary host preview versus full-quality export and CPU/GPU comparisons across the fixture corpus.",
+  "fullQualificationPassed": false
+}

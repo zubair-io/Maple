@@ -1,23 +1,21 @@
-//! Area-average f32 RGB downsample used by the sized and tile entries.
+//! Separable Mitchell-Netravali f32 RGB downsample used by sized and tile entries.
 //!
-//! Same algorithm as `api::downsample_to_rgba` but in f32 RGB: integer
-//! source-row spans are averaged into each destination pixel. No
-//! premultiplied-alpha or gamma considerations because the buffer is
-//! straight scene-linear with no alpha channel. A higher-quality Lanczos
-//! or Mitchell variant lands as a follow-up (ticket 06 Milestone 3).
+//! The legacy `area` function name does not describe the current kernel:
+//! normalized Mitchell weights (B=C=1/3) are applied on each axis with a
+//! scale-expanded support and clamped borders. The buffer is straight
+//! scene-linear RGB with no alpha channel.
 
 use rayon::prelude::*;
 
-/// Area-average downsample an `Image`'s f32 RGB pixel buffer to fit within
+/// Downsample an `Image`'s f32 RGB pixel buffer with a Mitchell filter to fit within
 /// `max_long_edge` on its long edge while preserving the aspect ratio.
 /// **Never upscales** (ticket 06 § Product Requirements 1) — if the source
 /// long edge is already <= `max_long_edge`, returns the image unmodified.
 ///
-/// Same algorithm as `api::downsample_to_rgba` but in f32 RGB: integer
-/// source-row spans are averaged into each destination pixel, no
-/// premultiplied-alpha or gamma considerations because the buffer is
-/// straight scene-linear with no alpha channel. A higher-quality Lanczos
-/// or Mitchell variant lands as a follow-up (ticket 06 Milestone 3).
+/// The two separable passes normalize their weights per destination pixel.
+/// Repeated border samples are clamped to the nearest source pixel. This is
+/// not a box average: for independent noise, variance depends on the squared
+/// normalized weights, not simply the output/input pixel-area ratio.
 ///
 /// Mutates `image` in place; updates `image.width` and `image.height` to
 /// the new dimensions.
