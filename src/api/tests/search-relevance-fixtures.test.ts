@@ -124,6 +124,30 @@ describe('relevance corpus integrity', () => {
     expect(rose!.observeIds).toEqual(['person-rose-1', 'flowers-roses-1']);
   });
 
+  it('covers four collision pairs without filename or caption name boosts (#3965)', () => {
+    const observations = cases.filter((testCase) => testCase.observeIds);
+    expect(observations.map((testCase) => testCase.query)).toEqual([
+      'Rose',
+      'Mark',
+      'Summer',
+      'Hunter',
+    ]);
+    for (const observation of observations) {
+      const [personId, literalId] = observation.observeIds!;
+      const person = docs.find((doc) => doc.id === personId)!;
+      const literal = docs.find((doc) => doc.id === literalId)!;
+      const word = observation.query.toLowerCase();
+      expect(person.people?.some((name) => name.toLowerCase().includes(word))).toBe(true);
+      expect(person.description!.toLowerCase()).not.toContain(word);
+      expect(literal.people).toBeNull();
+      expect(literal.description!.toLowerCase()).toContain(word);
+      expect(person.filename!.toLowerCase()).not.toContain(word);
+      expect(literal.filename!.toLowerCase()).not.toContain(word);
+      expect(observation.relevantIds).toEqual([]);
+      expect(observation.mustBeInTop).toBeUndefined();
+    }
+  });
+
   it('keeps the budget floors within [0, 1]', () => {
     for (const floor of [budgets.minRecallAt10, budgets.minMrr]) {
       expect(floor).toBeGreaterThanOrEqual(0);

@@ -56,5 +56,23 @@
     "relevantIds": [],
     "observeIds": ["person-rose-1", "flowers-roses-1"],
     "note": "UNASSERTED \u2014 owned by #2386. Person-name-vs-common-noun collision. relevantIds is empty so this contributes nothing to Recall@10 or MRR; the harness only records where each document landed so #2386 starts from measured data. Do not add mustBeInTop here."
+  },
+  {
+    "query": "Mark",
+    "relevantIds": [],
+    "observeIds": ["person-mark-1", "ink-mark-1"],
+    "note": "Unasserted #2386 name/common-noun observation; measure before choosing the ranking policy."
+  },
+  {
+    "query": "Summer",
+    "relevantIds": [],
+    "observeIds": ["person-summer-1", "season-summer-1"],
+    "note": "Unasserted #2386 name/common-noun observation; measure before choosing the ranking policy."
+  },
+  {
+    "query": "Hunter",
+    "relevantIds": [],
+    "observeIds": ["person-hunter-1", "role-hunter-1"],
+    "note": "Unasserted #2386 name/common-noun observation; measure before choosing the ranking policy."
   }
 ]

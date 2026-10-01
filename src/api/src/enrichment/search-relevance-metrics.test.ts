@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { meanReciprocalRank, recallAtK, reciprocalRank } from './search-relevance-metrics.ts';
+import {
+  meanReciprocalRank,
+  recallAtK,
+  reciprocalRank,
+  scoreRankings,
+} from './search-relevance-metrics.ts';
 
 describe('recallAtK', () => {
   it('is the fraction of relevant docs found in the top k', () => {
@@ -14,13 +19,42 @@ describe('recallAtK', () => {
   });
 
   it('is 1 when nothing is labelled relevant (vacuously satisfied)', () => {
-    // Unlabelled corpus entries — e.g. the `Rose` observation owned by
-    // #2386 — must not drag the aggregate down.
     expect(recallAtK(['a'], [], 10)).toBe(1);
   });
 
   it('handles an empty result list', () => {
     expect(recallAtK([], ['a'], 10)).toBe(0);
+  });
+});
+
+describe('scoreRankings', () => {
+  const labelled = [
+    { ranked: ['a'], relevant: ['a', 'b'] },
+    { ranked: ['x', 'c'], relevant: ['c'] },
+  ];
+
+  it('does not count report-only observations as misses or successful recall', () => {
+    expect(
+      scoreRankings([
+        ...labelled,
+        { ranked: ['unjudged'], relevant: [] },
+        { ranked: [], relevant: [] },
+      ]),
+    ).toEqual({ recallAt10: 0.75, mrr: 0.75, evaluatedQueries: 2 });
+  });
+
+  it('still counts a labelled query with no relevant hit as a miss', () => {
+    expect(scoreRankings([...labelled, { ranked: ['x'], relevant: ['missing'] }])).toEqual({
+      recallAt10: 0.5,
+      mrr: 0.5,
+      evaluatedQueries: 3,
+    });
+  });
+
+  it('rejects a corpus with no judged queries', () => {
+    expect(() => scoreRankings([{ ranked: ['unjudged'], relevant: [] }])).toThrow(
+      'No labelled queries to evaluate',
+    );
   });
 });
 

@@ -7,9 +7,7 @@
  */
 
 /** Fraction of the labelled-relevant ids that appear in the top `k` results.
- * An unlabelled query is vacuously satisfied (returns 1) so a corpus entry
- * carrying no labels — an observation owned by another ticket, say — never
- * drags the aggregate down. */
+ * An unlabelled query returns 1; scoreRankings excludes it from aggregates. */
 export function recallAtK(ranked: string[], relevant: string[], k: number): number {
   if (relevant.length === 0) return 1;
   const top = new Set(ranked.slice(0, k));
@@ -31,4 +29,21 @@ export function meanReciprocalRank(
   if (perQuery.length === 0) return 0;
   const total = perQuery.reduce((sum, q) => sum + reciprocalRank(q.ranked, q.relevant), 0);
   return total / perQuery.length;
+}
+
+/** Report-only observations have no relevance labels and cannot score as misses (#3965). */
+export function scoreRankings(perQuery: Array<{ ranked: string[]; relevant: string[] }>): {
+  recallAt10: number;
+  mrr: number;
+  evaluatedQueries: number;
+} {
+  const labelled = perQuery.filter((query) => query.relevant.length > 0);
+  if (labelled.length === 0) throw new Error('No labelled queries to evaluate');
+  return {
+    recallAt10:
+      labelled.reduce((sum, query) => sum + recallAtK(query.ranked, query.relevant, 10), 0) /
+      labelled.length,
+    mrr: meanReciprocalRank(labelled),
+    evaluatedQueries: labelled.length,
+  };
 }
