@@ -651,9 +651,19 @@ folded by `caseFoldKey` (`db/sqlite/case-fold.ts`, NFKC then `toLowerCase`) and
 the unique index is built over that. Every comparison in `repos/people.sql.ts`
 is against `name_key`, and the repo's own "is this the same name" check folds
 through the same function, so the code and the constraint cannot disagree.
-`presets_name_unique` and `users_email_unique` still carry the original
-spelling and are tracked by #3781 — each lands with the slice that ports its
-repo, since a NOT NULL key column with no writer proves nothing.
+`presets_name_unique` and `users_email_unique` likewise use stored `name_key`
+and `email_key` columns (#3781). Preset creation and email insertion/lookup fold
+through the same function; the API preserves the original spelling. Presets sort
+by their folded key. The email index excludes NULL keys, so passkey-only accounts
+remain independent; a check requires email and its key to have the same null state.
+
+Migration `0009-unicode-preset-email-keys` backfills these keys and preserves
+preset fields/unknown data, account IDs, permissions and all user references.
+Existing names or emails that collide after folding make index creation fail and
+roll back the entire migration. Boot stops with the migration ID and constraint
+failure. An operator must resolve the conflicting identities before retrying;
+the migration never chooses an account to merge or a preset to discard. Shipped
+DDL and earlier migrations remain unchanged.
 
 **A person's face count is derived, not stored** (#3749). `PersonDoc.face_count`
 is a denormalised number adjusted by hand at every membership change — assign,

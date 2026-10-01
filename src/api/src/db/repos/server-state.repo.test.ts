@@ -26,8 +26,9 @@ import type { Database } from 'bun:sqlite';
 function insertUser(db: Database): void {
   run(
     db,
-    `INSERT INTO users (id, email, role, created_at) VALUES (?, ?, 'owner', ?)`,
+    `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'owner', ?)`,
     newObjectIdHex(),
+    'owner@example.test',
     'owner@example.test',
     new Date().toISOString(),
   );

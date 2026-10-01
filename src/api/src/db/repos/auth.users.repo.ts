@@ -46,6 +46,7 @@ import {
 } from './db-handle.ts';
 import { fromBool, nowIso, parseJson, toHex, toObjectId } from './values.ts';
 import type { CredentialDoc, UserDoc, UserRole } from '../schema.ts';
+import { caseFoldKey } from '../sqlite/case-fold.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
@@ -89,21 +90,14 @@ export async function findUserById(
   return rows[0] === undefined ? null : toUser(rows[0]);
 }
 
-/**
- * One user by email address, matched exactly.
- *
- * The uniqueness constraint is case-insensitive — two accounts cannot differ
- * only in case — but the lookup is not, which is what `findOne({ email })` did
- * on Mongo: an index's collation does not change a query's comparison unless
- * the query asks for it. Callers lowercase the address before they get here.
- */
+/** Email lookup uses the same Unicode key as uniqueness; spelling is preserved. */
 export async function findUserByEmail(
   email: string,
   dbOverride?: SqliteDb,
 ): Promise<WithId<UserDoc> | null> {
   const rows = await sqliteDb(dbOverride).read<UserRow>(
-    `SELECT ${USER_COLUMNS} FROM users WHERE email = ?`,
-    [email],
+    `SELECT ${USER_COLUMNS} FROM users WHERE email_key = ?`,
+    [caseFoldKey(email)],
   );
   return rows[0] === undefined ? null : toUser(rows[0]);
 }
@@ -152,11 +146,12 @@ export async function countOtherOwners(
 export async function insertUser(doc: UserDoc, dbOverride?: SqliteDb): Promise<ObjectId> {
   const id = newObjectIdHex();
   await sqliteDb(dbOverride).write(
-    `INSERT INTO users (id, email, role, file_access, created_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO users (id, email, email_key, role, file_access, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       doc.email,
+      doc.email === null ? null : caseFoldKey(doc.email),
       doc.role,
       doc.file_access === undefined ? null : fromBool(doc.file_access),
       doc.created_at,

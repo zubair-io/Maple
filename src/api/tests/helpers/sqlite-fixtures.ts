@@ -18,6 +18,7 @@ import { ObjectId } from '../../src/db/object-id.ts';
 import { newObjectIdHex } from '../../src/db/object-id.ts';
 import { run } from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
 import type { UserRole } from '../../src/db/schema.ts';
+import { caseFoldKey } from '../../src/db/sqlite/case-fold.ts';
 
 /** A library root. The `path` is what the backup routes join relative paths
  * against, so a suite passes its own tmp directory. */
@@ -54,10 +55,11 @@ export function seedUser(
   const id = newObjectIdHex();
   run(
     db,
-    `INSERT INTO users (id, email, role, file_access, created_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO users (id, email, email_key, role, file_access, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     id,
     opts.email,
+    opts.email === null ? null : caseFoldKey(opts.email),
     opts.role ?? 'owner',
     opts.fileAccess === undefined ? null : opts.fileAccess ? 1 : 0,
     opts.createdAt ?? new Date().toISOString(),

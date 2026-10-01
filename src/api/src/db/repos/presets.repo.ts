@@ -15,17 +15,8 @@
  *
  * ## The alphabetical order is case-insensitive, and so is the uniqueness
  *
- * The Mongo list applied `collation({ locale: 'en', strength: 2 })` so
- * "Bright" and "bright" sort together, and the unique index used the same
- * collation so they cannot both exist. `COLLATE NOCASE` is SQLite's version of
- * both: the schema's `presets_name_unique` index carries it, and the `ORDER
- * BY` below asks for it explicitly, because a collation on an index does not
- * change how an unrelated `ORDER BY` compares.
- *
- * NOCASE folds ASCII only, where ICU strength 2 folds accents too. In practice
- * a preset name is what someone typed on their own keyboard, and the practical
- * difference is that "Café" and "CAFÉ" are now two presets rather than a
- * conflict — a strictly more permissive outcome, and never a lost one.
+ * Names use the same stored Unicode key as people (#3781). Comparisons and
+ * uniqueness use caseFoldKey; the original spelling remains the display name.
  */
 
 import type { ObjectId, WithId } from '../object-id.ts';
@@ -33,6 +24,7 @@ import { newObjectIdHex } from '../object-id.ts';
 import { deleteOutcome, sqliteDb, type DeleteOutcome, type SqliteDb } from './db-handle.ts';
 import { parseJson, toHex, toObjectId } from './values.ts';
 import type { PresetDoc } from '../schema.ts';
+import { caseFoldKey } from '../sqlite/case-fold.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
@@ -65,7 +57,7 @@ function toPreset(row: PresetRow): WithId<PresetDoc> {
 export async function listPresets(dbOverride?: SqliteDb): Promise<WithId<PresetDoc>[]> {
   const rows = await sqliteDb(dbOverride).read<PresetRow>(
     `SELECT id, name, schema_version, fields, extra, created_at, updated_at
-       FROM presets ORDER BY name COLLATE NOCASE ASC`,
+       FROM presets ORDER BY name_key, id`,
   );
   return rows.map(toPreset);
 }
@@ -79,11 +71,12 @@ export async function listPresets(dbOverride?: SqliteDb): Promise<WithId<PresetD
 export async function insertPreset(doc: PresetDoc, dbOverride?: SqliteDb): Promise<ObjectId> {
   const id = newObjectIdHex();
   await sqliteDb(dbOverride).write(
-    `INSERT INTO presets (id, name, schema_version, fields, extra, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO presets (id, name, name_key, schema_version, fields, extra, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       doc.name,
+      caseFoldKey(doc.name),
       doc.schema_version,
       JSON.stringify(doc.fields),
       doc.extra === undefined ? null : JSON.stringify(doc.extra),
@@ -103,7 +96,7 @@ export async function insertPreset(doc: PresetDoc, dbOverride?: SqliteDb): Promi
  */
 export function isPresetNameConflict(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /UNIQUE constraint failed:\s*presets\.name/i.test(message);
+  return /UNIQUE constraint failed:\s*presets\.name_key\b/i.test(message);
 }
 
 /** Delete a preset. `deletedCount` of 0 is the route's 404. */

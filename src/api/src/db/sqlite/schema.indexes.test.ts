@@ -123,28 +123,36 @@ describe('case-insensitive name lookups', () => {
     const { db } = handle;
     run(
       db,
-      `INSERT INTO presets (id, name, schema_version, fields, created_at, updated_at)
-       VALUES (?, 'Golden Hour', 1, '{}', '2026-01-01', '2026-01-01')`,
+      `INSERT INTO presets (id, name, name_key, schema_version, fields, created_at, updated_at)
+       VALUES (?, 'Golden Hour', ?, 1, '{}', '2026-01-01', '2026-01-01')`,
       newObjectIdHex(),
+      caseFoldKey('Golden Hour'),
     );
     run(
       db,
-      `INSERT INTO users (id, email, role, created_at) VALUES (?, 'owner@example.com', 'owner', '2026-01-01')`,
+      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, 'owner@example.com', ?, 'owner', '2026-01-01')`,
       newObjectIdHex(),
+      caseFoldKey('owner@example.com'),
     );
 
-    expect(planOf(db, `SELECT id FROM presets WHERE name = ?`, 'x')).toContain(
+    expect(planOf(db, `SELECT id FROM presets WHERE name_key = ?`, 'x')).toContain(
       'presets_name_unique',
     );
-    expect(planOf(db, `SELECT id FROM users WHERE email = ?`, 'x')).toContain('users_email_unique');
-
-    expect(db.query(`SELECT COUNT(*) AS n FROM presets WHERE name = ?`).get('golden hour')).toEqual(
-      {
-        n: 1,
-      },
+    expect(planOf(db, `SELECT id FROM users WHERE email_key = ?`, 'x')).toContain(
+      'users_email_unique',
     );
+
     expect(
-      db.query(`SELECT COUNT(*) AS n FROM users WHERE email = ?`).get('OWNER@example.com'),
+      db
+        .query(`SELECT COUNT(*) AS n FROM presets WHERE name_key = ?`)
+        .get(caseFoldKey('GOLDEN HOUR')),
+    ).toEqual({
+      n: 1,
+    });
+    expect(
+      db
+        .query(`SELECT COUNT(*) AS n FROM users WHERE email_key = ?`)
+        .get(caseFoldKey('OWNER@example.com')),
     ).toEqual({ n: 1 });
   });
 });

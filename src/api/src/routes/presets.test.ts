@@ -129,6 +129,13 @@ describe('/api/presets', () => {
     expect(body.error).toContain('already exists');
   });
 
+  it('rejects equivalent Unicode names with 409 and retains the display spelling', async () => {
+    expect((await create({ schemaVersion: 1, name: 'Café', fields: {} })).status).toBe(201);
+    expect((await create({ schemaVersion: 1, name: 'CAFÉ', fields: {} })).status).toBe(409);
+    const listed = (await (await list()).json()) as { presets: WirePreset[] };
+    expect(listed.presets.map((p) => p.name)).toEqual(['Café']);
+  });
+
   it('rejects invalid documents with 400', async () => {
     // Out-of-range known field.
     expect((await create({ schemaVersion: 1, name: 'x', fields: { contrast: 500 } })).status).toBe(
