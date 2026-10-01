@@ -18,6 +18,43 @@ public enum RemovalError: Error, LocalizedError {
 }
 
 public enum RemovalBridge {
+  /// Shared union/subtraction for person masks and protected regions. Empty
+  /// Data means no selection. Invalid geometry or assets throw without editing
+  /// the caller's previous mask. Execute outside the slider/render loop.
+  public static func combineMasks(_ left: Data, _ right: Data, subtract: Bool = false) throws
+    -> Data
+  {
+    try left.withUnsafeBytes { leftBytes in
+      try right.withUnsafeBytes { rightBytes in
+        try buffer { output, capacity, length in
+          maple_removal_combine_masks_buf(
+            leftBytes.bindMemory(to: UInt8.self).baseAddress, UInt(left.count),
+            rightBytes.bindMemory(to: UInt8.self).baseAddress, UInt(right.count),
+            subtract ? 1 : 0, output, capacity, length)
+        }
+      }
+    }
+  }
+
+  /// Binary intent pixels and native source-window geometry for overlays and
+  /// selection extent checks. The same strict MIMF decoder verifies both calls.
+  public static func decodeMask(_ mask: Data) throws -> NativeRemovalMask {
+    var window = [UInt32](repeating: 0, count: 6)
+    let pixels = try mask.withUnsafeBytes { bytes in
+      try buffer { output, capacity, length in
+        maple_removal_mask_decode_buf(
+          bytes.bindMemory(to: UInt8.self).baseAddress, UInt(mask.count),
+          output, capacity, length, &window)
+      }
+    }
+    guard pixels.count == Int(window[4]) * Int(window[5]), !pixels.isEmpty else {
+      throw RemovalError.invalid("Invalid removal mask extent")
+    }
+    return NativeRemovalMask(
+      sourceWidth: window[0], sourceHeight: window[1], x: window[2], y: window[3],
+      width: window[4], height: window[5], pixels: pixels)
+  }
+
   public static func digest(_ data: Data) throws -> String {
     var output = [UInt8](repeating: 0, count: 71)
     let capacity = UInt(output.count)
@@ -199,4 +236,14 @@ public enum RemovalBridge {
     throw RemovalError.invalid(
       maple_last_error().map { String(cString: $0) } ?? "Removal operation failed (\(code))")
   }
+}
+
+public struct NativeRemovalMask: Sendable {
+  public let sourceWidth: UInt32
+  public let sourceHeight: UInt32
+  public let x: UInt32
+  public let y: UInt32
+  public let width: UInt32
+  public let height: UInt32
+  public let pixels: Data
 }
