@@ -19,12 +19,12 @@ pub struct MapleRemovalReconstructor {
 pub struct MapleRemovalInference {
     inner: *mut c_void,
 }
-struct Inference {
-    options: RemovalRunOptions,
-    cancelled: AtomicBool,
+pub(super) struct Inference {
+    pub(super) options: RemovalRunOptions,
+    pub(super) cancelled: AtomicBool,
 }
 
-unsafe fn utf8<'a>(value: *const c_char) -> Result<&'a str, String> {
+pub(super) unsafe fn utf8<'a>(value: *const c_char) -> Result<&'a str, String> {
     if value.is_null() {
         return Err("null model path".into());
     }
@@ -107,22 +107,36 @@ pub unsafe extern "C" fn maple_removal_inference_new(
         if model.inner.is_null() {
             return 1;
         }
-        match RemovalRunOptions::new() {
-            Ok(options) => {
-                let inner = Box::into_raw(Box::new(Inference {
-                    options,
-                    cancelled: AtomicBool::new(false),
-                }))
-                .cast();
-                *output = Box::into_raw(Box::new(MapleRemovalInference { inner }));
-                0
-            }
-            Err(error) => {
-                set_last_error(error.to_string());
-                5
-            }
-        }
+        new_operation(output)
     })
+}
+
+/// Called only after a live model/runtime was checked by its C entry point.
+pub(super) unsafe fn new_operation(output: *mut *mut MapleRemovalInference) -> i32 {
+    match RemovalRunOptions::new() {
+        Ok(options) => {
+            let inner = Box::into_raw(Box::new(Inference {
+                options,
+                cancelled: AtomicBool::new(false),
+            }))
+            .cast();
+            *output = Box::into_raw(Box::new(MapleRemovalInference { inner }));
+            0
+        }
+        Err(error) => {
+            set_last_error(error.to_string());
+            5
+        }
+    }
+}
+
+pub(super) unsafe fn operation<'a>(
+    pointer: *const MapleRemovalInference,
+) -> Result<&'a Inference, String> {
+    pointer
+        .as_ref()
+        .and_then(|op| op.inner.cast::<Inference>().as_ref())
+        .ok_or_else(|| "null removal operation".into())
 }
 
 /// Terminate an operation from another thread. Idempotent. Null is a no-op.

@@ -25,8 +25,9 @@ struct SavedState {
     ext: String,
 }
 
-/// Rust-owned cold render output. Preview bytes are RGB8 (3*width*height);
-/// export bytes are the encoded container selected by the request.
+/// Rust-owned removal output. Preview is packed RGB8; export is its encoded
+/// container; selection is MIMF; detection is UTF-8 JSON. The called entry point
+/// determines the byte format. Dimensions describe the image/mask source.
 #[repr(C)]
 pub struct MapleRemovalBuffer {
     pub bytes: *mut u8,
@@ -35,7 +36,7 @@ pub struct MapleRemovalBuffer {
     pub height: u32,
 }
 impl MapleRemovalBuffer {
-    fn empty() -> Self {
+    pub(super) fn empty() -> Self {
         Self {
             bytes: std::ptr::null_mut(),
             len: 0,
@@ -43,7 +44,7 @@ impl MapleRemovalBuffer {
             height: 0,
         }
     }
-    fn owned(width: u32, height: u32, bytes: Vec<u8>) -> Self {
+    pub(super) fn owned(width: u32, height: u32, bytes: Vec<u8>) -> Self {
         let data = bytes.into_boxed_slice();
         Self {
             len: data.len(),
@@ -341,17 +342,18 @@ fn film_lut(bytes: &[u8]) -> Result<Option<raw_core::film::FilmLut>, String> {
     }
 }
 
-/// Free either cold output and clear its descriptor; null is a no-op.
+/// Free owned removal output and clear its descriptor; null/empty is a no-op.
 /// # Safety
-/// output is null or a descriptor returned by preview/export, not yet freed,
+/// output is null, empty, or a descriptor returned by a removal entry point,
 /// with no concurrent access. The byte pointer/length must be unchanged.
 #[no_mangle]
 pub unsafe extern "C" fn maple_removal_saved_free_buffer(output: *mut MapleRemovalBuffer) {
     if let Some(output) = output.as_mut() {
         if !output.bytes.is_null() {
-            drop(Box::from_raw(
-                std::slice::from_raw_parts_mut(output.bytes, output.len) as *mut [u8],
-            ));
+            drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+                output.bytes,
+                output.len,
+            )));
         }
         *output = MapleRemovalBuffer::empty();
     }

@@ -128,6 +128,8 @@ mod removal_inference;
 mod removal_prepare;
 mod removal_saved;
 mod removal_selection;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+mod removal_selection_inference;
 mod removal_smart;
 mod render;
 mod render_develop;
@@ -236,6 +238,14 @@ pub use removal_saved::{
     MapleRemovalBuffer, MapleSavedRemovals,
 };
 pub use removal_selection::{maple_removal_mask_decode_buf, maple_removal_selection_buf};
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+pub use removal_selection_inference::{
+    maple_removal_detector_close, maple_removal_detector_detect, maple_removal_detector_open,
+    maple_removal_detector_operation_new, maple_removal_embedding_free,
+    maple_removal_selector_close, maple_removal_selector_encode, maple_removal_selector_open,
+    maple_removal_selector_operation_new, maple_removal_selector_refine, MapleRemovalDetector,
+    MapleRemovalEmbedding, MapleRemovalSelector,
+};
 pub use removal_smart::{
     maple_removal_smart_mask_buf, maple_removal_smart_prompts_buf, maple_removal_smart_strokes_buf,
 };

@@ -23,7 +23,8 @@ impl PersonDetector {
             session: load(Model::Detector, directory, runtime)?,
         })
     }
-    /// Upstream 640² square photographic RGB proxy; boxes use source pixels.
+    /// Upstream 640² square photographic RGB proxy; size is [width, height]
+    /// as required by RT-DETR orig_target_sizes. Boxes use source pixels.
     pub fn detect(
         &mut self,
         rgb: &[f32],
