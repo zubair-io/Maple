@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceBase": "a1468bf990f7186e17d3d3307a1f52e37835dac7",
+  "kind": "isolated noise-reduction search-support diagnostic",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "stageTrace": "windows-stage-trace261.json",
+  "baselineBitExact": true,
+  "command": "probe-preview-noise RAW sized/14_nr_luminance.exr OUTPUT 0.2604166666666667",
+  "metrics": {
+    "unchanged": {
+      "mean_dE": 2.1092332467227393,
+      "p95_dE": 5.124664779623334,
+      "max_dE": 31.02564921868005,
+      "bias_r": -0.00032693298999220133,
+      "bias_g": -0.00020682117610704154,
+      "bias_b": -0.00045742819202132523,
+      "meanAbsoluteChannelError": 0.00869795959442854
+    },
+    "linear": {
+      "mean_dE": 1.9326221603060894,
+      "p95_dE": 4.523625599328688,
+      "max_dE": 21.434454184557392,
+      "bias_r": -0.0003418502165004611,
+      "bias_g": -0.00019930163398385048,
+      "bias_b": -0.000453941902378574,
+      "meanAbsoluteChannelError": 0.008416568860411644
+    },
+    "area": {
+      "mean_dE": 1.5276891568990265,
+      "p95_dE": 3.4601853432643033,
+      "max_dE": 18.810079257526535,
+      "bias_r": -0.0003862132434733212,
+      "bias_g": -0.00019106932450085878,
+      "bias_b": -0.00033575226552784443,
+      "meanAbsoluteChannelError": 0.007854921743273735
+    },
+    "radius-one": {
+      "mean_dE": 1.2476591943112552,
+      "p95_dE": 3.2501610586955234,
+      "max_dE": 14.617229343801826,
+      "bias_r": -0.00033147260546684265,
+      "bias_g": -0.00023942842381075025,
+      "bias_b": -0.00021870937780477107,
+      "meanAbsoluteChannelError": 0.007594054564833641
+    },
+    "area-radius-one": {
+      "mean_dE": 1.1025326035894056,
+      "p95_dE": 2.8102574898048687,
+      "max_dE": 14.809331475298977,
+      "bias_r": -0.00035131859476678073,
+      "bias_g": -0.00023293447156902403,
+      "bias_b": -0.00018841349810827523,
+      "meanAbsoluteChannelError": 0.007392927538603544
+    }
+  },
+  "interpretation": "Reducing maximum NLM search support from three resized pixels to one improves the isolated mismatch more than variance scaling alone. Profile scaling couples filtering strength and adaptive radius; spatial support must be evaluated independently in a resolution-aware implementation.",
+  "limitations": [
+    "Diagnostic only: no production NR values, defaults, shaders or acceptance budgets changed.",
+    "One fixture at 1600 pixels; stage-linear metrics do not establish display/export parity.",
+    "Patch support remains radius two. The remaining residual includes upstream DCP and sharpening differences.",
+    "The radius-one candidate retains h=0.0125, corresponding to current production chroma amount 25; this is not a calibrated general scale policy."
+  ]
+}
