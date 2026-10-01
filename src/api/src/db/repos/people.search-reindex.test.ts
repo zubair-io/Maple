@@ -18,8 +18,8 @@ import type { Database } from 'bun:sqlite';
 import { ObjectId } from '../object-id.ts';
 import { createTestDatabase } from '../sqlite/test-sqlite.test-helpers.ts';
 import { insertStageState } from './assets.test-helpers.ts';
-import { MEILI_STAGE } from './assets.stage-rearm.ts';
-import { markAssetIdsForMeiliReindex, markAssetsForMeiliReindex } from './people.search-reindex.ts';
+import { MEILI_STAGE, stageRearmBatchStatement } from './assets.stage-rearm.ts';
+import { peopleMeiliRearmStatement } from './people.search-reindex.ts';
 import { stageRow } from './stage-runtime.test-helpers.ts';
 import {
   insertFace,
@@ -41,7 +41,7 @@ function indexedAtVersionSix(db: Database, assetId: string): void {
   });
 }
 
-describe('markAssetsForMeiliReindex', () => {
+describe('peopleMeiliRearmStatement', () => {
   test('re-arms every asset carrying one of these people, and nothing else', async () => {
     using handle = await createTestDatabase();
     const db = handle.db;
@@ -55,9 +55,9 @@ describe('markAssetsForMeiliReindex', () => {
     indexedAtVersionSix(db, matching);
     indexedAtVersionSix(db, unrelated);
 
-    const written = await markAssetsForMeiliReindex([new ObjectId(subject)], testDb(db));
+    const [written] = await testDb(db).transaction([peopleMeiliRearmStatement([subject])]);
 
-    expect(written).toBe(1);
+    expect(written?.changes).toBe(1);
     // Back below the stage's target version, with the dead-letter and
     // last-processed bookkeeping cleared so the retry starts clean.
     expect(stageRow(db, matching, MEILI_STAGE)).toMatchObject({
@@ -80,18 +80,19 @@ describe('markAssetsForMeiliReindex', () => {
 
     // No `insertStageState` — the row is absent, which on Mongo the `$set`
     // created for free and here has to be an upsert.
-    await markAssetsForMeiliReindex([subject], testDb(db));
+    await testDb(db).transaction([peopleMeiliRearmStatement([subject])]);
 
     expect(stageRow(db, asset, MEILI_STAGE)?.version).toBe(0);
   });
 
   test('an empty id list writes nothing', async () => {
     using handle = await createTestDatabase();
-    expect(await markAssetsForMeiliReindex([], testDb(handle.db))).toBe(0);
+    const [written] = await testDb(handle.db).transaction([peopleMeiliRearmStatement([])]);
+    expect(written?.changes).toBe(0);
   });
 });
 
-describe('markAssetIdsForMeiliReindex', () => {
+describe('asset search-stage resets', () => {
   test('re-arms only the named assets, not the rest of the person’s corpus', async () => {
     using handle = await createTestDatabase();
     const db = handle.db;
@@ -104,9 +105,11 @@ describe('markAssetIdsForMeiliReindex', () => {
     indexedAtVersionSix(db, target);
     indexedAtVersionSix(db, sibling);
 
-    const written = await markAssetIdsForMeiliReindex([new ObjectId(target)], testDb(db));
+    const [written] = await testDb(db).transaction([
+      stageRearmBatchStatement([target], MEILI_STAGE),
+    ]);
 
-    expect(written).toBe(1);
+    expect(written?.changes).toBe(1);
     expect(stageRow(db, target, MEILI_STAGE)).toMatchObject({ version: 0, dead: 0 });
     // Re-arming a whole person's corpus for a single-asset change would
     // re-queue thousands of unchanged rows on a large library.
@@ -117,15 +120,20 @@ describe('markAssetIdsForMeiliReindex', () => {
     using handle = await createTestDatabase();
     const db = handle.db;
 
-    const written = await markAssetIdsForMeiliReindex([new ObjectId()], testDb(db));
+    const [written] = await testDb(db).transaction([
+      stageRearmBatchStatement([new ObjectId().toHexString()], MEILI_STAGE),
+    ]);
 
-    expect(written).toBe(0);
+    expect(written?.changes).toBe(0);
     expect(db.query('SELECT COUNT(*) AS n FROM stage_state').get()).toEqual({ n: 0 });
   });
 
   test('an empty id list writes nothing', async () => {
     using handle = await createTestDatabase();
-    expect(await markAssetIdsForMeiliReindex([], testDb(handle.db))).toBe(0);
+    const [written] = await testDb(handle.db).transaction([
+      stageRearmBatchStatement([], MEILI_STAGE),
+    ]);
+    expect(written?.changes).toBe(0);
   });
 });
 
@@ -142,17 +150,7 @@ describe('the people mutations trigger the re-arm themselves', () => {
 
     await renamePerson(new ObjectId(person), 'RhoRenamed', testDb(db));
 
-    // The re-index is fire-and-forget — a search-index hiccup must never fail
-    // the rename — so poll briefly for it to land.
-    await waitFor(() => stageRow(db, asset, MEILI_STAGE)?.version === 0);
+    // The local work request commits before the mutation returns.
     expect(stageRow(db, asset, MEILI_STAGE)?.version).toBe(0);
   });
 });
-
-/** Poll a condition for up to half a second. */
-async function waitFor(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}

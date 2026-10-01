@@ -23,7 +23,6 @@
  * `people.face-count.ts` is where the reasoning lives.
  */
 
-import { ObjectId } from '../object-id.ts';
 import { child as childLogger } from '../../log.ts';
 import { DEFAULT_SIMILARITY_THRESHOLD } from '../../people/cluster-embeddings.ts';
 import { sortedPairKey, type MergeSuggestion } from '../../people/people-merge-suggestions.ts';
@@ -35,7 +34,7 @@ import { prepareClusteringPassOffThread } from './people.cluster-pool.ts';
 import type { PreparedClusteringPass } from '../../people/cluster-load.ts';
 import { loadMergeDismissals, suggestionStatement } from './people.merge-suggestions.ts';
 import { suggestedMergesJson } from './people.rows.ts';
-import { markAssetIdsForMeiliReindexBestEffort } from './people.search-reindex.ts';
+import { MEILI_STAGE, stageRearmBatchStatement } from './assets.stage-rearm.ts';
 import {
   bestCoverFacesSql,
   INSERT_CLUSTER_PERSON_SQL,
@@ -169,7 +168,7 @@ function materialise(pass: PreparedClusteringPass, when: string): Materialised {
 
 /**
  * Apply the assignments, each new person's row in the same transaction as the
- * face that opened its cluster.
+ * face that opened its cluster, plus the affected assets' search-stage reset.
  *
  * The two used to be separate passes — every person inserted, then every face
  * assigned — which leaves a window where a person exists with a centroid, a
@@ -185,15 +184,19 @@ function materialise(pass: PreparedClusteringPass, when: string): Materialised {
 async function writeAssignments(db: SqliteDb, assignments: readonly Assignment[]): Promise<void> {
   for (let start = 0; start < assignments.length; start += WRITE_CHUNK) {
     const slice = assignments.slice(start, start + WRITE_CHUNK);
-    await db.transaction(
-      slice.flatMap((assignment) => [
+    await db.transaction([
+      ...slice.flatMap((assignment) => [
         ...(assignment.insert === null ? [] : [assignment.insert]),
         {
           sql: SET_FACE_PERSON_SQL,
           params: [assignment.personHex, assignment.assetId, assignment.faceIndex],
         },
       ]),
-    );
+      stageRearmBatchStatement(
+        [...new Set(slice.map((assignment) => assignment.assetId))],
+        MEILI_STAGE,
+      ),
+    ]);
   }
 }
 
@@ -296,17 +299,6 @@ export async function runOnlineClustering(
   // seeding existed, or created by hand through `POST /api/people` ahead of any
   // face assignment.
   await backfillCoverAssets(dbOverride);
-
-  // Re-index exactly the assets whose people changed. Re-indexing every asset
-  // of every touched person would re-queue huge numbers of unchanged rows on a
-  // large library.
-  const changedAssets = [...new Set(assignments.map((assignment) => assignment.assetId))];
-  if (changedAssets.length > 0) {
-    markAssetIdsForMeiliReindexBestEffort(
-      changedAssets.map((hex) => new ObjectId(hex)),
-      dbOverride,
-    );
-  }
 
   log.info(
     { assigned: assignments.length, newPeople, scanned: pass.faces.length, threshold },
