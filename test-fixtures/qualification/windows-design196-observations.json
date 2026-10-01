@@ -1,0 +1,32 @@
+{
+  "kind": "manual-on-device-observation",
+  "issue": 3875,
+  "sourceRevision": "08e98bb87",
+  "build": "Maple.DesignAudit196.exe",
+  "date": "2026-10-01",
+  "captureSize": [1908, 1019],
+  "method": "Windows computer-use screenshots and accessibility tree; screenshots are retained in the audit conversation. No screenshot pixel-diff or DPI measurement is claimed.",
+  "references": ["Windows-editor.png", "iPad-left-strip-info.png", "01-preview-layouts.png"],
+  "userOverride": "Editor header must be bounded and centered rather than full width.",
+  "observed": [
+    "Browse grid populated from the 354-photo local folder.",
+    "Opening the first RAW entered Preview with its selected thumbnail and saved edited pixels.",
+    "Editor header was centered at approximately x=594..1314 in the 1908-wide capture, with back, filename/status, histogram, undo, compare, more actions and export.",
+    "Histogram was blank during RAW decode, then populated after the GPU canvas appeared.",
+    "Light inspector showed Profile, Exposure, Contrast, Highlights, Shadows, Whites and Blacks; Reset was visible.",
+    "Seven labeled dock tools were visible: Light, Color, Effects, Detail, Curve, Mask and Crop.",
+    "Editor filmstrip was a bounded floating panel showing five thumbnails and the current selection.",
+    "Back returned to Preview; Info opened as a right pane with rating, clear, three flag choices, camera/file metadata and metadata-edit entry point.",
+    "Opening Info reduced the photo viewport and kept the selected photo.",
+    "Expanding Preview navigation changed the rail to filename/metadata rows while preserving the selected photo and the open Info pane. The toggle remained in the pane header."
+  ],
+  "limitations": [
+    "This records only the listed screens and navigation; other tool panels and responsive breakpoints are not signed off by this observation.",
+    "No ratings, flags or adjustments were changed during this inspection.",
+    "RAW decode visibly required a wait; no controlled timing was captured.",
+    "Current DPI was not measured; this is not the required 100/150/200 percent matrix.",
+    "Accessibility names were inspected but Narrator and full keyboard traversal were not qualified.",
+    "Color parity, live-cloud behavior and reference-hardware performance remain separate unmet gates."
+  ],
+  "fullDesignSignOff": false
+}
