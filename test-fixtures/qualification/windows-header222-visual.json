@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-01",
+  "issues": [
+    3875,
+    3887,
+    3889
+  ],
+  "revision": "a90ee7fb8",
+  "build": "Maple.DesignAudit222",
+  "captures": [
+    "%TEMP%/maple-visual222/editor.png",
+    "%TEMP%/maple-visual222/editor-more.png",
+    "%TEMP%/maple-visual222/editor-maximized.png"
+  ],
+  "observedLogicalCaptureSizes": [
+    "1908x1019",
+    "2560x1392"
+  ],
+  "observations": [
+    "Header is centered and bounded in restored and maximized windows, with rendered histogram and Back, Undo, Compare, More and Export actions.",
+    "Light inspector displays Profile plus Exposure, Contrast, Highlights, Shadows, Whites and Blacks. Seven primary tool labels are visible.",
+    "More menu opens with Auto adjust, Reset all, Revert, Lens corrections, Film looks, Heal / Clone, Presets, Geometry, Brightness and Scopes.",
+    "Escape dismisses the menu and displays focus on its trigger. Native maximize and restore retain the selected third photo and active Light group.",
+    "Photo retains its aspect ratio with side letterboxing; the different photograph is not stretched to match the design illustration."
+  ],
+  "limitations": [
+    "Right-edge drag did not resize the window. Required 1024x768 and 1440x900 physical-window screenshots remain missing.",
+    "Physical DPI was not established by logical screenshot dimensions.",
+    "Menu visibility establishes discoverability only, not complete functional or Narrator qualification.",
+    "Screenshots remain local because they contain personal photos.",
+    "No full UI, pixel-parity or hardware-performance sign-off."
+  ],
+  "fullQualificationPassed": false
+}
