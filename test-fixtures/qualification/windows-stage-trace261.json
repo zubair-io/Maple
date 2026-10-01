@@ -1,0 +1,430 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceBase": "ce4209a14",
+  "kind": "diagnostic-only",
+  "command": "trace-preview-resize RAW OUTPUT 1600 (stage-dump feature)",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "executableSha256": "54A3A96E88A204317DCDF51B2B8E12A388C8112CDBA9742A442AC7657E76F2C5",
+  "method": "Same Preview demosaic, Neutral profile, auto exposure Off, default sharpening and NR. Full6144x4096 and sized1600x1067 traces reduced with production Mitchell kernel. Exact float EXR readback; stage_diff.py for post-DCP only.",
+  "metrics": {
+    "00a_baseline_exposure.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0,
+      "max_absolute_channel_error": 0.0
+    },
+    "00b_highlight_recovery.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0,
+      "max_absolute_channel_error": 0.0
+    },
+    "01a_opcode_list3.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0,
+      "max_absolute_channel_error": 0.0
+    },
+    "01b_crop_to_default.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0,
+      "max_absolute_channel_error": 0.0
+    },
+    "02b_wb_camera.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0,
+      "max_absolute_channel_error": 0.0
+    },
+    "03_dcp_apply.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "03b_oklab_highlight_recovery.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "03c_retouch.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "04a_chroma_prefilter.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "04ab_deep_denoise.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "04b_capture_sharpening.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "05_auto_exposure.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "06_white_balance.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "07_scene_tone_controls.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "07b_tone_curves.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "08_vibrance.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "09_saturation.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "09b_hsl.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "10_clarity.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "11_texture.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "12_dehaze.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "12a_defringe.exr": {
+      "missing_in_sized": true
+    },
+    "12b_local_adjustments.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "12c_vignette.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.0006329328753054142,
+      "max_absolute_channel_error": 0.06106296181678772,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.18487553192824588,
+        "p95_dE": 0.5247012125724664,
+        "max_dE": 11.001771984640808,
+        "bias_r": -0.00020317295275162905,
+        "bias_g": -0.0002284591319039464,
+        "bias_b": -0.0002492436324246228
+      }
+    },
+    "13_sharpen.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.007108902093023062,
+      "max_absolute_channel_error": 0.43283820152282715,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.7530281741138768,
+        "p95_dE": 2.4403994432075833,
+        "max_dE": 13.338861870842399,
+        "bias_r": -0.0002525916206650436,
+        "bias_g": -0.00028193695470690727,
+        "bias_b": -0.0002082999562844634
+      }
+    },
+    "14_nr_luminance.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.007108902093023062,
+      "max_absolute_channel_error": 0.43283820152282715,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 0.7530281741138768,
+        "p95_dE": 2.4403994432075833,
+        "max_dE": 13.338861870842399,
+        "bias_r": -0.0002525916206650436,
+        "bias_g": -0.00028193695470690727,
+        "bias_b": -0.0002082999562844634
+      }
+    },
+    "15_nr_color.exr": {
+      "shape": [
+        1067,
+        1600,
+        3
+      ],
+      "mean_absolute_channel_error": 0.00869795959442854,
+      "max_absolute_channel_error": 0.6769149899482727,
+      "sceneLinearDiagnostic": {
+        "mean_dE": 2.1092332467227393,
+        "p95_dE": 5.124664779623334,
+        "max_dE": 31.02564921868005,
+        "bias_r": -0.00032693298999220133,
+        "bias_g": -0.00020682117610704154,
+        "bias_b": -0.00045742819202132523
+      }
+    }
+  },
+  "findings": [
+    "Reduced camera-space buffers identical through camera WB.",
+    "First difference after DCP: mean scene-linear diagnostic deltaE0.1848755.",
+    "Default sharpening increases mean diagnostic error to0.7530282.",
+    "Default chroma NR increases mean diagnostic error to2.1092332.",
+    "Sized pipeline omitted global defringe; defaults are zero so omission is not responsible for baseline error."
+  ],
+  "limitations": [
+    "Scene-linear diagnostic metrics are not display parity acceptance metrics.",
+    "Holds Preview reconstruction fixed; does not measure native Auto demosaic difference.",
+    "No production rendering fix for default parity is proven."
+  ],
+  "parityPassed": false
+}
