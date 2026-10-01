@@ -5,11 +5,12 @@ Adapted from [sanjay3290/jules-pr-reviewer](https://github.com/sanjay3290/jules-
 Local changes:
 
 - Require completed session state and an explicit verdict before accepting a review.
+- Stop polling promptly when the session state or SDK reports a terminal failure; retain the failed session and report its ID and URL. Transient API errors still retry within the existing timeout.
 - Delete only the current review session, after publishing its comment and commit status. Keep failed/unpublished sessions; report cleanup failures without overwriting review findings.
 - Add cleanup tests and use Node 24.
 - Update the locked transitive `undici` dependency to resolve the advisories reported by `npm audit`.
 
-`action.yml`, `src/index.ts`, `src/prompt.ts`, and the build configuration originate upstream. `src/cleanup.ts` and its tests are local additions. Dependencies install from the lockfile and the workflow builds the action before executing it. `dist/`, `lib/`, and `node_modules/` are excluded from Git.
+`action.yml`, `src/index.ts`, `src/prompt.ts`, and the build configuration originate upstream. `src/cleanup.ts` contains the local session lifecycle helpers and their tests. Dependencies install from the lockfile and the workflow builds the action before executing it. `dist/`, `lib/`, and `node_modules/` are excluded from Git.
 
 Ported from [Sugar Maple PR #29](https://github.com/zubair-io/Sugar-Maple/pull/29). Maple keeps its existing main-branch review triggers, instruction-only path exclusions, bypass label, status context and 60-minute review timeout. The diff cap is 200,000 characters so the follow-up integration batch is included in full; larger diffs still carry an explicit truncation notice.
 

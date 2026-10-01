@@ -2,7 +2,7 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { jules } from '@google/jules-sdk';
 import { buildReviewPrompt } from './prompt.js';
-import { publishThenDelete, isFinalReview } from './cleanup.js';
+import { publishThenDelete, pollForReview, isAuthError } from './cleanup.js';
 
 type FailOn = 'never' | 'blocking' | 'any';
 type Verdict = 'approve' | 'comment' | 'block';
@@ -139,7 +139,7 @@ async function run(): Promise<void> {
 
     await waitUntilSessionReady(session);
 
-    const reviewMessage = await pollForReview(session as any, timeoutMinutes * 60 * 1000);
+    const reviewMessage = await pollForReview(session, timeoutMinutes * 60 * 1000);
     core.info(`Collected review (${reviewMessage.length} chars)`);
 
     if (!reviewMessage) {
@@ -297,13 +297,6 @@ async function markCommentFailed(
   await octokit.rest.issues.updateComment({ owner, repo, comment_id: commentId, body });
 }
 
-// Match proper HTTP status codes only. `msg.includes('401')` would false-positive on
-// any error message that happens to contain the digits 401/403 as a substring — e.g.
-// a Jules session ID like `2076358440166838858` contains `401` at positions 10–12.
-function isAuthError(msg: string): boolean {
-  return /\b(?:401|403)\b/.test(msg);
-}
-
 function wrapPermissionError(err: unknown, needed: string, op: string): Error {
   const msg = err instanceof Error ? err.message : String(err);
   if (isAuthError(msg) || msg.includes('Resource not accessible')) {
@@ -314,43 +307,6 @@ function wrapPermissionError(err: unknown, needed: string, op: string): Error {
     );
   }
   return err instanceof Error ? err : new Error(msg);
-}
-
-async function pollForReview(
-  session: {
-    id: string;
-    info: () => Promise<{ state: string }>;
-    hydrate: () => Promise<number>;
-    history: () => AsyncIterable<any>;
-  },
-  timeoutMs: number,
-): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  let attempt = 0;
-  while (Date.now() < deadline) {
-    attempt++;
-    try {
-      await session.hydrate();
-      let last = '';
-      for await (const a of session.history()) {
-        if (a.type === 'agentMessaged') last = a.message;
-      }
-      const { state } = await session.info();
-      if (isFinalReview(state, last)) {
-        core.info(`Got agentMessaged on attempt ${attempt}.`);
-        return last;
-      }
-      core.info(`No agentMessaged yet (attempt ${attempt})…`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isAuthError(msg)) {
-        throw new Error(`Jules API rejected request (${msg}). Check JULES_API_KEY is valid.`);
-      }
-      core.info(`hydrate/history error (attempt ${attempt}): ${msg}`);
-    }
-    await new Promise((r) => setTimeout(r, 20_000));
-  }
-  return '';
 }
 
 async function waitUntilSessionReady(session: {
