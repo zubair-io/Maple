@@ -237,6 +237,9 @@ public actor RenderActor {
   /// in-flight decode for the other profile (it would get the wrong-AE
   /// buffer), so the join check below compares this too.
   var decodeTaskProfile: Profile?
+  /// Accepted records and other baked inputs captured before this task starts.
+  /// A later Keep cannot join or relabel an earlier original-only decode.
+  var decodeTaskBakedModel: AdjustmentModel?
   /// Auto-exposure mode `decodeTask` was launched for (#1387) — part of
   /// the task IDENTITY alongside `decodeTaskProfile`, same join rule.
   var decodeTaskAutoExposure: AutoExposureMode?

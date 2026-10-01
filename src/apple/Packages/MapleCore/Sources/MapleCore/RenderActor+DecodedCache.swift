@@ -1,5 +1,5 @@
 // Per-session decoded-image cache and single-flight RAW decode. Target size,
-// profile, auto exposure and decode quality form the in-flight identity.
+// profile, auto exposure, baked edits and decode quality form the in-flight identity.
 // Cache state is declared on RenderActor; this extension owns its lifecycle.
 
 import CoreImage
@@ -72,6 +72,14 @@ extension RenderActor {
     // cancel for a bit-identical buffer). Same reasoning, and the same
     // shape, as `decodeProfile` / `decodeAutoExposure` above.
     let decodeQuality: PipelineRenderer.Quality = asset.isRaw ? quality : .preview
+    let requestedBaked: AdjustmentModel?
+    do {
+      requestedBaked = try Self.validatedBakedModel(for: asset)
+    } catch {
+      editSessionLogger.error(
+        "Decode sidecar validation failed: \(error.localizedDescription, privacy: .public)")
+      return nil
+    }
     // Reuse an in-flight task only when it already satisfies the
     // caller's fullness requirement AND was launched for the same
     // profile + autoExposure + quality. A fast (sized) caller can join
@@ -87,6 +95,7 @@ extension RenderActor {
       decodeTaskProfile == decodeProfile,
       decodeTaskAutoExposure == decodeAutoExposure,
       decodeTaskQuality == decodeQuality,
+      decodeTaskBakedModel == requestedBaked,
       !wantsFull || decodeTaskIsFull
     {
       // #951: JOIN an in-flight, identity-compatible decode. Do NOT create
@@ -94,7 +103,11 @@ extension RenderActor {
       // open share this one decode and its flag; nobody cancels until a
       // genuinely different decode supersedes it (the replace path below).
       guard let result = await existing.value else { return nil }
-      return await normalize(result.0, asset)
+      let normalized = await normalize(result.0, asset)
+      do {
+        guard try Self.validatedBakedModel(for: asset) == requestedBaked else { return nil }
+      } catch { return nil }
+      return normalized
     }
     // #951: a DIFFERENT-identity decode is superseding the in-flight one
     // (different asset / profile / fullness) — abandon it. Flip its flag so
@@ -189,12 +202,9 @@ extension RenderActor {
             )
           }
           let asset = dispatchAsset
-          let sidecar: URL? = {
-            guard let url = asset.sidecarURL,
-              FileManager.default.fileExists(atPath: url.path)
-            else { return nil }
-            return url
-          }()
+          let sidecar: URL?
+          do { sidecar = try Self.coldDecodeSidecar(requestedBaked) } catch { return nil }
+          defer { if let sidecar { try? FileManager.default.removeItem(at: sidecar) } }
           // The session's staged file is also Auto Profile's source. A
           // bytes-FFI decode would use a different native cache key (Bytes
           // vs Path), demuxing the same RAW again for fitting. Only this
@@ -270,6 +280,7 @@ extension RenderActor {
     decodeTaskProfile = decodeProfile
     decodeTaskAutoExposure = decodeAutoExposure
     decodeTaskQuality = decodeQuality
+    decodeTaskBakedModel = requestedBaked
 
     let decodeResult = await task.value
     editSessionSignposter.endInterval("decode", decodeState)
@@ -321,10 +332,10 @@ extension RenderActor {
     // hazard, since `auto_exposure` is also a live-override-owned
     // decode-baked field.
     //
-    // Capture the live baked model (stripped sidecar model) once and
-    // reuse it for the stored `decodedBakedModel` so the write-gate and
-    // the value written can't disagree across a concurrent sidecar edit
-    // (TOCTOU). #950 — the in-memory decode cache keys on the baked
+    // Validate the current baked model against the immutable decode input.
+    // A Keep during decode/normalization must discard the old result,
+    // rather than labeling its pixels with the newly accepted records.
+    // #950 — the in-memory decode cache keys on the baked
     // model, not sidecar mtime: a STRIPPED-field edit (re-applied live
     // per tick) must not invalidate it, only a baked-field edit may.
     // The mtime is captured alongside as a fast-path gate for the
@@ -332,7 +343,19 @@ extension RenderActor {
     // write landing mid-capture can only make a future check do an extra
     // parse, never serve stale.
     let currentMtime = EditSession.sidecarMtime(for: asset)
-    let currentBaked = Self.bakedModel(for: asset)
+    let currentBaked: AdjustmentModel?
+    do { currentBaked = try Self.validatedBakedModel(for: asset) } catch {
+      decodeTask = nil
+      decodeTaskAssetID = nil
+      decodeCancelFlag = nil
+      return nil
+    }
+    guard currentBaked == requestedBaked else {
+      decodeTask = nil
+      decodeTaskAssetID = nil
+      decodeCancelFlag = nil
+      return nil
+    }
     let newRawResolution = decoded.extent.size
     let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
     let cachedCoversNewDecode = Self.cacheCoversNewDecode(
@@ -435,6 +458,7 @@ extension RenderActor {
     decodeTaskSidecarURL = nil
     decodeTaskIsFull = false
     decodeTaskProfile = nil
+    decodeTaskBakedModel = nil
     decodeTaskAutoExposure = nil
     refineDecodeTasks.removeAll()
     decodedAtModel = nil
@@ -469,7 +493,9 @@ extension RenderActor {
       // File untouched since decode → baked model unchanged.
       isFresh = true
     } else {
-      isFresh = (Self.bakedModel(for: asset) == decodedBakedModel)
+      do { isFresh = (try Self.validatedBakedModel(for: asset) == decodedBakedModel) } catch {
+        isFresh = false
+      }
       if isFresh {
         decodedSidecarMtime = currentMtime
         decodedSidecarURL = asset.sidecarURL
@@ -494,22 +520,6 @@ extension RenderActor {
       lensCorrectionDistortionInert: decodedLensCorrectionDistortionInert,
       cameraSupport: assetMatches ? decodedCameraSupport : nil
     )
-  }
-
-  // MARK: - Baked-model freshness key (#950)
-
-  /// Cache the model with live GPU stages stripped. Missing sidecars remain
-  /// nil so file appearance/disappearance is detectable even at defaults.
-  /// Profile and autoExposure are normalized out because their live overrides
-  /// have dedicated cache keys; an autosave must not force a second decode.
-  nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel? {
-    guard EditSession.sidecarMtime(for: asset) != nil else { return nil }
-    var m = RawCoreBridge.stripAppleGPUStages(
-      EditSession.parseSidecarModel(for: asset)
-    )
-    m.profile = AdjustmentModel().profile  // #871 owns profile freshness
-    m.autoExposure = AdjustmentModel().autoExposure  // #1387 owns autoExposure freshness
-    return m
   }
 
 }
