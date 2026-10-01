@@ -284,25 +284,16 @@ fn prepare_layer<'a>(base: &RasterImage, layer: &CompositeLayer<'a>) -> Result<P
         });
     }
     let src = layer.image;
-    let (ox, oy) = match (layer.left, layer.top) {
-        (Some(x), Some(y)) => (x, y),
-        (None, None) => layer
-            .gravity
-            .place_crop((base.width, base.height), (src.width, src.height)),
-        (Some(_), None) | (None, Some(_)) => {
-            return Err(Error::Decode {
-                path: "<memory>".into(),
-                reason: "composite: a layer must set both left and top, or neither".into(),
-            });
-        }
-    };
     let (ox, oy) = if layer.tile {
-        (
-            tile_origin(ox, src.width as i64, base.width as i64)?,
-            tile_origin(oy, src.height as i64, base.height as i64)?,
-        )
+        tiled_placement(base, layer)?
     } else {
-        (ox, oy)
+        match (layer.left, layer.top) {
+            (Some(x), Some(y)) => (x, y),
+            (None, None) => layer
+                .gravity
+                .place_crop((base.width, base.height), (src.width, src.height)),
+            _ => return Err(incomplete_offset()),
+        }
     };
     Ok(PlacedLayer {
         image: src,
@@ -313,34 +304,64 @@ fn prepare_layer<'a>(base: &RasterImage, layer: &CompositeLayer<'a>) -> Result<P
     })
 }
 
-/// A caller-supplied `left`/`top` on a `tile: true` layer is untrusted input
-/// (it comes straight off the wire recipe) — this names the arithmetic that
-/// would otherwise silently wrap or panic on an offset near `i64::MIN`/`MAX`.
-fn offset_overflow(origin: i64, dim: i64, extent: i64) -> Error {
+fn incomplete_offset() -> Error {
     Error::Decode {
         path: "<memory>".into(),
-        reason: format!(
-            "composite: tiled layer offset {origin} (dim {dim}, extent {extent}) overflows i64 arithmetic"
-        ),
+        reason: "composite: a layer must set both left and top, or neither".into(),
     }
 }
 
-fn tile_origin(origin: i64, dim: i64, extent: i64) -> Result<i64> {
-    let overflow = || offset_overflow(origin, dim, extent);
-    let k = ceil_div(origin, dim).ok_or_else(overflow)?;
-    let offset = k.checked_mul(dim).ok_or_else(overflow)?;
-    origin.checked_sub(offset).ok_or_else(overflow)
+fn tiled_extent(extent: u32, tile: u32, centred: bool) -> Result<u32> {
+    let count = extent.div_ceil(tile) | u32::from(centred);
+    count.checked_mul(tile).ok_or_else(|| Error::Decode {
+        path: "<memory>".into(),
+        reason: "composite: replicated tile extent overflows u32".into(),
+    })
 }
 
-/// `ceil(a / b)` for `b > 0`, any sign of `a` (`i64::div_ceil` is unstable).
-/// `None` on overflow rather than wrapping or panicking — `a + b - 1` is the
-/// one step that can overflow, since `b` (a layer dimension) is always small
-/// relative to `i64`, but `a` is a caller-supplied offset that may not be.
-fn ceil_div(a: i64, b: i64) -> Option<i64> {
-    if a >= 0 {
-        a.checked_add(b - 1).map(|sum| sum / b)
-    } else {
-        Some(a / b)
+fn tiled_offset(offset: i64, slack: u32) -> Result<i64> {
+    let valid = i32::try_from(offset)
+        .ok()
+        .filter(|value| *value >= 0)
+        .ok_or_else(|| Error::Decode {
+            path: "<memory>".into(),
+            reason: format!(
+                "composite: tiled offset {offset} must be between 0 and {}",
+                i32::MAX
+            ),
+        })?;
+    Ok(-i64::from((valid as u32).min(slack)))
+}
+
+fn tiled_placement(base: &RasterImage, layer: &CompositeLayer<'_>) -> Result<(i64, i64)> {
+    let width = tiled_extent(
+        base.width,
+        layer.image.width,
+        matches!(
+            layer.gravity,
+            Gravity::Centre | Gravity::North | Gravity::South
+        ),
+    )?;
+    let height = tiled_extent(
+        base.height,
+        layer.image.height,
+        matches!(
+            layer.gravity,
+            Gravity::Centre | Gravity::East | Gravity::West
+        ),
+    )?;
+    match (layer.left, layer.top) {
+        (Some(x), Some(y)) => Ok((
+            tiled_offset(x, width - base.width)?,
+            tiled_offset(y, height - base.height)?,
+        )),
+        (None, None) => {
+            let (x, y) = layer
+                .gravity
+                .place_crop((width, height), (base.width, base.height));
+            Ok((-x, -y))
+        }
+        _ => Err(incomplete_offset()),
     }
 }
 

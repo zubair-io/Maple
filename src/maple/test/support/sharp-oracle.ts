@@ -20,3 +20,14 @@ export function loadSharpOracle() {
   // (including a missing libvips binary) is always a failure, even locally.
   return resolved === null ? null : oracleRequire(resolved);
 }
+
+export interface SharpCompositeImage {
+  composite(layers: Record<string, unknown>[]): SharpCompositeImage;
+  raw(): SharpCompositeImage;
+  toBuffer(): Promise<Buffer>;
+}
+
+export type SharpCompositeFactory = (
+  input: Buffer,
+  options: { raw: { width: number; height: number; channels: 3 | 4 } },
+) => SharpCompositeImage;
