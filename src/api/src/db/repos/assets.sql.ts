@@ -80,18 +80,10 @@ export function assetCoreByIdsSql(count: number): string {
  * The narrow list projection — defect (1) of the ticket, fixed rather than
  * reproduced.
  *
- * `ORDER BY captured_at DESC, id` is what lets `assets_live_captured` serve
- * the page: an ordered partial index the scan can abandon at the limit,
- * instead of a table scan that reads every live row before applying one. The
- * Mongo query has no sort at all and therefore returns documents in whatever
- * order the storage engine hands them over, so imposing this one makes the
- * endpoint's output stable across calls as well as cheaper.
- *
- * It also costs something, and the cost is not obvious: SQLite sorts NULL
- * lowest, so an asset whose EXIF carries no capture date sits behind every
- * dated row and a page smaller than the live set never reaches it. #3779
- * tracks the fix — a `COALESCE(captured_at, indexed_at)` generated column and
- * a partial index over it, which is DDL and so belongs to the schema PR.
+ * `sort_at` uses the capture date, falling back to indexing time for undated
+ * scans, screenshots and videos (#3779). Its ordered partial index lets a
+ * page stop at the limit. A captured_after filter excludes undated rows, so
+ * that shape keeps the captured_at range index and equivalent capture order.
  *
  * `residuals` carries the optional `has_xmp` / `rating` / `captured_at`
  * filters. They are interpolated as fixed SQL fragments with their values
@@ -112,12 +104,15 @@ export function listItemsSql(residuals: readonly string[], liveOnly: boolean): s
   const live = liveOnly ? [LIVE_ASSET_PREDICATE] : [];
   const clauses = [...live, ...residuals];
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-  const indexedBy = liveOnly ? 'INDEXED BY assets_live_captured' : '';
+  const captureFiltered = residuals.includes('captured_at > ?');
+  const sortColumn = captureFiltered ? 'captured_at' : 'sort_at';
+  const sortIndex = captureFiltered ? 'assets_live_captured' : 'assets_live_sorted';
+  const indexedBy = liveOnly ? `INDEXED BY ${sortIndex}` : '';
   return `
     SELECT id, mtime, rating, has_xmp, hidden, hidden_reason, hidden_ack
       FROM assets ${indexedBy}
       ${where}
-     ORDER BY captured_at DESC, id
+     ORDER BY ${sortColumn} DESC, id
      LIMIT ?`;
 }
 
