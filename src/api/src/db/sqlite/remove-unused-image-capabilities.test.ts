@@ -34,7 +34,11 @@ test('an existing file drops unused grants and preserves users and refresh sessi
   using reopened = new Database(handle.path);
   reopened.exec('PRAGMA foreign_keys = ON');
   const applied = await runMigrations(fromBunSqlite(reopened), ALL_MIGRATIONS);
-  expect(applied.applied).toEqual([removeUnusedImageCapabilitiesMigration.id]);
+  expect(applied.applied).toEqual(
+    ALL_MIGRATIONS.filter(
+      (migration) => migration.id >= removeUnusedImageCapabilitiesMigration.id,
+    ).map((migration) => migration.id),
+  );
   expect(reopened.query(grantObjects).all()).toEqual([]);
   expect(reopened.query('SELECT * FROM users').all()).toEqual(users);
   expect(reopened.query('SELECT * FROM refresh_tokens').all()).toEqual(sessions);
