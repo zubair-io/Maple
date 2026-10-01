@@ -22,6 +22,7 @@ namespace Maple.WinUI
             args.Handled = true;
             if (_closing) return;
             _closing = true;
+            StopSaveTime();
             DisposeCloudMap();
             _repairMappingRequest?.Cancel();
             ResetComparison();
@@ -54,6 +55,7 @@ namespace Maple.WinUI
         private async Task DrainWindowAsync()
         {
             _closing = true;
+            StopSaveTime();
             _infoCancellation?.Cancel();
             _infoCancellation?.Dispose();
             _infoCancellation = null;

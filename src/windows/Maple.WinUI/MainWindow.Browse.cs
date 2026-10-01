@@ -52,6 +52,7 @@ namespace Maple.WinUI
 
         private void OnSelectedPhotoChanged()
         {
+            RefreshSaveTime();
             _lastAppliedPreset = null;
             _resetPreset.IsEnabled = false;
             ResetComparison();

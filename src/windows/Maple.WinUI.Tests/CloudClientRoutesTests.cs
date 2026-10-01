@@ -78,10 +78,11 @@ namespace Maple.WinUI.Tests
         public async Task Inspector_UsesExistingAssetDetailRouteAndEscapesPath()
         {
             var handler = new FakeHandler().Then(HttpStatusCode.OK,
-                Json("{\"description\":\"Golden hour\"}"), "application/json");
+                Json("{\"description\":\"Golden hour\",\"xmp_mtime\":1700000060}"), "application/json");
             using var client = Client(handler);
             var metadata = await client.GetInspectorMetadataAsync("/photos/A & B/#1.dng", CancellationToken.None);
             Assert.Equal("Golden hour", metadata!.Description);
+            Assert.Equal(1700000060L, metadata.XmpModifiedSeconds);
             Assert.Equal("/api/assets/by-fspath?path=%2Fphotos%2FA%20%26%20B%2F%231.dng",
                 handler.Requests.Single().RequestUri!.PathAndQuery);
         }

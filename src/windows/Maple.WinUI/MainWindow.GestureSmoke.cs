@@ -78,5 +78,11 @@ public sealed partial class MainWindow
         await Task.Delay(650);
         if (ViewModel.Adjustments.Exposure != original || ViewModel.UndoCount != depth)
             throw new InvalidOperationException("A stale gesture timer modified restored history.");
+        await ViewModel.RetryLocalSaveAsync();
+        RefreshSaveTime();
+        for (var attempt = 0; attempt < 100 && _saveTimeRequest != null; attempt++)
+            await Task.Delay(20);
+        if (!BrowseSavedStatus.Text.StartsWith(" · Saved", StringComparison.Ordinal))
+            throw new InvalidOperationException("Browse did not show the acknowledged sidecar save time.");
     }
 }

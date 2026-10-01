@@ -433,8 +433,12 @@ namespace Maple.WinUI.ViewModels
                     failures.Add($"{System.IO.Path.GetFileName(result.Path)}: {error.Message}");
                     DiagLog.Write($"[Sidecar] write failed for {result.Path}: {error.Message}");
                 }
-                else if (string.Equals(result.Path, photo?.FilePath, StringComparison.OrdinalIgnoreCase))
-                    _lastSidecarWriteText = result.Xml;
+                else
+                {
+                    if (string.Equals(result.Path, photo?.FilePath, StringComparison.OrdinalIgnoreCase))
+                        _lastSidecarWriteText = result.Xml;
+                    OnUi(() => SidecarSaved?.Invoke());
+                }
             }
             var message = failures.Count == 0 ? string.Empty :
                 "Changes are kept in this session but have not been saved. " + string.Join("\n", failures);

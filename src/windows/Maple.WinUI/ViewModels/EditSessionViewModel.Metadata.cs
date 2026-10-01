@@ -25,7 +25,13 @@ public partial class EditSessionViewModel
 
     public Task RetryLocalSaveAsync() => Task.Run(FlushSidecarNow);
 
-    private void TrackCloudMetadataWrite(Func<Task> write) => _cloudMetadataWrites.Enqueue(write);
+    public event Action? SidecarSaved;
+
+    private void TrackCloudMetadataWrite(Func<Task> write) => _cloudMetadataWrites.Enqueue(async () =>
+    {
+        await write();
+        OnUi(() => SidecarSaved?.Invoke());
+    });
 
     private void OnCloudMetadataFailure(Exception error)
     {

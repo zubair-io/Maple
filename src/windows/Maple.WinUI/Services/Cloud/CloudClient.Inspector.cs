@@ -10,6 +10,7 @@ namespace Maple.WinUI.Services.Cloud;
 
 public sealed class CloudInspectorMetadata
 {
+    [JsonPropertyName("xmp_mtime")] public long? XmpModifiedSeconds { get; set; }
     [JsonPropertyName("description")] public string? Description { get; set; }
     [JsonPropertyName("ocr_text")] public string? OcrText { get; set; }
     [JsonPropertyName("faces")] public JsonElement Faces { get; set; }
