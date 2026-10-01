@@ -6,11 +6,7 @@ import XCTest
 @MainActor
 final class PartialWhiteBalanceRenderTests: XCTestCase {
   func testLiveGpuPixelsMatchExistingCorePartialResolutionOnNonzeroTintCamera() async throws {
-    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-      .deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent()
-      .appendingPathComponent("test-fixtures/batch-transfer/source.dng")
+    let fixture = try PartialWhiteBalanceFixture.root().appendingPathComponent("source.dng")
     let root = try SidecarContractIO.makeTempDirectory(prefix: "partial-wb-live")
     defer { try? FileManager.default.removeItem(at: root) }
     let raw = root.appendingPathComponent("source.dng")
