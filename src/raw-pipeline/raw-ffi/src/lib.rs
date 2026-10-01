@@ -117,6 +117,9 @@ mod raster_analyze;
 mod removal_assets;
 mod removal_composite;
 mod removal_context;
+mod removal_file;
+#[cfg(test)]
+mod removal_file_tests;
 mod removal_generation;
 mod removal_geometry;
 #[cfg(any(feature = "removal", feature = "removal-ios"))]
@@ -133,6 +136,7 @@ mod render_develop;
 // of `render` per the 600-LOC file-size budget; `render::maple_render_file`
 // delegates its shared body here with `film_lut: None`.
 mod render_film;
+mod render_histogram;
 mod scene_linear;
 mod scene_linear_chain;
 // The C-visible vectorscope statistics block (#3272) — `MapleScopeStats` +
