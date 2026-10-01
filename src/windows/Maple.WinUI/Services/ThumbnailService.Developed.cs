@@ -2,10 +2,12 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Models;
 using Maple.WinUI.Native;
+using Maple.WinUI.Services.Xmp;
 using Windows.Graphics.Imaging;
 
 namespace Maple.WinUI.Services;
@@ -15,6 +17,7 @@ public sealed partial class ThumbnailService
     // Embedded extraction remains concurrent. A missing embedded preview must
     // not start four simultaneous sensor decodes while browsing a large folder.
     private static readonly SemaphoreSlim DevelopGate = new(1);
+    private static readonly FilmLutCache PreviewFilms = new();
     private static readonly Lazy<string> DevelopIdentity = new(() =>
     {
         using var dll = File.OpenRead(Path.Combine(AppContext.BaseDirectory, "raw_ffi.dll"));
@@ -25,7 +28,20 @@ public sealed partial class ThumbnailService
     private string DevelopedThumbPath(string rawPath) =>
         LocalCachePathFor(rawPath, ThumbnailMaxPx, $"developed-{DevelopIdentity.Value}.png");
 
-    private async Task<string?> GetOrCreateDevelopedThumbAsync(string rawPath, CancellationToken ct)
+    public Task<string?> GetOrCreateAdjustedPreviewAsync(string rawPath, AdjustmentState adjustments, CancellationToken ct)
+    {
+        var model = adjustments.Clone();
+        var xml = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = model });
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(xml)));
+        var path = LocalCachePathFor(rawPath, PreviewMaxPx, $"edited-{DevelopIdentity.Value}-{hash}.png");
+        return GetOrCreateDevelopedAsync(rawPath, path, model, PreviewMaxPx, ct);
+    }
+
+    private Task<string?> GetOrCreateDevelopedThumbAsync(string rawPath, CancellationToken ct) =>
+        GetOrCreateDevelopedAsync(rawPath, DevelopedThumbPath(rawPath), new AdjustmentState(), ThumbnailMaxPx, ct);
+
+    private async Task<string?> GetOrCreateDevelopedAsync(string rawPath, string path,
+        AdjustmentState model, int maxPx, CancellationToken ct)
     {
         await DevelopGate.WaitAsync(ct);
         string? temporary = null;
@@ -33,9 +49,9 @@ public sealed partial class ThumbnailService
         {
             // PNG fallback pixels use a separate local slot from shared AVIF.
             // Invalidate on either renderer binary change, not only RAW mtime.
-            var path = DevelopedThumbPath(rawPath);
             if (File.Exists(path)) return path;
-            var frame = await Task.Run(() => RenderThumb(rawPath, ct), ct);
+            var film = await PreviewFilms.LoadAsync(model.FilmLook, ct);
+            var frame = await Task.Run(() => RenderDerivative(rawPath, model, maxPx, film, ct), ct);
             ct.ThrowIfCancellationRequested();
             temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             using (var stream = File.Create(temporary))
@@ -67,7 +83,8 @@ public sealed partial class ThumbnailService
         }
     }
 
-    private static (int Width, int Height, byte[] Pixels) RenderThumb(string path, CancellationToken ct)
+    private static (int Width, int Height, byte[] Pixels) RenderDerivative(
+        string path, AdjustmentState model, int maxPx, FilmLut? film, CancellationToken ct)
     {
         var flag = RawFfi.maple_cancel_flag_new();
         try
@@ -76,14 +93,13 @@ public sealed partial class ThumbnailService
             // when cancellation races the end of the decode.
             using var registration = ct.Register(() => RawFfi.maple_cancel_flag_set(flag));
             ct.ThrowIfCancellationRequested();
-            var model = new AdjustmentState();
-            var image = RenderEngine.Decode(path, model, ThumbnailMaxPx, RefineDecodeQuality.Preview, flag);
+            var image = RenderEngine.Decode(path, model, maxPx, RefineDecodeQuality.Preview, flag);
             ct.ThrowIfCancellationRequested();
             if (model.Temperature == 6500 && model.Tint == 0 && image.DecodedTemperature > 0)
             { model.Temperature = image.DecodedTemperature; model.Tint = image.DecodedTint; }
             var pixels = new byte[checked(image.Width * image.Height * 4)];
             float[]? scratch = null;
-            RenderEngine.RenderTick(image, model, ref scratch, pixels);
+            RenderEngine.RenderTick(image, model, ref scratch, pixels, film);
             ct.ThrowIfCancellationRequested();
             return (image.Width, image.Height, pixels);
         }

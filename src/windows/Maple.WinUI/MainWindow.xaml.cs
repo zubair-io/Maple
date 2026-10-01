@@ -27,7 +27,10 @@ namespace Maple.WinUI
 
         public MainWindow()
         {
-            ViewModel = new EditSessionViewModel();
+            // Explicit fixture qualification must not race a restored user's
+            // library/cloud selection while its first frame is being checked.
+            var fixtureSmoke = Array.IndexOf(Environment.GetCommandLineArgs(), "--lifecycle-smoke") >= 0;
+            ViewModel = new EditSessionViewModel(restoreSources: !fixtureSmoke);
             this.InitializeComponent();
 
             // #3079: fold the menu row into the frame's title-bar strip —

@@ -10,6 +10,7 @@ namespace Maple.WinUI.ViewModels
         {
             if (_disposed) return;
             _disposed = true;
+            CancelPreviewRequest();
             _libraryCts?.Cancel();
             Interlocked.Increment(ref _decodeGeneration);
             CancelActiveDecode();

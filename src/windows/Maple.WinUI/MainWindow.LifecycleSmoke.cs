@@ -64,10 +64,17 @@ namespace Maple.WinUI
                     var previewDeadline = Environment.TickCount64 + 90000;
                     while (!frame.Task.IsCompleted && ViewModel.SelectedPhoto.PreviewPath == null
                         && Environment.TickCount64 < previewDeadline) await Task.Delay(20);
-                    // Other callers may supply a camera RAW with an embedded
-                    // preview. Only that fast path needs explicit Edit entry.
-                    if (ViewModel.SelectedPhoto.PreviewPath != null) SetMode(ShellMode.Edit);
-                    actualPath = await frame.Task.WaitAsync(TimeSpan.FromSeconds(90));
+                    // Embedded or developed derivatives do not start the live
+                    // renderer. Exercise the actual Edit entry command.
+                    if (ViewModel.SelectedPhoto.PreviewPath != null)
+                        OnEnterEdit(this, new Microsoft.UI.Xaml.RoutedEventArgs());
+                    try { actualPath = await frame.Task.WaitAsync(TimeSpan.FromSeconds(90)); }
+                    catch (TimeoutException error)
+                    {
+                        throw new TimeoutException($"First frame missing: selected={ViewModel.SelectedPhoto?.FilePath}, "
+                            + $"decoding={ViewModel.IsDecoding}, status={ViewModel.DecodeStatus}, "
+                            + $"preview={ViewModel.SelectedPhoto?.PreviewPath}", error);
+                    }
                     if (actualPath != expectedPath)
                         throw new InvalidOperationException($"Required {expectedPath} frame, got {actualPath}");
                     SetMode(ShellMode.Edit);

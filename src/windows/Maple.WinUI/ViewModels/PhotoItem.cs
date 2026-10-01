@@ -38,8 +38,8 @@ namespace Maple.WinUI.ViewModels
         public DateTime FileModifiedUtc { get; init; }
 
         [ObservableProperty] private string? _thumbnailPath;
-        /// <summary>Full-screen embedded-JPEG preview (extracted on demand when
-        /// the photo is opened in Preview mode).</summary>
+        /// <summary>Selected-photo preview: developed from local saved adjustments,
+        /// server derivative for cloud, or embedded pixels for an unedited photo.</summary>
         [ObservableProperty] private string? _previewPath;
 
         // --- Inline rename (#2639) ---

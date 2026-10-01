@@ -161,6 +161,7 @@ namespace Maple.WinUI.ViewModels
             HslBands = AdjustmentSections.BuildHslBands(this);
             GradeZones = AdjustmentSections.BuildGradeZones(this);
             _sidecarWatcher.SidecarChangedOnDisk += OnSidecarChangedOnDisk;
+            SidecarSaved += RefreshLocalPreview;
             if (restoreSources)
             {
                 InitializeLibrary();
@@ -172,6 +173,7 @@ namespace Maple.WinUI.ViewModels
 
         partial void OnSelectedPhotoChanged(PhotoItem? value)
         {
+            CancelPreviewRequest();
             HasDecodeError = false;
             PublishRasterCapabilities(false);
             if (value != null)
@@ -471,6 +473,7 @@ namespace Maple.WinUI.ViewModels
                     photo.ColorLabel = doc.ColorLabel;
                     SyncSlidersFromModel();
                     RefreshRenderAfterModelChange(before);
+                    RefreshLocalPreview();
                 });
             }
             catch (Exception ex)
