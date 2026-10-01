@@ -13,7 +13,7 @@ Local changes:
 
 Ported from [Sugar Maple PR #29](https://github.com/zubair-io/Sugar-Maple/pull/29). Maple keeps its existing main-branch review triggers, instruction-only path exclusions, bypass label, status context and 60-minute review timeout.
 
-The existing `JULES_API_KEY` repository secret is reused. Completed approve, comment and block reviews are deleted only after their GitHub comment and status are published. Failed, timed-out or unpublished reviews remain available. Deletion failure fails the workflow without replacing the saved review; HTTP 404 counts as already deleted. Manual cancellation or runner loss can still leave a session. Runs for the same PR are serialized without cancelling an active review.
+The existing `JULES_API_KEY` repository secret is reused. Completed approve, comment and block reviews are deleted only after their GitHub comment and status are published. Failed, timed-out or unpublished reviews remain available. Cleanup retries HTTP 408, 429 and 5xx responses, request timeouts and network failures up to three attempts, waiting one then two seconds between attempts. Each attempt has a fresh 30-second timeout. Other HTTP failures stop immediately. An unresolved deletion failure fails the workflow without replacing the saved review and reports only its HTTP status or timeout/network category; upstream response bodies and exception messages are never logged. HTTP 404 counts as already deleted. Manual cancellation or runner loss can still leave a session. Runs for the same PR are serialized without cancelling an active review.
 
 To retry cleanup manually with `JULES_API_KEY` in your environment, replace `SESSION_ID` with the exact ID from the saved review:
 
