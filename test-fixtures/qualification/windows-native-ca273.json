@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-01",
+  "issue": 3876,
+  "sourceBase": "e05360d9bd0bc30241200294aff1d7457fbd8a15",
+  "change": "Reject automatic lateral CA in tile develop and map the rejection to the existing unsupported-model FFI code 10.",
+  "nativeLibrarySha256": "9E5FA8ED7A90952713D8DC509198109F4D56FE4B026DBD4CEF3213A6642408AD",
+  "coreTest": {
+    "failed": 0,
+    "ignored": 0,
+    "passed": 1,
+    "name": "automatic_lateral_ca_requires_full_frame_instead_of_an_uncorrected_tile"
+  },
+  "windowsNativeTests": {
+    "passed": 3,
+    "fixtureSha256": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276",
+    "skipped": 0,
+    "filter": "FullyQualifiedName~NativeDetailDecoderTests",
+    "failed": 0,
+    "fixture": "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
+  },
+  "assertions": [
+    "Default CA-Off remains eligible for tile development.",
+    "CA-On cannot silently return an uncorrected tile.",
+    "Windows decoder receives code 10 and the automatic lateral CA reason.",
+    "Turning CA off restores native detail through the same decoder instance."
+  ],
+  "limitations": [
+    "Existing Windows host preview fallback was inspected in MainWindow.NativeDetail.cs; no new interactive screenshot taken for this core-only change.",
+    "Corrected full-resolution tile rendering still requires frame-anchored estimation and resampling.",
+    "This does not close #3876 or the parent qualification gates."
+  ]
+}

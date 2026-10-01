@@ -11,6 +11,35 @@
 use super::*;
 
 #[test]
+fn automatic_lateral_ca_requires_full_frame_instead_of_an_uncorrected_tile() {
+    let raw = fake_raw(80, 60);
+    let rect = TileRect {
+        src_x: 0,
+        src_y: 0,
+        src_w: 40,
+        src_h: 30,
+        out_w: 40,
+        out_h: 30,
+    };
+    let mut model = AdjustmentModel::default();
+    assert!(guards::reject_untileable(&raw, &model, rect).is_ok());
+    model.auto_lateral_ca = crate::types::adjustment::AutoLateralCa::On;
+    let error = render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
+        &raw,
+        &model,
+        rect,
+        RenderQuality::Full,
+        None,
+        1.0,
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("automatic lateral CA"),
+        "{error}"
+    );
+}
+
+#[test]
 fn source_bounds_reject_invalid_rectangles_before_development() {
     let model = AdjustmentModel::default();
     for orientation in 1..=8 {

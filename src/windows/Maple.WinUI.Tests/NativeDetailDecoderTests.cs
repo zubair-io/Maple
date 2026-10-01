@@ -9,6 +9,25 @@ namespace Maple.WinUI.Tests;
 public class NativeDetailDecoderTests
 {
     [DemosaicNativeFact]
+    public async Task AutomaticCaRequestsExplicitFallbackAndTurningItOffRestoresNativeDetail()
+    {
+        RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var path = Environment.GetEnvironmentVariable("MAPLE_DEMOSAIC_TEST_RAW")!;
+        var model = new AdjustmentState { Profile = ProfileMode.Neutral, AutoLateralCa = ToggleMode.On };
+        var anchor = RenderEngine.Decode(path, model, 32, RefineDecodeQuality.Preview, IntPtr.Zero);
+        await using var decoder = new NativeDetailDecoder();
+        var geometry = await decoder.ReadGeometryAsync(path, model, default);
+        var region = new NativeDetailRegion(0, 0, Math.Min(16u, geometry.CropWidth), Math.Min(16u, geometry.CropHeight));
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => decoder.DecodeAsync(path, model, anchor, region, default));
+        Assert.Contains("(10)", error.Message);
+        Assert.Contains("automatic lateral CA", error.Message);
+        model.AutoLateralCa = ToggleMode.Off;
+        var patch = await decoder.DecodeAsync(path, model, anchor, region, default);
+        Assert.Equal(region, patch.Region);
+        Assert.All(patch.Image.Pixels, value => Assert.True(float.IsFinite(value)));
+    }
+
+    [DemosaicNativeFact]
     public async Task SliderChangesReuseTheMosaicAndFailedDecodeChangesCanBeRetried()
     {
         RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);

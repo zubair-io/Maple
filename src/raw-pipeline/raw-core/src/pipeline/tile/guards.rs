@@ -54,6 +54,14 @@ pub(super) fn reject_untileable(
             "tile path does not support Fuji X-Trans RAFs; use the full-image render entry instead (#420).",
         );
     }
+    // #3876: CA estimation is anchored to the full sensor, not this crop.
+    // Refuse instead of silently replacing the corrected preview with an
+    // uncorrected native patch. Vendor warps are rejected below as well.
+    if model.auto_lateral_ca == crate::types::adjustment::AutoLateralCa::On {
+        return reject(
+            "tile path is not supported with automatic lateral CA (full-frame estimation required; use the full-image render entry instead)",
+        );
+    }
     // Dehaze is global — atmospheric light and the dark channel are
     // statistics of the whole frame — and its transmission map is refined
     // by a radius-60 guided filter. Neither survives a crop; the correct

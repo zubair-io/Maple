@@ -106,6 +106,7 @@ pub(crate) fn deep_denoise_active(model: &xmp::AdjustmentModel) -> bool {
 /// call sites so a new rejection reason cannot be wired into two of them and
 /// forgotten in the other two.
 const UNTILEABLE_MODEL_ERRORS: &[&str] = &[
+    "automatic lateral CA",
     "dehaze",
     "vignette",
     "deep denoise",
