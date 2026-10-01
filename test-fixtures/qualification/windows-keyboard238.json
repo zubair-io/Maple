@@ -1,0 +1,40 @@
+{
+  "issue": 3887,
+  "date": "2026-10-01",
+  "sourceBase": "894968072c453f58594d950249e4684e9c875503",
+  "build": "Maple.DesignAudit237",
+  "managedAppSha256": "57186AA5D7366E426E425F8BE4586E9D4CCA1FD2C0D3588BCDA8049B089111BC",
+  "session": "Normal app launch, two synthetic photos, no lifecycle checkpoint timeout",
+  "fixture": "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng",
+  "originals": [
+    {
+      "name": "first.dng",
+      "sha256": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276",
+      "unchanged": true
+    },
+    {
+      "name": "second.dng",
+      "sha256": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276",
+      "unchanged": true
+    }
+  ],
+  "actions": [
+    "Focus Exposure slider; Right changes 0 to 0.05 EV",
+    "Ctrl+Z restores 0 EV",
+    "Ctrl+Shift+Z restores 0.05 EV",
+    "Ctrl+Z restores 0 EV"
+  ],
+  "selection": "first.dng / 01 of 02 throughout",
+  "screenshots": [
+    "windows-keyboard238/arrow.png",
+    "windows-keyboard238/undo.png",
+    "windows-keyboard238/redo.png"
+  ],
+  "verdict": "PASS for Exposure arrow ownership and undo/redo with two photos",
+  "limitations": [
+    "UIA focus field reports parent pane despite visible slider focus outline and verified keyboard response.",
+    "First immediate redo UIA snapshot lagged the screenshot; settled snapshot confirms 0.05.",
+    "Does not qualify every slider, Narrator, all DPI configurations, color parity or performance.",
+    "Intermittent native XAML crash remains unresolved."
+  ]
+}
