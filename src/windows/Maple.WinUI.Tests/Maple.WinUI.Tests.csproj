@@ -227,6 +227,7 @@
     <Compile Include="..\Maple.WinUI\Models\AdjustmentState.cs" LinkBase="Models" />
     <Compile Include="..\Maple.WinUI\Models\RetouchState.cs" LinkBase="Models" />
     <Compile Include="..\Maple.WinUI\Services\RepairCanvasMap.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\LaunchArguments.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Models\PresetDocument.cs" LinkBase="Models" />
     <Compile Include="..\Maple.WinUI\Services\PresetStore.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\AdjustmentFieldBridge.cs" LinkBase="Services" />

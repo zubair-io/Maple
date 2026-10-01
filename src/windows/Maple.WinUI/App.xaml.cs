@@ -69,20 +69,16 @@ namespace Maple.WinUI
             else if (args.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.Launch
                 && args.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch)
             {
-                var arg = launch.Arguments?.Trim().Trim('"');
+                var arguments = Services.LaunchArguments.Parse(launch.Arguments);
+                var arg = arguments.Length == 1 ? arguments[0] : null;
                 if (arg != null && arg.StartsWith("maple-app://", StringComparison.OrdinalIgnoreCase)
                     && Uri.TryCreate(arg, UriKind.Absolute, out var parsed))
                 {
                     uri = parsed;
                 }
-                else if (arg != null && IsLikelyFilePath(arg))
+                else if (arguments.Length > 0 && arguments.All(IsLikelyFilePath))
                 {
-                    // Registry-fallback file activation. The command template
-                    // (`"exe" "%1"`) wraps the path in quotes, but `arg` is
-                    // already unquoted here — the binding above strips them
-                    // with Trim('"'), the same normalization the maple-app://
-                    // fallback branch has always depended on.
-                    DeliverFileActivation(new[] { arg });
+                    DeliverFileActivation(arguments);
                     return;
                 }
             }
