@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 // preview-ondemand-limiter.test.ts (route-level)
 //
 // Integration coverage for #2012: `GET /api/preview/:slug/*` must route a
@@ -143,7 +144,12 @@ describe('GET /preview/:slug/* — on-demand regeneration is concurrency-bounded
       mapleId: newObjectIdHex(),
     });
     await writeFile(join(tmpDir, 'warm.jpg'), 'source-bytes');
-    const previewPath = join(tmpDir, '.maple', 'previews', 'warm.jpg.avif');
+    const previewPath = join(
+      tmpDir,
+      '.maple',
+      'previews',
+      `warm.jpg.v${PIPELINE_OUTPUT_VERSION}.avif`,
+    );
     await mkdir(join(previewPath, '..'), { recursive: true });
     await writeFile(previewPath, 'already-cached-bytes');
 

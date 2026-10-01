@@ -108,6 +108,8 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema adjustment --target ts --out "$TS_OUT"
 "$BIN" --schema adjustment --target ts-tables --out "$TS_TABLES_OUT"
 "$BIN" --schema adjustment-api --target ts --out "src/api/src/generated/adjustment-fields.generated.ts"
+"$BIN" --schema pipeline-output-version --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/PipelineOutputVersion+Generated.swift"
+"$BIN" --schema pipeline-output-version --target ts --out "src/cloudflare/src/generated/pipeline-output-version.ts"
 "$BIN" --schema raster-recipe --target ts --out "src/maple/src/recipe.generated.ts"
 
 "$BIN" --schema batch-transfer --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/BatchTransfer+Generated.swift"

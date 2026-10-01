@@ -12,6 +12,7 @@
  * background stage and on-demand generation from this route.
  */
 
+import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia } from 'elysia';
 import { resolveAddress } from '../../library/address.ts';
 import { child as childLogger } from '../../log.ts';
@@ -38,7 +39,9 @@ export const previewRoutes = new Elysia().get(
   // indexing-202, on-demand generate, ETag/304). The developed-vs-unedited
   // branch was removed in #2017 (one file per asset), which simplified this.
   // fallow-ignore-next-line complexity
-  async ({ params, headers, set }) => {
+  async ({ params, headers, query, set }) => {
+    const versionError = incompatiblePipelineVersion(query.pv, set);
+    if (versionError) return versionError;
     const slug = params.slug;
     const wildcard = (params as Record<string, string>)['*'] ?? '';
     const segments = parseWildcardSegments(wildcard);

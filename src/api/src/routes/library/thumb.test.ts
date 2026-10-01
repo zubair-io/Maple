@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 /**
  * Integration tests for GET /api/thumb/:slug/*
  *
@@ -175,7 +176,7 @@ describe('GET /thumb/:slug/*', () => {
     // The indexed branch answers the conditional request from `maple_id` alone
     // and returns before it resolves (or generates) the thumb file, so there is
     // nothing to pre-stage on disk here.
-    const etag = `"${mapleId}"`;
+    const etag = `"${mapleId}-v${PIPELINE_OUTPUT_VERSION}"`;
     const res = await app.handle(
       new Request('http://localhost/thumb/thumblib/cached.jpg', {
         headers: { 'If-None-Match': etag },

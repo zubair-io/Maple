@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../src/generated/adjustment-fields.generated.ts';
 /**
  * Cross-platform round-trip validation (#1997, epic #1993 stage 5, item 2):
  * a client-shaped AVIF upload via `PUT /api/preview` — mimicking an
@@ -59,7 +60,10 @@ const put = (path: string, body: BodyInit | Buffer) =>
   new Elysia().use(previewPathRoutes).handle(
     new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
       method: 'PUT',
-      headers: { 'content-type': 'image/avif' },
+      headers: {
+        'x-maple-pipeline-version': String(PIPELINE_OUTPUT_VERSION),
+        'content-type': 'image/avif',
+      },
       body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
     }),
   );
@@ -137,6 +141,8 @@ describe('PUT /api/preview → GET /api/fs/preview round-trips byte-identically 
     expect(served.equals(uploaded)).toBe(true);
     // Sanity: the legacy resolver both PUT and GET fall back to for an
     // un-indexed asset is the SAME function, applied to the SAME path.
-    expect(expectedPath).toBe(join(tmp, '.maple', 'previews', 'a.nef.avif'));
+    expect(expectedPath).toBe(
+      join(tmp, '.maple', 'previews', `a.nef.v${PIPELINE_OUTPUT_VERSION}.avif`),
+    );
   });
 });

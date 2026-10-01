@@ -40,6 +40,7 @@ import {
 } from './cloudflare-config.repo.ts';
 import { deleteThumbFromR2, type ResolvedCloudflareConfig } from './r2-client.ts';
 import { thumbR2Key } from './thumb-key.ts';
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 
 const log = childLogger('cloudflare:hidden-cleanup');
 
@@ -81,7 +82,18 @@ async function deleteOne(
 
   const key = thumbR2Key({ slug, relDir: primary.path, filename: primary.filename });
   try {
-    await deleteThumbFromR2(config, key, AbortSignal.timeout(CF_DELETE_TIMEOUT_MS));
+    const signal = AbortSignal.timeout(CF_DELETE_TIMEOUT_MS);
+    const results = await Promise.allSettled(
+      Array.from({ length: PIPELINE_OUTPUT_VERSION + 1 }, (_, version) =>
+        deleteThumbFromR2(
+          config,
+          thumbR2Key({ slug, relDir: primary.path, filename: primary.filename }, version),
+          signal,
+        ),
+      ),
+    );
+    const failed = results.find((result) => result.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
     await clearCfThumbSyncedAt(asset._id);
   } catch (err) {
     log.warn(

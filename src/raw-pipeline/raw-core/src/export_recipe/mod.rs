@@ -131,6 +131,15 @@ impl ExportRecipe {
             if !matches!(self.quality, Some(1..=100)) {
                 return Err("JPEG quality must be 1–100".into());
             }
+        } else if matches!(self.format.as_str(), "avif" | "webp") {
+            // Existing null recipes retain their default quality. An explicit
+            // quality is required by shared AVIF derivatives (512px / 55).
+            if matches!(self.quality, Some(0 | 101..)) {
+                return Err(format!(
+                    "{} quality must be 1–100 or null",
+                    self.format.to_uppercase()
+                ));
+            }
         } else if self.quality.is_some() {
             return Err("lossless formats require quality: null".into());
         }

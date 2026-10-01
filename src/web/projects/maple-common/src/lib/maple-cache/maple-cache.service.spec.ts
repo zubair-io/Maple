@@ -1,182 +1,104 @@
-// MapleCacheService — thumb cache pipeline-version guard (#1927).
-//
-// Covers the `<sha>.jpg.v` companion marker: a locally-developed thumb is
-// stamped with THUMB_PIPELINE_VERSION and re-developed once that version
-// moves ahead of the marker, while a foreign (server/native, unmarked) thumb
-// is trusted as-is. FolderAccessService is faked with an in-memory path→bytes
-// map so no real FS Access / IndexedDB backend is exercised.
-
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach } from 'vitest';
-
-import { MapleCacheService, THUMB_PIPELINE_VERSION } from './maple-cache.service';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { MapleCacheService } from './maple-cache.service';
 import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 
 const SHA = 'abc1230000000000';
-const JPG = `.maple/thumbs/${SHA}.jpg`;
-const MARKER = `.maple/thumbs/${SHA}.jpg.v`;
-const AVIF = `.maple/thumbs/${SHA}.avif`;
-const AVIF_MARKER = `.maple/thumbs/${SHA}.avif.v`;
-
+const JPG = `.maple/thumbs/${SHA}.v${PIPELINE_OUTPUT_VERSION}.jpg`;
+const AVIF = `.maple/thumbs/${SHA}.v${PIPELINE_OUTPUT_VERSION}.avif`;
 function folder(write = true): MapleFolderHandle {
   return { name: 'lib', read: true, write };
 }
 
-describe('MapleCacheService — thumb pipeline-version guard (#1927)', () => {
+describe('MapleCacheService — versioned shared thumbnails (#3594)', () => {
   let svc: MapleCacheService;
   let files: Map<string, Uint8Array>;
+  let readFile: ReturnType<typeof vi.fn>;
+  const jpegBytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  const avifBytes = new Uint8Array([0, 0, 0, 28, 102, 116, 121, 112, 97, 118, 105, 102]);
 
   beforeEach(() => {
     files = new Map();
-    const fakeFs = {
-      async readFile(_f: MapleFolderHandle, path: string): Promise<Uint8Array> {
-        const b = files.get(path);
-        if (!b) throw new Error(`ENOENT ${path}`);
-        return b;
-      },
-      async writeFile(_f: MapleFolderHandle, path: string, data: Uint8Array): Promise<void> {
-        files.set(path, data);
-      },
-      async ensureSubdirectory(f: MapleFolderHandle, _name: string): Promise<MapleFolderHandle> {
-        return f;
-      },
-    };
+    readFile = vi.fn(async (_folder: MapleFolderHandle, path: string) => {
+      const bytes = files.get(path);
+      if (!bytes) throw new Error(`ENOENT ${path}`);
+      return bytes;
+    });
     TestBed.configureTestingModule({
-      providers: [MapleCacheService, { provide: FolderAccessService, useValue: fakeFs }],
+      providers: [
+        MapleCacheService,
+        {
+          provide: FolderAccessService,
+          useValue: {
+            readFile,
+            async writeFile(_folder: MapleFolderHandle, path: string, bytes: Uint8Array) {
+              files.set(path, bytes);
+            },
+            async ensureSubdirectory(handle: MapleFolderHandle) {
+              return handle;
+            },
+          },
+        },
+      ],
     });
     svc = TestBed.inject(MapleCacheService);
   });
 
-  const jpeg = () => new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' });
-  const avif = () =>
-    new Blob(
-      [new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66])],
-      { type: 'image/avif' },
-    );
-  const markerInt = () => Number.parseInt(new TextDecoder().decode(files.get(MARKER)!).trim(), 10);
-  const avifMarkerInt = () =>
-    Number.parseInt(new TextDecoder().decode(files.get(AVIF_MARKER)!).trim(), 10);
-
-  it('writeThumb writes the jpg AND the version companion', async () => {
-    await svc.writeThumb(folder(), SHA, jpeg());
-    expect(files.has(JPG)).toBe(true);
-    expect(files.has(MARKER)).toBe(true);
-    expect(markerInt()).toBe(THUMB_PIPELINE_VERSION);
+  it('writes the current filename without a companion marker', async () => {
+    await svc.writeThumb(folder(), SHA, new Blob([jpegBytes], { type: 'image/jpeg' }));
+    expect([...files.keys()]).toEqual([JPG]);
+    expect((await svc.readThumb(folder(), SHA))?.type).toBe('image/jpeg');
   });
 
-  it('writeThumb skips entirely on a read-only folder', async () => {
-    await svc.writeThumb(folder(false), SHA, jpeg());
-    expect(files.has(JPG)).toBe(false);
-    expect(files.has(MARKER)).toBe(false);
+  it('reads a current cross-platform AVIF with one file open', async () => {
+    files.set(AVIF, avifBytes);
+    expect((await svc.readThumb(folder(), SHA))?.type).toBe('image/avif');
+    expect(readFile).toHaveBeenCalledTimes(1);
+    expect(readFile).toHaveBeenCalledWith(folder(), AVIF);
   });
 
-  it('readThumb serves a thumb whose marker matches the current version', async () => {
-    await svc.writeThumb(folder(), SHA, jpeg());
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob).not.toBeNull();
-    expect(blob!.type).toBe('image/jpeg');
+  it.each([undefined, PIPELINE_OUTPUT_VERSION - 1, PIPELINE_OUTPUT_VERSION + 1])(
+    'rejects foreign thumbnails from pipeline %s even with a fresh legacy marker',
+    async (version) => {
+      const name = `.maple/thumbs/${SHA}${version === undefined ? '' : `.v${version}`}.avif`;
+      files.set(name, avifBytes);
+      files.set(`${name}.v`, new TextEncoder().encode(String(PIPELINE_OUTPUT_VERSION)));
+      expect(await svc.readThumb(folder(), SHA)).toBeNull();
+    },
+  );
+
+  it('prefers a current AVIF over a current JPEG fallback', async () => {
+    files.set(JPG, jpegBytes);
+    files.set(AVIF, avifBytes);
+    expect((await svc.readThumb(folder(), SHA))?.type).toBe('image/avif');
   });
 
-  it('readThumb misses a thumb whose marker is older than the current version', async () => {
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-    files.set(MARKER, new TextEncoder().encode(String(THUMB_PIPELINE_VERSION - 1)));
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob).toBeNull();
+  it('ignores mislabeled AVIF bytes and reads a genuine current JPEG', async () => {
+    files.set(AVIF, jpegBytes);
+    files.set(JPG, jpegBytes);
+    expect((await svc.readThumb(folder(), SHA))?.type).toBe('image/jpeg');
   });
 
-  it('readThumb re-decodes a thumb whose marker is present but corrupt', async () => {
-    // A partial write leaves a `.v` companion that doesn't parse. Since only
-    // locally-developed thumbs carry a marker, a corrupt one must force a
-    // re-decode rather than be trusted.
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-    files.set(MARKER, new TextEncoder().encode('not-a-number'));
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob).toBeNull();
-  });
-
-  it('readThumb trusts a foreign thumb with no version marker', async () => {
-    // Server/native write only the .jpg (embedded-preview, version-independent).
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob).not.toBeNull();
-  });
-
-  it('readThumb returns null when no cached thumb exists', async () => {
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob).toBeNull();
-  });
-
-  it("writeThumb with format 'avif' writes the avif AND its own version companion", async () => {
-    await svc.writeThumb(folder(), SHA, avif(), 'avif');
-    expect(files.has(AVIF)).toBe(true);
-    expect(files.has(AVIF_MARKER)).toBe(true);
-    expect(files.has(JPG)).toBe(false);
-    expect(avifMarkerInt()).toBe(THUMB_PIPELINE_VERSION);
-  });
-
-  it('readThumb serves a locally-written avif thumb whose marker matches the current version', async () => {
-    await svc.writeThumb(folder(), SHA, avif(), 'avif');
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob).not.toBeNull();
-    expect(blob!.type).toBe('image/avif');
-  });
-
-  it('readThumb prefers avif over a co-present legacy jpg', async () => {
-    // A library can hold both a pre-migration jpg and a freshly re-developed
-    // avif for the same sha (the jpg becomes an orphan; nothing deletes it
-    // client-side). avif must win the read.
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-    await svc.writeThumb(folder(), SHA, avif(), 'avif');
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob!.type).toBe('image/avif');
-  });
-
-  it('readThumb ignores a mislabeled avif and falls back to a real legacy jpg', async () => {
-    files.set(AVIF, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob?.type).toBe('image/jpeg');
-  });
-
-  it('readThumb re-decodes a corrupt locally-written avif instead of serving an older jpg', async () => {
-    files.set(AVIF, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-    files.set(AVIF_MARKER, new TextEncoder().encode(String(THUMB_PIPELINE_VERSION)));
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+  it('never falls back to an unversioned JPEG', async () => {
+    files.set(AVIF, jpegBytes);
+    files.set(`.maple/thumbs/${SHA}.jpg`, jpegBytes);
     expect(await svc.readThumb(folder(), SHA)).toBeNull();
   });
 
-  it('writeThumb refuses bytes that do not match the requested format', async () => {
-    await svc.writeThumb(folder(), SHA, jpeg(), 'avif');
-    expect(files.has(AVIF)).toBe(false);
-    expect(files.has(AVIF_MARKER)).toBe(false);
+  it('rejects bytes that do not match the requested output format', async () => {
+    await svc.writeThumb(folder(), SHA, new Blob([jpegBytes]), 'avif');
+    expect(files.size).toBe(0);
   });
 
-  it('readThumb falls back to a legacy jpg when no avif is cached', async () => {
-    // Foreign (server/native) thumb pre-dating the AVIF migration, or a local
-    // thumb from a browser whose canvas encode fell back to JPEG.
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-    const blob = await svc.readThumb(folder(), SHA);
-    expect(blob).not.toBeNull();
-    expect(blob!.type).toBe('image/jpeg');
-  });
-
-  it('readThumb misses a stale locally-written avif rather than falling back to an even-older jpg', async () => {
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0xff, 0xd9])); // a co-present legacy entry
-    files.set(
-      AVIF,
-      new Uint8Array([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
-    );
-    files.set(AVIF_MARKER, new TextEncoder().encode(String(THUMB_PIPELINE_VERSION - 1)));
-    const blob = await svc.readThumb(folder(), SHA);
-    // Stale avif must NOT fall through to the co-present jpg and must not be
-    // served — the caller re-decodes.
-    expect(blob).toBeNull();
+  it('does not write to a read-only folder', async () => {
+    await svc.writeThumb(folder(false), SHA, new Blob([jpegBytes]));
+    expect(files.size).toBe(0);
   });
 });
 
-describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.maple/previews/<filename>.avif)', () => {
+describe(`MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.maple/previews/<filename>.avif)`, () => {
   let svc: MapleCacheService;
   let files: Map<string, Uint8Array>;
   let modified: Map<string, number>;
@@ -228,14 +150,20 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
 
   it('writePreview lands the AVIF in the asset OWN directory (per-directory .maple, not root)', async () => {
     await svc.writePreview(folder(), '2024/France', 'IMG_1234.CR2', avif(), source);
-    expect(files.has('2024/France/.maple/previews/IMG_1234.CR2.avif')).toBe(true);
-    expect(files.has('2024/France/.maple/previews/IMG_1234.CR2.preview.json')).toBe(true);
+    expect(
+      files.has(`2024/France/.maple/previews/IMG_1234.CR2.v${PIPELINE_OUTPUT_VERSION}.avif`),
+    ).toBe(true);
+    expect(
+      files.has(
+        `2024/France/.maple/previews/IMG_1234.CR2.v${PIPELINE_OUTPUT_VERSION}.preview.json`,
+      ),
+    ).toBe(true);
     expect(ensured).toContain('2024/France/.maple/previews');
   });
 
   it('writePreview for a root-level asset keys off dir="" (root .maple/previews)', async () => {
     await svc.writePreview(folder(), '', 'top.dng', avif(), source);
-    expect(files.has('.maple/previews/top.dng.avif')).toBe(true);
+    expect(files.has(`.maple/previews/top.dng.v${PIPELINE_OUTPUT_VERSION}.avif`)).toBe(true);
     expect(ensured).toContain('.maple/previews');
   });
 
@@ -260,15 +188,15 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
     'round-trips a Hosted-private %s artifact with its actual format',
     async (_name, blob, ext, mime) => {
       await svc.writePreview(folder(), '', 'format.dng', blob, source);
-      expect(files.has(`.maple/previews/format.dng.${ext}`)).toBe(true);
+      expect(files.has(`.maple/previews/format.dng.v${PIPELINE_OUTPUT_VERSION}.${ext}`)).toBe(true);
       expect((await svc.readPreview(folder(), '', 'format.dng', source))?.type).toBe(mime);
     },
   );
 
   it('prefers a newer canonical AVIF written by Apple/API over a Hosted descriptor', async () => {
     await svc.writePreview(folder(), '', 'shared.dng', jpeg(), source);
-    const jpegPath = '.maple/previews/shared.dng.jpg';
-    const avifPath = '.maple/previews/shared.dng.avif';
+    const jpegPath = `.maple/previews/shared.dng.v${PIPELINE_OUTPUT_VERSION}.jpg`;
+    const avifPath = `.maple/previews/shared.dng.v${PIPELINE_OUTPUT_VERSION}.avif`;
     files.set(avifPath, new Uint8Array(await avif().arrayBuffer()));
     modified.set(avifPath, (modified.get(jpegPath) ?? 0) + 1);
 
@@ -279,8 +207,8 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
 
   it('keeps the described artifact when a canonical AVIF is older', async () => {
     await svc.writePreview(folder(), '', 'shared.dng', jpeg(), source);
-    const jpegPath = '.maple/previews/shared.dng.jpg';
-    const avifPath = '.maple/previews/shared.dng.avif';
+    const jpegPath = `.maple/previews/shared.dng.v${PIPELINE_OUTPUT_VERSION}.jpg`;
+    const avifPath = `.maple/previews/shared.dng.v${PIPELINE_OUTPUT_VERSION}.avif`;
     files.set(avifPath, new Uint8Array(await avif().arrayBuffer()));
     modified.set(avifPath, (modified.get(jpegPath) ?? 1) - 1);
 
@@ -289,8 +217,8 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
 
   it('keeps a valid described artifact when a newer canonical AVIF is corrupt', async () => {
     await svc.writePreview(folder(), '', 'shared.dng', webp(), source);
-    const webpPath = '.maple/previews/shared.dng.webp';
-    const avifPath = '.maple/previews/shared.dng.avif';
+    const webpPath = `.maple/previews/shared.dng.v${PIPELINE_OUTPUT_VERSION}.webp`;
+    const avifPath = `.maple/previews/shared.dng.v${PIPELINE_OUTPUT_VERSION}.avif`;
     files.set(avifPath, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
     modified.set(avifPath, (modified.get(webpPath) ?? 0) + 1);
 
@@ -301,7 +229,10 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
 
   it('fails closed when the described artifact is corrupt', async () => {
     await svc.writePreview(folder(), '', 'described-corrupt.dng', png(), source);
-    files.set('.maple/previews/described-corrupt.dng.png', new Uint8Array([0xff, 0xd8]));
+    files.set(
+      `.maple/previews/described-corrupt.dng.v${PIPELINE_OUTPUT_VERSION}.png`,
+      new Uint8Array([0xff, 0xd8]),
+    );
 
     expect(await svc.readPreview(folder(), '', 'described-corrupt.dng', source)).toBeNull();
   });
@@ -313,7 +244,10 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
   });
 
   it('readPreview refuses cached bytes that are not AVIF', async () => {
-    files.set('2024/.maple/previews/a.dng.avif', new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    files.set(
+      `2024/.maple/previews/a.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      new Uint8Array([0xff, 0xd8, 0xff, 0xd9]),
+    );
     expect(
       await svc.readPreview(folder(), '2024', 'a.dng', { size: 1, lastModified: 1 }),
     ).toBeNull();
@@ -321,13 +255,13 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
 
   it('readPreview accepts mif1 containers with an AVIF compatible brand', async () => {
     files.set(
-      '2024/.maple/previews/a.dng.avif',
+      `2024/.maple/previews/a.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
       new Uint8Array([
         0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x69, 0x66, 0x31, 0, 0, 0, 0, 0x61, 0x76, 0x69,
         0x66,
       ]),
     );
-    modified.set('2024/.maple/previews/a.dng.avif', 2);
+    modified.set(`2024/.maple/previews/a.dng.v${PIPELINE_OUTPUT_VERSION}.avif`, 2);
     expect(
       (await svc.readPreview(folder(), '2024', 'a.dng', { size: 1, lastModified: 1 }))?.type,
     ).toBe('image/avif');
@@ -347,7 +281,7 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
   });
 
   it('does not let a fresh derivative mtime bless a corrupt source marker', async () => {
-    const previewPath = '.maple/previews/corrupt.dng.avif';
+    const previewPath = `.maple/previews/corrupt.dng.v${PIPELINE_OUTPUT_VERSION}.avif`;
     files.set(
       previewPath,
       new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
@@ -361,13 +295,13 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
   });
 
   it('fails closed on a corrupt descriptor instead of falling back to legacy AVIF', async () => {
-    const previewPath = '.maple/previews/corrupt-descriptor.dng.avif';
+    const previewPath = `.maple/previews/corrupt-descriptor.dng.v${PIPELINE_OUTPUT_VERSION}.avif`;
     files.set(
       previewPath,
       new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
     );
     files.set(
-      '.maple/previews/corrupt-descriptor.dng.preview.json',
+      `.maple/previews/corrupt-descriptor.dng.v${PIPELINE_OUTPUT_VERSION}.preview.json`,
       new TextEncoder().encode('{not-json'),
     );
     modified.set(previewPath, 2_000);
@@ -382,14 +316,14 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
 
   it('rejects descriptor keys inherited from Object.prototype', async () => {
     files.set(
-      '.maple/previews/prototype.dng.preview.json',
+      `.maple/previews/prototype.dng.v${PIPELINE_OUTPUT_VERSION}.preview.json`,
       new TextEncoder().encode(JSON.stringify({ version: 1, format: 'toString', source })),
     );
     expect(await svc.readPreview(folder(), '', 'prototype.dng', source)).toBeNull();
   });
 
   it('keeps a legacy AVIF without a descriptor readable', async () => {
-    const previewPath = '.maple/previews/legacy.dng.avif';
+    const previewPath = `.maple/previews/legacy.dng.v${PIPELINE_OUTPUT_VERSION}.avif`;
     files.set(
       previewPath,
       new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]),
@@ -411,25 +345,7 @@ describe('MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
 
   it('preview cache filename includes the original extension (e.g. IMG.CR2.avif, not IMG.avif)', async () => {
     await svc.writePreview(folder(), '', 'IMG.CR2', avif(), source);
-    expect(files.has('.maple/previews/IMG.CR2.avif')).toBe(true);
-    expect(files.has('.maple/previews/IMG.avif')).toBe(false);
-  });
-});
-
-describe('THUMB_PIPELINE_VERSION is the single-sourced pipeline-output version (#1926)', () => {
-  it('tracks the codegen PIPELINE_OUTPUT_VERSION exactly', () => {
-    // The thumb marker is the develop-pipeline-output version, single-sourced
-    // in raw-core and mirrored into TypeScript by codegen. Guarding equality
-    // here is what makes "bump PIPELINE_OUTPUT_VERSION" propagate to the thumb
-    // cache key: a bump moves THUMB_PIPELINE_VERSION ahead of every existing
-    // `.jpg.v` marker, so previously-developed thumbs re-develop (the
-    // stale-marker miss covered in the suite above). If this ever drifts back
-    // to a hand-maintained local integer, this fails.
-    expect(THUMB_PIPELINE_VERSION).toBe(PIPELINE_OUTPUT_VERSION);
-  });
-
-  it('is a positive integer (unset sentinel 0 is reserved)', () => {
-    expect(Number.isInteger(PIPELINE_OUTPUT_VERSION)).toBe(true);
-    expect(PIPELINE_OUTPUT_VERSION).toBeGreaterThanOrEqual(1);
+    expect(files.has(`.maple/previews/IMG.CR2.v${PIPELINE_OUTPUT_VERSION}.avif`)).toBe(true);
+    expect(files.has(`.maple/previews/IMG.v${PIPELINE_OUTPUT_VERSION}.avif`)).toBe(false);
   });
 });

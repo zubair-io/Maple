@@ -36,6 +36,9 @@ function recipeFormatProblem(recipe: ExportRecipe): string | null {
   if (recipe.format === 'jpeg') {
     if (recipe.quality === null || recipe.quality < 1 || recipe.quality > 100)
       return 'JPEG quality must be 1–100';
+  } else if (recipe.format === 'avif' || recipe.format === 'webp') {
+    if (recipe.quality !== null && (recipe.quality < 1 || recipe.quality > 100))
+      return `${recipe.format.toUpperCase()} quality must be 1–100 or null`;
   } else if (recipe.quality !== null) return 'Lossless formats require quality: null';
   if (recipe.maxLongEdge === 0) return 'maxLongEdge must be positive or null for full resolution';
   return null;

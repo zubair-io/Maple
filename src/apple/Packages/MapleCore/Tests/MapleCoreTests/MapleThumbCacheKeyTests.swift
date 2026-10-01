@@ -1,69 +1,80 @@
 import XCTest
+
 @testable import MapleCore
 
 final class MapleThumbCacheKeyTests: XCTestCase {
-    /// Parity vector for the API's `sha256Prefix16` (see
-    /// `src/api/src/fs/xmp.ts`). Generated server-side via
-    /// `node -e "console.log(require('crypto').createHash('sha256').update('IMG_0001.ARW','utf8').digest('hex').slice(0,16))"`.
-    /// Both implementations must agree on the exact 16 hex chars for
-    /// thumbs written by either layer to be readable by the other.
-    func testSha256Prefix16MatchesKnownVector() {
-        // Verified: `python3 -c "import hashlib;
-        // print(hashlib.sha256(b'IMG_0001.ARW').hexdigest()[:16])"` =>
-        // `8fd710b39cdc1a26`.
-        XCTAssertEqual(
-            MapleThumbCacheKey.sha256Prefix16("IMG_0001.ARW"),
-            "8fd710b39cdc1a26"
-        )
-    }
+  /// Parity vector for the API's `sha256Prefix16` (see
+  /// `src/api/src/fs/xmp.ts`). Generated server-side via
+  /// `node -e "console.log(require('crypto').createHash('sha256').update('IMG_0001.ARW','utf8').digest('hex').slice(0,16))"`.
+  /// Both implementations must agree on the exact 16 hex chars for
+  /// thumbs written by either layer to be readable by the other.
+  func testSha256Prefix16MatchesKnownVector() {
+    // Verified: `python3 -c "import hashlib;
+    // print(hashlib.sha256(b'IMG_0001.ARW').hexdigest()[:16])"` =>
+    // `8fd710b39cdc1a26`.
+    XCTAssertEqual(
+      MapleThumbCacheKey.sha256Prefix16("IMG_0001.ARW"),
+      "8fd710b39cdc1a26"
+    )
+  }
 
-    func testSha256Prefix16EmptyString() {
-        // sha256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-        XCTAssertEqual(
-            MapleThumbCacheKey.sha256Prefix16(""),
-            "e3b0c44298fc1c14"
-        )
-    }
+  func testSha256Prefix16EmptyString() {
+    // sha256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    XCTAssertEqual(
+      MapleThumbCacheKey.sha256Prefix16(""),
+      "e3b0c44298fc1c14"
+    )
+  }
 
-    func testSha256Prefix16Length() {
-        // 16 hex chars = 8 bytes.
-        XCTAssertEqual(MapleThumbCacheKey.sha256Prefix16("abc").count, 16)
-        XCTAssertEqual(MapleThumbCacheKey.sha256Prefix16("a longer test string").count, 16)
-    }
+  func testSha256Prefix16Length() {
+    // 16 hex chars = 8 bytes.
+    XCTAssertEqual(MapleThumbCacheKey.sha256Prefix16("abc").count, 16)
+    XCTAssertEqual(MapleThumbCacheKey.sha256Prefix16("a longer test string").count, 16)
+  }
 
-    func testSha256Prefix16IsLowercase() {
-        let h = MapleThumbCacheKey.sha256Prefix16("MixedCase.JPG")
-        XCTAssertEqual(h, h.lowercased())
-    }
+  func testSha256Prefix16IsLowercase() {
+    let h = MapleThumbCacheKey.sha256Prefix16("MixedCase.JPG")
+    XCTAssertEqual(h, h.lowercased())
+  }
 
-    func testThumbFilenameAlwaysEndsInAvif() {
-        XCTAssertTrue(MapleThumbCacheKey.thumbFilename(forRawBasename: "IMG_0001.ARW")
-                        .hasSuffix(".avif"))
-        XCTAssertTrue(MapleThumbCacheKey.thumbFilename(forRawBasename: "photo.HEIC")
-                        .hasSuffix(".avif"))
-        XCTAssertTrue(MapleThumbCacheKey.thumbFilename(forRawBasename: "noext")
-                        .hasSuffix(".avif"))
-    }
+  func testThumbFilenameAlwaysEndsInAvif() {
+    XCTAssertTrue(
+      MapleThumbCacheKey.thumbFilename(forRawBasename: "IMG_0001.ARW")
+        .hasSuffix(".avif"))
+    XCTAssertTrue(
+      MapleThumbCacheKey.thumbFilename(forRawBasename: "photo.HEIC")
+        .hasSuffix(".avif"))
+    XCTAssertTrue(
+      MapleThumbCacheKey.thumbFilename(forRawBasename: "noext")
+        .hasSuffix(".avif"))
+  }
 
-    func testThumbFilenameDeterministic() {
-        let a = MapleThumbCacheKey.thumbFilename(forRawBasename: "IMG_0001.ARW")
-        let b = MapleThumbCacheKey.thumbFilename(forRawBasename: "IMG_0001.ARW")
-        XCTAssertEqual(a, b)
-    }
+  func testThumbFilenameDeterministic() {
+    let a = MapleThumbCacheKey.thumbFilename(forRawBasename: "IMG_0001.ARW")
+    let b = MapleThumbCacheKey.thumbFilename(forRawBasename: "IMG_0001.ARW")
+    XCTAssertEqual(a, b)
+  }
 
-    // MARK: - On-share render contract (#2690)
+  func testSharedAndHTTPVersionsComeFromTheSamePipeline() {
+    XCTAssertEqual(MaplePipelineVersion.value, AdjustmentModel.pipelineOutputVersion)
+    XCTAssertEqual(
+      MapleThumbCacheKey.thumbFilename(forRawBasename: "panorama-test.png"),
+      "88bab9b0d022c93c.v\(AdjustmentModel.pipelineOutputVersion).avif")
+  }
 
-    /// Pins these two constants against `src/api/src/thumbs/render.ts`'s
-    /// `THUMB_LONG_EDGE_PX` (512) and `THUMB_AVIF_QUALITY` (55, on the
-    /// API's 0...100 scale — 0.55 here on ImageIO's 0...1 scale). A client
-    /// that writes to the shared `.maple/thumbs/` path at any OTHER
-    /// size/quality permanently downgrades that entry for every other
-    /// reader — the API's thumbnailer never re-renders an existing entry
-    /// just because a fresher write landed at a smaller size. If this test
-    /// fails, `src/api/src/thumbs/render.ts` and this file have drifted;
-    /// update whichever one is stale, not just this test.
-    func testOnShareRenderContractMatchesTheAPI() {
-        XCTAssertEqual(MapleThumbCacheKey.onShareThumbLongEdgePx, 512)
-        XCTAssertEqual(MapleThumbCacheKey.onShareThumbAVIFQuality, 0.55)
-    }
+  // MARK: - On-share render contract (#2690)
+
+  /// Pins these two constants against `src/api/src/thumbs/render.ts`'s
+  /// `THUMB_LONG_EDGE_PX` (512) and `THUMB_AVIF_QUALITY` (55, on the
+  /// API's 0...100 scale — 0.55 here on ImageIO's 0...1 scale). A client
+  /// that writes to the shared `.maple/thumbs/` path at any OTHER
+  /// size/quality permanently downgrades that entry for every other
+  /// reader — the API's thumbnailer never re-renders an existing entry
+  /// just because a fresher write landed at a smaller size. If this test
+  /// fails, `src/api/src/thumbs/render.ts` and this file have drifted;
+  /// update whichever one is stale, not just this test.
+  func testOnShareRenderContractMatchesTheAPI() {
+    XCTAssertEqual(MapleThumbCacheKey.onShareThumbLongEdgePx, 512)
+    XCTAssertEqual(MapleThumbCacheKey.onShareThumbAVIFQuality, 0.55)
+  }
 }

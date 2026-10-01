@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../src/generated/pipeline-output-version';
 import { env, createExecutionContext, waitOnExecutionContext, fetchMock } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { SignJWT } from 'jose';
@@ -31,6 +32,61 @@ beforeAll(() => {
 afterEach(() => fetchMock.assertNoPendingInterceptors());
 
 describe('thumbnail-cache Worker', () => {
+	it('ignores legacy and older-version R2 bytes for a current request', async () => {
+		const base = 'thumbs/main/stale.jpg';
+		await env.THUMBS_BUCKET.put(base, new Uint8Array([1]));
+		await env.THUMBS_BUCKET.put(`${base}/v${PIPELINE_OUTPUT_VERSION - 1}`, new Uint8Array([2]));
+		const path = `/api/thumb/main/stale.jpg?pv=${PIPELINE_OUTPUT_VERSION}`;
+		fetchMock
+			.get(env.ORIGIN_API_BASE_URL)
+			.intercept({ path, method: 'GET' })
+			.reply(200, new Uint8Array([3]), {
+				headers: {
+					'content-type': 'image/avif',
+					'x-maple-pipeline-version': String(PIPELINE_OUTPUT_VERSION),
+				},
+			});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(
+			new IncomingRequest(`https://example.com${path}`, {
+				headers: { authorization: `Bearer ${await bearerToken()}` },
+			}),
+			env,
+			ctx,
+		);
+		expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([3]);
+		await waitOnExecutionContext(ctx);
+		const cached = await env.THUMBS_BUCKET.get(`${base}/v${PIPELINE_OUTPUT_VERSION}`);
+		expect([...new Uint8Array(await cached!.arrayBuffer())]).toEqual([3]);
+	});
+
+	it.each([undefined, String(PIPELINE_OUTPUT_VERSION - 1), String(PIPELINE_OUTPUT_VERSION + 1)])(
+		'rejects origin version %s without publishing it to R2',
+		async (version) => {
+			const filename = `wrong-${version}.jpg`;
+			const path = `/api/thumb/main/${filename}?pv=${PIPELINE_OUTPUT_VERSION}`;
+			const headers: Record<string, string> = { 'content-type': 'image/avif' };
+			if (version !== undefined) headers['x-maple-pipeline-version'] = version;
+			fetchMock
+				.get(env.ORIGIN_API_BASE_URL)
+				.intercept({ path, method: 'GET' })
+				.reply(200, new Uint8Array([9]), { headers });
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(
+				new IncomingRequest(`https://example.com${path}`, {
+					headers: { authorization: `Bearer ${await bearerToken()}` },
+				}),
+				env,
+				ctx,
+			);
+			expect(response.status).toBe(409);
+			await waitOnExecutionContext(ctx);
+			expect(
+				await env.THUMBS_BUCKET.get(`thumbs/main/${filename}/v${PIPELINE_OUTPUT_VERSION}`),
+			).toBeNull();
+		},
+	);
+
 	it('does not proxy protocol-relative paths carrying capability-shaped tokens', async () => {
 		const request = new IncomingRequest(
 			`https://example.com//evil.example/collect?token=${'T'.repeat(43)}`,
@@ -57,11 +113,15 @@ describe('thumbnail-cache Worker', () => {
 
 	it('uses bearer authentication with an opaque URL token and converts an R2 hit to JPEG', async () => {
 		const token = await bearerToken();
-		await env.THUMBS_BUCKET.put('thumbs/main/legacy.avif', decodeBase64(ONE_PIXEL_AVIF), {
-			httpMetadata: { contentType: 'image/avif' },
-		});
+		await env.THUMBS_BUCKET.put(
+			`thumbs/main/legacy.avif/v${PIPELINE_OUTPUT_VERSION}`,
+			decodeBase64(ONE_PIXEL_AVIF),
+			{
+				httpMetadata: { contentType: 'image/avif' },
+			},
+		);
 		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/legacy.avif?format=jpg&token=${'T'.repeat(43)}`,
+			`https://example.com/api/thumb/main/legacy.avif?pv=${PIPELINE_OUTPUT_VERSION}&format=jpg&token=${'T'.repeat(43)}`,
 			{ headers: { authorization: `Bearer ${token}` } },
 		);
 		const ctx = createExecutionContext();
@@ -73,25 +133,32 @@ describe('thumbnail-cache Worker', () => {
 		expect(response.headers.get('content-length')).toBeNull();
 		expect(response.headers.get('etag')).toBeNull();
 		expect([...jpeg.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
-		const cached = await env.THUMBS_BUCKET.get('thumbs/main/legacy.avif');
+		const cached = await env.THUMBS_BUCKET.get(
+			`thumbs/main/legacy.avif/v${PIPELINE_OUTPUT_VERSION}`,
+		);
 		expect(new Uint8Array(await cached!.arrayBuffer())).toEqual(decodeBase64(ONE_PIXEL_AVIF));
 	});
 
 	it('rejects a request with no Authorization header, without touching R2 or origin', async () => {
-		const request = new IncomingRequest('https://example.com/api/thumb/main/a.jpg');
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/a.jpg?pv=${PIPELINE_OUTPUT_VERSION}`,
+		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 		expect(response.status).toBe(401);
 		expect(response.headers.get('cache-control')).toBe('no-store');
 		expect(response.headers.get('www-authenticate')).toBe('Bearer');
-		expect(await env.THUMBS_BUCKET.get('thumbs/main/a.jpg')).toBeNull();
+		expect(await env.THUMBS_BUCKET.get(`thumbs/main/a.jpg/v${PIPELINE_OUTPUT_VERSION}`)).toBeNull();
 	});
 
 	it('rejects an invalid bearer token', async () => {
-		const request = new IncomingRequest('https://example.com/api/thumb/main/a.jpg', {
-			headers: { authorization: 'Bearer not-a-real-jwt' },
-		});
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/a.jpg?pv=${PIPELINE_OUTPUT_VERSION}`,
+			{
+				headers: { authorization: 'Bearer not-a-real-jwt' },
+			},
+		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -102,11 +169,17 @@ describe('thumbnail-cache Worker', () => {
 		const token = await bearerToken();
 		// No httpMetadata — exercises the FALLBACK_CONTENT_TYPE path (an object
 		// stored with no recorded content-type falls back to 'image/avif').
-		await env.THUMBS_BUCKET.put('thumbs/main/hit.jpg', new Uint8Array([1, 2, 3]));
+		await env.THUMBS_BUCKET.put(
+			`thumbs/main/hit.jpg/v${PIPELINE_OUTPUT_VERSION}`,
+			new Uint8Array([1, 2, 3]),
+		);
 
-		const request = new IncomingRequest('https://example.com/api/thumb/main/hit.jpg', {
-			headers: { authorization: `Bearer ${token}` },
-		});
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/hit.jpg?pv=${PIPELINE_OUTPUT_VERSION}`,
+			{
+				headers: { authorization: `Bearer ${token}` },
+			},
+		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -119,13 +192,20 @@ describe('thumbnail-cache Worker', () => {
 
 	it('serves an R2 hit with the content-type stored on the object, not a hard-coded guess', async () => {
 		const token = await bearerToken();
-		await env.THUMBS_BUCKET.put('thumbs/main/hit.png', new Uint8Array([1, 2, 3]), {
-			httpMetadata: { contentType: 'image/png' },
-		});
+		await env.THUMBS_BUCKET.put(
+			`thumbs/main/hit.png/v${PIPELINE_OUTPUT_VERSION}`,
+			new Uint8Array([1, 2, 3]),
+			{
+				httpMetadata: { contentType: 'image/png' },
+			},
+		);
 
-		const request = new IncomingRequest('https://example.com/api/thumb/main/hit.png', {
-			headers: { authorization: `Bearer ${token}` },
-		});
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/hit.png?pv=${PIPELINE_OUTPUT_VERSION}`,
+			{
+				headers: { authorization: `Bearer ${token}` },
+			},
+		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		// Drain the body before the test ends — vitest-pool-workers' isolated
@@ -142,12 +222,20 @@ describe('thumbnail-cache Worker', () => {
 
 		fetchMock
 			.get('https://origin.test')
-			.intercept({ path: '/api/thumb/main/miss.jpg', method: 'GET' })
-			.reply(200, bytes, { headers: { 'content-type': 'image/avif' } });
+			.intercept({ path: `/api/thumb/main/miss.jpg?pv=${PIPELINE_OUTPUT_VERSION}`, method: 'GET' })
+			.reply(200, bytes, {
+				headers: {
+					'content-type': 'image/avif',
+					'x-maple-pipeline-version': String(PIPELINE_OUTPUT_VERSION),
+				},
+			});
 
-		const request = new IncomingRequest('https://example.com/api/thumb/main/miss.jpg', {
-			headers: { authorization: `Bearer ${token}` },
-		});
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/miss.jpg?pv=${PIPELINE_OUTPUT_VERSION}`,
+			{
+				headers: { authorization: `Bearer ${token}` },
+			},
+		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		expect(response.status).toBe(200);
@@ -156,7 +244,7 @@ describe('thumbnail-cache Worker', () => {
 
 		// ctx.waitUntil'd R2 write only lands once the execution context settles.
 		await waitOnExecutionContext(ctx);
-		const cached = await env.THUMBS_BUCKET.get('thumbs/main/miss.jpg');
+		const cached = await env.THUMBS_BUCKET.get(`thumbs/main/miss.jpg/v${PIPELINE_OUTPUT_VERSION}`);
 		expect(cached).not.toBeNull();
 		expect(cached!.httpMetadata?.contentType).toBe('image/avif');
 		expect(new Uint8Array(await cached!.arrayBuffer())).toEqual(bytes);
@@ -168,15 +256,18 @@ describe('thumbnail-cache Worker', () => {
 		fetchMock
 			.get('https://origin.test')
 			.intercept({
-				path: '/api/thumb/main/revalidate.jpg',
+				path: `/api/thumb/main/revalidate.jpg?pv=${PIPELINE_OUTPUT_VERSION}`,
 				method: 'GET',
 				headers: { 'if-none-match': '"abc123"' },
 			})
 			.reply(304, '');
 
-		const request = new IncomingRequest('https://example.com/api/thumb/main/revalidate.jpg', {
-			headers: { authorization: `Bearer ${token}`, 'if-none-match': '"abc123"' },
-		});
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/revalidate.jpg?pv=${PIPELINE_OUTPUT_VERSION}`,
+			{
+				headers: { authorization: `Bearer ${token}`, 'if-none-match': '"abc123"' },
+			},
+		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -189,17 +280,25 @@ describe('thumbnail-cache Worker', () => {
 
 		fetchMock
 			.get('https://origin.test')
-			.intercept({ path: '/api/thumb/main/pending.jpg', method: 'GET' })
+			.intercept({
+				path: `/api/thumb/main/pending.jpg?pv=${PIPELINE_OUTPUT_VERSION}`,
+				method: 'GET',
+			})
 			.reply(202, '', { headers: { 'retry-after': '2' } });
 
-		const request = new IncomingRequest('https://example.com/api/thumb/main/pending.jpg', {
-			headers: { authorization: `Bearer ${token}` },
-		});
+		const request = new IncomingRequest(
+			`https://example.com/api/thumb/main/pending.jpg?pv=${PIPELINE_OUTPUT_VERSION}`,
+			{
+				headers: { authorization: `Bearer ${token}` },
+			},
+		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(202);
-		expect(await env.THUMBS_BUCKET.get('thumbs/main/pending.jpg')).toBeNull();
+		expect(
+			await env.THUMBS_BUCKET.get(`thumbs/main/pending.jpg/v${PIPELINE_OUTPUT_VERSION}`),
+		).toBeNull();
 	});
 });

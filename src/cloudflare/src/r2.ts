@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from './generated/pipeline-output-version';
 /**
  * R2 object key derivation + binding helpers.
  *
@@ -48,5 +49,5 @@ export function parseThumbPath(pathname: string): ThumbAddress | null {
  * construction to `thumbR2Key` in `src/api/src/cloudflare/thumb-key.ts`. */
 export function thumbR2Key({ slug, relDir, filename }: ThumbAddress): string {
 	const segments = [slug, ...relDir.split('/').filter(Boolean), filename];
-	return `thumbs/${segments.map(encodeURIComponent).join('/')}`;
+	return `thumbs/${segments.map(encodeURIComponent).join('/')}/v${PIPELINE_OUTPUT_VERSION}`;
 }

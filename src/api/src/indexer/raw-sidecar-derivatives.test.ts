@@ -17,7 +17,8 @@ import { fileURLToPath } from 'node:url';
 import { maple } from 'maple';
 import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { resolveThumbPath, xmpSidecarPath } from '../fs/xmp.ts';
+import { cachePathFor, resolveThumbPath, xmpSidecarPath } from '../fs/xmp.ts';
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 import { fsThumbsRoutes } from '../routes/fs-thumbs.ts';
 import { generatePreview } from './previewer.ts';
 import { generateThumb } from './thumbnailer.ts';
@@ -95,6 +96,52 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
     { name: 'thumbnail', maxPx: 512, quality: 55, generate: generateThumb },
     { name: 'preview', maxPx: 1280, quality: 70, generate: generatePreview },
   ]) {
+    it.skipIf(!nativeAvailable)(
+      `${tier.name}: ignores foreign cache versions and regenerates the authored film`,
+      async () => {
+        const xml = withFilmLook('color_negative_kodak_portra_400');
+        await writeFile(xmpSidecarPath(rawPath), xml);
+        const original = await readFile(rawPath);
+        const expected = await filmExpectedPixels(tier.maxPx, tier.quality, xml);
+        const output =
+          tier.name === 'thumbnail'
+            ? resolveThumbPath(rawPath)
+            : cachePathFor(rawPath, 'previews', 'avif');
+        await mkdir(dirname(output), { recursive: true });
+        const cameraJpeg = join(directory, 'foreign.jpg');
+        const cameraAvif = join(directory, 'foreign.avif');
+        expect(
+          await ffiPool().renderDevelopJpegToFile(rawPath, null, cameraJpeg, tier.maxPx, 90),
+        ).toBe(true);
+        expect(
+          await ffiPool().renderBitmapThumbToFile(
+            cameraJpeg,
+            cameraAvif,
+            tier.maxPx,
+            tier.quality,
+            'jpg',
+          ),
+        ).toEqual({ ok: true });
+        const foreign = await readFile(cameraAvif);
+        const paths = [0, PIPELINE_OUTPUT_VERSION - 1, PIPELINE_OUTPUT_VERSION + 1].map((version) =>
+          output.replace(
+            `.v${PIPELINE_OUTPUT_VERSION}.avif`,
+            `${version === 0 ? '' : `.v${version}`}.avif`,
+          ),
+        );
+        for (const path of paths) await writeFile(path, foreign);
+        await tier.generate(rawPath);
+        expect((await maple(output).toRaw()).data).toEqual(expected);
+        const first = await stat(output);
+        await tier.generate(rawPath);
+        expect((await stat(output)).mtimeMs).toBe(first.mtimeMs);
+        for (const path of paths) expect(await readFile(path)).toEqual(foreign);
+        expect(await readFile(rawPath)).toEqual(original);
+        expect(await readFile(xmpSidecarPath(rawPath), 'utf8')).toBe(xml);
+      },
+      30000,
+    );
+
     it.skipIf(!nativeAvailable)(
       `${tier.name}: cold film regeneration matches the actual LUT render`,
       async () => {

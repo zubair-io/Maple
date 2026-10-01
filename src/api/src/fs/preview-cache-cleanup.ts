@@ -17,6 +17,7 @@ import * as path from 'node:path';
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 
 /**
  * Every previews-cache suffix currently in real use, spelled out exactly.
@@ -57,11 +58,22 @@ const KNOWN_EXACT_SUFFIXES: readonly string[] = [
  * ambiguity.
  */
 export function sourceFilenameForPreviewCacheName(cacheName: string): string | null {
+  const versioned =
+    /^(.*)\.v[1-9][0-9]*\.(?:avif|jpg|webp|png)(?:\.source\.json)?$/.exec(cacheName) ??
+    /^(.*)\.v[1-9][0-9]*\.preview\.json$/.exec(cacheName);
+  if (versioned) return versioned[1];
   for (const suffix of KNOWN_EXACT_SUFFIXES) {
     const withDot = `.${suffix}`;
     if (cacheName.endsWith(withDot)) return cacheName.slice(0, -withDot.length);
   }
   return null;
+}
+
+export function isCurrentOrNewerPreviewCacheName(cacheName: string): boolean {
+  if (cacheName.endsWith('.histogram.json')) return true;
+  const version =
+    /\.v([1-9][0-9]*)\.(?:(?:avif|jpg|webp|png)(?:\.source\.json)?|preview\.json)$/.exec(cacheName);
+  return version !== null && Number(version[1]) >= PIPELINE_OUTPUT_VERSION;
 }
 
 /** The two `fs.Dirent` properties this file actually reads — declared

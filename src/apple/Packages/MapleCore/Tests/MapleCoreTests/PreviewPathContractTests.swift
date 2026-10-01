@@ -20,52 +20,55 @@ import XCTest
 @testable import MapleCore
 
 private struct PreviewPathContract: Decodable {
-    struct Case: Decodable {
-        let id: String
-        let relDir: String
-        let filename: String
-        let relPath: String
-    }
-    let version: Int
-    let cases: [Case]
+  struct Case: Decodable {
+    let id: String
+    let relDir: String
+    let filename: String
+    let relPath: String
+  }
+  let version: Int
+  let cases: [Case]
 }
 
 final class PreviewPathContractTests: XCTestCase {
-    private func loadContract() throws -> PreviewPathContract {
-        let url = try XCTUnwrap(
-            Bundle.module.url(forResource: "preview-path-contract", withExtension: "json")
-        )
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(PreviewPathContract.self, from: data)
+  private func loadContract() throws -> PreviewPathContract {
+    let url = try XCTUnwrap(
+      Bundle.module.url(forResource: "preview-path-contract", withExtension: "json")
+    )
+    let data = try Data(contentsOf: url)
+    return try JSONDecoder().decode(PreviewPathContract.self, from: data)
+  }
+
+  func testFixtureLoadsAndIsNonEmpty() throws {
+    let contract = try loadContract()
+    XCTAssertGreaterThan(contract.cases.count, 0)
+  }
+
+  func testPreviewURLAgreesWithTheSharedGoldenForEveryCase() throws {
+    let contract = try loadContract()
+    // An arbitrary library root — the fixture's `relPath` is relative to
+    // it, mirroring how the server test resolves against `LIBRARY_ROOT`
+    // and the web test resolves against the folder handle's own root.
+    let libraryRoot = URL(fileURLWithPath: "/lib/photos")
+
+    for c in contract.cases {
+      let segments = c.relDir.isEmpty ? [] : c.relDir.split(separator: "/").map(String.init)
+      var assetURL = libraryRoot
+      for segment in segments {
+        assetURL = assetURL.appendingPathComponent(segment)
+      }
+      assetURL = assetURL.appendingPathComponent(c.filename)
+
+      let resolved = MapleSidecarPaths.previewURL(for: assetURL)
+      let expected = libraryRoot.appendingPathComponent(
+        c.relPath.replacingOccurrences(
+          of: "{pipelineOutputVersion}", with: String(AdjustmentModel.pipelineOutputVersion))
+      ).path
+
+      XCTAssertEqual(
+        resolved.path, expected,
+        "case \(c.id): expected \(expected), got \(resolved.path)"
+      )
     }
-
-    func testFixtureLoadsAndIsNonEmpty() throws {
-        let contract = try loadContract()
-        XCTAssertGreaterThan(contract.cases.count, 0)
-    }
-
-    func testPreviewURLAgreesWithTheSharedGoldenForEveryCase() throws {
-        let contract = try loadContract()
-        // An arbitrary library root — the fixture's `relPath` is relative to
-        // it, mirroring how the server test resolves against `LIBRARY_ROOT`
-        // and the web test resolves against the folder handle's own root.
-        let libraryRoot = URL(fileURLWithPath: "/lib/photos")
-
-        for c in contract.cases {
-            let segments = c.relDir.isEmpty ? [] : c.relDir.split(separator: "/").map(String.init)
-            var assetURL = libraryRoot
-            for segment in segments {
-                assetURL = assetURL.appendingPathComponent(segment)
-            }
-            assetURL = assetURL.appendingPathComponent(c.filename)
-
-            let resolved = MapleSidecarPaths.previewURL(for: assetURL)
-            let expected = libraryRoot.appendingPathComponent(c.relPath).path
-
-            XCTAssertEqual(
-                resolved.path, expected,
-                "case \(c.id): expected \(expected), got \(resolved.path)"
-            )
-        }
-    }
+  }
 }

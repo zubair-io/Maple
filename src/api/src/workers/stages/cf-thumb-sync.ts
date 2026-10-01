@@ -39,6 +39,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { THUMB_TARGET_VERSION } from '../derivative-versions.ts';
 import { assetPrimaryFileInfo, isEnoentError } from '../../indexer/images.repo.ts';
 import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
@@ -62,7 +63,7 @@ const CF_UPLOAD_TIMEOUT_MS = 5_000;
 const cfThumbSyncStage = defineStage({
   name: 'cf-thumb-sync',
   targetVersion: 1,
-  dependsOn: [{ name: 'thumb', minVersion: 2 }],
+  dependsOn: [{ name: 'thumb', minVersion: THUMB_TARGET_VERSION }],
   defaults: {
     concurrency: 2,
     maxAttempts: 5,

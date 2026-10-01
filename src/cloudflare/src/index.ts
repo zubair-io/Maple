@@ -19,6 +19,7 @@
 import { verifyBearer } from './auth';
 import { maybeConvertAvifToJpeg } from './image-format';
 import { parseThumbPath, thumbR2Key } from './r2';
+import { PIPELINE_OUTPUT_VERSION } from './generated/pipeline-output-version';
 
 const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 const FALLBACK_CONTENT_TYPE = 'image/avif';
@@ -51,7 +52,7 @@ export default {
 		if (!authorized) return unauthorized();
 
 		const address = parseThumbPath(url.pathname);
-		if (!address) {
+		if (!address || url.searchParams.get('pv') !== String(PIPELINE_OUTPUT_VERSION)) {
 			// Shouldn't happen given the route scoping in wrangler.jsonc, but
 			// fail safe: forward explicitly to the origin's own host rather than
 			// re-fetching `request` as-is — refetching the incoming request would
@@ -132,6 +133,16 @@ async function fetchFromOriginAndCache(
 		headers: forwardHeaders,
 	});
 
+	if (
+		originResponse.status === 200 &&
+		originResponse.headers.get('x-maple-pipeline-version') !== String(PIPELINE_OUTPUT_VERSION)
+	) {
+		await originResponse.body?.cancel();
+		return new Response(
+			JSON.stringify({ error: 'Origin pipeline version does not match this cache' }),
+			{ status: 409, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } },
+		);
+	}
 	if (originResponse.status !== 200 || !originResponse.body) {
 		return originResponse;
 	}

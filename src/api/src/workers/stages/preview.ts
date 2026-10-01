@@ -19,6 +19,7 @@
  * stages need it.
  */
 import { generatePreview, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
+import { PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
@@ -36,7 +37,7 @@ const previewStage = defineStage({
   // reclaimed by the missing-reaper/dedupe cache-removal hook or cache-gc's
   // backstop sweep. (v3 was the earlier path-keyed + AVIF migration off the
   // `<maple_id>_1280.jpg` scheme.)
-  targetVersion: 4,
+  targetVersion: PREVIEW_TARGET_VERSION,
   dependsOn: ['thumb'],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.

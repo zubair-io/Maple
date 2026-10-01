@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // HttpLibrarySource — LibrarySource impl for Self-Hosted.
 //
 // Routes all calls through the M1 API:
@@ -68,7 +69,7 @@ export class HttpLibrarySource implements LibrarySource {
 
   async thumbBlob(a: MapleAddress): Promise<Blob | null> {
     const res = await firstValueFrom(
-      this.http.get(`${this.base}/thumb/${toApiPath(a)}`, {
+      this.http.get(`${this.base}/thumb/${toApiPath(a)}?pv=${PIPELINE_OUTPUT_VERSION}`, {
         responseType: 'blob',
         observe: 'response',
       }),
@@ -81,7 +82,7 @@ export class HttpLibrarySource implements LibrarySource {
 
   async previewBlob(a: MapleAddress): Promise<Blob | null> {
     const res = await firstValueFrom(
-      this.http.get(`${this.base}/preview/${toApiPath(a)}`, {
+      this.http.get(`${this.base}/preview/${toApiPath(a)}?pv=${PIPELINE_OUTPUT_VERSION}`, {
         responseType: 'blob',
         observe: 'response',
       }),

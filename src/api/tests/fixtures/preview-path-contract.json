@@ -1,42 +1,42 @@
 {
   "version": 1,
-  "description": "Golden cases for the KISS preview cache path contract (#2017/#1997): given an asset's directory (relative to its library root) and filename (including extension), every producer/consumer — server (fs/xmp.ts:cachePathForAsset/cachePathFor), web (maple-cache.service.ts:previewCachePath), and Apple (MapleSidecarPaths.previewURL) — must resolve the SAME `<relDir>/.maple/previews/<filename>.avif` path relative to the library root / asset's own folder. `relPath` is that path relative to the library root (POSIX separators). One physical copy of this file is duplicated per platform's test/resource tooling (same convention as auth-contract.json) — see src/api/tests/fixtures/, src/web/projects/maple-common/src/lib/state/, and src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/.",
+  "description": "Shared preview path vectors (#3594). Replace {pipelineOutputVersion} with the canonical generated version before comparing API, Web and Apple paths.",
   "cases": [
     {
       "id": "root_level",
       "relDir": "",
       "filename": "top.dng",
-      "relPath": ".maple/previews/top.dng.avif"
+      "relPath": ".maple/previews/top.dng.v{pipelineOutputVersion}.avif"
     },
     {
       "id": "nested_single_level",
       "relDir": "2024",
       "filename": "IMG_0001.CR2",
-      "relPath": "2024/.maple/previews/IMG_0001.CR2.avif"
+      "relPath": "2024/.maple/previews/IMG_0001.CR2.v{pipelineOutputVersion}.avif"
     },
     {
       "id": "nested_multi_level",
       "relDir": "2024/France/Paris",
       "filename": "DSC_0099.NEF",
-      "relPath": "2024/France/Paris/.maple/previews/DSC_0099.NEF.avif"
+      "relPath": "2024/France/Paris/.maple/previews/DSC_0099.NEF.v{pipelineOutputVersion}.avif"
     },
     {
       "id": "filename_with_multiple_dots",
       "relDir": "Edits",
       "filename": "IMG.v2.final.ARW",
-      "relPath": "Edits/.maple/previews/IMG.v2.final.ARW.avif"
+      "relPath": "Edits/.maple/previews/IMG.v2.final.ARW.v{pipelineOutputVersion}.avif"
     },
     {
       "id": "dir_and_filename_with_spaces",
       "relDir": "My Trip 2025",
       "filename": "DSC 001.jpg",
-      "relPath": "My Trip 2025/.maple/previews/DSC 001.jpg.avif"
+      "relPath": "My Trip 2025/.maple/previews/DSC 001.jpg.v{pipelineOutputVersion}.avif"
     },
     {
       "id": "uppercase_extension_preserved",
       "relDir": "Scans",
       "filename": "IMG_2001.JPG",
-      "relPath": "Scans/.maple/previews/IMG_2001.JPG.avif"
+      "relPath": "Scans/.maple/previews/IMG_2001.JPG.v{pipelineOutputVersion}.avif"
     }
   ]
 }

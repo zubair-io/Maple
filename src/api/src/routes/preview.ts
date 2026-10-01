@@ -1,3 +1,4 @@
+import { incompatiblePipelineVersion } from '../runtime/http-pipeline-version.ts';
 /**
  * Path-keyed preview upload — the write half of the KISS preview cache (#2017).
  *
@@ -214,6 +215,11 @@ export const previewPathRoutes = new Elysia().put(
       return { error: r.error };
     }
 
+    const versionError = incompatiblePipelineVersion(
+      headers['x-maple-pipeline-version'] ?? '',
+      set,
+    );
+    if (versionError) return versionError;
     const bytes = coercePreviewBody(body);
     if (bytes.byteLength === 0) {
       set.status = 400;

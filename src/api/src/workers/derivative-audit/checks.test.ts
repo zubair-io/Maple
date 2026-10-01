@@ -1,3 +1,5 @@
+import { cachePathFor } from '../../fs/xmp.ts';
+import { THUMB_TARGET_VERSION, PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
 // Route fs through the mirror-aware wrapper per the fs-import guardrail (these
 // are temp-path reads/writes; mirroring is a no-op outside a library root).
@@ -43,8 +45,20 @@ function makeAsset(over: Partial<ImageDoc> = {}): ImageDoc {
     color_label: '',
     indexed_at: '',
     stages: {
-      thumb: { version: 3, attempts: 0, last_error: null, processed_at: null, dead: false },
-      preview: { version: 4, attempts: 0, last_error: null, processed_at: null, dead: false },
+      thumb: {
+        version: THUMB_TARGET_VERSION,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
+      preview: {
+        version: PREVIEW_TARGET_VERSION,
+        attempts: 0,
+        last_error: null,
+        processed_at: null,
+        dead: false,
+      },
       describe: { version: 7, attempts: 0, last_error: null, processed_at: null, dead: false },
       'cf-thumb-sync': {
         version: 1,
@@ -79,7 +93,7 @@ async function writeThumb(bytes = 'thumb') {
 }
 async function writePreview() {
   await mkdir(path.join(root, 'a/b/.maple/previews'), { recursive: true });
-  await writeFile(path.join(root, 'a/b/.maple/previews/p.dng.avif'), 'prev');
+  await writeFile(cachePathFor(path.join(root, 'a/b/p.dng'), 'previews', 'avif'), 'prev');
 }
 
 describe('evaluateAsset', () => {

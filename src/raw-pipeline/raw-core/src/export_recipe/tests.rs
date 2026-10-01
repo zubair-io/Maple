@@ -2,6 +2,37 @@
 mod tests {
     use super::super::*;
     #[test]
+    fn lossy_recipes_preserve_requested_quality_including_shared_avif_thumbs() {
+        for format in ["jpeg", "avif", "webp"] {
+            let recipe = ExportRecipe {
+                format: format.into(),
+                quality: Some(55),
+                ..Default::default()
+            };
+            assert_eq!(recipe.options().unwrap().quality, 55);
+            if format != "jpeg" {
+                assert_eq!(
+                    ExportRecipe {
+                        quality: None,
+                        ..recipe.clone()
+                    }
+                    .options()
+                    .unwrap()
+                    .quality,
+                    92
+                );
+            }
+            for quality in [Some(0), Some(101)] {
+                assert!(ExportRecipe {
+                    quality,
+                    ..recipe.clone()
+                }
+                .validate()
+                .is_err());
+            }
+        }
+    }
+    #[test]
     fn recipe_round_trip_preserves_every_declared_field_and_rejects_unknowns() {
         let original = ExportRecipe::default();
         let json = serde_json::to_string(&original).unwrap();

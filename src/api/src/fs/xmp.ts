@@ -14,12 +14,12 @@ import { deleteSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sid
 // Conflict-copy sidecars (`<base> (conflict from <device>).xmp`) live in their
 // own module; the precondition write below is their only producer here.
 import { pickFreeConflictPath } from './xmp-conflict.ts';
-import { createHash, randomBytes } from 'node:crypto';
-import { safeWriteAllowed } from './root.ts';
+import { createHash } from 'node:crypto';
 import type { OpResult } from './root.ts';
 import type { AssetDoc } from '../db/schema.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 
 /**
  * First 16 hex chars of sha256(text) — the cache-key stem used for
@@ -76,16 +76,6 @@ export async function writeXmpAtomic(rawAbsPath: string, xmlContent: string): Pr
 }
 
 /**
- * Ensure a .maple/ directory exists under the folder containing rawAbsPath.
- * Returns the .maple/ path.
- */
-export async function ensureMapleDir(folderAbsPath: string): Promise<string> {
-  const dir = path.join(folderAbsPath, '.maple');
-  await fs.mkdir(dir, { recursive: true });
-  return dir;
-}
-
-/**
  * Resolve the thumbnail cache path for a given RAW file.
  *
  * Convention (aligned with the desktop apps + web Hosted variant):
@@ -103,7 +93,7 @@ export function resolveThumbPath(rawAbsPath: string): string {
   const folder = path.dirname(rawAbsPath);
   const basename = path.basename(rawAbsPath);
   const key = sha256Prefix16(basename);
-  return path.join(folder, '.maple', 'thumbs', `${key}.avif`);
+  return path.join(folder, '.maple', 'thumbs', `${key}.v${PIPELINE_OUTPUT_VERSION}.avif`);
 }
 
 /** Trailing args of the `cachePathFor*` resolvers — which derived artefact
@@ -111,6 +101,12 @@ export function resolveThumbPath(rawAbsPath: string): string {
  * previews only, its `suffix`. One tuple rather than a `kind` + optional
  * `suffix` pair so the requirement is expressed in a single signature. */
 type CacheKindArgs = ['thumbs'] | ['previews', string];
+
+function previewCacheFilename(filename: string, suffix: string): string {
+  return suffix === 'avif'
+    ? `${filename}.v${PIPELINE_OUTPUT_VERSION}.avif`
+    : `${filename}.${suffix}`;
+}
 
 /**
  * Resolve the on-disk cache path for an asset's derived artefact.
@@ -121,15 +117,9 @@ type CacheKindArgs = ['thumbs'] | ['previews', string];
  *   thumbs:   <folder>/.maple/thumbs/<sha256_prefix16(basename)>.avif
  *   previews: <folder>/.maple/previews/<basename>.<suffix>
  *
- * The canonical preview is a single, unversioned `<basename>.avif` overwritten
- * in place (#2017), NOT size- or version-keyed; `suffix` only distinguishes
- * co-located artefacts of a different kind (the `histogram.json` sidecar). It
- * MUST use this `<basename-with-its-own-extension>.<suffix>` form (not
- * `<basename-no-ext>_<suffix>`): `cleanPreviewsCacheForLocation` and
- * `cache-gc.ts`'s previews sweep both match a live filename as a literal
- * `.`-terminated prefix, so a legacy (unindexed-fallback) preview generated
- * here needs the identical prefix an indexed one would have, or it is invisible
- * to both cleanup paths and leaks on disk forever (jules review, PR #2006).
+ * Canonical AVIF previews include the generated pipeline-output version.
+ * Co-located non-render artefacts such as histogram JSON keep their own suffix.
+ * Version-aware cleanup recovers the exact original filename from each entry.
  *
  * `suffix` is REQUIRED for `previews` (#2220): the old `'full.jpg'` default was
  * a tier nothing writes any more, reachable only by mistake and silently.
@@ -142,7 +132,7 @@ export function cachePathFor(assetAbsPath: string, ...[kind, suffix]: CacheKindA
   }
   const folder = path.dirname(assetAbsPath);
   const filename = path.basename(assetAbsPath);
-  return path.join(folder, '.maple', 'previews', `${filename}.${suffix}`);
+  return path.join(folder, '.maple', 'previews', previewCacheFilename(filename, suffix));
 }
 
 /**
@@ -224,49 +214,15 @@ export function cachePathForAsset(
   }
   const loc = resolvePrimaryLocation(asset, libraries);
   if (!loc) return null;
-  return path.join(loc.root, ...loc.segments, '.maple', 'previews', `${loc.filename}.${suffix}`);
+  return path.join(
+    loc.root,
+    ...loc.segments,
+    '.maple',
+    'previews',
+    previewCacheFilename(loc.filename, suffix),
+  );
 }
 
-/**
- * Write a thumbnail buffer to the .maple/ cache (atomic).
- * Creates the directory if needed.
- */
-export async function writeThumb(
-  rawAbsPath: string,
-  avifBytes: Buffer | Uint8Array,
-): Promise<OpResult> {
-  const thumbPath = resolveThumbPath(rawAbsPath);
-  const thumbDir = path.dirname(thumbPath);
-
-  const allowed = await safeWriteAllowed(thumbPath);
-  if (!allowed.ok) return { ok: false, error: allowed.error };
-
-  try {
-    await fs.mkdir(thumbDir, { recursive: true });
-    const tmp = `${thumbPath}.tmp.${process.pid}.${randomBytes(8).toString('hex')}`;
-    const fh = await fs.open(tmp, 'w');
-    try {
-      await fh.writeFile(avifBytes);
-      await fh.datasync();
-    } finally {
-      await fh.close();
-    }
-    await fs.rename(tmp, thumbPath);
-    return { ok: true };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `Thumb write failed: ${msg}` };
-  }
-}
-
-/**
- * Result of an XMP write that may produce a conflict copy.
- * - `ok`: normal atomic write succeeded; `mtime` is the new file's mtime.
- * - `conflict`: mtime precondition failed; the incoming bytes were written
- *   to a conflict-copy file alongside the original. The original is
- *   untouched.
- * - `error`: any other failure (path jail, disk full, etc.).
- */
 export type XmpWriteOutcome =
   | { kind: 'ok'; mtime: Date }
   | { kind: 'conflict'; conflictPath: string; conflictMtime: Date }

@@ -8,37 +8,17 @@ using Maple.WinUI.Native;
 
 namespace Maple.WinUI.Services
 {
-    /// <summary>
-    /// Disk-cached embedded-preview thumbnails, extracted by the Rust core
-    /// (EXIF orientation is baked into the pixels). Two tiers (#3083):
-    ///
-    /// The 512px grid tier writes the CROSS-APP shared cache —
-    /// `&lt;folder&gt;\.maple\thumbs\&lt;sha256_prefix16(basename)&gt;.avif`
-    /// (see <see cref="ThumbCachePaths"/>) — so thumbnails travel with the
-    /// photos and interchange with the Apple app, the Self Hosted
-    /// API/indexer, and the web client. An existing entry is served as-is
-    /// with no staleness check: originals are immutable (root CLAUDE.md
-    /// principle 1 — edits go to XMP sidecars), so a thumb, once written,
-    /// never needs invalidating by a source change; the same rule the API's
-    /// `routes/fs-thumbs.ts` documents. When the photo folder is unwritable
-    /// (read-only media, a share without write permission), the tier falls
-    /// back to the machine-local cache below so thumbnails still work.
-    ///
-    /// The 2560px full-screen embedded-preview tier (the Preview screen's
-    /// instant image, before/without a scene-linear decode) has no cross-app
-    /// contract — no other client renders it — so it stays machine-local
-    /// under `%LOCALAPPDATA%\Maple\local-cache`, keyed on
-    /// `path|mtime|size|maxPx` so edits to the source invalidate naturally.
-    /// Local entries older than 30 days are swept on construction (the same
-    /// bound Apple's ThumbnailDiskCache uses), and the pre-#3083
-    /// `%LOCALAPPDATA%\Maple\thumbs` directory — the private cache this
-    /// class used for both tiers — is deleted once, best-effort (regenerable
-    /// derived data; nothing references it any more).
-    /// </summary>
+    /// <summary>Versioned derivatives, shared at the 512px AVIF grid tier
+    /// and machine-local at the 2560px JPEG preview tier. Cold writes develop
+    /// a present XMP through the Rust recipe renderer, including its film LUT;
+    /// absent sidecars use the camera preview. Current shared files are reused
+    /// only while newer than the original and sidecar. Read-only libraries
+    /// fall back to the local cache, keyed by both mtimes and pipeline version.
+    /// Local entries older than 30 days are swept on construction.</summary>
     public sealed class ThumbnailService
     {
         public const int ThumbnailMaxPx = 512;
-        /// <summary>Full-screen embedded-JPEG preview tier — what the Preview
+        /// <summary>Full-screen JPEG preview tier — what the Preview
         /// screen displays instantly, before/without a scene-linear decode.</summary>
         public const int PreviewMaxPx = 2560;
         private const int LocalSweepDays = 30;
@@ -57,20 +37,20 @@ namespace Maple.WinUI.Services
         }
 
         /// <summary>Machine-local cache path for one tier of one file —
-        /// mtime/size in the key make source edits invalidate naturally
+        /// original/sidecar mtimes and pipeline version invalidate naturally
         /// (the old entry becomes an orphan for the age sweep).</summary>
         private string LocalCachePathFor(string rawPath, int maxPx, string ext)
         {
             var info = new FileInfo(rawPath);
-            var key = $"{rawPath.ToLowerInvariant()}|{info.LastWriteTimeUtc.Ticks}|{info.Length}|{maxPx}";
+            var sidecarAt = File.GetLastWriteTimeUtc(Xmp.SidecarStore.SidecarPathFor(rawPath)).Ticks;
+            var key = $"{rawPath.ToLowerInvariant()}|{info.LastWriteTimeUtc.Ticks}|{info.Length}|{sidecarAt}|{maxPx}|v{Generated.CapabilityRegistry.PipelineOutputVersion}";
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..32];
             return Path.Combine(_localCacheDir, $"{hash}.{ext}");
         }
 
         /// <summary>Returns the cached thumbnail/preview for the given file
-        /// at the given size, extracting the embedded preview on first use
-        /// (EXIF orientation baked in by the Rust core). Null when the
-        /// source has no embedded preview or extraction fails.</summary>
+        /// at the given size, developing a sidecar or extracting the camera
+        /// preview on first use. Null when the native render fails.</summary>
         public async Task<string?> GetOrCreateAsync(
             string rawPath, CancellationToken ct, int maxPx = ThumbnailMaxPx)
         {
@@ -84,7 +64,7 @@ namespace Maple.WinUI.Services
         private async Task<string?> GetOrCreateSharedThumbAsync(string rawPath, CancellationToken ct)
         {
             var sharedPath = ThumbCachePaths.SharedThumbPathFor(rawPath);
-            if (File.Exists(sharedPath))
+            if (ThumbnailRenderer.IsFresh(sharedPath, rawPath))
                 return sharedPath;
             // A prior fallback render (read-only folder/share) is a cache
             // hit too. Without this check, every grid pass over a read-only
@@ -99,7 +79,7 @@ namespace Maple.WinUI.Services
             await Gate.WaitAsync(ct);
             try
             {
-                if (File.Exists(sharedPath))
+                if (ThumbnailRenderer.IsFresh(sharedPath, rawPath))
                     return sharedPath;
                 if (File.Exists(fallbackPath))
                     return fallbackPath;
@@ -123,11 +103,9 @@ namespace Maple.WinUI.Services
                 return RenderLocalFallbackThumb(rawPath);
             }
 
-            // quality 0 = the FFI default (AVIF 55) — the exact on-share
-            // write contract every other client renders at (#2690; see
-            // ThumbCachePaths' header).
-            var rc = RawFfi.maple_render_thumbnail_avif_to_file(
-                rawPath, sharedPath, ThumbnailMaxPx, 0);
+            // The shared write contract is 512px long edge, AVIF quality 55.
+            // A present XMP is developed before encoding; no camera fallback.
+            var rc = ThumbnailRenderer.Render(rawPath, sharedPath, ThumbnailMaxPx, avif: true);
             if (rc == 0)
                 return sharedPath;
             // rc 12 (tmp write) / 13 (rename) are write-side failures — the
@@ -144,8 +122,7 @@ namespace Maple.WinUI.Services
             var localPath = LocalCachePathFor(rawPath, ThumbnailMaxPx, "avif");
             if (File.Exists(localPath))
                 return localPath;
-            var rc = RawFfi.maple_render_thumbnail_avif_to_file(
-                rawPath, localPath, ThumbnailMaxPx, 0);
+            var rc = ThumbnailRenderer.Render(rawPath, localPath, ThumbnailMaxPx, avif: true);
             if (rc != 0)
             {
                 System.Diagnostics.Debug.WriteLine(
@@ -155,7 +132,7 @@ namespace Maple.WinUI.Services
             return localPath;
         }
 
-        // --- 2560px embedded-preview tier: machine-local, JPEG ---
+        // --- 2560px preview tier: machine-local, JPEG ---
 
         private async Task<string?> GetOrCreateLocalAsync(string rawPath, int maxPx, CancellationToken ct)
         {
@@ -170,8 +147,7 @@ namespace Maple.WinUI.Services
                     return cachePath;
                 return await Task.Run(() =>
                 {
-                    var rc = RawFfi.maple_render_thumbnail_preview_jpeg_to_file(
-                        rawPath, cachePath, (uint)maxPx, 0);
+                    var rc = ThumbnailRenderer.Render(rawPath, cachePath, maxPx, avif: false);
                     if (rc != 0)
                     {
                         System.Diagnostics.Debug.WriteLine(

@@ -7,6 +7,7 @@ namespace Maple.WinUI.Generated;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ExportRecipe
 {
+    public const uint CurrentSchemaVersion = 1;
     [JsonPropertyName("schemaVersion")]
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public required uint SchemaVersion { get; init; }

@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../src/generated/adjustment-fields.generated.ts';
 /**
  * Cross-platform preview path-derivation contract (#1997, epic #1993 stage 5).
  *
@@ -54,7 +55,12 @@ describe('preview path contract — server resolvers agree with the shared golde
 
       const resolved = cachePathForAsset(asset as never, libs, 'previews', PREVIEW_CACHE_SUFFIX);
 
-      expect(resolved).toBe(path.join(LIBRARY_ROOT, ...relPath.split('/')));
+      expect(resolved).toBe(
+        path.join(
+          LIBRARY_ROOT,
+          ...relPath.replace('{pipelineOutputVersion}', String(PIPELINE_OUTPUT_VERSION)).split('/'),
+        ),
+      );
     },
   );
 
@@ -70,7 +76,12 @@ describe('preview path contract — server resolvers agree with the shared golde
 
       const resolved = cachePathFor(absPath, 'previews', PREVIEW_CACHE_SUFFIX);
 
-      expect(resolved).toBe(path.join(LIBRARY_ROOT, ...relPath.split('/')));
+      expect(resolved).toBe(
+        path.join(
+          LIBRARY_ROOT,
+          ...relPath.replace('{pipelineOutputVersion}', String(PIPELINE_OUTPUT_VERSION)).split('/'),
+        ),
+      );
     },
   );
 });

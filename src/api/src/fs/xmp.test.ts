@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * Pure-path-math tests for the cache-path resolvers in `xmp.ts`. No database, no
  * filesystem. BOTH tiers are path-keyed off the source's own filename — thumbs
@@ -112,20 +113,44 @@ describe('resolveThumbPathForAsset', () => {
   test('composes <lib>/<fileinfo[0].path>/.maple/thumbs/<sha256_prefix16(filename)>.avif', () => {
     const result = resolveThumbPathForAsset(makeAsset({}), libs());
     const key = sha256Prefix16('IMG_001.dng');
-    expect(result).toBe(path.join(LIB_ROOT, 'vacation', '2024', '.maple', 'thumbs', `${key}.avif`));
+    expect(result).toBe(
+      path.join(
+        LIB_ROOT,
+        'vacation',
+        '2024',
+        '.maple',
+        'thumbs',
+        `${key}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      ),
+    );
   });
 
   test('fileinfo[0].path === "" → <lib>/.maple/thumbs/<key>.avif (file at library root)', () => {
     const result = resolveThumbPathForAsset(makeAsset({ fileinfoPath: '' }), libs());
     expect(result).toBe(
-      path.join(LIB_ROOT, '.maple', 'thumbs', `${sha256Prefix16('IMG_001.dng')}.avif`),
+      path.join(
+        LIB_ROOT,
+        '.maple',
+        'thumbs',
+        `${sha256Prefix16('IMG_001.dng')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      ),
     );
   });
 
   test('POSIX path split: "a/b/c" → segments joined via path.join (never raw "/" in result)', () => {
     const result = resolveThumbPathForAsset(makeAsset({ fileinfoPath: 'a/b/c' }), libs());
     const key = sha256Prefix16('IMG_001.dng');
-    expect(result).toBe(path.join(LIB_ROOT, 'a', 'b', 'c', '.maple', 'thumbs', `${key}.avif`));
+    expect(result).toBe(
+      path.join(
+        LIB_ROOT,
+        'a',
+        'b',
+        'c',
+        '.maple',
+        'thumbs',
+        `${key}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      ),
+    );
   });
 
   // Was "returns null when maple_id is missing". Path-keying removed that
@@ -176,7 +201,7 @@ describe('cachePathForAsset', () => {
         '2024',
         '.maple',
         'thumbs',
-        `${sha256Prefix16('IMG_001.dng')}.avif`,
+        `${sha256Prefix16('IMG_001.dng')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
       ),
     );
   });

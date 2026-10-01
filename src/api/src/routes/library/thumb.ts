@@ -2,7 +2,7 @@
  * GET /api/thumb/:slug/*
  *
  * Returns the content-keyed thumbnail AVIF for an indexed image.
- * ETag: "<maple_id>", Cache-Control: public, max-age=31536000, immutable.
+ * ETag: "<maple_id>-v<N>", Cache-Control: public, max-age=31536000, immutable.
  * Honors If-None-Match for 304 responses.
  *
  * If the image is on disk but not yet indexed (no maple_id), returns 202
@@ -13,6 +13,7 @@
  * existing thumb stage renderer (generateThumb).
  */
 
+import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia, type Context } from 'elysia';
 import type { AssetDoc } from '../../db/schema.ts';
 import { resolveAddress } from '../../library/address.ts';
@@ -21,6 +22,7 @@ import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
+import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { isUndecodableFilename } from '../../indexer/media-types.ts';
 import {
   safeStat,
@@ -77,7 +79,7 @@ async function serveUnindexedThumb(
   // checked BEFORE any generation/read so a revalidation 304s without
   // touching disk or rendering; the browser picks up the indexed version
   // later on its own revalidation.
-  const wEtag = `W/"u-${Math.trunc(diskSt.mtimeMs)}-${diskSt.size}"`;
+  const wEtag = `W/"u-${Math.trunc(diskSt.mtimeMs)}-${diskSt.size}-v${PIPELINE_OUTPUT_VERSION}"`;
   const revalidateCache = 'private, max-age=10, must-revalidate';
   if (ifNoneMatchEqual(ifNoneMatch, wEtag)) {
     return new Response(null, {
@@ -110,6 +112,7 @@ async function serveUnindexedThumb(
     status: 200,
     headers: {
       'Content-Type': 'image/avif',
+      'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
       ETag: wEtag,
       'Cache-Control': revalidateCache,
     },
@@ -128,7 +131,7 @@ async function serveIndexedThumb(
   ifNoneMatch: string | undefined,
   set: RouteSet,
 ): Promise<Response | { error: string }> {
-  const etag = `"${mapleId}"`;
+  const etag = `"${mapleId}-v${PIPELINE_OUTPUT_VERSION}"`;
   if (ifNoneMatchEqual(ifNoneMatch, etag)) {
     return new Response(null, {
       status: 304,
@@ -166,7 +169,9 @@ async function serveIndexedThumb(
 
 export const thumbRoutes = new Elysia().get(
   '/thumb/:slug/*',
-  async ({ params, headers, set }) => {
+  async ({ params, headers, query, set }) => {
+    const versionError = incompatiblePipelineVersion(query.pv, set);
+    if (versionError) return versionError;
     const slug = params.slug;
     const wildcard = (params as Record<string, string>)['*'] ?? '';
     const segments = parseWildcardSegments(wildcard);

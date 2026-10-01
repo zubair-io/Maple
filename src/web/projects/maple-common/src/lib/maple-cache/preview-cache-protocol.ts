@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 import {
   isPreviewCacheFormat,
   PREVIEW_CACHE_FORMATS,
@@ -28,7 +29,7 @@ export function previewArtifactPath(
   filename: string,
   format: PreviewCacheFormat,
 ): string {
-  return `${previewCacheDir(relDir)}/${filename}.${PREVIEW_CACHE_FORMATS[format].extension}`;
+  return `${previewCacheDir(relDir)}/${filename}.v${PIPELINE_OUTPUT_VERSION}.${PREVIEW_CACHE_FORMATS[format].extension}`;
 }
 
 export function previewIdentityPath(relDir: string, filename: string): string {
@@ -36,7 +37,7 @@ export function previewIdentityPath(relDir: string, filename: string): string {
 }
 
 export function previewDescriptorPath(relDir: string, filename: string): string {
-  return `${previewCacheDir(relDir)}/${filename}.preview.json`;
+  return `${previewCacheDir(relDir)}/${filename}.v${PIPELINE_OUTPUT_VERSION}.preview.json`;
 }
 
 export function validPreviewSource(

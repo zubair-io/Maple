@@ -12,9 +12,8 @@ import { resolveThumbPathForAsset, cachePathForAsset } from '../../fs/xmp.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { thumbR2Key } from '../../cloudflare/thumb-key.ts';
+import { THUMB_TARGET_VERSION, PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 
-const THUMB_TARGET = 3;
-const PREVIEW_TARGET = 4;
 const DESCRIBE_TARGET = 7;
 const CF_TARGET = 1;
 
@@ -112,7 +111,7 @@ export async function evaluateAsset(
   record(
     res,
     'thumb',
-    stageVersion(image, 'thumb') >= THUMB_TARGET,
+    stageVersion(image, 'thumb') >= THUMB_TARGET_VERSION,
     expectPixels && thumbPath !== null,
     thumbOk,
   );
@@ -122,7 +121,7 @@ export async function evaluateAsset(
   record(
     res,
     'preview',
-    stageVersion(image, 'preview') >= PREVIEW_TARGET,
+    stageVersion(image, 'preview') >= PREVIEW_TARGET_VERSION,
     expectPixels && previewPath !== null,
     previewOk,
   );

@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 /**
  * Integration tests for GET /api/preview/:slug/*
  *
@@ -86,7 +87,12 @@ describe('GET /preview/:slug/*', () => {
 
     // Pre-stage the one preview file so the route serves it without generating.
     // The serving path only stats/reads it (no decode), so arbitrary bytes work.
-    const previewPath = path.join(tmpDir, '.maple', 'previews', 'ready.jpg.avif');
+    const previewPath = path.join(
+      tmpDir,
+      '.maple',
+      'previews',
+      `ready.jpg.v${PIPELINE_OUTPUT_VERSION}.avif`,
+    );
     await mkdir(path.dirname(previewPath), { recursive: true });
     await writeFile(previewPath, 'fake-preview-bytes');
 

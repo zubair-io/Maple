@@ -39,6 +39,7 @@
  * this stage's own success row, so either both land or neither does.
  */
 import { generateThumb } from '../../indexer/thumbnailer.ts';
+import { THUMB_TARGET_VERSION } from '../derivative-versions.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
@@ -79,7 +80,7 @@ const thumbStage = defineStage({
   // The old `<maple_id>.avif` files are deliberately NOT renamed — they orphan
   // out via cache-gc, same as the v3 `.jpg` files did. `resetCfThumbSyncVersion`
   // cascades as before so R2 picks up the re-render.
-  targetVersion: 4,
+  targetVersion: THUMB_TARGET_VERSION,
   dependsOn: ['exif'],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.

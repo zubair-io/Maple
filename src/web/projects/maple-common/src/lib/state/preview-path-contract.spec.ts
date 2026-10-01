@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // Cross-platform preview path-derivation contract (#1997, epic #1993 stage 5).
 //
 // Server, web, and Apple each independently compute
@@ -66,15 +67,16 @@ describe('preview path contract — web resolver agrees with the shared golden (
   });
 
   for (const c of contract.cases) {
+    const relPath = c.relPath.replace('{pipelineOutputVersion}', String(PIPELINE_OUTPUT_VERSION));
     it(`writePreview(${c.id}) lands at the golden relPath "${c.relPath}"`, async () => {
       await svc.writePreview(folder(), c.relDir, c.filename, avif(), {
         size: 42,
         lastModified: 1234,
       });
-      expect(files.has(c.relPath)).toBe(true);
+      expect(files.has(relPath)).toBe(true);
       // The cross-platform AVIF artifact path remains exact. Hosted also
       // writes a local descriptor beside it; API and Apple do not consume it.
-      expect(files.has(`${c.relPath.slice(0, -'.avif'.length)}.preview.json`)).toBe(true);
+      expect(files.has(`${relPath.slice(0, -'.avif'.length)}.preview.json`)).toBe(true);
       expect(files.size).toBe(2);
     });
   }

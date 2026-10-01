@@ -31,25 +31,6 @@ import {
 
 export type { PreviewSourceIdentity } from './preview-cache-protocol';
 
-/**
- * Pipeline version the Hosted thumb cache was developed at (#1927). Unlike
- * Apple's 256-px thumbnails (embedded-JPEG extraction, pipeline-independent),
- * a Hosted thumb is a full WASM develop through the raw-core/AgX chain
- * (`RawPipelineService.decode` with no XMP), so a raw-core/view-transform
- * change alters its pixels. When such a change lands, the develop pipeline's
- * output version is bumped and previously-cached Hosted thumbs re-develop
- * instead of serving stale.
- *
- * Sourced from the single, codegen-generated `PIPELINE_OUTPUT_VERSION` (#1926)
- * — the one monotonic develop-pipeline-output version single-sourced in
- * raw-core and mirrored into TypeScript and Swift. This replaces the
- * hand-maintained per-cache integer this used to be: a raw-core author now
- * bumps one constant and both this thumb cache and Apple's rendered-preview
- * cache (`RenderedPreviewCache`) invalidate together. See
- * `docs/pipeline.md § "Pipeline output version"`.
- */
-export const THUMB_PIPELINE_VERSION = PIPELINE_OUTPUT_VERSION;
-
 @Injectable({ providedIn: 'root' })
 export class MapleCacheService {
   private fs = inject(FolderAccessService);
@@ -135,36 +116,19 @@ export class MapleCacheService {
     { ext: 'jpg', mime: 'image/jpeg' },
   ];
 
-  /**
-   * Read a cached thumbnail blob.
-   * `sha` is the 16-char hex prefix (sha256Prefix16(filename)).
-   * Returns null if not cached — or if a Hosted-written thumb is stale.
-   *
-   * Pipeline-version guard (#1927): a thumb this client developed carries a
-   * `<sha>.<ext>.v` companion recording `THUMB_PIPELINE_VERSION`. When that
-   * marker is older than the current version the cached pixels predate a
-   * raw-core/AgX change, so we miss and force a re-decode. A thumb with NO
-   * marker is foreign — written by the server or native app, which extract
-   * the embedded preview (pipeline-version-independent) — and is trusted
-   * as-is, preserving the portable `.maple/thumbs/<sha>.<ext>` cross-platform
-   * contract. The `.<ext>.v` companion mirrors the API's `<thumb>.meta`
-   * sidecar pattern (`routes/fs-thumbs.ts`).
-   */
   async readThumb(folder: MapleFolderHandle, sha: string): Promise<Blob | null> {
     for (const { ext, mime } of MapleCacheService.THUMB_READ_ORDER) {
       let bytes: Uint8Array;
       try {
-        bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.${ext}`);
+        bytes = await this.fs.readFile(
+          folder,
+          `.maple/thumbs/${sha}.v${PIPELINE_OUTPUT_VERSION}.${ext}`,
+        );
       } catch {
         continue; // not cached in this format — try the next
       }
-      const markerVersion = await this._readThumbVersion(folder, sha, ext);
-      if (markerVersion !== null && markerVersion < THUMB_PIPELINE_VERSION) {
-        return null; // stale locally-developed thumb → re-decode
-      }
       const format: ThumbFormat = ext === 'avif' ? 'avif' : 'jpeg';
       if (!hasCacheImageSignature(bytes, format)) {
-        if (markerVersion !== null) return null;
         continue; // corrupt or mislabeled entry — try the other real format
       }
       // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array whose
@@ -177,7 +141,7 @@ export class MapleCacheService {
   }
 
   /**
-   * Write a thumbnail blob plus its pipeline-version companion (#1927).
+   * Write a thumbnail blob under the current pipeline version.
    * Creates `.maple/thumbs/` if necessary.
    * Silently skips if the folder is read-only.
    *
@@ -200,42 +164,14 @@ export class MapleCacheService {
         return;
       }
       await this.fs.ensureSubdirectory(folder, '.maple/thumbs');
-      await this.fs.writeFile(folder, `.maple/thumbs/${sha}.${ext}`, bytes);
-      // Stamp the pipeline version this thumb was developed at so a later
-      // raw-core/AgX bump invalidates it on read (see readThumb).
       await this.fs.writeFile(
         folder,
-        `.maple/thumbs/${sha}.${ext}.v`,
-        new TextEncoder().encode(String(THUMB_PIPELINE_VERSION)),
+        `.maple/thumbs/${sha}.v${PIPELINE_OUTPUT_VERSION}.${ext}`,
+        bytes,
       );
     } catch (err) {
       console.warn(`MapleCacheService: failed to write thumb ${sha}`, err);
     }
-  }
-
-  /**
-   * Read the pipeline-version marker for a cached thumb at the given
-   * extension.
-   *   - `null`  — marker ABSENT (a foreign/embedded thumb; `readThumb` trusts it).
-   *   - `N`     — the parsed version.
-   *   - `-1`    — marker PRESENT but unparseable (e.g. a partial write). A
-   *               corrupt marker belongs to a locally-developed thumb whose
-   *               version stamp is broken, so force a re-decode rather than
-   *               trust it: -1 is always below `THUMB_PIPELINE_VERSION`.
-   */
-  private async _readThumbVersion(
-    folder: MapleFolderHandle,
-    sha: string,
-    ext: string,
-  ): Promise<number | null> {
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.fs.readFile(folder, `.maple/thumbs/${sha}.${ext}.v`);
-    } catch {
-      return null; // absent → foreign thumb, trust
-    }
-    const parsed = Number.parseInt(new TextDecoder().decode(bytes).trim(), 10);
-    return Number.isFinite(parsed) ? parsed : -1;
   }
 
   // ── Previews (unedited embedded-RAW-preview tier, #2010 / epic #1993) ──────
@@ -254,7 +190,7 @@ export class MapleCacheService {
     try {
       const descriptor = await this._readPreviewDescriptor(folder, relDir, filename);
       if (descriptor === 'absent') {
-        return await this._readLegacyAvifPreview(folder, relDir, filename, source);
+        return await this._readCanonicalAvifPreview(folder, relDir, filename, source);
       }
       if (!descriptor || !samePreviewSource(descriptor.source, source)) return null;
 
@@ -343,7 +279,7 @@ export class MapleCacheService {
     return parsePreviewDescriptor(bytes);
   }
 
-  private async _readLegacyAvifPreview(
+  private async _readCanonicalAvifPreview(
     folder: MapleFolderHandle,
     relDir: string,
     filename: string,

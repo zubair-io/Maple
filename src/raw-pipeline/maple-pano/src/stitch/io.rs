@@ -43,7 +43,7 @@ use crate::ingest::PlanarImage;
 /// Rust copy is guarded by `sha256_prefix16_matches_frozen_cross_platform_value`.
 ///
 /// The PREVIEW pre-seed no longer uses this key: #2009 moved it onto the
-/// canonical cross-platform `<basename>.avif` scheme (`MapleSidecarPaths
+/// canonical cross-platform `<basename>.v<N>.avif` scheme (`MapleSidecarPaths
 /// .previewURL`), so `previewURL` no longer mirrors this function.
 pub(crate) fn sha256_prefix16(name: &str) -> String {
     use sha2::{Digest, Sha256};
@@ -122,14 +122,14 @@ fn srgb_encode(v: f32) -> f32 {
 /// Write the pano-injection pre-seed `.maple/` display derivatives for the
 /// pano at `png_path`, downscaled from the already-developed sRGB display
 /// buffer (interleaved RGB16, as returned by `develop_for_display`):
-///   • `.maple/thumbs/<sha256prefix16(basename)>.avif` — 256px grid thumb,
+///   • `.maple/thumbs/<sha256prefix16(basename)>.v<N>.avif` — 512px grid thumb,
 ///     read by Apple's SYNCHRONOUS, hash-of-filename-only `MapleSidecarPaths
 ///     .thumbURL` resolver (called from UI code that needs a display URL
 ///     immediately and cannot afford to read+hash the pano's actual bytes);
-///   • `.maple/previews/<basename>.avif` — 1280px display preview on the
-///     canonical cross-platform `<filename>.avif` contract (#2009), read by
+///   • `.maple/previews/<basename>.v<N>.avif` — 1280px display preview on the
+///     canonical cross-platform `<filename>.v<N>.avif` contract (#2009), read by
 ///     `MapleSidecarPaths.previewURL`. `<basename>` is the pano's output
-///     filename incl. extension (e.g. `MyPano.png` → `MyPano.png.avif`).
+///     filename incl. extension (e.g. `MyPano.png` → `MyPano.png.v<N>.avif`).
 ///
 /// Both tiers are AVIF now (the JPEG preview tier was retired in #2009). This
 /// pre-seed exists only to fill the gap before the pano is indexed through the
@@ -137,7 +137,7 @@ fn srgb_encode(v: f32) -> f32 {
 /// the developed-preview tier next re-renders (#1365) — otherwise the injected
 /// pano's grid tile / Preview is a blank ghost until then. `cache-gc.ts`
 /// already carves out the hash-keyed thumb scheme from its orphan sweep; the
-/// preview now rides the canonical `<filename>.avif` scheme whose server-side
+/// preview now rides the canonical `<filename>.v<N>.avif` scheme whose server-side
 /// sweep protection is handled by the same epic that owns cache-gc (#1993 /
 /// #2017), not the legacy hash carve-out.
 /// Consumes `display` (moved into an `ImageBuffer` — no full-frame clone;
@@ -161,10 +161,20 @@ pub fn write_display_sidecars(
         .ok_or_else(|| "display buffer length != width*height*3".to_string())?;
 
     // (subdir, filename, target long edge, AVIF quality). The thumb keeps its
-    // hashed key; the preview uses the canonical `<filename>.avif` name (#2009).
+    // hashed key; the preview uses the canonical `<filename>.v<N>.avif` name (#2009).
     let variants = [
-        ("thumbs", format!("{key}.avif"), 256u32, 55u8),
-        ("previews", format!("{basename}.avif"), 1280u32, 70u8),
+        (
+            "thumbs",
+            format!("{key}.v{}.avif", raw_core::PIPELINE_OUTPUT_VERSION),
+            512u32,
+            55u8,
+        ),
+        (
+            "previews",
+            format!("{basename}.v{}.avif", raw_core::PIPELINE_OUTPUT_VERSION),
+            1280u32,
+            70u8,
+        ),
     ];
 
     for (subdir, filename, target, quality) in variants {
@@ -261,7 +271,7 @@ mod tests {
     fn write_display_sidecars_writes_canonical_thumb_and_preview() {
         // 400x200 scene-linear mid-grey pano: thumb downsizes (long edge 256),
         // preview stays native (400 < 1280 → no upscale).
-        let (w, h) = (400u32, 200u32);
+        let (w, h) = (800u32, 400u32);
         let n = (w * h) as usize;
         let pano = PlanarImage::from_planes(
             w,
@@ -291,17 +301,22 @@ mod tests {
         write_display_sidecars(display, w, h, &png_path).unwrap();
 
         let key = sha256_prefix16("panorama-test.png");
-        let thumb = dir.join(".maple/thumbs").join(format!("{key}.avif"));
-        // #2009 — preview is the canonical `<filename>.avif`, NOT the old
+        let thumb = dir
+            .join(".maple/thumbs")
+            .join(format!("{key}.v{}.avif", raw_core::PIPELINE_OUTPUT_VERSION));
+        // #2009 — preview is the canonical `<filename>.v<N>.avif`, NOT the old
         // hashed `<key>_1600.jpg`, so Apple's read path finds it.
-        let preview = dir.join(".maple/previews").join("panorama-test.png.avif");
+        let preview = dir.join(".maple/previews").join(format!(
+            "panorama-test.png.v{}.avif",
+            raw_core::PIPELINE_OUTPUT_VERSION
+        ));
         assert!(thumb.exists(), "thumb missing: {thumb:?}");
         assert!(preview.exists(), "preview missing: {preview:?}");
 
         let thumb_bytes = std::fs::read(&thumb).unwrap();
         assert_eq!(&thumb_bytes[4..8], b"ftyp", "missing AVIF ftyp box");
         let (tw, th) = avif_dimensions(&thumb_bytes).expect("thumb ispe box present");
-        assert_eq!(tw.max(th), 256, "thumb long edge");
+        assert_eq!(tw.max(th), 512, "thumb long edge");
 
         // Preview is AVIF too now; this crate only enables AVIF *encode*, so
         // read dims from the `ispe` box rather than a full decode. 400 < 1280,
@@ -313,7 +328,7 @@ mod tests {
             "preview missing AVIF ftyp box"
         );
         let (pw, ph) = avif_dimensions(&preview_bytes).expect("preview ispe box present");
-        assert_eq!((pw, ph), (400, 200), "preview must not upscale");
+        assert_eq!((pw, ph), (800, 400), "preview must not upscale");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

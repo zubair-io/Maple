@@ -3,536 +3,563 @@ import FileProvider
 import UniformTypeIdentifiers
 
 public final class MapleItem: NSObject, NSFileProviderItem {
-    private let identifier: FileProviderIdentifier
-    private let displayName: String
-    private let isDirectory: Bool
-    private let size: NSNumber?
-    private let modified: Date?
-    private let utType: UTType
-    private let writeCapabilities: NSFileProviderItemCapabilities
+  private let identifier: FileProviderIdentifier
+  private let displayName: String
+  private let isDirectory: Bool
+  private let size: NSNumber?
+  private let modified: Date?
+  private let utType: UTType
+  private let writeCapabilities: NSFileProviderItemCapabilities
 
-    public let itemIdentifier: NSFileProviderItemIdentifier
-    public let parentItemIdentifier: NSFileProviderItemIdentifier
-    public let filename: String
-    public var contentType: UTType { utType }
-    public var capabilities: NSFileProviderItemCapabilities { writeCapabilities }
-    public var documentSize: NSNumber? { size }
-    public var contentModificationDate: Date? { modified }
-    public var creationDate: Date? { modified }
-    public var itemVersion: NSFileProviderItemVersion {
-        // macOS rejects zero-length version bytes with the cryptic
-        // __FILEPROVIDER_BAD_ITEM_MISSING_ITEMVERSION__ abort. Compose a
-        // version that's guaranteed non-empty for every item — items
-        // without a server mtime (library roots, trash containers,
-        // synthetic stubs) get the identifier itself as their version,
-        // which is stable as long as the item exists.
-        //
-        // FORMAT: "<mtimeEpoch>-<identifier>" when we have a server mtime,
-        // "v1-<identifier>" otherwise. The mtime prefix is load-bearing:
-        // `modifyItem` decodes it via `decodePriorMtime` and forwards it
-        // to the server as the `ifMtimeMatches` precondition for XMP
-        // writes. A decoder that can't see the mtime would silently
-        // disable conflict detection.
-        let seed: String
-        if let modified {
-            seed = "\(Int(modified.timeIntervalSince1970))-\(identifier.rawValue)"
-        } else {
-            seed = "v1-\(identifier.rawValue)"
-        }
-        let bytes = Data(seed.utf8)
-        return .init(contentVersion: bytes, metadataVersion: bytes)
+  public let itemIdentifier: NSFileProviderItemIdentifier
+  public let parentItemIdentifier: NSFileProviderItemIdentifier
+  public let filename: String
+  public var contentType: UTType { utType }
+  public var capabilities: NSFileProviderItemCapabilities { writeCapabilities }
+  public var documentSize: NSNumber? { size }
+  public var contentModificationDate: Date? { modified }
+  public var creationDate: Date? { modified }
+  public var itemVersion: NSFileProviderItemVersion {
+    // macOS rejects zero-length version bytes with the cryptic
+    // __FILEPROVIDER_BAD_ITEM_MISSING_ITEMVERSION__ abort. Compose a
+    // version that's guaranteed non-empty for every item — items
+    // without a server mtime (library roots, trash containers,
+    // synthetic stubs) get the identifier itself as their version,
+    // which is stable as long as the item exists.
+    //
+    // FORMAT: "<mtimeEpoch>-<identifier>" when we have a server mtime,
+    // "v1-<identifier>" otherwise. The mtime prefix is load-bearing:
+    // `modifyItem` decodes it via `decodePriorMtime` and forwards it
+    // to the server as the `ifMtimeMatches` precondition for XMP
+    // writes. A decoder that can't see the mtime would silently
+    // disable conflict detection.
+    let seed: String
+    if let modified {
+      seed = "\(Int(modified.timeIntervalSince1970))-\(identifier.rawValue)"
+    } else {
+      seed = "v1-\(identifier.rawValue)"
     }
+    let bytes = Data(seed.utf8)
+    return .init(contentVersion: bytes, metadataVersion: bytes)
+  }
 
-    /// Inverse of the `itemVersion` encoder. Reads the leading "<epoch>-"
-    /// segment back out of a content-version blob. Returns nil for blobs
-    /// without a numeric prefix ("v1-…" stubs, or zero/negative epochs).
-    ///
-    /// Used by `FileProviderExtensionCore.modifyItem` to populate the XMP
-    /// write precondition. The split-before-`-` shape tolerates the
-    /// post-Phase-5 format change that appended `<identifier>` to the
-    /// seed; the prior `Int(s)` decode parsed the entire blob and
-    /// returned nil for every non-pure-int payload, silently disabling
-    /// conflict detection.
-    public static func decodePriorMtime(_ contentVersion: Data) -> Date? {
-        guard let s = String(data: contentVersion, encoding: .utf8) else { return nil }
-        let prefix = s.split(separator: "-", maxSplits: 1,
-                             omittingEmptySubsequences: false).first.map(String.init) ?? ""
-        guard let epoch = Int(prefix), epoch > 0 else { return nil }
-        return Date(timeIntervalSince1970: TimeInterval(epoch))
-    }
-    public var isUploaded: Bool { true }
-    public var isDownloaded: Bool { false }
+  /// Inverse of the `itemVersion` encoder. Reads the leading "<epoch>-"
+  /// segment back out of a content-version blob. Returns nil for blobs
+  /// without a numeric prefix ("v1-…" stubs, or zero/negative epochs).
+  ///
+  /// Used by `FileProviderExtensionCore.modifyItem` to populate the XMP
+  /// write precondition. The split-before-`-` shape tolerates the
+  /// post-Phase-5 format change that appended `<identifier>` to the
+  /// seed; the prior `Int(s)` decode parsed the entire blob and
+  /// returned nil for every non-pure-int payload, silently disabling
+  /// conflict detection.
+  public static func decodePriorMtime(_ contentVersion: Data) -> Date? {
+    guard let s = String(data: contentVersion, encoding: .utf8) else { return nil }
+    let prefix =
+      s.split(
+        separator: "-", maxSplits: 1,
+        omittingEmptySubsequences: false
+      ).first.map(String.init) ?? ""
+    guard let epoch = Int(prefix), epoch > 0 else { return nil }
+    return Date(timeIntervalSince1970: TimeInterval(epoch))
+  }
+  public var isUploaded: Bool { true }
+  public var isDownloaded: Bool { false }
 
-    public init(libraryRoot root: LibraryRoot) {
-        self.identifier = .folder(folderID: root.id, relativePath: "")
-        self.displayName = root.label
-        self.isDirectory = true
-        self.size = nil
-        self.modified = nil
-        self.utType = .folder
-        // `.allowsAddingSubItems` is required for Finder to offer the
-        // drag-in upload affordance. Without it the Phase 3 createItem
-        // path never fires for the library root.
-        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = .rootContainer
-        self.filename = root.label
-    }
+  public init(libraryRoot root: LibraryRoot) {
+    self.identifier = .folder(folderID: root.id, relativePath: "")
+    self.displayName = root.label
+    self.isDirectory = true
+    self.size = nil
+    self.modified = nil
+    self.utType = .folder
+    // `.allowsAddingSubItems` is required for Finder to offer the
+    // drag-in upload affordance. Without it the Phase 3 createItem
+    // path never fires for the library root.
+    self.writeCapabilities = [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = .rootContainer
+    self.filename = root.label
+  }
 
-    public init(subdirectory dir: DirChild, parentFolderID: String, parentRelativePath: String, parentIdentifier: NSFileProviderItemIdentifier) {
-        let child = parentRelativePath.isEmpty ? dir.name : "\(parentRelativePath)/\(dir.name)"
-        self.identifier = .folder(folderID: parentFolderID, relativePath: child)
-        self.displayName = dir.name
-        self.isDirectory = true
-        self.size = nil
-        self.modified = dir.mtime
-        self.utType = .folder
-        // Subdirectories inside a library must also accept drag-in
-        // uploads (Phase 3) — same as the library root.
-        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = dir.name
-    }
+  public init(
+    subdirectory dir: DirChild, parentFolderID: String, parentRelativePath: String,
+    parentIdentifier: NSFileProviderItemIdentifier
+  ) {
+    let child = parentRelativePath.isEmpty ? dir.name : "\(parentRelativePath)/\(dir.name)"
+    self.identifier = .folder(folderID: parentFolderID, relativePath: child)
+    self.displayName = dir.name
+    self.isDirectory = true
+    self.size = nil
+    self.modified = dir.mtime
+    self.utType = .folder
+    // Subdirectories inside a library must also accept drag-in
+    // uploads (Phase 3) — same as the library root.
+    self.writeCapabilities = [.allowsReading, .allowsContentEnumerating, .allowsAddingSubItems]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = dir.name
+  }
 
-    /// Returns nil for unindexed images (no asset ID).
-    public init?(image: ImageChild, parentIdentifier: NSFileProviderItemIdentifier) {
-        guard let assetID = image.assetID, !assetID.isEmpty else { return nil }
-        self.identifier = .asset(assetID)
-        self.displayName = image.name
-        self.isDirectory = false
-        self.size = NSNumber(value: image.size)
-        self.modified = image.mtime
-        self.utType = UTType(filenameExtension: image.ext) ?? .data
-        // Phase 3: live images allow drag-to-trash (Finder needs
-        // `.allowsDeleting` to surface the action). RAWs remain
-        // otherwise read-only — no in-place writes (.allowsWriting),
-        // no rename (.allowsRenaming), no reparenting at this time.
-        //
-        // #2549 evaluated `.allowsTrashing` as the "more correct" name
-        // for this and concluded it must NOT be added here, because it
-        // would be a functional regression, not just a vocabulary
-        // change:
-        //
-        //   - `.allowsTrashing` tells Finder the item supports the OS's
-        //     OWN Trash mechanism — "Move to Trash" is then implemented
-        //     by the system calling `modifyItem` with the item
-        //     reparented to `NSFileProviderItemIdentifier.trashContainer`
-        //     (see `NSFileProviderReplicatedExtension.h`'s "all items
-        //     will always be a descendent of either the root item or
-        //     the trash item").
-        //   - This extension does not implement that mechanism:
-        //     `FileProviderExtensionCore.enumerator(for:)` returns a
-        //     bare `EmptyEnumerator()` for `.trashContainer`, and
-        //     `modifyItem`'s asset-reparent branch only understands a
-        //     new parent shaped like `FileProviderIdentifier.folder`
-        //     (restore-from-OUR-synthetic-trash) — parsing the OS's
-        //     reserved `trashContainer` identifier through
-        //     `FileProviderIdentifier(rawValue:)` throws `.invalidPrefix`
-        //     there, which `modifyItem` turns into `NSFeatureUnsupportedError`.
-        //   - So advertising `.allowsTrashing` would surface Finder's
-        //     "Move to Trash" affordance and then fail it every time —
-        //     worse than today's `.allowsDeleting`, which correctly
-        //     routes through `deleteItem` to `RemoteCatalog.deleteAsset`'s
-        //     server-side trash-first dual mode (see that method's doc
-        //     comment) and actually works.
-        //
-        // `.allowsEvicting` was also evaluated and rejected: it's been
-        // `API_DEPRECATED` since macOS 13 in favor of
-        // `NSFileProviderContentPolicy`, which this extension doesn't
-        // implement either — adding a deprecated, superseded capability
-        // isn't a real fix.
-        //
-        // Net: `.allowsDeleting` alone is the correct capability for
-        // this app's actual (app-level, not OS-native) trash-first
-        // behavior. No change from this evaluation.
-        self.writeCapabilities = [.allowsReading, .allowsDeleting]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = image.name
-    }
+  /// Returns nil for unindexed images (no asset ID).
+  public init?(image: ImageChild, parentIdentifier: NSFileProviderItemIdentifier) {
+    guard let assetID = image.assetID, !assetID.isEmpty else { return nil }
+    self.identifier = .asset(assetID)
+    self.displayName = image.name
+    self.isDirectory = false
+    self.size = NSNumber(value: image.size)
+    self.modified = image.mtime
+    self.utType = UTType(filenameExtension: image.ext) ?? .data
+    // Phase 3: live images allow drag-to-trash (Finder needs
+    // `.allowsDeleting` to surface the action). RAWs remain
+    // otherwise read-only — no in-place writes (.allowsWriting),
+    // no rename (.allowsRenaming), no reparenting at this time.
+    //
+    // #2549 evaluated `.allowsTrashing` as the "more correct" name
+    // for this and concluded it must NOT be added here, because it
+    // would be a functional regression, not just a vocabulary
+    // change:
+    //
+    //   - `.allowsTrashing` tells Finder the item supports the OS's
+    //     OWN Trash mechanism — "Move to Trash" is then implemented
+    //     by the system calling `modifyItem` with the item
+    //     reparented to `NSFileProviderItemIdentifier.trashContainer`
+    //     (see `NSFileProviderReplicatedExtension.h`'s "all items
+    //     will always be a descendent of either the root item or
+    //     the trash item").
+    //   - This extension does not implement that mechanism:
+    //     `FileProviderExtensionCore.enumerator(for:)` returns a
+    //     bare `EmptyEnumerator()` for `.trashContainer`, and
+    //     `modifyItem`'s asset-reparent branch only understands a
+    //     new parent shaped like `FileProviderIdentifier.folder`
+    //     (restore-from-OUR-synthetic-trash) — parsing the OS's
+    //     reserved `trashContainer` identifier through
+    //     `FileProviderIdentifier(rawValue:)` throws `.invalidPrefix`
+    //     there, which `modifyItem` turns into `NSFeatureUnsupportedError`.
+    //   - So advertising `.allowsTrashing` would surface Finder's
+    //     "Move to Trash" affordance and then fail it every time —
+    //     worse than today's `.allowsDeleting`, which correctly
+    //     routes through `deleteItem` to `RemoteCatalog.deleteAsset`'s
+    //     server-side trash-first dual mode (see that method's doc
+    //     comment) and actually works.
+    //
+    // `.allowsEvicting` was also evaluated and rejected: it's been
+    // `API_DEPRECATED` since macOS 13 in favor of
+    // `NSFileProviderContentPolicy`, which this extension doesn't
+    // implement either — adding a deprecated, superseded capability
+    // isn't a real fix.
+    //
+    // Net: `.allowsDeleting` alone is the correct capability for
+    // this app's actual (app-level, not OS-native) trash-first
+    // behavior. No change from this evaluation.
+    self.writeCapabilities = [.allowsReading, .allowsDeleting]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = image.name
+  }
 
-    /// A non-indexed file (video, document, extensionless, …). Stored +
-    /// synced but has no `AssetDoc`, so it's addressed by
-    /// `.file(folderID:relativePath:)` rather than an asset id.
-    /// `relativePath` is the file relative to its library root.
-    ///
-    /// #2535: bytes download on demand (`.allowsReading`), and the file
-    /// can be trashed (`.allowsDeleting`, routed to
-    /// `RemoteCatalog.deleteFile`) or renamed/moved within its own
-    /// library (`.allowsRenaming`/`.allowsReparenting`, routed to
-    /// `RemoteCatalog.relocateFile` — see `FileProviderExtensionCore
-    /// .modifyItem`'s `.file` branch). No `.allowsWriting`: in-place
-    /// content edit isn't wired — the path-addressed write path only
-    /// covers whole-file create/delete/relocate, not a partial overwrite.
-    public init(file: FileChild, folderID: String, relativePath: String,
-                parentIdentifier: NSFileProviderItemIdentifier) {
-        self.identifier = .file(folderID: folderID, relativePath: relativePath)
-        self.displayName = file.name
-        self.isDirectory = false
-        self.size = NSNumber(value: file.size)
-        self.modified = file.mtime
-        self.utType = file.ext.isEmpty ? .data : (UTType(filenameExtension: file.ext) ?? .data)
-        self.writeCapabilities = [.allowsReading, .allowsDeleting, .allowsRenaming, .allowsReparenting]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = file.name
-    }
+  /// A non-indexed file (video, document, extensionless, …). Stored +
+  /// synced but has no `AssetDoc`, so it's addressed by
+  /// `.file(folderID:relativePath:)` rather than an asset id.
+  /// `relativePath` is the file relative to its library root.
+  ///
+  /// #2535: bytes download on demand (`.allowsReading`), and the file
+  /// can be trashed (`.allowsDeleting`, routed to
+  /// `RemoteCatalog.deleteFile`) or renamed/moved within its own
+  /// library (`.allowsRenaming`/`.allowsReparenting`, routed to
+  /// `RemoteCatalog.relocateFile` — see `FileProviderExtensionCore
+  /// .modifyItem`'s `.file` branch). No `.allowsWriting`: in-place
+  /// content edit isn't wired — the path-addressed write path only
+  /// covers whole-file create/delete/relocate, not a partial overwrite.
+  public init(
+    file: FileChild, folderID: String, relativePath: String,
+    parentIdentifier: NSFileProviderItemIdentifier
+  ) {
+    self.identifier = .file(folderID: folderID, relativePath: relativePath)
+    self.displayName = file.name
+    self.isDirectory = false
+    self.size = NSNumber(value: file.size)
+    self.modified = file.mtime
+    self.utType = file.ext.isEmpty ? .data : (UTType(filenameExtension: file.ext) ?? .data)
+    self.writeCapabilities = [.allowsReading, .allowsDeleting, .allowsRenaming, .allowsReparenting]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = file.name
+  }
 
-    /// Synthetic Trash container shown at the root of each library.
-    /// The identifier is `trash/<folderID>` so the extension can route
-    /// `enumerator(for:)` to a `TrashEnumerator` and decide capabilities.
-    public init(trashContainer folderID: String, displayName: String) {
-        self.identifier = .trash(folderID: folderID)
-        self.displayName = displayName
-        self.isDirectory = true
-        self.size = nil
-        self.modified = nil
-        self.utType = .folder
-        // Trash itself is read-only as a container — items inside it
-        // can be moved out (restore) or deleted (permanent purge).
-        // `.allowsContentEnumerating` is required for Finder to call
-        // `enumerator(for:)` on it (which routes to TrashEnumerator).
-        // We deliberately do NOT include `.allowsAddingSubItems` —
-        // uploads into Trash are not supported.
-        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = .rootContainer
-        self.filename = displayName
-    }
+  /// Synthetic Trash container shown at the root of each library.
+  /// The identifier is `trash/<folderID>` so the extension can route
+  /// `enumerator(for:)` to a `TrashEnumerator` and decide capabilities.
+  public init(trashContainer folderID: String, displayName: String) {
+    self.identifier = .trash(folderID: folderID)
+    self.displayName = displayName
+    self.isDirectory = true
+    self.size = nil
+    self.modified = nil
+    self.utType = .folder
+    // Trash itself is read-only as a container — items inside it
+    // can be moved out (restore) or deleted (permanent purge).
+    // `.allowsContentEnumerating` is required for Finder to call
+    // `enumerator(for:)` on it (which routes to TrashEnumerator).
+    // We deliberately do NOT include `.allowsAddingSubItems` —
+    // uploads into Trash are not supported.
+    self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = .rootContainer
+    self.filename = displayName
+  }
 
-    /// Trashed asset surfaced inside the Trash container. Keeps the same
-    /// `asset/<id>` identifier as the live item so identity is stable
-    /// across delete/restore (per spec — server-side identifiers).
-    ///
-    /// Capabilities allow reading (lazy materialization still works on
-    /// trashed files), reparenting (drag back out of Trash to restore),
-    /// and deleting. `.allowsDeleting` — not `.allowsTrashing` — is
-    /// correct here (#2549): Apple's own doc comment for `deleteItem`
-    /// (the `NSFileProviderReplicatedExtension` method this capability
-    /// gates) reads "This is called when the user deletes an item that
-    /// was already in the Trash" — i.e. permanent purge, which is
-    /// exactly what `RemoteCatalog.deleteAsset`'s dual-mode DELETE does
-    /// for an already-trashed asset (see its doc comment). There is no
-    /// "trash the trash" concept to reach for `.allowsTrashing` here.
-    ///
-    /// Returns nil when `item.assetID` is nil — a trashed row that isn't
-    /// an indexed image (#2546: `TrashItem.assetID` is now optional, to
-    /// stop one such row from failing the whole Trash listing's decode).
-    /// `TrashEnumerator` filters these out via `compactMap` and logs the
-    /// count, rather than surfacing a non-addressable item to Finder.
-    public init?(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
-        guard let assetID = item.assetID, !assetID.isEmpty else { return nil }
-        self.identifier = .asset(assetID)
-        self.displayName = item.filename
-        self.isDirectory = false
-        self.size = NSNumber(value: item.size)
-        self.modified = item.deletedAt
-        self.utType = UTType(filenameExtension: (item.filename as NSString).pathExtension) ?? .data
-        self.writeCapabilities = [.allowsReading, .allowsReparenting, .allowsDeleting]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentTrashIdentifier
-        self.filename = item.filename
-    }
+  /// Trashed asset surfaced inside the Trash container. Keeps the same
+  /// `asset/<id>` identifier as the live item so identity is stable
+  /// across delete/restore (per spec — server-side identifiers).
+  ///
+  /// Capabilities allow reading (lazy materialization still works on
+  /// trashed files), reparenting (drag back out of Trash to restore),
+  /// and deleting. `.allowsDeleting` — not `.allowsTrashing` — is
+  /// correct here (#2549): Apple's own doc comment for `deleteItem`
+  /// (the `NSFileProviderReplicatedExtension` method this capability
+  /// gates) reads "This is called when the user deletes an item that
+  /// was already in the Trash" — i.e. permanent purge, which is
+  /// exactly what `RemoteCatalog.deleteAsset`'s dual-mode DELETE does
+  /// for an already-trashed asset (see its doc comment). There is no
+  /// "trash the trash" concept to reach for `.allowsTrashing` here.
+  ///
+  /// Returns nil when `item.assetID` is nil — a trashed row that isn't
+  /// an indexed image (#2546: `TrashItem.assetID` is now optional, to
+  /// stop one such row from failing the whole Trash listing's decode).
+  /// `TrashEnumerator` filters these out via `compactMap` and logs the
+  /// count, rather than surfacing a non-addressable item to Finder.
+  public init?(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
+    guard let assetID = item.assetID, !assetID.isEmpty else { return nil }
+    self.identifier = .asset(assetID)
+    self.displayName = item.filename
+    self.isDirectory = false
+    self.size = NSNumber(value: item.size)
+    self.modified = item.deletedAt
+    self.utType = UTType(filenameExtension: (item.filename as NSString).pathExtension) ?? .data
+    self.writeCapabilities = [.allowsReading, .allowsReparenting, .allowsDeleting]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentTrashIdentifier
+    self.filename = item.filename
+  }
 
-    /// Writable XMP sidecar. `parentImageBase` is the paired image's
-    /// filename without its extension (e.g. "IMG_1" for "IMG_1.ARW");
-    /// used to decide canonical vs. conflict-copy by comparing against
-    /// the sidecar's on-disk name.
-    /// Builds an item from an AssetListEntry returned by the working-set
-    /// seeding queries. We don't have full metadata (no extension via the
-    /// list endpoint — fall back to deriving from `filename`), so this is
-    /// a lightweight placeholder. The OS uses the parent identifier
-    /// (.workingSet) only as a routing hint; folder enumeration still
-    /// re-attaches the item to its real container.
-    public init(workingSetEntry e: AssetListEntry, parent: NSFileProviderItemIdentifier = .workingSet) {
-        self.identifier = .asset(e.id)
-        self.displayName = e.filename
-        self.isDirectory = false
-        // The list endpoint doesn't carry size; that's OK — the OS will
-        // fetch the real bytes on demand via fetchContents.
-        self.size = nil
-        // AssetListEntry.mtime is epoch seconds (matches the AssetDoc
-        // schema's `mtime` field).
-        self.modified = Date(timeIntervalSince1970: TimeInterval(e.mtime))
-        let ext = (e.filename as NSString).pathExtension
-        self.utType = UTType(filenameExtension: ext) ?? .data
-        self.writeCapabilities = [.allowsReading]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parent
-        self.filename = e.filename
-    }
+  /// Writable XMP sidecar. `parentImageBase` is the paired image's
+  /// filename without its extension (e.g. "IMG_1" for "IMG_1.ARW");
+  /// used to decide canonical vs. conflict-copy by comparing against
+  /// the sidecar's on-disk name.
+  /// Builds an item from an AssetListEntry returned by the working-set
+  /// seeding queries. We don't have full metadata (no extension via the
+  /// list endpoint — fall back to deriving from `filename`), so this is
+  /// a lightweight placeholder. The OS uses the parent identifier
+  /// (.workingSet) only as a routing hint; folder enumeration still
+  /// re-attaches the item to its real container.
+  public init(workingSetEntry e: AssetListEntry, parent: NSFileProviderItemIdentifier = .workingSet)
+  {
+    self.identifier = .asset(e.id)
+    self.displayName = e.filename
+    self.isDirectory = false
+    // The list endpoint doesn't carry size; that's OK — the OS will
+    // fetch the real bytes on demand via fetchContents.
+    self.size = nil
+    // AssetListEntry.mtime is epoch seconds (matches the AssetDoc
+    // schema's `mtime` field).
+    self.modified = Date(timeIntervalSince1970: TimeInterval(e.mtime))
+    let ext = (e.filename as NSString).pathExtension
+    self.utType = UTType(filenameExtension: ext) ?? .data
+    self.writeCapabilities = [.allowsReading]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parent
+    self.filename = e.filename
+  }
 
-    /// Built from a single-asset metadata fetch (`GET /api/assets/:id`).
-    /// Used by `FileProviderExtension.item(for:)` when the OS resolves
-    /// a bare `.asset(id)` identifier (typically delivered through
-    /// `enumerateChanges`). Carries real filename / mtime / size, so the
-    /// OS gets the canonical content version on the first lookup.
-    /// `parentItemIdentifier` is `.workingSet` — the asset's true folder
-    /// parent would be `folder(folderID, relativePath)`, but the API
-    /// endpoint doesn't yet expose `relativePath`. Routing to the
-    /// folder root would point at the wrong directory; `.workingSet`
-    /// is always-valid and the OS reattaches on folder enumeration.
-    public init(assetMetadata m: AssetMetadata, parent: NSFileProviderItemIdentifier = .workingSet) {
-        self.identifier = .asset(m.id)
-        self.displayName = m.filename
-        self.isDirectory = false
-        self.size = NSNumber(value: m.size)
-        self.modified = m.contentModificationDate
-        let ext = (m.filename as NSString).pathExtension
-        self.utType = UTType(filenameExtension: ext) ?? .data
-        self.writeCapabilities = [.allowsReading]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parent
-        self.filename = m.filename
-    }
+  /// Built from a single-asset metadata fetch (`GET /api/assets/:id`).
+  /// Used by `FileProviderExtension.item(for:)` when the OS resolves
+  /// a bare `.asset(id)` identifier (typically delivered through
+  /// `enumerateChanges`). Carries real filename / mtime / size, so the
+  /// OS gets the canonical content version on the first lookup.
+  /// `parentItemIdentifier` is `.workingSet` — the asset's true folder
+  /// parent would be `folder(folderID, relativePath)`, but the API
+  /// endpoint doesn't yet expose `relativePath`. Routing to the
+  /// folder root would point at the wrong directory; `.workingSet`
+  /// is always-valid and the OS reattaches on folder enumeration.
+  public init(assetMetadata m: AssetMetadata, parent: NSFileProviderItemIdentifier = .workingSet) {
+    self.identifier = .asset(m.id)
+    self.displayName = m.filename
+    self.isDirectory = false
+    self.size = NSNumber(value: m.size)
+    self.modified = m.contentModificationDate
+    let ext = (m.filename as NSString).pathExtension
+    self.utType = UTType(filenameExtension: ext) ?? .data
+    self.writeCapabilities = [.allowsReading]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parent
+    self.filename = m.filename
+  }
 
-    /// Last-resort placeholder for `WorkingSetEnumerator.enumerateChanges`.
-    /// The enumerator's primary path now does the per-asset metadata GET
-    /// itself and hands back a real `MapleItem(assetMetadata:)` — see
-    /// `WorkingSetEnumerator.enumerateChanges` — so this initializer is
-    /// only reached when that GET throws (network/5xx). It exists purely
-    /// so the itemVersion still bumps (via the cursor) and tells the OS
-    /// to re-read; it must never be the routine path, and its filename
-    /// must never be shown to a user for longer than one failed sync
-    /// round-trip (#2537).
-    ///
-    /// `parentItemIdentifier` is derived from `folderID + relativePath`
-    /// when both are present (Phase 6 item 2): the change-feed payload
-    /// now carries the asset's path relative to its folder root, so we
-    /// can attach the stub under `folder(folderID, dirname(relPath))`.
-    /// Falls back to `.rootContainer` when either is nil — legacy
-    /// server payloads, or rows where the server couldn't reconcile
-    /// absPath against folder.path. `.rootContainer` is always-valid
-    /// (unlike `.workingSet`, which `item(for:)` now unconditionally
-    /// rejects with `noSuchItem` — see `FileProviderExtensionCore
-    /// .resolveAssetParent`'s "NEVER .workingSet" clause); the OS
-    /// reattaches under the real folder on the next folder enumeration
-    /// regardless.
-    ///
-    /// `filename` falls back to `lastPathComponent(relativePath)` when
-    /// available — saves Finder from briefly painting "(stub)" before
-    /// `item(for:)` resolves the full metadata.
-    public init(stubAssetID assetID: String,
-                cursor: Int64,
-                folderID: String? = nil,
-                relativePath: String? = nil) {
-        self.identifier = .asset(assetID)
-        let resolvedFilename: String = {
-            guard let rel = relativePath, !rel.isEmpty else { return "(stub)" }
-            let last = (rel as NSString).lastPathComponent
-            return last.isEmpty ? "(stub)" : last
-        }()
-        self.displayName = resolvedFilename
-        self.isDirectory = false
-        self.size = nil
-        // Encode the cursor in the modified date so `itemVersion`
-        // (which derives both content + metadata versions from
-        // `modified.timeIntervalSince1970`) bumps on every delta.
-        // `WorkingSetEnumerator.enumerateChanges` does the per-asset
-        // metadata GET itself now (#2537) — this initializer is only
-        // reached when that GET fails, so the cursor is the only signal
-        // this placeholder has for bumping the version.
-        self.modified = Date(timeIntervalSince1970: TimeInterval(cursor))
-        // Extension is derived from the resolved filename so Quick
-        // Look's "spacebar shows the right icon" affordance kicks in
-        // before `item(for:)` fills in the rest.
-        let ext = (resolvedFilename as NSString).pathExtension
-        self.utType = ext.isEmpty ? .data : (UTType(filenameExtension: ext) ?? .data)
-        self.writeCapabilities = [.allowsReading]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        if let folderID, let rel = relativePath {
-            // Parent dir relative to the folder root. `lastPathComponent`
-            // of `relativePath` is the filename; `deletingLastPathComponent`
-            // gives the dir. Both for a root-level asset reduce to `""`,
-            // which is the folder-root identifier (`folder(folderID, "")`).
-            let parentRel = (rel as NSString).deletingLastPathComponent
-            let parent = FileProviderIdentifier.folder(folderID: folderID,
-                                                       relativePath: parentRel)
-            self.parentItemIdentifier = NSFileProviderItemIdentifier(parent.rawValue)
-        } else {
-            self.parentItemIdentifier = .rootContainer
-        }
-        self.filename = resolvedFilename
+  /// Last-resort placeholder for `WorkingSetEnumerator.enumerateChanges`.
+  /// The enumerator's primary path now does the per-asset metadata GET
+  /// itself and hands back a real `MapleItem(assetMetadata:)` — see
+  /// `WorkingSetEnumerator.enumerateChanges` — so this initializer is
+  /// only reached when that GET throws (network/5xx). It exists purely
+  /// so the itemVersion still bumps (via the cursor) and tells the OS
+  /// to re-read; it must never be the routine path, and its filename
+  /// must never be shown to a user for longer than one failed sync
+  /// round-trip (#2537).
+  ///
+  /// `parentItemIdentifier` is derived from `folderID + relativePath`
+  /// when both are present (Phase 6 item 2): the change-feed payload
+  /// now carries the asset's path relative to its folder root, so we
+  /// can attach the stub under `folder(folderID, dirname(relPath))`.
+  /// Falls back to `.rootContainer` when either is nil — legacy
+  /// server payloads, or rows where the server couldn't reconcile
+  /// absPath against folder.path. `.rootContainer` is always-valid
+  /// (unlike `.workingSet`, which `item(for:)` now unconditionally
+  /// rejects with `noSuchItem` — see `FileProviderExtensionCore
+  /// .resolveAssetParent`'s "NEVER .workingSet" clause); the OS
+  /// reattaches under the real folder on the next folder enumeration
+  /// regardless.
+  ///
+  /// `filename` falls back to `lastPathComponent(relativePath)` when
+  /// available — saves Finder from briefly painting "(stub)" before
+  /// `item(for:)` resolves the full metadata.
+  public init(
+    stubAssetID assetID: String,
+    cursor: Int64,
+    folderID: String? = nil,
+    relativePath: String? = nil
+  ) {
+    self.identifier = .asset(assetID)
+    let resolvedFilename: String = {
+      guard let rel = relativePath, !rel.isEmpty else { return "(stub)" }
+      let last = (rel as NSString).lastPathComponent
+      return last.isEmpty ? "(stub)" : last
+    }()
+    self.displayName = resolvedFilename
+    self.isDirectory = false
+    self.size = nil
+    // Encode the cursor in the modified date so `itemVersion`
+    // (which derives both content + metadata versions from
+    // `modified.timeIntervalSince1970`) bumps on every delta.
+    // `WorkingSetEnumerator.enumerateChanges` does the per-asset
+    // metadata GET itself now (#2537) — this initializer is only
+    // reached when that GET fails, so the cursor is the only signal
+    // this placeholder has for bumping the version.
+    self.modified = Date(timeIntervalSince1970: TimeInterval(cursor))
+    // Extension is derived from the resolved filename so Quick
+    // Look's "spacebar shows the right icon" affordance kicks in
+    // before `item(for:)` fills in the rest.
+    let ext = (resolvedFilename as NSString).pathExtension
+    self.utType = ext.isEmpty ? .data : (UTType(filenameExtension: ext) ?? .data)
+    self.writeCapabilities = [.allowsReading]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    if let folderID, let rel = relativePath {
+      // Parent dir relative to the folder root. `lastPathComponent`
+      // of `relativePath` is the filename; `deletingLastPathComponent`
+      // gives the dir. Both for a root-level asset reduce to `""`,
+      // which is the folder-root identifier (`folder(folderID, "")`).
+      let parentRel = (rel as NSString).deletingLastPathComponent
+      let parent = FileProviderIdentifier.folder(
+        folderID: folderID,
+        relativePath: parentRel)
+      self.parentItemIdentifier = NSFileProviderItemIdentifier(parent.rawValue)
+    } else {
+      self.parentItemIdentifier = .rootContainer
     }
+    self.filename = resolvedFilename
+  }
 
-    /// Synthetic `.maple/` directory surfaced under every enumerable
-    /// folder. The server hides this dir from `/api/fs/dir` (dotdir
-    /// filter); the FP extension synthesizes it client-side so the
-    /// app's future Folder-View consumer (#101) can read the pre-baked
-    /// thumbnails through the FP mount without an extra API call.
-    ///
-    /// Finder still hides the entry from human users because the name
-    /// starts with `.`, so user-visible listings are unaffected.
-    public init(mapleDir folderID: String,
-                parentRelativePath: String,
-                parentIdentifier: NSFileProviderItemIdentifier) {
-        self.identifier = .mapleDir(folderID: folderID, parentRelativePath: parentRelativePath)
-        self.displayName = ".maple"
-        self.isDirectory = true
-        self.size = nil
-        self.modified = nil
-        self.utType = .folder
-        // Read-only. No uploads, no nested writes — the cache is
-        // server-owned. `.allowsContentEnumerating` is required for
-        // the OS to follow through to the `.maple/thumbs/` enumerator.
-        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = ".maple"
-    }
+  /// Synthetic `.maple/` directory surfaced under every enumerable
+  /// folder. The server hides this dir from `/api/fs/dir` (dotdir
+  /// filter); the FP extension synthesizes it client-side so the
+  /// app's future Folder-View consumer (#101) can read the pre-baked
+  /// thumbnails through the FP mount without an extra API call.
+  ///
+  /// Finder still hides the entry from human users because the name
+  /// starts with `.`, so user-visible listings are unaffected.
+  public init(
+    mapleDir folderID: String,
+    parentRelativePath: String,
+    parentIdentifier: NSFileProviderItemIdentifier
+  ) {
+    self.identifier = .mapleDir(folderID: folderID, parentRelativePath: parentRelativePath)
+    self.displayName = ".maple"
+    self.isDirectory = true
+    self.size = nil
+    self.modified = nil
+    self.utType = .folder
+    // Read-only. No uploads, no nested writes — the cache is
+    // server-owned. `.allowsContentEnumerating` is required for
+    // the OS to follow through to the `.maple/thumbs/` enumerator.
+    self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = ".maple"
+  }
 
-    /// Synthetic `.maple/thumbs/` directory — the only child of a
-    /// `.mapleDir`. Children are one `.thumb(assetID:)` per indexed
-    /// image in `parentRelativePath`, named with the server's
-    /// `sha256_prefix16(basename).avif` convention.
-    public init(mapleThumbsDir folderID: String,
-                parentRelativePath: String,
-                parentIdentifier: NSFileProviderItemIdentifier) {
-        self.identifier = .mapleThumbsDir(folderID: folderID, parentRelativePath: parentRelativePath)
-        self.displayName = "thumbs"
-        self.isDirectory = true
-        self.size = nil
-        self.modified = nil
-        self.utType = .folder
-        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = "thumbs"
-    }
+  /// Synthetic `.maple/thumbs/` directory — the only child of a
+  /// `.mapleDir`. Children are one `.thumb(assetID:)` per indexed
+  /// image in `parentRelativePath`, named with the server's
+  /// `sha256_prefix16(basename).avif` convention.
+  public init(
+    mapleThumbsDir folderID: String,
+    parentRelativePath: String,
+    parentIdentifier: NSFileProviderItemIdentifier
+  ) {
+    self.identifier = .mapleThumbsDir(folderID: folderID, parentRelativePath: parentRelativePath)
+    self.displayName = "thumbs"
+    self.isDirectory = true
+    self.size = nil
+    self.modified = nil
+    self.utType = .folder
+    self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = "thumbs"
+  }
 
-    /// Pre-rendered thumbnail AVIF. `displayFilename` is the server's
-    /// on-disk name (`<sha256_prefix16(basename)>.avif`), derived by the
-    /// enumerator from the paired RAW's filename. Identifier carries
-    /// only the assetID — the OS reaches `fetchContents` with the
-    /// `.thumb(assetID:)` shape and the extension hits
-    /// `GET /api/assets/<id>/thumb` for the bytes.
-    ///
-    /// `size` and `modified` are left nil: the server doesn't surface
-    /// thumb dimensions on directory listings, and we don't pre-fetch
-    /// per-thumb stats during enumeration (one HEAD per asset would
-    /// blow the enumeration budget). The OS materializes on demand and
-    /// fills in the real size once bytes are written.
-    /// `modified` is the item's VERSION seed, not a claim about the file
-    /// (#3571): the sidecar's mtime when the asset has one, else the RAW's.
-    /// A server-side edit moves the sidecar mtime, the version changes, and
-    /// the OS refetches the derived bytes (an ETag round trip when the
-    /// server's file is unchanged). `nil` keeps the identifier-only
-    /// version, which never refetches.
-    public init(thumbForAsset assetID: String,
-                displayFilename: String,
-                modified: Date? = nil,
-                parentIdentifier: NSFileProviderItemIdentifier) {
-        self.identifier = .thumb(assetID: assetID)
-        self.displayName = displayFilename
-        self.isDirectory = false
-        self.size = nil
-        self.modified = modified
-        self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
-        // Read-only — `.maple/thumbs/` is a derived cache. Deletes
-        // here would leak through to the server-side cache and the
-        // next enumeration would just regenerate the entry.
-        self.writeCapabilities = [.allowsReading]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = displayFilename
-    }
+  /// Pre-rendered thumbnail AVIF. `displayFilename` is the server's
+  /// on-disk name (`<sha256_prefix16(basename)>.avif`), derived by the
+  /// enumerator from the paired RAW's filename. Identifier carries
+  /// only the assetID — the OS reaches `fetchContents` with the
+  /// `.thumb(assetID:)` shape and the extension hits
+  /// `GET /api/assets/<id>/thumb` for the bytes.
+  ///
+  /// `size` and `modified` are left nil: the server doesn't surface
+  /// thumb dimensions on directory listings, and we don't pre-fetch
+  /// per-thumb stats during enumeration (one HEAD per asset would
+  /// blow the enumeration budget). The OS materializes on demand and
+  /// fills in the real size once bytes are written.
+  /// `modified` is the item's VERSION seed, not a claim about the file
+  /// (#3571): the sidecar's mtime when the asset has one, else the RAW's.
+  /// A server-side edit moves the sidecar mtime, the version changes, and
+  /// the OS refetches the derived bytes (an ETag round trip when the
+  /// server's file is unchanged). `nil` keeps the identifier-only
+  /// version, which never refetches.
+  public init(
+    thumbForAsset assetID: String,
+    displayFilename: String,
+    modified: Date? = nil,
+    parentIdentifier: NSFileProviderItemIdentifier
+  ) {
+    self.identifier = .thumb(assetID: assetID)
+    self.displayName = displayFilename
+    self.isDirectory = false
+    self.size = nil
+    self.modified = modified
+    self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
+    // Read-only — `.maple/thumbs/` is a derived cache. Deletes
+    // here would leak through to the server-side cache and the
+    // next enumeration would just regenerate the entry.
+    self.writeCapabilities = [.allowsReading]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = displayFilename
+  }
 
-    /// Synthetic `.maple/previews/` directory (#3571) — the second child of a
-    /// `.mapleDir`, sibling of `thumbs/`. Children are one
-    /// `.preview(assetID:)` per indexed image in the parent folder, named
-    /// `<filename>.avif` exactly as the server writes them, so the app's
-    /// `MapleSidecarPaths.previewURL` resolves on the mount.
-    public init(maplePreviewsDir folderID: String,
-                parentRelativePath: String,
-                parentIdentifier: NSFileProviderItemIdentifier) {
-        self.identifier = .maplePreviewsDir(folderID: folderID, parentRelativePath: parentRelativePath)
-        self.displayName = "previews"
-        self.isDirectory = true
-        self.size = nil
-        self.modified = nil
-        self.utType = .folder
-        self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = "previews"
-    }
+  /// Synthetic `.maple/previews/` directory (#3571) — the second child of a
+  /// `.mapleDir`, sibling of `thumbs/`. Children are one
+  /// `.preview(assetID:)` per indexed image in the parent folder, named
+  /// `<filename>.avif` exactly as the server writes them, so the app's
+  /// `MapleSidecarPaths.previewURL` resolves on the mount.
+  public init(
+    maplePreviewsDir folderID: String,
+    parentRelativePath: String,
+    parentIdentifier: NSFileProviderItemIdentifier
+  ) {
+    self.identifier = .maplePreviewsDir(folderID: folderID, parentRelativePath: parentRelativePath)
+    self.displayName = "previews"
+    self.isDirectory = true
+    self.size = nil
+    self.modified = nil
+    self.utType = .folder
+    self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = "previews"
+  }
 
-    /// The developed 1280 px preview AVIF (#3571). Same contract as
-    /// `init(thumbForAsset:)`: read-only, bytes fetched on demand
-    /// (`GET /api/fs/preview?path=`), `modified` is the version seed.
-    public init(previewForAsset assetID: String,
-                displayFilename: String,
-                modified: Date?,
-                parentIdentifier: NSFileProviderItemIdentifier) {
-        self.identifier = .preview(assetID: assetID)
-        self.displayName = displayFilename
-        self.isDirectory = false
-        self.size = nil
-        self.modified = modified
-        self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
-        self.writeCapabilities = [.allowsReading]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = displayFilename
-    }
+  /// The developed 1280 px preview AVIF (#3571). Same contract as
+  /// `init(thumbForAsset:)`: read-only, bytes fetched on demand
+  /// (`GET /api/fs/preview?path=`), `modified` is the version seed.
+  public init(
+    previewForAsset assetID: String,
+    displayFilename: String,
+    modified: Date?,
+    parentIdentifier: NSFileProviderItemIdentifier
+  ) {
+    self.identifier = .preview(assetID: assetID)
+    self.displayName = displayFilename
+    self.isDirectory = false
+    self.size = nil
+    self.modified = modified
+    self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
+    self.writeCapabilities = [.allowsReading]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = displayFilename
+  }
 
-    /// `<filename>.avif` — the server's on-disk preview name (`cachePathFor`
-    /// in `src/api/src/fs/xmp.ts`), keyed on the full filename so
-    /// `IMG_1.dng` and `IMG_1.jpg` don't collide.
-    public static func previewFilename(forRawBasename rawBasename: String) -> String {
-        "\(rawBasename).avif"
-    }
+  /// `<filename>.avif` — the server's on-disk preview name (`cachePathFor`
+  /// in `src/api/src/fs/xmp.ts`), keyed on the full filename so
+  /// `IMG_1.dng` and `IMG_1.jpg` don't collide.
+  public static func previewFilename(forRawBasename rawBasename: String) -> String {
+    MapleSidecarPaths.previewFilename(forRawBasename: rawBasename)
+  }
 
-    /// The canonical `<imageBase>.xmp` sibling for an asset whose metadata
-    /// reports a sidecar on disk (#3563). Built from a change-feed
-    /// resolution so a server-side edit re-emits the sidecar item with the
-    /// sidecar's OWN mtime — the `itemVersion` seed — and the OS refetches
-    /// the bytes. `nil` when the server reports no sidecar; callers delete
-    /// `sidecarIdentifier(assetID:)` instead.
-    public convenience init?(sidecarForAsset meta: AssetMetadata,
-                             parent: NSFileProviderItemIdentifier) {
-        guard let mtime = meta.xmpMtime else { return nil }
-        let base = Self.imageBase(of: meta.filename)
-        let name = "\(base).xmp"
-        let child = SidecarChild(name: name, path: name, mtime: mtime,
-                                 size: meta.xmpSize ?? 0, assetID: meta.id)
-        self.init(sidecar: child, parentImageBase: base, parentIdentifier: parent)
-    }
+  /// The canonical `<imageBase>.xmp` sibling for an asset whose metadata
+  /// reports a sidecar on disk (#3563). Built from a change-feed
+  /// resolution so a server-side edit re-emits the sidecar item with the
+  /// sidecar's OWN mtime — the `itemVersion` seed — and the OS refetches
+  /// the bytes. `nil` when the server reports no sidecar; callers delete
+  /// `sidecarIdentifier(assetID:)` instead.
+  public convenience init?(
+    sidecarForAsset meta: AssetMetadata,
+    parent: NSFileProviderItemIdentifier
+  ) {
+    guard let mtime = meta.xmpMtime else { return nil }
+    let base = Self.imageBase(of: meta.filename)
+    let name = "\(base).xmp"
+    let child = SidecarChild(
+      name: name, path: name, mtime: mtime,
+      size: meta.xmpSize ?? 0, assetID: meta.id)
+    self.init(sidecar: child, parentImageBase: base, parentIdentifier: parent)
+  }
 
-    /// `IMG_1.dng` → `IMG_1`; an extensionless name is its own base.
-    public static func imageBase(of filename: String) -> String {
-        let dot = filename.lastIndex(of: ".")
-        return dot.map { String(filename[..<$0]) } ?? filename
-    }
+  /// `IMG_1.dng` → `IMG_1`; an extensionless name is its own base.
+  public static func imageBase(of filename: String) -> String {
+    let dot = filename.lastIndex(of: ".")
+    return dot.map { String(filename[..<$0]) } ?? filename
+  }
 
-    /// Identifier of an asset's canonical (non-conflict) sidecar item.
-    public static func sidecarIdentifier(assetID: String) -> NSFileProviderItemIdentifier {
-        NSFileProviderItemIdentifier(
-            FileProviderIdentifier.sidecar(assetID: assetID, conflictBasename: nil).rawValue)
-    }
+  /// Identifier of an asset's canonical (non-conflict) sidecar item.
+  public static func sidecarIdentifier(assetID: String) -> NSFileProviderItemIdentifier {
+    NSFileProviderItemIdentifier(
+      FileProviderIdentifier.sidecar(assetID: assetID, conflictBasename: nil).rawValue)
+  }
 
-    public init(sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier) {
-        let canonicalName = "\(parentImageBase).xmp"
-        let isCanonical = sidecar.name.caseInsensitiveCompare(canonicalName) == .orderedSame
-        let basenameWithoutExt: String? = {
-            guard !isCanonical else { return nil }
-            // Strip the .xmp extension case-insensitively so Windows-origin
-            // `.XMP` files don't carry the extension into the identifier.
-            if sidecar.name.lowercased().hasSuffix(".xmp") {
-                return String(sidecar.name.dropLast(4))
-            }
-            return sidecar.name
-        }()
-        self.identifier = .sidecar(assetID: sidecar.assetID, conflictBasename: basenameWithoutExt)
-        self.displayName = sidecar.name
-        self.isDirectory = false
-        self.size = NSNumber(value: sidecar.size)
-        self.modified = sidecar.mtime
-        self.utType = UTType(filenameExtension: "xmp") ?? .xml
-        self.writeCapabilities = [.allowsReading, .allowsWriting, .allowsDeleting]
-        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-        self.parentItemIdentifier = parentIdentifier
-        self.filename = sidecar.name
-    }
+  public init(
+    sidecar: SidecarChild, parentImageBase: String, parentIdentifier: NSFileProviderItemIdentifier
+  ) {
+    let canonicalName = "\(parentImageBase).xmp"
+    let isCanonical = sidecar.name.caseInsensitiveCompare(canonicalName) == .orderedSame
+    let basenameWithoutExt: String? = {
+      guard !isCanonical else { return nil }
+      // Strip the .xmp extension case-insensitively so Windows-origin
+      // `.XMP` files don't carry the extension into the identifier.
+      if sidecar.name.lowercased().hasSuffix(".xmp") {
+        return String(sidecar.name.dropLast(4))
+      }
+      return sidecar.name
+    }()
+    self.identifier = .sidecar(assetID: sidecar.assetID, conflictBasename: basenameWithoutExt)
+    self.displayName = sidecar.name
+    self.isDirectory = false
+    self.size = NSNumber(value: sidecar.size)
+    self.modified = sidecar.mtime
+    self.utType = UTType(filenameExtension: "xmp") ?? .xml
+    self.writeCapabilities = [.allowsReading, .allowsWriting, .allowsDeleting]
+    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+    self.parentItemIdentifier = parentIdentifier
+    self.filename = sidecar.name
+  }
 }

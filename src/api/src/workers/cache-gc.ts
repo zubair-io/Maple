@@ -46,7 +46,11 @@ import * as fs from '../fs/mirrored.ts';
 import * as path from 'node:path';
 import { liveLocationsByDirectory } from '../db/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { sourceFilenameForPreviewCacheName } from '../fs/preview-cache-cleanup.ts';
+import {
+  sourceFilenameForPreviewCacheName,
+  isCurrentOrNewerPreviewCacheName,
+} from '../fs/preview-cache-cleanup.ts';
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 import { sha256Prefix16 } from '../fs/xmp.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -78,11 +82,7 @@ const FAIL_THRESHOLD = 3;
 /** Matches a live `sha256_prefix16(basename)` thumb stem (16 lowercase hex) —
  * the current scheme for stage-written, on-demand, and pano pre-seed thumbs
  * alike (module doc). */
-const THUMB_KEY_RE = /^[0-9a-f]{16}$/;
-
-/** Matches a `sha256_prefix16(basename)_1600.jpg` filename — the
- * pano-injection pre-seed preview (module doc). Captures the 16-hex key. */
-const LEGACY_PANO_PREVIEW_RE = /^([0-9a-f]{16})_1600\.jpg$/;
+const THUMB_KEY_RE = /^([0-9a-f]{16})\.v([1-9][0-9]*)$/;
 
 /** Resolve `libraryRoot`'s registered library id (hex), or `null` if it isn't a
  * registered library root (or the lookup fails). `null` makes the previews
@@ -147,7 +147,7 @@ interface SweepContext {
 const SIDECAR_SUFFIX = '.meta';
 
 const THUMB_EXTS = new Set(['.jpg', '.avif']);
-const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.json']);
+const PREVIEW_EXTS = new Set(['.jpg', '.avif', '.webp', '.png', '.json']);
 
 /** Lazily builds (and memoizes) the set of `sha256Prefix16(liveName)`
  * hashes for one directory's live filenames — the live set for the thumbs
@@ -187,9 +187,11 @@ function isOrphanThumb(
 ): boolean {
   const ext = path.extname(name);
   const stem = name.slice(0, -ext.length);
-  if (THUMB_KEY_RE.test(stem)) {
+  const match = THUMB_KEY_RE.exec(stem);
+  if (match) {
+    if (Number(match[2]) < PIPELINE_OUTPUT_VERSION) return true;
     if (libraryId === null) return false;
-    return !hashedLiveNames().has(stem);
+    return !hashedLiveNames().has(match[1]);
   }
   // Retired `<maple_id>` naming, or an unrecognized shape.
   return true;
@@ -206,16 +208,11 @@ function isOrphanThumb(
 function isOrphanPreview(
   libraryId: string | null,
   liveNames: ReadonlySet<string>,
-  hashedLiveNames: () => ReadonlySet<string>,
   name: string,
 ): boolean {
   if (libraryId === null) return false;
   const source = sourceFilenameForPreviewCacheName(name);
-  if (source !== null) return !liveNames.has(source);
-  const legacyMatch = LEGACY_PANO_PREVIEW_RE.exec(name);
-  if (legacyMatch) {
-    return !hashedLiveNames().has(legacyMatch[1]);
-  }
+  if (source !== null) return !isCurrentOrNewerPreviewCacheName(name) || !liveNames.has(source);
   return true;
 }
 
@@ -288,8 +285,13 @@ async function reapStrandedSidecars(
 ): Promise<void> {
   const present = new Set(entries.filter((e) => e.isFile()).map((e) => e.name));
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(SIDECAR_SUFFIX)) continue;
-    if (present.has(entry.name.slice(0, -SIDECAR_SUFFIX.length))) continue;
+    const suffix = entry.name.endsWith('.v')
+      ? '.v'
+      : entry.name.endsWith(SIDECAR_SUFFIX)
+        ? SIDECAR_SUFFIX
+        : null;
+    if (!entry.isFile() || suffix === null) continue;
+    if (suffix === SIDECAR_SUFFIX && present.has(entry.name.slice(0, -suffix.length))) continue;
     const fullPath = path.join(cacheDir, entry.name);
     const stat = await fs.stat(fullPath).catch(() => null);
     if (stat && ctx.now - stat.mtimeMs < RECENT_THRESHOLD_MS) continue;
@@ -344,6 +346,7 @@ async function sweepCacheDir(
       // `unlinkSafe` treats the ENOENT this hits for every preview (which
       // never had a sidecar) as an uncounted no-op.
       await unlinkSafe(ctx, `${fullPath}.meta`);
+      await unlinkSafe(ctx, `${fullPath}.v`);
     }
   }
 
@@ -369,9 +372,8 @@ async function sweepPreviewsDir(
   relDir: string,
 ): Promise<void> {
   const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
-  const hashedLiveNames = lazyHashedNames(liveNames);
   await sweepCacheDir(ctx, cacheDir, PREVIEW_EXTS, (name) =>
-    isOrphanPreview(ctx.libraryId, liveNames, hashedLiveNames, name),
+    isOrphanPreview(ctx.libraryId, liveNames, name),
   );
 }
 
