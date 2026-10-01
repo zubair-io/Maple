@@ -1,0 +1,70 @@
+{
+  "issue": 3875,
+  "date": "2026-10-01",
+  "kind": "diagnostic-only",
+  "sourceBase": "855d4a04e4c077b0afb26ee1423438371bd2d51c",
+  "exampleSha256": "7E1E8D737E8F8874989F098EE24F65C01AED0B545FD4FC2B99C3537EF4603A23",
+  "executableSha256": "0221D4F734CCD315D1C595EFDF7816BB914837ACDE14A5CC7540F4A43874A8DA",
+  "command": "auto-fit-proxy-delta <isolated-input> <output> --render-matrix --variance-ratio=0.031529486041192184 --native-auto",
+  "profile": "Auto",
+  "nrColor": 25,
+  "fitQuality": "Preview",
+  "previewQuality": "Preview",
+  "nativeQuality": "Auto",
+  "varianceRatio": 0.031529486041192184,
+  "varianceBasis": "Previously derived normalized Mitchell kernel energy, not fitted to image error",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "originalUnchanged": true,
+  "nativeControlsByteIdentical": true,
+  "comparisonSize": [
+    1600,
+    1067
+  ],
+  "comparator": "src/scripts/compare_images.py diff(reference_size=(1600,1067), zones=True)",
+  "metrics": {
+    "native-default": {
+      "candidateSha256": "e404cdef2ba2ad2dfed60e3e6bb1e57222f0fdf94879e03c40097c29daf312f0",
+      "referenceSha256": "f69304b384bad6e29a2a07527cef221708791ad70a1176af865eec32a0d6e1b3",
+      "meanDeltaE": 3.1297011922392493,
+      "p95DeltaE": 7.7621111258228614
+    },
+    "native-variance-scaled": {
+      "candidateSha256": "4594abe732c6a2448543ae47d013d26d959306134ea9b9f649f723afb8c6bdcd",
+      "referenceSha256": "f69304b384bad6e29a2a07527cef221708791ad70a1176af865eec32a0d6e1b3",
+      "meanDeltaE": 2.5460316258302105,
+      "p95DeltaE": 6.393600326490354
+    },
+    "proxy-default": {
+      "candidateSha256": "b39fa5f9665792025f251527fd723ca89c02589e887b86e2759cd101efb20829",
+      "referenceSha256": "9e6053f6c1398ca89cdef10e2b75ff95b77d653d9146d98ba31bb852ecb81ee3",
+      "meanDeltaE": 3.7188230179823774,
+      "p95DeltaE": 8.84727191676015
+    },
+    "proxy-variance-scaled": {
+      "candidateSha256": "76fb11fcd59994aad05bec25f865d7949e95865b9d7e9555b66ba82d5635b652",
+      "referenceSha256": "9e6053f6c1398ca89cdef10e2b75ff95b77d653d9146d98ba31bb852ecb81ee3",
+      "meanDeltaE": 3.001988900084323,
+      "p95DeltaE": 7.27291066634179
+    },
+    "native-reconstruction-only": {
+      "candidateSha256": "1d035a68995dcc592e74c97e8fc965e76436c7f06a431d47c3af3c6662b7e1cd",
+      "referenceSha256": "f69304b384bad6e29a2a07527cef221708791ad70a1176af865eec32a0d6e1b3",
+      "meanDeltaE": 1.6383385715174266,
+      "p95DeltaE": 4.514699450367401
+    },
+    "proxy-reconstruction-only": {
+      "candidateSha256": "3c710d7d056ddc31c51bfbad9bd383cc9686b23ce34cbe40b85eeab68f147dc8",
+      "referenceSha256": "9e6053f6c1398ca89cdef10e2b75ff95b77d653d9146d98ba31bb852ecb81ee3",
+      "meanDeltaE": 1.9850842110333893,
+      "p95DeltaE": 5.517017496457253
+    }
+  },
+  "conclusion": "Noise variance scaling alone fails with native Auto reconstruction: fixed-native-fit mean 2.5460 and fixed-proxy-fit mean 3.0020 exceed 2.0. Native reconstruction changes alone contribute mean differences 1.6383 and 1.9851 at common output size. Earlier Preview-only improvements are insufficient evidence for a production correction; DeltaE values are not additive.",
+  "limitations": [
+    "One camera fixture; injected fixed fit caches are intentionally diagnostic.",
+    "Native reconstruction uses production Auto policy but the fixed Preview fit differs from normal export fitting.",
+    "Reconstruction-only candidates reuse hashed Preview references from experiment 208. Source diff from 810573445 to this base changes RAW downsample documentation, raster processing and export-recipe validation, not the RAW develop math used here; these are not fresh application captures.",
+    "Does not establish application CPU/GPU parity, complete visual qualification or physical hardware performance."
+  ],
+  "fullQualificationPassed": false
+}

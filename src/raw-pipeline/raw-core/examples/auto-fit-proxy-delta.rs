@@ -12,6 +12,9 @@
 //! Supply an independently derived variance ratio (for example, normalized
 //! resize-kernel energy), not a value fitted against image error. An area ratio
 //! alone does not describe the Mitchell resize kernel.
+//! `--native-auto` renders native matrix references with export's Auto
+//! reconstruction, holding the Preview-fitted artifacts fixed to isolate
+//! reconstruction from Auto fitting. This is not production cache behavior.
 use raw_core::pipeline::{
     fit_auto_profile_from_raw_at_cap, render_sized_from_raw_with_quality_and_source, FitCap,
     RawInput, RenderQuality,
@@ -27,6 +30,10 @@ const RENDER_LE: u32 = 1536;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    let native_auto = args.iter().any(|arg| arg == "--native-auto");
+    if native_auto {
+        assert!(args.iter().any(|arg| arg == "--render-matrix"));
+    }
     let variance_ratio = args.iter().find_map(|arg| {
         arg.strip_prefix("--variance-ratio=")
             .map(|value| value.parse::<f32>().expect("variance ratio"))
@@ -135,7 +142,17 @@ fn main() {
                 let curve = curve.as_ref().expect("matrix requires a fitted curve");
                 let residual = residual.as_ref().expect("matrix requires a residual LUT");
                 for edge in [1600, raw.width.max(raw.height)] {
-                    let key = CacheKey::from_path(&path, RenderQuality::Preview)
+                    let quality = if native_auto && edge == raw.width.max(raw.height) {
+                        RenderQuality::Auto
+                    } else {
+                        RenderQuality::Preview
+                    };
+                    let quality_suffix = if quality == RenderQuality::Auto {
+                        "-auto"
+                    } else {
+                        ""
+                    };
+                    let key = CacheKey::from_path(&path, quality)
                         .expect("fixture cache identity")
                         .with_origin(FitOrigin::Render(
                             (edge < raw.width.max(raw.height)).then_some(edge),
@@ -183,7 +200,7 @@ fn main() {
                         let rendered = render_sized_from_raw_with_quality_and_source(
                             &raw,
                             &model,
-                            RenderQuality::Preview,
+                            quality,
                             Some(RawInput::Path(&path)),
                             edge,
                         );
@@ -195,7 +212,9 @@ fn main() {
                         let (rw, rh, rgb) = rendered.expect("fixed-fit render");
                         let png = raw_core::png::encode(rw, rh, &rgb).unwrap();
                         std::fs::write(
-                            out.join(format!("{name}-{label}-fit-{edge}-{detail}.png")),
+                            out.join(format!(
+                                "{name}-{label}-fit-{edge}-{detail}{quality_suffix}.png"
+                            )),
                             png,
                         )
                         .unwrap();
