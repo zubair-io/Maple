@@ -144,51 +144,56 @@ describe('repointAssetLocation', () => {
     return assetId;
   }
 
-  test('moves onto an address a reaped row still claims, and leaves that row assetless', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    const libraryId = insertFolder(handle.db);
-    const assetId = seedRelocatable(handle, libraryId);
+  test.each([null, '2026-01-02T00:00:00.000Z'])(
+    'releases a deleted asset address with location deleted_at=%s, preserving its asset',
+    async (locationDeletedAt) => {
+      using handle = await createTestDatabase();
+      const db = testSqliteDb(handle.db);
+      const libraryId = insertFolder(handle.db);
+      const assetId = seedRelocatable(handle, libraryId);
 
-    // The state the missing-reaper leaves behind: an asset soft-deleted because
-    // its file vanished, whose location was never repointed and so goes on
-    // naming the address the file used to have. `asset_locations_lib_path_name`
-    // is UNIQUE and not partial over live rows, so that dead row reserves the
-    // address against everyone.
-    const reaped = insertAsset(handle.db, { deletedAt: '2026-01-02T00:00:00.000Z' });
-    insertLocation(handle.db, {
-      assetId: reaped,
-      libraryId,
-      path: 'b',
-      filename: 'y.dng',
-      deletedAt: '2026-01-02T00:00:00.000Z',
-    });
+      // The state the missing-reaper leaves behind: an asset soft-deleted because
+      // its file vanished, whose location was never repointed and so goes on
+      // naming the address the file used to have. `asset_locations_lib_path_name`
+      // is UNIQUE and not partial over live rows, so that dead row reserves the
+      // address against everyone.
+      const reaped = insertAsset(handle.db, { deletedAt: '2026-01-02T00:00:00.000Z' });
+      insertLocation(handle.db, {
+        assetId: reaped,
+        libraryId,
+        path: 'b',
+        filename: 'y.dng',
+        deletedAt: locationDeletedAt,
+      });
 
-    // Before #3787 this threw on the unique index, and the caller reported
-    // "fileinfo entry changed concurrently" — a 500 with an untrue explanation
-    // for a move MongoDB completed, because it had no such constraint.
-    expect(
-      await repointAssetLocation(
-        {
-          id: oid(assetId),
-          from: { libraryId: oid(libraryId), path: 'a', filename: 'x.dng' },
-          to: { libraryId: oid(libraryId), path: 'b', filename: 'y.dng' },
-        },
-        db,
-      ),
-    ).toBe(true);
+      // Before #3787 this threw on the unique index, and the caller reported
+      // "fileinfo entry changed concurrently" — a 500 with an untrue explanation
+      // for a move MongoDB completed, because it had no such constraint.
+      expect(
+        await repointAssetLocation(
+          {
+            id: oid(assetId),
+            from: { libraryId: oid(libraryId), path: 'a', filename: 'x.dng' },
+            to: { libraryId: oid(libraryId), path: 'b', filename: 'y.dng' },
+          },
+          db,
+        ),
+      ).toBe(true);
 
-    expect(
-      handle.db.query(`SELECT path, filename FROM asset_locations WHERE asset_id = ?`).get(assetId),
-    ).toEqual({ path: 'b', filename: 'y.dng' });
-    // The reaped asset keeps its row; only its stale claim on the address goes.
-    expect(
-      handle.db.query(`SELECT COUNT(*) AS n FROM asset_locations WHERE asset_id = ?`).get(reaped),
-    ).toEqual({ n: 0 });
-    expect(handle.db.query(`SELECT id FROM assets WHERE id = ?`).get(reaped)).toEqual({
-      id: reaped,
-    });
-  });
+      expect(
+        handle.db
+          .query(`SELECT path, filename FROM asset_locations WHERE asset_id = ?`)
+          .get(assetId),
+      ).toEqual({ path: 'b', filename: 'y.dng' });
+      // The reaped asset keeps its row; only its stale claim on the address goes.
+      expect(
+        handle.db.query(`SELECT COUNT(*) AS n FROM asset_locations WHERE asset_id = ?`).get(reaped),
+      ).toEqual({ n: 0 });
+      expect(handle.db.query(`SELECT id FROM assets WHERE id = ?`).get(reaped)).toEqual({
+        id: reaped,
+      });
+    },
+  );
 
   test('still refuses to evict a LIVE occupant of the destination', async () => {
     using handle = await createTestDatabase();
@@ -199,10 +204,7 @@ describe('repointAssetLocation', () => {
     const occupant = insertAsset(handle.db);
     insertLocation(handle.db, { assetId: occupant, libraryId, path: 'b', filename: 'y.dng' });
 
-    // The dead-claim sweep is scoped to `deleted_at IS NOT NULL` precisely so
-    // this case keeps failing. A live occupant is what the caller's `occupied`
-    // result exists to report, and quietly evicting it would be the silent data
-    // loss that guard was added to prevent.
+    // A live destination claim must still collide with the unique address index.
     await expect(
       repointAssetLocation(
         {

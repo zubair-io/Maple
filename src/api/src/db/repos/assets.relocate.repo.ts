@@ -121,38 +121,26 @@ export async function repointAssetLocation(
 
   const results = await sqliteDb(dbOverride).transaction([
     {
-      // Free the destination address of any DEAD claim on it first.
-      //
-      // `asset_locations_lib_path_name` is UNIQUE over (library_id, path,
-      // filename) and is not partial over live rows, so a soft-deleted row
-      // still reserves the address it names. The reaper reaches exactly that
-      // state: it soft-deletes an asset whose file vanished without repointing
-      // the location, so the dead row goes on naming a path that no longer has
-      // a file at it. If the file comes back and a user relocates a different
-      // asset onto it, the occupancy guard correctly allows the move — the
-      // occupant is not live — and then the repoint below collided with the
-      // index and surfaced as "fileinfo entry changed concurrently", which is a
-      // 500 carrying an untrue explanation for a move that MongoDB completed.
-      //
-      // Only the location row goes, never the asset: unlike `restoreFromTrash`,
-      // whose collision is a watcher-inserted skeleton worth deleting outright,
-      // this one is a real asset with history. Its address claim is what is
-      // stale, and for a reaped row it is stale by definition — the file it
-      // named is gone. A user-trashed asset is unaffected, because
-      // `markSoftDeleted` repoints its location into the trash directory, so it
-      // never claims an ordinary destination.
-      //
-      // Scoped to `deleted_at IS NOT NULL`: a LIVE occupant must still collide
-      // rather than be quietly evicted, which is what the `occupied` result in
-      // `library/relocate-asset.ts` exists to report.
+      // Dead address claims still reserve the unique index; retain their asset history (#3788).
       sql: `DELETE FROM asset_locations
              WHERE library_id = ? AND path = ? AND filename = ?
-               AND deleted_at IS NOT NULL
-               AND NOT (asset_id = ? AND library_id = ? AND path = ? AND filename = ?)`,
+               AND (deleted_at IS NOT NULL OR EXISTS
+                    (SELECT 1 FROM assets occupant
+                      WHERE occupant.id = asset_locations.asset_id
+                        AND occupant.deleted_at IS NOT NULL))
+               AND NOT (asset_id = ? AND library_id = ? AND path = ? AND filename = ?)
+               AND EXISTS (SELECT 1 FROM asset_locations source
+                            WHERE source.asset_id = ? AND source.library_id = ?
+                              AND source.path = ? AND source.filename = ?
+                              AND source.deleted_at IS NULL)`,
       params: [
         toHex(args.to.libraryId),
         args.to.path,
         args.to.filename,
+        hex,
+        toHex(args.from.libraryId),
+        args.from.path,
+        args.from.filename,
         hex,
         toHex(args.from.libraryId),
         args.from.path,

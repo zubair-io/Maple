@@ -212,10 +212,12 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
     expect(row.filename).toBe('untracked.dng');
   });
 
-  test('a TRASHED (asset-level deleted_at set) former occupant does not count as a live occupant', async () => {
+  test('replace onto a TRASHED occupant still works and preserves its asset history', async () => {
     using live = await createLiveTestDatabase();
     await write('a/incoming.dng', 'incoming-pixels');
+    await write('a/incoming.xmp', 'incoming-edits');
     await write('b/trashed.dng', 'trashed-occupant-bytes');
+    await write('b/trashed.xmp', 'trashed-occupant-edits');
     const {
       idA: incomingId,
       idB: trashedId,
@@ -243,14 +245,7 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
     );
     expect(await findLiveOccupantAssetId(address, incomingId)).toBeNull();
 
-    // And the orchestrator lets the relocate through rather than refusing it
-    // 409-shaped. It cannot go on to COMPLETE in this fixture, which is a
-    // SQLite-era difference rather than a change in the guard:
-    // `asset_locations_lib_path_name` is UNIQUE over (library_id, path,
-    // filename) and the trashed occupant's row still holds that address, so
-    // the repoint is rejected and `relocateFile` reverts. The Mongo schema
-    // had no such constraint and the move completed, leaving the trashed row
-    // pointing at another asset's pixels.
+    const trashedStages = stages(live.db, trashedId);
     const result = await relocateAsset({
       id: incomingId,
       mode: 'move',
@@ -258,7 +253,20 @@ describe('relocateAsset — replace collision guard (#2843)', () => {
       destinationPath: 'b',
       destinationFilename: 'trashed.dng',
     });
-    expect(result.kind).not.toBe('occupied');
+    expect(result.kind).toBe('relocated');
+    expect(await exists('a/incoming.dng')).toBe(false);
+    expect(await exists('a/incoming.xmp')).toBe(false);
+    expect(await read('b/trashed.dng')).toBe('incoming-pixels');
+    expect(await read('b/trashed.xmp')).toBe('incoming-edits');
+    expect(locations(live.db, incomingId)[0]).toMatchObject({
+      path: 'b',
+      filename: 'trashed.dng',
+    });
+    expect(locations(live.db, trashedId)).toEqual([]);
+    expect(
+      live.db.query('SELECT deleted_at FROM assets WHERE id = ?').get(trashedId.toHexString()),
+    ).toEqual({ deleted_at: '2026-01-01T00:00:00Z' });
+    expect(stages(live.db, trashedId)).toEqual(trashedStages);
   });
 
   test('replace does not consider the incoming asset itself an occupant of its own destination', async () => {
