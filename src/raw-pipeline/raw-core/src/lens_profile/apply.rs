@@ -107,7 +107,7 @@ pub fn apply(
     Ok(())
 }
 
-fn source(
+pub(crate) fn source(
     calibration: &Calibration,
     scales: LensCorrectionScales,
     width: f64,

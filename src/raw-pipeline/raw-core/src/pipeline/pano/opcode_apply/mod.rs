@@ -43,11 +43,13 @@
 
 mod cubic;
 mod warp;
+mod point_map;
 
 pub use crate::pipeline::pano::opcodes::WarpRectilinearOpcode;
 pub use warp::{
     apply_warp_rectilinear, apply_warp_rectilinear_windowed, warp_rectilinear_reach_px,
 };
+pub(crate) use point_map::WarpPointMap;
 
 use rayon::prelude::*;
 

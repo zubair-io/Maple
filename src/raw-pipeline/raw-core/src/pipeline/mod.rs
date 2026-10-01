@@ -41,6 +41,8 @@ pub use removal_calibration::{
 pub use removal_calibration_anchor::removal_calibration_source_anchor;
 mod removal_context;
 pub use removal_context::render_removal_context;
+mod removal_geometry;
+pub use removal_geometry::{map_removal_display_points, RemovalGeometry};
 mod removal_encoding;
 pub use removal_encoding::RemovalModelEncoding;
 mod removal_mask_store;

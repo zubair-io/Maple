@@ -4,6 +4,39 @@ import XCTest
 @testable import MapleCore
 
 final class RemovalCalibrationContextTests: XCTestCase {
+  func testNativeGestureMappingPreservesSurroundAndRejectsMalformedRequests() throws {
+    let raw = try handle()
+    let xmp = """
+      <rdf:Description xmlns:rdf="x" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:PerspectiveX="100"/>
+      """
+    let request = "{\"schema\":1,\"points\":[[0.0,0.5],[0.8,0.5],[1.1,0.5]]}"
+    let data = Data(
+      try RemovalBridge.mapDisplayPoints(handle: raw, xmp: xmp, request: request).utf8)
+    let mapped = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    XCTAssertEqual(mapped["source_size"] as? [Int], [16, 8])
+    let points = try XCTUnwrap(mapped["points"] as? [Any])
+    XCTAssertEqual(points.count, 3)
+    XCTAssertTrue(points[0] is NSNull)
+    XCTAssertTrue(points[2] is NSNull)
+    let middle = try XCTUnwrap(points[1] as? [Double])
+    XCTAssertEqual(middle[0], 0.3, accuracy: 1e-7)
+    XCTAssertEqual(middle[1], 0.5)
+    XCTAssertThrowsError(
+      try RemovalBridge.mapDisplayPoints(
+        handle: raw, xmp: xmp,
+        request: "{\"schema\":2,\"points\":[]}"))
+    XCTAssertThrowsError(
+      try RemovalBridge.mapDisplayPoints(handle: raw, xmp: xmp + "\0", request: request))
+    let cropped = """
+      <rdf:Description xmlns:rdf="x" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:HasCrop="True" crs:CropLeft="0.25" crs:CropRight="0.75" crs:CropTop="0" crs:CropBottom="1" crs:CropAngle="90"/>
+      """
+    let cropRequest = "{\"schema\":1,\"crop_input_size\":[16,8],\"points\":[[0.5,0.25]]}"
+    let cropData = Data(
+      try RemovalBridge.mapDisplayPoints(handle: raw, xmp: cropped, request: cropRequest).utf8)
+    let cropMap = try XCTUnwrap(JSONSerialization.jsonObject(with: cropData) as? [String: Any])
+    XCTAssertEqual(cropMap["points"] as? [[Double]], [[0.375, 0.5]])
+  }
+
   private func handle() throws -> MapleRawHandle {
     let raw = try XCTUnwrap(
       Bundle.module.url(forResource: "source", withExtension: "dng", subdirectory: "removal"))

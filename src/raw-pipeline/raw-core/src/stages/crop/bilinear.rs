@@ -101,6 +101,18 @@ fn inverse_rotate(dx: f32, dy: f32, p: &RotationParams) -> (f32, f32) {
     (sx, sy)
 }
 
+pub(super) fn map_to_source(point: [f32; 2], size: [u32; 2], angle: f32) -> [f32; 2] {
+    let theta = angle.to_radians();
+    let params = RotationParams {
+        cx: size[0] as f32 / 2.0,
+        cy: size[1] as f32 / 2.0,
+        cos_t: (-theta).cos(),
+        sin_t: (-theta).sin(),
+    };
+    let (x, y) = inverse_rotate(point[0], point[1], &params);
+    [x, y]
+}
+
 /// Bilinear sample into a packed RGBA f32 buffer at fractional `(sx, sy)`
 /// pixel coordinates (origin = pixel-centre of pixel (0, 0)). Out-of-bounds
 /// reads return `[0.0, 0.0, 0.0, 1.0]` — the alpha stays 1.0 so downstream
