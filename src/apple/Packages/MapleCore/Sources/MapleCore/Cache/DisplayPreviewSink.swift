@@ -40,6 +40,11 @@ public struct LocalDisplayPreviewSink: DisplayPreviewSink {
   }
 
   public func write(_ bytes: Data) async {
+    writeLocally(bytes)
+  }
+
+  /// Keep scope acquisition, filesystem I/O and release in one synchronous operation.
+  private func writeLocally(_ bytes: Data) {
     let accessing = scopeParentURL?.startAccessingSecurityScopedResource() ?? false
     defer { if accessing { scopeParentURL?.stopAccessingSecurityScopedResource() } }
     try? FileManager.default.createDirectory(
