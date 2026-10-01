@@ -54,7 +54,7 @@ import {
   stateToOutput,
 } from './builder-state';
 import type { BuilderState } from './builder-state';
-import type { RecipeOp } from './recipe';
+import type { ExifTags, RecipeOp } from './recipe';
 import type {
   AvifOutputOptions,
   Colour,
@@ -490,23 +490,19 @@ export class MapleImageBuilder {
     return this;
   }
 
-  /**
-   * Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`).
-   * Diverges from sharp's `withExif({IFD0: {...}})` — see the doc on
-   * `applyWithExif` in `builder-metadata.ts`.
-   */
-  withExif(exif: Uint8Array | Buffer): this {
+  /** Replace input EXIF with authored IFD tags or a raw TIFF-header block. */
+  withExif(exif: ExifTags | Uint8Array | Buffer): this {
     applyWithExif(this.s, exif);
     return this;
   }
 
-  /**
-   * Tag the output with an ICC profile: `'srgb'` (Maple's own built-in
-   * profile), a filesystem path, or raw profile bytes. This never converts
-   * pixels, which is why `'p3'` is a named error — see the doc on
-   * `applyWithIccProfile` in `builder-metadata.ts` for that and for the
-   * other divergences from sharp's own `string`-only signature.
-   */
+  /** Merge authored IFD tags into the input EXIF. */
+  withExifMerge(exif: ExifTags): this {
+    applyWithExif(this.s, exif, true);
+    return this;
+  }
+
+  /** Embed an ICC profile; named srgb/p3 profiles also select output primaries. */
   withIccProfile(icc: string | Uint8Array | Buffer): this {
     applyWithIccProfile(this.s, icc);
     return this;

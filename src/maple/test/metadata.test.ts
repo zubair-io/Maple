@@ -452,15 +452,17 @@ describe('Metadata and stats', () => {
       expect(() => maple(ramp(8, 8)).withIccProfile('cmyk')).toThrow(/CMYK/);
     });
 
-    it('item 2: withExif() rejects an IFD object like sharp accepts, by name', () => {
-      expect(() =>
-        maple(ramp(8, 8)).withExif({ IFD0: { Copyright: 'x' } } as unknown as Buffer),
-      ).toThrow(/IFD object/);
+    it('item 2: withExif() accepts an IFD object (#3588)', async () => {
+      const result = await maple(ramp(8, 8))
+        .withExif({ IFD0: { Copyright: 'x' } })
+        .jpeg()
+        .toBuffer();
+      expect((await maple(result).metadata()).exif).toBeDefined();
     });
 
     it('item 2: withExif() rejects any other non-Buffer value too', () => {
       expect(() => maple(ramp(8, 8)).withExif(42 as unknown as Buffer)).toThrow(
-        'Expected a Buffer for exif but received 42 of type number',
+        'Expected an IFD object or Buffer for exif but received 42 of type number',
       );
     });
 

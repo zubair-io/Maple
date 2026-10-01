@@ -215,8 +215,27 @@ fn resolve_output_metadata(
     aux: &[u8],
     primaries: TargetPrimaries,
     auto_oriented: bool,
+    image: &RasterImage,
 ) -> Result<ResolvedMetadata> {
-    resolve_metadata(&recipe.metadata, input, aux, auto_oriented, primaries)
+    let metadata = resolve_metadata(&recipe.metadata, input, aux, auto_oriented, primaries)?;
+    let exif = if recipe.metadata.exif_tags.is_some() {
+        // These are properties of the encoded image, never caller-authored
+        // strings. A resize must not leave stale EXIF dimensions behind.
+        let tags = std::collections::BTreeMap::from([(
+            "IFD2".into(),
+            std::collections::BTreeMap::from([
+                ("PixelXDimension".into(), image.width.to_string()),
+                ("PixelYDimension".into(), image.height.to_string()),
+            ]),
+        )]);
+        Some(crate::raster_exif_author::author_exif(
+            &tags,
+            metadata.exif.as_deref(),
+        )?)
+    } else {
+        metadata.exif
+    };
+    Ok(ResolvedMetadata { exif, ..metadata })
 }
 
 pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeResult> {
@@ -268,7 +287,8 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     if is_avif_output(&output) {
         crate::export::reject_untagged_avif_p3(crate::export::ExportFormat::Avif, primaries)?;
     }
-    let metadata = resolve_output_metadata(recipe, input, aux, primaries, auto_oriented)?;
+    let metadata =
+        resolve_output_metadata(recipe, input, aux, primaries, auto_oriented, &processed)?;
     let bytes = encode_raster_output(&processed, &output, &metadata)?;
     let channels = channels_written(&processed, &output);
     Ok(RecipeResult {
