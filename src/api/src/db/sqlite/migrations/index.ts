@@ -29,6 +29,7 @@ import { stageStateAssetClaimableMigration } from './0004-stage-state-asset-clai
 import { optionalUserEmailMigration } from './0005-optional-user-email.ts';
 import { emailFreeInvitesMigration } from './0006-email-free-invites.ts';
 import { assetWorkingSetSortMigration } from './0007-asset-working-set-sort.ts';
+import { removeUnusedIndexerQueueMigration } from './0008-remove-unused-indexer-queue.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -38,4 +39,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   optionalUserEmailMigration,
   emailFreeInvitesMigration,
   assetWorkingSetSortMigration,
+  removeUnusedIndexerQueueMigration,
 ];
