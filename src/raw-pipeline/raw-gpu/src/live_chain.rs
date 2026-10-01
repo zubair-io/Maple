@@ -320,7 +320,7 @@ pub fn build_live_split<'a>(
     }
     if inputs.nr_color.abs() >= SLIDER_EPS {
         suffix.push(Box::new(NlmColorPass {
-            sampling_scale: 1.0,
+            sampling_scale: inputs.nr_sampling_scale,
             nr_color: inputs.nr_color,
             noise_profile: inputs.noise_profile.clone(),
             iso: inputs.iso,

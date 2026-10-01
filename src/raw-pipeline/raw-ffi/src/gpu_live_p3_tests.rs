@@ -76,6 +76,7 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
         let wb_matrix =
             raw_core::stages::white_balance::wb_cat16_matrix(model.temperature, model.tint).0;
         let inputs = FullChainInputs {
+            nr_sampling_scale: 1.0,
             whites_anchor_ev: super::gpu_live_test_support::input_whites_anchor(input.as_ref()),
             wb_matrix,
             wb_temperature: model.temperature,

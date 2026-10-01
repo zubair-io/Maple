@@ -213,6 +213,7 @@ pub(super) fn build_full_chain_inputs(
     };
 
     FullChainInputs {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev,
         wb_matrix,
         wb_temperature: model.temperature,

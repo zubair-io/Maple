@@ -224,6 +224,8 @@ pub struct FullChainInputs<'a> {
     pub sharpen_masking: f32,
     pub nr_luminance: f32,
     pub nr_color: f32,
+    /// #3875 output pixels per developed full-frame pixel; native crops use 1.
+    pub nr_sampling_scale: f32,
     /// AgX contrast slider (routed to the sigmoid slope).
     pub contrast: f32,
     /// Capture-sharpening params, `Some` only when the stage runs (mirrors
@@ -484,7 +486,7 @@ pub fn build_split<'a>(
         iso: inputs.iso,
     }));
     suffix.push(Box::new(NlmColorPass {
-        sampling_scale: 1.0,
+        sampling_scale: inputs.nr_sampling_scale,
         nr_color: inputs.nr_color,
         noise_profile: inputs.noise_profile.clone(),
         iso: inputs.iso,

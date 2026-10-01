@@ -131,6 +131,7 @@ impl Case {
     /// Bind the same full-frame pre-edit statistic used by the CPU oracle.
     pub fn gpu_inputs_for(&self, input: &[f32]) -> FullChainInputs<'static> {
         FullChainInputs {
+            nr_sampling_scale: 1.0,
             whites_anchor_ev: frame_whites_anchor(input),
             ..self.gpu_inputs()
         }
@@ -142,6 +143,7 @@ impl Case {
     /// image data — the GPU stage params come straight from the CPU model.
     pub fn gpu_inputs(&self) -> FullChainInputs<'static> {
         FullChainInputs {
+            nr_sampling_scale: 1.0,
             wb_matrix: wb_matrix(self.model.temperature, self.model.tint, self.wb_method),
             wb_temperature: self.model.temperature,
             wb_tint: self.model.tint,

@@ -45,6 +45,9 @@ pub fn apply_scene_linear_chain_f32_windowed(
         ));
     }
     let mut options = *options;
+    // Cropping changes dimensions, not sampling density. This entry's patches
+    // are native-resolution and must not inherit the fit-preview NR scale.
+    options.nr_sampling_scale = 1.0;
     options.mask_long_edge = Some(window.full_width.max(window.full_height));
     apply_scene_linear_chain_f32_inner(
         input,

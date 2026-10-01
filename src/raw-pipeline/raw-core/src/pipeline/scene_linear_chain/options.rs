@@ -48,6 +48,8 @@ pub struct ChainOptions<'a> {
     /// to derive the per-channel sigma. 100 = the hardcoded fallback that
     /// predates noise-profile plumbing.
     pub iso: u32,
+    /// #3875 output pixels per developed full-frame pixel; native crops use 1.
+    pub nr_sampling_scale: f32,
     /// Full frame's long edge at this buffer's scale — the S/H detail-mask
     /// anchor (#2476). `None` = the buffer IS the whole frame (every FFI/WASM
     /// caller); a caller handing in a CROP (the live-vs-tile gate) sets it.
@@ -66,6 +68,7 @@ impl Default for ChainOptions<'_> {
             target_primaries: TargetPrimaries::Srgb,
             noise_profile: None,
             iso: 100,
+            nr_sampling_scale: 1.0,
             mask_long_edge: None,
             whites_anchor_ev: None,
         }

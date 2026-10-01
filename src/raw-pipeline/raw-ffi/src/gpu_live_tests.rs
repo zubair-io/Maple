@@ -330,6 +330,7 @@ pub(super) fn direct_raw_gpu(
         }
     };
     let inputs = FullChainInputs {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: super::gpu_live_test_support::input_whites_anchor(input.as_ref()),
         wb_matrix,
         wb_temperature: model.temperature,

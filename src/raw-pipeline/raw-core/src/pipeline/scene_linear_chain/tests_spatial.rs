@@ -8,6 +8,54 @@
 use super::*;
 
 #[test]
+fn live_chains_forward_nr_sampling_but_native_windows_keep_native_scale() {
+    let input: Vec<f32> = (0..48 * 48)
+        .flat_map(|i| {
+            let t = ((i * 17) % 13) as f32 * 0.006;
+            [0.4 + t, 0.35, 0.3 + t, 1.0]
+        })
+        .collect();
+    let model = AdjustmentModel {
+        sharpen_amount: 0.0,
+        nr_color: 75.0,
+        ..Default::default()
+    };
+    let native = ChainOptions::default();
+    let sampled = ChainOptions {
+        nr_sampling_scale: 0.25,
+        ..native
+    };
+    let full = apply_scene_linear_chain_f32(&input, 48, 48, &model, &native).unwrap();
+    let preview = apply_scene_linear_chain_f32(&input, 48, 48, &model, &sampled).unwrap();
+    let difference = full
+        .iter()
+        .zip(&preview)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f32, f32::max);
+    assert!(difference > 1e-5);
+    let half: Vec<u16> = input
+        .iter()
+        .map(|v| half::f16::from_f32(*v).to_bits())
+        .collect();
+    let native_half = apply_scene_linear_chain(&half, 48, 48, &model, &native).unwrap();
+    let sampled_half = apply_scene_linear_chain(&half, 48, 48, &model, &sampled).unwrap();
+    assert_ne!(native_half, sampled_half);
+    let window = ChainWindow {
+        x: 0,
+        y: 0,
+        full_width: 48,
+        full_height: 48,
+    };
+    let patch =
+        apply_scene_linear_chain_f32_windowed(&input, 48, 48, &model, &sampled, None, window)
+            .unwrap();
+    assert_eq!(
+        full, patch,
+        "native windows must not inherit preview sampling"
+    );
+}
+
+#[test]
 fn chain_f32_applies_both_defringe_bands() {
     let opts = ChainOptions {
         skip_agx: true,

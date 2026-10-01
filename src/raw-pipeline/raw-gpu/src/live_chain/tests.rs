@@ -26,6 +26,9 @@
 //! the view tail — exactly what the gated GPU chain runs.
 
 use super::*;
+
+#[path = "tests_sampling.rs"]
+mod sampling;
 use crate::chain::ChainRunner;
 use crate::context::GpuContext;
 use crate::dehaze::{compute_airlight, AirlightSource};

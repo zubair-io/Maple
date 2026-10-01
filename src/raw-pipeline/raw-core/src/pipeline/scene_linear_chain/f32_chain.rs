@@ -18,6 +18,7 @@ pub(super) fn apply_scene_linear_chain_f32_inner(
         target_primaries,
         noise_profile,
         iso,
+        nr_sampling_scale,
         mask_long_edge,
         whites_anchor_ev,
     } = *opts;
@@ -149,7 +150,14 @@ pub(super) fn apply_scene_linear_chain_f32_inner(
     // Chroma noise reduction (#1043) — develop's `nr_color`, immediately
     // after nr_luminance; identity below |amount| < 1e-3.
     stage("ffi_chain_nr_color", || {
-        noise_reduction::apply_color(&mut img, model.nr_color, noise_profile, iso)
+        noise_reduction::apply_color_sampled_cancellable(
+            &mut img,
+            model.nr_color,
+            crate::cancel::CancelToken::never(),
+            noise_profile,
+            iso,
+            nr_sampling_scale,
+        )
     });
     if !skip_agx {
         stage("ffi_chain_agx", || {
