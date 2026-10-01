@@ -19,7 +19,7 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
+        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
         noise_reduction, retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves,
         vibrance, vignette, wb_camera, white_balance,
@@ -434,6 +434,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
     dump_after("11_texture", &scene);
     stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
+    // Global defringe must affect viewport renders as well as exports (#3889).
+    // Keep the full develop ordering: after dehaze, before local adjustments.
+    stage("sized_defringe", || {
+        defringe::apply_model(&mut scene, model)
+    });
+    dump_after("12a_defringe", &scene);
     stage("sized_local_adjustments", || {
         local_adjustments::apply(&mut scene, &model.local_adjustments, &model.mask_rasters)
     });
