@@ -61,6 +61,15 @@ describe('decodeHostedThumb', () => {
     expect(d.pipeline.decode).not.toHaveBeenCalled();
   });
 
+  it('never retries a failed authored RAW preview without its sidecar', async () => {
+    const d = deps();
+    d.preview.resolve.mockRejectedValue(new Error('Malformed RAW sidecar'));
+    const asset = { id: ID, filename: 'photo.dng' } as Asset;
+    await expect(decodeHostedThumb(asset, d)).rejects.toThrow('Malformed RAW sidecar');
+    expect(d.pipeline.decode).not.toHaveBeenCalled();
+    expect(d.getBytes).not.toHaveBeenCalled();
+  });
+
   it('decodes display-ready files through the existing pipeline path', async () => {
     const d = deps();
     const asset = { id: ID, filename: 'photo.JPG' } as Asset;
