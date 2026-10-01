@@ -16,6 +16,31 @@ public sealed class ThumbnailRendererTests(ITestOutputHelper output)
         "xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:FilmLook=\"black_white_ilford_delta_100\" papp:FilmStrength=\"100\"/></rdf:RDF>";
 
     [Fact]
+    public void Unedited_recovery_requires_absent_sidecar_even_when_sidecar_is_invalid()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "maple-thumb-recovery-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var raw = Path.Combine(directory, "photo.dng");
+            var sidecar = SidecarStore.SidecarPathFor(raw);
+            Assert.True(ThumbnailRenderer.CanDevelopUneditedFallback(raw));
+            foreach (var content in new[] { Edited, Film, "<broken", "" })
+            {
+                File.WriteAllText(sidecar, content);
+                Assert.False(ThumbnailRenderer.CanDevelopUneditedFallback(raw));
+                Assert.Equal(content, File.ReadAllText(sidecar));
+            }
+            File.Delete(sidecar);
+            Directory.CreateDirectory(sidecar);
+            Assert.False(ThumbnailRenderer.CanDevelopUneditedFallback(raw));
+            Directory.Delete(sidecar);
+            Assert.True(ThumbnailRenderer.CanDevelopUneditedFallback(raw));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
     public void Cold_native_derivatives_honor_edits_film_and_invalid_sidecars()
     {
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MAPLE_RAW_FFI_DLL")))

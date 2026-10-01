@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-01",
+  "issues": [3889, 3875],
+  "mainBase": "d14ea59fb",
+  "branchBase": "8a142a845",
+  "build": "Maple.DesignAudit217",
+  "assemblySha256": "814B27C63051B431CEA2972D8B922B2442EBAA1896361C99ED651C5D97981B2F",
+  "nativeSha256": "881093889E1B644C638022C3AF668C533697722E2DCBA9E4201CD4201C988BB3",
+  "changes": [
+    "Rebased all 142 Windows branch commits onto main, retaining versioned shared derivatives and sidecar-aware cache invalidation.",
+    "Prevent unedited RAW thumbnail recovery when a sidecar exists, including malformed sidecars and invalid directory entries; access errors propagate instead of masquerading as absence.",
+    "Recheck sidecar absence after asynchronous recovery and before serving a cached unedited fallback.",
+    "Update external-sidecar reset smoke assertions to compare encoded image content instead of cache filenames, which now include sidecar timestamps."
+  ],
+  "validation": {
+    "nativeBuild": "cargo build --release -p raw-ffi --features gpu: passed",
+    "appBuild": {"errors": 0, "warnings": 26},
+    "nativeBackedTests": {"passed": 1417, "failed": 0, "skipped": 0, "seconds": 55},
+    "lifecycle": {
+      "passed": true,
+      "renderPath": "gpu",
+      "outputDirectory": "maple-lifecycle217-67bf7427eca94869949633d9dda83535",
+      "invalidSidecar": "Actual ThumbnailService request returns null and preserves both source bytes and malformed sidecar.",
+      "sidecarReset": "Saved exposure changes preview content; external reset restores both preview and thumbnail content.",
+      "otherChecks": "Existing lifecycle harness passed native detail, scopes, undo, transfer, comparison, responsive layout, browse scrolling, simulated cloud flows and shutdown."
+    }
+  },
+  "initialFailures": [
+    "Old build-213 native DLL rejected the new AVIF quality recipe; rebuilding the DLL from integrated sources resolved it.",
+    "First lifecycle run failed the obsolete cache-filename equality assertion; replacement content assertions passed."
+  ],
+  "limitations": [
+    "Lifecycle cloud checks use controlled test services, not live cloud qualification.",
+    "This run does not verify the full screenshot, physical DPI, keyboard or Narrator matrix.",
+    "Photographic color parity and reference 100MP performance remain unqualified."
+  ],
+  "fullQualificationPassed": false
+}

@@ -14,6 +14,19 @@ namespace Maple.WinUI.Services;
 /// through to the camera preview, which would discard the photographer's edits.</summary>
 public static class ThumbnailRenderer
 {
+    /// <summary>Only a genuinely absent sidecar permits an unedited RAW
+    /// recovery. File.Exists would hide access errors as absence.</summary>
+    public static bool CanDevelopUneditedFallback(string rawPath)
+    {
+        try
+        {
+            _ = File.GetAttributes(SidecarStore.SidecarPathFor(rawPath));
+            return false;
+        }
+        catch (FileNotFoundException) { return true; }
+        catch (DirectoryNotFoundException) { return true; }
+    }
+
     public static bool IsFresh(string cachedPath, string rawPath)
     {
         if (!File.Exists(cachedPath)) return false;

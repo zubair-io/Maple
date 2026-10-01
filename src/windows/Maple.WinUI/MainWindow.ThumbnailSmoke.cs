@@ -48,6 +48,20 @@ public sealed partial class MainWindow
         await VerifyAdjustedBrowsePreviewAsync(fixture, thumbnails);
         await ViewModels.EditSessionViewModel.VerifyLocalPreviewAsync(fixture);
         await ViewModels.EditSessionViewModel.VerifySavedCloudPreviewAsync(fixture, output);
+        await VerifyInvalidSidecarThumbnailAsync(fixture, thumbnails);
+    }
+
+    private static async Task VerifyInvalidSidecarThumbnailAsync(string fixture, ThumbnailService thumbnails)
+    {
+        var sidecar = Services.Xmp.SidecarStore.SidecarPathFor(fixture);
+        var original = SHA256.HashData(await File.ReadAllBytesAsync(fixture));
+        await File.WriteAllTextAsync(sidecar, "<broken");
+        File.SetLastWriteTimeUtc(sidecar, DateTime.UtcNow.AddMinutes(1));
+        if (await thumbnails.GetOrCreateAsync(fixture, CancellationToken.None) != null)
+            throw new InvalidOperationException("Invalid sidecar fell back to an unedited thumbnail");
+        if (await File.ReadAllTextAsync(sidecar) != "<broken"
+            || !original.SequenceEqual(SHA256.HashData(await File.ReadAllBytesAsync(fixture))))
+            throw new InvalidOperationException("Failed thumbnail recovery changed original or sidecar");
     }
 
     private static async Task VerifyAdjustedBrowsePreviewAsync(string fixture, ThumbnailService thumbnails)

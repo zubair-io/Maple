@@ -86,7 +86,8 @@ namespace Maple.WinUI.Services
             if (File.Exists(fallbackPath))
                 return fallbackPath;
             var developedPath = DevelopedThumbPath(rawPath);
-            if (File.Exists(developedPath)) return developedPath;
+            if (File.Exists(developedPath) && ThumbnailRenderer.CanDevelopUneditedFallback(rawPath))
+                return developedPath;
 
             await Gate.WaitAsync(ct);
             try

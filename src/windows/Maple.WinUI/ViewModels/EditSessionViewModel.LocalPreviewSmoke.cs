@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Models;
@@ -33,14 +35,22 @@ public partial class EditSessionViewModel
         session.Adjustments.Exposure = 1;
         session.ScheduleSidecarWrite();
         session.FlushSidecarNow();
-        await Wait(() => photo.PreviewPath != cold, "Saved adjustment did not refresh Browse");
+        await Wait(() => photo.PreviewPath != null && photo.PreviewPath != cold && session._previewRequest == null,
+            "Saved adjustment did not refresh Browse");
+        var changed = photo.PreviewPath;
+        if (Digest(changed!).SequenceEqual(Digest(cold!)))
+            throw new InvalidOperationException("Saved exposure did not change preview content");
         if (photo.ThumbnailPath == coldThumbnail)
             throw new InvalidOperationException("Saved adjustment did not refresh grid/filmstrip");
         File.WriteAllText(sidecar, XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = baseline }));
         session.OnSidecarChangedOnDisk(null, sidecar);
-        await Wait(() => photo.PreviewPath == cold, "External sidecar reset did not restore cached preview");
-        if (photo.ThumbnailPath != coldThumbnail)
-            throw new InvalidOperationException("External sidecar reset did not restore cached thumbnail");
+        await Wait(() => photo.PreviewPath != null && photo.PreviewPath != changed && session._previewRequest == null,
+            "External sidecar reset did not refresh preview");
+        if (!Digest(photo.PreviewPath!).SequenceEqual(Digest(cold!))
+            || photo.ThumbnailPath == null || !Digest(photo.ThumbnailPath).SequenceEqual(Digest(coldThumbnail)))
+            throw new InvalidOperationException("External sidecar reset did not restore preview and thumbnail content");
+        cold = photo.PreviewPath;
+        coldThumbnail = photo.ThumbnailPath;
 
         // Requests are issued on the UI thread in one turn. Their dispatcher
         // completions cannot publish until after the selection is replaced.
@@ -70,6 +80,8 @@ public partial class EditSessionViewModel
         await session.RefreshLocalTransferThumbnailsAsync(job);
         if (photo.ThumbnailPath != transferredThumbnail)
             throw new InvalidOperationException("Stale transfer checkpoint refreshed an externally changed target");
+
+        static byte[] Digest(string uri) => SHA256.HashData(File.ReadAllBytes(new Uri(uri).LocalPath));
 
         static async Task Wait(Func<bool> ready, string error)
         {

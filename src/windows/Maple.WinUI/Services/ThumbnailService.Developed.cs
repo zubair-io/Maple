@@ -37,8 +37,15 @@ public sealed partial class ThumbnailService
         return GetOrCreateDevelopedAsync(rawPath, path, model, PreviewMaxPx, ct);
     }
 
-    private Task<string?> GetOrCreateDevelopedThumbAsync(string rawPath, CancellationToken ct) =>
-        GetOrCreateDevelopedAsync(rawPath, DevelopedThumbPath(rawPath), new AdjustmentState(), ThumbnailMaxPx, ct);
+    private async Task<string?> GetOrCreateDevelopedThumbAsync(string rawPath, CancellationToken ct)
+    {
+        // An authored derivative failure must not discard edits. Recheck after
+        // decoding too: an editor may save its first sidecar during recovery.
+        if (!ThumbnailRenderer.CanDevelopUneditedFallback(rawPath)) return null;
+        var result = await GetOrCreateDevelopedAsync(rawPath, DevelopedThumbPath(rawPath),
+            new AdjustmentState(), ThumbnailMaxPx, ct);
+        return ThumbnailRenderer.CanDevelopUneditedFallback(rawPath) ? result : null;
+    }
 
     private async Task<string?> GetOrCreateDevelopedAsync(string rawPath, string path,
         AdjustmentState model, int maxPx, CancellationToken ct)
