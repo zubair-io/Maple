@@ -37,7 +37,20 @@ namespace Maple.WinUI
                 }
                 return;
             }
-            if (FocusManager.GetFocusedElement(this.Content.XamlRoot) is TextBox or Slider or NumberBox or ComboBox)
+            var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            var shift = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+            var focused = FocusManager.GetFocusedElement(this.Content.XamlRoot);
+            // Adjustment sliders own their arrow keys, but have no text undo
+            // stack. Keep document Undo/Redo reachable after a keyboard edit.
+            if (focused is Maple.UI.Atoms.MuiAdjustmentSlider && ctrl && e.Key == VirtualKey.Z)
+            {
+                if (shift) ViewModel.Redo(); else ViewModel.Undo();
+                e.Handled = true;
+                return;
+            }
+            if (focused is TextBox or Slider or NumberBox or ComboBox)
                 return;
             if (_activeGroup == "Heal" && e.Key == VirtualKey.Delete)
             {
@@ -45,10 +58,6 @@ namespace Maple.WinUI
                 e.Handled = true;
                 return;
             }
-            var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
-                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-            var shift = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
-                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
             if (!ctrl && _mode == ShellMode.Edit && e.Key is VirtualKey.B or (VirtualKey)0xDC)
             {
                 _compare.Press(System.Environment.TickCount64);
