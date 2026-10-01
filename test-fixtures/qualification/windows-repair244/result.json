@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-01",
+  "scope": "Normal-session Add repair and Undo, with before/after selection styling screenshots",
+  "sourceBase": "514661ca5",
+  "candidate": "Maple.DesignAudit245.exe",
+  "candidateSha256": "FD7CF6A977B78CEF0E194451DC2842779064EFF7EC0006EE8470197080357DB6",
+  "fixture": "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng",
+  "stagedOriginalSha256After": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276",
+  "originalUnchanged": true,
+  "observations": [
+    "Build 243 Add repair produced one Heal spot, connected canvas handles and enabled numeric controls; Undo removed the spot and restored DNG status.",
+    "Build 243 selected repair indicator was Windows green (added.png).",
+    "Build 245 selected repair indicator is Maple red (added245.png).",
+    "Build 245 Add repair produced one Heal spot with size 2, feather 50, opacity 100, destination 50/50 and source 60/50; GPU canvas settled to native detail.",
+    "Build 245 Undo removed the spot and handles, disabled spot controls and restored DNG status; GPU canvas settled to native detail (undone245.png).",
+    "Editor header is centered and bounded in the captured window."
+  ],
+  "limitations": [
+    "One normal session per build does not prove the intermittent XAML crash is resolved.",
+    "High-contrast resource mappings are source-checked, not qualified by a live Windows high-contrast session.",
+    "Synthetic grey fixture checks UI behavior, not Heal/Clone image quality or preview/export perceptual parity.",
+    "This is not the complete DPI, Narrator or physical performance qualification."
+  ],
+  "intermittentCrashResolved": false,
+  "epicQualified": false
+}

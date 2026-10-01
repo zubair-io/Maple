@@ -26,6 +26,10 @@ public sealed partial class MainWindow
 
     private void BuildRetouchPanel()
     {
+        _repairList.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("ms-appx:///Themes/RepairListResources.xaml"),
+        });
         BuildRetouchCanvas();
         _repairPanel.Children.Add(_repairStatus);
         _repairPanel.Children.Add(_repairAdd);

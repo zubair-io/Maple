@@ -1,0 +1,89 @@
+Window: "Maple", App: Maple.DesignAudit243.exe.
+	0 window Maple Secondary Actions: Raise
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				17 group Filmstrip ID: FilmstripRail
+					18 text 01 / 01
+					19 button Collapse filmstrip
+					20 pane
+						21 group repair-test.dng
+							22 group repair-test.dng
+								23 image
+				24 pane ID: ViewerScroll
+					25 group GPU preview canvas ID: ViewportSwapChainPanel
+				26 text 2308% · refining… Description: Image zoom and detail status ID: ZoomReadout
+				38 button Back to preview
+				39 text repair-test.dng
+				40 text DNG ID: EditStatusText
+				41 button Shadow clipping indicator ID: ShadowClipButton
+				42 button Highlight clipping indicator ID: HighlightClipButton
+				43 button Undo adjustment
+				44 button Compare before and after ID: CompareButton
+				45 button More editing actions ID: MoreEditActions
+					46 text …
+				47 button Export photo
+				48 pane
+					49 button Light tools
+						50 text Light
+					51 button Color tools
+						52 text Color
+					53 button Effects tools
+						54 text Effects
+					55 button Detail tools
+						56 text Detail
+					57 button Tone Curve tools
+						58 text Curve
+					59 button Mask tools
+						60 text Mask
+					61 button Crop tools
+						62 text Crop
+				63 text Heal ID: EditPanelTitle
+				66 pane
+					117 text Heal blends source detail with destination colour. Clone copies the source. Coordinates refer to the full image.
+					118 button Add repair
+					119 list Repair spots
+					120 combo box (disabled) Heal or Clone
+					121 spinner (disabled, settable, float) Size (% of image width) Value: NaN
+						122 text Size (% of image width)
+						123 edit (disabled, settable, string) Size (% of image width) Minimum0.01 Maximum100 ID: InputBox
+					124 spinner (disabled, settable, float) Feather (%) Value: NaN
+						125 text Feather (%)
+						126 edit (disabled, settable, string) Feather (%) Minimum0 Maximum100 ID: InputBox
+					127 spinner (disabled, settable, float) Opacity (%) Value: NaN
+						128 text Opacity (%)
+						129 edit (disabled, settable, string) Opacity (%) Minimum0 Maximum100 ID: InputBox
+					130 spinner (disabled, settable, float) Destination X (%) Value: NaN
+						131 text Destination X (%)
+						132 edit (disabled, settable, string) Destination X (%) Minimum0 Maximum100 ID: InputBox
+					133 spinner (disabled, settable, float) Destination Y (%) Value: NaN
+						134 text Destination Y (%)
+						135 edit (disabled, settable, string) Destination Y (%) Minimum0 Maximum100 ID: InputBox
+					136 spinner (disabled, settable, float) Source X (%) Value: NaN
+						137 text Source X (%)
+						138 edit (disabled, settable, string) Source X (%) Minimum0 Maximum100 ID: InputBox
+					139 spinner (disabled, settable, float) Source Y (%) Value: NaN
+						140 text Source Y (%)
+						141 edit (disabled, settable, string) Source Y (%) Minimum0 Maximum100 ID: InputBox
+					142 button (disabled) Delete selected repair
+		31 title bar (settable, string) Value: Maple
+			32 menu bar System ID: MenuBar
+				37 menu item System
+			34 button Minimize
+			35 button Maximize
+			36 button Close
+
+The focused UI element is 123 edit (disabled, settable, string) Size (% of image width) Minimum0.01 Maximum100 ID: InputBox.
