@@ -59,7 +59,12 @@ struct RemovalOverlay: View {
             ).allowsHitTesting(false)
           }
           if removal.phase == .ready, removal.mode != .people, projectionError.isEmpty {
-            Color.clear.contentShape(Rectangle()).gesture(paintGesture(frame))
+            #if os(macOS)
+              RemovalPointerSurface(
+                onChanged: { appendPoint($0, frame: frame) }, onEnded: finishStroke)
+            #else
+              Color.clear.contentShape(Rectangle()).gesture(paintGesture(frame))
+            #endif
           }
           if !projectionError.isEmpty {
             Text(projectionError).font(.caption).foregroundStyle(MuiTokens.errorText)
@@ -71,6 +76,10 @@ struct RemovalOverlay: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Paint to select objects")
         .accessibilityIdentifier("removal-overlay")
+        .onChange(of: removal.mode) { _, _ in points = [] }
+        .onChange(of: removal.phase) { _, phase in
+          if phase != .ready { points = [] }
+        }
         .task(id: projectionKey(size)) { await refresh(size) }
         .task(id: removal.preview?.bytes) {
           candidateImage = removal.preview.flatMap {
@@ -94,27 +103,29 @@ struct RemovalOverlay: View {
 
   private func paintGesture(_ frame: CGRect) -> some Gesture {
     DragGesture(minimumDistance: 0).onChanged { value in
-      let point = [
-        Double((value.location.x - frame.minX) / frame.width),
-        Double((value.location.y - frame.minY) / frame.height),
-      ]
-      // Preserve outside-frame samples as breaks for the shared inverse map.
-      if points.last != point { points.append(point) }
+      appendPoint(value.location, frame: frame)
     }.onEnded { value in
-      let stroke =
-        points.isEmpty
-        ? [
-          [
-            Double((value.location.x - frame.minX) / frame.width),
-            Double((value.location.y - frame.minY) / frame.height),
-          ]
-        ] : points
-      points = []
-      let native = state.session.nativeImageSize
-      guard native.width > 0, native.height > 0 else { return }
-      Task {
-        await removal.paint(stroke, cropInputSize: [UInt32(native.width), UInt32(native.height)])
-      }
+      appendPoint(value.location, frame: frame)
+      finishStroke()
+    }
+  }
+
+  private func appendPoint(_ location: CGPoint, frame: CGRect) {
+    let point = [
+      Double((location.x - frame.minX) / frame.width),
+      Double((location.y - frame.minY) / frame.height),
+    ]
+    // Preserve outside-frame samples as breaks for the shared inverse map.
+    if points.last != point { points.append(point) }
+  }
+
+  private func finishStroke() {
+    let stroke = points
+    points = []
+    let native = state.session.nativeImageSize
+    guard native.width > 0, native.height > 0, !stroke.isEmpty else { return }
+    Task {
+      await removal.paint(stroke, cropInputSize: [UInt32(native.width), UInt32(native.height)])
     }
   }
 
