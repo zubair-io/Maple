@@ -35,10 +35,14 @@ internal static class DisplayImageCache
             var target = Path.Combine(directory, hash + ".png");
             if (File.Exists(target)) return target;
             temporary = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            var result = await Task.Run(() => RawFfi.maple_raster_resize_to_file(
-                source, temporary, (uint)maxPixels, (uint)maxPixels, 2, "png", 0), cancellation).ConfigureAwait(false);
+            await Task.Run(() =>
+            {
+                var result = RawFfi.maple_raster_resize_to_file(
+                    source, temporary, (uint)maxPixels, (uint)maxPixels, 2, "png", 0);
+                // Native errors belong to the thread that made the FFI call.
+                if (result != 0) throw new InvalidDataException(RawFfi.LastError() ?? "Display image decode failed.");
+            }, cancellation).ConfigureAwait(false);
             cancellation.ThrowIfCancellationRequested();
-            if (result != 0) throw new InvalidDataException(RawFfi.LastError() ?? "Display image decode failed.");
             File.Move(temporary, target, overwrite: true);
             return target;
         }
