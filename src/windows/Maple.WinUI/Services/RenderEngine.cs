@@ -434,11 +434,12 @@ namespace Maple.WinUI.Services
             (byte)Math.Clamp((int)(v * 255f + 0.5f), 0, 255);
 
         /// <summary>2×2 box-average downsample of the scene-linear base for the
-        /// fast slider-tick pass (the refine pass uses the full preview).</summary>
+        /// fast slider-tick pass (the refine pass uses the full preview).
+        /// Round up and replicate the border for incomplete edge quads.</summary>
         public static DecodedImage DownsampleHalf(DecodedImage src)
         {
-            var w = Math.Max(1, src.Width / 2);
-            var h = Math.Max(1, src.Height / 2);
+            var w = Math.Max(1, src.Width / 2 + src.Width % 2);
+            var h = Math.Max(1, src.Height / 2 + src.Height % 2);
             var pixels = new float[w * h * 4];
             for (var y = 0; y < h; y++)
             {
