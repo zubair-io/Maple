@@ -1,0 +1,29 @@
+{
+  "issues": [3875, 3887],
+  "sourceBase": "d9e010b1f",
+  "builds": ["Maple.DesignAudit291", "Maple.DesignAudit292"],
+  "buildResult": { "errors": 0, "warnings": 27 },
+  "buildLog": "%TEMP%/maple292-build.log",
+  "screenshotDirectory": "%TEMP%/maple-ui291-evidence",
+  "screenshots": [
+    "search-filtered.png",
+    "search-tab-to-options.png",
+    "header-aligned292.png",
+    "search-filtered292.png",
+    "search-cleared292.png"
+  ],
+  "method": "Live Windows computer-use inspection via @oai/sky, targeting each unique built executable; keyboard text input, pointer clear action, screenshots and UI Automation tree.",
+  "verified": [
+    "Production browse search uses MuiInput with search icon and Maple red focus outline instead of the OS green underline.",
+    "Typing a filename fragment filters 354 local photos to 2; the native clear action restores 354 photos in both builds.",
+    "The search edit retains its descriptive accessible name while populated and cleared.",
+    "Final build vertically centers Sort photos alongside search and the browse action buttons."
+  ],
+  "keyboardObservation": "In build 291, two Tab presses from cleared search visibly moved focus to Options. The returned UI Automation focused_element remained stale at search; this is not a full keyboard or accessibility qualification.",
+  "remaining": [
+    "Single 1908x1019 screenshot viewport; complete DPI and responsive matrix remains open.",
+    "Cloud search behavior was preserved in code but not exercised against a live server in this check.",
+    "Full keyboard, Narrator, stability, color and hardware performance qualification remains open."
+  ],
+  "privacy": "User photo screenshots and full accessibility trees remain local and are not committed."
+}

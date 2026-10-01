@@ -173,7 +173,7 @@ namespace Maple.WinUI
                 ViewModel.FlagFilter = tag;
         }
 
-        private void OnSearchChanged(object sender, TextChangedEventArgs e) =>
-            ViewModel.SearchText = SearchBox.Text;
+        private void OnSearchChanged(object? sender, string text) =>
+            ViewModel.SearchText = text;
     }
 }

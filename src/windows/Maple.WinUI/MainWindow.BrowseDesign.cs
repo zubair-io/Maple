@@ -119,9 +119,8 @@ public sealed partial class MainWindow
     {
         var section = ViewModel.ActiveSectionName;
         UpdateSearchFacetControls();
-        SearchBox.PlaceholderText = ViewModel.IsServerSearch ? "Search Maple Cloud" : "Filter this folder";
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SearchBox,
-            ViewModel.IsServerSearch ? "Search Maple Cloud" : "Filter this folder by name, camera or lens");
+        SearchBox.Placeholder = ViewModel.IsServerSearch ? "Search Maple Cloud" : "Filter this folder";
+        SearchBox.AccessibleLabel = ViewModel.IsServerSearch ? "Search Maple Cloud" : "Filter this folder by name, camera or lens";
         BrowseLocationButton.Label = string.IsNullOrWhiteSpace(section) || section == "Library"
             ? "Library" : "Library › " + section;
         ToolTipService.SetToolTip(BrowseLocationButton, ViewModel.CurrentFolderPath);
