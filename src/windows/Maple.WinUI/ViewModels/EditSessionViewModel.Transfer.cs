@@ -38,6 +38,12 @@ public partial class EditSessionViewModel
             if (_sidecarDirty) throw new InvalidOperationException("Newer edits are pending; reload the photo after saving them.");
             var before = Adjustments;
             var doc = snapshot.Document;
+            photo.Rating = doc.Rating ?? 0; photo.FlagStatus = doc.Flag ?? "none"; photo.ColorLabel = doc.ColorLabel;
+            if (cloud != null)
+            {
+                _cloudDoc = doc;
+                RequestSavedCloudPreview(photo, doc.Adjustments.Clone(), cloud, version);
+            }
             var changed = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = before }) !=
                 XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = doc.Adjustments });
             var recordUndo = undoBefore != null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = undoBefore }) !=
@@ -52,15 +58,12 @@ public partial class EditSessionViewModel
             }
             if (!changed)
             {
-                if (photo.IsCloud) _cloudDoc = doc;
                 return;
             }
             _undoTimer?.Dispose(); _undoTimer = null;
             Adjustments = doc.Adjustments;
             if (!recordUndo) { _undoStack.Clear(); _redoStack.Clear(); }
             _undoBaseline = Adjustments.Clone();
-            if (photo.IsCloud) _cloudDoc = doc;
-            photo.Rating = doc.Rating ?? 0; photo.FlagStatus = doc.Flag ?? "none"; photo.ColorLabel = doc.ColorLabel;
             SyncSlidersFromModel();
             RefreshRenderAfterModelChange(before);
             RefreshLocalPreview();

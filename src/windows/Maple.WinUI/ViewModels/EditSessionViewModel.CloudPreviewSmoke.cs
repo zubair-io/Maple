@@ -69,6 +69,27 @@ public partial class EditSessionViewModel
         if (session._cloudPreviewPending != null)
             throw new InvalidOperationException("Late cloud acknowledgement waited for another navigation");
 
+        session.SelectedPhoto = photo;
+        await session._cloudSidecarLoad;
+        var beforeTransfer = photo.PreviewPath;
+        var beforeTransferThumbnail = photo.ThumbnailPath;
+        var transferred = new XmpSidecarDocument
+            { Adjustments = new() { Profile = ProfileMode.Neutral, Exposure = 4 }, Rating = 4, Flag = "pick" };
+        await File.WriteAllTextAsync(sidecar, XmpWriter.Serialize(transferred));
+        await session.RefreshAfterTransferAsync(photo);
+        await Wait(() => photo.PreviewPath != beforeTransfer && photo.ThumbnailPath != beforeTransferThumbnail);
+        if (session.Adjustments.Exposure != 4 || photo.Rating != 4 || photo.FlagStatus != "pick")
+            throw new InvalidOperationException("Cloud transfer did not refresh adjustments and metadata");
+        // A metadata-only transfer must not take the unchanged-adjustments exit
+        // before publishing its acknowledged rating and flag.
+        transferred.Rating = 2;
+        transferred.Flag = "reject";
+        await File.WriteAllTextAsync(sidecar, XmpWriter.Serialize(transferred));
+        await session.RefreshAfterTransferAsync(photo);
+        if (photo.Rating != 2 || photo.FlagStatus != "reject")
+            throw new InvalidOperationException("Metadata-only cloud transfer retained stale metadata");
+        await Wait(() => session._previewRequest == null);
+
         static async Task Wait(Func<bool> ready)
         {
             var timer = Stopwatch.StartNew();
