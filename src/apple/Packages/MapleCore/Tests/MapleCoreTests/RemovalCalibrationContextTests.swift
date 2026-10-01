@@ -27,6 +27,20 @@ final class RemovalCalibrationContextTests: XCTestCase {
         .map(\.bitPattern), region.map(\.bitPattern))
   }
 
+  func testSharedSourceAnchorUsesOpenedOriginalAndSurvivesContextRequests() throws {
+    let raw = try handle()
+    let before = try RemovalBridge.calibrationSource(handle: raw)
+    let value = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: Data(before.utf8)) as? [String: Any])
+    XCTAssertEqual(value["width"] as? Int, 16)
+    XCTAssertEqual(value["height"] as? Int, 8)
+    let url = try XCTUnwrap(
+      Bundle.module.url(forResource: "source", withExtension: "dng", subdirectory: "removal"))
+    XCTAssertEqual(value["original"] as? String, try RemovalBridge.digest(Data(contentsOf: url)))
+    _ = try RemovalBridge.calibrationContext(handle: raw, x: 1, y: 1, width: 7, height: 5)
+    XCTAssertEqual(try RemovalBridge.calibrationSource(handle: raw), before)
+  }
+
   func testInvalidGeometryAndCancellationCannotPublishPixels() throws {
     let raw = try handle()
     for (x, width, height): (UInt32, UInt32, UInt32) in [

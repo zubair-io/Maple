@@ -4,10 +4,11 @@ import { createReadStream, promises as fs } from "node:fs";
 import { resolve, sep, extname } from "node:path";
 import { chromium } from "../../src/web/node_modules/playwright/index.mjs";
 
-const [rawArg, expectedArg, rectArg, reportArg] = process.argv.slice(2);
+const [rawArg, expectedArg, rectArg, reportArg, contextArg] =
+  process.argv.slice(2);
 if (!reportArg)
   throw new Error(
-    "Usage: probe-calibration-browser.mjs RAW EXPECTED_F32 'X,Y,W,H' REPORT",
+    "Usage: probe-calibration-browser.mjs RAW EXPECTED_F32 'X,Y,W,H' REPORT [CONTEXT_JSON]",
   );
 const rect = rectArg.split(",").map(Number);
 if (
@@ -26,15 +27,21 @@ const dumps = new Map([
   ["/cpu-context", resolve(reportArg + ".cpu.f32")],
   ["/gpu-context", resolve(reportArg + ".gpu.f32")],
 ]);
+if (contextArg) files.set("/context", resolve(contextArg));
 const html = `<!doctype html><meta charset="utf-8"><script type="module">
 import * as shared from '/shared/raw_wasm.js';
 window.probe=async function() {
   await shared.default({module_or_path:'/shared/raw_wasm_bg.wasm'});
   const raw=new Uint8Array(await (await fetch('/raw')).arrayBuffer());
   const expected=new Float32Array(await (await fetch('/expected')).arrayBuffer());
+  const expectedSource=${Boolean(contextArg)}?(await (await fetch('/context')).json()).source_anchor:null;
+  if(${Boolean(contextArg)}&&!expectedSource) throw new Error('Native context has no shared source anchor');
   const rect=Uint32Array.from(${JSON.stringify(rect)});
   const ext=${JSON.stringify(extname(rawArg).slice(1).toLowerCase())};
   async function measure(session, dump) {
+    const source=JSON.parse(session.removal_calibration_source());
+    if(source.original!==shared.removal_content_digest(raw)) throw new Error('Source original differs from decoded bytes');
+    if(expectedSource&&JSON.stringify(source)!==JSON.stringify(expectedSource)) throw new Error('Native/WASM source-anchor drift');
     const start=performance.now(), pixels=session.removal_calibration_context(rect),contextMs=performance.now()-start;
     if(pixels.length!==expected.length||pixels.length!==rect[2]*rect[3]*3) throw new Error('Invalid RGB extent');
     let maxAbsError=0,changedChannels=0;
@@ -51,9 +58,10 @@ window.probe=async function() {
     const repeated=session.removal_calibration_context(rect);
     const repeatedBits=new Uint32Array(repeated.buffer,repeated.byteOffset,repeated.length);
     if(repeatedBits.length!==actualBits.length||!repeatedBits.every((v,i)=>v===actualBits[i])) throw new Error('Failure altered retained RAW');
+    if(JSON.stringify(source)!==session.removal_calibration_source()) throw new Error('Context request changed source identity');
     const saved=await fetch(dump,{method:'POST',body:new Uint8Array(pixels.buffer,pixels.byteOffset,pixels.byteLength)});
     if(!saved.ok) throw new Error('Could not save local context diagnostic');
-    return {contextMs,channels:pixels.length,maxAbsError,changedChannels,nativeWasmByteIdentical:changedChannels===0,invalidGeometryRejected,repeatByteIdentical:true};
+    return {source,nativeSourceAnchorIdentical:expectedSource?true:null,contextMs,channels:pixels.length,maxAbsError,changedChannels,nativeWasmByteIdentical:changedChannels===0,invalidGeometryRejected,repeatByteIdentical:true};
   }
   const opened=performance.now(), cpu=new shared.NativeDetailSession(raw,ext);
   let cpuResult;

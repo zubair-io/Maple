@@ -46,6 +46,7 @@ mod geometry;
 pub(crate) struct MapleRawHandleInner {
     pub(crate) raw: raw_core::image::RawImage,
     pub(crate) model: xmp::AdjustmentModel,
+    pub(crate) original: raw_core::types::accepted_removal::ContentDigest,
 }
 
 /// Opaque handle to a decoded RawImage + parsed AdjustmentModel.
@@ -135,6 +136,7 @@ pub unsafe extern "C" fn maple_open_raw_handle(
         let inner = Box::new(MapleRawHandleInner {
             raw: raw_img,
             model,
+            original: raw_core::types::accepted_removal::ContentDigest::for_bytes(&raw_bytes),
         });
         let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
         let handle = Box::new(MapleRawHandle { inner: inner_ptr });
@@ -203,6 +205,7 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
         let inner = Box::new(MapleRawHandleInner {
             raw: raw_img,
             model,
+            original: raw_core::types::accepted_removal::ContentDigest::for_bytes(&input),
         });
         let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
         let handle = Box::new(MapleRawHandle { inner: inner_ptr });

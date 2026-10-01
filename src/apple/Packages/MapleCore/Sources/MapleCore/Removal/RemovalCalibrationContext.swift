@@ -3,6 +3,17 @@ import Foundation
 import RawPipeline
 
 extension RemovalBridge {
+  /// Shared source-anchor JSON from original bytes captured at handle open and
+  /// the fixed calibration recipe. Read once when opening removal authoring.
+  public static func calibrationSource(handle: MapleRawHandle) throws -> String {
+    let data = try withExtendedLifetime(handle) {
+      try buffer { output, cap, length in
+        maple_removal_calibration_source_buf(handle.pointer, output, cap, length)
+      }
+    }
+    return String(decoding: data, as: UTF8.self)
+  }
+
   /// Interleaved scene-linear Rec.2020 RGB before creative WB and DCP HSM.
   /// Coordinates are native, unoriented DefaultCrop pixels. Run off the main
   /// actor: this synchronous call reuses the retained mosaic and demosaics the

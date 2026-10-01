@@ -78,6 +78,7 @@ pub struct WebLiveSession {
     /// re-decoding (decode is the multi-hundred-ms cost the one-shot path repays
     /// every call).
     raw_img: raw_core::image::RawImage,
+    original: raw_core::types::accepted_removal::ContentDigest,
     /// Original RAW bytes + extension — needed for the `auto_will_fit` probe and
     /// the Auto Profile fit (both read the embedded JPEG).
     raw: Vec<u8>,
@@ -247,6 +248,7 @@ impl WebLiveSession {
         let handle = WebLiveSession {
             ctx,
             raw_img,
+            original: raw_core::types::accepted_removal::ContentDigest::for_bytes(&raw),
             raw,
             ext,
             present,
@@ -421,6 +423,12 @@ impl WebLiveSession {
     /// Called on context preparation, never on the live slider path.
     pub fn removal_calibration_context(&self, rect: &[u32]) -> Result<Vec<f32>, JsValue> {
         crate::removal_context::prepare(&self.raw_img, rect)
+            .map_err(|error| JsValue::from_str(&error))
+    }
+
+    /// Shared source identity, independent of the live creative grade.
+    pub fn removal_calibration_source(&self) -> Result<String, JsValue> {
+        crate::removal_context::source(&self.raw_img, &self.original)
             .map_err(|error| JsValue::from_str(&error))
     }
 

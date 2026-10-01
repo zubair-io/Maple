@@ -204,7 +204,9 @@ pub use removal_assets::{
     maple_removal_asset_names_buf, maple_removal_asset_verify, maple_removal_source_verify,
 };
 pub use removal_composite::maple_removal_composite_window_f32;
-pub use removal_context::maple_removal_calibration_context_f32;
+pub use removal_context::{
+    maple_removal_calibration_context_f32, maple_removal_calibration_source_buf,
+};
 pub use removal_generation::maple_removal_generation_masks_f32;
 pub use removal_prepare::{maple_removal_content_digest, maple_removal_prepare_buf};
 pub use removal_selection::{maple_removal_mask_decode_buf, maple_removal_selection_buf};

@@ -32,10 +32,12 @@ mod orient;
 pub(crate) mod pano;
 mod removal_assets;
 mod removal_calibration;
+mod removal_calibration_anchor;
 pub use removal_calibration::{
     develop_removal_calibration_patches, render_removal_calibration_context,
     render_removal_calibration_plate,
 };
+pub use removal_calibration_anchor::removal_calibration_source_anchor;
 mod removal_context;
 pub use removal_context::render_removal_context;
 mod removal_encoding;

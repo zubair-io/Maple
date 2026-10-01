@@ -87,3 +87,51 @@ pub unsafe extern "C" fn maple_removal_calibration_context_f32(
 #[cfg(test)]
 #[path = "removal_context_tests.rs"]
 mod tests;
+
+/// Shared source anchor for the retained calibration experiment (#3955).
+/// UTF-8 JSON, without NUL. 0 success, 1 null, 5 invalid, 100 size probe.
+/// The original-byte digest was captured when this RAW handle was opened.
+///
+/// # Safety
+/// handle remains live for this call; out_len is writable; output is writable
+/// for cap bytes when non-null. All buffers are disjoint.
+#[no_mangle]
+pub unsafe extern "C" fn maple_removal_calibration_source_buf(
+    handle: *const MapleRawHandle,
+    output: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_removal_calibration_source_buf", || {
+        if out_len.is_null() {
+            return 1;
+        }
+        *out_len = 0;
+        let Some(handle) = handle.as_ref() else {
+            return 1;
+        };
+        let Some(inner) = (handle.inner as *const MapleRawHandleInner).as_ref() else {
+            return 1;
+        };
+        if cap > isize::MAX as usize {
+            return 5;
+        }
+        let result =
+            raw_core::pipeline::removal_calibration_source_anchor(&inner.raw, &inner.original)
+                .map_err(|e| e.to_string())
+                .and_then(|source| serde_json::to_vec(&source).map_err(|e| e.to_string()));
+        let bytes = match result {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                set_last_error(error);
+                return 5;
+            }
+        };
+        *out_len = bytes.len();
+        if output.is_null() || cap < bytes.len() {
+            return 100;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len());
+        0
+    })
+}

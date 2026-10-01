@@ -90,6 +90,8 @@ struct Context {
     #[serde(default)]
     plate: ProbePlate,
     original: ContentDigest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_anchor: Option<raw_core::types::accepted_removal::SourceAnchor>,
     window: NativeWindow,
     source_width: u32,
     source_height: u32,
@@ -171,6 +173,14 @@ fn encode(
             ProbePlate::PostDcpV1
         },
         original: ContentDigest::for_bytes(&bytes),
+        source_anchor: if linear_calibration {
+            Some(raw_core::pipeline::removal_calibration_source_anchor(
+                &raw,
+                &ContentDigest::for_bytes(&bytes),
+            )?)
+        } else {
+            None
+        },
         window,
         source_width,
         source_height,

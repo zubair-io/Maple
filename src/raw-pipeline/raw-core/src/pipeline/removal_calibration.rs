@@ -22,7 +22,7 @@ fn invalid(reason: &str) -> Error {
     Error::Pipeline(format!("removal linear calibration: {reason}"))
 }
 
-fn matrices(profile: &DcpProfile) -> Result<(Matrix3, Matrix3)> {
+pub(super) fn matrices(profile: &DcpProfile) -> Result<(Matrix3, Matrix3)> {
     let to_scene = dcp::camera_to_rec2020_matrix(profile)?;
     if !to_scene.0.iter().flatten().all(|value| value.is_finite()) {
         return Err(invalid("non-finite calibration"));
