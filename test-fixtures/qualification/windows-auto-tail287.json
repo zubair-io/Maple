@@ -1,0 +1,71 @@
+{
+  "issue": 3875,
+  "sourceBase": "eeeb27c123c86b5dbc099ab827e3b70190881da6",
+  "kind": "Auto tail approximation diagnostic",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "command": "view-preview-noise RAW maple276-noise maple287-tail",
+  "method": "Same proxy Auto fit and display-encoded pixels for analytic curve plus residual versus composed 33-cube with Windows trilinear lookup. Both use identical dither/quantization. Six retained scene buffers from windows-nr-support276; 1600x1067 each.",
+  "metrics": {
+    "area-baked": {
+      "mean_deltaE": 0.2782553240997259,
+      "p95_deltaE": 0.8984954188288922,
+      "max_deltaE": 2.0711034977040392,
+      "bias_r": -0.00046339520486071706,
+      "bias_g": 5.079908078187145E-05,
+      "bias_b": 0.0004796881985384971,
+      "n_pixels": 1707200
+    },
+    "area-radius-one-baked": {
+      "mean_deltaE": 0.2739403020042371,
+      "p95_deltaE": 0.8936848049025649,
+      "max_deltaE": 2.0684188792912126,
+      "bias_r": -0.0004356176941655576,
+      "bias_g": 4.472799628274515E-05,
+      "bias_b": 0.00044852489372715354,
+      "n_pixels": 1707200
+    },
+    "linear-baked": {
+      "mean_deltaE": 0.2822184000994149,
+      "p95_deltaE": 0.9025036816884074,
+      "max_deltaE": 2.0838897588730303,
+      "bias_r": -0.0004748089995700866,
+      "bias_g": 5.3755367844132707E-05,
+      "bias_b": 0.00046846753684803843,
+      "n_pixels": 1707200
+    },
+    "radius-one-baked": {
+      "mean_deltaE": 0.275070151502988,
+      "p95_deltaE": 0.8950707196672795,
+      "max_deltaE": 2.1337814566360955,
+      "bias_r": -0.0004397527372930199,
+      "bias_g": 4.721798904938623E-05,
+      "bias_b": 0.0004434633010532707,
+      "n_pixels": 1707200
+    },
+    "reference-baked": {
+      "mean_deltaE": 0.2715507631038215,
+      "p95_deltaE": 0.8868565096647091,
+      "max_deltaE": 2.1322456317078506,
+      "bias_r": -0.0003960772883147001,
+      "bias_g": 3.82089929189533E-05,
+      "bias_b": 0.000407178740715608,
+      "n_pixels": 1707200
+    },
+    "unchanged-baked": {
+      "mean_deltaE": 0.2829883977061682,
+      "p95_deltaE": 0.9038280903712055,
+      "max_deltaE": 2.131282748220452,
+      "bias_r": -0.0004749143263325095,
+      "bias_g": 5.50164477317594E-05,
+      "bias_b": 0.00046113933785818517,
+      "n_pixels": 1707200
+    }
+  },
+  "conclusion": "The isolated composed-LUT approximation measures mean Delta-E 0.27 to 0.28 on these buffers. It does not alone explain the production preview/export failure; retain the production gate and investigate upstream resolution and fit-origin differences.",
+  "limitations": [
+    "One real RAW and default model only.",
+    "Input EXRs are retained earlier diagnostic stages, not fresh production frame dumps.",
+    "Diagnostic sampler mirrors C# trilinear math; no production behavior or acceptance budget changed.",
+    "This is not UI, GPU screenshot, export or cross-platform qualification."
+  ]
+}

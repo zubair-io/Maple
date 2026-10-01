@@ -1,14 +1,49 @@
 //! #3875: apply one real Auto fit to already-developed NR diagnostic EXRs.
 //! Usage: view-preview-noise RAW INPUT_EXR_DIRECTORY OUTPUT_DIRECTORY
 //! Holds fit and working resolution fixed. This is not the export parity gate.
+//! Also writes the Windows CPU's composed 33-cube/trilinear tail, using the
+//! identical fit and display input, to isolate approximation from resize error.
 use exr::prelude::read_first_rgba_layer_from_file;
 use raw_core::{
     image::{ColorSpace, Image},
     pipeline::{fit_auto_profile_from_raw_at_cap, FitCap, RawInput, RenderQuality},
-    view::{agx, auto_profile::apply_curve, encode},
+    view::{
+        agx,
+        auto_profile::{apply_curve, bake_auto_profile_lut},
+        encode,
+    },
     xmp::AdjustmentModel,
 };
 use std::path::Path;
+
+// Diagnostic mirror of RenderEngine.ApplyDisplayLut. Not a production sampler.
+fn trilinear(rgb: &mut [f32], lut: &[f32], n: usize) {
+    for pixel in rgb.chunks_exact_mut(3) {
+        let p = [pixel[0], pixel[1], pixel[2]].map(|v| v.clamp(0.0, 1.0) * (n - 1) as f32);
+        let lo = p.map(|v| v as usize);
+        let hi = lo.map(|v| (v + 1).min(n - 1));
+        let f = [
+            p[0] - lo[0] as f32,
+            p[1] - lo[1] as f32,
+            p[2] - lo[2] as f32,
+        ];
+        for c in 0..3 {
+            let at = |r, g, b| lut[((b * n + g) * n + r) * 3 + c];
+            let x = |g, b| at(lo[0], g, b) * (1.0 - f[0]) + at(hi[0], g, b) * f[0];
+            let y = |b| x(lo[1], b) * (1.0 - f[1]) + x(hi[1], b) * f[1];
+            pixel[c] = y(lo[2]) * (1.0 - f[2]) + y(hi[2]) * f[2];
+        }
+    }
+}
+
+fn write_display(mut image: Image, rgb: &[f32], path: &Path) {
+    for (pixel, channels) in image.pixels.iter_mut().zip(rgb.chunks_exact(3)) {
+        pixel.copy_from_slice(channels);
+    }
+    let bytes = encode::dither_and_quantize(&mut image);
+    let png = raw_core::png::encode(image.width, image.height, &bytes).unwrap();
+    std::fs::write(path, png).unwrap();
+}
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
@@ -30,6 +65,7 @@ fn main() {
     .expect("fixture must yield a real Auto fit");
     let curve = curve.expect("Auto curve");
     let residual = residual.expect("Auto residual LUT");
+    let baked = bake_auto_profile_lut(&curve, &residual, 33);
     let output = Path::new(&args[3]);
     std::fs::create_dir_all(output).unwrap();
     for entry in std::fs::read_dir(&args[2]).unwrap() {
@@ -58,15 +94,17 @@ fn main() {
         encode::rec2020_to_srgb(&mut image);
         encode::srgb_gamma_encode(&mut image);
         let mut rgb: Vec<f32> = image.pixels.iter().flatten().copied().collect();
+        let mut baked_rgb = rgb.clone();
+        trilinear(&mut baked_rgb, &baked, 33);
         apply_curve(&mut rgb, &curve);
         residual.apply(&mut rgb);
-        for (pixel, channels) in image.pixels.iter_mut().zip(rgb.chunks_exact(3)) {
-            pixel.copy_from_slice(channels);
-        }
-        let bytes = encode::dither_and_quantize(&mut image);
-        let png = raw_core::png::encode(image.width, image.height, &bytes).unwrap();
         let name = input.file_stem().unwrap().to_str().unwrap();
-        std::fs::write(output.join(format!("{name}.png")), png).unwrap();
+        write_display(
+            image.clone(),
+            &baked_rgb,
+            &output.join(format!("{name}-baked.png")),
+        );
+        write_display(image.clone(), &rgb, &output.join(format!("{name}.png")));
         println!(
             "{name}: {}x{} fixed proxy Auto fit",
             image.width, image.height
