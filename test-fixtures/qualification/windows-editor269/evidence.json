@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceRevision": "2b660d1c91a533908e69af49282b5dfd5ba17b8d",
+  "app": "Maple.DesignAudit267.exe",
+  "appSha256": "CFF79145210EC3E0B299582CC59EE3D6DEF75FBB19943E0B2C654D6D5115B1A0",
+  "screenshot": {
+    "captureWidth": 1908,
+    "captureHeight": 1019,
+    "file": "editor-light.png",
+    "sha256": "1C5029356642320D552E5CB2CD9C62B035C3FDC3F49FDA02C28D7915DDAD3547"
+  },
+  "fixture": {
+    "kind": "synthetic DNG, not a user photo",
+    "sha256": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8"
+  },
+  "observations": [
+    "Opened the fixture folder through File > Open Folder, opened Preview, then Edit photo in the normal app.",
+    "Editor header is centered and bounded: approximately x594..1314 in the 1908-wide capture; midpoint954 equals window midpoint.",
+    "Header contains Back, filename/type, rendered histogram, Undo, Compare, More and Export.",
+    "Upper-right Light inspector contains Auto profile and six named controls: Exposure, Contrast, Highlights, Shadows, Whites and Blacks.",
+    "Right dock exposes seven labeled primary groups; the single-photo editor rail sits at upper left.",
+    "Tab displays a visible focus ring on the Edit menu, but captured accessibility focused_element still reports the root pane. Keyboard/Narrator qualification is not established."
+  ],
+  "limitations": [
+    "One window size and one Light state only; no full DPI matrix or full keyboard traversal claimed.",
+    "The screenshot includes the Compare tooltip and visible keyboard focus ring.",
+    "Synthetic pixels support layout inspection, not perceptual color qualification.",
+    "Other editing tools and secondary workflows remain covered by their separate evidence, not by this capture."
+  ]
+}

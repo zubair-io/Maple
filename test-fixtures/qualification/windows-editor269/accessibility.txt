@@ -1,0 +1,95 @@
+Window: "Maple", App: Maple.DesignAudit267.exe.
+	0 window Maple Secondary Actions: Raise
+		534 pane PopupHost
+			535 pane
+				536 window Popup Secondary Actions: Raise
+					537 tool tip Tap to toggle; hold to peek (B or backslash). Before shows the state at open.
+						538 text Tap to toggle; hold to peek (B or backslash). Before shows the state at open.
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				469 group Filmstrip ID: FilmstripRail
+					470 text 01 / 01
+					471 button Collapse filmstrip
+					472 pane
+						473 group design-fixture.dng
+							474 group design-fixture.dng
+								475 image
+				476 pane ID: ViewerScroll
+					533 group GPU preview canvas ID: ViewportSwapChainPanel
+				478 text 67% · preview Description: Image zoom and detail status ID: ZoomReadout
+				484 button Back to preview
+				485 text design-fixture.dng
+				486 text DNG ID: EditStatusText
+				487 button Shadow clipping indicator ID: ShadowClipButton
+				488 button Highlight clipping indicator ID: HighlightClipButton
+				489 button Undo adjustment
+				490 button Compare before and after ID: CompareButton
+				491 button More editing actions ID: MoreEditActions
+					492 text …
+				493 button Export photo
+				494 pane
+					495 button Light tools
+						496 text Light
+					497 button Color tools
+						498 text Color
+					499 button Effects tools
+						500 text Effects
+					501 button Detail tools
+						502 text Detail
+					503 button Tone Curve tools
+						504 text Curve
+					505 button Mask tools
+						506 text Mask
+					507 button Crop tools
+						508 text Crop
+				509 text Light ID: EditPanelTitle
+				510 button Reset group ID: GroupResetButton
+					511 text Reset
+				512 pane
+					513 text Profile
+					514 combo box Render profile
+					515 text Exposure
+					516 button Exposure
+					517 slider (settable, float) Exposure Value: 0
+					518 text Contrast
+					519 button Contrast
+					520 slider (settable, float) Contrast Value: 0
+					521 text Highlights
+					522 button Highlights
+					523 slider (settable, float) Highlights Value: 0
+					524 text Shadows
+					525 button Shadows
+					526 slider (settable, float) Shadows Value: 0
+					527 text Whites
+					528 button Whites
+					529 slider (settable, float) Whites Value: 0
+					530 text Blacks
+					531 button Blacks
+					532 slider (settable, float) Blacks Value: 0
+		302 title bar (settable, string) Value: Maple
+			303 menu bar System ID: MenuBar
+				304 menu item System
+			305 button Minimize
+			306 button Maximize
+			307 button Close
+		534 pane PopupHost
+			535 pane
+				536 window Popup Secondary Actions: Raise
+					537 tool tip Tap to toggle; hold to peek (B or backslash). Before shows the state at open.
+						538 text Tap to toggle; hold to peek (B or backslash). Before shows the state at open.
+
+The focused UI element is 7 pane.

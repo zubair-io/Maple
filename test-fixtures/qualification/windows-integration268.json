@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceRevision": "2b660d1c91a533908e69af49282b5dfd5ba17b8d",
+  "mainRevision": "6a43f6e804af0f1bd46f40368fe4fcd21733ad73",
+  "nativeLibrarySha256": "8A061DEEDB81DB3CDE9EDB3E3F3009AC3E979B307E4AA2E8E9915703FBC0868D",
+  "fixture": {
+    "sha256": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8",
+    "kind": "synthetic 3200x2200 Bayer DNG"
+  },
+  "suite": {
+    "total": 1422,
+    "failed": 0,
+    "passed": 1422,
+    "notExecuted": 0,
+    "logSha256": "B1E1220D193B6E32C2BC81493A3E5EFBAF7548017DC700FFA5AA30BA76A44D14",
+    "trxSha256": "3B395AEF8976D40E19FA92C4AFBE6204A652D195EECC67F7366D815A87E6B18F",
+    "outcome": "Completed"
+  },
+  "command": "dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release --results-directory <temp>/maple268-results --logger trx;LogFileName=full.trx",
+  "environment": {
+    "MAPLE_DEMOSAIC_TEST_RAW": "<temp>/maple-ui-qualification211/fixture.dng",
+    "MAPLE_RAW_FFI_DLL": "src/raw-pipeline/target/release/raw_ffi.dll",
+    "MAPLE_RETOUCH_TEST_RAW": "<temp>/maple-ui-qualification211/fixture.dng",
+    "MAPLE_EXPORT_TEST_RAW": "<temp>/maple-ui-qualification211/fixture.dng"
+  },
+  "limitations": [
+    "Functional Windows tests with explicit native fixtures; not perceptual color or physical performance qualification.",
+    "Full visual/DPI, Narrator and real-cloud qualification remain incomplete.",
+    "Intermittent native UI crash remains unresolved; this suite does not establish its absence.",
+    "Supersedes the split integration256 test-count evidence, not its other qualification records."
+  ]
+}
