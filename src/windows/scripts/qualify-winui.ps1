@@ -5,7 +5,7 @@
 #   1. GPU  — tick timing (the product path).
 #   2. CPU  — MAPLE_FORCE_CPU=1 + MAPLE_DUMP_FRAME for the pixel-exact frame,
 #             plus a full-resolution production export; both compared
-#             against `maple-cli render` of the same RAW + sidecar.
+#             against `maple-cli render` and directly against each other.
 #
 # ΔE verdict needs python3 (compare_images.py via `maple-cli diff`); without
 # it the parity artifacts are still produced, but qualification fails.
@@ -50,6 +50,8 @@ $sidecar = [IO.Path]::ChangeExtension($Raw, ".xmp")
     cli_sha256 = (Get-FileHash -LiteralPath $MapleCli -Algorithm SHA256).Hash
     native_pipeline_sha256 = (Get-FileHash -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $AppExe).Path)) 'raw_ffi.dll') -Algorithm SHA256).Hash
     physical_reference_qualified = $false
+    reference_demosaic = 'AMaZE with sidecar override'
+    production_export_demosaic = 'Auto policy with sidecar override'
     qualification_limits = @('Physical reference hardware and 100MP source dimensions require separate verification.', 'GPU screenshot perceptual parity is not covered by these CPU-preview and production-export comparisons.')
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $work 'provenance.json')
 $sidecarArgs = if (Test-Path -LiteralPath $sidecar) { @("--params", $sidecar) } else { @() }
@@ -95,7 +97,7 @@ if (-not (Test-Path $appFrame)) { throw "CPU run produced no frame dump" }
 
 Write-Output "== maple-cli reference render =="
 $refFrame = Join-Path $work "ref-frame.png"
-& $MapleCli render $Raw @sidecarArgs --out $refFrame
+& $MapleCli render $Raw @sidecarArgs --demosaic amaze --out $refFrame
 if ($LASTEXITCODE -ne 0) { throw "maple-cli render failed" }
 
 # Real python3 only — the Windows Store app-execution alias is a shim that
@@ -123,10 +125,16 @@ if ($pythonWorks) {
     & $MapleCli diff $exportResult.output $refFrame --budget $ParityBudgetMean
     $exportParityFailed = $LASTEXITCODE -ne 0
     Write-Output "export/full-reference parity failed: $exportParityFailed (budget $ParityBudgetMean)"
+    Write-Output "== CPU preview / production export Delta-E00 =="
+    & $MapleCli diff $appFrame $exportResult.output --budget $ParityBudgetMean |
+        Tee-Object -FilePath (Join-Path $work 'preview-export-diff.json')
+    $previewExportParityFailed = $LASTEXITCODE -ne 0
+    Write-Output "preview/production-export parity failed: $previewExportParityFailed (budget $ParityBudgetMean)"
     @{ preview_parity_failed = $previewParityFailed; export_parity_failed = $exportParityFailed;
+       preview_export_parity_failed = $previewExportParityFailed;
        mean_budget = $ParityBudgetMean; tick_verdict = $tickVerdict } |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $work 'verdict.json')
-    if ($previewParityFailed -or $exportParityFailed) { throw "Parity FAIL. Evidence: $work" }
+    if ($previewParityFailed -or $exportParityFailed -or $previewExportParityFailed) { throw "Parity FAIL. Evidence: $work" }
 } else {
     Write-Output "python3 not found - parity artifacts written, no Delta-E verdict:"
     Write-Output "  candidate: $appFrame"
