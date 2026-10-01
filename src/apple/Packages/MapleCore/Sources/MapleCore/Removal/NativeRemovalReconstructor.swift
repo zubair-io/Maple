@@ -84,11 +84,11 @@ public final class NativeRemovalReconstructor: @unchecked Sendable {
 
 /// One generation's cancellation flag; retain until generation and cancel return.
 public final class NativeRemovalInferenceOperation: @unchecked Sendable {
-  fileprivate let owner: NativeRemovalReconstructor
-  fileprivate let pointer: UnsafeMutablePointer<MapleRemovalInference>
+  let owner: AnyObject
+  let pointer: UnsafeMutablePointer<MapleRemovalInference>
 
-  fileprivate init(
-    owner: NativeRemovalReconstructor, pointer: UnsafeMutablePointer<MapleRemovalInference>
+  init(
+    owner: AnyObject, pointer: UnsafeMutablePointer<MapleRemovalInference>
   ) {
     self.owner = owner
     self.pointer = pointer

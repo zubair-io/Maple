@@ -30,3 +30,25 @@ synthetic interoperability fixture, not photographic or device qualification.
 cargo run --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --example removal-fixture -- test-fixtures/removal/calibration --calibration
 cp test-fixtures/removal/calibration/* src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/removal/calibration/
 ```
+
+Native inference diagnostics use optional files under the gitignored
+`test-fixtures/raws/removal-inference/` directory. No test downloads models or
+uploads photos. In addition to the reconstruction corpus, selection tests need
+the pinned `mobile-sam-encoder.onnx`, `mobile-sam-decoder.onnx`, and
+`rtdetrv2-r18.onnx`, plus the explicitly provisioned `runtime.dylib`.
+`selection-context.json` is the RAW-context probe output containing
+`source_anchor`; `selection-request.json`, `selection-input.png` (RGB8 1024²),
+and `selection-reference.mimf` describe its refinement. Detection uses
+`detection-input.f32` (CHW 640²), `detection-input.json` with `size: [width,height]`,
+and `detection-reference.json` containing the pinned native proposals.
+
+```sh
+cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-ffi --features removal --lib real_native_selection_and_detection -- --ignored
+cd src/apple/Packages/MapleCore
+swift test --filter NativeRemovalSelectorTests
+```
+
+The Rust test is ignored unless explicitly invoked with that corpus; the Swift
+test visibly skips when it is absent. Neither an ignore nor a skip constitutes
+model, photographic, or physical-device qualification. Committed model pins are
+the authority for accepted artifact checksums.
