@@ -77,6 +77,16 @@ const NON_FAST_PATH_KEYS = SCHEMA_KEYS.filter(
   (k) => !FAST_PATH_OR_SPECIAL_KEYS.has(k) && !isToneCurveValue(DEFAULT_MODEL[k]),
 );
 
+/** The scalar ABI authors both axes; XMP preserves As-Shot, absent axes and scales. */
+function canUseScalarWhiteBalance(model: AdjustmentModel): boolean {
+  return (
+    !model.partialWhiteBalance &&
+    model.wbScaleVersion === 5 &&
+    !!model.whiteBalancePreset &&
+    model.whiteBalancePreset !== 'As Shot'
+  );
+}
+
 /**
  * Whether the 19-scalar fast path (`WebLiveSession::render_with_params`) can
  * faithfully render `model`, or whether it must route through the full
@@ -99,11 +109,7 @@ const NON_FAST_PATH_KEYS = SCHEMA_KEYS.filter(
  * rather than being silently dropped, so this class of bug can't recur.
  */
 export function canUseLiveFastPath(model: AdjustmentModel): boolean {
-  // The existing XMP path lets raw-core resolve axis presence and legacy scales.
-  if (model.partialWhiteBalance || model.wbScaleVersion !== 5) return false;
-  // The scalar ABI authors both axes. As-Shot must retain absent axes through XMP;
-  // its old 6500/0 sentinel would instead become an explicit Custom pair (#3434).
-  if (!model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot') return false;
+  if (!canUseScalarWhiteBalance(model)) return false;
   // The two prefix-zeroed chain sliders whose defaults are non-zero — the fast path
   // renders them at 0 regardless, so it's only faithful when the model wants 0.
   if (model.sharpenAmount !== 0 || model.nrColor !== 0) return false;

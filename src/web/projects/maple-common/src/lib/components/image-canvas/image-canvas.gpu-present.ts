@@ -1,3 +1,4 @@
+import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 // ImageCanvasGpuPresent — the GPU live-render present path for ImageCanvasComponent
 // (epic #925, P4b-web / #1038). Extracted from the component to keep it under the
 // file-size budget; the behaviour is unchanged.
@@ -357,8 +358,7 @@ export class ImageCanvasGpuPresent {
         assetId,
         info.asShotTemperature,
         info.asShotTint,
-        info.cameraSupport?.resolution !== undefined &&
-          !['rawler_fallback', 'decode_failed'].includes(info.cameraSupport.resolution),
+        hasCalibratedWhiteBalance(info.cameraSupport),
       );
       // #3182 — see `decodeSupportFrom` in `image-canvas.render2d.ts`.
       const support = decodeSupportFrom(info);
