@@ -1,7 +1,11 @@
 # Actual WinUI process, native decoder and DX12 SwapChainPanel. No fixture skips.
+param([string]$AppPath)
+
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path "$PSScriptRoot/../../..").Path
-$app = Join-Path $repo 'src/windows/Maple.WinUI/bin/Release/x86_64-pc-windows-msvc/Maple.WinUI.exe'
+$app = if ($AppPath) { (Resolve-Path $AppPath).Path } else {
+    Join-Path $repo 'src/windows/Maple.WinUI/bin/Release/x86_64-pc-windows-msvc/Maple.WinUI.exe'
+}
 $original = Join-Path $repo 'src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng'
 $root = Join-Path $env:RUNNER_TEMP 'maple-window-lifecycle'
 New-Item -ItemType Directory -Force $root | Out-Null

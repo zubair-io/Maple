@@ -13,6 +13,7 @@ namespace Maple.WinUI
     public sealed partial class MainWindow
     {
         private bool _lifecycleSmokeActive;
+        private Action? _beforeRendererStopForSmoke;
 
         // Explicit diagnostic invocation only; no runtime setting or new env flag.
         internal void MaybeStartLifecycleSmoke()
@@ -120,20 +121,25 @@ namespace Maple.WinUI
                     RecordSmokeStage(output, "shutdown");
                 }
 
-                // Real queued UI present, held solely by this smoke's UI turn.
-                // The production close path must pump it while awaiting the loop.
+                // Queue after asynchronous save preflight; otherwise the saving
+                // dialog pumps this present before renderer shutdown starts.
                 var queued = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                Exception? closingPresentError = null;
                 void Queued() => queued.TrySetResult(true);
                 if (expectedPath == "gpu")
                 {
-                    renderer.PresentQueued += Queued;
-                    try
+                    _beforeRendererStopForSmoke = () =>
                     {
-                        renderer.RequestRender(ViewModel.Adjustments.Clone());
-                        if (!renderer.HasPendingPresent && !queued.Task.Wait(TimeSpan.FromSeconds(5)))
-                            throw new TimeoutException("No real GPU present queued before close");
-                    }
-                    finally { renderer.PresentQueued -= Queued; }
+                        renderer.PresentQueued += Queued;
+                        try
+                        {
+                            renderer.RequestRender(ViewModel.Adjustments.Clone());
+                            if (!renderer.HasPendingPresent && !queued.Task.Wait(TimeSpan.FromSeconds(5)))
+                                throw new TimeoutException("No real GPU present queued after save preflight");
+                        }
+                        catch (Exception error) { closingPresentError = error; }
+                        finally { renderer.PresentQueued -= Queued; }
+                    };
                 }
                 Close();
                 Close(); // repeated request before the dispatcher starts its drain
@@ -142,10 +148,13 @@ namespace Maple.WinUI
                 if (_shutdownTask == null) throw new TimeoutException("Close did not finish its save preflight");
                 await ShutdownAsync();
                 await ShutdownAsync();
+                if (closingPresentError != null) throw closingPresentError;
                 if (!renderer.IsStopped || _panelNative != IntPtr.Zero || _panelReleaseCount != 1)
                     throw new InvalidOperationException("Shutdown did not join/close/release exactly once");
                 if (expectedPath == "gpu" && renderer.HasPendingPresent)
                     throw new InvalidOperationException("Queued present survived shutdown");
+                if (expectedPath == "gpu" && renderer.DroppedClosingPresents < 1)
+                    throw new InvalidOperationException("Shutdown did not reject the queued closing present");
                 // Exercise a real late decoded result, after close has started.
                 var late = await Task.Run(() => RenderEngine.Decode(raw, new AdjustmentState(), 256, RefineDecodeQuality.Preview, IntPtr.Zero));
                 renderer.SetImage(late);
@@ -186,6 +195,7 @@ namespace Maple.WinUI
             }
             finally
             {
+                _beforeRendererStopForSmoke = null;
                 await ShutdownAsync();
                 _closeReady = true;
                 Close(); // normal WinUI teardown; never Environment.Exit

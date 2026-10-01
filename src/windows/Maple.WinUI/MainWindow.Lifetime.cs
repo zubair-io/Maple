@@ -27,6 +27,14 @@ namespace Maple.WinUI
             {
                 await RunModalFlowGuardedAsync(async () =>
                 {
+                    // Close can arrive before XAML is attached (including an
+                    // empty startup window). Still drain saves, without trying
+                    // to display a ContentDialog that has no visual host.
+                    if (Content.XamlRoot == null)
+                    {
+                        await ViewModel.PrepareCloseAsync();
+                        return;
+                    }
                     Exception? saveError = null;
                     var finished = false;
                     var saving = new Microsoft.UI.Xaml.Controls.ContentDialog
@@ -63,6 +71,7 @@ namespace Maple.WinUI
             _repairMappingRequest?.Cancel();
             ResetComparison();
             // Reject late producers before any already-queued present callback runs.
+            if (_lifecycleSmokeActive) _beforeRendererStopForSmoke?.Invoke();
             ViewModel.Dispose();
             DispatcherQueue.TryEnqueue(async () =>
             {

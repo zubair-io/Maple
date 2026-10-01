@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-01",
+  "issues": [
+    3875,
+    3889
+  ],
+  "sourceBase": "a10ae5e02",
+  "build": "Maple.DesignAudit225",
+  "assemblySha256": "540BAC985E57624D160F6D53342C1EF74C777CBC106C7337A15CE482C06C055A",
+  "changes": [
+    "Close before XAML root attachment drains saves directly without trying to show an unhosted ContentDialog.",
+    "GPU closing-present probe runs after successful save preflight so the saving dialog cannot drain it before shutdown. App and runner both enforce at least one rejected closing present.",
+    "Lifecycle runner accepts AppPath for testing explicitly named local builds while retaining the CI default."
+  ],
+  "validation": {
+    "buildErrors": 0,
+    "buildWarnings": 26,
+    "runner": "src/windows/scripts/test-window-lifecycle.ps1 -AppPath src/windows/Maple.WinUI/bin/Release/full-audit225/Maple.DesignAudit225.exe",
+    "exitCode": 0,
+    "outputDirectory": "C:\\Users\\zubai\\AppData\\Local\\Temp\\maple-runner225-c11f20cd33704db8aa2bb30191ff96df\\maple-window-lifecycle",
+    "runs": [
+      {
+        "mode": "gpu",
+        "passed": true,
+        "rendererStopped": true,
+        "panelReleases": 1,
+        "droppedClosingPresents": 1
+      },
+      {
+        "mode": "cpu",
+        "passed": true,
+        "rendererStopped": true,
+        "panelReleases": 1,
+        "droppedClosingPresents": 0
+      },
+      {
+        "mode": "empty",
+        "passed": true,
+        "rendererStopped": true,
+        "panelReleases": 1,
+        "droppedClosingPresents": 0
+      }
+    ],
+    "originalAndFixtureUnchanged": true
+  },
+  "initialFailures": [
+    "Build 223 app report passed with zero dropped closing frames, which did not meet the runner GPU requirement.",
+    "Build 224 repaired the race probe and passed GPU/CPU, but the empty-window run timed out because close attempted a dialog before XamlRoot attachment."
+  ],
+  "limitations": [
+    "Synthetic-fixture lifecycle evidence; not photographic color, physical performance, complete visual/DPI or Narrator qualification."
+  ],
+  "fullQualificationPassed": false
+}

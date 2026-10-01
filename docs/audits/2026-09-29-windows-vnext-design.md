@@ -70,6 +70,14 @@ and active-tool preservation. This supplements the six logical-root layout
 cases; it does not simulate another monitor DPI or replace screenshot/Narrator
 qualification at 100%, 150% and 200%.
 
+Run `src/windows/scripts/test-window-lifecycle.ps1 -AppPath <built-exe>` to
+exercise a specifically named local build through the same GPU, CPU and empty
+window checks used by CI. The GPU shutdown probe queues its real present after
+the close-save dialog finishes and before the renderer is disposed; queuing it
+before the asynchronous save preflight would let that dialog drain the present
+and miss the intended shutdown race. Both the app report and runner require a
+rejected closing present, a stopped renderer and exactly one panel release.
+
 The initial Browse smoke used only two photos and did not test overflow. After
 the user reported broken grid scrolling, a 120-photo real WinUI regression
 reproduced a zero vertical scroll range. The grid now explicitly wraps across
