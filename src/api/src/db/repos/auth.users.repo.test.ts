@@ -72,11 +72,6 @@ describe('users', () => {
     const db = testSqliteDb(handle.db);
     await seedOwner(db, 'owner@example.com');
 
-    // `users.email` is declared COLLATE NOCASE, so the lookup matches whatever
-    // case the caller typed. That is safe only because uniqueness is folded by
-    // the same collation — the test below proves a second account differing
-    // only in case cannot exist — so a case-insensitive match can never
-    // resolve to a different principal than the exact one would.
     expect(await findUserByEmail('owner@example.com', db)).not.toBeNull();
     expect(await findUserByEmail('Owner@example.com', db)).not.toBeNull();
     expect((await findUserByEmail('OWNER@EXAMPLE.COM', db))?.email).toBe('owner@example.com');

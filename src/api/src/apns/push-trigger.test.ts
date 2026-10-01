@@ -63,8 +63,9 @@ async function registerDevice(
   const userId = newObjectIdHex();
   run(
     live.db,
-    `INSERT INTO users (id, email, role, created_at) VALUES (?, ?, 'member', ?)`,
+    `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
     userId,
+    `${userId}@example.test`,
     `${userId}@example.test`,
     new Date().toISOString(),
   );

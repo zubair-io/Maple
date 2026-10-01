@@ -28,6 +28,7 @@ import { facetStateMigration } from './0003-facet-state.ts';
 import { stageStateAssetClaimableMigration } from './0004-stage-state-asset-claimable.ts';
 import { optionalUserEmailMigration } from './0005-optional-user-email.ts';
 import { emailFreeInvitesMigration } from './0006-email-free-invites.ts';
+import { unicodePresetEmailKeysMigration } from './0009-unicode-preset-email-keys.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -36,4 +37,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   stageStateAssetClaimableMigration,
   optionalUserEmailMigration,
   emailFreeInvitesMigration,
+  unicodePresetEmailKeysMigration,
 ];

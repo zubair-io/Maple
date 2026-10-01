@@ -3,12 +3,23 @@ import { createBlankTestDatabase } from '../../src/db/sqlite/test-sqlite.test-he
 import { runMigrations } from '../../src/db/sqlite/migrate.ts';
 import { ALL_MIGRATIONS } from '../../src/db/sqlite/migrations/index.ts';
 import { seedCredential, seedUser } from '../helpers/sqlite-fixtures.ts';
+import type { Database } from 'bun:sqlite';
+import { ObjectId } from '../../src/db/object-id.ts';
+
+function seedLegacyOwner(db: Database): ObjectId {
+  const id = new ObjectId();
+  db.run(
+    "INSERT INTO users (id, email, role, created_at) VALUES (?, 'legacy@maple.test', 'owner', '2026-01-01')",
+    [id.toHexString()],
+  );
+  return id;
+}
 
 describe('email-free auth migrations', () => {
   it('preserves existing accounts, passkeys and sessions, then restores foreign-key enforcement', async () => {
     using handle = createBlankTestDatabase();
     await runMigrations(handle.migrationDb, ALL_MIGRATIONS.slice(0, 4));
-    const owner = seedUser(handle.db, { email: 'legacy@maple.test' });
+    const owner = seedLegacyOwner(handle.db);
     const credential = seedCredential(handle.db, { userId: owner, credentialId: 'legacy-passkey' });
     handle.db.run(
       `INSERT INTO refresh_tokens (id, user_id, token_hash, issued_at, expires_at, device_label)
@@ -56,7 +67,7 @@ describe('email-free auth migrations', () => {
   it('rolls back a broken rebuild and restores enforcement on failure', async () => {
     using handle = createBlankTestDatabase();
     await runMigrations(handle.migrationDb, ALL_MIGRATIONS.slice(0, 4));
-    const owner = seedUser(handle.db, { email: 'legacy@maple.test' });
+    const owner = seedLegacyOwner(handle.db);
     seedCredential(handle.db, { userId: owner, credentialId: 'legacy-passkey' });
     handle.db.exec('PRAGMA foreign_keys = OFF');
     handle.db.run('DELETE FROM users WHERE id = ?', [owner.toHexString()]);
