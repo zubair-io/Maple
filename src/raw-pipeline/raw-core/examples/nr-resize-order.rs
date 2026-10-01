@@ -5,15 +5,19 @@
 //! all paths share one developed scene and one Neutral display transform.
 //! Add `--sweep` after the long edge to measure intermediate NR resolutions
 //! without changing the amount, noise model, or production render path.
+//! `--sized-chain` also compares the actual sized develop against the common
+//! native scene. It pins auto exposure Off on both paths to isolate spatial
+//! processing from resolution-dependent metering. No shipping defaults change.
 use raw_core::{
     color::oklab::{oklab_to_rec2020, rec2020_to_oklab},
     image::Image,
     pipeline::{
-        develop_scene_linear_from_raw_with_quality, downsample_image_area,
+        develop_scene_linear_from_raw_with_quality,
+        develop_scene_linear_sized_from_raw_with_quality, downsample_image_area,
         render_from_scene_linear, RenderQuality,
     },
     stages::noise_reduction,
-    types::adjustment::Profile,
+    types::adjustment::{AutoExposureMode, Profile},
     xmp::AdjustmentModel,
 };
 use std::{path::Path, time::Instant};
@@ -45,9 +49,15 @@ fn main() {
     )
     .expect("decode RAW");
     let amount = AdjustmentModel::default().nr_color;
+    let sized_chain = args.iter().any(|arg| arg == "--sized-chain");
     let model = AdjustmentModel {
         profile: Profile::Neutral,
         nr_color: 0.0,
+        auto_exposure: if sized_chain {
+            AutoExposureMode::Off
+        } else {
+            AdjustmentModel::default().auto_exposure
+        },
         ..Default::default()
     };
     let scene = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Preview)
@@ -59,6 +69,18 @@ fn main() {
     let mut resized = scene.clone();
     downsample_image_area(&mut resized, edge);
     write_frame(out, "no-nr", resized.clone(), &model);
+    if sized_chain {
+        let mut sized = develop_scene_linear_sized_from_raw_with_quality(
+            &raw,
+            &model,
+            RenderQuality::Preview,
+            edge,
+        )
+        .expect("develop actual sized scene");
+        write_frame(out, "sized-chain-no-nr", sized.clone(), &model);
+        noise_reduction::apply_color(&mut sized, amount, raw.noise_profile.as_deref(), raw.iso);
+        write_frame(out, "sized-chain-nr", sized, &model);
+    }
     // Diagnostic only: independent samples averaged over an area have variance
     // reduced by that area. Demosaic introduces correlation, so this is a
     // hypothesis test, not a calibrated production noise model.

@@ -1,0 +1,183 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "kind": "diagnostic-only",
+  "sourceBase": "2ef214344",
+  "exampleSha256": "AAD273388F834AD125C9E7D3A0E115B54A8E82C6DC19C33B5A95913CEE9FA9FF",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "command": "nr-resize-order <RAW> <output> 1600 --sized-chain",
+  "profile": "Neutral",
+  "autoExposure": "Off",
+  "renderQuality": "Preview",
+  "sceneSize": [
+    6144,
+    4096
+  ],
+  "outputSize": [
+    1600,
+    1067
+  ],
+  "nrColor": 25,
+  "comparator": "src/scripts/compare_images.py diff with zones=True",
+  "metrics": {
+    "sized-chain-no-nr__no-nr": {
+      "mean_deltaE": 1.0133048889276284,
+      "p95_deltaE": 3.2923082911083648,
+      "max_deltaE": 13.900626386078129,
+      "bias_r": -0.004492736421525478,
+      "bias_g": -0.004520419053733349,
+      "bias_b": -0.004581149201840162,
+      "n_pixels": 1707200,
+      "zones": {
+        "shadow": {
+          "n": 514087,
+          "mean_deltaE": 1.226669326945725,
+          "p95_deltaE": 4.260253186191029,
+          "max_deltaE": 11.37965910961011,
+          "bias_r": -0.009986508637666702,
+          "bias_g": -0.010144715197384357,
+          "bias_b": -0.010493384674191475
+        },
+        "mid": {
+          "n": 1055145,
+          "mean_deltaE": 0.9744712412624079,
+          "p95_deltaE": 2.89967282218554,
+          "max_deltaE": 13.900626386078129,
+          "bias_r": -0.002848404459655285,
+          "bias_g": -0.0028023584745824337,
+          "bias_b": -0.0027453964576125145
+        },
+        "highlight": {
+          "n": 137968,
+          "mean_deltaE": 0.5152708905969278,
+          "p95_deltaE": 1.0855392000563355,
+          "max_deltaE": 6.333881096746017,
+          "bias_r": 0.003364464035257697,
+          "bias_g": 0.0032592599745839834,
+          "bias_b": 0.0033767027780413628
+        }
+      }
+    },
+    "sized-chain-nr__nr-after-resize": {
+      "mean_deltaE": 0.9921764670916094,
+      "p95_deltaE": 3.2482331222231973,
+      "max_deltaE": 13.632191960995009,
+      "bias_r": -0.004460583906620741,
+      "bias_g": -0.004499189089983702,
+      "bias_b": -0.004489653278142214,
+      "n_pixels": 1707200,
+      "zones": {
+        "shadow": {
+          "n": 518904,
+          "mean_deltaE": 1.203145749925052,
+          "p95_deltaE": 4.160277698501142,
+          "max_deltaE": 11.1278669382192,
+          "bias_r": -0.010023338720202446,
+          "bias_g": -0.010119072161614895,
+          "bias_b": -0.010223452933132648
+        },
+        "mid": {
+          "n": 1048869,
+          "mean_deltaE": 0.952881054718306,
+          "p95_deltaE": 2.8661995247619454,
+          "max_deltaE": 13.632191960995009,
+          "bias_r": -0.002756322268396616,
+          "bias_g": -0.0027557562571018934,
+          "bias_b": -0.002700603334233165
+        },
+        "highlight": {
+          "n": 139427,
+          "mean_deltaE": 0.5026223286619644,
+          "p95_deltaE": 1.0500045027265104,
+          "max_deltaE": 5.030870056036282,
+          "bias_r": 0.003385111689567566,
+          "bias_g": 0.003264619270339608,
+          "bias_b": 0.003357863985002041
+        }
+      }
+    },
+    "sized-chain-nr__nr-before-resize": {
+      "mean_deltaE": 2.1598823639295075,
+      "p95_deltaE": 5.448955731058852,
+      "max_deltaE": 30.718429110091957,
+      "bias_r": -0.0045571704395115376,
+      "bias_g": -0.0048592123202979565,
+      "bias_b": -0.004639853723347187,
+      "n_pixels": 1707200,
+      "zones": {
+        "shadow": {
+          "n": 515482,
+          "mean_deltaE": 2.144812173757874,
+          "p95_deltaE": 5.628680849495565,
+          "max_deltaE": 22.43277318243902,
+          "bias_r": -0.010620329529047012,
+          "bias_g": -0.011078794486820698,
+          "bias_b": -0.013040733523666859
+        },
+        "mid": {
+          "n": 1053478,
+          "mean_deltaE": 2.2189958864713506,
+          "p95_deltaE": 5.48194858822982,
+          "max_deltaE": 30.718429110091957,
+          "bias_r": -0.00272035738453269,
+          "bias_g": -0.0029054926708340645,
+          "bias_b": -0.002007237868383527
+        },
+        "highlight": {
+          "n": 138240,
+          "mean_deltaE": 1.765594287176891,
+          "p95_deltaE": 4.425039265583582,
+          "max_deltaE": 21.996705516870882,
+          "bias_r": 0.004030373878777027,
+          "bias_g": 0.003408826421946287,
+          "bias_b": 0.0066423374228179455
+        }
+      }
+    },
+    "nr-after-resize__nr-before-resize": {
+      "mean_deltaE": 1.8048256434611065,
+      "p95_deltaE": 4.445261278223695,
+      "max_deltaE": 31.268323007903184,
+      "bias_r": -9.636552567826584E-05,
+      "bias_g": -0.0003605065867304802,
+      "bias_b": -0.0001479428610764444,
+      "n_pixels": 1707200,
+      "zones": {
+        "shadow": {
+          "n": 515482,
+          "mean_deltaE": 1.6307915995474662,
+          "p95_deltaE": 3.9391138876696945,
+          "max_deltaE": 18.936030898532263,
+          "bias_r": -0.0007531349547207355,
+          "bias_g": -0.0011147384066134691,
+          "bias_b": -0.0029795621521770954
+        },
+        "mid": {
+          "n": 1053478,
+          "mean_deltaE": 1.902689742593312,
+          "p95_deltaE": 4.6662370115595895,
+          "max_deltaE": 31.268323007903184,
+          "bias_r": 0.00013084032980259508,
+          "bias_g": -5.26163712493144E-05,
+          "bias_b": 0.0007894993177615106
+        },
+        "highlight": {
+          "n": 138240,
+          "mean_deltaE": 1.7079921770193671,
+          "p95_deltaE": 4.379038510338373,
+          "max_deltaE": 21.861296653582333,
+          "bias_r": 0.0006204252713359892,
+          "bias_g": 0.00010558542999206111,
+          "bias_b": 0.0032661643344908953
+        }
+      }
+    }
+  },
+  "interpretation": "With exposure pinned off, sized develop without NR differs from native-scene downsampling by mean 1.0133. Applying identical NR after resize to both leaves a similar 0.9922 difference. Sized develop plus NR versus native NR before resize reaches 2.1599. This confirms NR/resampling order remains a major contributor even after removing exposure metering; the upstream difference is not zero. These DeltaE values are not additive.",
+  "limitations": [
+    "One real-camera fixture, Preview reconstruction and Neutral display transform; not production Auto/export parity.",
+    "No production math, NR amount or acceptance thresholds changed.",
+    "NR timings are diagnostic wall times, not qualified interactive GPU performance."
+  ],
+  "fullQualificationPassed": false
+}
