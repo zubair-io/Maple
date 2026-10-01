@@ -32,8 +32,9 @@ function insertUser(db: Database): string {
   const id = newObjectIdHex();
   run(
     db,
-    `INSERT INTO users (id, email, role, created_at) VALUES (?, ?, 'member', ?)`,
+    `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
     id,
+    `${id}@example.test`,
     `${id}@example.test`,
     new Date().toISOString(),
   );

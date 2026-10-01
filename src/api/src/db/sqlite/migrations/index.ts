@@ -30,6 +30,7 @@ import { optionalUserEmailMigration } from './0005-optional-user-email.ts';
 import { emailFreeInvitesMigration } from './0006-email-free-invites.ts';
 import { assetWorkingSetSortMigration } from './0007-asset-working-set-sort.ts';
 import { removeUnusedIndexerQueueMigration } from './0008-remove-unused-indexer-queue.ts';
+import { unicodePresetEmailKeysMigration } from './0009-unicode-preset-email-keys.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -40,4 +41,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   emailFreeInvitesMigration,
   assetWorkingSetSortMigration,
   removeUnusedIndexerQueueMigration,
+  unicodePresetEmailKeysMigration,
 ];

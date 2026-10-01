@@ -36,8 +36,9 @@ beforeEach(async () => {
   ]) {
     run(
       live.db,
-      `INSERT INTO users (id, email, role, created_at) VALUES (?, ?, 'member', ?)`,
+      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
       id,
+      email,
       email,
       new Date().toISOString(),
     );
