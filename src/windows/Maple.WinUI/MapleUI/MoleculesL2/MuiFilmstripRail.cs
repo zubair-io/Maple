@@ -263,13 +263,15 @@ namespace Maple.UI
         private void Rebuild()
         {
             var expanded = PreviewNavigation && !IsCollapsed;
-            Width = expanded ? 300 : 88;
+            Width = expanded ? 300 : PreviewNavigation ? 88 : 80;
             _chevron.IconName = "sidebar";
             _surface.Background = (Brush)Application.Current.Resources["MapleSidebar"];
             _surface.CornerRadius = new CornerRadius(PreviewNavigation ? 0 : 12);
             _surface.Padding = new Thickness(6);
             _column.Spacing = PreviewNavigation ? 14 : 8;
             _scroll.Visibility = PreviewNavigation || !IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var cell in _cells)
+                cell.CellSize = PreviewNavigation ? MuiMediaCellSize.Sm : MuiMediaCellSize.Filmstrip;
             foreach (var metadata in _metadata) metadata.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
             AutomationProperties.SetName(_toggle, PreviewNavigation
                 ? (expanded ? "Collapse photo list" : "Expand photo list")

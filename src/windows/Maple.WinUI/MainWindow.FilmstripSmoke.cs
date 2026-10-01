@@ -18,6 +18,14 @@ public sealed partial class MainWindow
         var rating = photo.Rating;
         try
         {
+            SetMode(ShellMode.Edit);
+            RebuildFilmstripRail();
+            Content.UpdateLayout();
+            if (Math.Abs(FilmstripRail.ActualWidth - 80) > 0.1)
+                throw new InvalidOperationException("Editor filmstrip does not match the 80px reference width");
+            foreach (var cell in FilmstripCells(FilmstripRail))
+                if (cell.ActualWidth > 68.1 || cell.ActualHeight < 44)
+                    throw new InvalidOperationException("Compact filmstrip clips a cell or shrinks its pointer target below 44px");
             SetMode(ShellMode.Preview);
             RebuildFilmstripRail();
             Content.UpdateLayout();

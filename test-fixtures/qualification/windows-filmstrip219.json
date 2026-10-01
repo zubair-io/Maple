@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-01",
+  "issues": [3887, 3875, 3889],
+  "sourceBase": "2c859ee06",
+  "build": "Maple.DesignAudit219",
+  "assemblySha256": "7769A2CA5E368882B1E163A4402772BB858CF9770435C2A1373E5DFFCC97365C",
+  "reference": "User-supplied Windows-editor.png: 80px floating rail with 64px thumbnail images.",
+  "change": "Editor rail now uses 80px width and the 64px Filmstrip media-cell size. Preview retains its existing compact/expanded navigation sizing; generic small/medium media cells retain their dimensions.",
+  "validation": {
+    "buildErrors": 0,
+    "buildWarnings": 26,
+    "lifecyclePassed": true,
+    "renderPath": "gpu",
+    "outputDirectory": "maple-lifecycle219-713ff65273004df0b2731341afa79ff7",
+    "geometryAssertions": "Actual editor rail width is 80px; realized cells fit the 68px interior and maintain at least 44px height.",
+    "existingAssertions": "Metadata updates preserve cells, bitmap identities and scroll position; the complete existing GPU lifecycle suite passed.",
+    "manual": "Opened the same third photo used for build 217 visual inspection. Observed narrower 80px rail, red selected outline, header/count, and complete thumbnail images. Wheel-scrolled down and back up without changing the selected photo, header identity or active Light tool.",
+    "captureSize": [1908, 1019],
+    "beforeScreenshot": "%TEMP%/maple-visual218/editor.png",
+    "afterScreenshot": "%TEMP%/maple-visual219/editor.png"
+  },
+  "limitations": [
+    "This establishes the filmstrip width correction, not full screenshot parity or all keyboard/accessibility behavior.",
+    "Exact acceptance window sizes, physical DPI matrix, Narrator, live cloud, photographic parity and 100MP performance remain outstanding."
+  ],
+  "fullQualificationPassed": false
+}

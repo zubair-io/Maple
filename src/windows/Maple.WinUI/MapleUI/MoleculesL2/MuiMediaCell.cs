@@ -11,7 +11,7 @@ namespace Maple.UI
 {
     /// <summary>Media Cell size (unified-component-catalog.md §3, "Media
     /// Cell" row + `mui-media-cell.component.ts`'s <c>MuiMediaCellSize</c>).</summary>
-    public enum MuiMediaCellSize { Sm, Md }
+    public enum MuiMediaCellSize { Sm, Md, Filmstrip }
 
     /// <summary>
     /// Maple.UI Media Cell molecule (unified-component-catalog.md §3,
@@ -207,7 +207,8 @@ namespace Maple.UI
 
         private void Rebuild()
         {
-            var side = CellSize == MuiMediaCellSize.Sm ? 72 : 128;
+            // The vNext editor rail uses 64px images inside an 80px surface.
+            var side = CellSize switch { MuiMediaCellSize.Filmstrip => 64, MuiMediaCellSize.Sm => 72, _ => 128 };
             _thumbHost.Width = side;
             _thumbHost.Height = side / (ThumbnailAspectRatio > 0 ? ThumbnailAspectRatio : 1);
             _image.Source = Source;
