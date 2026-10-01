@@ -34,7 +34,23 @@ namespace Maple.WinUI.ViewModels
                     item.FileSizeBytes, exif?.DateTimeOriginal, exif?.CameraSerial);
                 var originalThumbnail = item.ThumbnailPath;
                 var originalPath = item.FilePath;
-                var thumb = await _thumbnails.GetOrCreateAsync(originalPath, ct);
+                // Authored shared derivatives now use the export renderer on
+                // a cold miss. Do not block the rest of the library on that
+                // work: the second pass below develops bounded edited previews.
+                var hasSidecar = true;
+                string? thumb = null;
+                try
+                {
+                    hasSidecar = !Services.ThumbnailRenderer.CanDevelopUneditedFallback(originalPath);
+                    thumb = hasSidecar ? _thumbnails.GetCachedThumbnail(originalPath)
+                        : await _thumbnails.GetOrCreateAsync(originalPath, ct);
+                }
+                catch (Exception error) when (error is System.IO.IOException or UnauthorizedAccessException)
+                {
+                    // One inaccessible sidecar/cache must not stop the folder
+                    // or cause an unedited JPEG to masquerade as the edit.
+                    Services.DiagLog.Write($"[thumb] library cache unavailable: {error.Message}");
+                }
                 thumb = await Services.DisplayImageCache.PrepareAsync(thumb, Services.ThumbnailService.ThumbnailMaxPx, ct);
 
                 await OnUiAcknowledgedAsync(() =>
@@ -43,7 +59,7 @@ namespace Maple.WinUI.ViewModels
                     // JPEGs are directly displayable, so a missing embedded
                     // preview falls back to the file itself.
                     var effectiveThumb = thumb
-                        ?? (item.Format is "JPG" or "JPEG" ? item.FilePath : null);
+                        ?? (!hasSidecar && (item.Format is "JPG" or "JPEG") ? item.FilePath : null);
                     if (effectiveThumb != null && originalThumbnail == null && item.ThumbnailPath == null)
                         item.ThumbnailPath = new Uri(effectiveThumb).AbsoluteUri;
                     if (exif != null)

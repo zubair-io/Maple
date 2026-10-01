@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-01",
+  "issues": [3889, 3887, 3875],
+  "sourceBase": "dc17d54a2",
+  "visualBuild": "Maple.DesignAudit217",
+  "visualObservations": {
+    "captureSize": [1908, 1019],
+    "editorHeader": "Centered bounded header at approximately x594,y48,width720,height56, with real histogram, undo, compare, overflow and export.",
+    "lightPanel": "Upper-right panel approximately 272px wide; Profile first, then Exposure, Contrast, Highlights, Shadows, Whites and Blacks. Reset is visible.",
+    "primaryDock": ["Light", "Color", "Effects", "Detail", "Curve", "Mask", "Crop"],
+    "overflow": ["Auto adjust", "Reset all adjustments", "Revert to state at open", "Lens corrections", "Film looks", "Heal / Clone", "Presets", "Geometry", "Brightness", "Scopes"],
+    "remainingDifference": "Editor filmstrip is 88px wide, versus approximately 80px in Windows-editor.png. No complete visual sign-off.",
+    "localScreenshots": ["%TEMP%/maple-visual218/editor.png", "%TEMP%/maple-visual218/editor-overflow.png"]
+  },
+  "reproduction": "Opening a 354-photo library initially showed placeholders; only the first few thumbnails appeared while the selected photo could open. Source inspection found that the first hydration pass now invoked cold authored export rendering before reaching following photos, duplicating the existing bounded second pass.",
+  "fix": "First hydration pass reads only existing fresh cache entries for photos with sidecars, leaving cold authored thumbnails to the existing bounded second pass. Unedited JPEG fallback is prohibited for authored photos. Per-item cache/access errors do not abort hydration.",
+  "validation": {
+    "build": "Maple.DesignAudit218",
+    "assemblySha256": "464307494DC40EC024D901D2694AE155F45A4AC9A489F443E8793603BECAA8B1",
+    "errors": 0,
+    "warnings": 26,
+    "lifecyclePassed": true,
+    "renderPath": "gpu",
+    "outputDirectory": "maple-lifecycle218-0989c98ac0fb4887ae95af7066473fd4",
+    "newAssertion": "In a cold two-photo library, the following unedited thumbnail is published before the first authored thumbnail; both subsequently exist. Existing authored-content, reset, stale-selection, transfer and invalid-sidecar assertions also passed."
+  },
+  "limitations": [
+    "The visual observations describe build 217; the hydration fix was verified in build 218 through the actual app lifecycle harness.",
+    "No throughput claim is made for a large library or an all-edited library.",
+    "Window-border and native-menu resize attempts did not change the captured size; exact 1024x768 and 1440x900 captures remain outstanding.",
+    "Physical DPI, Narrator, live cloud, photographic parity and reference 100MP performance remain outstanding."
+  ],
+  "fullQualificationPassed": false
+}

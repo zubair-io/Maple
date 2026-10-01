@@ -22,7 +22,18 @@ public partial class EditSessionViewModel
         File.WriteAllText(sidecar, XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = baseline }));
         using var session = new EditSessionViewModel(restoreSources: false);
         var photo = new PhotoItem { FilePath = fixture, FileName = Path.GetFileName(fixture) };
-        await session.HydrateLibraryAsync(new List<PhotoItem> { photo }, null, CancellationToken.None);
+        var followingPath = Path.Combine(Path.GetDirectoryName(fixture)!, "following-unedited.dng");
+        File.Copy(fixture, followingPath);
+        var following = new PhotoItem { FilePath = followingPath, FileName = Path.GetFileName(followingPath) };
+        var authoredBlockedFollowing = false;
+        photo.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(PhotoItem.ThumbnailPath) && photo.ThumbnailPath != null
+                && following.ThumbnailPath == null) authoredBlockedFollowing = true;
+        };
+        await session.HydrateLibraryAsync(new List<PhotoItem> { photo, following }, null, CancellationToken.None);
+        if (authoredBlockedFollowing || following.ThumbnailPath == null)
+            throw new InvalidOperationException("Cold authored development blocked the following unedited thumbnail");
         await Wait(() => photo.ThumbnailPath != null, "Cold library hydration did not publish edited thumbnail");
         var coldThumbnail = photo.ThumbnailPath;
         if (!coldThumbnail!.Contains("edited-") || !coldThumbnail.EndsWith(".thumb.png"))

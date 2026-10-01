@@ -71,7 +71,9 @@ namespace Maple.WinUI.Services
 
         // --- 512px grid tier: shared `.maple/thumbs/` (#3083) ---
 
-        private async Task<string?> GetOrCreateSharedThumbAsync(string rawPath, CancellationToken ct)
+        /// <summary>Read existing derivatives without starting a cold render.
+        /// Library hydration uses this before its bounded authored-image pass.</summary>
+        public string? GetCachedThumbnail(string rawPath)
         {
             var sharedPath = ThumbCachePaths.SharedThumbPathFor(rawPath);
             if (ThumbnailRenderer.IsFresh(sharedPath, rawPath))
@@ -88,6 +90,15 @@ namespace Maple.WinUI.Services
             var developedPath = DevelopedThumbPath(rawPath);
             if (File.Exists(developedPath) && ThumbnailRenderer.CanDevelopUneditedFallback(rawPath))
                 return developedPath;
+            return null;
+        }
+
+        private async Task<string?> GetOrCreateSharedThumbAsync(string rawPath, CancellationToken ct)
+        {
+            var cached = GetCachedThumbnail(rawPath);
+            if (cached != null) return cached;
+            var sharedPath = ThumbCachePaths.SharedThumbPathFor(rawPath);
+            var fallbackPath = LocalCachePathFor(rawPath, ThumbnailMaxPx, "avif");
 
             await Gate.WaitAsync(ct);
             try
