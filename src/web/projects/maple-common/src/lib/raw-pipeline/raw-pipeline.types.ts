@@ -395,6 +395,8 @@ export interface ExportRequest {
   /** Sidecar XMP text, so the export reads the same edits the canvas showed. */
   xmp?: string;
   options: RawExportOptions;
+  /** Complete durable companions for the captured XMP recipe (#3955). */
+  removals?: { manifest: string; companions: ArrayBuffer };
   /**
    * A baked film-look `.mlut` grid (epic #2683, Task 9) — transferable. The
    * export counterpart of the GPU live session's `set-film-lut` upload, so a

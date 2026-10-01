@@ -11,6 +11,7 @@ export interface RecipeTarget {
   capturedAt: string | null;
   index: number;
   sourceHandle?: FileSystemFileHandle;
+  sourceDirectory?: FileSystemDirectoryHandle;
 }
 export interface RecipeEntry {
   id: string;

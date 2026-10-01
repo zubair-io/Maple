@@ -87,6 +87,8 @@ export class RawPipelineService implements OnDestroy {
 
   private worker: Worker | null = null;
   private nextId = 1;
+  /** Cold export retires retained CPU owners; authoring must rebind afterward. */
+  readonly exportRevision = signal(0);
   private pending = new Map<number, PendingHandler>();
   /** Paint/Smart paint preparation (#3934 / #3942), never a slider operation. */
   readonly removal = new RemovalAuthoringClient(
@@ -513,49 +515,40 @@ export class RawPipelineService implements OnDestroy {
     return next;
   };
 
-  /**
-   * Render a RAW at export quality and encode it to a deliverable file (#943).
-   *
-   * Runs behind the same `decodeChain` gate as `decode()`: a full-resolution
-   * export is by far the largest thing the WASM heap ever holds, so it must not
-   * overlap another decode competing for the same 4 GiB address space.
-   *
-   * The reply is a `Blob` — the worker drains the encoded bytes out of the WASM
-   * heap in chunks, so neither thread ever holds a second copy of the file.
-   */
+  /** Export serializes with decode work, retires CPU RAW owners before its
+   * cold decode, and drains an encoded Blob without full RGB on the JS heap. */
   exportImage(
     bytes: Uint8Array,
     ext: string,
     options: RawExportOptions,
     xmp?: string,
     filmLut?: ArrayBuffer,
+    saved?: RemovalCompanionBundle,
   ): Promise<ExportedFile> {
     const run = () => {
-      // Export decodes its own sensor data. Release the detail viewer's cached
-      // mosaic first so a large export does not retain two full RAW decodes.
+      // Export owns a cold decode. Retire the detail/CPU saved-preview owner
+      // and its main-thread reuse key before allocating that second mosaic.
+      this.savedPreview.close();
       this.closeNativeDetail();
-      return this.exportOnce(bytes, ext, options, xmp, filmLut);
+      const worker = this.ensureWorker();
+      const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
+      return dispatchExport(
+        worker,
+        this.nextId++,
+        register,
+        bytes,
+        ext,
+        options,
+        xmp,
+        filmLut,
+        saved,
+      );
     };
-    const next = this.decodeChain.then(run, run);
+    const next = this.decodeChain
+      .then(run, run)
+      .finally(() => this.exportRevision.update((n) => n + 1));
     this.decodeChain = next.catch(() => undefined);
     return next;
-  }
-
-  private exportOnce(
-    bytes: Uint8Array,
-    ext: string,
-    options: RawExportOptions,
-    xmp: string | undefined,
-    filmLut: ArrayBuffer | undefined,
-  ): Promise<ExportedFile> {
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
-    const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
-    return dispatchExport(worker, this.nextId++, register, bytes, ext, options, xmp, filmLut);
   }
 
   ngOnDestroy(): void {

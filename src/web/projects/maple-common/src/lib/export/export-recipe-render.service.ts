@@ -1,3 +1,4 @@
+import { RemovalExportAssetsService } from '../removal/removal-export-assets.service';
 import { RecipeFilenameEngine } from './recipe-filename-engine';
 import { DestroyRef, Injectable, inject } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
@@ -30,6 +31,7 @@ export class ExportRecipeRenderService {
   private readonly xmp = inject(XmpStoreService);
   private readonly pipeline = inject(RawPipelineService);
   private readonly films = inject(FilmLutService);
+  private readonly removals = inject(RemovalExportAssetsService);
 
   async capture(assets: readonly Asset[]): Promise<RecipeTarget[]> {
     if (!assets.length || assets.length > 2000)
@@ -60,6 +62,12 @@ export class ExportRecipeRenderService {
     const film = target.filmLook ? await this.films.getLattice(target.filmLook) : null;
     if (target.filmLook && !film)
       throw new Error(`Film look ${target.filmLook} is unavailable. Reconnect and retry.`);
+    const saved = await this.removals.load(
+      target.id,
+      target.filename,
+      target.xmp,
+      target.sourceDirectory,
+    );
     const source = target.sourceHandle
       ? target.sourceHandle.getFile().then(async (file) => new Uint8Array(await file.arrayBuffer()))
       : this.library.bytesForAsset(target.id);
@@ -79,6 +87,7 @@ export class ExportRecipeRenderService {
       },
       target.xmp,
       film ?? undefined,
+      saved,
     );
   }
 }
