@@ -116,6 +116,8 @@ namespace Maple.WinUI
                     VerifyBrowseSelection();
                     RecordSmokeStage(output, "browse-scrolling");
                     await VerifyBrowseScrollingAsync();
+                    RecordSmokeStage(output, "browse-grouped-scrolling");
+                    await VerifyBrowseScrollingAsync(grouped: true);
                     RecordSmokeStage(output, "immediate-undo");
                     await VerifyImmediateUndoAsync();
                     RecordSmokeStage(output, "preview-recovery");

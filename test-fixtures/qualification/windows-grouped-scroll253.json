@@ -1,0 +1,155 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceBase": "2b8216696",
+  "app": "Maple.DesignAudit253.exe",
+  "appSha256": "ECE55B199E143B2C0E9771B15F42EE236083AA4EF2FA0A26D03CFBA473125373",
+  "result": "GPU and CPU passed flat and grouped browse scrolling; empty lifecycle passed separately.",
+  "fixture": "120 synthetic photo view models across ten capture days, twelve photos per day; actual WinUI controls with virtualized layout.",
+  "assertions": [
+    "Grouping established and ten groups present.",
+    "Grid and list each have vertical overflow and no horizontal overflow.",
+    "Both scroll down, realize the final item in view, and return to top.",
+    "Scrolled grid captures a photo anchor at index 40 or later.",
+    "Grid-to-list transition keeps that same photo visible."
+  ],
+  "stages": {
+    "gpu": [
+      {
+        "stage": "browse-scrolling",
+        "time": "2026-10-01T11:51:15.927164-04:00",
+        "threads": 56,
+        "workingSetBytes": 505729024
+      },
+      {
+        "stage": "browse-grouped-scrolling",
+        "time": "2026-10-01T11:51:19.7998598-04:00",
+        "threads": 56,
+        "workingSetBytes": 519614464
+      },
+      {
+        "stage": "immediate-undo",
+        "time": "2026-10-01T11:51:23.4121588-04:00",
+        "threads": 56,
+        "workingSetBytes": 528130048
+      },
+      {
+        "stage": "shutdown",
+        "time": "2026-10-01T11:51:34.2085268-04:00",
+        "threads": 56,
+        "workingSetBytes": 538914816
+      }
+    ],
+    "cpu": [
+      {
+        "stage": "browse-scrolling",
+        "time": "2026-10-01T11:51:56.3855219-04:00",
+        "threads": 49,
+        "workingSetBytes": 339378176
+      },
+      {
+        "stage": "browse-grouped-scrolling",
+        "time": "2026-10-01T11:52:00.5767764-04:00",
+        "threads": 49,
+        "workingSetBytes": 359215104
+      },
+      {
+        "stage": "immediate-undo",
+        "time": "2026-10-01T11:52:04.3580177-04:00",
+        "threads": 49,
+        "workingSetBytes": 370675712
+      },
+      {
+        "stage": "shutdown",
+        "time": "2026-10-01T11:52:14.5945026-04:00",
+        "threads": 52,
+        "workingSetBytes": 381698048
+      }
+    ],
+    "empty": []
+  },
+  "reports": {
+    "gpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 2822150,
+      "renderPath": "gpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 1,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    },
+    "cpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 7933674,
+      "renderPath": "cpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    },
+    "empty": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 5182758,
+      "renderPath": "empty",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": false,
+      "localSaveFailureRecovery": false,
+      "nativeDetailActualSize": false,
+      "presetUndoRedoAndReset": false,
+      "adjustmentGestureUndoRedo": false,
+      "repairControlsUndoRedo": false,
+      "scopesLifecycle": false,
+      "transferWatcherUndoRedo": false,
+      "comparisonPreservesDocument": false,
+      "cloudOpeningReadiness": false,
+      "cloudSearchPagination": false,
+      "cloudMapHost": false,
+      "responsiveDesign": false,
+      "browseSelectionAndSort": false,
+      "browseScrolling": false,
+      "immediateUndo": false
+    }
+  },
+  "conclusion": "Suspected grouped-container anchor failure was not reproduced; production scrolling code unchanged.",
+  "limitations": [
+    "Root constrained to 1024x768 logical units; not a complete native-window or DPI matrix.",
+    "Synthetic browsing entries do not qualify real server pagination or image loading.",
+    "No screenshot comparison or physical wheel/trackpad input in this harness.",
+    "Intermittent native crash remains unresolved despite passing runs."
+  ]
+}

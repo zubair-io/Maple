@@ -9,11 +9,14 @@ namespace Maple.WinUI;
 
 public sealed partial class MainWindow
 {
-    private async Task VerifyBrowseScrollingAsync()
+    private async Task VerifyBrowseScrollingAsync(bool grouped = false)
     {
         var originals = ViewModel.AllPhotos.ToArray();
         var selected = ViewModel.SelectedPhoto;
         var originalView = _browseListDetail;
+        var originalSort = ViewModel.PhotoSort;
+        var originalStart = ViewModel.DateFilterStart;
+        var originalEnd = ViewModel.DateFilterEndExclusive;
         var root = (FrameworkElement)Content;
         try
         {
@@ -22,8 +25,13 @@ public sealed partial class MainWindow
             root.Height = 768;
             ViewModel.AllPhotos.Clear();
             for (var i = 0; i < 120; i++)
-                ViewModel.AllPhotos.Add(new PhotoItem { FilePath = $"scroll-fixture-{i:D3}.dng", FileName = $"Photo {i:D3}.dng", Format = "DNG" });
-            ViewModel.ApplyFilters();
+                ViewModel.AllPhotos.Add(new PhotoItem { FilePath = $"scroll-fixture-{i:D3}.dng", FileName = $"Photo {i:D3}.dng", Format = "DNG",
+                    CaptureDate = new DateTime(2026, 1, 1).AddDays(i / 12).AddMinutes(i % 12) });
+            ViewModel.PhotoSort = grouped ? BrowseSort.CapturedOldest : BrowseSort.Name;
+            ViewModel.SetDateFilter(grouped ? new DateTime(2026, 1, 1) : null,
+                grouped ? new DateTime(2026, 2, 1) : null);
+            if (ViewModel.IsDateGrouped != grouped || (grouped && ViewModel.PhotoGroups.Count != 10))
+                throw new InvalidOperationException("Browse scrolling fixture did not establish the requested grouping");
             foreach (var listDetail in new[] { false, true })
             {
                 _browseListDetail = listDetail;
@@ -95,7 +103,8 @@ public sealed partial class MainWindow
         {
             ViewModel.AllPhotos.Clear();
             foreach (var photo in originals) ViewModel.AllPhotos.Add(photo);
-            ViewModel.ApplyFilters();
+            ViewModel.PhotoSort = originalSort;
+            ViewModel.SetDateFilter(originalStart, originalEnd);
             _browseListDetail = originalView;
             Services.AppSettings.Update(settings => settings.BrowseListDetail = originalView);
             UpdateBrowsePresentation();
