@@ -77,12 +77,13 @@ pub struct WebLiveSession {
     /// The decoded RAW, retained so a prefix-affecting edit re-develops WITHOUT
     /// re-decoding (decode is the multi-hundred-ms cost the one-shot path repays
     /// every call).
-    raw_img: raw_core::image::RawImage,
-    original: raw_core::types::accepted_removal::ContentDigest,
+    pub(crate) raw_img: raw_core::image::RawImage,
+    pub(crate) original: raw_core::types::accepted_removal::ContentDigest,
+    pub(crate) saved_removals: Option<raw_core::pipeline::ResolvedCalibrationRemovals>,
     /// Original RAW bytes + extension — needed for the `auto_will_fit` probe and
     /// the Auto Profile fit (both read the embedded JPEG).
-    raw: Vec<u8>,
-    ext: String,
+    pub(crate) raw: Vec<u8>,
+    pub(crate) ext: String,
     /// The persistent WebGPU present surface over the `OffscreenCanvas` (transferred
     /// from the main thread via `transferControlToOffscreen`). Owns the surface +
     /// the compiled present pipeline; created ONCE in `open`, so a per-tick present
@@ -250,6 +251,7 @@ impl WebLiveSession {
             ctx,
             raw_img,
             original: raw_core::types::accepted_removal::ContentDigest::for_bytes(&raw),
+            saved_removals: None,
             raw,
             ext,
             present,

@@ -40,6 +40,18 @@ pub struct MapleExport {
     bytes: Vec<u8>,
 }
 
+impl MapleExport {
+    pub(crate) fn from_image(image: raw_core::export::ExportedImage, format: ExportFormat) -> Self {
+        Self {
+            width: image.width,
+            height: image.height,
+            bytes: image.bytes,
+            mime_type: format.mime_type().to_owned(),
+            extension: format.extension().to_owned(),
+        }
+    }
+}
+
 #[wasm_bindgen]
 impl MapleExport {
     /// Width of the encoded image, after any resize / crop / orientation.

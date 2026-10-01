@@ -88,6 +88,11 @@ describe('durable browser removal through actual WASM and filesystem files', () 
       fixture('source.dng'),
     );
     expect((await assets.read(records)).size).toBe(2);
+    const bundle = await assets.readBundle(records);
+    expect(bundle.bytes.byteLength).toBe(
+      fixture('mask.mimf').byteLength + fixture('patch.f16').byteLength,
+    );
+    expect(JSON.parse(bundle.manifest)).toHaveLength(2);
     // Ordinary slider writes preserve the newly accepted stack even when their
     // cached passthrough was captured before Keep.
     sidecars.scheduleWrite(

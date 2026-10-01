@@ -19,6 +19,7 @@ pub struct NativeDetailSession {
     bytes: Vec<u8>,
     ext: String,
     prepared: Option<PreparedDetail>,
+    saved_removals: Option<pipeline::ResolvedCalibrationRemovals>,
 }
 
 struct PreparedDetail {
@@ -35,6 +36,12 @@ pub struct NativeDetailPatch {
     width: u32,
     height: u32,
     rgb: Vec<u8>,
+}
+
+impl NativeDetailPatch {
+    pub(crate) fn from_rgb(width: u32, height: u32, rgb: Vec<u8>) -> Self {
+        Self { width, height, rgb }
+    }
 }
 
 #[wasm_bindgen]
@@ -63,6 +70,7 @@ impl NativeDetailSession {
             bytes: bytes.to_vec(),
             ext: ext.to_owned(),
             prepared: None,
+            saved_removals: None,
         })
     }
 
@@ -77,6 +85,64 @@ impl NativeDetailSession {
     /// removal authoring, never per stroke or slider tick.
     pub fn removal_calibration_source(&self) -> Result<String, JsError> {
         crate::removal_context::source(&self.raw, &self.original).map_err(js_error)
+    }
+
+    /// Verify the complete saved stack once after companion reads. Manifest is
+    /// [{"name":"<digest>.mask|f16","length":N}], bytes concatenated in that order.
+    /// A failed preparation clears the old stack; no partial result is renderable.
+    pub fn prepare_saved_removals(
+        &mut self,
+        xmp: &str,
+        manifest: &str,
+        bytes: &[u8],
+    ) -> Result<String, JsError> {
+        self.saved_removals = None;
+        let stack = crate::removal_saved::prepare(&self.raw, &self.original, xmp, manifest, bytes)
+            .map_err(js_error)?;
+        let review = serde_json::to_string(stack.needs_review()).map_err(js_error)?;
+        self.saved_removals = Some(stack);
+        Ok(review)
+    }
+
+    /// Cold saved-result inspection, using the retained RAW and verified assets.
+    /// cap=0 means native; this does not install a GPU slider prefix (#3955).
+    pub fn render_saved_removals(
+        &self,
+        xmp: &str,
+        cap: u32,
+        film: &[u8],
+    ) -> Result<crate::native_detail::NativeDetailPatch, JsError> {
+        crate::removal_saved::render(
+            self.saved_removals.as_ref(),
+            &self.raw,
+            &self.original,
+            &self.bytes,
+            &self.ext,
+            xmp,
+            cap,
+            film,
+        )
+        .map_err(js_error)
+    }
+
+    /// Export accepted pixels without installed inference models or a re-decode.
+    pub fn export_saved_removals(
+        &self,
+        xmp: &str,
+        options: &str,
+        film: &[u8],
+    ) -> Result<crate::export::MapleExport, JsError> {
+        crate::removal_saved::export(
+            self.saved_removals.as_ref(),
+            &self.raw,
+            &self.original,
+            &self.bytes,
+            &self.ext,
+            xmp,
+            options,
+            film,
+        )
+        .map_err(js_error)
     }
 
     /// `rect` = x,y,width,height in oriented DefaultCrop-relative pixels.
