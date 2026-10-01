@@ -97,7 +97,7 @@ namespace Maple.WinUI
                     RecordSmokeStage(output, "adjustment-gesture");
                     await VerifyAdjustmentGestureUndoAsync();
                     RecordSmokeStage(output, "retouch-undo");
-                    await VerifyRetouchUndoAsync();
+                    await VerifyRetouchUndoAsync(output);
                     RecordSmokeStage(output, "transfer-undo");
                     await VerifyTransferUndoAsync(output);
                     VerifyViewerDesignNavigation();

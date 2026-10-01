@@ -48,5 +48,53 @@
     "Not proven to be the same cause as the previous CPU timeout.",
     "Earlier passing lifecycle run remains valid for that run, but does not resolve this intermittent failure."
   ],
-  "nextAction": "Capture a native stowed-exception stack or narrow the failing retouch operation before claiming a fix."
+  "nextAction": "Capture a native stowed-exception stack or narrow the failing retouch operation before claiming a fix.",
+  "dumpInspection": {
+    "sha256": "2B4530E8FF2A850BDEFF82B714959C23EAACB4CDF04E2716CB19B4EB64AC5925",
+    "bytes": 39132668,
+    "parser": "minidump 0.0.24",
+    "storedRecordSize": 56,
+    "signature": "SE02",
+    "resultCode": "0x8000FFFF",
+    "exceptionForm": 1,
+    "stackTraceWordSize": 8,
+    "stackTraceWords": 40,
+    "nestedExceptionType": "XAML",
+    "stackTraceAvailable": false,
+    "reason": "Stored stack pointer is outside captured memory ranges; native stack could not be recovered from this record.",
+    "structureReference": "https://learn.microsoft.com/en-us/windows/win32/wer/stowed-exception-information-v2",
+    "dumpUploaded": false
+  },
+  "instrumentedRetry": {
+    "build": "Maple.DesignAudit235",
+    "managedAppSha256": "7B734782A843F31195B0AEFCE514B9A3554BA4B3CCA51005464EBFB5C084A068",
+    "gpuPassed": true,
+    "cpuPassed": true,
+    "emptyPassed": true,
+    "stages": {
+      "gpu": [
+        "retouch-undo",
+        "retouch-open-panel",
+        "retouch-transforms",
+        "retouch-add-spot",
+        "retouch-change-kind",
+        "retouch-change-radius",
+        "retouch-undo-redo-radius",
+        "retouch-delete-spot",
+        "retouch-restore-history"
+      ],
+      "cpu": [
+        "retouch-undo",
+        "retouch-open-panel",
+        "retouch-transforms",
+        "retouch-add-spot",
+        "retouch-change-kind",
+        "retouch-change-radius",
+        "retouch-undo-redo-radius",
+        "retouch-delete-spot",
+        "retouch-restore-history"
+      ]
+    },
+    "crashResolved": false
+  }
 }
