@@ -24,6 +24,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.Xmp;
 
@@ -274,17 +275,6 @@ namespace Maple.WinUI.Services.FileOperations
         // folder names — anywhere a caller hands this module a name rather
         // than a full path)
 
-        /// <summary>Reserved MS-DOS device names — invalid as a file OR
-        /// folder base name (extension-insensitive: `NUL.txt` is just as
-        /// reserved as `NUL`) anywhere on an NTFS/FAT volume, regardless of
-        /// directory.</summary>
-        private static readonly HashSet<string> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "CON", "PRN", "AUX", "NUL",
-            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-        };
-
         /// <summary>
         /// Validates that <paramref name="name"/> is a bare file/folder name
         /// this module is safe to <see cref="Path.Combine(string, string)"/>
@@ -297,12 +287,15 @@ namespace Maple.WinUI.Services.FileOperations
         /// </summary>
         internal static void ValidateBareFileName(string name)
         {
-            if (string.IsNullOrEmpty(name) || Path.GetFileName(name) != name)
+            if (string.IsNullOrEmpty(name) || name.Contains('/') || name.Contains('\\') ||
+                name.StartsWith('.') || name.EndsWith('.') || name.EndsWith(' '))
                 throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
                     $"not a valid bare file name: {name}");
 
-            var stem = Path.GetFileNameWithoutExtension(name);
-            if (ReservedDeviceNames.Contains(stem))
+            // raw-core checks the stem before the FIRST extension, so
+            // CON.tar.gz is just as reserved as CON.txt, on every host.
+            var stem = name.Split('.')[0];
+            if (FilenameVocabulary.ReservedWindowsNames.Contains(stem))
                 throw new FileOperationException(FileOperationErrorKind.InvalidDestination,
                     $"'{stem}' is a reserved Windows device name: {name}");
         }

@@ -87,9 +87,7 @@
       "name": "same_file_refusal_via_symlinked_parent",
       "kind": "relocate",
       "description": "A destination reached through a symlinked ancestor directory names the SAME on-disk file as the source even though the paths are lexically different \u2014 refused before any copy/remove runs. Without this guard a `.replace` collision's destination-clearing step would delete the source through the alias.",
-      "requires": [
-        "symlinks"
-      ],
+      "requires": ["symlinks"],
       "setup": {
         "files": [
           {
@@ -124,9 +122,7 @@
       "name": "case_only_rename_file_succeeds_with_sidecar",
       "kind": "relocate",
       "description": "img.cr3 -> IMG.CR3 in the SAME directory on a case-insensitive-but-case-preserving filesystem: a naive existence check reads the target as already occupied by the source itself. Must succeed as a direct atomic rename (not collision handling, not copy-verify-delete), list under the NEW casing, and carry the sidecar along under the same new casing.",
-      "requires": [
-        "case-insensitive-fs"
-      ],
+      "requires": ["case-insensitive-fs"],
       "setup": {
         "files": [
           {
@@ -166,13 +162,8 @@
       "name": "case_only_rename_folder_succeeds_with_contents",
       "kind": "folder-rename",
       "description": "Folder variant of the case-only rename: Album -> ALBUM in place. Contents must survive and the folder must list under the new casing. API-excluded: the API's folder rename (POST /:id/move in routes/folders.ts) is a Mongo-backed library operation keyed on a DB folder id, not a pure filesystem primitive callable in isolation, so it is out of scope for this filesystem-only harness.",
-      "platforms": [
-        "apple",
-        "windows"
-      ],
-      "requires": [
-        "case-insensitive-fs"
-      ],
+      "platforms": ["apple", "windows"],
+      "requires": ["case-insensitive-fs"],
       "setup": {
         "files": [
           {
@@ -405,9 +396,7 @@
           }
         ]
       },
-      "platforms": [
-        "api"
-      ]
+      "platforms": ["api"]
     },
     {
       "name": "collision_replace_overwrites_occupant_and_its_sidecar",
@@ -490,18 +479,13 @@
           }
         ]
       },
-      "platforms": [
-        "api"
-      ]
+      "platforms": ["api"]
     },
     {
       "name": "collision_fail_declines_and_leaves_both_untouched",
       "kind": "relocate",
       "description": "fail: destination occupied -> the relocate throws/errors rather than proceeding, source and occupant both untouched. This is Swift/C#'s nearest equivalent to the TS-only 'skip' policy (see collision_skip_declines_and_leaves_both_untouched) - the observable outcome (nothing changes, nothing written) is the same, but it is surfaced as an ERROR rather than a silent no-op, which is itself a real API-shape divergence this harness documents rather than hides.",
-      "platforms": [
-        "apple",
-        "windows"
-      ],
+      "platforms": ["apple", "windows"],
       "requires": [],
       "setup": {
         "files": [
@@ -575,9 +559,7 @@
       "name": "crash_window_delete_of_original_fails_after_verified_copy",
       "kind": "relocate",
       "description": "The accepted failure direction: the copy is fully verified and published at the destination, but the delete-of-the-original then fails (simulated deterministically by revoking write permission on the source's parent directory, which blocks the subsequent unlink). The relocate must still report success (a failed best-effort delete is logged, never thrown) and BOTH the original and the new copy must exist afterward \u2014 a harmless duplicate, never data loss.",
-      "requires": [
-        "posix-permissions"
-      ],
+      "requires": ["posix-permissions"],
       "setup": {
         "files": [
           {
@@ -615,9 +597,7 @@
       "name": "multi_location_selects_the_live_non_missing_entry",
       "kind": "selector",
       "description": "An asset with three fileinfo entries \u2014 one soft-deleted, one missing-tagged (last known location went offline), one live and clean \u2014 must select the live-clean entry as the relocate/rename target, never the deleted or stale-missing one. Regression for the multi-location selector bug identified in the refile-legacy-daydir review (a plain 'first non-deleted' selector picks the missing-tagged entry when it sorts first).",
-      "requires": [
-        "multi-location-fileinfo"
-      ],
+      "requires": ["multi-location-fileinfo"],
       "fileinfo": [
         {
           "path": "old",
@@ -646,9 +626,7 @@
       "name": "multi_location_falls_back_to_missing_when_every_live_entry_is_missing_tagged",
       "kind": "selector",
       "description": "When every non-deleted entry is missing-tagged (no clean live entry exists at all), the selector must still return SOME live entry rather than null \u2014 the design doc's 'falling back to any non-deleted entry only when every live entry is missing-tagged.'",
-      "requires": [
-        "multi-location-fileinfo"
-      ],
+      "requires": ["multi-location-fileinfo"],
       "fileinfo": [
         {
           "path": "old",
@@ -671,9 +649,7 @@
       "name": "companion_follows_base_swap_rename_on_move",
       "kind": "relocate",
       "description": "A non-sidecar companion (e.g. apple_rendered_path) sharing the primary's base name travels alongside the primary on a move, base-swap renamed the same way a `.xmp` sidecar is, and is deleted from its original location (#2667).",
-      "requires": [
-        "companion-file"
-      ],
+      "requires": ["companion-file"],
       "setup": {
         "files": [
           {
@@ -691,9 +667,7 @@
         "destDir": "Album",
         "mode": "move",
         "collision": "auto-suffix",
-        "companions": [
-          "IMG_8.jpg"
-        ]
+        "companions": ["IMG_8.jpg"]
       },
       "expected": {
         "outcome": "relocated",
@@ -714,9 +688,7 @@
       "name": "companion_follows_collision_auto_suffix_consistently_with_primary",
       "kind": "relocate",
       "description": "A collision that forces the primary to auto-suffix to a `.1` sibling renames the companion to the SAME suffixed base, consistent with how a sidecar follows (#2667).",
-      "requires": [
-        "companion-file"
-      ],
+      "requires": ["companion-file"],
       "setup": {
         "files": [
           {
@@ -738,9 +710,7 @@
         "destDir": "Album",
         "mode": "move",
         "collision": "auto-suffix",
-        "companions": [
-          "IMG_9.jpg"
-        ]
+        "companions": ["IMG_9.jpg"]
       },
       "expected": {
         "outcome": "relocated",
@@ -906,6 +876,402 @@
       },
       "expected": {
         "matches": []
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_con",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "CON"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_prn",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "PRN"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_aux",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "AUX"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_nul",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "NUL"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com1",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM1"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com2",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM2"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com3",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM3"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com4",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM4"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com5",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM5"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com6",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM6"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com7",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM7"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com8",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM8"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_com9",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "COM9"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt1",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT1"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt2",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT2"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt3",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT3"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt4",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT4"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt5",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT5"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt6",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT6"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt7",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT7"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt8",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT8"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_device_lpt9",
+      "kind": "name-validation",
+      "description": "Reserved Windows device names are rejected by every surface, regardless of host OS.",
+      "requires": [],
+      "operation": {
+        "name": "LPT9"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_mixed_case_extension",
+      "kind": "name-validation",
+      "description": "Device names are case-insensitive and remain reserved with an extension.",
+      "requires": [],
+      "operation": {
+        "name": "cOn.dng"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_multiple_extensions",
+      "kind": "name-validation",
+      "description": "The reserved stem ends at the FIRST dot, matching raw-core.",
+      "requires": [],
+      "operation": {
+        "name": "com1.tar.gz"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_printer_multiple_extensions",
+      "kind": "name-validation",
+      "description": "A printer device with multiple extensions is still reserved.",
+      "requires": [],
+      "operation": {
+        "name": "lPt9.backup.dng"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_trailing_dot",
+      "kind": "name-validation",
+      "description": "Trailing dots are refused for portable filesystem names.",
+      "requires": [],
+      "operation": {
+        "name": "photo."
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_trailing_space",
+      "kind": "name-validation",
+      "description": "Trailing spaces are refused without trimming the requested filename.",
+      "requires": [],
+      "operation": {
+        "name": "photo.dng "
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_backslash_separator",
+      "kind": "name-validation",
+      "description": "Backslash is a separator on every surface, including macOS and Linux.",
+      "requires": [],
+      "operation": {
+        "name": "sub\\escaped.dng"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_leading_dot",
+      "kind": "name-validation",
+      "description": "Hidden path components are refused consistently.",
+      "requires": [],
+      "operation": {
+        "name": ".photo.dng"
+      },
+      "expected": {
+        "valid": false
+      }
+    },
+    {
+      "name": "name_validation_reserved_prefix_console",
+      "kind": "name-validation",
+      "description": "An ordinary word beginning with a device name remains valid.",
+      "requires": [],
+      "operation": {
+        "name": "Console.dng"
+      },
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "name": "name_validation_reserved_prefix_com10",
+      "kind": "name-validation",
+      "description": "COM10 is not one of the reserved numbered devices.",
+      "requires": [],
+      "operation": {
+        "name": "COM10.dng"
+      },
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "name": "name_validation_unicode_nfc",
+      "kind": "name-validation",
+      "description": "A composed Unicode name is accepted without rewriting its spelling.",
+      "requires": [],
+      "operation": {
+        "name": "caf\u00e9.dng"
+      },
+      "expected": {
+        "valid": true
+      }
+    },
+    {
+      "name": "name_validation_unicode_nfd",
+      "kind": "name-validation",
+      "description": "A decomposed Unicode name is accepted without rewriting its spelling.",
+      "requires": [],
+      "operation": {
+        "name": "cafe\u0301.dng"
+      },
+      "expected": {
+        "valid": true
       }
     }
   ]

@@ -30,14 +30,17 @@
  * docs/superpowers/specs/2026-06-05-backup-geo-layout.md (the State/Country split).
  */
 
-/** Reject filenames that could escape the library root. Allow only a basename
- * with no path separators, no `..` segments, and no leading dot. */
+import { RESERVED_WINDOWS_NAMES } from '../generated/filename-vocabulary.generated.ts';
+
+/** Validate a portable basename using raw-core's filename rules (#3990).
+ * Preserve the caller's Unicode spelling; this function only accepts or rejects.
+ * The existing API filename-length limit remains an additional storage bound. */
 export function isSafeFilename(name: string): boolean {
-  if (!name || name.length === 0 || name.length > 255) return false;
+  if (!name || name.length > 255) return false;
   if (name.includes('/') || name.includes('\\')) return false;
-  if (name === '.' || name === '..') return false;
-  if (name.startsWith('.')) return false;
-  return true;
+  if (name.startsWith('.') || name.endsWith('.') || name.endsWith(' ')) return false;
+  const stem = name.split('.')[0].replace(/[a-z]/g, (letter) => letter.toUpperCase());
+  return !RESERVED_WINDOWS_NAMES.includes(stem);
 }
 
 /**

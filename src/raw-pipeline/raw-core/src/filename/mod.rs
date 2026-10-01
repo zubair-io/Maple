@@ -174,7 +174,7 @@ pub type FilenameResult<T> = std::result::Result<T, FilenameError>;
 /// platform's rules everywhere: a template producing `CON.dng` is rejected
 /// on macOS too, rather than working there and silently breaking only for a
 /// Windows user who opens the same library later.
-const RESERVED_WINDOWS_NAMES: &[&str] = &[
+pub const RESERVED_WINDOWS_NAMES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
