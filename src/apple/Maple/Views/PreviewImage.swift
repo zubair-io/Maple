@@ -61,6 +61,10 @@ struct PreviewImage: View {
     return "\(source)"
   }
 
+  private var loadID: String {
+    DevelopedImageRevision.shared.decodedKey(for: sourceID, url: source.localAssetURL)
+  }
+
   var body: some View {
     ZStack {
       if let cg = decodedImage {
@@ -99,10 +103,10 @@ struct PreviewImage: View {
     .background(MapleTokens.bg)
     .clipped()
     .simultaneousGesture(pinchGesture)
-    .task(id: sourceID) { await load(for: sourceID) }
+    .task(id: loadID) { await load(for: loadID) }
     // Separate task so the delay races the load rather than serialising
     // behind it. Cancelled and restarted on every source change.
-    .task(id: sourceID) {
+    .task(id: loadID) {
       showsSpinner = false
       try? await Task.sleep(for: Self.spinnerDelay)
       guard !Task.isCancelled, phase == .loading else { return }

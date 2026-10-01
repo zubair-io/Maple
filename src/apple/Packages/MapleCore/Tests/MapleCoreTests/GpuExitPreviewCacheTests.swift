@@ -15,7 +15,22 @@ final class GpuExitPreviewCacheTests: XCTestCase {
     // An older CPU fallback must not overwrite the current GPU image on exit.
     session.scheduleDisplayPreviewPersist(
       CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8)))
+    let revision = DevelopedImageRevision.shared.revision(for: url)
+    let refresh = expectation(description: "Preview reload follows final cache writes")
+    let observer = NotificationCenter.default.addObserver(
+      forName: DevelopedImageRevision.didChange, object: nil, queue: .main
+    ) { notification in
+      guard notification.object as? URL == url else { return }
+      let preview = CIImage(contentsOf: MapleSidecarPaths.previewURL(for: url))
+      XCTAssertEqual(preview?.extent.size, CGSize(width: 32, height: 32))
+      let sidecar = try? XMPParser.parse(data: Data(contentsOf: SidecarPath.sidecarURL(for: url)))
+      XCTAssertEqual(sidecar?.0.exposure, 1.25)
+      refresh.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
     await session.persistDisplayPreviewOnExit()
+    await fulfillment(of: [refresh], timeout: 1)
+    XCTAssertEqual(DevelopedImageRevision.shared.revision(for: url), revision + 1)
 
     let parsed = try XMPParser.parse(data: Data(contentsOf: SidecarPath.sidecarURL(for: url)))
     XCTAssertEqual(parsed.0.exposure, 1.25)
