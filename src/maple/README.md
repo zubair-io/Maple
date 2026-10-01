@@ -595,10 +595,13 @@ extends by 5 on every side (measured: sharp 30×30, Maple 20×20). Call
 `.resize()` before `extend`/`flip`/`flop`/`rotate(angle)` and after `trim`
 if you want sharp's staging.
 
-Repeated `.resize()` calls are **not** a divergence: sharp has a single
-resize stage, so the last call wins, and Maple's `.resize()` drops any
-earlier `resize` op for the same reason. Measured on 32x32 noise,
-`.resize(16).resize(8)` is byte-identical to `.resize(8)` in both libraries.
+Repeated `.resize()` calls replace the options of the original resize stage
+in place: only the last call's parameters are used, while crops and padding
+stay on the same side of the resize. `.resize(16).extract(region).resize(8)`
+therefore resizes to 8 before extracting, matching sharp's post-resize crop.
+On 32x32 noise, `.resize(16).resize(8)` is byte-identical to `.resize(8)`
+in both libraries. Patterned nearest-neighbour tests also compare the pixels
+against sharp when extracts surround the resize and when padding follows it.
 
 The colour ops are fixed stages in sharp too, and this is where call order
 bites hardest. Every one of them runs at a fixed point in sharp's pipeline
