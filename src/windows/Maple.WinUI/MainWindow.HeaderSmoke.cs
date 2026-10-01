@@ -4,6 +4,9 @@ using System.Linq;
 using Maple.UI.Atoms;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 
@@ -11,6 +14,28 @@ namespace Maple.WinUI;
 
 public sealed partial class MainWindow
 {
+    private void VerifyEditorKeyboardFocus()
+    {
+        var previous = FocusManager.GetFocusedElement(Content.XamlRoot) as Control;
+        try
+        {
+            foreach (var button in HeaderActionButtons(EditTopBar).Where(button => button.IsEnabled))
+            {
+                var name = AutomationProperties.GetName(button);
+                if (!button.Focus(FocusState.Keyboard) ||
+                    !ReferenceEquals(FocusManager.GetFocusedElement(Content.XamlRoot), button))
+                    throw new InvalidOperationException($"Editor action cannot receive XAML keyboard focus: {name}");
+                var peer = FrameworkElementAutomationPeer.CreatePeerForElement(button);
+                if (peer == null || !peer.IsKeyboardFocusable() || !peer.HasKeyboardFocus() || peer.GetName() != name)
+                    throw new InvalidOperationException($"Editor action automation peer does not report its keyboard focus/name: {name}");
+            }
+        }
+        finally
+        {
+            previous?.Focus(FocusState.Programmatic);
+        }
+    }
+
     private void VerifyEditorHeaderBounds()
     {
         var header = EditTopBar.TransformToVisual(CanvasHost).TransformBounds(

@@ -297,6 +297,7 @@ namespace Maple.WinUI
             if (peer?.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.RangeValue) == null)
                 throw new InvalidOperationException("Adjustment slider lost native range accessibility");
             await VerifySliderGestureUndoAsync(slider);
+            VerifyEditorKeyboardFocus();
             // Undo deliberately replaces the adjustment object. Capture the
             // identity after that check, before testing layout-only changes.
             var model = ViewModel.Adjustments;
