@@ -81,7 +81,11 @@ async function withSidecarStat<T extends { abs_path: string }>(
   if (dto.abs_path === '') return { ...dto, xmp_mtime: null, xmp_size: null };
   try {
     const s = await stat(xmpSidecarPath(dto.abs_path));
-    return { ...dto, xmp_mtime: Math.floor(s.mtimeMs / 1000), xmp_size: s.size };
+    return {
+      ...dto,
+      xmp_mtime: Math.floor(s.mtimeMs / 1000),
+      xmp_size: s.size,
+    };
   } catch {
     return { ...dto, xmp_mtime: null, xmp_size: null };
   }
@@ -127,7 +131,7 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not indexed' };
     }
-    return dto;
+    return withSidecarStat(dto);
   })
 
   // Single asset detail by absolute server path.
@@ -159,7 +163,7 @@ export const metadataRoutes = new Elysia()
       set.status = 404;
       return { error: 'Asset not indexed' };
     }
-    return hit.address ? { ...dto, address: hit.address } : dto;
+    return withSidecarStat(hit.address ? { ...dto, address: hit.address } : dto);
   })
 
   // Bulk asset metadata (#2995). The File Provider's change-feed
@@ -186,7 +190,9 @@ export const metadataRoutes = new Elysia()
     }
     const dtos = await findDetailsByIds(parsed as ObjectId[]);
     // Bounded: a 500-id page is 500 stats; keep the fd pressure flat.
-    return { assets: await mapWithConcurrency(dtos, SIDECAR_STAT_CONCURRENCY, withSidecarStat) };
+    return {
+      assets: await mapWithConcurrency(dtos, SIDECAR_STAT_CONCURRENCY, withSidecarStat),
+    };
   })
 
   // Single asset metadata
