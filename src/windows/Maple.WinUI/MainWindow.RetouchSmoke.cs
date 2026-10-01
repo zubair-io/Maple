@@ -86,7 +86,7 @@ public sealed partial class MainWindow
         var root = (Microsoft.UI.Xaml.FrameworkElement)Content;
         try
         {
-            foreach (var size in new[] { new Windows.Graphics.SizeInt32(1440, 900), new Windows.Graphics.SizeInt32(1024, 768) })
+            foreach (var size in new[] { new Windows.Graphics.SizeInt32(1440, 960), new Windows.Graphics.SizeInt32(1024, 768) })
             {
                 AppWindow.Resize(size);
                 // Native resize and XAML measure complete on separate dispatcher

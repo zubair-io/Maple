@@ -37,7 +37,7 @@ public sealed partial class MainWindow
             if (Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 || ViewModel.UndoCount != originalDepth + 1 ||
                 ViewModel.Adjustments.Exposure != exposureSlider.Value || exposureSlider.Value != originalExposure + .25)
                 throw new InvalidOperationException("Resize qualification could not establish edited, zoomed state");
-            foreach (var size in new[] { new SizeInt32(1440, 900), new SizeInt32(1024, 768) })
+            foreach (var size in new[] { new SizeInt32(1440, 960), new SizeInt32(1024, 768) })
             {
                 AppWindow.Resize(size);
                 var deadline = Environment.TickCount64 + 5000;
