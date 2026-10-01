@@ -49,8 +49,8 @@ pub fn render_removal_calibration_plate(raw: &RawImage, cancel: CancelToken<'_>)
 }
 
 /// Bounded native context in un-oriented DefaultCrop coordinates, using the
-/// same linear calibration as the whole-frame qualification plate. Bayer only;
-/// unsupported tile formats fail explicitly. Current probe cap is 1024×1024,
+/// same linear calibration as the whole-frame qualification plate. Bayer,
+/// X-Trans and LinearRaw use bounded camera inputs. Probe cap is 1024×1024,
 /// not a shipping model/context policy. No full-resolution RGB plate is allocated.
 pub fn render_removal_calibration_context(
     raw: &RawImage,
@@ -147,3 +147,7 @@ mod tests;
 #[cfg(test)]
 #[path = "removal_calibration_context_tests.rs"]
 mod context_tests;
+
+#[cfg(test)]
+#[path = "removal_calibration_format_tests.rs"]
+mod format_tests;

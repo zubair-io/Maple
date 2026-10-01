@@ -269,3 +269,41 @@ pub(super) fn compare(path: &Path, x: u32, y: u32, output: &Path) -> ProbeResult
     }
     Ok(())
 }
+
+/// Isolate float-context drift through one shared SDR encoder; this does not
+/// claim parity of every browser/native grade or the saved rendering paths.
+pub(super) fn compare_display(native: &Path, browser: &Path, output: &Path) -> ProbeResult<()> {
+    let native = super::read_rgb(&std::fs::read(native)?, 1024, false)?;
+    let browser = super::read_rgb(&std::fs::read(browser)?, 1024, false)?;
+    let encoding = super::encoding::ProbeEncoding::fit(&native, true)?;
+    let a = encoding.encode(&native)?;
+    let b = encoding.encode(&browser)?;
+    let quantize = |value: f32| (value * 255.0).round().clamp(0.0, 255.0) as u8;
+    let changed_fp16_channels = native
+        .iter()
+        .zip(&browser)
+        .flat_map(|(a, b)| {
+            (0..3).map(move |c| {
+                half::f16::from_f32(a[c]).to_bits() != half::f16::from_f32(b[c]).to_bits()
+            })
+        })
+        .filter(|changed| *changed)
+        .count();
+    let (mut changed_pixels, mut changed_channels, mut max_lsb) = (0, 0, 0_u8);
+    for (a, b) in a.iter().zip(&b) {
+        let delta: [u8; 3] = std::array::from_fn(|c| quantize(a[c]).abs_diff(quantize(b[c])));
+        changed_pixels += usize::from(delta.iter().any(|v| *v != 0));
+        changed_channels += delta.iter().filter(|v| **v != 0).count();
+        max_lsb = max_lsb.max(*delta.iter().max().unwrap());
+    }
+    std::fs::write(
+        output,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "release_qualified":false,"encoder":"fixed-agx-srgb","pixels":native.len(),
+        "changed_display_pixels":changed_pixels,"changed_display_channels":changed_channels,
+        "max_display_lsb":max_lsb,"changed_fp16_context_channels":changed_fp16_channels,
+            "qualification":"Context drift isolated through the same native fixed SDR encoder. This is not all-consumer or all-grade pixel parity."
+        }))?,
+    )?;
+    Ok(())
+}

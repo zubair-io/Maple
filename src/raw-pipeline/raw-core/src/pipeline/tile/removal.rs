@@ -1,5 +1,5 @@
 //! Bounded, pre-WB camera context for removal calibration qualification (#3955).
-use super::{camera, guards, region, TileRect, TILE_OVERLAP_PX};
+use super::{camera, region, TILE_OVERLAP_PX};
 use crate::{
     cancel::CancelToken,
     error::{Error, Result},
@@ -33,23 +33,15 @@ pub(in crate::pipeline) fn render_removal_camera_context(
         ));
     }
     let model = anchor_model();
-    guards::reject_untileable(
-        raw,
-        &model,
-        TileRect {
-            src_x: crop.x + window.x,
-            src_y: crop.y + window.y,
-            src_w: window.width,
-            src_h: window.height,
-            out_w: window.width,
-            out_h: window.height,
-        },
-    )?;
     // Direct SENSOR coordinates, unlike the display-oriented tile entry.
     // DefaultCrop coordinates are translated once; EXIF has no role here.
     // Match AMaZE's GLOBAL tile grid, not merely Bayer parity. Its Nyquist
     // reconstruction has tile-local boundaries even with adequate overlap.
-    let stride = crate::demosaic::amaze::TILE_STRIDE;
+    let stride = match raw.cfa {
+        crate::image::CfaPattern::LinearRgb => 1,
+        crate::image::CfaPattern::XTrans(_) => 6,
+        _ => crate::demosaic::amaze::TILE_STRIDE,
+    };
     let sx = crop.x + window.x;
     let sy = crop.y + window.y;
     let rx = sx.saturating_sub(TILE_OVERLAP_PX) / stride * stride;
@@ -63,17 +55,23 @@ pub(in crate::pipeline) fn render_removal_camera_context(
     let rw = right.min(u64::from(raw.width)) as u32 - rx;
     let rh = bottom.min(u64::from(raw.height)) as u32 - ry;
     let (left, top) = (sx - rx, sy - ry);
-    let mosaic = linearize::sensor_linearize_region(raw, rx, ry, rw, rh);
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    let camera = camera::prepare(
-        &mosaic,
-        raw,
-        &model,
-        RenderQuality::Amaze,
-        region::active_area_for_padded_crop(raw, rx, ry, 1),
-    )?;
+    // The fixed model disables lens correction, lateral CA and hot pixels.
+    // No ordinary tile fallback is used: its guards concern creative stages
+    // which do not run in this pre-WB context.
+    let active_area = region::active_area_for_padded_crop(raw, rx, ry, 1);
+    let camera = if raw.cfa == crate::image::CfaPattern::LinearRgb {
+        let rgb = linearize::linearraw_to_camera_rgb_region(raw, rx, ry, rw, rh)?;
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        camera::finish(rgb, raw, &model, active_area)?
+    } else {
+        let mosaic = linearize::sensor_linearize_region(raw, rx, ry, rw, rh);
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        camera::prepare(&mosaic, raw, &model, RenderQuality::Amaze, active_area, (rx, ry))?
+    };
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
