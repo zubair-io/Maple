@@ -18,6 +18,9 @@ const files = new Map(
 const html = `<!doctype html><script type="module">
 import * as wasm from '/shared/raw_wasm.js';
 window.probe=async()=>{
+  window.gpuErrors=[];
+  const getAdapter=navigator.gpu.requestAdapter.bind(navigator.gpu);
+  navigator.gpu.requestAdapter=async(...args)=>{const adapter=await getAdapter(...args);if(adapter){window.adapterInfo=adapter.info;const getDevice=adapter.requestDevice.bind(adapter);adapter.requestDevice=async(...args)=>{const device=await getDevice(...args);device.addEventListener('uncapturederror',e=>window.gpuErrors.push(e.error.message));return device;};}return adapter;};
   await wasm.default({module_or_path:'/shared/raw_wasm_bg.wasm'});
   const read=async(name)=>new Uint8Array(await(await fetch('/'+name)).arrayBuffer());
   const [raw,mask,patch]=await Promise.all(['source.dng','mask.mimf','patch.f16'].map(read));
@@ -65,7 +68,7 @@ window.probe=async()=>{
     if(!corruptRejected||!oldStackCleared)throw Error('Failed preparation retained old accepted pixels');
     session.prepare_saved_removals(xmp,manifest,bundle);
     if(session.removal_calibration_source()!==source)throw Error('Saved rendering changed original source');
-    return {mapped,cropMapped,invalidGeometryRejected,renders,staleRejected,corruptRejected,oldStackCleared,sourceUnchanged:true};
+    return {source,mapped,cropMapped,invalidGeometryRejected,renders,staleRejected,corruptRejected,oldStackCleared,sourceUnchanged:true};
   }
   const cpu=new wasm.NativeDetailSession(raw,'dng');let cpuResult;
   try{cpuResult=await measure(cpu);}finally{cpu.free();}
@@ -73,7 +76,62 @@ window.probe=async()=>{
   const gpu=await wasm.WebLiveSession.open(raw,'dng',undefined,new OffscreenCanvas(64,64),64,'srgb');let gpuResult;
   try{gpuResult=await measure(gpu);}finally{gpu.free();}
   if(JSON.stringify(cpuResult)!==JSON.stringify(gpuResult))throw Error('Retained CPU/WebGPU saved API drift');
-  return {cpu:cpuResult,gpu:gpuResult,retainedHostsByteIdentical:true,crossOriginIsolated};
+  const records=wasm.removal_prepare(JSON.stringify({...request,plate:'linear-calibration-v1',source:JSON.parse(cpuResult.source)}),'[]',mask,patch);
+  const xmp=xmpFor(records), emptyXmp=xmpFor('[]');
+  let missingRejected=false;
+  const unpreparedCanvas=new OffscreenCanvas(1,1);
+  try{const unexpected=await wasm.WebLiveSession.open(raw,'dng',xmp,unpreparedCanvas,64,'srgb');unexpected.free();}catch{missingRejected=true;}
+  if(!missingRejected||unpreparedCanvas.width!==1)throw Error('Incomplete saved open presented an unpatched frame');
+  const corrupt=bundle.slice();corrupt[0]^=1;
+  let corruptOpenRejected=false;
+  try{const unexpected=await wasm.WebLiveSession.open_with_saved_removals(raw,'dng',xmp,new OffscreenCanvas(1,1),64,'srgb',manifest,corrupt);unexpected.free();}catch{corruptOpenRejected=true;}
+  if(!corruptOpenRejected)throw Error('Corrupt saved open succeeded');
+  const liveCases=[];
+  for(const cap of [4,64]){
+    const element=document.createElement('canvas');document.body.append(element);
+    const canvas=element.transferControlToOffscreen();
+    const live=await wasm.WebLiveSession.open_with_saved_removals(raw,'dng',xmp,canvas,cap,'srgb',manifest,bundle);
+    const reference=new wasm.NativeDetailSession(raw,'dng');
+    reference.prepare_saved_removals(xmp,manifest,bundle);
+    // Qualification readback waits for the GPU and browser compositor. These
+    // fences belong only to the probe; the production slider chain has none.
+    const settle=async()=>{await canvas.getContext('webgpu').getConfiguration().device.queue.onSubmittedWorkDone();await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);};
+    const sample=()=>{const c=new OffscreenCanvas(canvas.width,canvas.height),ctx=c.getContext('2d',{colorSpace:'srgb'});ctx.drawImage(element,0,0);return ctx.getImageData(0,0,c.width,c.height).data;};
+    try{
+      const cases=[];
+      for(const [temperature,ev] of [[6500,0],[4300,2],[9000,-2]]){
+        const grade=xmp.replace('/>',' xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Temperature="'+temperature+'" crs:Exposure2012="'+ev+'"/>');
+        await live.render(grade);await settle();
+        const rgba=sample(),result=reference.render_saved_removals(grade,cap,new Uint8Array());let rgb;
+        try{if(result.width!==canvas.width||result.height!==canvas.height)throw Error('Live saved geometry drift');rgb=result.take_rgb();}finally{result.free();}
+        let maxError=0;for(let i=0;i<rgb.length;i++)maxError=Math.max(maxError,Math.abs(rgb[i]-rgba[Math.floor(i/3)*4+i%3]));
+        if(maxError>2)throw Error('Live saved CPU/WebGPU parity failed at '+temperature+'K / '+ev+'EV: '+maxError+' LSB, GPU errors '+JSON.stringify(window.gpuErrors)+' adapter '+JSON.stringify(window.adapterInfo)+' actual '+Array.from(rgba.slice(0,16))+' expected '+Array.from(rgb.slice(0,12)));
+        await live.render(grade);await settle();const repeated=sample();if(rgba.some((v,i)=>v!==repeated[i]))throw Error('Repeated live saved pixels drifted');
+        const params=new Float32Array([ev,0,0,0,0,0,0,0,0,temperature,0,0,0,0,0,50,0,25,50]);
+        await live.render_with_params(params);await settle();const flat=sample();
+        if(rgba.some((v,i)=>v!==flat[i]))throw Error('Flat slider rendering discarded full-model settings');
+        cases.push({temperature,ev,maxError,repeatedIdentical:true,flatIdentical:true});
+      }
+      live.prepare_saved_removals(xmp,manifest,bundle);
+      await live.render(xmp);
+      let rejectedPreparation=false;try{live.prepare_saved_removals(xmp,manifest,corrupt);}catch{rejectedPreparation=true;}
+      let xmlRejected=false;try{await live.render(xmp);}catch{xmlRejected=true;}
+      let paramsRejected=false;try{await live.render_with_params(new Float32Array([0,0,0,0,0,0,0,0,0,6500,0,0,0,0,0,50,0,25,50]));}catch{paramsRejected=true;}
+      if(!rejectedPreparation||!xmlRejected||!paramsRejected)throw Error('Live rendering reused a rejected saved stack');
+      live.prepare_saved_removals(xmp,manifest,bundle);await live.render(xmp);
+      await live.render(emptyXmp);await settle();
+      const cleared=sample(),plain=wasm.render_bytes_sized(raw,'dng',emptyXmp,false,cap);let plainRgb;
+      try{plainRgb=plain.take_rgb();}finally{plain.free();}
+      let maxClearError=0;for(let i=0;i<plainRgb.length;i++)maxClearError=Math.max(maxClearError,Math.abs(plainRgb[i]-cleared[Math.floor(i/3)*4+i%3]));
+      if(maxClearError>2)throw Error('Cleared saved stack retained old replacement pixels');
+      liveCases.push({cap,width:canvas.width,height:canvas.height,cases,xmlRejected,paramsRejected,maxClearError});
+    }finally{live.free();reference.free();element.remove();}
+  }
+  const ordinaryEntries=[()=>wasm.render_bytes(raw,'dng',xmp),()=>wasm.render_bytes_sized(raw,'dng',xmp,false,64),()=>wasm.render_bytes_scene_linear(raw,'dng',xmp,false),()=>wasm.render_bytes_scene_linear_sized(raw,'dng',xmp,false,64)];
+  const unresolvedRejected=ordinaryEntries.map(run=>{try{const result=run();result.free();return false;}catch{return true;}});
+  if(unresolvedRejected.some(v=>!v))throw Error('CPU fallback silently ignored saved removals');
+  if(window.gpuErrors.length)throw Error(window.gpuErrors.join('\n'));
+  return {cpu:cpuResult,gpu:gpuResult,retainedHostsByteIdentical:true,live:{missingRejected,corruptOpenRejected,liveCases,unresolvedRejected,gpuValidationErrors:window.gpuErrors},crossOriginIsolated};
 };
 </script>`;
 const server = createServer(async (request, response) => {
@@ -117,11 +175,18 @@ const server = createServer(async (request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch({
   headless: true,
-  args: ["--enable-unsafe-webgpu"],
+  args: [
+    "--enable-unsafe-webgpu",
+    ...(process.platform === "darwin" ? ["--use-angle=metal"] : []),
+  ],
 });
 try {
   const page = await browser.newPage(),
     errors = [];
+  page.on("console", (msg) => {
+    if (["error", "warn"].includes(msg.type()))
+      console.log(msg.type(), msg.text());
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/*", (route) =>
     new URL(route.request().url()).hostname === "127.0.0.1"

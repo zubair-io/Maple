@@ -1,3 +1,4 @@
+import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 // RawPipelineService — Angular wrapper around the raw-decode Web Worker.
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
@@ -318,6 +319,7 @@ export class RawPipelineService implements OnDestroy {
     ext: string,
     xmp?: string,
     maxLongEdge?: number,
+    savedRemovals?: RemovalCompanionBundle,
   ): Promise<OpenedLiveSession> {
     let worker: Worker;
     try {
@@ -335,6 +337,7 @@ export class RawPipelineService implements OnDestroy {
       xmp,
       maxLongEdge,
       this.colorSpacePref.current(),
+      savedRemovals,
     );
   }
 

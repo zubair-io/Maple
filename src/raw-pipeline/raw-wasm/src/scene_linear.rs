@@ -124,6 +124,7 @@ pub fn render_bytes_scene_linear(
 
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
@@ -209,6 +210,7 @@ pub fn render_bytes_scene_linear_sized(
 
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview

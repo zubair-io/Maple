@@ -206,6 +206,7 @@ fn export_core_with_film(
     )?;
 
     let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(|e| e.to_string())?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| e)?;
 
     let options = ExportOptions {
         format,

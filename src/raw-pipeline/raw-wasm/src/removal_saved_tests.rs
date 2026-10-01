@@ -141,3 +141,117 @@ fn unprepared_or_changed_records_block_render_and_export() {
     )
     .is_err());
 }
+
+#[cfg(feature = "gpu")]
+#[test]
+fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
+    use crate::gpu_render::{
+        develop_prefix_rgba, develop_prefix_rgba_saved, require_prepared_removals,
+    };
+    let (raw, original, xmp, manifest, bytes) = fixture();
+    let model = crate::mask_registry::parse_model(Some(&xmp)).unwrap();
+    let stack = prepare(&raw, &original, &xmp, &manifest, &bytes).unwrap();
+    assert!(require_no_unresolved_removals(&model).is_err());
+    assert!(develop_prefix_rgba(&raw, RAW, "dng", &model, 64).is_err());
+    assert!(develop_prefix_rgba_saved(&raw, RAW, "dng", &original, &model, 64, None).is_err());
+    let other = ContentDigest::for_bytes(b"another RAW");
+    assert!(develop_prefix_rgba_saved(&raw, RAW, "dng", &other, &model, 64, Some(&stack)).is_err());
+    let mut changed = model.clone();
+    changed.inpaint_removals[0].model_version.push('x');
+    assert!(require_prepared_removals(Some(&stack), &changed).is_err());
+    assert!(require_prepared_removals(None, &raw_core::xmp::AdjustmentModel::default()).is_ok());
+
+    let ctx = raw_gpu::GpuContext::new_blocking()
+        .expect("saved-prefix GPU qualification requires adapter");
+    for cap in [4, 64] {
+        let (rgba, w, h, prefix, anchor) =
+            develop_prefix_rgba_saved(&raw, RAW, "dng", &original, &model, cap, Some(&stack))
+                .unwrap();
+        let expected = stack
+            .develop_with_gain(
+                &raw,
+                &original,
+                &prefix,
+                RenderQuality::Amaze,
+                Some(cap),
+                CancelToken::never(),
+            )
+            .unwrap()
+            .0;
+        assert_eq!(
+            rgba,
+            expected
+                .pixels
+                .iter()
+                .flat_map(|p| [p[0], p[1], p[2], 1.0])
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(Some(anchor), expected.whites_anchor_ev);
+        let ordinary = raw_core::xmp::AdjustmentModel {
+            inpaint_removals: Vec::new(),
+            ..model.clone()
+        };
+        let unedited = develop_prefix_rgba(&raw, RAW, "dng", &ordinary, cap).unwrap();
+        assert_ne!(rgba, unedited.0, "saved edit was ignored by GPU upload");
+        let session = raw_gpu::LiveSession::new(&ctx, &rgba, w, h).unwrap();
+        for (temperature, ev) in [(6500.0, 0.0), (4300.0, 2.0), (9000.0, -2.0)] {
+            let grade = raw_core::xmp::AdjustmentModel {
+                temperature,
+                temperature_seen: true,
+                exposure: ev,
+                ..model.clone()
+            };
+            let (_, _, _, hot_prefix, _) =
+                develop_prefix_rgba_saved(&raw, RAW, "dng", &original, &grade, cap, Some(&stack))
+                    .unwrap();
+            assert_eq!(
+                prefix, hot_prefix,
+                "WB/exposure must keep the resident base"
+            );
+            let inputs = crate::gpu_render::chain_inputs_for_model(
+                &raw, RAW, "dng", &grade, None, 0, anchor,
+            );
+            // The first activation of a chain signature may create its normal
+            // pool bucket. A second tick must reuse it, as the existing live gate.
+            let gpu = session
+                .render_to_buffer(&ctx, &inputs, &raw_gpu::CancelToken::new())
+                .unwrap()
+                .unwrap();
+            let before = session.pool_alloc_count(&ctx);
+            let repeated = session
+                .render_to_buffer(&ctx, &inputs, &raw_gpu::CancelToken::new())
+                .unwrap()
+                .unwrap();
+            assert_eq!(gpu, repeated);
+            assert_eq!(
+                before,
+                session.pool_alloc_count(&ctx),
+                "hot saved sliders allocated new GPU resources"
+            );
+            let (_, _, cpu) = stack
+                .render_display(
+                    &raw,
+                    &original,
+                    &grade,
+                    RenderQuality::Amaze,
+                    Some(RawInput::Bytes {
+                        bytes: RAW,
+                        ext: "dng",
+                    }),
+                    Some(cap),
+                    None,
+                )
+                .unwrap();
+            let max = gpu
+                .iter()
+                .zip(&cpu)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                max <= 2,
+                "saved CPU/GPU output at {temperature}K/{ev}EV cap{cap}: max {max} LSB"
+            );
+        }
+    }
+}

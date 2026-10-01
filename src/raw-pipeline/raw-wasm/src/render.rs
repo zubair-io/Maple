@@ -235,6 +235,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
 
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
 
     // Export/display path: AMaZE by default (#940) — cost-equivalent to
     // bilinear since the tiled kernel (#1887) and matches the Apple
@@ -327,6 +328,7 @@ pub fn render_bytes_sized(
 
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
 
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
@@ -416,6 +418,7 @@ pub fn develop_non_raw(
 ) -> Result<MapleRender, JsError> {
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
+    crate::removal_saved::require_no_unresolved_removals(&model).map_err(|e| JsError::new(&e))?;
     let opts = raw_core::pipeline::ChainOptions {
         skip_agx: true,
         ..Default::default()

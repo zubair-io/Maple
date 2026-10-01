@@ -195,18 +195,28 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
     // never recorded as `liveSession`, and never reported to the caller).
     const sessionOpenStartMark = `maple:session-open:${req.id}:start`;
     markStart(sessionOpenStartMark);
-    const session = await ctor.open(
-      bytes,
-      req.ext,
-      req.xmp ?? null,
-      req.canvas,
-      // Viewport target (#1080): the develop + canvas are fit to it, so the
-      // session never configures an over-texture-cap (full-sensor-res) surface.
-      req.maxLongEdge,
-      // Requested canvas colour space (#3191) — `undefined` preserves the
-      // WASM-side `'display-p3'` default.
-      req.targetColorSpace,
-    );
+    const saved = req.savedRemovals;
+    if (saved && (!req.xmp || !ctor.open_with_saved_removals))
+      throw new Error('Saved removal rendering requires its sidecar and the current WASM bundle');
+    const session = saved
+      ? await ctor.open_with_saved_removals!(
+          bytes,
+          req.ext,
+          req.xmp!,
+          req.canvas,
+          req.maxLongEdge,
+          req.targetColorSpace,
+          saved.manifest,
+          new Uint8Array(saved.bytes),
+        )
+      : await ctor.open(
+          bytes,
+          req.ext,
+          req.xmp ?? null,
+          req.canvas,
+          req.maxLongEdge,
+          req.targetColorSpace,
+        );
     markEnd(sessionOpenStartMark, `maple:session-open:${req.id}:end`, 'maple:session-open');
     liveSession = session;
     // Retain the canvas (the readback source) — `open()` did not neuter the JS ref.

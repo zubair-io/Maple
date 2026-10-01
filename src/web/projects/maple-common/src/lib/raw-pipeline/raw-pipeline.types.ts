@@ -125,6 +125,8 @@ export interface OpenSessionRequest {
   bytes: ArrayBuffer; // transferable RAW bytes
   ext: string;
   xmp?: string;
+  /** Complete immutable saved companions, copied/transferred once at open. */
+  savedRemovals?: { manifest: string; bytes: ArrayBuffer };
   /** The editor canvas, transferred via `transferControlToOffscreen()`. */
   canvas: OffscreenCanvas; // transferable
   /**

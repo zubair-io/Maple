@@ -94,6 +94,18 @@ describe('retained CPU RAW authoring worker', () => {
           ],
         ]),
       );
+      const installed = await call(
+        request(
+          {
+            kind: 'prepare-saved',
+            xmp: savedXmp,
+            manifest: bundle.manifest,
+            companions: bundle.bytes.buffer,
+          },
+          anchor.original,
+        ),
+      );
+      expect(installed).toEqual({ kind: 'prepared', review: '[]' });
       const savedContext = await call(
         request(
           {
