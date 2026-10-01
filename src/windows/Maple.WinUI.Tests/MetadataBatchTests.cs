@@ -6,6 +6,14 @@ using Xunit;
 
 namespace Maple.WinUI.Tests;
 
+public sealed class WindowsFileSharingFactAttribute : FactAttribute
+{
+    public WindowsFileSharingFactAttribute()
+    {
+        if (!OperatingSystem.IsWindows()) Skip = "Requires Windows delete-sharing enforcement.";
+    }
+}
+
 public sealed class MetadataBatchTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "maple-batch-metadata-" + Guid.NewGuid().ToString("N"));
@@ -38,6 +46,38 @@ public sealed class MetadataBatchTests : IDisposable
         Assert.Null(second.Error);
         Assert.Equal(new byte[] { 0, 2, 4, 8 }, File.ReadAllBytes(first.Target.Path));
         Assert.Equal(new byte[] { 0, 2, 4, 8 }, File.ReadAllBytes(second.Target.Path));
+    }
+
+    [WindowsFileSharingFact]
+    public async Task LockedSidecarIsNotReportedSavedAndRetryPreservesOriginal()
+    {
+        var item = Item("locked");
+        SidecarStore.Save(item.Target.Path, new() { Rating = 1, Flag = "none" });
+        var sidecar = SidecarStore.SidecarPathFor(item.Target.Path);
+        var before = File.ReadAllBytes(sidecar);
+        var original = File.ReadAllBytes(item.Target.Path);
+        var batch = new MetadataBatch(new[] { item }, new(Rating: 4, Flag: "pick"), null);
+        var reports = new List<bool>();
+        // Allow the metadata read, but deny the atomic replacement while a
+        // different application holds the sidecar without delete sharing.
+        using (var held = new FileStream(sidecar, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            await batch.ApplyAsync(CancellationToken.None,
+                new ImmediateProgress(result => reports.Add(result.Saved != null)));
+            Assert.Null(item.Saved);
+            Assert.NotNull(item.Error);
+            Assert.Equal(before, File.ReadAllBytes(sidecar));
+            Assert.Empty(Directory.GetFiles(_directory, "*.tmp"));
+        }
+        Assert.Equal(new[] { false }, reports);
+        await batch.ApplyAsync(CancellationToken.None);
+        Assert.Null(item.Error);
+        Assert.Equal(4, item.Saved!.Rating);
+        Assert.Equal("pick", item.Saved.Flag);
+        var persisted = await MetadataBatch.ReadAsync(item.Target, null, CancellationToken.None);
+        Assert.Equal(4, persisted.Rating);
+        Assert.Equal("pick", persisted.Flag);
+        Assert.Equal(original, File.ReadAllBytes(item.Target.Path));
     }
 
     [Fact]
