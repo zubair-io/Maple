@@ -123,6 +123,8 @@ mod removal_assets;
 mod removal_composite;
 mod removal_context;
 mod removal_generation;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+mod removal_inference;
 mod removal_prepare;
 mod removal_selection;
 mod removal_smart;
@@ -220,6 +222,12 @@ pub use removal_context::{
     maple_removal_calibration_context_f32, maple_removal_calibration_source_buf,
 };
 pub use removal_generation::maple_removal_generation_masks_f32;
+#[cfg(any(feature = "removal", feature = "removal-ios"))]
+pub use removal_inference::{
+    maple_removal_inference_cancel, maple_removal_inference_free, maple_removal_inference_new,
+    maple_removal_reconstruct_f32, maple_removal_reconstructor_close,
+    maple_removal_reconstructor_open, MapleRemovalInference, MapleRemovalReconstructor,
+};
 pub use removal_prepare::{maple_removal_content_digest, maple_removal_prepare_buf};
 pub use removal_selection::{maple_removal_mask_decode_buf, maple_removal_selection_buf};
 pub use removal_smart::{

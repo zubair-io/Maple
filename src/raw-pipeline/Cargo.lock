@@ -2358,12 +2358,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "maple-ort"
+version = "0.1.0"
+dependencies = [
+ "libloading 0.8.9",
+ "ort",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "maple-pano"
 version = "0.1.0"
 dependencies = [
  "clap",
  "image",
- "libloading 0.8.9",
+ "maple-ort",
  "ort",
  "png 0.17.16",
  "quick-xml",
@@ -2374,6 +2383,20 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "toml",
+]
+
+[[package]]
+name = "maple-removal"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "maple-ort",
+ "ort",
+ "raw-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -3395,6 +3418,7 @@ dependencies = [
  "blake3",
  "image",
  "maple-pano",
+ "maple-removal",
  "maple-search",
  "raw-core",
  "raw-gpu",

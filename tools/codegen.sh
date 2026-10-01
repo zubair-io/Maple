@@ -151,6 +151,7 @@ done
 "$BIN" --schema white-balance-presets --target ts --out "src/web/projects/maple-common/src/lib/generated/white-balance-presets.generated.ts"
 "$BIN" --schema white-balance-presets --target cs --out "src/windows/Maple.WinUI/Generated/WhiteBalancePresets.g.cs"
 
+"$BIN" --schema removal-models --target json --out "tools/removal/removal-models.generated.json"
 "$BIN" --schema export-recipe --target ts --out "src/api/src/generated/export-recipe.generated.ts"
 "$BIN" --schema export-recipe --target ts --out "src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts"
 "$BIN" --schema export-recipe --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/ExportRecipe+Generated.swift"
