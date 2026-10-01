@@ -1,0 +1,248 @@
+{
+  "ticket": 3965,
+  "parentTicket": 2386,
+  "date": "2026-10-01",
+  "validationBase": "98ac7fc96277688fb164b409d2335cba2e38d947",
+  "scope": "Measurement prerequisite only. Ranking behavior and #2386 remain unresolved. Synthetic crowding establishes possibility, not frequency in real libraries.",
+  "runtime": {
+    "meilisearch": "1.50.0",
+    "meilisearchBinarySha256": "deccb8a992e8d24c3e67118fd1166a37ef11e5b092cb1e269f2ae8a7ac8d65c8",
+    "ollama": "0.34.4",
+    "model": "bge-m3",
+    "modelDigest": "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab",
+    "dimensions": 1024
+  },
+  "protocol": {
+    "legacyCorpusDocuments": 32,
+    "expandedCorpusDocuments": 38,
+    "judgedQueries": 8,
+    "unjudgedQueries": 4,
+    "minMrrLegacy": 0.7,
+    "minMrrJudgedOnly": 0.7875,
+    "conversion": "0.7 * 9/8 preserves the original floor for eight judged queries plus one legacy unjudged Rose query",
+    "minRecallAt10": 0.95,
+    "recallConversion": "Floor unchanged; removing vacuous unjudged recall=1 makes it stricter",
+    "rankChange": "No production ranking code, attributes or embedder settings changed",
+    "crowding": "24 copies of each tagged-person fixture with distinct neutral filenames, plus original; captions/tags unchanged. All other corpus rows retained."
+  },
+  "expandedCanonicalRun": {
+    "semanticRatio": 0.5,
+    "recallAt10": 1,
+    "mrr": 0.8375,
+    "evaluatedQueries": 8,
+    "report": [
+      {
+        "query": "HVAC air conditioning installation",
+        "recallAt10": 1,
+        "ranks": {
+          "010045ca68ac1f7f7e8b3aa02f72ac80": 5
+        }
+      },
+      {
+        "query": "IMG_4185.MOV",
+        "recallAt10": 1,
+        "ranks": {
+          "010045ca68ac1f7f7e8b3aa02f72ac80": 1
+        }
+      },
+      {
+        "query": "Greyson",
+        "recallAt10": 1,
+        "ranks": {
+          "person-greyson-1": 1,
+          "person-greyson-2": 2
+        }
+      },
+      {
+        "query": "heat pump receipt",
+        "recallAt10": 1,
+        "ranks": {
+          "receipt-hvac-invoice": 1
+        }
+      },
+      {
+        "query": "thermostat controller model number",
+        "recallAt10": 1,
+        "ranks": {
+          "controller-thermostat-1": 2
+        }
+      },
+      {
+        "query": "furnace installation paperwork",
+        "recallAt10": 1,
+        "ranks": {
+          "install-doc-1": 2,
+          "install-doc-2": 1
+        }
+      },
+      {
+        "query": "configuring the heating zones",
+        "recallAt10": 1,
+        "ranks": {
+          "controller-config-clip": 1
+        }
+      },
+      {
+        "query": "utility bill statement",
+        "recallAt10": 1,
+        "ranks": {
+          "receipt-utility-bill": 1
+        }
+      },
+      {
+        "query": "Rose",
+        "recallAt10": null,
+        "ranks": {},
+        "observed": {
+          "person-rose-1": 1,
+          "flowers-roses-1": 2
+        }
+      },
+      {
+        "query": "Mark",
+        "recallAt10": null,
+        "ranks": {},
+        "observed": {
+          "person-mark-1": 1,
+          "ink-mark-1": 2
+        }
+      },
+      {
+        "query": "Summer",
+        "recallAt10": null,
+        "ranks": {},
+        "observed": {
+          "person-summer-1": 1,
+          "season-summer-1": 2
+        }
+      },
+      {
+        "query": "Hunter",
+        "recallAt10": null,
+        "ranks": {},
+        "observed": {
+          "person-hunter-1": 1,
+          "role-hunter-1": 2
+        }
+      }
+    ]
+  },
+  "expandedCanonicalResult": {
+    "pass": 1,
+    "fail": 0,
+    "skip": 0,
+    "assertions": 8
+  },
+  "crowdingRun": {
+    "ticket": "#2386",
+    "protocol": "Synthetic crowding diagnostic; reports ranks, not an acceptance gate",
+    "semanticRatio": 0.5,
+    "documents": 134,
+    "copiesPerName": 25,
+    "observations": [
+      {
+        "query": "Rose",
+        "observed": {
+          "person-rose-1": 1,
+          "flowers-roses-1": 26
+        },
+        "top10": [
+          "person-rose-1",
+          "person-rose-1-crowding-0",
+          "person-rose-1-crowding-1",
+          "person-rose-1-crowding-2",
+          "person-rose-1-crowding-3",
+          "person-rose-1-crowding-4",
+          "person-rose-1-crowding-5",
+          "person-rose-1-crowding-6",
+          "person-rose-1-crowding-7",
+          "person-rose-1-crowding-8"
+        ]
+      },
+      {
+        "query": "Mark",
+        "observed": {
+          "person-mark-1": 1,
+          "ink-mark-1": 26
+        },
+        "top10": [
+          "person-mark-1",
+          "person-mark-1-crowding-0",
+          "person-mark-1-crowding-1",
+          "person-mark-1-crowding-2",
+          "person-mark-1-crowding-3",
+          "person-mark-1-crowding-4",
+          "person-mark-1-crowding-5",
+          "person-mark-1-crowding-6",
+          "person-mark-1-crowding-7",
+          "person-mark-1-crowding-8"
+        ]
+      },
+      {
+        "query": "Summer",
+        "observed": {
+          "person-summer-1": 1,
+          "season-summer-1": 26
+        },
+        "top10": [
+          "person-summer-1",
+          "person-summer-1-crowding-0",
+          "person-summer-1-crowding-1",
+          "person-summer-1-crowding-2",
+          "person-summer-1-crowding-3",
+          "person-summer-1-crowding-4",
+          "person-summer-1-crowding-5",
+          "person-summer-1-crowding-6",
+          "person-summer-1-crowding-7",
+          "person-summer-1-crowding-8"
+        ]
+      },
+      {
+        "query": "Hunter",
+        "observed": {
+          "person-hunter-1": 1,
+          "role-hunter-1": 26
+        },
+        "top10": [
+          "person-hunter-1",
+          "person-hunter-1-crowding-0",
+          "person-hunter-1-crowding-1",
+          "person-hunter-1-crowding-2",
+          "person-hunter-1-crowding-3",
+          "person-hunter-1-crowding-4",
+          "person-hunter-1-crowding-5",
+          "person-hunter-1-crowding-6",
+          "person-hunter-1-crowding-7",
+          "person-hunter-1-crowding-8"
+        ]
+      }
+    ],
+    "greysonTop3": [
+      "person-greyson-1",
+      "person-greyson-2",
+      "mentions-greyson-untagged"
+    ],
+    "status": {
+      "configured": true,
+      "enabled": true,
+      "embedderName": "caption",
+      "model": "bge-m3",
+      "semanticRatio": 0.5,
+      "meilisearchReachable": true,
+      "embedderConfigured": true,
+      "embedderReachable": true,
+      "indexedDocumentCount": 134,
+      "vectorizedDocumentCount": 134,
+      "isIndexing": false,
+      "error": null,
+      "embedderPolicyRejected": false
+    }
+  },
+  "decision": "All four one-photo pairs rank person first and content second; all four crowded literal matches rank 26. Do not accept no-change using only the small corpus. Parent ticket needs a product behavior decision and implementation/qualification.",
+  "fixtureSha256": {
+    "src/api/tests/fixtures/search-relevance/corpus.json": "06ef72199679a8e438e085036002fe1ccbde89855fe6bece114bf2a7a5393c9a",
+    "src/api/tests/fixtures/search-relevance/queries.json": "50f5e3ca02f279b8574858e9a83a9665a1087a04212e1b658f900c9df1200f93",
+    "src/api/tests/fixtures/search-relevance/budgets.json": "4d62ed4af578a532f727f495abe0fd28384746eacafb15b041c99894ef2262ad"
+  },
+  "revalidatedBase": "f15257200acf4059b51b5b5f97e9da62b690c5c5"
+}

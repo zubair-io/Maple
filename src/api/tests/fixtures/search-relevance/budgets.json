@@ -3,6 +3,7 @@
   "_measured": "2026-07-28, Meilisearch 1.51.0 + Ollama bge-m3, 32-doc corpus, semanticRatio 0.5. BEFORE (origin/main): Recall@10 0.8889, MRR 0.5631. AFTER (this branch): Recall@10 1.0000, MRR 0.7259. Floors below are ~95% of the AFTER numbers.",
   "_corpus_limits": "This corpus is SYNTHETIC and small, and it does NOT reproduce the production semantic failure. At semanticRatio 1.0 the #2384 target ranks 5 here under every template tried, INCLUDING the pre-change token bag, while the 333k-document production index ranks it ~97 pure-vector. Use this corpus to catch plumbing and lexical regressions (field wiring, attribute order, exact filename, named person) — it is measurably good at those. Do NOT use it to conclude anything about semantic ranking quality at production scale.",
   "minRecallAt10": 0.95,
-  "minMrr": 0.7,
-  "semanticRatio": 0.5
+  "minMrr": 0.7875,
+  "semanticRatio": 0.5,
+  "_observation_protocol": "For #2386, aggregates exclude queries without relevance labels. The legacy 32-doc report had 8 judged queries plus Rose as MRR=0. minMrr is raised from 0.7 to 0.7875 (0.7 * 9/8), preserving that gate for the same 8 judged queries. minRecallAt10 stays 0.95, so excluding vacuous recall=1 observations makes it stricter. Historical _measured values above use the legacy denominator."
 }

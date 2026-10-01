@@ -22,7 +22,7 @@ import {
   createMeilisearchClient,
   type MeilisearchAssetDoc,
 } from '../src/enrichment/meilisearch-client.ts';
-import { meanReciprocalRank, recallAtK } from '../src/enrichment/search-relevance-metrics.ts';
+import { recallAtK, scoreRankings } from '../src/enrichment/search-relevance-metrics.ts';
 import budgets from './fixtures/search-relevance/budgets.json';
 import corpus from './fixtures/search-relevance/corpus.json';
 import queries from './fixtures/search-relevance/queries.json';
@@ -88,7 +88,8 @@ describe('hybrid search relevance gate (#2384)', () => {
         };
         return {
           query: testCase.query,
-          recallAt10: recallAtK(ids, testCase.relevantIds, 10),
+          recallAt10:
+            testCase.relevantIds.length > 0 ? recallAtK(ids, testCase.relevantIds, 10) : null,
           ranks: Object.fromEntries(testCase.relevantIds.map((id) => [id, rankOf(id)])),
           ...(testCase.observeIds
             ? {
@@ -99,13 +100,8 @@ describe('hybrid search relevance gate (#2384)', () => {
         };
       });
 
-      const recall =
-        evaluated.reduce((sum, e) => sum + recallAtK(e.ranked, e.relevant, 10), 0) /
-        evaluated.length;
-      const mrr = meanReciprocalRank(evaluated);
-      console.error(
-        JSON.stringify({ semanticRatio: ratio, recallAt10: recall, mrr, report }, null, 2),
-      );
+      const scores = scoreRankings(evaluated);
+      console.error(JSON.stringify({ semanticRatio: ratio, ...scores, report }, null, 2));
 
       for (const testCase of cases) {
         if (!testCase.mustBeInTop) continue;
@@ -120,8 +116,8 @@ describe('hybrid search relevance gate (#2384)', () => {
         ).toBeLessThanOrEqual(testCase.mustBeInTop.k);
       }
 
-      expect(recall).toBeGreaterThanOrEqual(budgets.minRecallAt10);
-      expect(mrr).toBeGreaterThanOrEqual(budgets.minMrr);
+      expect(scores.recallAt10).toBeGreaterThanOrEqual(budgets.minRecallAt10);
+      expect(scores.mrr).toBeGreaterThanOrEqual(budgets.minMrr);
     },
     20 * 60_000,
   );
