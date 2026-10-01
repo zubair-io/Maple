@@ -41,10 +41,25 @@ public sealed class PreviewDownsampleTests
         Assert.Equal(new float[] { 10, 11, 12, 13, 18, 19, 20, 21 }, result.Pixels);
     }
 
-    private static DecodedImage Image(int width, int height, float[] pixels) => new()
+    [Theory]
+    [InlineData(8, 4, 0.5f, 0.25f, 0.125f)]
+    [InlineData(3, 5, 0.5f, 0.3f, 0.2f)]
+    [InlineData(5, 1, 0.5f, 0.3f, 0.2f)]
+    [InlineData(1, 1, 0.5f, 0.5f, 0.5f)]
+    public void Fast_preview_composes_noise_sampling_density(
+        int width, int height, float initial, float first, float second)
+    {
+        var source = Image(width, height, new float[width * height * 4], initial);
+        var reduced = RenderEngine.DownsampleHalf(source);
+        Assert.Equal(first, reduced.NrSamplingScale, 6);
+        Assert.Equal(second, RenderEngine.DownsampleHalf(reduced).NrSamplingScale, 6);
+        Assert.Equal(initial, source.NrSamplingScale);
+    }
+
+    private static DecodedImage Image(int width, int height, float[] pixels, float sampling = 1) => new()
     {
         Width = width, Height = height, Pixels = pixels,
-        NoiseProfile = [], Iso = 100, AeGain = 1, WhitesAnchorEv = 0,
+        NoiseProfile = [], Iso = 100, AeGain = 1, WhitesAnchorEv = 0, NrSamplingScale = sampling,
         DecodedTemperature = 6500, DecodedTint = 0, WbFrame = [],
     };
 }

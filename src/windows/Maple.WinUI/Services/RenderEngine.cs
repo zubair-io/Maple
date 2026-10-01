@@ -470,7 +470,9 @@ namespace Maple.WinUI.Services
                 Iso = src.Iso,
                 AeGain = src.AeGain,
                 WhitesAnchorEv = src.WhitesAnchorEv,
-                NrSamplingScale = src.NrSamplingScale,
+                // Match the shared core's long-edge density convention, including
+                // odd dimensions and the one-pixel no-op (#3875).
+                NrSamplingScale = src.NrSamplingScale * Math.Max(w, h) / Math.Max(src.Width, src.Height),
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
                 WbFrame = src.WbFrame,
