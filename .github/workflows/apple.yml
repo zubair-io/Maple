@@ -81,7 +81,7 @@ jobs:
       # lag the newest installed one, so select the highest deterministically.
       - name: Select newest Xcode
         run: |
-          XCODE_APP="$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          XCODE_APP="$(python3 -c 'import glob, re; print(max(glob.glob("/Applications/Xcode_*.app"), key=lambda p: tuple(map(int, re.findall(r"\d+", p)))))')"
           echo "Selecting $XCODE_APP"
           sudo xcode-select -s "$XCODE_APP"
           swift --version
