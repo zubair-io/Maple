@@ -7,6 +7,9 @@
 //! with default detail, chroma NR disabled, and sensor noise calibration
 //! omitted while retaining NR (#3875). Diagnostic only:
 //! deliberately overriding render-origin cache entries is not host behavior.
+//! `--variance-ratio=<0..1>` restricts the matrix to default and a diagnostic
+//! noise-profile variance scale at 1600px; native rendering remains unchanged.
+//! Supply a measured output/input area ratio, not a fitted image-error value.
 use raw_core::pipeline::{
     fit_auto_profile_from_raw_at_cap, render_sized_from_raw_with_quality_and_source, FitCap,
     RawInput, RenderQuality,
@@ -22,6 +25,17 @@ const RENDER_LE: u32 = 1536;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    let variance_ratio = args.iter().find_map(|arg| {
+        arg.strip_prefix("--variance-ratio=")
+            .map(|value| value.parse::<f32>().expect("variance ratio"))
+    });
+    if let Some(ratio) = variance_ratio {
+        assert!(
+            ratio > 0.0 && ratio <= 1.0,
+            "variance ratio must be in (0, 1]"
+        );
+        assert!(args.iter().any(|arg| arg == "--render-matrix"));
+    }
     let dir = Path::new(&args[1]);
     let out = Path::new(&args[2]);
     std::fs::create_dir_all(out).unwrap();
@@ -126,11 +140,19 @@ fn main() {
                         ));
                     cache::insert(key.clone(), curve.clone());
                     cache::insert_lut(key, residual.clone());
-                    for (nr_color, detail) in [
-                        (auto_model.nr_color, "default"),
-                        (0.0, "no-nr"),
-                        (auto_model.nr_color, "no-noise-profile"),
-                    ] {
+                    let variants = if variance_ratio.is_some() {
+                        vec![
+                            (auto_model.nr_color, "default"),
+                            (auto_model.nr_color, "variance-scaled"),
+                        ]
+                    } else {
+                        vec![
+                            (auto_model.nr_color, "default"),
+                            (0.0, "no-nr"),
+                            (auto_model.nr_color, "no-noise-profile"),
+                        ]
+                    };
+                    for (nr_color, detail) in variants {
                         let model = AdjustmentModel {
                             nr_color,
                             ..auto_model.clone()
@@ -141,6 +163,18 @@ fn main() {
                         // one independent variable and never changes source bytes.
                         let saved_profile = if detail == "no-noise-profile" {
                             raw.noise_profile.take()
+                        } else if detail == "variance-scaled" && edge == 1600 {
+                            let original = raw
+                                .noise_profile
+                                .clone()
+                                .expect("variance diagnostic requires sensor calibration");
+                            raw.noise_profile = Some(
+                                original
+                                    .iter()
+                                    .map(|v| v * variance_ratio.unwrap())
+                                    .collect(),
+                            );
+                            Some(original)
                         } else {
                             None
                         };
@@ -151,7 +185,9 @@ fn main() {
                             Some(RawInput::Path(&path)),
                             edge,
                         );
-                        if detail == "no-noise-profile" {
+                        if detail == "no-noise-profile"
+                            || (detail == "variance-scaled" && edge == 1600)
+                        {
                             raw.noise_profile = saved_profile;
                         }
                         let (rw, rh, rgb) = rendered.expect("fixed-fit render");

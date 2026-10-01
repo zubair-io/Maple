@@ -1,0 +1,62 @@
+{
+  "kind": "diagnostic-only",
+  "issue": 3875,
+  "date": "2026-10-01",
+  "sourceBase": "810573445",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "exampleSha256": "1F078656BFA0CE6DAFCC53C03F2F2898F1775692117F71C08A831A9765632472",
+  "command": "auto-fit-proxy-delta <isolated-fixture-directory> <output> --render-matrix --variance-ratio=0.06783803304036458",
+  "varianceRatio": 0.06783803304036458,
+  "ratioBasis": "1600x1067 / 6144x4096 post-Preview scene area from the prior NR-order diagnostic, not tuned against image error",
+  "renderQuality": "Preview",
+  "nrColor": 25,
+  "profile": "Auto",
+  "method": "Hold native and proxy Auto curve/LUT artifacts fixed separately. Compare 1600px default and variance-scaled sensor calibration against the same unchanged native-size render for each fit. Shared compare_images.diff, reference_size=(1600,1067).",
+  "nativeReferencesByteIdentical": true,
+  "metrics": {
+    "native-default": {
+      "mean_deltaE": 2.594881464394683,
+      "p95_deltaE": 6.686651863122471,
+      "max_deltaE": 35.80057364302396,
+      "bias_r": 0.0003046835772693157,
+      "bias_g": -0.00021247747645247728,
+      "bias_b": 1.830245128076058E-05,
+      "n_pixels": 1707200
+    },
+    "native-variance-scaled": {
+      "mean_deltaE": 1.9972246857255265,
+      "p95_deltaE": 4.879997466040248,
+      "max_deltaE": 35.451273145199686,
+      "bias_r": 0.0006773309432901442,
+      "bias_g": 1.5853609511395916E-05,
+      "bias_b": -8.122260624077171E-05,
+      "n_pixels": 1707200
+    },
+    "proxy-default": {
+      "mean_deltaE": 3.074502683357385,
+      "p95_deltaE": 7.664913187691284,
+      "max_deltaE": 36.75531098098828,
+      "bias_r": 0.00047800448373891413,
+      "bias_g": 0.0001127899085986428,
+      "bias_b": 0.0005876459181308746,
+      "n_pixels": 1707200
+    },
+    "proxy-variance-scaled": {
+      "mean_deltaE": 2.3050826259415613,
+      "p95_deltaE": 5.359378790936643,
+      "max_deltaE": 36.96151782996146,
+      "bias_r": 0.0008900281973183155,
+      "bias_g": 0.00020861299708485603,
+      "bias_b": 0.00029668916249647737,
+      "n_pixels": 1707200
+    }
+  },
+  "interpretation": "Scaling sensor noise calibration improves both fixed-fit comparisons but the proxy-fit mean remains above 2.0. It is insufficient as the production parity fix. The native-fit mean of 1.9972 is marginal and is not an end-to-end qualification result.",
+  "limitations": [
+    "One camera fixture; demosaic and resampling noise correlation remains uncalibrated.",
+    "Reference uses Preview reconstruction at native output size, not production full-resolution export.",
+    "Auto fit cache is deliberately seeded by the diagnostic, not the normal host path.",
+    "No production algorithm or numerical threshold changed; CPU/GPU and physical performance qualification are not established."
+  ],
+  "fullQualificationPassed": false
+}
