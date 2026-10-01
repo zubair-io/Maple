@@ -32,6 +32,11 @@ pub mod mask;
 mod orient;
 pub(crate) mod pano;
 mod removal_assets;
+mod removal_calibration;
+pub use removal_calibration::{
+    develop_removal_calibration_patches, render_removal_calibration_context,
+    render_removal_calibration_plate,
+};
 mod removal_context;
 pub use removal_context::render_removal_context;
 mod removal_encoding;

@@ -95,9 +95,13 @@ def main():
                     "identity_max_deltaE": max(
                         grade["identity"]["max_deltaE"] for grade in case["grades"]
                     ),
-                    "browser_max_deltaE": max(
-                        grade.get("browser_vs_native", {}).get("max_deltaE", 0)
-                        for grade in case["grades"]
+                    "browser_max_deltaE": (
+                        max(
+                            grade["browser_vs_native"]["max_deltaE"]
+                            for grade in case["grades"]
+                        )
+                        if args.browser_directory is not None
+                        else None
                     ),
                 }
             )

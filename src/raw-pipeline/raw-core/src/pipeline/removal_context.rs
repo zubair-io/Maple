@@ -19,7 +19,7 @@ fn inverse(orientation: ExifOrientation) -> ExifOrientation {
 
 /// Fixed model for the experiment. As-Shot remains implicit: marking
 /// Temperature=6500 as authored would change the camera's white balance.
-fn anchor_model() -> AdjustmentModel {
+pub(super) fn anchor_model() -> AdjustmentModel {
     AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
         sharpen_amount: 0.0,

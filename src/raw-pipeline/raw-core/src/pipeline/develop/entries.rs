@@ -1,9 +1,6 @@
-// develop/entries.rs — the three thin public entries into the develop
-// chain, split out of `mod.rs` (#3409) so both stay under the file-size
-// budget with real margin (#2311). Pure code move: every one of these is a
-// forwarding wrapper over
-// `develop_scene_linear_from_raw_with_quality_cancellable_with_gain`, which
-// stays in `mod.rs` alongside the chain it runs.
+// Public entries into the canonical full-image develop chain (#3409).
+// Existing callers forward an empty calibration stack to the shared chain
+// in mod.rs; the #3955 qualification entry supplies experimental patches.
 //
 // They exist as separate entries rather than one function with flags
 // because each is called from a different place with a different appetite:
@@ -12,7 +9,7 @@
 // variants are what the tile path threads its AE anchor back through
 // (#1167).
 
-use super::develop_scene_linear_from_raw_with_quality_cancellable_with_gain;
+use super::develop_with_calibration_patches;
 use super::RenderQuality;
 use crate::cancel::CancelToken;
 use crate::error::Result;
@@ -83,4 +80,15 @@ pub fn develop_scene_linear_from_raw_with_quality_with_gain(
         quality,
         CancelToken::never(),
     )
+}
+
+/// Full develop and its AE gain, preserving the existing empty-stack path.
+/// Tile callers retain this gain as their per-scene anchor (#1167).
+pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, f32)> {
+    develop_with_calibration_patches(raw, model, quality, cancel, &[])
 }
