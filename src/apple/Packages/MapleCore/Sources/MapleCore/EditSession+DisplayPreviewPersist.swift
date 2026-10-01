@@ -53,7 +53,9 @@ extension EditSession {
   public func persistDisplayPreviewOnExit() async {
     let exitModel = model
     // Files bookmarks grant access on the resolved parent, not on child URLs.
-    // Keep that grant through XMP flush, GPU readback and all cache writes.
+    // Access extends the process sandbox, including the background writers.
+    // This MainActor-isolated method acquires/releases on the main actor; keep
+    // the balanced grant alive until the awaited XMP and cache writes finish.
     let scope = asset.scopeParentURL ?? asset.primaryURL?.deletingLastPathComponent()
     let accessing = scope?.startAccessingSecurityScopedResource() ?? false
     defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
