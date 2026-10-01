@@ -1,5 +1,6 @@
-import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
+import { describe, expect, it, beforeAll, afterAll, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
@@ -8,6 +9,8 @@ import { EXIF_PICK_TAGS } from '../../indexer/exif.ts';
 import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { solidJpeg, solidPng } from '../../test-support/synth-image.ts';
 import type { StageResult } from '../run-stage.ts';
+
+const dngFixture = path.resolve(import.meta.dir, '../../../../../test-fixtures/raws/test_0017.dng');
 
 /**
  * The `assets` UPDATE the handler asked the runner to run, decoded back into
@@ -58,13 +61,17 @@ describe('exif handler', () => {
   beforeAll(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'exif-stage-'));
     libraryId = new ObjectId();
+  });
+  beforeEach(async () => {
     const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
-  afterAll(async () => {
-    await rm(dir, { recursive: true, force: true });
+  afterEach(async () => {
     const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
     setLibraryRootsForTests(null);
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
   });
 
   it('returns a patch with an exif key for a file without EXIF', async () => {
@@ -81,36 +88,28 @@ describe('exif handler', () => {
     expect('exif' in patchFields(result)).toBe(true);
   });
 
-  it('patch.exif contains camera_make when a DNG fixture is present', async () => {
-    const dng = path.resolve(process.cwd(), '../../test-fixtures/raws/test_0017.dng');
-    try {
-      await import('node:fs/promises').then((f) => f.stat(dng));
-    } catch {
-      return; // fixture absent — soft pass on CI
-    }
-    // DNG lives outside the test library — extend the cache so its
-    // directory is also a registered library root.
-    const rawLibraryId = new ObjectId();
-    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    setLibraryRootsForTests(
-      new Map([
-        [libraryId.toHexString(), dir],
-        [rawLibraryId.toHexString(), path.dirname(dng)],
-      ]),
-    );
-    // The handler probes for a duplicate-content merge whenever its derived
-    // primary id differs from `image.maple_id`. An empty database answers "no
-    // holder", so the handler proceeds with the ordinary id upgrade — which is
-    // the path under test here.
-    using live = await createLiveTestDatabase();
-    void live;
-    const doc = makeDoc(dng, rawLibraryId, path.dirname(dng));
-    const result = await exifStage.handler(doc as never, {} as never);
-    const exif = JSON.parse(patchFields(result).exif as string) as Record<string, unknown>;
-    expect(exif).not.toBeNull();
-    expect(typeof exif.camera_make).toBe('string');
-    setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
-  });
+  it.skipIf(!existsSync(dngFixture))(
+    'patch.exif contains camera_make when a DNG fixture is present',
+    async () => {
+      using live = await createLiveTestDatabase();
+      void live;
+      // DNG lives outside the test library — extend the cache so its
+      // directory is also a registered library root.
+      const rawLibraryId = new ObjectId();
+      const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+      setLibraryRootsForTests(
+        new Map([
+          [libraryId.toHexString(), dir],
+          [rawLibraryId.toHexString(), path.dirname(dngFixture)],
+        ]),
+      );
+      const doc = makeDoc(dngFixture, rawLibraryId, path.dirname(dngFixture));
+      const result = await exifStage.handler(doc as never, {} as never);
+      const exif = JSON.parse(patchFields(result).exif as string) as Record<string, unknown>;
+      expect(exif).not.toBeNull();
+      expect(typeof exif.camera_make).toBe('string');
+    },
+  );
 
   it('throws when the file does not exist', async () => {
     const doc = makeDoc(path.join(dir, 'ghost.jpg'), libraryId, dir);
