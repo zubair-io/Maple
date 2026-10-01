@@ -1,0 +1,143 @@
+{
+  "issue": 3875,
+  "date": "2026-10-01",
+  "sourceRevision": "30e40bff51bd9eb41f9f208c1258961f02b63121",
+  "method": "Read existing audit-build dumps locally with minidump 0.0.24. Checked stowed stack and nested pointers against both memory-list types and explicit thread-stack descriptors; no dump uploaded.",
+  "reference": "https://learn.microsoft.com/en-us/windows/win32/wer/stowed-exception-information-v2",
+  "findings": [
+    {
+      "file": "Maple.DesignAudit165.exe.55280.dmp",
+      "records": [
+        {
+          "code": "0xc000027b",
+          "stowed": [
+            {
+              "result": "0x80040154",
+              "signature": "SE02",
+              "form": 1,
+              "words": 55,
+              "nestedType": "XAML",
+              "stackCaptured": false,
+              "nestedCaptured": false
+            }
+          ]
+        }
+      ],
+      "sha256": "168760BE772DF3536423B3EFC533F66AAF6F597A8A01C7845B755B8E2BC25C84"
+    },
+    {
+      "file": "Maple.DesignAudit166.exe.51884.dmp",
+      "records": [
+        {
+          "code": "0xc000027b",
+          "stowed": [
+            {
+              "result": "0x80040154",
+              "signature": "SE02",
+              "form": 1,
+              "words": 55,
+              "nestedType": "XAML",
+              "stackCaptured": false,
+              "nestedCaptured": false
+            }
+          ]
+        }
+      ],
+      "sha256": "FBEB7E976E316AACCEFF446B62EBF562BC8105469D5397EA1C82D84760F480C3"
+    },
+    {
+      "file": "Maple.DesignAudit166.exe.55700.dmp",
+      "records": [
+        {
+          "code": "0xc000027b",
+          "stowed": [
+            {
+              "result": "0x80040154",
+              "signature": "SE02",
+              "form": 1,
+              "words": 55,
+              "nestedType": "XAML",
+              "stackCaptured": false,
+              "nestedCaptured": false
+            }
+          ]
+        }
+      ],
+      "sha256": "BC1844ACA38BD737F480B7FDD1F07552FEF48784F77A5C2B605F0A26B156BF85"
+    },
+    {
+      "file": "Maple.DesignAudit166.exe.60688.dmp",
+      "records": [
+        {
+          "code": "0xc000027b",
+          "stowed": [
+            {
+              "result": "0x80040154",
+              "signature": "SE02",
+              "form": 1,
+              "words": 55,
+              "nestedType": "XAML",
+              "stackCaptured": false,
+              "nestedCaptured": false
+            }
+          ]
+        }
+      ],
+      "sha256": "B0DE3D032736C153FF4CF934215984246F8E1D8545BA93C9B9D4FCC6E194BD31"
+    },
+    {
+      "file": "Maple.DesignAudit233.exe.62736.dmp",
+      "records": [
+        {
+          "code": "0xc000027b",
+          "stowed": [
+            {
+              "result": "0x8000ffff",
+              "signature": "SE02",
+              "form": 1,
+              "words": 40,
+              "nestedType": "XAML",
+              "stackCaptured": false,
+              "nestedCaptured": false
+            }
+          ]
+        }
+      ],
+      "sha256": "2B4530E8FF2A850BDEFF82B714959C23EAACB4CDF04E2716CB19B4EB64AC5925"
+    },
+    {
+      "file": "Maple.DesignAudit32.exe.25728.dmp",
+      "records": [
+        {
+          "code": "0xc000027b",
+          "stowed": [
+            {
+              "result": "0x8000ffff",
+              "signature": "SE02",
+              "form": 1,
+              "words": 2,
+              "nestedType": "LEO1",
+              "stackCaptured": false,
+              "nestedCaptured": false
+            }
+          ]
+        }
+      ],
+      "sha256": "D8E8E8EE9AEF7FF40D04070B786F383E9402F3B09AA514AD005C451CDA5698D5"
+    },
+    {
+      "file": "Maple.DesignAudit37.exe.21668.dmp",
+      "records": [
+        {
+          "code": "0xc0000005",
+          "stowed": []
+        }
+      ],
+      "sha256": "038C287D064CB6C17467F65D0BD08A3C1A29DF43003826853EF548D715784DBA"
+    }
+  ],
+  "conclusion": "Retained stowed records lack both original stack memory and nested exception data. A debugger cannot reconstruct omitted memory from these dumps. Different result codes must not be combined into one presumed cause.",
+  "nextEvidenceNeeded": "A fresh reproduction with full captured memory, or a deterministic narrowed reproduction of the retouch failure. Passing later lifecycle runs do not establish historical root cause.",
+  "debuggerSetup": "SDK debugger download/setup command was rejected by automatic approval review: blocked by policy. No debugger installed; existing local parser used.",
+  "crashResolved": false
+}
