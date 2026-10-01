@@ -17,7 +17,7 @@ import { Injectable } from '@angular/core';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
 import type { PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { ColorLabel, Flag } from '../models/asset';
-import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
+import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD, type NumericAdjustmentKey } from './xmp-fields';
 import { toneCurveBlocks } from './xmp-tone-curves';
 import { localAdjustmentBlocksWithPassthrough } from './xmp-mask-group-passthrough';
 import { passthroughForMetadataReplacement } from './xmp-metadata-passthrough';
@@ -54,10 +54,7 @@ import {
  * on #3309). Same rule in raw-core and Swift.
  */
 function fieldIsWithheld(modelKey: string, model: AdjustmentModel, wbIsAsShot: boolean): boolean {
-  if (modelKey === 'temperature' || modelKey === 'tint') {
-    if (model.partialWhiteBalance) return model.partialWhiteBalance[modelKey] === undefined;
-    if (wbIsAsShot) return true;
-  }
+  if (isWhiteBalanceAxis(modelKey)) return whiteBalanceAxisIsWithheld(modelKey, model, wbIsAsShot);
   const derived = model.wbAlgorithmVersion !== 0;
   if (modelKey === 'wbSampleX' || modelKey === 'wbSampleY') {
     return model.wbSource !== 'Sampled' || !derived;
@@ -66,6 +63,24 @@ function fieldIsWithheld(modelKey: string, model: AdjustmentModel, wbIsAsShot: b
     return !(model.wbSource === 'Auto' || model.wbSource === 'Sampled');
   }
   return false;
+}
+
+function isWhiteBalanceAxis(key: string): key is 'temperature' | 'tint' {
+  return key === 'temperature' || key === 'tint';
+}
+
+function whiteBalanceAxisIsWithheld(
+  key: 'temperature' | 'tint',
+  model: AdjustmentModel,
+  asShot: boolean,
+): boolean {
+  return model.partialWhiteBalance ? model.partialWhiteBalance[key] === undefined : asShot;
+}
+
+function authoredFieldValue(key: NumericAdjustmentKey, model: AdjustmentModel) {
+  return isWhiteBalanceAxis(key) && model.partialWhiteBalance
+    ? model.partialWhiteBalance[key]
+    : model[key];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -272,11 +287,8 @@ export class XmpSerializerService {
     const emittedKeys = new Set<string>();
     for (const f of ADJUSTMENT_FIELDS) {
       if (fieldIsWithheld(f.modelKey, model, wbIsAsShot)) continue;
-      const wbField = f.modelKey === 'temperature' || f.modelKey === 'tint';
-      const value =
-        wbField && model.partialWhiteBalance
-          ? model.partialWhiteBalance[f.modelKey as 'temperature' | 'tint']
-          : model[f.modelKey];
+      const wbField = isWhiteBalanceAxis(f.modelKey);
+      const value = authoredFieldValue(f.modelKey, model);
       if (value === undefined || value === null) continue;
       // A `NaN`/`Infinity`/`-Infinity` model value (a corrupted in-memory
       // model, or a hand-edited/malicious sidecar that round-tripped one

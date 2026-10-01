@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CAMERA_TIER_EXPLANATION, FIXTURED_CAMERAS } from '../generated/camera-support.generated';
-import { cameraSupportFromJson } from './camera-support';
+import { cameraSupportFromJson, hasCalibratedWhiteBalance } from './camera-support';
 import { LensCorrectionCapabilities } from './library-store-lens-corrections';
 
 function wire(
@@ -66,4 +66,14 @@ describe('decode-derived camera support', () => {
     expect(store.for('a').cameraSupport).toBeUndefined();
     expect(store.for('b').cameraSupport?.tier).toBe('decode_only');
   });
+});
+
+it('supplies missing WB axes only from calibrated decode metadata (#3434)', () => {
+  expect(hasCalibratedWhiteBalance(undefined)).toBe(false);
+  for (const resolution of ['rawler_fallback', 'decode_failed']) {
+    expect(hasCalibratedWhiteBalance(cameraSupportFromJson(wire(resolution)))).toBe(false);
+  }
+  for (const resolution of ['embedded_full', 'embedded_cm_only', 'bundle_confident']) {
+    expect(hasCalibratedWhiteBalance(cameraSupportFromJson(wire(resolution)))).toBe(true);
+  }
 });

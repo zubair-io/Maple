@@ -66,3 +66,11 @@ function isSupportWire(value: unknown): value is {
     Object.hasOwn(LENS_SUPPORT_LABEL, wire['lens'])
   );
 }
+
+/** Only calibrated decode metadata can supply a missing imported WB axis (#3434). */
+export function hasCalibratedWhiteBalance(support: CameraSupport | undefined): boolean {
+  return (
+    support?.resolution !== undefined &&
+    !['rawler_fallback', 'decode_failed'].includes(support.resolution)
+  );
+}
