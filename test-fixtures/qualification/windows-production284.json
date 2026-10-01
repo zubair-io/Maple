@@ -1,0 +1,55 @@
+{
+  "issue": 3875,
+  "sourceCommit": "77294de1f3b3228b6f08a8d979396388ef12de6c",
+  "artifactDirectory": "C:\\Users\\zubai\\AppData\\Local\\Temp/maple-qualify-a1cc4291fb6f4e5b97cab1479a05f329",
+  "provenance": {
+    "reference_demosaic": "AMaZE with sidecar override",
+    "fixture_sha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+    "physical_reference_qualified": false,
+    "managed_app_sha256": "78B9ECF5CFCAD9C7D075194E2BA797F5C020351A6FBD0EC54888E846913A7B21",
+    "cli_sha256": "F3E60F02A1D7CD0F9AFA84A9577CEA8D77C647C5CEFD64B9A19054C53C9CC1CC",
+    "qualification_limits": [
+      "Physical reference hardware and 100MP source dimensions require separate verification.",
+      "GPU screenshot perceptual parity is not covered by these CPU-preview and production-export comparisons."
+    ],
+    "sidecar_sha256": null,
+    "app_sha256": "B31C462AFC625C88AE0BCA0E8B87D12AB44D4816CC91CD08348F523B9F1BCAB1",
+    "native_pipeline_sha256": "94071936098A49BE1A1D4FB2D5B4D1E4190088FB2BAD906E7FA6403E088BFCEC",
+    "production_export_demosaic": "Auto policy with sidecar override"
+  },
+  "matchedViewport": {
+    "metrics": {
+      "mean_deltaE": 2.7552724057473723,
+      "p95_deltaE": 6.240605312254414,
+      "max_deltaE": 35.11318778886125,
+      "bias_r": 0.0028930779080837965,
+      "bias_g": 0.0012871662620455027,
+      "bias_b": 0.0016975016333162785,
+      "n_pixels": 1707200
+    },
+    "meanBudget": 2.0,
+    "comparator": "maple-cli diff production TIFF candidate against app-frame.png reference; export Lanczos-resized to preview dimensions",
+    "verdict": "FAIL"
+  },
+  "gpuDiagnostic": {
+    "otherAuditProcessesObserved": 21,
+    "medianTickMs": 22.6727,
+    "maximumTickMs": 47.7889,
+    "physicalReferenceQualified": false
+  },
+  "fullReferenceComparisons": "Preview/reference failed; export/reference and native-size preview/export still running in session 65624",
+  "limits": [
+    "One real RAW fixture only",
+    "CPU preview versus production export; not GPU screenshot parity",
+    "Apple sampling propagation and full browser qualification remain pending",
+    "No full UI, DPI, accessibility, cloud or stability sign-off"
+  ],
+  "previewFullReference": {
+    "p95DeltaE": 10.0511215036246,
+    "pixels": 100663296,
+    "meanBudget": 2.0,
+    "meanDeltaE": 4.0104025784531,
+    "maxDeltaE": 68.95681101315762,
+    "verdict": "FAIL"
+  }
+}
