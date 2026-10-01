@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceRevision": "3947e5d1b0b2c255f68bcfa7ce14b2a7cec68e6d",
+  "mainRevision": "6a43f6e804af0f1bd46f40368fe4fcd21733ad73",
+  "mainIsAncestor": true,
+  "nativeLibrarySha256": "881093889E1B644C638022C3AF668C533697722E2DCBA9E4201CD4201C988BB3",
+  "fixture": {
+    "sha256": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8",
+    "kind": "synthetic 3200x2200 Bayer DNG with spatial detail",
+    "unchanged": true
+  },
+  "fullSuite": {
+    "passed": 1407,
+    "trxSha256": "F7B9F9B0DDDDB9F654AAC50DAD25B41E28DABA8BD70A160FDFE47EEEEFEF4779",
+    "skipped": 10,
+    "failed": 0
+  },
+  "explicitFixtureRerun": {
+    "passed": 12,
+    "trxSha256": "C05EF4A0417C6E819BCC0B96AA23A777BE6BC66621F24A1F666ABD28A7FC06CF",
+    "skipped": 0,
+    "failed": 0,
+    "coveredInitiallySkipped": [
+      "Maple.WinUI.Tests.RetouchAuthoringTests.ReopenedRepairsUseTheSharedNativeDecodeAndLeaveOriginalUntouched",
+      "Maple.WinUI.Tests.NativeDetailHandleTests.FailedOpenDoesNotProduceAnOwnedHandle",
+      "Maple.WinUI.Tests.NativeDetailDecoderTests.CroppedNativePatchRetainsFullFrameAnchorsAndCancellationDoesNotPoisonTheSession",
+      "Maple.WinUI.Tests.NativeDetailDecoderTests.SliderChangesReuseTheMosaicAndFailedDecodeChangesCanBeRetried",
+      "Maple.WinUI.Tests.RetouchExportNativeTests.SharedCanonicalAndWindowsAuthoredRepairsExportIdenticallyAfterReopen",
+      "Maple.WinUI.Tests.NativeDetailHandleTests.NativeHandleReportsSourceGeometryAndReusesMosaicForFiniteDetailTiles",
+      "Maple.WinUI.Tests.CloudTransferTests.NativeBaselineReadsCameraMetadataWithoutChangingTheOriginal",
+      "Maple.WinUI.Tests.PresetExportNativeTests.SparsePresetExportsIdenticallyAfterDiskReopenAndResetRestoresBaseline",
+      "Maple.WinUI.Tests.LocalAdjustmentDecodeTests.ReopeningAMaskedPhotoDoesNotBakeTheLiveLayerIntoItsBase",
+      "Maple.WinUI.Tests.DemosaicNativeTests.EveryCanonicalChoiceDecodesAndFitPreviewUsesTheFixedKernel"
+    ]
+  },
+  "uniquePassedAcrossRuns": 1417,
+  "remote": {
+    "mapleTypes": {
+      "conclusion": "success",
+      "url": "https://github.com/zubair-io/Maple/actions/runs/36891889366"
+    },
+    "api": {
+      "statusAtRecording": "in_progress",
+      "nativeIntegration": "pending native library build; no pass claimed",
+      "url": "https://github.com/zubair-io/Maple/actions/runs/36891884479",
+      "typecheck": "success"
+    }
+  },
+  "limitations": [
+    "Combined suite coverage is not a single zero-skip run; every initially skipped test ID matched a passing fixture rerun.",
+    "Native functional tests do not replace perceptual color, physical performance, full visual/DPI, Narrator or real-cloud qualification.",
+    "No PR or merge; remaining epic gates are open."
+  ]
+}
