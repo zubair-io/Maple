@@ -5,6 +5,77 @@ import XCTest
 
 final class NativeRemovalAuthoringJobTests: XCTestCase {
   @MainActor
+  func testNativePeopleGroupUsesSequentialActualModelJobsAndOneKeep() async throws {
+    #if os(macOS)
+      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
+        value.deletingLastPathComponent()
+      }.appendingPathComponent("test-fixtures/raws/removal-inference")
+      guard
+        FileManager.default.fileExists(atPath: root.appendingPathComponent("runtime.dylib").path),
+        FileManager.default.fileExists(
+          atPath: root.appendingPathComponent("lama-native-1024.onnx").path)
+      else { throw XCTSkip("Install the native authoring qualification corpus (#3984)") }
+      let fixture = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "source", withExtension: "dng",
+          subdirectory: "removal/calibration"))
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+      let raw = directory.appendingPathComponent("photo.dng")
+      try FileManager.default.copyItem(at: fixture, to: raw)
+      let original = try Data(contentsOf: raw)
+      let session = EditSession(asset: AssetRef(url: raw))
+      let removal = RemovalSession(session: session)
+      await removal.open()
+      await removal.chooseModelFolder(root)
+      removal.setMode(.people)
+      // This test starts at reviewed source masks; detector/segmenter quality
+      // has separate gates. Reconstruction and durable Keep use the real model.
+      let masks = try [0.25, 0.75].map { x in
+        try RemovalBridge.selection(
+          width: 16, height: 8,
+          request:
+            "{\"schema\":1,\"strokes\":[{\"subtract\":false,\"radius\":0.1,\"points\":[[\(x),0.5]]}]}"
+        )
+      }
+      removal.personMasks = masks
+      removal.selection = try RemovalBridge.combineMasks(masks[0], masks[1])
+      await removal.remove()
+      XCTAssertEqual(removal.phase, .review, removal.message)
+      XCTAssertEqual(removal.proposals.count, 2)
+      let sidecar = try XCTUnwrap(session.asset.sidecarURL)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))
+      let records = try removal.proposals.reduce("[]") { prior, proposal in
+        try RemovalBridge.prepare(
+          request: proposal.request, prior: prior,
+          mask: proposal.mask, patch: proposal.patch)
+      }
+      let decoded = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: Data(records.utf8)) as? [[String: Any]])
+      let accepted = try XCTUnwrap(decoded[1]["accepted"] as? [String: Any])
+      XCTAssertEqual((accepted["dependencies"] as? [Any])?.count, 1)
+      await removal.keep()
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertEqual(session.model.inpaintRemovals?.json, records)
+      XCTAssertEqual(session.undoHistory.count, 1)
+      XCTAssertTrue(removal.personMasks.isEmpty)
+      session.undo()
+      await session.flushPendingSidecarWrite()
+      XCTAssertNil(session.model.inpaintRemovals)
+      session.redo()
+      await session.flushPendingSidecarWrite()
+      XCTAssertEqual(session.model.inpaintRemovals?.json, records)
+      XCTAssertEqual(try Data(contentsOf: raw), original)
+      removal.close()
+      await session.releaseTransientMemory()
+    #else
+      throw XCTSkip("macOS native model corpus test")
+    #endif
+  }
+
+  @MainActor
   func testEditorPaintReviewCancelKeepAndReopenUseActualLocalModel() async throws {
     #if os(macOS)
       let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in

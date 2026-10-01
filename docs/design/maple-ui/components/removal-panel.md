@@ -61,9 +61,15 @@ RGB preview overlays the confirmed canvas without retiring its RAW owner, so
 Cancel writes nothing and reveals the existing confirmed render. Keep publishes
 through the durable history boundary. A full-XMP conflict retains the candidate
 and instructs the photographer to reopen the photo before using external edits.
+People reconstructs each selected person in its own bounded source window.
+Later windows consume earlier temporary patches and record their dependencies.
+Keep publishes the ordered group with one XMP commit and one undo entry; a
+failed later companion cannot commit a visible prefix. Cancel discards the
+whole temporary group. Each individual object must still fit the model's
+native extent; large-object reconstruction remains unqualified under #1472.
 Native Paint workflow/model tests pass. The macOS app has also exercised Paint,
 Compare, Cancel, Keep, undo/redo and reopening on an isolated 39MP photographic
 RAW, verifying that the original remains byte-identical and Cancel creates no
 XMP or companions. Native Smart paint/People UI, automatic background-role
-selection, spread-person generation, photographic and hardware qualification
+selection, photographic and hardware qualification
 remain under #1472.

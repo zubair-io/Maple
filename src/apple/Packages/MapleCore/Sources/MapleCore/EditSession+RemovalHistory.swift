@@ -9,17 +9,32 @@ extension EditSession {
   public func acceptRemoval(
     _ proposal: NativeRemovalProposal, snapshot: RemovalAuthoringSnapshot
   ) async throws {
+    try await acceptRemovals([proposal], snapshot: snapshot)
+  }
+
+  /// Publish an ordered, reviewed group as one XMP commit and history entry.
+  /// Intermediate assets may survive a failed publication, but no prefix of
+  /// this group becomes visible in the sidecar or editor model.
+  public func acceptRemovals(
+    _ proposals: [NativeRemovalProposal], snapshot: RemovalAuthoringSnapshot
+  ) async throws {
     try Task.checkCancellation()
+    guard !proposals.isEmpty else { throw RemovalError.invalid("No removal proposals to keep") }
     let expectedModel = snapshot.model
     guard model == expectedModel, editRevision == snapshot.editRevision else {
       throw RemovalError.saveConflict
     }
     let task = try confirmedRemovalTask(
-      transition: .new(.repair, "Remove object"), sidecarRevision: snapshot.sidecarRevision
+      transition: .new(
+        .repair, proposals.count == 1 ? "Remove object" : "Remove \(proposals.count) objects"),
+      sidecarRevision: snapshot.sidecarRevision
     ) { raw in
-      let records = try await LocalRemovalAssetStore(rawURL: raw).publish(
-        request: proposal.request, prior: expectedModel.inpaintRemovals?.json ?? "[]",
-        mask: proposal.mask, patch: proposal.patch)
+      let store = LocalRemovalAssetStore(rawURL: raw)
+      var records = expectedModel.inpaintRemovals?.json ?? "[]"
+      for proposal in proposals {
+        records = try await store.publish(
+          request: proposal.request, prior: records, mask: proposal.mask, patch: proposal.patch)
+      }
       var accepted = expectedModel
       accepted.inpaintRemovals = try RemovalRecords(json: records)
       return accepted
