@@ -51,7 +51,11 @@ const log = childLogger('backup-ingest');
 
 export const backupIngestRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/ingest',
-  async ({ params, headers, body, set }) => {
+  // fallow-ignore-next-line complexity
+  async (ctx) => {
+    const { params, headers, body, set } = ctx;
+    const auth = (ctx as { auth?: { user?: { sub?: string } } }).auth;
+    const ownerId = auth?.user?.sub && auth.user.sub !== 'image-capability' ? auth.user.sub : null;
     const libraryId = backupLibraryId(params.libraryId);
     if (libraryId instanceof Response) return libraryId;
 
@@ -283,6 +287,7 @@ export const backupIngestRoutes = new Elysia().post(
         relPath: resolvedTargetRelPath,
         libraryId,
         link: existing.alreadyLinked ? null : link,
+        ownerId,
       });
 
       await uploadSessions.complete({
@@ -401,6 +406,7 @@ export const backupIngestRoutes = new Elysia().post(
       mapleId,
       isScreenshot,
       link,
+      ownerId,
     });
 
     // Update per-device backup progress summary.

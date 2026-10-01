@@ -54,6 +54,7 @@ export interface AssetCoreRow {
   maple_id: string | null;
   exif: string | null;
   place: string | null;
+  owner_id: string | null;
 }
 
 /** The narrow `assets` projection behind the working-set list DTO. */
@@ -65,6 +66,7 @@ export interface ListItemRow {
   hidden: number;
   hidden_reason: string | null;
   hidden_ack: number;
+  owner_id: string | null;
 }
 
 /** One `asset_locations` row — one entry of the former `fileinfo[]`. */

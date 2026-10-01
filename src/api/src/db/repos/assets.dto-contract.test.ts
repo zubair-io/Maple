@@ -188,6 +188,7 @@ describe('the detail DTO returned by GET /api/assets/:id', () => {
       description_meta: { model: 'qwen' },
       ocr_text: 'SEA',
       ocr_meta: OCR_META,
+      owner_id: null,
       vision: VISION,
       vision_meta: VISION_META,
       // Tri-state: `true`/`false` once the classifier has looked at the asset,
@@ -273,6 +274,7 @@ describe('the working-set item returned by GET /api/assets', () => {
       // through `Date(timeIntervalSince1970:)`. The stored value is
       // 1_700_000_000_123 ms — the same asset's detail DTO reports it in full.
       mtime: 1_700_000_000,
+      owner_id: null,
       rating: 4,
       has_xmp: true,
       hidden: false,
@@ -316,6 +318,7 @@ describe('the core-info shape the FS and change-feed routes pass around', () => 
       deleted_at: null,
       deleted_reason: null,
       original_path: null,
+      owner_id: null,
       place: PLACE,
       description: 'a boat',
       ocr_text: 'SEA',

@@ -37,5 +37,5 @@
     // its own line for the same reason those are.
     "scripts/sqlite-bench/reader-pool.ts"
   ],
-  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow"]
+  "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow", "@justmaple/maple"]
 }

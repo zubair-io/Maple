@@ -111,6 +111,8 @@ export interface SearchParams {
   scope?: SearchScopeParam;
   /** Hidden image filter option. */
   hidden?: 'all' | 'only';
+  /** Filter by asset owner user id. */
+  ownerId?: string;
 }
 
 /** Single hit returned by /api/search. */
@@ -143,6 +145,7 @@ export interface SearchResult {
    * chip (#628). Missing on legacy docs — readers coerce to `false`. */
   has_xmp?: boolean;
   hidden?: boolean;
+  owner_id?: string | null;
 }
 
 export interface SearchResponse {
@@ -224,6 +227,8 @@ export interface SearchFacets {
    * `value` labels feed the `place` filter param verbatim. Absent on
    * servers predating the field; readers coerce to `[]`. */
   places?: Array<{ value: string; count: number }>;
+  /** Per-owner asset counts for the Owner filter picker. */
+  owners?: Array<{ id: string; email: string; count: number }>;
 }
 
 /** `undefined` stays undefined (omitted); booleans stringify for the wire. */
@@ -277,6 +282,7 @@ function paramsFrom(p: SearchParams): HttpParams {
     ['place', joined(p.place, '|')],
     ['scope', p.scope],
     ['hidden', p.hidden],
+    ['ownerId', p.ownerId],
   ];
   return entries.reduce(
     (h, [k, v]) => (v === undefined || v === null || v === '' ? h : h.set(k, String(v))),

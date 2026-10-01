@@ -11,6 +11,7 @@ import {
   presetRange,
   removeChip,
   setCustomRange,
+  toggleOwner,
   togglePerson,
   togglePlace,
   togglePreset,
@@ -31,6 +32,16 @@ describe('search-filters — counting and chips', () => {
     expect(activeFilterChips(f).map((c) => c.kind)).toEqual(['date', 'person', 'person', 'place']);
   });
 
+  it('counts owner dimension and renders owner chip', () => {
+    const f = {
+      ...EMPTY_FILTERS,
+      ownerId: 'user-123',
+      ownerLabel: 'alice@example.com',
+    };
+    expect(activeFilterCount(f)).toBe(1);
+    expect(activeFilterChips(f)).toEqual([{ kind: 'owner', label: 'alice@example.com' }]);
+  });
+
   it('labels a custom range and counts it as one dimension', () => {
     const f = setCustomRange(EMPTY_FILTERS, '2026-01-01', '2026-02-01');
     expect(activeFilterCount(f)).toBe(1);
@@ -43,6 +54,8 @@ describe('search-filters — counting and chips', () => {
       datePreset: 'today' as const,
       people: ['Priya Patel'],
       places: ['Kyoto'],
+      ownerId: 'user-123',
+      ownerLabel: 'alice@example.com',
     };
     const noDate = removeChip(f, { kind: 'date', label: 'Today' });
     expect(noDate.datePreset).toBeNull();
@@ -50,6 +63,9 @@ describe('search-filters — counting and chips', () => {
     const noPerson = removeChip(f, { kind: 'person', label: 'Priya Patel' });
     expect(noPerson.people).toEqual([]);
     expect(noPerson.places).toEqual(['Kyoto']);
+    const noOwner = removeChip(f, { kind: 'owner', label: 'alice@example.com' });
+    expect(noOwner.ownerId).toBeNull();
+    expect(noOwner.ownerLabel).toBeNull();
   });
 });
 
@@ -60,6 +76,15 @@ describe('search-filters — toggles and exclusivity', () => {
     expect(togglePerson(on, 'Priya Patel').people).toEqual([]);
     const pl = togglePlace(EMPTY_FILTERS, 'Portland, OR');
     expect(pl.places).toEqual(['Portland, OR']);
+  });
+
+  it('toggles owner on/off and stores label', () => {
+    const on = toggleOwner(EMPTY_FILTERS, 'user-123', 'alice@example.com');
+    expect(on.ownerId).toBe('user-123');
+    expect(on.ownerLabel).toBe('alice@example.com');
+    const off = toggleOwner(on, 'user-123');
+    expect(off.ownerId).toBeNull();
+    expect(off.ownerLabel).toBeNull();
   });
 
   it('preset and custom range are mutually exclusive', () => {
@@ -96,6 +121,16 @@ describe('search-filters — wire params', () => {
       from: '2026-01-01',
       people: ['Priya Patel'],
       place: ['Portland, OR', 'Kyoto'],
+    });
+  });
+
+  it('maps owner filter onto ownerId param', () => {
+    const f = {
+      ...EMPTY_FILTERS,
+      ownerId: 'user-123',
+    };
+    expect(filtersToParams(f, NOW)).toEqual({
+      ownerId: 'user-123',
     });
   });
 
@@ -197,5 +232,14 @@ describe('parseDeepLinkFilters', () => {
   it('keeps the valid subset when only some params are junk', () => {
     const f = parseDeepLinkFilters(from({ month: '8', sceneType: 'nope' }));
     expect(f).toEqual({ month: 8 });
+  });
+
+  it('parses ownerId and owner_id from deep links', () => {
+    expect(parseDeepLinkFilters(from({ ownerId: 'user-123' }))).toEqual({
+      ownerId: 'user-123',
+    });
+    expect(parseDeepLinkFilters(from({ owner_id: 'user-456' }))).toEqual({
+      ownerId: 'user-456',
+    });
   });
 });

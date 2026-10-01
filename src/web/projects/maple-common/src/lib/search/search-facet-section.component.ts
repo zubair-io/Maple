@@ -10,6 +10,7 @@ import { MapleIconComponent } from '../icons/maple-icon.component';
 
 export interface FacetRow {
   readonly value: string;
+  readonly label?: string;
   readonly count: number;
   readonly selected: boolean;
 }
@@ -23,10 +24,10 @@ export interface FacetRow {
 })
 export class SearchFacetSectionComponent {
   readonly title = input.required<string>();
-  /** Icon + testid flavour: person rows show an initial avatar, place
+  /** Icon + testid flavour: person/owner rows show an initial avatar, place
    * rows the location glyph. Also prefixes the row testids
-   * (`filter-person-…` / `filter-place-…`). */
-  readonly kind = input.required<'person' | 'place'>();
+   * (`filter-person-…` / `filter-place-…` / `filter-owner-…`). */
+  readonly kind = input.required<'person' | 'place' | 'owner'>();
   readonly rows = input<readonly FacetRow[]>([]);
   readonly emptyLabel = input<string>('None yet');
 

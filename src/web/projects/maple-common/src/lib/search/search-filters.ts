@@ -36,6 +36,10 @@ export interface SearchFilters {
   /** Recurring month-of-year (1–12), matching that month in EVERY year.
    * Same deep-link-only story as `sceneType`. */
   readonly month: number | null;
+  /** Filter by asset owner user id. */
+  readonly ownerId: string | null;
+  /** Display label for the selected owner (e.g. email or username). */
+  readonly ownerLabel?: string | null;
 }
 
 export const EMPTY_FILTERS: SearchFilters = {
@@ -46,6 +50,8 @@ export const EMPTY_FILTERS: SearchFilters = {
   places: [],
   sceneType: null,
   month: null,
+  ownerId: null,
+  ownerLabel: null,
 };
 
 export function hasActiveFilters(f: SearchFilters): boolean {
@@ -61,12 +67,13 @@ export function activeFilterCount(f: SearchFilters): number {
     f.places.length +
     (dateActive ? 1 : 0) +
     (f.sceneType !== null ? 1 : 0) +
-    (f.month !== null ? 1 : 0)
+    (f.month !== null ? 1 : 0) +
+    (f.ownerId !== null ? 1 : 0)
   );
 }
 
 export interface ActiveFilterChip {
-  readonly kind: 'date' | 'person' | 'place' | 'scene' | 'month' | 'inferred-date';
+  readonly kind: 'date' | 'person' | 'place' | 'scene' | 'month' | 'inferred-date' | 'owner';
   readonly label: string;
   /** For `inferred-date`: the search text the window was derived from, shown
    * as attribution so the user can see WHY it is there. */
@@ -103,13 +110,14 @@ export function inferredDateChip(applied: AppliedDateFilter | undefined): Active
 }
 
 /** The bar's inline chip list, date first (mirrors the design's ordering:
- * date, people, places). */
+ * date, people, places, owner). */
 export function activeFilterChips(f: SearchFilters): ActiveFilterChip[] {
   const dateLabel = dateChipLabel(f);
   return [
     ...(dateLabel !== null ? [{ kind: 'date' as const, label: dateLabel }] : []),
     ...f.people.map((p) => ({ kind: 'person' as const, label: p })),
     ...f.places.map((p) => ({ kind: 'place' as const, label: p })),
+    ...(f.ownerId !== null ? [{ kind: 'owner' as const, label: f.ownerLabel ?? f.ownerId }] : []),
     ...(f.sceneType !== null
       ? [{ kind: 'scene' as const, label: sceneChipLabel(f.sceneType) }]
       : []),
@@ -167,6 +175,8 @@ export function removeChip(f: SearchFilters, chip: ActiveFilterChip): SearchFilt
       return { ...f, sceneType: null };
     case 'month':
       return { ...f, month: null };
+    case 'owner':
+      return { ...f, ownerId: null, ownerLabel: null };
     case 'inferred-date':
       // Not user-set, so there is nothing in `SearchFilters` to clear. The
       // chip renders without an X; this arm exists to keep the switch
@@ -185,6 +195,15 @@ export function togglePlace(f: SearchFilters, label: string): SearchFilters {
     ? f.places.filter((p) => p !== label)
     : [...f.places, label];
   return { ...f, places };
+}
+
+export function toggleOwner(f: SearchFilters, id: string, label?: string): SearchFilters {
+  const isSelected = f.ownerId === id;
+  return {
+    ...f,
+    ownerId: isSelected ? null : id,
+    ownerLabel: isSelected ? null : (label ?? id),
+  };
 }
 
 /** Tapping the active preset clears it; tapping another switches. Either
@@ -234,13 +253,14 @@ export function presetRange(preset: DatePreset, now: Date): { from: string; to: 
 export function filtersToParams(
   f: SearchFilters,
   now: Date = new Date(),
-): Pick<SearchParams, 'from' | 'to' | 'people' | 'place' | 'sceneType' | 'month'> {
+): Pick<SearchParams, 'from' | 'to' | 'people' | 'place' | 'sceneType' | 'month' | 'ownerId'> {
   const range = f.datePreset !== null ? presetRange(f.datePreset, now) : { from: f.from, to: f.to };
   return {
     ...(range.from !== null ? { from: range.from } : {}),
     ...(range.to !== null ? { to: range.to } : {}),
     ...(f.people.length > 0 ? { people: [...f.people] } : {}),
     ...(f.places.length > 0 ? { place: [...f.places] } : {}),
+    ...(f.ownerId !== null ? { ownerId: f.ownerId } : {}),
     ...(f.sceneType !== null ? { sceneType: f.sceneType as SearchParams['sceneType'] } : {}),
     ...(f.month !== null ? { month: f.month } : {}),
   };
@@ -289,9 +309,16 @@ export function parseDeepLinkFilters(
   const month = parseMonth(get('month'));
   const sceneType = parseSceneType(get('sceneType'));
   const people = parsePeopleCsv(get('people'));
+  const rawOwnerId = get('ownerId') ?? get('owner_id');
+  const ownerId = rawOwnerId !== null && rawOwnerId.trim().length > 0 ? rawOwnerId.trim() : null;
 
   const empty =
-    from === null && to === null && month === null && sceneType === null && people.length === 0;
+    from === null &&
+    to === null &&
+    month === null &&
+    sceneType === null &&
+    people.length === 0 &&
+    ownerId === null;
   if (empty) return null;
   return {
     ...(from !== null ? { from } : {}),
@@ -299,5 +326,6 @@ export function parseDeepLinkFilters(
     ...(month !== null ? { month } : {}),
     ...(sceneType !== null ? { sceneType } : {}),
     ...(people.length > 0 ? { people } : {}),
+    ...(ownerId !== null ? { ownerId } : {}),
   };
 }

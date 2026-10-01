@@ -26,7 +26,7 @@ import type { ObjectId } from '../src/db/object-id.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { authedHandle } from './helpers/authed-handle.ts';
+import { authedHandle, DEFAULT_AUTHED_USER_ID } from './helpers/authed-handle.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -38,6 +38,7 @@ import {
   readPhassetLinks,
   seedBackupAsset,
   seedLibrary,
+  seedUser,
 } from './helpers/sqlite-fixtures.ts';
 import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 
@@ -63,6 +64,11 @@ beforeEach(async () => {
   tmpLibB = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-xlib-B-'));
 
   live = await createLiveTestDatabase();
+  seedUser(live.db, {
+    id: DEFAULT_AUTHED_USER_ID,
+    email: 'test@maple.local',
+    role: 'owner',
+  });
   libA = seedLibrary(live.db, { path: tmpLibA, label: 'library-A' });
   libB = seedLibrary(live.db, { path: tmpLibB, label: 'library-B' });
   // The library-roots cache memoizes folder rows; invalidate so the freshly

@@ -13,12 +13,13 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { ObjectId } from '../src/db/object-id.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { authedHandle } from './helpers/authed-handle.ts';
+import { authedHandle, DEFAULT_AUTHED_USER_ID, makeBearer } from './helpers/authed-handle.ts';
 import {
   findAssetIdByMapleId,
   findAssetsByMapleId,
   findPhassetLinksByLocalId,
   readPhassetLinks,
+  seedUser,
 } from './helpers/sqlite-fixtures.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
@@ -60,6 +61,10 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     const links = findPhassetLinksByLocalId(suite.handle.db, phid);
     expect(links).toHaveLength(1);
     expect(links[0].device_id).toBe(deviceId);
+
+    const assets = findAssetsByMapleId(suite.handle.db, '026ca13d52ca70c883e0f0bb101e425a');
+    expect(assets).toHaveLength(1);
+    expect(assets[0].owner_id).toBe(DEFAULT_AUTHED_USER_ID);
   });
 
   test('resume across two chunks', async () => {
@@ -247,5 +252,37 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
       }),
     );
     expect(r.status).toBe(404);
+  });
+
+  test('member upload attributes owner_id to the member user', async () => {
+    const memberId = '664000000000000000000099';
+    seedUser(suite.handle.db, {
+      id: memberId,
+      email: 'member@maple.local',
+      role: 'member',
+    });
+    const memberAuth = await makeBearer({
+      sub: memberId,
+      email: 'member@maple.local',
+      role: 'member',
+    });
+    const memberMapleId = '029a13d52ca70c883e0f0bb101e425aa';
+    const bytes = Buffer.alloc(128, 9);
+    const res = await authedHandle(
+      ingest(bytes, {
+        Authorization: memberAuth,
+        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Phasset-Id': 'MEMBER/001',
+        'X-Maple-Capture-Date': '2024-03-15T10:30:00Z',
+        'X-Maple-Filename': 'IMG_MEMBER.HEIC',
+        'X-Maple-Total-Bytes': '128',
+        'X-Maple-Maple-Id': memberMapleId,
+        'Content-Range': 'bytes 0-127/128',
+      }),
+    );
+    expect(res.status).toBe(200);
+    const assets = findAssetsByMapleId(suite.handle.db, memberMapleId);
+    expect(assets).toHaveLength(1);
+    expect(assets[0].owner_id).toBe(memberId);
   });
 });

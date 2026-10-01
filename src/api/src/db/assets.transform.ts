@@ -94,6 +94,7 @@ export interface AssetDetailDto {
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
   enrichment: Enrichment;
+  owner_id?: string | null;
 }
 
 /** A detected face plus its resolved person display name. `name` is the
@@ -134,6 +135,7 @@ export interface AssetListItemDto {
   hidden?: boolean;
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
+  owner_id?: string | null;
 }
 
 /** Minimal shape used by routes that need to drive FS / change-feed
@@ -169,4 +171,5 @@ export interface AssetCoreInfo {
   description: string | null;
   ocr_text: string | null;
   exif: AssetExif | null;
+  owner_id?: ObjectId | null;
 }

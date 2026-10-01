@@ -104,6 +104,8 @@ const FILTER_AFFECTING_FIELD_VALUES: Record<string, [string, string]> = {
   hidden: ['only', 'all'],
   scope: ['places', 'people'],
   excludeHiddenPeople: ['true', 'false'],
+  ownerId: ['664000000000000000000001', '664000000000000000000002'],
+  owner_id: ['664000000000000000000001', '664000000000000000000002'],
 };
 
 const NON_FILTER_FIELDS = new Set(['page', 'limit', 'sort', 'cursor']);
@@ -138,6 +140,8 @@ const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   scope: true,
   hidden: true,
   excludeHiddenPeople: true,
+  ownerId: true,
+  owner_id: true,
   page: true,
   limit: true,
   sort: true,
@@ -162,4 +166,16 @@ describe('makeBucketsCacheKey — completeness vs SearchQuery', () => {
       expect(new Set([keyA, keyB, keyAbsent]).size).toBe(3);
     });
   }
+
+  it('produces identical keys for ownerId and owner_id with same value', () => {
+    const keyCamel = makeBucketsCacheKey({ ownerId: '664000000000000000000001' } as SearchQuery);
+    const keySnake = makeBucketsCacheKey({ owner_id: '664000000000000000000001' } as SearchQuery);
+    expect(keyCamel).toBe(keySnake);
+  });
+
+  it('normalizes uppercase owner hex in the cache key', () => {
+    const keyLower = makeBucketsCacheKey({ ownerId: '66400000000000000000000a' } as SearchQuery);
+    const keyUpper = makeBucketsCacheKey({ ownerId: '66400000000000000000000A' } as SearchQuery);
+    expect(keyLower).toBe(keyUpper);
+  });
 });

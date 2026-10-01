@@ -99,6 +99,7 @@ export class SearchBarComponent {
     // has no glyph of its own and borrows the place pin.
     switch (chip.kind) {
       case 'person':
+      case 'owner':
         return 'search-chip-person';
       case 'place':
       case 'scene':

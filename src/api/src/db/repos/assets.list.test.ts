@@ -135,7 +135,16 @@ describe('findListItems', () => {
     const drop = insertAsset(db, { exif: JSON.stringify({ captured_at: '2020-06-01T00:00:00Z' }) });
     insertLocation(db, { assetId: keep, libraryId, filename: 'keep.dng' });
     insertLocation(db, { assetId: drop, libraryId, filename: 'drop.dng' });
-    run(db, `UPDATE assets SET has_xmp = 1, rating = 5 WHERE id = ?`, keep);
+    const ownerId = '664000000000000000000001';
+    run(
+      db,
+      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'owner', ?)`,
+      ownerId,
+      'test@example.com',
+      'test@example.com',
+      '2026-01-01T00:00:00Z',
+    );
+    run(db, `UPDATE assets SET has_xmp = 1, rating = 5, owner_id = ? WHERE id = ?`, ownerId, keep);
 
     expect((await findListItems({ hasXmp: true }, 10, sql)).map((i) => i.id)).toEqual([keep]);
     expect((await findListItems({ ratingGte: 3 }, 10, sql)).map((i) => i.id)).toEqual([keep]);
@@ -143,6 +152,8 @@ describe('findListItems', () => {
       (await findListItems({ capturedAfterIso: '2025-01-01T00:00:00Z' }, 10, sql)).map((i) => i.id),
     ).toEqual([keep]);
     expect((await findListItems({ hasXmp: false }, 10, sql)).map((i) => i.id)).toEqual([drop]);
+    expect((await findListItems({ ownerId }, 10, sql)).map((i) => i.id)).toEqual([keep]);
+    expect(await findListItems({ ownerId: '664000000000000000000099' }, 10, sql)).toEqual([]);
   });
 
   test('clamps the limit, and treats a non-finite limit as the default', async () => {
@@ -190,6 +201,7 @@ describe('findListItems', () => {
         'hidden_reason',
         'id',
         'mtime',
+        'owner_id',
         'rating',
       ].sort(),
     );

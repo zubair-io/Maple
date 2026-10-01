@@ -148,6 +148,8 @@ const DATABASE_ONLY_FILTERS = [
   'hasCapturedAt',
   'place',
   'excludeHiddenPeople',
+  'ownerId',
+  'owner_id',
 ] as const;
 
 /**

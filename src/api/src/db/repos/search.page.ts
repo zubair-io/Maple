@@ -53,6 +53,7 @@ interface PageRow {
   hidden: number;
   exif: string | null;
   place: string | null;
+  owner_id: string | null;
 }
 
 interface DescriptionRow {
@@ -223,6 +224,7 @@ function toAssetDoc(
     exif: json<AssetExif>(row.exif),
     place: json<Place>(row.place),
     description: captions.get(row.id) ?? null,
+    owner_id: row.owner_id ? new ObjectId(row.owner_id) : null,
     phasset_links: linkRows.map((link) => ({
       device_id: link.device_id,
       phasset_local_id: link.phasset_local_id,

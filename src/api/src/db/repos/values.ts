@@ -24,8 +24,8 @@
 import { ObjectId } from '../object-id.ts';
 
 /** An id as the tables store it. */
-export function toHex(id: ObjectId): string {
-  return id.toHexString();
+export function toHex(id: ObjectId | string): string {
+  return typeof id === 'string' ? id : id.toHexString();
 }
 
 /** A stored id as the DTOs carry it. */

@@ -328,3 +328,20 @@ CREATE INDEX assets_gps_captured
 CREATE INDEX assets_backup_layout
   ON assets (backup_layout_version);
 `;
+
+/**
+ * Migration 0005: Add owner_id to assets table referencing users(id).
+ */
+export const ASSET_OWNER_COLUMN_DDL = `
+ALTER TABLE assets ADD COLUMN owner_id TEXT REFERENCES users (id) ON DELETE SET NULL;
+`;
+
+export const ASSET_OWNER_INDEX_DDL = `
+CREATE INDEX assets_facet_owner
+  ON assets (owner_id, hidden)
+  WHERE ${LIVE_ASSET_PREDICATE};
+`;
+
+export const ASSET_OWNER_BACKFILL_SQL = `
+UPDATE assets SET owner_id = (SELECT id FROM users WHERE role = 'owner' ORDER BY created_at ASC LIMIT 1) WHERE owner_id IS NULL;
+`;

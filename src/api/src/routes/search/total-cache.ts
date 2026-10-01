@@ -21,6 +21,7 @@
  */
 
 import { searchCount, type SearchWhere } from '../../db/repos/search.repo.ts';
+import { normaliseObjectIdHex } from '../../db/object-id.ts';
 import type { SearchQuery } from './query.ts';
 
 const TOTAL_CACHE_TTL_MS = 30_000;
@@ -31,6 +32,13 @@ interface CachedTotal {
 }
 
 const totalCache = new Map<string, CachedTotal>();
+
+/** Canonical owner filter value: folds ownerId and owner_id aliases and normalises to lowercase hex. */
+export function canonicalOwner(q: SearchQuery): string | null {
+  const raw = q.ownerId ?? q.owner_id;
+  if (!raw) return null;
+  return normaliseObjectIdHex(raw) ?? raw.trim().toLowerCase();
+}
 
 /** Every field that feeds `buildSearchWhere` (i.e. the full filter set the
  * count depends on), in a fixed order. `page`/`limit`/`sort`/`cursor` are
@@ -65,15 +73,21 @@ const TOTAL_CACHE_KEY_FIELDS = [
   'place',
   'scope',
   'hidden',
+  'ownerId',
+  'owner_id',
 ] as const satisfies ReadonlyArray<keyof SearchQuery>;
 
 /** Stable JSON serialisation of a SearchQuery over `TOTAL_CACHE_KEY_FIELDS`.
  * Field order is fixed so that two requests with the same params produce
  * the same key regardless of how the URL was constructed. */
-function makeTotalCacheKey(q: SearchQuery): string {
+export function makeTotalCacheKey(q: SearchQuery): string {
   const normalized: Partial<Record<keyof SearchQuery, string | null>> = {};
   for (const field of TOTAL_CACHE_KEY_FIELDS) {
-    normalized[field] = q[field] ?? null;
+    if (field === 'ownerId' || field === 'owner_id') {
+      normalized[field] = canonicalOwner(q);
+    } else {
+      normalized[field] = q[field] ?? null;
+    }
   }
   return JSON.stringify(normalized);
 }

@@ -68,7 +68,7 @@ const ASSET_CORE_COLUMNS = `
   rating, flag, color_label, has_xmp, sidecar_ver,
   hidden, hidden_reason, hidden_ack, is_screenshot,
   deleted_at, deleted_reason, original_path, maple_id,
-  exif, place`;
+  exif, place, owner_id`;
 
 export const ASSET_CORE_BY_ID_SQL = `SELECT ${ASSET_CORE_COLUMNS} FROM assets WHERE id = ?`;
 
@@ -109,7 +109,7 @@ export function listItemsSql(residuals: readonly string[], liveOnly: boolean): s
   const sortIndex = captureFiltered ? 'assets_live_captured' : 'assets_live_sorted';
   const indexedBy = liveOnly ? `INDEXED BY ${sortIndex}` : '';
   return `
-    SELECT id, mtime, rating, has_xmp, hidden, hidden_reason, hidden_ack
+    SELECT id, mtime, rating, has_xmp, hidden, hidden_reason, hidden_ack, owner_id
       FROM assets ${indexedBy}
       ${where}
      ORDER BY ${sortColumn} DESC, id

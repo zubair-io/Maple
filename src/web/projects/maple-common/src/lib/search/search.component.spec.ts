@@ -49,6 +49,7 @@ class StubSearchService {
       { value: 'Portland, OR', count: 946 },
       { value: 'Kyoto', count: 158 },
     ],
+    owners: [{ id: 'u1', email: 'owner@example.com', count: 42 }],
   };
 
   search(params: SearchParams): Observable<SearchResponse> {
@@ -201,6 +202,19 @@ describe('SearchComponent (unified search)', () => {
     expect(
       fixture.nativeElement.querySelector('[data-testid="search-filter-count"]')?.textContent,
     ).toContain('2');
+  });
+
+  it('selecting an owner in the panel sends ownerId param and renders chip with email label', () => {
+    vi.advanceTimersByTime(400);
+    stub.resolveLatestFacets();
+    fixture.detectChanges();
+    click(fixture, 'filter-owner-u1');
+    vi.advanceTimersByTime(250);
+    const last = stub.calls[stub.calls.length - 1];
+    expect(last.ownerId).toBe('u1');
+    const chips = fixture.nativeElement.querySelectorAll('[data-testid="search-active-chip"]');
+    expect(chips.length).toBe(1);
+    expect(chips[0].textContent).toContain('owner@example.com');
   });
 
   it('caps inline chips at two and collapses the rest into +N', () => {
