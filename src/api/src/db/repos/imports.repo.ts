@@ -7,9 +7,8 @@
  * nothing else. The one addition is the optional trailing `dbOverride`, which
  * accepts a SQLite handle; no route passes it, it is the tests' seam.
  *
- * MongoDB is still the live database and the Mongo repo is untouched. This is
- * the same staged shape #3746 landed the assets port in: build the replacement
- * beside the original, prove it, then switch the imports in one commit.
+ * The compatibility entry point `imports/repo.ts` now re-exports this live
+ * SQLite repository; import routes and the import worker use it (#3752).
  *
  * ## Layout
  *

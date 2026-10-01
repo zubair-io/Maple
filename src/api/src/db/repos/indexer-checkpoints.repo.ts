@@ -30,8 +30,8 @@
  * `last_walked_at` carry defaults in the DDL: the Mongo row simply had no such
  * fields yet, and a default is the closest honest equivalent to an absent one.
  *
- * MongoDB is still the live database; nothing imports this module yet. The
- * cutover (#3752) swaps the import paths.
+ * The compatibility entry point now re-exports this live SQLite repository
+ * after the cutover (#3752).
  */
 
 import { sqliteDb, type SqliteDb } from './db-handle.ts';

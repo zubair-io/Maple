@@ -7,10 +7,9 @@
  * remembering an opaque session id. It is UNIQUE across every state, which is
  * why a closed session is reopened in place rather than replaced.
  *
- * The exported shape is the Mongo module's, method for method, so the cutover
- * (#3752) swaps the import path in `routes/backup-ingest.ts`,
- * `routes/backup-rendered.ts` and `index.ts` and nothing else. `dbOverride` is
- * the tests' seam and no route passes it.
+ * The compatibility entry point `backup/upload-session.ts` now re-exports
+ * this live SQLite repository for the ingest/rendered routes and startup
+ * (#3752). `dbOverride` remains the tests' seam; production uses the pool.
  *
  * ## Layout
  *

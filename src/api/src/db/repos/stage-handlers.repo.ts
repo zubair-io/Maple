@@ -13,8 +13,8 @@
  * on with its builtins, so this function stays a plain read and lets the
  * caller keep its own catch.
  *
- * MongoDB is still the live database; nothing imports this module yet. The
- * cutover (#3752) swaps the import path.
+ * The compatibility entry point now re-exports this live SQLite repository
+ * after the cutover (#3752).
  */
 
 import { sqliteDb, type SqliteDb } from './db-handle.ts';

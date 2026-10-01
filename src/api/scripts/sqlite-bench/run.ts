@@ -397,23 +397,7 @@ const sizes = args
   .filter((n) => Number.isFinite(n) && n > 0);
 const targets = sizes.length > 0 ? sizes : DEFAULT_SIZES;
 const outDir = process.env.SQLITE_BENCH_DIR ?? '/tmp/maple-sqlite-bench';
-// `new Database(path, { create: true })` creates the file and nothing above it,
-// so the directory has to exist first or the open fails with SQLITE_CANTOPEN on
-// a machine that has never run this. Bun.write creates the parents it needs,
-// which is mkdir -p without the restricted node:fs import.
-await Bun.write(`${outDir}/.keep`, '');
-
-// Create the output directory before anything opens a database inside it.
-// SQLite's `create: true` creates the database FILE, not its parent, so
-// without this the first run on a machine that has never run the benchmark
-// dies with SQLITE_CANTOPEN instead of producing numbers. Writing a file is
-// how a directory gets created recursively without importing node:fs, which
-// the API's lint config restricts.
-await Bun.write(`${outDir}/.keep`, '');
-
-// Same reason as in `bench-db.ts`: `create: true` creates the file, not the
-// directory above it, so a machine that has never run this dies with
-// SQLITE_CANTOPEN before it reaches the report write that would have made it.
+// The shared helper creates the scratch directory before any database opens.
 await ensureBenchDir();
 
 const reports: RunReport[] = [];
