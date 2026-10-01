@@ -6,6 +6,13 @@ $repo = (Resolve-Path "$PSScriptRoot/../../..").Path
 $app = if ($AppPath) { (Resolve-Path $AppPath).Path } else {
     Join-Path $repo 'src/windows/Maple.WinUI/bin/Release/x86_64-pc-windows-msvc/Maple.WinUI.exe'
 }
+# Single-instance activation would redirect the diagnostic arguments into the
+# existing UI and exit successfully without executing any lifecycle checks.
+$running = @(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($app)) -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq $app })
+if ($running.Count -gt 0) {
+    throw "Close the already-running test build before lifecycle qualification: $app (PID $($running.Id -join ', '))"
+}
 $original = Join-Path $repo 'src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng'
 $root = Join-Path $env:RUNNER_TEMP 'maple-window-lifecycle'
 New-Item -ItemType Directory -Force $root | Out-Null
