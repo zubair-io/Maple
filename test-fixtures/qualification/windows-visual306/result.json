@@ -1,0 +1,38 @@
+{
+  "issue": 3875,
+  "managedSourceRevision": "35c7c987a",
+  "nativeSourceRevision": "caab4ea736537a18a9fa27b2c04f71b9811a3284",
+  "renderPath": "cpu",
+  "dpiScale": 1.5,
+  "result": "PARTIAL_VISUAL_EVIDENCE",
+  "reference": "User-supplied Windows-editor.png, with later explicit instruction that the histogram header is centered and not full width",
+  "observations": [
+    "1440x960 native window: centered bounded header, filename and Edited status, undo, compare and export controls visible.",
+    "Light inspector: Profile and six requested adjustments are visible in the larger capture; red selected Light tool, warm dark panel, compact left filmstrip, and seven labelled main tool groups present.",
+    "1024x768 native window: header remains within both window margins. Light inspector scrolls while its title and Reset stay visible.",
+    "Injected mouse wheel moved inspector scroll offset from 0 to 54 DIP; Blacks label, numeric value and slider became visible.",
+    "CPU lifecycle completed normally after both external capture acknowledgements; resize retained edited document, undo history and zoom."
+  ],
+  "limitations": [
+    "Capture API returns logical-size images (948x634 and 671x506), not pixel-for-pixel 1440x960 and 1024x768 reference rasters. Native dimensions and scale are independently recorded in native-window-layout.jsonl.",
+    "Uniform-grey synthetic DNG has one library item and cannot prove photographic histogram shape, multi-photo filmstrip behavior, or photo rendering parity.",
+    "Windows reference image shows a larger logical viewport; identical physical window sizes at 150 percent are not identical design-space sizes.",
+    "Small-window Crop tool is below the dock fold. Programmatic lifecycle checks cover reachability, but this capture sequence did not manually scroll the dock.",
+    "These captures do not establish full UI alignment. Browse, Preview, Info, other groups, 100/200 percent DPI, Narrator and GPU stability remain unqualified.",
+    "Cursor hover and tooltips appear in captures. No image editing or cleanup was applied."
+  ],
+  "files": [
+    {
+      "file": "editor-light-1024x768.png",
+      "sha256": "4E188437A3CCB69408788CAE199117D3F3BE3C5C2E31991C3E8FEA0461A43A6D"
+    },
+    {
+      "file": "editor-light-1440x960.png",
+      "sha256": "7AE0AF7AAB342460953CE6AC90E05189B0A5607CDA96E503DE547DBF651F9E89"
+    },
+    {
+      "file": "editor-light-scrolled-1024x768.png",
+      "sha256": "4AC2CB19A3BF3D987DA1FCB22367A78BD9B913E1306CFA74D440C5F195CC5F0B"
+    }
+  ]
+}

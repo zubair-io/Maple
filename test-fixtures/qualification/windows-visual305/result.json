@@ -1,0 +1,17 @@
+{
+  "issue": 3875,
+  "result": "MANUALLY_EXPLORED_NOT_LIFECYCLE_PASS",
+  "renderPath": "cpu",
+  "dpiScale": 1.5,
+  "managedSourceRevision": "35c7c987a",
+  "observations": [
+    "Captured Light, Color Basic and Crop at 1440x960 native size.",
+    "Color Basic exposes white balance picker/preset, temperature, tint, vibrance and saturation, with HSL and B&W tabs retained.",
+    "Crop exposes aspect-ratio chips, Straighten, Reset, Done and image handles."
+  ],
+  "limitations": [
+    "Opening Crop intentionally reset zoom to fit. Returning to Light did not restore the harness zoom, so the later resize invariant failed and the process exited 1. This is a contaminated lifecycle test, not a passing result or proof of a resize defect.",
+    "Crop screenshot was captured while native-detail refinement was pending.",
+    "No separate Color or Crop reference image was supplied; these captures establish visible controls only, not exact design parity."
+  ]
+}

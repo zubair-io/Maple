@@ -1,0 +1,96 @@
+Window: "Maple", App: Maple.DesignAudit300.exe.
+	0 window Maple Secondary Actions: Raise
+		305 pane PopupHost
+			306 pane
+				307 window Popup Secondary Actions: Raise
+					308 tool tip
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				17 group Filmstrip ID: FilmstripRail
+					18 text 01 / 01
+					19 button Collapse filmstrip
+					20 pane
+						204 group grey-l018-rggb.dng
+							205 group grey-l018-rggb.dng
+								206 image
+				21 pane ID: ViewerScroll
+					22 image Rendered preview canvas ID: ViewportImage
+					296 image Native resolution detail ID: NativeDetailOverlay
+				23 text 2461% · native detail Description: Image zoom and detail status ID: ZoomReadout
+				35 button Back to preview
+				36 text grey-l018-rggb.dng
+				37 text DNG · Edited ID: EditStatusText
+				38 button Shadow clipping indicator ID: ShadowClipButton
+				39 button Highlight clipping indicator ID: HighlightClipButton
+				40 button Undo adjustment
+				41 button Compare before and after ID: CompareButton
+				42 button More editing actions ID: MoreEditActions
+					43 text …
+				44 button Export photo
+				45 pane
+					46 button Light tools
+						47 text Light
+					48 button Color tools
+						49 text Color
+					50 button Effects tools
+						51 text Effects
+					52 button Detail tools
+						53 text Detail
+					54 button Tone Curve tools
+						55 text Curve
+					56 button Mask tools
+						57 text Mask
+					58 button Crop tools
+						59 text Crop
+					290 scroll bar (settable, float) Vertical Value: 0 ID: VerticalScrollBar
+				209 text Light ID: EditPanelTitle
+				210 button Reset group ID: GroupResetButton
+					211 text Reset
+				212 pane
+					213 text Profile
+					214 combo box Render profile
+					266 text Exposure
+					267 button Exposure
+					268 slider (settable, float) Exposure Value: 0.25
+					269 text Contrast
+					270 button Contrast
+					271 slider (settable, float) Contrast Value: 0
+					272 text Highlights
+					273 button Highlights
+					274 slider (settable, float) Highlights Value: 0
+					275 text Shadows
+					276 button Shadows
+					277 slider (settable, float) Shadows Value: 0
+					278 text Whites
+					279 button Whites
+					280 slider (settable, float) Whites Value: 0
+					281 text Blacks
+					282 button Blacks
+					283 slider (settable, float) Blacks Value: 0
+					295 scroll bar (settable, float) Vertical Value: 54 ID: VerticalScrollBar
+		28 title bar (settable, string) Value: Maple
+			29 menu bar System ID: MenuBar
+				30 menu item System
+			31 button Minimize
+			32 button Maximize
+			33 button Close
+		305 pane PopupHost
+			306 pane
+				307 window Popup Secondary Actions: Raise
+					308 tool tip
+
+The focused UI element is 7 pane.
