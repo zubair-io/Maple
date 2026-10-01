@@ -21,11 +21,15 @@ export type RecipeInput = {
  * sharp's own default; caller-supplied `exif`/`icc`/`xmp` (via `aux`) win
  * over `keep`.
  */
+/** Sharp-compatible EXIF directories containing string tag values. */
+export type ExifTags = Record<string, Record<string, string>>;
 export interface RecipeMetadata {
     keep: boolean;
     orientation?: number;
     density?: number;
     exif?: AuxRef;
+    exifTags?: ExifTags;
+    exifMerge?: boolean;
     icc?: AuxRef;
     /**
      * A named built-in profile instead of `icc` bytes, resolved on the Rust
