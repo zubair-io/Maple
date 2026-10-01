@@ -1,0 +1,32 @@
+{
+  "issue": 3875,
+  "sourceBase": "843a0a0adf9ef54189216e7d3df4c5faa3e85621",
+  "builds": [
+    "Maple.DesignAudit289",
+    "Maple.DesignAudit290"
+  ],
+  "screenshotDirectory": "C:\\Users\\zubai\\AppData\\Local\\Temp/maple-ui289-evidence",
+  "screenshots": [
+    "grid-before.png",
+    "grid-after.png",
+    "list-detail.png",
+    "editor-light.png",
+    "preview-info.png"
+  ],
+  "method": "Live Windows computer-use inspection via @oai/sky, with returned window selection, foreground activation, pointer scroll, accessible button invocation, screenshots and UI Automation tree.",
+  "verified": [
+    "Grid wheel scroll changes visible photos in a 354-photo local library.",
+    "List/detail opens large photo and metadata/action row.",
+    "Editor header centered and bounded, histogram visible, six Light rows, seven dock tools, compact filmstrip.",
+    "Back enters Preview; Info opens at right with rating and flags while retaining photo.",
+    "Rebuilt list/detail photo count exposes 354 photos, changes to 2 photos with name filter, restores to 354 photos after clearing."
+  ],
+  "fix": "Remove static Photo count accessible-name override so TextBlock exposes actual bound count.",
+  "remaining": [
+    "Search text field focused underline still uses OS green accent; Maple styling needs correction.",
+    "Single window size only; 100/150/200 percent DPI matrix not completed.",
+    "No full keyboard or Narrator pass.",
+    "No cloud, sustained stability, color or hardware performance sign-off."
+  ],
+  "privacy": "Screenshots and full accessibility trees retained locally; user photo content not committed."
+}

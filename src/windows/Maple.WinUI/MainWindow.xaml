@@ -624,7 +624,7 @@
                             <Grid.ColumnDefinitions><ColumnDefinition x:Name="BrowseListColumn" Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Grid Padding="16,8" ColumnSpacing="8">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding Text, ElementName=LibraryCountText}" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource MapleTextMuted}" AutomationProperties.Name="Photo count" />
+                                <TextBlock Text="{Binding Text, ElementName=LibraryCountText}" FontSize="12" VerticalAlignment="Center" Foreground="{StaticResource MapleTextMuted}" />
                                 <mui:MuiButton x:Name="BrowseSelectButton" Grid.Column="1" Label="Select" Variant="Secondary" Click="OnBrowseSelectMode" />
                             </Grid>
                             <ListView x:Name="BrowsePhotoList" Grid.Row="1" ItemsSource="{Binding Photos}" SelectionMode="Extended" SelectionChanged="OnBrowseListSelectionChanged" DoubleTapped="OnGridDoubleTapped" AutomationProperties.Name="Photo list">
