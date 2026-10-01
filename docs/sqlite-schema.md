@@ -152,6 +152,22 @@ indexes in `0001` and rebuilds them in `0003`, which is the cost of the freeze
 and is worth it: both kinds of database end up with the same schema, which is
 the only property that matters.
 
+**Migration batches stop on the first statement failure (#3951).** On Bun
+1.4.3, a multi-statement `Database.exec` can hide an intermediate constraint
+error and continue with later statements. The boot adapter instead prepares and
+executes one statement at a time, using SQLite's parsed SQL prefix for boundaries.
+Trigger bodies, quoted semicolons and comments stay intact. Each statement is
+finalized even on failure. An error reaches the transaction runner, which rolls
+back the migration and leaves its sentinel unpublished. Unbound parameters in
+`exec` are rejected; parameterized writes use `run`.
+
+The audit covers the initial table/index/trigger batches (`0001`), generated
+stage columns and trigger/recompute batches (`0002`, `0004`), mirrored facet
+columns/indexes/triggers (`0003`) and the user-table rebuild (`0005`). `0006`
+already uses individual statements. The shipped SQL remains unchanged; the
+adapter applies the fail-fast execution contract to each batch. Migration-runner,
+boot, schema constraint/index and facet-trigger tests exercise these paths.
+
 **The boot applies pending migrations before anything reads a column.**
 `migrateAtBoot` returns before `openSqlitePool` is called and before any route,
 worker or repository exists to issue a query, and on the already-cutover branch

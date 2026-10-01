@@ -39,6 +39,7 @@
  */
 export type { SqlValue } from './protocol.ts';
 import type { SqlValue } from './protocol.ts';
+import { executeMigrationBatch, type MigrationBatchConnection } from './migration-batch.ts';
 
 /**
  * The slice of a SQLite connection the runner needs. Methods may be sync or
@@ -279,8 +280,7 @@ function errorMessage(err: unknown): string {
  * `bun:sqlite` accepts both at runtime, but only the array form type-checks
  * against its declared `run<P extends SQLQueryBindings[]>(sql, ...bindings: P[])`.
  */
-export interface BunSqliteLike {
-  exec(sql: string): unknown;
+export interface BunSqliteLike extends MigrationBatchConnection {
   run(sql: string, params: SqlValue[]): unknown;
   query(sql: string): { all(...params: SqlValue[]): unknown[] };
 }
@@ -288,15 +288,14 @@ export interface BunSqliteLike {
 /**
  * Adapts a synchronous `bun:sqlite` handle to {@link MigrationDb}.
  *
- * Correct for the importer, the benchmarks and the tests, all of which own the
- * connection outright and have no event loop to protect. The API process must
- * NOT use this — every in-process SQLite call blocks Bun's event loop, which is
- * why the runtime goes through the worker-backed pool instead.
+ * Used before the API starts serving and by benchmarks/tests owning their
+ * connection. Requests use the worker pool because these calls block the event
+ * loop. Batch execution stops at the first failed statement (#3951).
  */
 export function fromBunSqlite(db: BunSqliteLike): MigrationDb {
   return {
     exec: (sql) => {
-      db.exec(sql);
+      executeMigrationBatch(db, sql);
     },
     run: (sql, params = []) => {
       db.run(sql, [...params]);
