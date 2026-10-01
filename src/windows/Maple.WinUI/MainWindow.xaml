@@ -50,6 +50,7 @@
                          boundaries also keep live edits in one undo entry. -->
                     <mui:MuiAdjustmentSlider Minimum="{Binding Minimum}" Maximum="{Binding Maximum}" Origin="{Binding DefaultValue}"
                             StepFrequency="{Binding StepFrequency}"
+                            SmallChange="{Binding StepFrequency}"
                             Value="{Binding Value, Mode=TwoWay}"
                             IsEnabled="{Binding IsEnabled}"
                             AutomationProperties.Name="{Binding Label}"
