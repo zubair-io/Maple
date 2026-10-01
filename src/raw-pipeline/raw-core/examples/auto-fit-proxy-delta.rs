@@ -3,18 +3,21 @@
 //! proxied way, apply each to the SAME Neutral display render, and write the
 //! two PNGs (+ timings) so `compare_images.py` can CIEDE2000 them.
 //! Usage: auto-fit-proxy-delta <raw-dir> <out-dir>
-//! Add `--render-matrix` to hold each fit fixed across native/1600px renders,
+//! Add `--render-matrix` to hold each fit fixed across native/preview renders
+//! (preview defaults to 1600px),
 //! with default detail, chroma NR disabled, and sensor noise calibration
 //! omitted while retaining NR (#3875). Diagnostic only:
 //! deliberately overriding render-origin cache entries is not host behavior.
 //! `--variance-ratio=<0..1>` restricts the matrix to default and a diagnostic
-//! noise-profile variance scale at 1600px; native rendering remains unchanged.
+//! noise-profile variance scale at preview size; native rendering remains unchanged.
 //! Supply an independently derived variance ratio (for example, normalized
 //! resize-kernel energy), not a value fitted against image error. An area ratio
 //! alone does not describe the Mitchell resize kernel.
 //! `--native-auto` renders native matrix references with export's Auto
 //! reconstruction, holding the Preview-fitted artifacts fixed to isolate
 //! reconstruction from Auto fitting. This is not production cache behavior.
+//! `--preview-edge=N` changes only the matrix preview working resolution;
+//! compare all outputs at the same final viewport size to isolate early resize.
 use raw_core::pipeline::{
     fit_auto_profile_from_raw_at_cap, render_sized_from_raw_with_quality_and_source, FitCap,
     RawInput, RenderQuality,
@@ -31,6 +34,14 @@ const RENDER_LE: u32 = 1536;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let native_auto = args.iter().any(|arg| arg == "--native-auto");
+    let preview_edge = args
+        .iter()
+        .find_map(|arg| {
+            arg.strip_prefix("--preview-edge=")
+                .map(|value| value.parse::<u32>().expect("preview edge"))
+        })
+        .unwrap_or(1600);
+    assert!(preview_edge > 0, "preview edge must be positive");
     if native_auto {
         assert!(args.iter().any(|arg| arg == "--render-matrix"));
     }
@@ -141,7 +152,11 @@ fn main() {
                 // refit and invalidate the claim that the fit is held fixed.
                 let curve = curve.as_ref().expect("matrix requires a fitted curve");
                 let residual = residual.as_ref().expect("matrix requires a residual LUT");
-                for edge in [1600, raw.width.max(raw.height)] {
+                assert!(
+                    preview_edge < raw.width.max(raw.height),
+                    "matrix preview must be smaller than native"
+                );
+                for edge in [preview_edge, raw.width.max(raw.height)] {
                     let quality = if native_auto && edge == raw.width.max(raw.height) {
                         RenderQuality::Auto
                     } else {
@@ -182,7 +197,7 @@ fn main() {
                         // one independent variable and never changes source bytes.
                         let saved_profile = if detail == "no-noise-profile" {
                             raw.noise_profile.take()
-                        } else if detail == "variance-scaled" && edge == 1600 {
+                        } else if detail == "variance-scaled" && edge == preview_edge {
                             let original = raw
                                 .noise_profile
                                 .clone()
@@ -205,7 +220,7 @@ fn main() {
                             edge,
                         );
                         if detail == "no-noise-profile"
-                            || (detail == "variance-scaled" && edge == 1600)
+                            || (detail == "variance-scaled" && edge == preview_edge)
                         {
                             raw.noise_profile = saved_profile;
                         }
