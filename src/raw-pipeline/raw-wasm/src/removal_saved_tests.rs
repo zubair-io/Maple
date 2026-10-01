@@ -50,7 +50,7 @@ fn fixture() -> (RawImage, ContentDigest, String, String, Vec<u8>) {
     });
     let records = prepare_accepted_removal(&request.to_string(), "[]", &mask, &patch).unwrap();
     let xmp = format!(
-        r#"<rdf:Description xmlns:rdf="x" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="{}"/>"#,
+        r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="{}"/>"#,
         records.replace('"', "&quot;")
     );
     let manifest = serde_json::json!([
@@ -185,7 +185,7 @@ fn unprepared_or_changed_records_block_render_and_export() {
     let (raw, original, xmp, manifest, bytes) = fixture();
     assert!(render(None, &raw, &original, RAW, "dng", &xmp, 4, &[]).is_err());
     let stack = prepare(&raw, &original, &xmp, &manifest, &bytes).unwrap();
-    let changed = r#"<rdf:Description xmlns:rdf="x" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="[]"/>"#;
+    let changed = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="[]"/>"#;
     assert!(render(Some(&stack), &raw, &original, RAW, "dng", changed, 4, &[]).is_err());
     let options = r#"{"format":"png","quality":100,"color_space":"srgb","max_long_edge":4}"#;
     assert!(export(

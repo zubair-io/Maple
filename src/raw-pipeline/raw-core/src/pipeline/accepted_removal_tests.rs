@@ -76,7 +76,7 @@ fn real_sidecar_and_both_companions_reopen_without_model_runtime() {
             .unwrap()
             .replace('"', "&quot;");
         let xmp = dir.path().join("photo.xmp");
-        std::fs::write(&xmp,format!(r#"<rdf:Description xmlns:rdf="x" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="{xml}"/>"#)).unwrap();
+        std::fs::write(&xmp,format!(r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="{xml}"/>"#)).unwrap();
         let store = dir.path().join(".maple/inpaint");
         std::fs::create_dir_all(&store).unwrap();
         let accepted = removal.accepted.as_ref().unwrap();

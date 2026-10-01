@@ -55,7 +55,7 @@ final class NativeRemovalGenerationTests: XCTestCase {
       String(try RemovalBridge.digest(proposal.patch).dropFirst(7)) + ".f16": proposal.patch,
     ]
     let xmp =
-      "<rdf:Description xmlns:rdf=\"x\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:InpaintRemovals=\"\(records.replacingOccurrences(of: "\"", with: "&quot;"))\"/>"
+      "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:InpaintRemovals=\"\(records.replacingOccurrences(of: "\"", with: "&quot;"))\"/>"
     let session = NativeSavedRemovalSession(handle: handle)
     _ = try await session.prepare(source: source, ext: "dng", xmp: xmp, assets: assets)
     let context = try await session.generationContext(xmp: xmp, x: 0, y: 0, width: 16, height: 8)
@@ -73,7 +73,7 @@ final class NativeRemovalGenerationTests: XCTestCase {
         holeRadius: 1, fringeRadius: 1))
     do {
       _ = try await session.generationContext(
-        xmp: "<rdf:Description xmlns:rdf=\"x\"/>",
+        xmp: "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>",
         x: 0, y: 0, width: 16, height: 8)
       XCTFail("A different stack must not become a generation context")
     } catch { XCTAssertTrue(error is RemovalError) }
@@ -113,7 +113,7 @@ final class NativeRemovalGenerationTests: XCTestCase {
         String(try RemovalBridge.digest(proposal.patch).dropFirst(7)) + ".f16": proposal.patch,
       ]
       let xmp =
-        "<rdf:Description xmlns:rdf=\"x\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:InpaintRemovals=\"\(records.replacingOccurrences(of: "\"", with: "&quot;"))\"/>"
+        "<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:InpaintRemovals=\"\(records.replacingOccurrences(of: "\"", with: "&quot;"))\"/>"
       let reopened = NativeSavedRemovalSession(handle: handle)
       _ = try await reopened.prepare(source: source, ext: "dng", xmp: xmp, assets: assets)
       let preview = try await reopened.preview(xmp: xmp, maxLongEdge: 16)

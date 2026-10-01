@@ -69,7 +69,16 @@ fn bundle() -> (String, Vec<u8>) {
     (manifest, [MASK, PATCH].concat())
 }
 fn prepare(handle: &Handle, manifest: &str, companions: &[u8], source: &[u8]) -> (i32, Owner) {
-    let xmp = CString::new(XMP).unwrap();
+    prepare_xml(handle, XMP, manifest, companions, source)
+}
+fn prepare_xml(
+    handle: &Handle,
+    xml: &str,
+    manifest: &str,
+    companions: &[u8],
+    source: &[u8],
+) -> (i32, Owner) {
+    let xmp = CString::new(xml).unwrap();
     let manifest = CString::new(manifest).unwrap();
     let ext = CString::new("dng").unwrap();
     let mut owner = std::ptr::null_mut();

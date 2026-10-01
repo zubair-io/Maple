@@ -10,7 +10,10 @@ mod fields;
 mod reader;
 pub use reader::parse;
 mod local_adjustments;
+mod removal_records;
 mod retouch;
+#[cfg(test)]
+mod tests_removal_namespace;
 mod tone_curves;
 use fields::set_field;
 pub use local_adjustments::serialize_local_adjustments;

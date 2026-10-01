@@ -1,5 +1,45 @@
 use super::*;
 
+#[test]
+fn namespace_aliases_and_scalar_properties_render_the_accepted_pixels_through_c() {
+    let handle = Handle::open();
+    let (manifest, companions) = bundle();
+    let alias = XMP
+        .replace("xmlns:papp=", "xmlns:m=")
+        .replace("papp:InpaintRemovals=", "m:InpaintRemovals=");
+    let records = raw_core::types::inpaint::encode_removals(
+        &raw_core::xmp::parse(XMP).unwrap().inpaint_removals,
+    )
+    .unwrap();
+    let element = format!(
+        r#"<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:m="http://ns.justmaple.app/photo/1.0/"><r:Description><m:InpaintRemovals><![CDATA[{records}]]></m:InpaintRemovals></r:Description></r:RDF>"#
+    );
+    for xml in [alias, element] {
+        let (rc, owner) = prepare_xml(&handle, &xml, &manifest, &companions, RAW);
+        assert_eq!(rc, 0);
+        let xmp = CString::new(xml).unwrap();
+        let mut out = Output::new();
+        assert_eq!(
+            unsafe {
+                maple_removal_saved_preview(
+                    handle.0,
+                    owner.0,
+                    xmp.as_ptr(),
+                    64,
+                    std::ptr::null(),
+                    0,
+                    &mut out.0,
+                )
+            },
+            0
+        );
+        assert_eq!(
+            out.bytes(),
+            include_bytes!("../../../../test-fixtures/removal/calibration/preview-64.rgb")
+        );
+    }
+}
+
 fn tile(handle: &Handle, owner: &Owner, xmp: &str, x: u32, budget: u64) -> (i32, Output) {
     let xmp = CString::new(xmp).unwrap();
     let mut out = Output::new();

@@ -423,15 +423,19 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     // this writer used to delete on the first slider nudge.
     let passthroughOnDisk = existingXML.map(XMPParser.parsePassthrough) ?? .empty
     let existingRemoval = try existingXML.flatMap {
-      try RemovalXMPRecords.attribute(Data($0.utf8))
+      try RemovalXMPRecords.field(Data($0.utf8))
     }
     let canonicalRemovalName = "papp:InpaintRemovals"
     // Canonical serialization binds papp to Maple. A foreign namespace using
     // that spelling cannot become a Maple edit or be silently discarded.
-    if existingRemoval?.name != canonicalRemovalName,
+    if existingRemoval?.name != canonicalRemovalName || existingRemoval?.propertyNamespaces != nil,
       passthroughOnDisk.unknownAttributes.contains(where: { $0.name == canonicalRemovalName })
     {
       throw RemovalError.invalid("Foreign removal attribute conflicts with Maple's XMP namespace")
+    }
+    if let existingRemoval, !existingRemoval.primary {
+      throw RemovalError.invalid(
+        "Removal records outside the primary XMP description cannot be rewritten safely")
     }
     if let removalChange {
       guard let rawURL else { throw RemovalError.invalid("Removal requires a local RAW") }
@@ -460,7 +464,10 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
         unknownAttributes: attributes + [
           .init(name: canonicalRemovalName, value: records)
         ],
-        unknownNodes: passthroughOnDisk.unknownNodes)
+        unknownNodes: try passthroughOnDisk.unknownNodes.filter { node in
+          guard let namespaces = existingRemoval?.propertyNamespaces else { return true }
+          return !(try RemovalXMPRecords.isOwnedProperty(node, namespaces: namespaces))
+        })
     } else {
       passthrough = passthroughOnDisk
     }

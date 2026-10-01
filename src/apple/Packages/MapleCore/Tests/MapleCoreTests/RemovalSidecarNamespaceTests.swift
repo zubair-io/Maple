@@ -85,4 +85,59 @@ final class RemovalSidecarNamespaceTests: XCTestCase {
       XCTAssertEqual(try Data(contentsOf: sidecar), input)
     }
   }
+  func testScalarPropertiesCanonicalizeOnceAndPreserveForeignChildBytes() async throws {
+    let (raw, records) = try await stage()
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    let foreign =
+      "<m:InpaintRemovals xmlns:m=\"urn:foreign\" marker=\"keep\">opaque</m:InpaintRemovals>"
+    for uri in [XMPCanonical.pappNamespaceURI, "http://ns.justmaple.app/1.0/"] {
+      for payload in [XMPSerializer.escapeXMLAttr(records), "<![CDATA[\(records)]]>"] {
+        let input = Data(
+          """
+          <r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><r:Description xmlns:m="\(uri)"><m:InpaintRemovals>\(payload)</m:InpaintRemovals>\(foreign)</r:Description></r:RDF>
+          """.utf8)
+        try input.write(to: sidecar)
+        XCTAssertEqual(try RemovalXMPRecords.read(input), records)
+        let store = XMPSidecarStore(rawURL: raw)
+        try await store.writeConfirmed(model: .default, culling: CullingState())
+        let saved = try Data(contentsOf: sidecar)
+        XCTAssertEqual(try RemovalXMPRecords.read(saved), records)
+        let xml = String(decoding: saved, as: UTF8.self)
+        XCTAssertTrue(xml.contains(foreign))
+        XCTAssertFalse(xml.contains("<m:InpaintRemovals>"))
+        XCTAssertEqual(xml.components(separatedBy: "papp:InpaintRemovals=").count, 2)
+        try input.write(to: sidecar)
+        try await store.writeRemovalConfirmed(
+          records: "[]", expectedRecords: records, model: .default, culling: CullingState())
+        XCTAssertEqual(try RemovalXMPRecords.read(Data(contentsOf: sidecar)), "[]")
+        XCTAssertTrue(
+          String(decoding: try Data(contentsOf: sidecar), as: UTF8.self).contains(foreign))
+      }
+    }
+  }
+
+  func testNestedAndSecondaryDescriptionPropertiesRefuseWithoutChangingSidecar() async throws {
+    let (raw, records) = try await stage()
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    let property = "<m:InpaintRemovals><![CDATA[\(records)]]></m:InpaintRemovals>"
+    for content in [
+      "<r:Description/><r:Description>\(property)</r:Description>",
+      "<foreign:Description/><r:Description>\(property)</r:Description>",
+      "<r:Description><m:InpaintRemovals><foreign:Value>[]</foreign:Value></m:InpaintRemovals></r:Description>",
+      "<r:Description>\(property)\(property)</r:Description>",
+    ] {
+      let input = Data(
+        """
+        <r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:m="\(XMPCanonical.pappNamespaceURI)" xmlns:foreign="urn:foreign">\(content)</r:RDF>
+        """.utf8)
+      try input.write(to: sidecar)
+      do {
+        try await XMPSidecarStore(rawURL: raw).writeConfirmed(
+          model: .default, culling: CullingState())
+        XCTFail("Unrepresentable removal ownership must refuse the save")
+      } catch { XCTAssertTrue(error is RemovalError) }
+      XCTAssertEqual(try Data(contentsOf: sidecar), input)
+    }
+  }
+
 }

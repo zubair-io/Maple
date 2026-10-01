@@ -79,7 +79,7 @@ fn parse_inpaint_removals_round_trips() {
     let attr = encode_removals(&removals).unwrap();
     let escaped = attr.replace('"', "&quot;");
     let xml = format!(
-        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/"
             papp:InpaintRemovals="{escaped}"/></x>"#
     );
     let m = parse(&xml).expect("parse");
@@ -88,7 +88,7 @@ fn parse_inpaint_removals_round_trips() {
 
 #[test]
 fn parse_inpaint_removals_malformed_errors() {
-    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/"
         papp:InpaintRemovals="{not json}"/></x>"#;
     assert!(parse(xml).is_err());
 }
@@ -139,7 +139,7 @@ fn removal_sidecar_and_companion_round_trip_from_real_files() {
     let mut record: serde_json::Value = serde_json::from_str(&json).unwrap();
     record[0]["schema"] = serde_json::json!(5);
     let xml = format!(
-        r#"<rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:InpaintRemovals="{}"/>"#,
+        r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="{}"/>"#,
         record.to_string().replace('"', "&quot;")
     );
     std::fs::write(&sidecar, xml).unwrap();
