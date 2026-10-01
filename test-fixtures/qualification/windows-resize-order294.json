@@ -1,0 +1,41 @@
+{
+  "issue": 3875,
+  "sourceBase": "43aa6a849",
+  "kind": "Diagnostic isolation of resize versus display-transform order",
+  "executableSha256": "5B6494E0ADCD8F65C1D16118AB107D2AA66B4E6665BD09FF9AF1B5EC6AB199A2",
+  "nativeSceneSha256": "FCBBD6AA5CCEB69D978463E987D22672C905AEDAC5777B262488328E03D0DEC3",
+  "reducedSceneSha256": "32B9579D4D804B4ADAA04F8EF8410FFE328D0E2D1825D9F98CF5FF71EB385260",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "method": "Use the exact native Preview-reconstruction stage-15 scene from windows-stage-trace261 (6144x4096), and its hash-verified Mitchell reduction (1600x1067). Apply the same Full/Native Auto fit. Compare display-then-Mitchell against Mitchell-then-display, with both quantized once at 1600x1067. The shared comparator needs no resize for this matched-kernel comparison.",
+  "command": "view-preview-noise RAW native-exr-directory OUTPUT --full-fit --native-fit --output-edge=1600",
+  "analyticAuto": {
+    "mean_deltaE": 0.6945722335910934,
+    "p95_deltaE": 2.6962180579131365,
+    "max_deltaE": 33.31544249938176,
+    "bias_r": -0.005765431094914675,
+    "bias_g": -0.005618717987090349,
+    "bias_b": -0.00542809721082449,
+    "n_pixels": 1707200
+  },
+  "bakedAuto": {
+    "mean_deltaE": 0.7295169134081995,
+    "p95_deltaE": 2.691768828833923,
+    "max_deltaE": 33.31544249938176,
+    "bias_r": -0.005742192268371582,
+    "bias_g": -0.005622093565762043,
+    "bias_b": -0.005457764957100153,
+    "n_pixels": 1707200
+  },
+  "mixedKernelComparison": {
+    "mean_deltaE": 1.2570950175487405,
+    "description": "Display at native scene size, then comparator Lanczos resize after quantization versus scene Mitchell resize then display. Confounds kernel and quantization order; not the isolation result."
+  },
+  "productionExportVersusReducedNativeSceneDisplayMeanDeltaE": 2.089215947608118,
+  "conclusion": "Display/resize order contributes error even when scene pixels, fit, kernel and final quantization resolution agree. The production mismatch still needs investigation; these non-additive metrics cannot be subtracted to assign a remaining error budget.",
+  "limitations": [
+    "Historical traced scene, one fixture and default adjustments; not a new production qualification run.",
+    "No production render, Auto defaults, fit routing or acceptance thresholds changed.",
+    "The production export comparison additionally differs in reconstruction and resize kernel.",
+    "UI, cloud, accessibility, native crash and physical performance gates remain open."
+  ]
+}

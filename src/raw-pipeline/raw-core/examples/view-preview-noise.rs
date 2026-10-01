@@ -1,13 +1,15 @@
 //! #3875: apply one real Auto fit to already-developed NR diagnostic EXRs.
 //! Usage: view-preview-noise RAW INPUT_EXR_DIRECTORY OUTPUT_DIRECTORY
-//! [--full-fit] [--native-fit]
+//! [--full-fit] [--native-fit] [--output-edge=N]
 //! Holds fit and working resolution fixed. This is not the export parity gate.
 //! Also writes the Windows CPU's composed 33-cube/trilinear tail, using the
 //! identical fit and display input, to isolate approximation from resize error.
 use exr::prelude::read_first_rgba_layer_from_file;
 use raw_core::{
     image::{ColorSpace, Image},
-    pipeline::{fit_auto_profile_from_raw_at_cap, FitCap, RawInput, RenderQuality},
+    pipeline::{
+        downsample_image_area, fit_auto_profile_from_raw_at_cap, FitCap, RawInput, RenderQuality,
+    },
     view::{
         agx,
         auto_profile::{apply_curve, bake_auto_profile_lut},
@@ -37,9 +39,14 @@ fn trilinear(rgb: &mut [f32], lut: &[f32], n: usize) {
     }
 }
 
-fn write_display(mut image: Image, rgb: &[f32], path: &Path) {
+fn write_display(mut image: Image, rgb: &[f32], path: &Path, output_edge: Option<u32>) {
     for (pixel, channels) in image.pixels.iter_mut().zip(rgb.chunks_exact(3)) {
         pixel.copy_from_slice(channels);
+    }
+    // Use the same production Mitchell kernel as the scene trace reducer,
+    // but after the display transform and before the sole quantization.
+    if let Some(edge) = output_edge {
+        downsample_image_area(&mut image, edge);
     }
     let bytes = encode::dither_and_quantize(&mut image);
     let png = raw_core::png::encode(image.width, image.height, &bytes).unwrap();
@@ -50,11 +57,16 @@ fn main() {
     let args: Vec<_> = std::env::args().collect();
     assert!(
         args.len() >= 4
-            && args[4..]
-                .iter()
-                .all(|s| s == "--full-fit" || s == "--native-fit"),
-        "RAW INPUT_EXR_DIRECTORY OUTPUT_DIRECTORY [--full-fit] [--native-fit]"
+            && args[4..].iter().all(|s| s == "--full-fit"
+                || s == "--native-fit"
+                || s.starts_with("--output-edge=")),
+        "RAW INPUT_EXR_DIRECTORY OUTPUT_DIRECTORY [--full-fit] [--native-fit] [--output-edge=N]"
     );
+    let output_edge = args[4..]
+        .iter()
+        .find_map(|s| s.strip_prefix("--output-edge="))
+        .map(|s| s.parse::<u32>().expect("output edge must be an integer"));
+    assert!(output_edge != Some(0), "output edge must be positive");
     let quality = if args[4..].iter().any(|s| s == "--full-fit") {
         RenderQuality::Full
     } else {
@@ -115,8 +127,14 @@ fn main() {
             image.clone(),
             &baked_rgb,
             &output.join(format!("{name}-baked.png")),
+            output_edge,
         );
-        write_display(image.clone(), &rgb, &output.join(format!("{name}.png")));
+        write_display(
+            image.clone(),
+            &rgb,
+            &output.join(format!("{name}.png")),
+            output_edge,
+        );
         println!(
             "{name}: {}x{} fixed Auto fit ({quality:?}, {cap:?})",
             image.width, image.height
