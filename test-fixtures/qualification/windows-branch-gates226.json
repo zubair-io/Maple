@@ -13,12 +13,14 @@
     "editorParityCheckerTests": "19 passed, 0 failed",
     "apiLint": "passed with existing warnings after the temporary-fixture import exception",
     "sidecarStatTests": "3 passed, 0 failed",
-    "wholeRepositoryFileBudget": "still running; not yet a pass"
+    "wholeRepositoryFileBudget": "passed: 0 hard violations, 496 soft warnings, 19 allowlisted",
+    "apiTypecheck": "passed: tsc --noEmit",
+    "apiChangedAreaTests": "68 passed, 0 failed across 6 files: browse containment, browse root memoization, asset addresses, sidecar stats, people/place facets and XMP batch"
   },
   "change": "Document the raw-filesystem exception for assets.sidecar-stat.test.ts, whose writes and deletion affect only its mkdtemp fixture directory.",
   "limitations": [
-    "Repository gates are not visual, color or physical-performance qualification.",
-    "Whole-repository file-budget scan remains pending."
+    "Repository gates are not visual, color or physical-performance qualification."
   ],
-  "fullQualificationPassed": false
+  "fullQualificationPassed": false,
+  "verifiedRevision": "888d9e04a"
 }
