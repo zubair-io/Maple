@@ -33,7 +33,51 @@
   "limitations": [
     "Reuses previously produced artifacts identified by hashes; not a fresh current-branch application run.",
     "Compares CPU preview to production export; does not establish GPU screenshot parity or hardware timing.",
-    "Native-reference comparison upsamples the preview; matched-viewport and corpus qualification remain required."
+    "Both native-reference and matched-preview comparisons fail; broader fixture corpus qualification remains required."
   ],
-  "conclusion": "The direct production pair fails without the CLI reference. CLI AMaZE versus export Auto policy does not by itself explain away preview/export divergence."
+  "conclusion": "Direct production preview/export comparison fails both at native reference size (4.37686) and at the actual 1600x1067 preview size (3.28302). Enlargement contributes error but does not explain the mismatch. Shadow and midtone means exceed highlight mean. This does not isolate Auto fit, reconstruction, or noise reduction as the sole cause.",
+  "matchedViewport": {
+    "referenceSize": [
+      1600,
+      1067
+    ],
+    "metrics": {
+      "mean_deltaE": 3.2830184616073375,
+      "p95_deltaE": 7.438240634442181,
+      "max_deltaE": 38.44963460316788,
+      "bias_r": -0.002578550251200795,
+      "bias_g": -0.0016140409279614687,
+      "bias_b": -0.0022142694797366858,
+      "n_pixels": 1707200,
+      "zones": {
+        "shadow": {
+          "n": 351408,
+          "mean_deltaE": 3.7439780725698113,
+          "p95_deltaE": 7.418371810082521,
+          "max_deltaE": 33.3391206133735,
+          "bias_r": 0.018348567187786102,
+          "bias_g": 0.01750607043504715,
+          "bias_b": 0.017084984108805656
+        },
+        "mid": {
+          "n": 705600,
+          "mean_deltaE": 3.6733753854539186,
+          "p95_deltaE": 8.41755170655847,
+          "max_deltaE": 38.44963460316788,
+          "bias_r": -0.004561346955597401,
+          "bias_g": -0.002879006788134575,
+          "bias_b": -0.005118847358971834
+        },
+        "highlight": {
+          "n": 650192,
+          "mean_deltaE": 2.6102621981724625,
+          "p95_deltaE": 5.881597978229771,
+          "max_deltaE": 28.116083180204857,
+          "bias_r": -0.011740236543118954,
+          "bias_g": -0.010568015277385712,
+          "bias_b": -0.00949467346072197
+        }
+      }
+    }
+  }
 }
