@@ -1007,7 +1007,8 @@
                                     <mui:MuiActionButton x:Name="EffectsTabGrade" Label="Grade" ButtonSize="Sm"
                                             Click="OnEffectsTab" AutomationProperties.Name="Effects grade tab" />
                                 </StackPanel>
-                                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                                              Margin="0,0,-12,0" Padding="0,0,12,0">
                                     <StackPanel>
                                         <!-- Point tone-curve plot (#2576): channel tabs, plot,
                                              reset footer — above the parametric sliders. -->
