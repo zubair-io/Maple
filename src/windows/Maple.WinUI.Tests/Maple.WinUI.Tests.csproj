@@ -25,6 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="Fixtures\defringe.dng" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\..\test-fixtures\batch-transfer\source.dng" Link="Fixtures\source.dng" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />

@@ -22,7 +22,7 @@ pub(super) fn apply_scene_linear_chain_f32_inner(
         whites_anchor_ev,
     } = *opts;
     use crate::stages::{
-        clarity, color_grade, dehaze, display_tone_curve, grain, hsl, local_adjustments,
+        clarity, color_grade, defringe, dehaze, display_tone_curve, grain, hsl, local_adjustments,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
         vignette, white_balance,
     };
@@ -99,6 +99,9 @@ pub(super) fn apply_scene_linear_chain_f32_inner(
         texture::apply(&mut img, model.texture)
     });
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
+    stage("ffi_chain_defringe", || {
+        defringe::apply_model(&mut img, model)
+    });
     let scope_weights = stage("ffi_chain_local_adjustments", || {
         if let Some(w) = window {
             local_adjustments::apply_windowed(

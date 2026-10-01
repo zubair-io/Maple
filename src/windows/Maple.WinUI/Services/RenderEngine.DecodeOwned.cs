@@ -74,6 +74,11 @@ namespace Maple.WinUI.Services
             m.SharpenAmount = 0; m.SharpenRadius = d.SharpenRadius;
             m.SharpenDetail = d.SharpenDetail; m.SharpenMasking = 0;
             m.NrLuminance = 0; m.NrColor = 0;
+            m.DefringePurpleAmount = 0; m.DefringeGreenAmount = 0;
+            m.DefringePurpleHueLo = d.DefringePurpleHueLo;
+            m.DefringePurpleHueHi = d.DefringePurpleHueHi;
+            m.DefringeGreenHueLo = d.DefringeGreenHueLo;
+            m.DefringeGreenHueHi = d.DefringeGreenHueHi;
             // Profile is PRESERVED (Auto by default): the decode owns the
             // AE-off anchor decision under Auto, and the fitted tail is applied
             // per tick (GPU curve/residual passes, CPU display LUT). Forcing

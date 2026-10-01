@@ -1,0 +1,121 @@
+{
+  "date": "2026-10-01",
+  "issue": 3889,
+  "sourceBase": "d6bbabd0c",
+  "fix": [
+    "Run global defringe in the f32 live chain used by Windows CPU fallback.",
+    "Strip global defringe from the Windows decoded base so GPU and CPU live rendering apply it only once."
+  ],
+  "nativeLibrarySha256": "8A061DEEDB81DB3CDE9EDB3E3F3009AC3E979B307E4AA2E8E9915703FBC0868D",
+  "appSha256": "E77EB95696630B6C12CA7138F312D43C5E152B27D6CFD3528CEDED59C8B22ACC",
+  "fixture": {
+    "path": "src/windows/Maple.WinUI.Tests/Fixtures/defringe.dng",
+    "sha256": "B304A5F75482D0CC7F381724D72B7D4FFD5343684310DB2666C5EBC23625D725",
+    "description": "128x128 RGGB uint16 synthetic DNG. Repeating 32-pixel vertical step: dark 1000 below x%32=16, bright 50000 above; x%32=14..17 is purple [50000,4000,50000] in the top half and green [4000,50000,4000] in the bottom half. Identity ColorMatrix1/CameraCalibration1, unity AsShotNeutral, black 0, white 65535."
+  },
+  "core": {
+    "ignored": 0,
+    "failed": 0,
+    "passed": 3,
+    "filter": "pipeline::scene_linear_chain::tests_spatial"
+  },
+  "windowsNative": {
+    "coverage": [
+      "Visible live defringe effect on the committed fixture",
+      "Fit and native-detail decoded bases remain unchanged by live-only defringe",
+      "Reopened output equals live-edited output",
+      "Original fixture remains byte-identical",
+      "Existing native-detail retention/cancellation and mask reopen regression tests"
+    ],
+    "failed": 0,
+    "passed": 5,
+    "skipped": 0,
+    "trxSha256": "E261B5FBF28F2C64781893558196B3E33943BF1FEB4407D7CA917DF6AB31D6B7"
+  },
+  "build": {
+    "errors": 0,
+    "warnings": 27
+  },
+  "lifecycle": {
+    "empty": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 5706668,
+      "renderPath": "empty",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": false,
+      "localSaveFailureRecovery": false,
+      "nativeDetailActualSize": false,
+      "presetUndoRedoAndReset": false,
+      "adjustmentGestureUndoRedo": false,
+      "repairControlsUndoRedo": false,
+      "scopesLifecycle": false,
+      "transferWatcherUndoRedo": false,
+      "comparisonPreservesDocument": false,
+      "cloudOpeningReadiness": false,
+      "cloudSearchPagination": false,
+      "cloudMapHost": false,
+      "responsiveDesign": false,
+      "browseSelectionAndSort": false,
+      "browseScrolling": false,
+      "immediateUndo": false
+    },
+    "gpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 5444524,
+      "renderPath": "gpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 1,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    },
+    "cpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 12195206,
+      "renderPath": "cpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    }
+  },
+  "limitations": [
+    "No new screenshot or full DPI/Narrator qualification in this run.",
+    "Lifecycle passes do not prove the intermittent XAML crash eliminated.",
+    "Preview/export perceptual mismatch and physical performance qualification remain open."
+  ]
+}

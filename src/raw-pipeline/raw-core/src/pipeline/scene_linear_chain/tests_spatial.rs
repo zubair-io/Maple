@@ -7,6 +7,53 @@
 //! order (`vignette` -> `sharpen` -> `nr_luminance` -> `nr_color`).
 use super::*;
 
+#[test]
+fn chain_f32_applies_both_defringe_bands() {
+    let opts = ChainOptions {
+        skip_agx: true,
+        ..Default::default()
+    };
+    for purple in [true, false] {
+        let model = AdjustmentModel {
+            sharpen_amount: 0.0,
+            nr_color: 0.0,
+            defringe_purple_amount: if purple { 20.0 } else { 0.0 },
+            defringe_green_amount: if purple { 0.0 } else { 20.0 },
+            defringe_purple_hue_lo: 0.0,
+            defringe_purple_hue_hi: 100.0,
+            defringe_green_hue_lo: 0.0,
+            defringe_green_hue_hi: 100.0,
+            ..Default::default()
+        };
+        let input: Vec<f32> = (0..32 * 32)
+            .flat_map(|i| {
+                let x = i % 32;
+                if (14..18).contains(&x) {
+                    if purple {
+                        [0.9, 0.2, 0.9, 1.0]
+                    } else {
+                        [0.2, 0.9, 0.2, 1.0]
+                    }
+                } else if x < 16 {
+                    [0.02, 0.02, 0.02, 1.0]
+                } else {
+                    [0.9, 0.9, 0.9, 1.0]
+                }
+            })
+            .collect();
+        let mut expected = image_from_f32_rgba(&input, 32, 32);
+        crate::stages::defringe::apply_model(&mut expected, &model);
+        let output = apply_scene_linear_chain_f32(&input, 32, 32, &model, &opts).unwrap();
+        assert!(output.iter().zip(&input).any(|(a, b)| (a - b).abs() > 1e-3));
+        for (rgba, rgb) in output.chunks_exact(4).zip(expected.pixels) {
+            for c in 0..3 {
+                assert!((rgba[c] - rgb[c]).abs() <= 1e-6);
+            }
+            assert_eq!(rgba[3], 1.0);
+        }
+    }
+}
+
 fn edge_and_chroma_f32(w: u32, h: u32) -> Vec<f32> {
     let mut v = Vec::with_capacity((w * h * 4) as usize);
     for y in 0..h {
