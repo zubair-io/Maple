@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * cache-gc delete propagation to the mirror (#926).
  *
@@ -65,7 +66,11 @@ describe('cache-gc → mirror', () => {
       insertLiveAsset(live.db, libraryId, 'live.dng');
 
       const { sha256Prefix16 } = await import('../fs/xmp.ts');
-      const liveRel = path.join('.maple', 'thumbs', `${sha256Prefix16('live.dng')}.avif`);
+      const liveRel = path.join(
+        '.maple',
+        'thumbs',
+        `${sha256Prefix16('live.dng')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      );
       const orphanRel = path.join('.maple', 'thumbs', `${'0'.repeat(16)}.avif`);
 
       for (const rel of [liveRel, orphanRel]) {

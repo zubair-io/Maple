@@ -120,7 +120,9 @@ final class CloudAddressResolverTests: XCTestCase {
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
 
     let url = try await resolver.url(route: "thumb", absPath: "/srv/photos/a.dng")
-    XCTAssertEqual(url.absoluteString, "https://x/api/thumb/my%20library/a.dng")
+    XCTAssertEqual(
+      url.absoluteString,
+      "https://x/api/thumb/my%20library/a.dng?pv=\(AdjustmentModel.pipelineOutputVersion)")
   }
 
   // MARK: - Actor: one shared /api/folders load
@@ -160,7 +162,8 @@ final class CloudAddressResolverTests: XCTestCase {
 
     XCTAssertEqual(results.count, 8)
     XCTAssertTrue(results.allSatisfy { $0.slug == "photos" })
-    XCTAssertEqual(counter.folderLoads, 1, "eight concurrent lookups must share ONE /api/folders load")
+    XCTAssertEqual(
+      counter.folderLoads, 1, "eight concurrent lookups must share ONE /api/folders load")
   }
 
   func test_address_unregisteredPathThrowsWithoutRefetchingAFreshList() async throws {

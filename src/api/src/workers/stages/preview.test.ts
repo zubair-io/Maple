@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile, readFile, stat, utimes } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -482,7 +483,7 @@ describe('preview handler — path-keyed cache path', () => {
       'trip',
       '.maple',
       'previews',
-      `wide.jpg.${PREVIEW_CACHE_SUFFIX}`,
+      `wide.jpg.v${PIPELINE_OUTPUT_VERSION}.${PREVIEW_CACHE_SUFFIX}`,
     );
     const s = await stat(expected);
     expect(s.size).toBeGreaterThan(0);

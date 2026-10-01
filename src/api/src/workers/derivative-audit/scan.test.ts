@@ -1,3 +1,4 @@
+import { THUMB_TARGET_VERSION, PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 /**
  * Derivative-audit pass tests. Each one drives `runDerivativeAuditOnce`, which
  * reaches the database with no handle of its own, so each opens a live test
@@ -30,8 +31,8 @@ afterAll(async () => {
 
 /** Stage versions that mean "this stage finished at its current target". */
 const DONE_VERSIONS: ReadonlyArray<readonly [string, number]> = [
-  ['thumb', 3],
-  ['preview', 4],
+  ['thumb', THUMB_TARGET_VERSION],
+  ['preview', PREVIEW_TARGET_VERSION],
   ['describe', 7],
   ['cf-thumb-sync', 1],
 ];

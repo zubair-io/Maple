@@ -34,7 +34,7 @@ namespace Maple.WinUI.Tests
             var a = ThumbCachePaths.SharedThumbPathFor(Path.Combine("C:\\photos", "IMG_1234.dng"));
             var b = ThumbCachePaths.SharedThumbPathFor(Path.Combine("D:\\backup", "IMG_1234.dng"));
             Assert.Equal(
-                Path.Combine("C:\\photos", ".maple", "thumbs", "7ad25b268a071d01.avif"), a);
+                Path.Combine("C:\\photos", ".maple", "thumbs", $"7ad25b268a071d01.v{Maple.WinUI.Generated.CapabilityRegistry.PipelineOutputVersion}.avif"), a);
             Assert.Equal(Path.GetFileName(a), Path.GetFileName(b));
         }
 
@@ -45,7 +45,7 @@ namespace Maple.WinUI.Tests
             // extension participates in the HASH (basename with extension)
             // but never in the output extension.
             var path = ThumbCachePaths.SharedThumbPathFor(Path.Combine("C:\\photos", "photo.HEIC"));
-            Assert.Equal(Path.Combine("C:\\photos", ".maple", "thumbs", "db03400ba7adff45.avif"), path);
+            Assert.Equal(Path.Combine("C:\\photos", ".maple", "thumbs", $"db03400ba7adff45.v{Maple.WinUI.Generated.CapabilityRegistry.PipelineOutputVersion}.avif"), path);
         }
 
         [Fact]

@@ -32,6 +32,20 @@ function interrupted(): RecipeQueueRecord {
   };
 }
 describe('export recipe contract and recovery', () => {
+  it('preserves AVIF/WebP quality and existing null-quality recipes', () => {
+    for (const format of ['avif', 'webp']) {
+      for (const quality of [null, 55]) {
+        const recipe = { ...DEFAULT_EXPORT_RECIPE, format, quality };
+        expect(parseExportRecipe(recipe)).toEqual(recipe);
+        expect(exportRecipeProblem(recipe)).toBeNull();
+      }
+      for (const quality of [0, 101]) {
+        expect(exportRecipeProblem({ ...DEFAULT_EXPORT_RECIPE, format, quality })).toContain(
+          'quality',
+        );
+      }
+    }
+  });
   it('refuses a missing persisted directory instead of falling back to browser downloads', async () => {
     const record = interrupted();
     record.recipe = { ...record.recipe, destination: 'directory', directory: 'missing-folder' };

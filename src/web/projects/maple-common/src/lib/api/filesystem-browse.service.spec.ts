@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // FilesystemBrowseService after the #1325 web cutover: the absolute-path
 // thumbnail surface the search / timeline / map / people grids still key on
 // resolves through the registered libraries to a `slug:relPath` address and
@@ -131,7 +132,9 @@ describe('FilesystemBrowseService', () => {
     const promise = service.getThumbBlobUrl('/photos/library/2025/My Photo #3.JPG');
     await settle();
 
-    const req = http.expectOne('/api/thumb/library/2025/My%20Photo%20%233.JPG');
+    const req = http.expectOne(
+      `/api/thumb/library/2025/My%20Photo%20%233.JPG?pv=${PIPELINE_OUTPUT_VERSION}`,
+    );
     expect(req.request.method).toBe('GET');
     expect(req.request.responseType).toBe('blob');
     req.flush(new Blob(['avif'], { type: 'image/avif' }));
@@ -147,12 +150,12 @@ describe('FilesystemBrowseService', () => {
     expect(second).toBe(first);
     await settle();
 
-    http.expectOne('/api/thumb/library/a.dng').flush(new Blob(['x']));
+    http.expectOne(`/api/thumb/library/a.dng?pv=${PIPELINE_OUTPUT_VERSION}`).flush(new Blob(['x']));
     expect(await first).toBe('blob:thumb-1');
 
     // A later call after resolution still hits the cache — no new request.
     expect(await service.getThumbBlobUrl('/photos/library/a.dng')).toBe('blob:thumb-1');
-    http.expectNone('/api/thumb/library/a.dng');
+    http.expectNone(`/api/thumb/library/a.dng?pv=${PIPELINE_OUTPUT_VERSION}`);
   });
 
   it('loads the registered libraries once when the store is still empty', async () => {
@@ -160,7 +163,7 @@ describe('FilesystemBrowseService', () => {
     const promise = service.getThumbBlobUrl('/photos/library/b.dng');
     // Resolution awaits listFolders() before the thumb request goes out.
     await settle();
-    http.expectOne('/api/thumb/library/b.dng').flush(new Blob(['x']));
+    http.expectOne(`/api/thumb/library/b.dng?pv=${PIPELINE_OUTPUT_VERSION}`).flush(new Blob(['x']));
     expect(await promise).toBe('blob:thumb-1');
     expect(listFolders).toHaveBeenCalledTimes(1);
     expect(store.registeredFolders()).toEqual([MAIN]);
@@ -169,7 +172,7 @@ describe('FilesystemBrowseService', () => {
   it('re-fetches the registered libraries when the store is emptied later', async () => {
     const first = service.getThumbBlobUrl('/photos/library/f.dng');
     await settle();
-    http.expectOne('/api/thumb/library/f.dng').flush(new Blob(['x']));
+    http.expectOne(`/api/thumb/library/f.dng?pv=${PIPELINE_OUTPUT_VERSION}`).flush(new Blob(['x']));
     await first;
     expect(listFolders).toHaveBeenCalledTimes(1);
 
@@ -179,7 +182,7 @@ describe('FilesystemBrowseService', () => {
     const second = service.getThumbBlobUrl('/photos/library/g.dng');
     await settle();
     expect(listFolders).toHaveBeenCalledTimes(2);
-    http.expectOne('/api/thumb/library/g.dng').flush(new Blob(['x']));
+    http.expectOne(`/api/thumb/library/g.dng?pv=${PIPELINE_OUTPUT_VERSION}`).flush(new Blob(['x']));
     expect(await second).toBe('blob:thumb-2');
   });
 
@@ -190,7 +193,9 @@ describe('FilesystemBrowseService', () => {
     service.clearThumbCache();
     const fresh = service.getThumbBlobUrl('/photos/library/h.dng');
     await settle();
-    const [staleReq, freshReq] = http.match('/api/thumb/library/h.dng');
+    const [staleReq, freshReq] = http.match(
+      `/api/thumb/library/h.dng?pv=${PIPELINE_OUTPUT_VERSION}`,
+    );
     expect(freshReq).toBeDefined();
 
     // The OLD request fails after the new one was cached under the same path.
@@ -214,13 +219,15 @@ describe('FilesystemBrowseService', () => {
     store.registeredFolders.set([MAIN]);
     const first = service.getThumbBlobUrl('/photos/library/d.dng');
     await settle();
-    http.expectOne('/api/thumb/library/d.dng').flush(null, { status: 202, statusText: 'Accepted' });
+    http
+      .expectOne(`/api/thumb/library/d.dng?pv=${PIPELINE_OUTPUT_VERSION}`)
+      .flush(null, { status: 202, statusText: 'Accepted' });
     await expect(first).rejects.toThrow(/not ready/);
 
     const retry = service.getThumbBlobUrl('/photos/library/d.dng');
     expect(retry).not.toBe(first);
     await settle();
-    http.expectOne('/api/thumb/library/d.dng').flush(new Blob(['x']));
+    http.expectOne(`/api/thumb/library/d.dng?pv=${PIPELINE_OUTPUT_VERSION}`).flush(new Blob(['x']));
     expect(await retry).toBe('blob:thumb-1');
   });
 
@@ -232,7 +239,7 @@ describe('FilesystemBrowseService', () => {
     };
     const promise = service.getThumbBlobUrl('/photos/library/e.dng');
     await settle();
-    http.expectOne('/api/thumb/library/e.dng').flush(new Blob(['x']));
+    http.expectOne(`/api/thumb/library/e.dng?pv=${PIPELINE_OUTPUT_VERSION}`).flush(new Blob(['x']));
     await promise;
 
     service.clearThumbCache();
@@ -241,7 +248,7 @@ describe('FilesystemBrowseService', () => {
 
     const again = service.getThumbBlobUrl('/photos/library/e.dng');
     await settle();
-    http.expectOne('/api/thumb/library/e.dng').flush(new Blob(['x']));
+    http.expectOne(`/api/thumb/library/e.dng?pv=${PIPELINE_OUTPUT_VERSION}`).flush(new Blob(['x']));
     expect(await again).toBe('blob:thumb-2');
   });
 
@@ -250,7 +257,7 @@ describe('FilesystemBrowseService', () => {
     const promise = service.getPreviewBlob('/photos/library/2025/photo.jpg');
     await settle();
 
-    const req = http.expectOne('/api/preview/library/2025/photo.jpg');
+    const req = http.expectOne(`/api/preview/library/2025/photo.jpg?pv=${PIPELINE_OUTPUT_VERSION}`);
     expect(req.request.method).toBe('GET');
     expect(req.request.responseType).toBe('blob');
     req.flush(new Blob(['preview-data'], { type: 'image/jpeg' }));
@@ -299,7 +306,9 @@ describe('FilesystemBrowseService', () => {
     expect(second).toBe(first);
     await settle();
 
-    http.expectOne('/api/preview/library/p.jpg').flush(new Blob(['preview']));
+    http
+      .expectOne(`/api/preview/library/p.jpg?pv=${PIPELINE_OUTPUT_VERSION}`)
+      .flush(new Blob(['preview']));
     expect(await first).toBe('blob:thumb-1');
 
     service.clearThumbCache();

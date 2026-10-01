@@ -95,6 +95,8 @@ public struct CloudDisplayPreviewSink: DisplayPreviewSink {
     var req = URLRequest(url: url)
     req.httpMethod = "PUT"
     req.setValue("image/avif", forHTTPHeaderField: "Content-Type")
+    req.setValue(
+      String(AdjustmentModel.pipelineOutputVersion), forHTTPHeaderField: "X-Maple-Pipeline-Version")
     req.httpBody = bytes
     return req
   }

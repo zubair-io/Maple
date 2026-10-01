@@ -1,7 +1,7 @@
 // ThumbCachePaths.cs — the shared `.maple/thumbs/` cache path derivation
 // (#3083), the Windows port of the cross-platform contract:
 //
-//     <RAW parent>/.maple/thumbs/<sha256_prefix16(basename)>.avif
+//     <RAW parent>/.maple/thumbs/<sha256_prefix16(basename)>.v<N>.avif
 //
 // The hash input is the asset's filename (basename WITH extension), NOT the
 // absolute path — so `.maple/` travels with the photos when the folder is
@@ -19,9 +19,8 @@
 // AVIF quality 55 — an entry, once present, is served as-is by every other
 // client with no self-healing re-render, so a wrong-parameter write
 // permanently downgrades that thumb everywhere. The Windows writer satisfies
-// this by calling `maple_render_thumbnail_avif_to_file` with
-// `ThumbnailService.ThumbnailMaxPx` and quality 0 (= the FFI's default 55,
-// the same literal `render.ts`'s THUMB_AVIF_QUALITY pins).
+// this through ThumbnailRenderer at ThumbnailService.ThumbnailMaxPx and
+// AVIF quality 55, with edits and film restored from the sidecar snapshot.
 //
 // WinUI-free by design (System + System.Security.Cryptography only): linked
 // into Maple.WinUI.Tests via explicit <Compile Include>, and referenced from
@@ -57,7 +56,7 @@ namespace Maple.WinUI.Services
         {
             var parent = Path.GetDirectoryName(assetPath) ?? string.Empty;
             var basename = Path.GetFileName(assetPath);
-            return Path.Combine(SharedThumbDirFor(parent), $"{Sha256Prefix16(basename)}.avif");
+            return Path.Combine(SharedThumbDirFor(parent), $"{Sha256Prefix16(basename)}.v{Generated.CapabilityRegistry.PipelineOutputVersion}.avif");
         }
     }
 }

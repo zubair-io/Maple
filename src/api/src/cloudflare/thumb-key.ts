@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * R2 object key derivation for content-addressed thumbnails.
  *
@@ -31,7 +32,11 @@ export interface ThumbAddress {
  * path segment individually so filenames containing `/`-unsafe characters
  * (spaces, unicode) round-trip identically whether derived here or by the
  * Worker from `new URL(request.url).pathname`. */
-export function thumbR2Key({ slug, relDir, filename }: ThumbAddress): string {
+export function thumbR2Key(
+  { slug, relDir, filename }: ThumbAddress,
+  version = PIPELINE_OUTPUT_VERSION,
+): string {
   const segments = [slug, ...relDir.split('/').filter(Boolean), filename];
-  return `thumbs/${segments.map(encodeURIComponent).join('/')}`;
+  const base = `thumbs/${segments.map(encodeURIComponent).join('/')}`;
+  return version === 0 ? base : `${base}/v${version}`;
 }

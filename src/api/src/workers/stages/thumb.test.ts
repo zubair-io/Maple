@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, mkdir, rm, writeFile, stat } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -323,7 +324,13 @@ describe('thumb handler — path-keyed cache path', () => {
     // the agreement that was broken while the stage was maple_id-keyed.
     const expected = resolveThumbPath(file);
     expect(expected).toBe(
-      path.join(dir, 'vacation', '.maple', 'thumbs', `${sha256Prefix16('IMG_001.jpg')}.avif`),
+      path.join(
+        dir,
+        'vacation',
+        '.maple',
+        'thumbs',
+        `${sha256Prefix16('IMG_001.jpg')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      ),
     );
     expect((await stat(expected)).size).toBeGreaterThan(0);
     // And explicitly NOT at the old content-addressed name.

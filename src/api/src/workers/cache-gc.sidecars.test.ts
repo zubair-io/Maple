@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * Regression tests for `sweepOrphanedCaches`' handling of the LEGACY thumb
  * freshness sidecar (`<key>.avif.meta`). The `.meta` protocol that wrote
@@ -93,7 +94,10 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
       insertLiveAsset(live.db, libraryId, '', 'live.dng');
 
       const orphan = path.join(thumbsDir(root), `${DEAD_KEY}.avif`);
-      const liveThumb = path.join(thumbsDir(root), `${sha256Prefix16('live.dng')}.avif`);
+      const liveThumb = path.join(
+        thumbsDir(root),
+        `${sha256Prefix16('live.dng')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      );
       for (const f of [orphan, liveThumb]) {
         await writeAvif(f);
         await writeLegacySidecar(f);
@@ -124,7 +128,10 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, '', 'live.dng');
 
-      const liveThumb = path.join(thumbsDir(root), `${sha256Prefix16('live.dng')}.avif`);
+      const liveThumb = path.join(
+        thumbsDir(root),
+        `${sha256Prefix16('live.dng')}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      );
       await writeAvif(liveThumb);
       await writeLegacySidecar(liveThumb);
       await agePast(liveThumb);

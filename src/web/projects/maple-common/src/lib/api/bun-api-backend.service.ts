@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // BunApiBackend — HttpClient wrapper for the Maple Self Hosted API.
 //
 // Endpoints documented in src/api/README.md.
@@ -811,7 +812,7 @@ export class BunApiBackendService {
    * size dimension), so the `?size=320x320` this used to append was inert
    * (#2220). */
   getThumb(assetId: string): Observable<Blob> {
-    return this.http.get(`${this.base}/assets/${assetId}/thumb`, {
+    return this.http.get(`${this.base}/assets/${assetId}/thumb?pv=${PIPELINE_OUTPUT_VERSION}`, {
       responseType: 'blob',
     });
   }
@@ -997,7 +998,10 @@ export class BunApiBackendService {
    */
   putPreview(path: string, body: Blob, contentType: 'image/avif' | 'image/jpeg'): Observable<void> {
     return this.http.put<void>(`${this.base}/preview?path=${encodeURIComponent(path)}`, body, {
-      headers: { 'Content-Type': contentType },
+      headers: {
+        'Content-Type': contentType,
+        'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
+      },
     });
   }
 

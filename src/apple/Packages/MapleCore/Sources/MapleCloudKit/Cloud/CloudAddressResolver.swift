@@ -143,7 +143,9 @@ public actor CloudAddressResolver {
   private var loaded: (folders: [CloudFolder], at: ContinuousClock.Instant)?
   private var inflight: Task<[CloudFolder], Error>?
 
-  public init(server: URL, httpClient: AuthenticatedHTTPClient, refreshAfter: Duration = .seconds(10)) {
+  public init(
+    server: URL, httpClient: AuthenticatedHTTPClient, refreshAfter: Duration = .seconds(10)
+  ) {
     self.server = server
     self.folders = CloudFoldersClient(server: server, httpClient: httpClient)
     self.refreshAfter = refreshAfter
@@ -171,6 +173,11 @@ public actor CloudAddressResolver {
     let address = try await self.address(forAbsPath: absPath)
     guard let url = address.url(server: server, route: route) else {
       throw CloudAddressError.unrepresentableAddress(address: address.string, route: route)
+    }
+    if route == "thumb" || route == "preview" {
+      return url.appending(queryItems: [
+        URLQueryItem(name: "pv", value: String(MaplePipelineVersion.value))
+      ])
     }
     return url
   }

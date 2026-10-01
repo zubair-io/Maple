@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * Regression tests for `sweepOrphanedCaches`' recognition of the pano
  * stitcher's pre-seed derivative scheme. Split out of `cache-gc.test.ts` to
@@ -80,7 +81,12 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, '', 'panorama-test.png');
       const preSeedKey = sha256Prefix16('panorama-test.png');
-      const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
+      const preSeedThumb = path.join(
+        root,
+        '.maple',
+        'thumbs',
+        `${preSeedKey}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      );
       await writeAvif(preSeedThumb);
       await agePast(preSeedThumb);
 
@@ -105,7 +111,12 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
       // PR #2008 round 2).
       registerLibrary(live.db, path.join(root, 'elsewhere'));
       const preSeedKey = sha256Prefix16('panorama-test.png');
-      const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
+      const preSeedThumb = path.join(
+        root,
+        '.maple',
+        'thumbs',
+        `${preSeedKey}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      );
       await writeAvif(preSeedThumb);
       await agePast(preSeedThumb);
 
@@ -125,7 +136,12 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
     try {
       registerLibrary(live.db, root);
       const preSeedKey = sha256Prefix16('never-indexed.png');
-      const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
+      const preSeedThumb = path.join(
+        root,
+        '.maple',
+        'thumbs',
+        `${preSeedKey}.v${PIPELINE_OUTPUT_VERSION}.avif`,
+      );
       await writeAvif(preSeedThumb);
       await agePast(preSeedThumb);
 
@@ -139,7 +155,7 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
   });
 
   // Same pattern for the preview tier — `<sha256_prefix16(basename)>_1600.jpg`.
-  test('keeps a pano pre-seed preview (sha256_prefix16-keyed) matching a live filename', async () => {
+  test('reaps an unversioned pano preview even when its original is live', async () => {
     using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
@@ -151,10 +167,8 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
       await agePast(preSeedPreview);
 
       const result = await sweepOrphanedCaches(root);
-      expect(result.deleted).toBe(0);
-
-      const s = await stat(preSeedPreview);
-      expect(s.size).toBeGreaterThan(0);
+      expect(result.deleted).toBe(1);
+      await expect(stat(preSeedPreview)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

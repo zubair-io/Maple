@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // library-cache.thumb-path-parity.spec.ts — "the path the writer writes ==
 // the path the reader reads", for Web-local Hosted thumbs (#2254).
 //
@@ -156,7 +157,7 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
 
       // Pin the DIRECTORY convention alongside the stem — a future change to
       // either component then fails here rather than silently diverging.
-      expect(files.has(`.maple/thumbs/${PINNED_SHA}.avif`)).toBe(true);
+      expect(files.has(`.maple/thumbs/${PINNED_SHA}.v${PIPELINE_OUTPUT_VERSION}.avif`)).toBe(true);
     } finally {
       restore();
     }
@@ -173,7 +174,7 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
         0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
       ]);
       await cache.writeThumb(folder, sha, new Blob([payload], { type: 'image/avif' }), 'avif');
-      expect(files.has(`.maple/thumbs/${sha}.avif`)).toBe(true);
+      expect(files.has(`.maple/thumbs/${sha}.v${PIPELINE_OUTPUT_VERSION}.avif`)).toBe(true);
 
       const asset = { id: ASSET_ID, filename: FILENAME } as unknown as Asset;
       svc.ensureThumbnailUrl(asset);

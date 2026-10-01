@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../src/generated/adjustment-fields.generated.ts';
 /**
  * Concurrent-writer / no-partial-AVIF test for `PUT /api/preview` (#1997,
  * epic #1993 stage 5's must-have server-side gate).
@@ -44,7 +45,10 @@ describe('PUT /api/preview — concurrent writers never expose a partial AVIF (#
     new Elysia().use(previewPathRoutes).handle(
       new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
         method: 'PUT',
-        headers: { 'content-type': 'image/avif' },
+        headers: {
+          'x-maple-pipeline-version': String(PIPELINE_OUTPUT_VERSION),
+          'content-type': 'image/avif',
+        },
         body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
       }),
     );
@@ -68,7 +72,12 @@ describe('PUT /api/preview — concurrent writers never expose a partial AVIF (#
 
   it('N parallel PUTs to the same path never let a concurrent reader observe a torn/partial AVIF', async () => {
     const original = join(tmp, 'IMG_9001.CR2');
-    const previewPath = join(tmp, '.maple', 'previews', 'IMG_9001.CR2.avif');
+    const previewPath = join(
+      tmp,
+      '.maple',
+      'previews',
+      `IMG_9001.CR2.v${PIPELINE_OUTPUT_VERSION}.avif`,
+    );
 
     const WRITER_COUNT = 10;
     const READER_COUNT = 6;
