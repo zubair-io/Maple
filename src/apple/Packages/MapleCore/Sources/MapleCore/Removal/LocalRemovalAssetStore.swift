@@ -45,6 +45,38 @@ public actor LocalRemovalAssetStore {
       })
   }
 
+  /// Publish all referenced companions at a relocation destination before its
+  /// primary/sidecar visibility step (#3944). This is not a Saved signal. The
+  /// local relocation/trash integration remains tracked by that issue.
+  /// Source companions stay in place: other photos and undo history can share
+  /// their content identities; unlinking requires a reachability proof.
+  public func copyAssets(records: String, to destinationRawURL: URL) async throws {
+    try Task.checkCancellation()
+    try RemovalBridge.verifySource(records: records, rawURL: rawURL)
+    // Validate the entire source set before creating anything at destination.
+    let assets = try readAssets(records: records)
+    let destination = LocalRemovalAssetStore(rawURL: destinationRawURL)
+    try await destination.importAssets(records: records, assets: assets)
+  }
+
+  private func importAssets(records: String, assets: [String: Data]) throws {
+    let names = try RemovalBridge.assetNames(records: records)
+    guard Set(names) == Set(assets.keys) else {
+      throw RemovalError.invalid("Relocation companion set differs from the sidecar")
+    }
+    for name in names {
+      try RemovalBridge.verifyAsset(name: name, data: assets[name]!)
+    }
+    guard !names.isEmpty else { return }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    for name in names {
+      try Task.checkCancellation()
+      try publish(assets[name]!, names: [name])
+    }
+    try syncDirectory()
+    _ = try readAssets(records: records)
+  }
+
   private func publish(_ data: Data, names: [String]) throws {
     let digest = try RemovalBridge.digest(data)
     guard let hex = digest.split(separator: ":").last,
