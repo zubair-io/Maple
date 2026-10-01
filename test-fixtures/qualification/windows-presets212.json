@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-01",
+  "issues": [3875, 3879, 3889],
+  "sourceRevision": "e6eeeeeca",
+  "build": "Maple.DesignAudit211",
+  "assemblySha256": "8DB3F6812AD4531159898673A21DF2BB585FED435BE0AEC7BF3F0C52E6B898C2",
+  "method": "Live production Presets panel and native file pickers through sky computer use; read exported JSON, imported user JSON and fixture XMP from disk.",
+  "fixture": "Synthetic fixture.dng in temporary qualification directory",
+  "originalSha256BeforeAndAfter": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8",
+  "observations": [
+    "Export Flat through native Save picker created JSON with schemaVersion 1, id builtin-flat, name Flat and only contrast=-50. UI reported Exported Flat.",
+    "Import that exported JSON through native Open picker reported A preset named 'Flat' already exists. Existing library remained available.",
+    "Changed only name in a separate copy to Qualification 212 Flat, then imported through native Open picker. UI reported Imported Qualification 212 Flat.",
+    "Stored user preset has new GUID 22fbdb8b-4c9f-4cc3-bc19-492af637121d, schemaVersion 1 and only contrast=-50.",
+    "Apply on the imported preset reported one setting applied; fixture.xmp contained crs:Contrast2012=-50 and the header showed Edited.",
+    "Header Undo removed Contrast2012 from fixture.xmp and removed Edited from the header. Original DNG SHA256 remained unchanged."
+  ],
+  "limitations": [
+    "This verifies one sparse preset and duplicate-name handling, not every preset field or malformed input case.",
+    "No restart persistence, Narrator, DPI matrix or full screenshot alignment sign-off in this observation.",
+    "Synthetic image is not evidence of photographic color parity or performance qualification."
+  ],
+  "fullQualificationPassed": false
+}
