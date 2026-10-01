@@ -19,7 +19,8 @@ public sealed partial class MainWindow
         RecordSmokeStage(output, "retouch-transforms");
         await VerifyRepairTransformsAsync();
         RecordSmokeStage(output, "retouch-add-spot");
-        var invoke = (IInvokeProvider)new ButtonAutomationPeer(_repairAdd).GetPattern(PatternInterface.Invoke);
+        var invoke = FrameworkElementAutomationPeer.CreatePeerForElement(_repairAdd)?.GetPattern(PatternInterface.Invoke) as IInvokeProvider
+            ?? throw new InvalidOperationException("Add repair does not expose the Invoke pattern");
         invoke.Invoke();
         if (ViewModel.Renderer.DetailSource == null)
             throw new InvalidOperationException("Repair decode cleared the base needed for ordinary slider rendering");
@@ -52,7 +53,8 @@ public sealed partial class MainWindow
         await ReadyAsync();
         if (SelectedRepair?.Radius != .04) throw new InvalidOperationException("Repair size Redo failed");
         RecordSmokeStage(output, "retouch-delete-spot");
-        var delete = (IInvokeProvider)new ButtonAutomationPeer(_repairDelete).GetPattern(PatternInterface.Invoke);
+        var delete = FrameworkElementAutomationPeer.CreatePeerForElement(_repairDelete)?.GetPattern(PatternInterface.Invoke) as IInvokeProvider
+            ?? throw new InvalidOperationException("Delete repair does not expose the Invoke pattern");
         delete.Invoke();
         await WaitAsync(() => ViewModel.Adjustments.Retouch.Spots.Count == before.Spots.Count);
         await ReadyAsync();

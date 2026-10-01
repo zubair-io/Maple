@@ -1,0 +1,34 @@
+{
+  "issue": 3875,
+  "date": "2026-10-01",
+  "build": "Maple.DesignAudit242",
+  "sourceBase": "0b29585437774b04545b45a748cf58b99133e37a",
+  "managedAppSha256": "8E0EDF07B91F4FCACC56AEEF4C9BAF75644A85C41C1550C156576E6661E8F406",
+  "gpuPassed": false,
+  "cpuPassed": true,
+  "emptyPassed": true,
+  "lastGpuStage": {
+    "stage": "retouch-add-spot",
+    "time": "2026-10-01T10:51:37.8560245-04:00",
+    "threads": 53,
+    "workingSetBytes": 462536704
+  },
+  "exceptionCode": "0xc000027b",
+  "faultModule": "Microsoft.UI.Xaml.dll 3.1.6.0",
+  "faultOffset": "0x9125",
+  "eventTime": "2026-10-01T10:51:39.368212-04:00",
+  "reportId": "bbe65768-67e9-473c-b201-22e53c26c51a",
+  "groupResetChecksCompletedBeforeCrash": true,
+  "hypothesis": "Manually constructed ButtonAutomationPeer in smoke may conflict with framework-owned peer lifecycle. Last stage is retouch-add-spot; production crash causality is not established.",
+  "harnessCorrection": "Use FrameworkElementAutomationPeer.CreatePeerForElement and require Invoke pattern rather than constructing a separate peer.",
+  "apiReference": "https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.peers.frameworkelementautomationpeer.createpeerforelement",
+  "crashResolved": false,
+  "correctedHarnessRetry": {
+    "build": "Maple.DesignAudit243",
+    "managedAppSha256": "ACA04B07FA6EEEC1A7AB0BC58203BB1D400ABFCDCF0FF528146C66579A43C0DE",
+    "gpuPassed": true,
+    "cpuPassed": true,
+    "emptyPassed": true,
+    "limitation": "One passing retry is not proof of intermittent crash resolution."
+  }
+}
