@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { readFile, rm, writeFile } from '../fs/mirrored.ts';
+import { readFile, rm } from '../fs/mirrored.ts';
 import { SaxesParser } from 'saxes';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { filmLutDirectory } from '../ffi/film-lut-directory.ts';
+import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { renderImageThumbToFileViaPool } from './bitmap-pool.ts';
 
 /** Cold-cache RAW regeneration. Null means no sidecar; a present sidecar
@@ -22,20 +24,19 @@ export async function renderRawSidecarDerivative(
   if (xml === null) return null;
 
   // The native adjustment parser tolerates incomplete XML. Validate the cold
-  // read, then render that exact snapshot so a concurrent sidecar save cannot
-  // swap an unchecked document into the develop call (#3971).
+  // read, then pass that exact XML snapshot to the recipe renderer so neither
+  // a concurrent save nor a missing film LUT can silently lose edits (#3971, #3976).
   new SaxesParser({ xmlns: true }).write(xml).close();
   const snapshotPath = `${outPath}.tmp.develop.${randomUUID()}`;
   const jpegPath = `${snapshotPath}.jpg`;
-  const snapshotXmp = `${snapshotPath}.xmp`;
   try {
-    await writeFile(snapshotXmp, xml);
-    const developed = await ffiPool().renderDevelopJpegToFile(
+    const recipe = { ...DEFAULT_EXPORT_RECIPE, quality: 90, maxLongEdge: maxPx };
+    const developed = await ffiPool().exportRecipeToFile(
       rawPath,
-      snapshotXmp,
+      xml,
+      JSON.stringify(recipe),
+      await filmLutDirectory(),
       jpegPath,
-      maxPx,
-      90,
     );
     if (!developed) throw new Error(`RAW sidecar develop failed: ${rawPath}`);
     const encoded = await renderImageThumbToFileViaPool(jpegPath, outPath, maxPx, quality, 'jpg');
@@ -43,6 +44,5 @@ export async function renderRawSidecarDerivative(
     return true;
   } finally {
     await rm(jpegPath, { force: true });
-    await rm(snapshotXmp, { force: true });
   }
 }
