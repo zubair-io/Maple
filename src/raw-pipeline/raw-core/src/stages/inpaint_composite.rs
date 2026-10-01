@@ -8,6 +8,10 @@
 use crate::image::{ColorSpace, Image};
 use crate::types::InpaintPatch;
 
+#[path = "inpaint_camera_half.rs"]
+mod camera_half;
+pub(crate) use camera_half::apply as apply_half_camera_patches;
+
 #[inline]
 fn lerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     if t == 0.0 {

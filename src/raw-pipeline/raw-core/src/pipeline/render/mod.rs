@@ -47,6 +47,7 @@ pub use detail::{render_detail_base, render_detail_tile, DetailContext, DetailRe
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
+pub(super) mod removal;
 pub use export::{
     decode_raster_base, render_export_from_raw, render_export_from_raw_with_film,
     render_export_raster, validate_raster_adjustments, ExportDepth, ExportPixels,
@@ -238,6 +239,31 @@ fn render_display_scene_with_context(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(Image, DetailContext)> {
+    render_display_scene_with_removals(
+        raw,
+        model,
+        quality,
+        raw_source,
+        max_long_edge,
+        target,
+        film_lut,
+        None,
+    )
+}
+
+fn render_display_scene_with_removals(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+    target: encode::TargetPrimaries,
+    film_lut: Option<&film::FilmLut>,
+    removals: Option<(
+        &super::ResolvedCalibrationRemovals,
+        &crate::types::accepted_removal::ContentDigest,
+    )>,
+) -> Result<(Image, DetailContext)> {
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
     // curve owns the entire scene→JPEG brightness relationship. Otherwise
@@ -321,16 +347,29 @@ fn render_display_scene_with_context(
     } else {
         model
     };
-    let (mut scene, ae_gain) = match max_long_edge {
-        // Sized: early-downsample develop — post-demosaic stages run on the
-        // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
-        Some(mle) => develop_scene_linear_sized_from_raw_with_quality_with_gain(
+    let (mut scene, ae_gain) = if let Some((stack, original)) = removals {
+        stack.develop_with_gain(
             raw,
+            original,
             active_model,
             quality,
-            mle,
-        )?,
-        None => develop_scene_linear_from_raw_with_quality_with_gain(raw, active_model, quality)?,
+            max_long_edge,
+            crate::cancel::CancelToken::never(),
+        )?
+    } else {
+        match max_long_edge {
+            // Sized: early-downsample develop — post-demosaic stages run on the
+            // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
+            Some(mle) => develop_scene_linear_sized_from_raw_with_quality_with_gain(
+                raw,
+                active_model,
+                quality,
+                mle,
+            )?,
+            None => {
+                develop_scene_linear_from_raw_with_quality_with_gain(raw, active_model, quality)?
+            }
+        }
     };
 
     let whites_anchor_ev = scene.whites_anchor_ev;

@@ -89,6 +89,21 @@ pub fn develop_removal_calibration_patches(
     patches: &[InpaintPatch],
     cancel: CancelToken<'_>,
 ) -> Result<Image> {
+    develop_with_gain(raw, model, RenderQuality::Amaze, None, patches, cancel)
+        .map(|(scene, _gain)| scene)
+}
+
+pub(super) fn develop_with_gain(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: Option<u32>,
+    patches: &[InpaintPatch],
+    cancel: CancelToken<'_>,
+) -> Result<(Image, f32)> {
+    if max_long_edge == Some(0) {
+        return Err(invalid("output cap must be positive"));
+    }
     if !patches.is_empty() {
         let anchor = anchor_model();
         if model.hot_pixel_suppression != anchor.hot_pixel_suppression
@@ -103,14 +118,23 @@ pub fn develop_removal_calibration_patches(
             patch.validate().map_err(|reason| invalid(&reason))?;
         }
     }
-    develop::develop_with_calibration_patches(raw, model, RenderQuality::Amaze, cancel, patches)
-        .map(|(scene, _gain)| scene)
+    match max_long_edge {
+        Some(cap) => super::develop_sized::develop_with_calibration_patches(
+            raw, model, quality, cap, cancel, patches,
+        ),
+        None => develop::develop_with_calibration_patches(raw, model, quality, cancel, patches),
+    }
 }
 
 /// Restore native DefaultCrop placement in the sensor-sized pre-lens buffer.
 /// Negative origins represent sensor borders outside the authoring plate; no
-/// replacement coverage exists there. Only native-resolution use is qualified.
+/// replacement coverage exists there. Buffer footprint tracks demosaic resolution.
+#[cfg(test)]
 pub(super) fn sensor_window(raw: &RawImage) -> [f32; 4] {
+    sensor_buffer_window(raw, [raw.width, raw.height], 1)
+}
+
+pub(super) fn sensor_buffer_window(raw: &RawImage, size: [u32; 2], divisor: u32) -> [f32; 4] {
     let crop = raw
         .crop_rect
         .and_then(|c| crate::image::CropRect::clamped(c.x, c.y, c.w, c.h, raw.width, raw.height))
@@ -123,19 +147,33 @@ pub(super) fn sensor_window(raw: &RawImage) -> [f32; 4] {
     [
         -(crop.x as f32) / crop.w as f32,
         -(crop.y as f32) / crop.h as f32,
-        raw.width as f32 / crop.w as f32,
-        raw.height as f32 / crop.h as f32,
+        (size[0] * divisor) as f32 / crop.w as f32,
+        (size[1] * divisor) as f32 / crop.h as f32,
     ]
 }
 
 /// Preserve untouched camera samples; transform only coverage-supported patch
 /// RGB. Validation precedes every write, including a later invalid operation.
+#[cfg(test)]
 pub(super) fn composite_camera(
     camera: &mut Image,
     patches: &[InpaintPatch],
     profile: &DcpProfile,
     window: [f32; 4],
 ) -> Result<()> {
+    composite_camera_sampled(camera, patches, profile, window, 1)
+}
+
+pub(super) fn composite_camera_sampled(
+    camera: &mut Image,
+    patches: &[InpaintPatch],
+    profile: &DcpProfile,
+    window: [f32; 4],
+    divisor: u32,
+) -> Result<()> {
+    if !matches!(divisor, 1 | 2) {
+        return Err(invalid("unsupported camera sampling footprint"));
+    }
     let (_, to_camera) = matrices(profile)?;
     for patch in patches {
         patch.validate().map_err(|reason| invalid(&reason))?;
@@ -157,7 +195,11 @@ pub(super) fn composite_camera(
             }
         }
     }
-    inpaint_composite::apply_camera_patches(camera, patches, to_camera, window);
+    if divisor == 2 {
+        inpaint_composite::apply_half_camera_patches(camera, patches, to_camera, window);
+    } else {
+        inpaint_composite::apply_camera_patches(camera, patches, to_camera, window);
+    }
     Ok(())
 }
 
@@ -176,3 +218,7 @@ mod format_tests;
 #[cfg(test)]
 #[path = "removal_calibration_lens_tests.rs"]
 mod lens_tests;
+
+#[cfg(test)]
+#[path = "removal_calibration_sized_tests.rs"]
+mod sized_tests;

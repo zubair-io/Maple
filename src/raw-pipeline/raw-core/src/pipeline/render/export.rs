@@ -113,7 +113,7 @@ pub fn render_export_from_raw_with_film(
 /// `dither_terminal_tests` can check the #441 invariant — nothing that touches
 /// pixel VALUES may run after the quantize — on the export chains the same way
 /// it checks it on the display chain.
-fn finish_eight(
+pub(super) fn finish_eight(
     scene: &mut Image,
     orientation: ExifOrientation,
     model: &AdjustmentModel,
@@ -127,7 +127,7 @@ fn finish_eight(
 }
 
 /// 16-bit export terminal: dither/quantize at 16 bits, then the geometry tail.
-fn finish_sixteen(
+pub(super) fn finish_sixteen(
     scene: &mut Image,
     orientation: ExifOrientation,
     model: &AdjustmentModel,

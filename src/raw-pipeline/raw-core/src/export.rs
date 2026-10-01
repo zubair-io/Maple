@@ -86,7 +86,7 @@ impl ExportFormat {
     }
 
     /// The channel depth this container is written at.
-    fn depth(self) -> ExportDepth {
+    pub(crate) fn depth(self) -> ExportDepth {
         match self {
             Self::Tiff16 => ExportDepth::Sixteen,
             Self::Jpeg | Self::Png | Self::Avif | Self::Webp => ExportDepth::Eight,
