@@ -50,6 +50,85 @@
 
   @if (selected(); as layer) {
     <div class="mask-controls flex flex-col gap-2" data-testid="mask-controls">
+      <div class="grid grid-cols-2 gap-2" data-testid="mask-compose">
+        @for (mode of combineModes; track mode) {
+          <mui-button
+            size="sm"
+            [ariaLabel]="mode + ' linear component'"
+            [testId]="'mask-' + mode + '-linear-component'"
+            (pressed)="session.addComponent('linear', mode)"
+            >{{ combineLabels[mode] }} linear</mui-button
+          >
+          <mui-button
+            size="sm"
+            [ariaLabel]="mode + ' radial component'"
+            [testId]="'mask-' + mode + '-radial-component'"
+            (pressed)="session.addComponent('radial', mode)"
+            >{{ combineLabels[mode] }} radial</mui-button
+          >
+        }
+      </div>
+      @if (group(); as maskGroup) {
+        <div role="list" data-testid="mask-components">
+          @for (component of componentRows(); track component.index) {
+            <mui-list-row
+              [icon]="component.icon"
+              [label]="component.title"
+              [subtitle]="component.combine + (component.invert ? ' · inverted' : '')"
+              [active]="session.componentIndex() === component.index"
+              [testId]="'mask-component-' + component.index"
+              (pressed)="session.selectComponent(component.index)"
+            >
+              <mui-button
+                trailing
+                variant="ghost"
+                size="sm"
+                iconLeading="trash"
+                [iconOnly]="true"
+                [disabled]="componentRows().length === 1"
+                [ariaLabel]="'Delete ' + component.title + ' component'"
+                [testId]="'mask-component-delete-' + component.index"
+                (pressed)="session.removeComponent(component.index)"
+              />
+            </mui-list-row>
+          }
+        </div>
+        @if (selectedComponent(); as component) {
+          <div class="flex gap-2">
+            @for (mode of combineModes; track mode) {
+              <mui-button
+                size="sm"
+                [disabled]="component.combine === mode"
+                [ariaLabel]="'Set component to ' + mode"
+                (pressed)="session.setComponentCombine(mode)"
+                >{{ combineLabels[mode] }}</mui-button
+              >
+            }
+          </div>
+          <mui-checkbox
+            label="Invert component"
+            [checked]="component.invert"
+            inputId="mask-component-invert"
+            (checkedChange)="session.setComponentInverted($event)"
+          />
+        }
+        <mui-checkbox
+          label="Invert mask"
+          [checked]="maskGroup.invert"
+          inputId="mask-group-invert"
+          (checkedChange)="session.setGroupInverted($event)"
+        />
+      }
+      <mui-living-slider
+        label="Opacity"
+        [value]="group()?.opacity ?? 1"
+        [min]="0"
+        [max]="1"
+        [step]="0.01"
+        (valueChange)="session.setOpacity($event)"
+        (dragStart)="onDragStart()"
+        (dragEnd)="onDragEnd()"
+      />
       @if (feather() !== null) {
         <mui-living-slider
           label="Feather"

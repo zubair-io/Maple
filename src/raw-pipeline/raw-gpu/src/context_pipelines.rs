@@ -103,7 +103,11 @@ impl GpuContext {
             compile_with_matrices(
                 &self.device,
                 "local-adjustments",
-                include_str!("local_adjustments.wgsl"),
+                &format!(
+                    "{}\n{}",
+                    include_str!("generated/local_mask_wire.wgsl"),
+                    include_str!("local_adjustments.wgsl")
+                ),
             )
         })
     }

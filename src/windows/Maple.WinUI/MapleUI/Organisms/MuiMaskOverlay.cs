@@ -59,6 +59,8 @@ namespace Maple.UI
         /// the host writes it straight into the model and re-renders, the
         /// same <see cref="MuiCropOverlay.RectChanged"/> contract.</summary>
         public event EventHandler<MuiMaskShape>? ShapeChanged;
+        public event EventHandler? GestureStarted;
+        public event EventHandler? GestureEnded;
 
         private readonly Canvas _canvas = new();
         private readonly Polyline _outline = new() { StrokeDashArray = new DoubleCollection { 4, 3 }, StrokeThickness = 1.5 };
@@ -102,7 +104,7 @@ namespace Maple.UI
             PointerMoved += OnPointerMoved;
             PointerReleased += (_, _) => EndDrag();
             PointerCanceled += (_, _) => EndDrag();
-            PointerCaptureLost += (_, _) => _draggingHandle = null;
+            PointerCaptureLost += (_, _) => EndDrag();
 
             _pinBackground = R("MapleSurface");
             _rotateBackground = R("MaplePrimary");
@@ -133,6 +135,8 @@ namespace Maple.UI
 
         private void OnHandlePressed(MuiMaskHandle handle, PointerRoutedEventArgs e)
         {
+            if (_draggingHandle is not null) EndDrag();
+            GestureStarted?.Invoke(this, EventArgs.Empty);
             _draggingHandle = handle;
             CapturePointer(e.Pointer);
             e.Handled = true;
@@ -140,9 +144,13 @@ namespace Maple.UI
 
         private void EndDrag()
         {
+            if (_draggingHandle is null) return;
             _draggingHandle = null;
             ReleasePointerCaptures();
+            GestureEnded?.Invoke(this, EventArgs.Empty);
         }
+
+        public void CancelDrag() => EndDrag();
 
         private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
         {

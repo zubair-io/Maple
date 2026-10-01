@@ -7,6 +7,8 @@ use super::{
     GROUP_CONTAINER, LINEAR_CONTAINER, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL,
     RADIAL_CONTAINER,
 };
+use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
+use crate::types::MaskCombine;
 
 /// Round to the canonical 2-decimal wire precision
 /// (`docs/xmp-canonical-format.md` § "Number formatting"). Values here are
@@ -48,7 +50,12 @@ pub fn serialize_local_adjustments(model: &AdjustmentModel, indent: &str) -> Str
     let group: Vec<&LocalAdjustment> = model
         .local_adjustments
         .iter()
-        .filter(|l| matches!(&l.mask, Mask::Bitmap { .. } | Mask::Everywhere))
+        .filter(|l| {
+            matches!(
+                &l.mask,
+                Mask::Bitmap { .. } | Mask::Everywhere | Mask::Group(_)
+            )
+        })
         .collect();
 
     let mut out = String::new();
@@ -87,6 +94,10 @@ fn serialize_container(container: &str, layers: &[&LocalAdjustment], indent: &st
         ));
         out.push_str(&serialize_adjustments(&layer.adjustments, &i4));
         out.push_str(&serialize_range(layer.range, &i4));
+        if let Mask::Group(group) = &layer.mask {
+            out.push_str(&format!("\n{i4}papp:MaskGroupVersion=\"{MASK_GROUP_VERSION}\"\n{i4}papp:MaskGroupOpacity=\"{}\"\n{i4}papp:MaskGroupInverted=\"{}\"",
+                group.opacity, if group.invert { "True" } else { "False" }));
+        }
         // One ladder, two spaces per level (`docs/xmp-canonical-format.md`
         // § "Indentation"): `crs:CorrectionMasks` sits with the correction's
         // attributes, its `rdf:Seq` one step in, the mask leaf one further.
@@ -196,7 +207,19 @@ fn serialize_mask(mask: &Mask, indent: &str) -> String {
              {indent}  crs:MaskValue=\"1\"\n\
              {indent}  papp:MaskSource=\"Everywhere\"/>\n"
         ),
-        _ => serialize_geometric_mask(mask, indent),
+        Mask::Group(group) => group.components.iter().map(|component| {
+            let xml = match component.mask() {
+                Mask::Linear { .. } | Mask::Radial { .. } => serialize_geometric_mask(component.mask(), indent, true),
+                _ => serialize_mask(component.mask(), indent),
+            };
+            let subtract = component.combine != MaskCombine::Add;
+            let inverted = component.invert ^ (component.combine == MaskCombine::Intersect);
+            xml.replacen("crs:MaskValue=\"1\"", &format!("crs:MaskValue=\"{}\"", if subtract { 0 } else { 1 }), 1)
+                .replacen("/>\n", &format!("\n{indent}  papp:MaskCombine=\"{}\"/>\n", component.combine.name()), 1)
+                .replacen("/>\n", &format!("\n{indent}  crs:MaskActive=\"True\"\n{indent}  crs:MaskBlendMode=\"{}\"\n{indent}  crs:MaskInverted=\"{}\"/>\n",
+                    if subtract { 1 } else { 0 }, if inverted { "True" } else { "False" }), 1)
+        }).collect(),
+        _ => serialize_geometric_mask(mask, indent, false),
     }
 }
 
@@ -212,9 +235,16 @@ fn escape_attr(s: &str) -> String {
 
 /// Only ever called for `Linear`/`Radial` — [`serialize_mask`] routes
 /// `Bitmap`/`Everywhere` to its own two arms before falling through here.
-fn serialize_geometric_mask(mask: &Mask, indent: &str) -> String {
+fn serialize_geometric_mask(mask: &Mask, indent: &str, modern: bool) -> String {
+    let number = |value: f32| {
+        if modern {
+            value.to_string()
+        } else {
+            fmt2(value)
+        }
+    };
     match *mask {
-        Mask::Bitmap { .. } | Mask::Everywhere => {
+        Mask::Bitmap { .. } | Mask::Everywhere | Mask::Group(_) => {
             unreachable!("serialize_mask routes Bitmap/Everywhere before calling this")
         }
         Mask::Linear {
@@ -228,11 +258,11 @@ fn serialize_geometric_mask(mask: &Mask, indent: &str) -> String {
              {indent}  crs:ZeroX=\"{}\" crs:ZeroY=\"{}\"\n\
              {indent}  crs:FullX=\"{}\" crs:FullY=\"{}\"\n\
              {indent}  papp:LocalFeather=\"{}\"/>\n",
-            fmt2(start.x),
-            fmt2(start.y),
-            fmt2(end.x),
-            fmt2(end.y),
-            fmt2(feather),
+            number(start.x),
+            number(start.y),
+            number(end.x),
+            number(end.y),
+            number(feather),
         ),
         Mask::Radial {
             center,
@@ -251,14 +281,15 @@ fn serialize_geometric_mask(mask: &Mask, indent: &str) -> String {
                  {indent}  crs:MaskValue=\"1\"\n\
                  {indent}  crs:Top=\"{}\" crs:Left=\"{}\" crs:Bottom=\"{}\" crs:Right=\"{}\"\n\
                  {indent}  crs:Angle=\"{}\" crs:Midpoint=\"50\" crs:Roundness=\"0\"\n\
-                 {indent}  crs:Feather=\"{}\" crs:Flipped=\"{}\"/>\n",
-                fmt2(top),
-                fmt2(left),
-                fmt2(bottom),
-                fmt2(right),
-                fmt2(angle.to_degrees()),
-                fmt2(feather * 100.0),
-                if invert { "True" } else { "False" },
+                 {indent}  crs:Feather=\"{}\" crs:Flipped=\"{}\"{}/>\n",
+                number(top),
+                number(left),
+                number(bottom),
+                number(right),
+                number(angle.to_degrees()),
+                number(feather * if modern { 50.0 } else { 100.0 }),
+                if invert ^ modern { "True" } else { "False" },
+                if modern { " crs:Version=\"2\"" } else { "" },
             )
         }
     }

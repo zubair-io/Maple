@@ -40,38 +40,45 @@ import Foundation
 /// dictionary — re-serializing from parse events would reshuffle a mask stack
 /// on every save.
 public struct XMPPassthrough: Sendable, Equatable {
-    /// One unknown `name="value"` pair from `rdf:Description`. `value` is the
-    /// *decoded* text (entities already resolved); the serializer re-escapes
-    /// it, exactly as the web serializer does.
-    public struct Attribute: Sendable, Equatable {
-        public let name: String
-        public let value: String
+  /// One unknown `name="value"` pair from `rdf:Description`. `value` is the
+  /// *decoded* text (entities already resolved); the serializer re-escapes
+  /// it, exactly as the web serializer does.
+  public struct Attribute: Sendable, Equatable {
+    public let name: String
+    public let value: String
 
-        public init(name: String, value: String) {
-            self.name = name
-            self.value = value
-        }
+    public init(name: String, value: String) {
+      self.name = name
+      self.value = value
     }
+  }
 
-    /// Unknown attributes on `rdf:Description`, sorted by name. Source order
-    /// is unrecoverable — `XMLParser` hands a start tag's attributes back in a
-    /// `Dictionary` — and would be moot anyway, because the canonical
-    /// attribute sort reorders every attribute on write. Sorting here is what
-    /// makes the bucket itself deterministic run to run.
-    public var unknownAttributes: [Attribute]
+  /// Unknown attributes on `rdf:Description`, sorted by name. Source order
+  /// is unrecoverable — `XMLParser` hands a start tag's attributes back in a
+  /// `Dictionary` — and would be moot anyway, because the canonical
+  /// attribute sort reorders every attribute on write. Sorting here is what
+  /// makes the bucket itself deterministic run to run.
+  public var unknownAttributes: [Attribute]
 
-    /// Verbatim source text of unknown child elements of `rdf:Description`,
-    /// in document order.
-    public var unknownNodes: [String]
+  /// Verbatim source text of unknown child elements of `rdf:Description`,
+  /// in document order.
+  public var unknownNodes: [String]
+  public var maskGroups: [XMPMaskGroupTemplate]
 
-    public static let empty = XMPPassthrough(unknownAttributes: [], unknownNodes: [])
+  public static let empty = XMPPassthrough(unknownAttributes: [], unknownNodes: [])
 
-    public var isEmpty: Bool { unknownAttributes.isEmpty && unknownNodes.isEmpty }
+  public var isEmpty: Bool {
+    unknownAttributes.isEmpty && unknownNodes.isEmpty && maskGroups.isEmpty
+  }
 
-    public init(unknownAttributes: [Attribute] = [], unknownNodes: [String] = []) {
-        self.unknownAttributes = unknownAttributes
-        self.unknownNodes = unknownNodes
-    }
+  public init(
+    unknownAttributes: [Attribute] = [], unknownNodes: [String] = [],
+    maskGroups: [XMPMaskGroupTemplate] = []
+  ) {
+    self.unknownAttributes = unknownAttributes
+    self.unknownNodes = unknownNodes
+    self.maskGroups = maskGroups
+  }
 }
 
 // MARK: - The known set
@@ -86,143 +93,143 @@ public struct XMPPassthrough: Sendable, Equatable {
 /// `XMPPassthroughTests.testEverySerializedAttributeIsKnown` asserts the
 /// serializer's own output is a subset of `attributes`.
 enum XMPKnownFields {
-    /// Structural attributes the canonical writer authors itself.
-    private static let structural: Set<String> = [
-        "rdf:about", "crs:Version", "crs:ProcessVersion", "crs:HasSettings",
-    ]
+  /// Structural attributes the canonical writer authors itself.
+  private static let structural: Set<String> = [
+    "rdf:about", "crs:Version", "crs:ProcessVersion", "crs:HasSettings",
+  ]
 
-    /// Scene-linear develop sliders + the WB group.
-    private static let develop: Set<String> = [
-        "crs:WhiteBalance", "crs:Temperature", "crs:Tint", "papp:WbScaleVersion",
-        "crs:Exposure2012", "papp:Brightness", "crs:Contrast2012",
-        "crs:Highlights2012", "crs:Shadows2012", "crs:Whites2012", "crs:Blacks2012",
-        "crs:ParametricHighlights", "crs:ParametricLights",
-        "crs:ParametricDarks", "crs:ParametricShadows",
-        "crs:ParametricShadowSplit", "crs:ParametricMidtoneSplit", "crs:ParametricHighlightSplit",
-        "crs:Vibrance", "crs:Saturation", "crs:Clarity2012", "crs:Texture", "crs:Dehaze",
-        "crs:Sharpness", "crs:SharpenRadius", "crs:SharpenDetail", "crs:SharpenEdgeMasking",
-        "papp:CaptureSharpeningAmount", "papp:CaptureSharpeningSigma",
-        // Read-only legacy alias (#456) — parsed into `captureSharpeningSigma`
-        // and never written, so it must not fall through to passthrough or a
-        // re-save would carry both spellings.
-        "papp:CaptureSharpeningRadius",
-        "crs:LuminanceSmoothing", "crs:ColorNoiseReduction",
-        "papp:ChromaPrefilter", "papp:DeepDenoise", "papp:HotPixelSuppression",
-        "papp:LensProfile",
-        "papp:Demosaic",
-        "papp:HighlightRecoveryMode", "papp:AutoExposure", "papp:Look", "papp:Profile",
-        // WB method + point-curve mode (#431/#436; wired into Swift by
-        // #2216) — without these two in the known set, a sidecar carrying
-        // them would fall through to the unknown-attribute passthrough
-        // bucket AND be re-emitted from the model, doubling the attribute
-        // on save (see `XMPPassthroughTests.testEverySerializedAttributeIsKnown`).
-        "papp:WbMethod", "papp:ToneCurveMode",
-        "crs:PostCropVignetteAmount", "crs:PostCropVignetteFeather",
-        "crs:GrainAmount", "crs:GrainSize", "crs:GrainFrequency",
-        "crs:SplitToningShadowHue", "crs:SplitToningShadowSaturation",
-        "crs:SplitToningHighlightHue", "crs:SplitToningHighlightSaturation",
-        "crs:SplitToningBalance",
-        "crs:ColorGradeShadowLum", "crs:ColorGradeMidtoneHue", "crs:ColorGradeMidtoneSat",
-        "crs:ColorGradeMidtoneLum", "crs:ColorGradeHighlightLum",
-        "crs:ColorGradeGlobalHue", "crs:ColorGradeGlobalSat", "crs:ColorGradeGlobalLum",
-        "crs:LensProfileEnable", "crs:LensProfileDistortionScale",
-        "crs:LensProfileChromaticAberrationScale", "crs:LensProfileVignettingScale",
-        // Profile-free lateral CA + defringe (#3411) — the aberration Maple
-        // measures from the image itself, on the bodies the DNG opcodes above
-        // never reach.
-        "crs:AutoLateralCA",
-        "crs:DefringePurpleAmount", "crs:DefringePurpleHueLo", "crs:DefringePurpleHueHi",
-        "crs:DefringeGreenAmount", "crs:DefringeGreenHueLo", "crs:DefringeGreenHueHi",
-        "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom", "crs:CropRight",
-        "crs:CropAngle", "crs:CropConstrainToWarp",
-        // Manual geometry (#3410). Like every key above, these MUST be listed
-        // here as well as in the writer, or a sidecar carrying them would be
-        // emitted twice — once from the model, once from the passthrough pipe.
-        "crs:PerspectiveVertical", "crs:PerspectiveHorizontal", "crs:PerspectiveRotate",
-        "crs:PerspectiveScale", "crs:PerspectiveAspect",
-        "crs:PerspectiveX", "crs:PerspectiveY",
-    ]
+  /// Scene-linear develop sliders + the WB group.
+  private static let develop: Set<String> = [
+    "crs:WhiteBalance", "crs:Temperature", "crs:Tint", "papp:WbScaleVersion",
+    "crs:Exposure2012", "papp:Brightness", "crs:Contrast2012",
+    "crs:Highlights2012", "crs:Shadows2012", "crs:Whites2012", "crs:Blacks2012",
+    "crs:ParametricHighlights", "crs:ParametricLights",
+    "crs:ParametricDarks", "crs:ParametricShadows",
+    "crs:ParametricShadowSplit", "crs:ParametricMidtoneSplit", "crs:ParametricHighlightSplit",
+    "crs:Vibrance", "crs:Saturation", "crs:Clarity2012", "crs:Texture", "crs:Dehaze",
+    "crs:Sharpness", "crs:SharpenRadius", "crs:SharpenDetail", "crs:SharpenEdgeMasking",
+    "papp:CaptureSharpeningAmount", "papp:CaptureSharpeningSigma",
+    // Read-only legacy alias (#456) — parsed into `captureSharpeningSigma`
+    // and never written, so it must not fall through to passthrough or a
+    // re-save would carry both spellings.
+    "papp:CaptureSharpeningRadius",
+    "crs:LuminanceSmoothing", "crs:ColorNoiseReduction",
+    "papp:ChromaPrefilter", "papp:DeepDenoise", "papp:HotPixelSuppression",
+    "papp:LensProfile",
+    "papp:Demosaic",
+    "papp:HighlightRecoveryMode", "papp:AutoExposure", "papp:Look", "papp:Profile",
+    // WB method + point-curve mode (#431/#436; wired into Swift by
+    // #2216) — without these two in the known set, a sidecar carrying
+    // them would fall through to the unknown-attribute passthrough
+    // bucket AND be re-emitted from the model, doubling the attribute
+    // on save (see `XMPPassthroughTests.testEverySerializedAttributeIsKnown`).
+    "papp:WbMethod", "papp:ToneCurveMode",
+    "crs:PostCropVignetteAmount", "crs:PostCropVignetteFeather",
+    "crs:GrainAmount", "crs:GrainSize", "crs:GrainFrequency",
+    "crs:SplitToningShadowHue", "crs:SplitToningShadowSaturation",
+    "crs:SplitToningHighlightHue", "crs:SplitToningHighlightSaturation",
+    "crs:SplitToningBalance",
+    "crs:ColorGradeShadowLum", "crs:ColorGradeMidtoneHue", "crs:ColorGradeMidtoneSat",
+    "crs:ColorGradeMidtoneLum", "crs:ColorGradeHighlightLum",
+    "crs:ColorGradeGlobalHue", "crs:ColorGradeGlobalSat", "crs:ColorGradeGlobalLum",
+    "crs:LensProfileEnable", "crs:LensProfileDistortionScale",
+    "crs:LensProfileChromaticAberrationScale", "crs:LensProfileVignettingScale",
+    // Profile-free lateral CA + defringe (#3411) — the aberration Maple
+    // measures from the image itself, on the bodies the DNG opcodes above
+    // never reach.
+    "crs:AutoLateralCA",
+    "crs:DefringePurpleAmount", "crs:DefringePurpleHueLo", "crs:DefringePurpleHueHi",
+    "crs:DefringeGreenAmount", "crs:DefringeGreenHueLo", "crs:DefringeGreenHueHi",
+    "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom", "crs:CropRight",
+    "crs:CropAngle", "crs:CropConstrainToWarp",
+    // Manual geometry (#3410). Like every key above, these MUST be listed
+    // here as well as in the writer, or a sidecar carrying them would be
+    // emitted twice — once from the model, once from the passthrough pipe.
+    "crs:PerspectiveVertical", "crs:PerspectiveHorizontal", "crs:PerspectiveRotate",
+    "crs:PerspectiveScale", "crs:PerspectiveAspect",
+    "crs:PerspectiveX", "crs:PerspectiveY",
+  ]
 
-    /// The 24 HSL bands + the black-and-white toggle and its 8 mixer weights.
-    private static let bands: Set<String> = {
-        let hues = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"]
-        let hsl = ["HueAdjustment", "SaturationAdjustment", "LuminanceAdjustment", "GrayMixer"]
-            .flatMap { stem in hues.map { "crs:\(stem)\($0)" } }
-        return Set(hsl + ["crs:ConvertToGrayscale"])
-    }()
+  /// The 24 HSL bands + the black-and-white toggle and its 8 mixer weights.
+  private static let bands: Set<String> = {
+    let hues = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"]
+    let hsl = ["HueAdjustment", "SaturationAdjustment", "LuminanceAdjustment", "GrayMixer"]
+      .flatMap { stem in hues.map { "crs:\(stem)\($0)" } }
+    return Set(hsl + ["crs:ConvertToGrayscale"])
+  }()
 
-    /// Rating / flag / colour label / hidden, including the read-only
-    /// `xmp:Label` legacy flag alias (#2221) the serializer never writes back.
-    private static let culling: Set<String> = [
-        "xmp:Rating", "papp:Flag", "xmp:Label", "papp:ColorLabel", "papp:Hidden",
-    ]
+  /// Rating / flag / colour label / hidden, including the read-only
+  /// `xmp:Label` legacy flag alias (#2221) the serializer never writes back.
+  private static let culling: Set<String> = [
+    "xmp:Rating", "papp:Flag", "xmp:Label", "papp:ColorLabel", "papp:Hidden",
+  ]
 
-    /// The IPTC/EXIF batch-metadata attributes (`XMPSerialization+Metadata.swift`).
-    private static let metadata: Set<String> = [
-        "exif:GPSLatitude", "exif:GPSLongitude", "exif:GPSAltitude", "exif:GPSAltitudeRef",
-        "exif:DateTimeOriginal", "papp:TimeZone",
-        "Iptc4xmpCore:Location", "Iptc4xmpCore:CountryCode",
-        "photoshop:City", "photoshop:State", "photoshop:Country",
-        "photoshop:Headline", "photoshop:Instructions", "photoshop:AuthorsPosition",
-        "photoshop:Credit", "photoshop:Source",
-        "xmpRights:Marked",
-    ]
+  /// The IPTC/EXIF batch-metadata attributes (`XMPSerialization+Metadata.swift`).
+  private static let metadata: Set<String> = [
+    "exif:GPSLatitude", "exif:GPSLongitude", "exif:GPSAltitude", "exif:GPSAltitudeRef",
+    "exif:DateTimeOriginal", "papp:TimeZone",
+    "Iptc4xmpCore:Location", "Iptc4xmpCore:CountryCode",
+    "photoshop:City", "photoshop:State", "photoshop:Country",
+    "photoshop:Headline", "photoshop:Instructions", "photoshop:AuthorsPosition",
+    "photoshop:Credit", "photoshop:Source",
+    "xmpRights:Marked",
+  ]
 
-    /// Every attribute name on `rdf:Description` that Maple reads into its own
-    /// model or authors itself.
-    static let attributes: Set<String> =
-        structural.union(develop).union(bands).union(culling).union(metadata)
+  /// Every attribute name on `rdf:Description` that Maple reads into its own
+  /// model or authors itself.
+  static let attributes: Set<String> =
+    structural.union(develop).union(bands).union(culling).union(metadata)
 
-    /// Namespace prefixes the canonical envelope declares itself — on
-    /// `rdf:Description` (the three core plus the conditional metadata ones)
-    /// or on an ancestor (`x:xmpmeta`, `rdf:RDF`). A source declaration for
-    /// one of these is dropped rather than preserved: re-emitting it would put
-    /// a duplicate `xmlns:` on the same start tag, which is not well-formed.
-    static let selfDeclaredNamespacePrefixes: Set<String> = [
-        "xmp", "crs", "papp",
-        "dc", "exif", "photoshop", "Iptc4xmpCore", "xmpRights",
-        "rdf", "x",
-    ]
+  /// Namespace prefixes the canonical envelope declares itself — on
+  /// `rdf:Description` (the three core plus the conditional metadata ones)
+  /// or on an ancestor (`x:xmpmeta`, `rdf:RDF`). A source declaration for
+  /// one of these is dropped rather than preserved: re-emitting it would put
+  /// a duplicate `xmlns:` on the same start tag, which is not well-formed.
+  static let selfDeclaredNamespacePrefixes: Set<String> = [
+    "xmp", "crs", "papp",
+    "dc", "exif", "photoshop", "Iptc4xmpCore", "xmpRights",
+    "rdf", "x",
+  ]
 
-    /// Child elements of `rdf:Description` the serializer emits from the model
-    /// — the keyword bag, the eight point tone curves, the three
-    /// local-adjustment containers (#358), the repair-spot container
-    /// (#3409), and the metadata lang-alt / seq blocks. Leaving any of these
-    /// in the node bucket would double-emit it. `crs:RetouchInfo` is the
-    /// legacy string form the walker also READS: it is managed too, because
-    /// a document carrying it is re-saved with the struct container instead
-    /// and keeping the old element would leave two descriptions of the same
-    /// spots in one sidecar.
-    static let managedChildElements: Set<String> = Set(
-        ToneCurveXMP.elements + LocalAdjustmentXMP.containers + [
-            RetouchXMP.areasContainer,
-            RetouchXMP.legacyContainer,
-            "dc:subject",
-            "dc:title", "dc:creator", "dc:description", "dc:rights",
-            "xmpRights:UsageTerms",
-        ])
+  /// Child elements of `rdf:Description` the serializer emits from the model
+  /// — the keyword bag, the eight point tone curves, the three
+  /// local-adjustment containers (#358), the repair-spot container
+  /// (#3409), and the metadata lang-alt / seq blocks. Leaving any of these
+  /// in the node bucket would double-emit it. `crs:RetouchInfo` is the
+  /// legacy string form the walker also READS: it is managed too, because
+  /// a document carrying it is re-saved with the struct container instead
+  /// and keeping the old element would leave two descriptions of the same
+  /// spots in one sidecar.
+  static let managedChildElements: Set<String> = Set(
+    ToneCurveXMP.elements + LocalAdjustmentXMP.containers + [
+      RetouchXMP.areasContainer,
+      RetouchXMP.legacyContainer,
+      "dc:subject",
+      "dc:title", "dc:creator", "dc:description", "dc:rights",
+      "xmpRights:UsageTerms",
+    ])
 
-    /// True when `qName` names a child the serializer re-emits from the model.
-    ///
-    /// `dc:subject` also matches prefix-agnostically because the keyword walk
-    /// in `_XMPParserDelegate` does — a sidecar binding Dublin Core to another
-    /// prefix still parses its keywords, so its bag must not also survive as a
-    /// passthrough node.
-    static func isManagedChild(_ qName: String) -> Bool {
-        managedChildElements.contains(qName)
-            || qName == "subject" || qName.hasSuffix(":subject")
-    }
+  /// True when `qName` names a child the serializer re-emits from the model.
+  ///
+  /// `dc:subject` also matches prefix-agnostically because the keyword walk
+  /// in `_XMPParserDelegate` does — a sidecar binding Dublin Core to another
+  /// prefix still parses its keywords, so its bag must not also survive as a
+  /// passthrough node.
+  static func isManagedChild(_ qName: String) -> Bool {
+    managedChildElements.contains(qName)
+      || qName == "subject" || qName.hasSuffix(":subject")
+  }
 
-    /// True when `name` is an attribute the passthrough bucket must ignore:
-    /// either a field Maple models, or a namespace declaration the canonical
-    /// writer emits itself.
-    static func isKnownAttribute(_ name: String) -> Bool {
-        if attributes.contains(name) { return true }
-        // A default-namespace declaration on `rdf:Description` would change
-        // how every unprefixed name in the document resolves; the canonical
-        // envelope owns that decision, so it is dropped rather than preserved.
-        if name == "xmlns" { return true }
-        guard name.hasPrefix("xmlns:") else { return false }
-        return selfDeclaredNamespacePrefixes.contains(String(name.dropFirst("xmlns:".count)))
-    }
+  /// True when `name` is an attribute the passthrough bucket must ignore:
+  /// either a field Maple models, or a namespace declaration the canonical
+  /// writer emits itself.
+  static func isKnownAttribute(_ name: String) -> Bool {
+    if attributes.contains(name) { return true }
+    // A default-namespace declaration on `rdf:Description` would change
+    // how every unprefixed name in the document resolves; the canonical
+    // envelope owns that decision, so it is dropped rather than preserved.
+    if name == "xmlns" { return true }
+    guard name.hasPrefix("xmlns:") else { return false }
+    return selfDeclaredNamespacePrefixes.contains(String(name.dropFirst("xmlns:".count)))
+  }
 }

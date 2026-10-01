@@ -68,8 +68,8 @@ use crate::full_chain::hsl_pass_for;
 use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
 use crate::grain::GrainPass;
 use crate::local_adjustments::{
-    local_adjustments_are_active, local_adjustments_need_spatial, LocalAdjustmentsPass,
-    LAYER_FLAT_LEN,
+    local_adjustments_are_active, local_adjustments_need_spatial, logical_layers,
+    LocalAdjustmentsPass,
 };
 use crate::local_spatial::{layer_needs_spatial, LocalSpatialPass};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
@@ -122,7 +122,7 @@ fn push_local_adjustments(suffix: &mut BoxedPasses, inputs: &FullChainInputs<'_>
         ));
         return;
     }
-    for (index, layer) in flat.chunks_exact(LAYER_FLAT_LEN).enumerate() {
+    for (index, layer) in logical_layers(flat).enumerate() {
         let is_scope_target = inputs.scope.layer >= 0 && inputs.scope.layer as usize == index;
         if layer_needs_spatial(layer) {
             suffix.push(Box::new(LocalSpatialPass::new(

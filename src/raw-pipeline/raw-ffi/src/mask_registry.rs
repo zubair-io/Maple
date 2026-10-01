@@ -15,7 +15,7 @@
 //! to weight 0 (never a global correction) rather than silently falling back
 //! to `Everywhere`."
 
-use raw_core::types::local_adjustment::flat::KIND_BITMAP;
+use raw_core::types::local_adjustment::flat::is_bitmap_record;
 use raw_core::types::{layers_from_flat, LocalAdjustment, Mask, MaskRaster, LAYER_FLAT_LEN};
 use raw_core::xmp::AdjustmentModel;
 use std::collections::HashMap;
@@ -137,6 +137,17 @@ pub extern "C" fn maple_mask_raster_release(id: u32) {
 pub(crate) fn resolve_into(model: &mut AdjustmentModel) {
     let mut rasters: Vec<Arc<MaskRaster>> = Vec::new();
     for layer in &mut model.local_adjustments {
+        if let Mask::Group(group) = &mut layer.mask {
+            for component in &mut group.components {
+                if let Some(raster) = resolve_bitmap(component.mask()) {
+                    component.set_raster_id(raster.id);
+                    if !rasters.iter().any(|r| r.id == raster.id) {
+                        rasters.push(raster);
+                    }
+                }
+            }
+            continue;
+        }
         let Mask::Bitmap { recipe, raster_id } = &mut layer.mask else {
             continue;
         };
@@ -156,6 +167,13 @@ pub(crate) fn resolve_into(model: &mut AdjustmentModel) {
     model.mask_rasters = rasters;
 }
 
+fn resolve_bitmap(mask: &Mask) -> Option<Arc<MaskRaster>> {
+    let Mask::Bitmap { recipe, raster_id } = mask else {
+        return None;
+    };
+    lookup(*raster_id).or_else(|| lookup_digest(&recipe.digest))
+}
+
 /// Decode a flat local-adjustment wire (`raw_core::types::layers_from_flat`'s
 /// own wire — see `scene_linear_chain::read_local_adjustments` /
 /// `gpu_live::params`) and resolve every `KIND_BITMAP` record's `raster_id`
@@ -171,7 +189,7 @@ pub(crate) fn layers_and_rasters_from_flat(
 ) -> (Vec<LocalAdjustment>, Vec<Arc<MaskRaster>>) {
     let mut ids: Vec<u32> = Vec::new();
     for slot in flat.chunks_exact(LAYER_FLAT_LEN) {
-        if slot[6] == KIND_BITMAP {
+        if is_bitmap_record(slot[6]) {
             let id = slot[2] as u32;
             if id != 0 && !ids.contains(&id) {
                 ids.push(id);
@@ -185,3 +203,7 @@ pub(crate) fn layers_and_rasters_from_flat(
 #[cfg(test)]
 #[path = "mask_registry_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "mask_registry_group_tests.rs"]
+mod group_tests;

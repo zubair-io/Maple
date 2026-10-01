@@ -10,68 +10,69 @@
 // the producer on, not a separate switch. Both surfaces read the same
 // `session.scopeSample`.
 
-import SwiftUI
 import MapleCore
 import MapleUI
+import SwiftUI
 
 struct VectorscopeHud: View {
-    @Bindable var state: EditorState
-    // ON by default (#3350): this HUD exists for the skin-tone workflow —
-    // the whole point is to drag Hue until the chroma cloud sits in the
-    // skin band, and the band was invisible until the user found the
-    // context menu. The toggle stays for anyone who wants a bare scope.
-    @AppStorage("editor.showSkinToneLine") private var showSkinToneLine = true
-    @AppStorage("editor.redAt3OClock") private var redAt3OClock = false
+  @Bindable var state: EditorState
+  // ON by default (#3350): this HUD exists for the skin-tone workflow —
+  // the whole point is to drag Hue until the chroma cloud sits in the
+  // skin band, and the band was invisible until the user found the
+  // context menu. The toggle stays for anyone who wants a bare scope.
+  @AppStorage("editor.showSkinToneLine") private var showSkinToneLine = true
+  @AppStorage("editor.redAt3OClock") private var redAt3OClock = false
 
-    private var selectedMaskName: String? {
-        guard let id = state.session.selectedMaskId,
-              let layer = state.session.model.localAdjustments.first(where: { $0.id == id })
-        else { return nil }
-        switch layer.mask {
-        case .bitmap, .everywhere: return "Skin"
-        case .linear: return "Gradient"
-        case .radial: return "Radial"
-        }
+  private var selectedMaskName: String? {
+    guard let id = state.session.selectedMaskId,
+      let layer = state.session.model.localAdjustments.first(where: { $0.id == id })
+    else { return nil }
+    switch layer.mask {
+    case .bitmap, .everywhere: return "Skin"
+    case .linear: return "Gradient"
+    case .radial: return "Radial"
+    case .group: return "Mask group"
     }
+  }
 
-    var body: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            if let name = selectedMaskName {
-                Text("Scope: \(name)")
-                    .font(.system(size: 9, weight: .regular, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
-            MuiVectorscope(
-                samples: [],
-                size: 96,
-                bins: state.session.scopeSample?.bins,
-                showSkinToneLine: showSkinToneLine,
-                redAt3OClock: redAt3OClock
-            )
-            .contextMenu {
-                Toggle("Show skin tone line", isOn: $showSkinToneLine)
-                Toggle("Red at 3 o'clock", isOn: $redAt3OClock)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
-        .overlay(
-            RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
-                .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
-        )
-        .padding(.trailing, 12)
-        .accessibilityIdentifier("editor-vectorscope-hud")
-        .accessibilityLabel("Skin tone vectorscope")
-        .accessibilityValue(accessibilityValueText)
+  var body: some View {
+    VStack(alignment: .trailing, spacing: 4) {
+      if let name = selectedMaskName {
+        Text("Scope: \(name)")
+          .font(.system(size: 9, weight: .regular, design: .monospaced))
+          .foregroundStyle(.white.opacity(0.55))
+      }
+      MuiVectorscope(
+        samples: [],
+        size: 96,
+        bins: state.session.scopeSample?.bins,
+        showSkinToneLine: showSkinToneLine,
+        redAt3OClock: redAt3OClock
+      )
+      .contextMenu {
+        Toggle("Show skin tone line", isOn: $showSkinToneLine)
+        Toggle("Red at 3 o'clock", isOn: $redAt3OClock)
+      }
     }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
+    .overlay(
+      RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
+        .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+    )
+    .padding(.trailing, 12)
+    .accessibilityIdentifier("editor-vectorscope-hud")
+    .accessibilityLabel("Skin tone vectorscope")
+    .accessibilityValue(accessibilityValueText)
+  }
 
-    /// Widened beyond a plain has/no-data flag (#3279) so an XCUITest can
-    /// read the scope's actual centroid off the accessibility tree instead
-    /// of a screenshot — see `SkinToneDemoUITests`.
-    private var accessibilityValueText: String {
-        guard let sample = state.session.scopeSample else { return "no data" }
-        guard let centroid = sample.centroidAngleDeg else { return "has data, no centroid" }
-        return "has data, centroid \(String(format: "%.1f", centroid))°"
-    }
+  /// Widened beyond a plain has/no-data flag (#3279) so an XCUITest can
+  /// read the scope's actual centroid off the accessibility tree instead
+  /// of a screenshot — see `SkinToneDemoUITests`.
+  private var accessibilityValueText: String {
+    guard let sample = state.session.scopeSample else { return "no data" }
+    guard let centroid = sample.centroidAngleDeg else { return "has data, no centroid" }
+    return "has data, centroid \(String(format: "%.1f", centroid))°"
+  }
 }

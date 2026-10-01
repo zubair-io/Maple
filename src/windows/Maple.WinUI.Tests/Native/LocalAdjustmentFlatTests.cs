@@ -18,14 +18,14 @@ namespace Maple.WinUI.Tests.Native
             Assert.Empty(LocalAdjustmentFlat.ToFlat(new List<LocalAdjustment>()));
 
         [Fact]
-        public void EachLayerIsThirtyTwoFloats()
+        public void EachLayerIsFortyFloats()
         {
             var layers = new List<LocalAdjustment>
             {
                 new(new LinearMask(new MaskPoint(0, 0), new MaskPoint(1, 0), 0.5), new PartialAdjustments()),
                 new(new RadialMask(new MaskPoint(0.5, 0.5), new MaskPoint(0.2, 0.2), 0, 0.5, false), new PartialAdjustments()),
             };
-            Assert.Equal(64, LocalAdjustmentFlat.ToFlat(layers).Length);
+            Assert.Equal(80, LocalAdjustmentFlat.ToFlat(layers).Length);
         }
 
         /// <summary>Pins the exact fixture raw-core's own
@@ -127,6 +127,20 @@ namespace Maple.WinUI.Tests.Native
 
             Assert.Equal(1f, flat[24]); // RANGE_KIND_COLOR
             Assert.Equal(new[] { 55f, 25f, 0.02f, 0.15f, 0.95f, 0.3f }, flat[25..31]);
+        }
+
+        [Fact]
+        public void SpatialControlsReachTheSharedTailWithTheirPresenceBits()
+        {
+            var layer = new LocalAdjustment(
+                new LinearMask(new MaskPoint(0, 0), new MaskPoint(1, 0), 0.5),
+                new PartialAdjustments { Texture = 1, Clarity = 2, Dehaze = 3,
+                    Sharpness = 4, LuminanceNoise = 5, Defringe = 6 });
+            var flat = LocalAdjustmentFlat.ToFlat(new[] { layer });
+            Assert.Equal(40, flat.Length);
+            Assert.Equal(new[] { 1f, 2f, 3f, 4f, 5f, 6f }, flat[32..38]);
+            Assert.Equal(129024f, flat[8]); // Bits 11 through 16.
+            Assert.Equal(new[] { 0f, 0f }, flat[38..40]);
         }
 
         [Fact]

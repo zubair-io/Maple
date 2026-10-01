@@ -15,6 +15,9 @@
 // independent of pixel dimensions — the same convention `Crop` uses — so
 // one sidecar renders identically against full-res and downsampled buffers.
 
+import type { MaskCombine } from '../generated/local-mask-wire.generated';
+export type { MaskCombine } from '../generated/local-mask-wire.generated';
+
 /**
  * The subset of develop controls a mask can apply locally. Mirror of
  * `raw_core::types::PartialAdjustments`: an absent field is a true no-op
@@ -133,7 +136,30 @@ export type GeometricMask = LinearMask | RadialMask;
  * - `everywhere`: weight 1 over the whole frame — the no-person-detected
  *   fallback a range refinement then narrows.
  */
-export type LocalMask = LinearMask | RadialMask | BitmapMask | EverywhereMask;
+export type LeafMask = LinearMask | RadialMask | BitmapMask | EverywhereMask;
+
+/** Host-only imported XML data; never interpreted as render controls. */
+export interface LocalXmpMetadata {
+  attributes: Array<{ name: string; value: string; namespace?: string }>;
+  nodes: string[];
+}
+
+/** Components carry geometry, while controls and range belong to the layer. */
+export interface MaskComponent {
+  mask: LeafMask;
+  combine: MaskCombine;
+  invert: boolean;
+  xmpMetadata?: LocalXmpMetadata;
+}
+
+export interface MaskGroup {
+  kind: 'group';
+  components: MaskComponent[];
+  opacity: number;
+  invert: boolean;
+}
+
+export type LocalMask = LeafMask | MaskGroup;
 
 /** True for the two masks the canvas overlay can draw and drag. */
 export function isGeometricMask(mask: LocalMask): mask is GeometricMask {
@@ -145,6 +171,7 @@ export interface LocalAdjustment {
   /** Host-only slot in an imported mixed AI group; never written to XMP or
    * interpreted by Rust. Keeps foreign pins in place when neighbors are deleted. */
   xmpGroupSlot?: number;
+  xmpMetadata?: LocalXmpMetadata;
   mask: LocalMask;
   adjustments: PartialAdjustments;
   range?: RangeRefinement;

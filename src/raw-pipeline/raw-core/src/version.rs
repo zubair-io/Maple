@@ -104,7 +104,9 @@
 ///   (#3601), so every stored non-zero Whites value renders differently.
 /// - 6 — recover sensor highlights before lens gains/warps, estimate missing color
 ///   from all surviving channels, and use the SDK cubic lens-warp kernel (#3633).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 6;
+/// - 7 — render ordered mask-group components instead of only their first
+///   recognised shape; modern radial Version 2 geometry is interpreted (#3408).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 7;
 
 #[cfg(test)]
 mod tests {

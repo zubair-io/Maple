@@ -100,6 +100,9 @@ namespace Maple.UI
         public event EventHandler<bool>? InvertChanged;
         public event EventHandler<(string Field, double Value)>? AdjustmentChanged;
         public event EventHandler? ResetRequested;
+        public event EventHandler? GestureStarted;
+        public event EventHandler? GestureEnded;
+        public MuiMaskComposition Composition { get; } = new();
 
         private readonly StackPanel _root = new() { Spacing = 10 };
         private readonly MuiButton _addLinear = new() { Label = "Add linear mask", Variant = MuiButtonVariant.Secondary, ButtonSize = MuiButtonSize.Sm };
@@ -129,6 +132,7 @@ namespace Maple.UI
             _root.Children.Add(_emptyHint);
             _root.Children.Add(_layerList);
 
+            _selectedHost.Children.Add(Composition);
             _selectedHost.Children.Add(_featherBar);
             _selectedHost.Children.Add(_invertCheckbox);
             foreach (var (field, label, min, max, step, _) in ControlDescriptors)
@@ -145,6 +149,11 @@ namespace Maple.UI
             _addLinear.Click += (_, _) => AddLinearRequested?.Invoke(this, EventArgs.Empty);
             _addRadial.Click += (_, _) => AddRadialRequested?.Invoke(this, EventArgs.Empty);
             _featherBar.ValueChanged += (_, v) => { if (!_syncGate.IsSyncing) FeatherChanged?.Invoke(this, v); };
+            foreach (var bar in _controlBars.Values.Append(_featherBar))
+            {
+                bar.GestureStarted += (_, _) => GestureStarted?.Invoke(this, EventArgs.Empty);
+                bar.GestureEnded += (_, _) => GestureEnded?.Invoke(this, EventArgs.Empty);
+            }
             _invertCheckbox.Checked += (_, _) => { if (!_syncGate.IsSyncing) InvertChanged?.Invoke(this, true); };
             _invertCheckbox.Unchecked += (_, _) => { if (!_syncGate.IsSyncing) InvertChanged?.Invoke(this, false); };
             _resetButton.Click += (_, _) => ResetRequested?.Invoke(this, EventArgs.Empty);

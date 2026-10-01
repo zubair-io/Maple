@@ -26,63 +26,69 @@
 import Foundation
 
 public enum MaskRemap {
-    /// `layers` with every linear / radial mask re-expressed in the space
-    /// `affine` maps back to the full frame. Returns `layers` unchanged for
-    /// the identity map, so the uncropped whole-frame case costs one
-    /// predicate and allocates nothing.
-    public static func remappedGeometry(
-        _ layers: [LocalAdjustment], through affine: MaskAffine
-    ) -> [LocalAdjustment] {
-        guard !affine.isIdentity, !layers.isEmpty, let inverse = affine.inverted() else { return layers }
-        return layers.map { layer in
-            var out = layer
-            out.mask = remap(layer.mask, bufferToFull: affine, fullToBuffer: inverse)
-            return out
-        }
+  /// `layers` with every linear / radial mask re-expressed in the space
+  /// `affine` maps back to the full frame. Returns `layers` unchanged for
+  /// the identity map, so the uncropped whole-frame case costs one
+  /// predicate and allocates nothing.
+  public static func remappedGeometry(
+    _ layers: [LocalAdjustment], through affine: MaskAffine
+  ) -> [LocalAdjustment] {
+    guard !affine.isIdentity, !layers.isEmpty, let inverse = affine.inverted() else {
+      return layers
     }
+    return layers.map { layer in
+      var out = layer
+      out.mask = remap(layer.mask, bufferToFull: affine, fullToBuffer: inverse)
+      return out
+    }
+  }
 
-    /// One mask through the map — see the file header for the derivation.
-    static func remap(_ mask: LocalMask, bufferToFull m: MaskAffine, fullToBuffer inverse: MaskAffine) -> LocalMask {
-        switch mask {
-        case .linear(let start, let end, let feather):
-            let direction = MaskPoint(x: end.x - start.x, y: end.y - start.y)
-            let mapped = m.transposeApplied(direction)
-            let mappedLenSq = mapped.x * mapped.x + mapped.y * mapped.y
-            guard mappedLenSq > 1e-18 else { return mask }
-            let k = (direction.x * direction.x + direction.y * direction.y) / mappedLenSq
-            let start2 = inverse.apply(start)
-            return .linear(
-                start: start2,
-                end: MaskPoint(x: start2.x + k * mapped.x, y: start2.y + k * mapped.y),
-                feather: feather)
-        case .radial(let center, let radii, let angle, let feather, let invert):
-            guard abs(radii.x) > 1e-9, abs(radii.y) > 1e-9 else { return mask }
-            let cosA = cos(angle)
-            let sinA = sin(angle)
-            // N = S · R(−α) · M, row by row (R(−α) = [[cos, sin], [−sin, cos]]).
-            let n00 = (cosA * m.a + sinA * m.b) / radii.x
-            let n01 = (cosA * m.c + sinA * m.d) / radii.x
-            let n10 = (-sinA * m.a + cosA * m.b) / radii.y
-            let n11 = (-sinA * m.c + cosA * m.d) / radii.y
-            let g11 = n00 * n00 + n10 * n10
-            let g12 = n00 * n01 + n10 * n11
-            let g22 = n01 * n01 + n11 * n11
-            // Eigen-decompose the symmetric form: the principal axis angle
-            // and the two eigenvalues (1/rx′², 1/ry′²).
-            let angle2 = 0.5 * atan2(2 * g12, g11 - g22)
-            let c2 = cos(angle2)
-            let s2 = sin(angle2)
-            let lambda1 = g11 * c2 * c2 + 2 * g12 * s2 * c2 + g22 * s2 * s2
-            let lambda2 = g11 * s2 * s2 - 2 * g12 * s2 * c2 + g22 * c2 * c2
-            guard lambda1 > 1e-18, lambda2 > 1e-18 else { return mask }
-            return .radial(
-                center: inverse.apply(center),
-                radii: MaskPoint(x: 1 / lambda1.squareRoot(), y: 1 / lambda2.squareRoot()),
-                angle: angle2,
-                feather: feather,
-                invert: invert)
-        case .bitmap, .everywhere:
-            return mask
-        }
+  /// One mask through the map — see the file header for the derivation.
+  static func remap(_ mask: LocalMask, bufferToFull m: MaskAffine, fullToBuffer inverse: MaskAffine)
+    -> LocalMask
+  {
+    switch mask {
+    case .linear(let start, let end, let feather):
+      let direction = MaskPoint(x: end.x - start.x, y: end.y - start.y)
+      let mapped = m.transposeApplied(direction)
+      let mappedLenSq = mapped.x * mapped.x + mapped.y * mapped.y
+      guard mappedLenSq > 1e-18 else { return mask }
+      let k = (direction.x * direction.x + direction.y * direction.y) / mappedLenSq
+      let start2 = inverse.apply(start)
+      return .linear(
+        start: start2,
+        end: MaskPoint(x: start2.x + k * mapped.x, y: start2.y + k * mapped.y),
+        feather: feather)
+    case .radial(let center, let radii, let angle, let feather, let invert):
+      guard abs(radii.x) > 1e-9, abs(radii.y) > 1e-9 else { return mask }
+      let cosA = cos(angle)
+      let sinA = sin(angle)
+      // N = S · R(−α) · M, row by row (R(−α) = [[cos, sin], [−sin, cos]]).
+      let n00 = (cosA * m.a + sinA * m.b) / radii.x
+      let n01 = (cosA * m.c + sinA * m.d) / radii.x
+      let n10 = (-sinA * m.a + cosA * m.b) / radii.y
+      let n11 = (-sinA * m.c + cosA * m.d) / radii.y
+      let g11 = n00 * n00 + n10 * n10
+      let g12 = n00 * n01 + n10 * n11
+      let g22 = n01 * n01 + n11 * n11
+      // Eigen-decompose the symmetric form: the principal axis angle
+      // and the two eigenvalues (1/rx′², 1/ry′²).
+      let angle2 = 0.5 * atan2(2 * g12, g11 - g22)
+      let c2 = cos(angle2)
+      let s2 = sin(angle2)
+      let lambda1 = g11 * c2 * c2 + 2 * g12 * s2 * c2 + g22 * s2 * s2
+      let lambda2 = g11 * s2 * s2 - 2 * g12 * s2 * c2 + g22 * c2 * c2
+      guard lambda1 > 1e-18, lambda2 > 1e-18 else { return mask }
+      return .radial(
+        center: inverse.apply(center),
+        radii: MaskPoint(x: 1 / lambda1.squareRoot(), y: 1 / lambda2.squareRoot()),
+        angle: angle2,
+        feather: feather,
+        invert: invert)
+    case .bitmap, .everywhere:
+      return mask
+    case .group:
+      return mask.mappingLeaves { remap($0, bufferToFull: m, fullToBuffer: inverse) }
     }
+  }
 }

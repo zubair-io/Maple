@@ -59,7 +59,8 @@
 //! the float slot is lossless.
 
 use super::{
-    BitmapRecipe, LocalAdjustment, Mask, MaskRaster, PartialAdjustments, Point2, RangeRefinement,
+    BitmapRecipe, LocalAdjustment, Mask, MaskCombine, MaskComponent, MaskGroup, MaskRaster,
+    PartialAdjustments, Point2, RangeRefinement,
 };
 use std::sync::Arc;
 
@@ -74,6 +75,26 @@ pub const KIND_RADIAL: f32 = 1.0;
 pub const KIND_BITMAP: f32 = 2.0;
 /// `kind` slot value for [`Mask::Everywhere`] (#3271).
 pub const KIND_EVERYWHERE: f32 = 3.0;
+/// Group header: p0.x = following component count, p0.y = opacity;
+/// slot 7 carries group inversion. All adjustment/range slots stay unchanged.
+pub const KIND_GROUP: f32 = 4.0;
+/// A component's kind is 5 + leaf kind + 4 * combine + 12 * inversion.
+/// These are new discriminants; no existing slot or padding is repurposed.
+pub const KIND_COMPONENT_BASE: f32 = 5.0;
+pub const COMPONENT_COMBINE_STRIDE: u32 = 4;
+pub const COMPONENT_INVERT_OFFSET: u32 = 12;
+pub const COMPONENT_CODE_COUNT: u32 = 24;
+pub const MASK_GROUP_VERSION: u32 = 1;
+
+/// Bitmap records include encoded group components as well as legacy leaves.
+pub fn is_bitmap_record(kind: f32) -> bool {
+    let code = kind - KIND_COMPONENT_BASE;
+    kind == KIND_BITMAP
+        || (code.is_finite()
+            && code.fract() == 0.0
+            && (0.0..COMPONENT_CODE_COUNT as f32).contains(&code)
+            && code as u32 % COMPONENT_COMBINE_STRIDE == KIND_BITMAP as u32)
+}
 
 /// `range_kind` slot value for "no range refinement."
 pub const RANGE_KIND_NONE: f32 = 0.0;
@@ -106,13 +127,38 @@ pub const PRESENT_DEFRINGE: u32 = 1 << 16;
 const SPATIAL_BASE: usize = 32;
 
 /// Serialize a layer stack to the flat wire. The result length is always
-/// `layers.len() * LAYER_FLAT_LEN`; an empty stack yields an empty `Vec`.
+/// a multiple of `LAYER_FLAT_LEN`; a group adds one record per component.
 pub fn layers_to_flat(layers: &[LocalAdjustment]) -> Vec<f32> {
-    let mut out = vec![0.0f32; layers.len() * LAYER_FLAT_LEN];
-    for (layer, slot) in layers.iter().zip(out.chunks_exact_mut(LAYER_FLAT_LEN)) {
+    let records: usize = layers
+        .iter()
+        .map(|layer| match &layer.mask {
+            Mask::Group(group) => 1 + group.components.len(),
+            _ => 1,
+        })
+        .sum();
+    let mut out = vec![0.0f32; records * LAYER_FLAT_LEN];
+    let mut offset = 0;
+    for layer in layers {
+        let slot = &mut out[offset..offset + LAYER_FLAT_LEN];
         write_mask(&layer.mask, slot);
         write_adjustments(&layer.adjustments, slot);
         write_range(layer.range, slot);
+        offset += LAYER_FLAT_LEN;
+        if let Mask::Group(group) = &layer.mask {
+            for component in &group.components {
+                let slot = &mut out[offset..offset + LAYER_FLAT_LEN];
+                write_mask(component.mask(), slot);
+                let combine = component.combine as u32 as f32;
+                slot[6] += KIND_COMPONENT_BASE
+                    + COMPONENT_COMBINE_STRIDE as f32 * combine
+                    + if component.invert {
+                        COMPONENT_INVERT_OFFSET as f32
+                    } else {
+                        0.0
+                    };
+                offset += LAYER_FLAT_LEN;
+            }
+        }
     }
     out
 }
@@ -195,6 +241,12 @@ fn write_mask(mask: &Mask, slot: &mut [f32]) {
         Mask::Everywhere => {
             slot[6] = KIND_EVERYWHERE;
         }
+        Mask::Group(ref group) => {
+            slot[0] = group.components.len() as f32;
+            slot[1] = group.opacity;
+            slot[6] = KIND_GROUP;
+            slot[7] = if group.invert { 1.0 } else { 0.0 };
+        }
     }
 }
 
@@ -265,13 +317,64 @@ fn write_adjustments(a: &PartialAdjustments, slot: &mut [f32]) {
 /// against the SAME (or a fuller) `rasters` slice still work even if this
 /// pass didn't have the raster available.
 pub fn layers_from_flat(flat: &[f32], rasters: &[Arc<MaskRaster>]) -> Vec<LocalAdjustment> {
-    flat.chunks_exact(LAYER_FLAT_LEN)
-        .map(|slot| LocalAdjustment {
-            mask: read_mask(slot, rasters),
+    let mut slots = flat.chunks_exact(LAYER_FLAT_LEN);
+    let mut layers = Vec::new();
+    while let Some(slot) = slots.next() {
+        let mask = if slot[6] == KIND_GROUP {
+            let count = slot[0];
+            if !count.is_finite()
+                || count < 0.0
+                || count.fract() != 0.0
+                || count as usize > slots.len()
+            {
+                break;
+            }
+            let mut components = Vec::with_capacity(count as usize);
+            for child in slots.by_ref().take(count as usize) {
+                let encoded = child[6] - KIND_COMPONENT_BASE;
+                if !encoded.is_finite()
+                    || !(0.0..COMPONENT_CODE_COUNT as f32).contains(&encoded)
+                    || encoded.fract() != 0.0
+                {
+                    // A corrupt component cannot turn into an independent
+                    // correction or silently widen the group's selection.
+                    return layers;
+                }
+                let code = encoded as u32;
+                let combine = match (code % COMPONENT_INVERT_OFFSET) / COMPONENT_COMBINE_STRIDE {
+                    0 => MaskCombine::Add,
+                    1 => MaskCombine::Subtract,
+                    _ => MaskCombine::Intersect,
+                };
+                let mut leaf = [0.0; LAYER_FLAT_LEN];
+                leaf.copy_from_slice(child);
+                leaf[6] = (code % COMPONENT_COMBINE_STRIDE) as f32;
+                components.push(
+                    MaskComponent::new(
+                        read_mask(&leaf, rasters),
+                        combine,
+                        code >= COMPONENT_INVERT_OFFSET,
+                    )
+                    .expect("component discriminants only encode leaf masks"),
+                );
+            }
+            Mask::Group(MaskGroup {
+                components,
+                opacity: slot[1],
+                invert: slot[7] != 0.0,
+            })
+        } else if (0.0..=KIND_EVERYWHERE).contains(&slot[6]) && slot[6].fract() == 0.0 {
+            read_mask(slot, rasters)
+        } else {
+            break;
+        };
+        layers.push(LocalAdjustment {
+            mask,
             range: read_range(slot),
             adjustments: read_adjustments(slot),
-        })
-        .collect()
+        });
+    }
+    layers
 }
 
 fn read_mask(slot: &[f32], rasters: &[Arc<MaskRaster>]) -> Mask {

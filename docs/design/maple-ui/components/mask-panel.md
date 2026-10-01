@@ -57,6 +57,12 @@ colour range on any layer). Phone surfaces mount the same panel inside their bot
   Apple `MaskRangePickOverlay` beside `WhiteBalancePickOverlay`); the sample itself is raw-core's
   `sample_mask_range`, read on the pixel entering the local-adjustments stage.
 
+## Ordered compositions (#3408)
+
+The selected layer can grow an ordered group through Add, Subtract and Intersect commands, each offering linear or radial geometry. A component list exposes selection, combine mode, independent inversion and deletion; the last component cannot be deleted independently of its layer. Feather and canvas handles address the selected component. The layer's local controls and colour range remain attached to the group, with final opacity and group inversion applied after composition. Unknown imported metadata travels with its owner through edits and undo. Web, Apple and Windows expose geometric group authoring; bitmap component creation depends on the host's segmentation source.
+
+Selection does not add history. Add/delete/combine/invert operations each commit one undo entry. Pointer gestures remain one entry across pauses and close on release or cancellation. Component rows and their delete buttons identify the shape, operation, ordinal and selected state through accessible names and stable identifiers.
+
 ## Accessibility
 
 - Add buttons: "Add linear mask" / "Add radial mask"; delete: "Delete <Layer name>"; reset:

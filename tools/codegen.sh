@@ -122,6 +122,15 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema adjustment-transfer --target ts --out "src/api/src/generated/adjustment-transfer.generated.ts"
 # --- Named white-balance presets (#3307) ----------------------------------
 
+for local_mask_out in \
+	"rust:src/raw-pipeline/raw-gpu/src/generated/local_mask_wire.rs" \
+	"wgsl:src/raw-pipeline/raw-gpu/src/generated/local_mask_wire.wgsl" \
+	"swift:src/apple/Packages/MapleCore/Sources/MapleCore/Generated/LocalMaskWire+Generated.swift" \
+	"ts:src/web/projects/maple-common/src/lib/generated/local-mask-wire.generated.ts" \
+	"cs:src/windows/Maple.WinUI/Generated/LocalMaskWire.g.cs"; do
+	"$BIN" --schema local-mask-wire --target "${local_mask_out%%:*}" --out "${local_mask_out#*:}"
+done
+
 "$BIN" --schema white-balance-presets --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/WhiteBalancePresets+Generated.swift"
 "$BIN" --schema white-balance-presets --target ts --out "src/web/projects/maple-common/src/lib/generated/white-balance-presets.generated.ts"
 "$BIN" --schema white-balance-presets --target cs --out "src/windows/Maple.WinUI/Generated/WhiteBalancePresets.g.cs"

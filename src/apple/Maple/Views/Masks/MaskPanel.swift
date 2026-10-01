@@ -52,10 +52,15 @@ struct MaskPanel: View {
       Spacer()
       Menu {
         Button("People…") { showingPeoplePicker = true }
-        Button("Linear (coming in #355)") {}.disabled(true)
-        Button("Radial (coming in #355)") {}.disabled(true)
+        Button("Linear") { state.session.createGeometricMask(.linear) }
+          .accessibilityLabel("Add linear mask")
+        Button("Radial") { state.session.createGeometricMask(.radial) }
+          .accessibilityLabel("Add radial mask")
       } label: {
-        MuiIcon(name: "add_circle", size: .sm)
+        HStack(spacing: 4) {
+          MuiIcon(name: "add_circle", size: .sm)
+          Text("Add mask")
+        }
       }
       .accessibilityLabel("Add Mask")
       .accessibilityIdentifier("editor-mask-add-menu")
@@ -66,6 +71,7 @@ struct MaskPanel: View {
 
   private func sliders(for layer: LocalAdjustment) -> some View {
     VStack(spacing: 4) {
+      MaskCompositionSection(state: state).padding(.horizontal, 14)
       rows(MaskSlider.pointControls, for: layer)
       // The spatial group is a separate pass in the render stage and a
       // separate block in Lightroom's own panel, so it reads as its

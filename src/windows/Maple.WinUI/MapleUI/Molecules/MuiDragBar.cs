@@ -80,6 +80,8 @@ namespace Maple.UI
 
         /// <summary>Fires after a drag/keyboard change.</summary>
         public event EventHandler<double>? ValueChanged;
+        public event EventHandler? GestureStarted;
+        public event EventHandler? GestureEnded;
 
         private readonly StackPanel _root = new() { Orientation = Orientation.Vertical, Spacing = 4 };
         private readonly Grid _headerRow = new();
@@ -118,7 +120,7 @@ namespace Maple.UI
             _bar.PointerMoved += OnPointerMoved;
             _bar.PointerReleased += OnPointerReleased;
             _bar.PointerCanceled += OnPointerReleased;
-            _bar.PointerCaptureLost += (_, _) => { _dragging = false; _activePointerId = null; };
+            _bar.PointerCaptureLost += (_, _) => EndGesture();
             KeyDown += OnKeyDown;
             SizeChanged += (_, _) => Layout();
             IsEnabledChanged += (_, _) => Rebuild();
@@ -131,6 +133,7 @@ namespace Maple.UI
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (!IsEnabled || !e.GetCurrentPoint(_bar).Properties.IsLeftButtonPressed || _dragging) return;
+            GestureStarted?.Invoke(this, EventArgs.Empty);
             _dragging = true;
             _activePointerId = e.Pointer.PointerId;
             var x = e.GetCurrentPoint(_bar).Position.X;
@@ -152,10 +155,17 @@ namespace Maple.UI
         private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
         {
             if (e.Pointer.PointerId != _activePointerId) return;
-            _dragging = false;
-            _activePointerId = null;
+            EndGesture();
             _bar.ReleasePointerCapture(e.Pointer);
             e.Handled = true;
+        }
+
+        private void EndGesture()
+        {
+            var wasDragging = _dragging;
+            _dragging = false;
+            _activePointerId = null;
+            if (wasDragging) GestureEnded?.Invoke(this, EventArgs.Empty);
         }
 
         private void OnKeyDown(object sender, KeyRoutedEventArgs e)
