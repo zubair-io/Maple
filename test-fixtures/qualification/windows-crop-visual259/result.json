@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceRevision": "530a8f238",
+  "app": "Maple.DesignAudit258.exe",
+  "appSha256": "9C14AA67E0EB5A33BB26927E12F1A750B2662A7039F70523FA34DA9B97A22B00",
+  "method": "Computer-use sky screenshot, pointer drag and Undo button",
+  "captureSize": {
+    "width": 1908,
+    "height": 1019
+  },
+  "fixtureSha256": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8",
+  "observations": [
+    "Full-frame crop: top and bottom handles now fully visible inside the viewport.",
+    "Top midpoint handle dragged from screenshot coordinates 954,38 to 954,220; top crop boundary moved inward and header showed Edited.",
+    "Pointer capture retained the crop drag while crossing the floating header.",
+    "One Undo restored full-frame crop and removed Edited status.",
+    "Settled restored capture retained patterned image after temporary low-detail render."
+  ],
+  "limitations": [
+    "Single current window and top-handle drag; not full DPI or all-handle input qualification.",
+    "Synthetic fixture is not photographic color evidence."
+  ],
+  "cropClippingConcern257": "Resolved for captured full-frame geometry, with native bounds checks separately in windows-crop-targets258.json",
+  "epicComplete": false
+}

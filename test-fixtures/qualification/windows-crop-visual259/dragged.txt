@@ -1,0 +1,104 @@
+Window: "Maple", App: Maple.DesignAudit258.exe.
+	0 window Maple Secondary Actions: Raise
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				17 group Filmstrip ID: FilmstripRail
+					18 text 01 / 01
+					19 button Collapse filmstrip
+					20 pane
+						21 group design-fixture.dng
+							22 group design-fixture.dng
+								23 image
+				24 pane ID: ViewerScroll
+					25 group GPU preview canvas ID: ViewportSwapChainPanel
+					92 group Crop overlay ID: CropOverlay
+						93 thumb Move crop region Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						94 thumb Crop top left handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						95 thumb Crop top handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						96 thumb Crop top right handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						97 thumb Crop right handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						98 thumb Crop bottom right handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						99 thumb Crop bottom handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						100 thumb Crop bottom left handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						101 thumb Crop left handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+				26 text 67% · preview Description: Image zoom and detail status ID: ZoomReadout
+				38 button Back to preview
+				39 text design-fixture.dng
+				40 text DNG · Edited ID: EditStatusText
+				41 button Shadow clipping indicator ID: ShadowClipButton
+				42 button Highlight clipping indicator ID: HighlightClipButton
+				43 button Undo adjustment
+				44 button Compare before and after ID: CompareButton
+				45 button More editing actions ID: MoreEditActions
+					46 text …
+				47 button Export photo
+				48 pane
+					49 button Light tools
+						50 text Light
+					51 button Color tools
+						52 text Color
+					53 button Effects tools
+						54 text Effects
+					55 button Detail tools
+						56 text Detail
+					57 button Tone Curve tools
+						58 text Curve
+					59 button Mask tools
+						60 text Mask
+					61 button Crop tools
+						62 text Crop
+				63 text Crop ID: EditPanelTitle
+				64 button Reset group ID: GroupResetButton
+					65 text Reset
+				66 pane
+					102 group Crop toolbar ID: CropToolbar
+						103 pane
+							104 group 9 chips
+								105 button Free, selected
+									106 text Free
+								107 button Original
+									108 text Original
+								109 button 1:1
+									110 text 1:1
+								111 button 3:2
+									112 text 3:2
+								113 button 4:3
+									114 text 4:3
+								115 button 16:9
+									116 text 16:9
+								117 button 2:3
+									118 text 2:3
+								119 button 3:4
+									120 text 3:4
+								121 button 9:16
+									122 text 9:16
+							123 scroll bar (settable, float) Horizontal Value: 0 ID: HorizontalScrollBar
+						124 slider (settable, float) Straighten Value: 0
+							125 text Straighten
+							126 text 0
+						127 button Reset
+							128 text Reset
+					129 button Crop done
+						130 text Done
+		31 title bar (settable, string) Value: Maple
+			32 menu bar System ID: MenuBar
+				37 menu item System
+			34 button Minimize
+			35 button Maximize
+			36 button Close
+
+The focused UI element is 7 pane.
