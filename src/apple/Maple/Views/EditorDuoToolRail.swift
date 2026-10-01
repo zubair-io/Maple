@@ -15,7 +15,7 @@
     private let visibleTools: [Tool] = [
       .crop, .toneCurve, .filmLook, .geometry, .mask,
     ]
-    private let moreTools: [Tool] = [.presets, .heal]
+    private let moreTools: [Tool] = [.presets, .heal, .remove]
 
     var body: some ToolbarContent {
       ToolbarItemGroup(placement: .topBarTrailing) {

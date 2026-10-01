@@ -79,6 +79,7 @@ public final class EditorState {
   /// The mask panel's colour-range eyedropper (#362) — same shape as the WB picker.
   public let maskRangePicker: MaskRangePicker
   public let retouch: RetouchSession
+  public let removal: RemovalSession
 
   /// `subParamMemory` defaults to the app-session `.shared` store;
   /// tests inject fresh instances for isolation. (`nil` sentinel
@@ -100,6 +101,7 @@ public final class EditorState {
     self.whiteBalancePicker = WhiteBalancePicker(session: session)
     self.maskRangePicker = MaskRangePicker(session: session)
     self.retouch = RetouchSession(session: session)
+    self.removal = RemovalSession(session: session)
     self.armedSubParamId = Self.resolveSubParamId(
       for: armedTool, memory: memory
     )
@@ -142,6 +144,8 @@ public final class EditorState {
   /// image only at fit). Arming any other tool clears crop-editing mode, so
   /// the next render publishes the cropped+straightened result.
   public func arm(tool: Tool) {
+    guard !session.isSavingRemoval else { return }
+    if tool != .remove { removal.close() }
     whiteBalancePicker.cancel()
     maskRangePicker.cancel()
     // A parked commit-on-release value belongs to the OLD armed pair —

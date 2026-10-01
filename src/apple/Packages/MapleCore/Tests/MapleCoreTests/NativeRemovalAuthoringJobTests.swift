@@ -5,6 +5,72 @@ import XCTest
 
 final class NativeRemovalAuthoringJobTests: XCTestCase {
   @MainActor
+  func testEditorPaintReviewCancelKeepAndReopenUseActualLocalModel() async throws {
+    #if os(macOS)
+      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
+        value.deletingLastPathComponent()
+      }
+      .appendingPathComponent("test-fixtures/raws/removal-inference")
+      guard
+        FileManager.default.fileExists(atPath: root.appendingPathComponent("runtime.dylib").path),
+        FileManager.default.fileExists(
+          atPath: root.appendingPathComponent("lama-native-1024.onnx").path)
+      else { throw XCTSkip("Install the native authoring qualification corpus (#3984)") }
+      let fixture = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "source", withExtension: "dng",
+          subdirectory: "removal/calibration"))
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+      let raw = directory.appendingPathComponent("photo.dng")
+      let original = try Data(contentsOf: fixture)
+      try original.write(to: raw)
+      let session = EditSession(asset: AssetRef(url: raw))
+      let removal = RemovalSession(session: session)
+      await removal.open()
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      await removal.chooseModelFolder(root)
+      removal.radius = 0.1
+      await removal.paint([[0.4, 0.5]], cropInputSize: [16, 8])
+      XCTAssertTrue(removal.canRemove)
+      let sidecar = try XCTUnwrap(session.asset.sidecarURL)
+      let before = try? Data(contentsOf: sidecar)
+      await removal.remove()
+      XCTAssertEqual(removal.phase, .review, removal.message)
+      let preview = try XCTUnwrap(removal.preview)
+      XCTAssertEqual(preview.bytes.count, Int(preview.width * preview.height * 3))
+      XCTAssertEqual(try? Data(contentsOf: sidecar), before)
+      removal.compare = true
+      removal.cancel()
+      XCTAssertEqual(removal.phase, .ready)
+      XCTAssertNil(removal.preview)
+      XCTAssertFalse(removal.compare)
+      XCTAssertEqual(try? Data(contentsOf: sidecar), before)
+      await removal.remove()
+      XCTAssertEqual(removal.phase, .review, removal.message)
+      await removal.keep()
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertEqual(removal.message, "Removal saved.")
+      XCTAssertNotNil(session.model.inpaintRemovals)
+      XCTAssertEqual(session.undoHistory.count, 1)
+      XCTAssertEqual(try XMPParser.parse(data: Data(contentsOf: sidecar)).0, session.model)
+      XCTAssertEqual(try Data(contentsOf: raw), original)
+      let accepted = session.model
+      removal.close()
+      await removal.open()
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertEqual(removal.context?.model, accepted)
+      XCTAssertTrue(removal.selection.isEmpty)
+      removal.close()
+      await session.releaseTransientMemory()
+    #else
+      throw XCTSkip("macOS native model corpus test")
+    #endif
+  }
+
+  @MainActor
   func testActualGenerationReviewKeepReopenAndCancellationDoNotModifyOriginal() async throws {
     #if os(macOS)
       let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
@@ -46,7 +112,7 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
       let assets = LocalRemovalAssetStore(rawURL: raw)
       let session = EditSession(asset: AssetRef(url: raw))
       try await session.acceptRemoval(
-        proposal, expectedModel: session.model, expectedRevision: session.editRevision)
+        proposal, snapshot: session.removalAuthoringSnapshot())
       await session.flushPendingSidecarWrite()
       let records = try XCTUnwrap(session.model.inpaintRemovals).json
       XCTAssertEqual(session.undoHistory.count, 1)
@@ -69,7 +135,7 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
       let accepted = try XCTUnwrap(decoded[1]["accepted"] as? [String: Any])
       XCTAssertEqual((accepted["dependencies"] as? [Any])?.count, 1)
       try await session.acceptRemoval(
-        second, expectedModel: session.model, expectedRevision: session.editRevision)
+        second, snapshot: session.removalAuthoringSnapshot())
       await session.flushPendingSidecarWrite()
       XCTAssertEqual(session.model.inpaintRemovals?.json, appended)
       XCTAssertEqual(session.undoHistory.count, 2)

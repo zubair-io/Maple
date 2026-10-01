@@ -49,6 +49,9 @@ struct EditorCanvasView: View {
           if state.armedTool == .heal {
             RetouchOverlay(state: state)
           }
+          if state.armedTool == .remove {
+            RemovalOverlay(state: state)
+          }
           if state.whiteBalancePicker.isArmed {
             WhiteBalancePickOverlay(state: state)
               .id(ObjectIdentifier(state.session))

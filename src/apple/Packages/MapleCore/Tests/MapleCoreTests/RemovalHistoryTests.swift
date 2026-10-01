@@ -30,7 +30,7 @@ final class RemovalHistoryTests: XCTestCase {
 
   private func keep(_ session: EditSession) async throws {
     try await session.acceptRemoval(
-      proposal(), expectedModel: session.model, expectedRevision: session.editRevision)
+      proposal(), snapshot: session.removalAuthoringSnapshot())
   }
 
   private func reopen(_ session: EditSession) throws -> AdjustmentModel {
@@ -128,13 +128,13 @@ final class RemovalHistoryTests: XCTestCase {
   func testFailedKeepAndStaleRevisionNeverRecordOrAdoptAProposal() async throws {
     let session = try stage()
     let before = session.model
-    let revision = session.editRevision
+    let snapshot = try await session.removalAuthoringSnapshot()
     session.beginEdit()
     session.model.exposure = 1
     session.endEdit()
     session.undo()
     do {
-      try await session.acceptRemoval(proposal(), expectedModel: before, expectedRevision: revision)
+      try await session.acceptRemoval(proposal(), snapshot: snapshot)
       XCTFail("An edit → undo invalidates an in-flight proposal")
     } catch RemovalError.saveConflict {}
     XCTAssertTrue(session.undoHistory.isEmpty)

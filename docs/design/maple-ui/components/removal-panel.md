@@ -1,6 +1,6 @@
 # Removal Panel and Overlay
 
-**Tier:** Organism · **Status:** experimental Web implementation, #3941 / #1472.
+**Tier:** Organism · **Status:** experimental Web and Apple implementation, #3941 / #3984 / #1472.
 
 ## Purpose
 
@@ -21,10 +21,49 @@ Remove starts local inference. The proposed pixels remain temporary until Keep. 
 - Saving: disable conflicting actions until confirmed publication.
 - Recovery: retain the draft view and offer restoration retry.
 
-## Tokens and accessibility
+## Variants
 
-Compose Maple UI Button, Segmented Toggle and Living Slider. Use generated primary color for selection and successText for protection. Number labels match the accessible Person N buttons. Radius exposes its label/value as a slider; operation status is a polite live region. Keyboard painting and global undo/history integration remain tracked by #1472.
+Paint records the brush footprint. Smart paint expands strokes with the object
+segmenter. People shows detector proposals for explicit keeper review. The same
+controls occupy the desktop inspector or the phone's scrollable tool area.
+
+## Tokens used
+
+Compose Maple UI Button, Segmented Toggle and Living Slider. Use generated
+primary color for selection and successText for protection; textMuted for
+instructions, errorText for projection errors, and surface/border for controls.
+
+## Props
+
+Apple's panel and overlay receive `EditorState` and use its owned
+`RemovalSession`. The Web panel injects `RemovalEditorSession`; it has no
+external inputs or outputs. Sessions supply phase, mode, temporary masks,
+people, model availability, review pixels and confirmed save/error state.
+
+## Accessibility
+
+Number labels match accessible Person N buttons. Brush size exposes its
+label/value and adjustable actions. Every selection, review and model action
+has an accessible label. The Web operation status is a polite live region;
+Apple exposes a status element beside its progress control. Keyboard painting,
+broader announcements and Web global undo/history integration remain tracked by #1472.
 
 ## Persistence and scope
 
-Require a writable filesystem RAW folder and explicitly imported, checksum-verified model files. XMP stores ordered accepted records; `.maple/inpaint/` stores immutable masks and scene-linear patches. Reopening, compatible CPU native-detail tiles and local browser exports use verified assets without inference. Export retains selection, review, dedicated undo and viewport across CPU RAW-owner retirement. Missing/corrupt assets fail visibly. The original is immutable. Apple UI, native-detail tiles on WebGPU/Apple and Apple/server/Windows export consumers, model photographic quality, model distribution and physical-device budgets remain unqualified under #1472.
+Require a writable filesystem RAW folder and explicitly imported, checksum-verified model files. XMP stores ordered accepted records; `.maple/inpaint/` stores immutable masks and scene-linear patches. Reopening, compatible CPU native-detail tiles and local browser exports use verified assets without inference. Export retains selection, review, dedicated undo and viewport across CPU RAW-owner retirement. Missing/corrupt assets fail visibly. The original is immutable. Native Smart paint/People UI, native-detail tiles on WebGPU, remaining remote/server/Windows consumers, model photographic quality, model distribution and physical-device budgets remain unqualified under #1472.
+
+Apple owns temporary selection and review in `RemovalSession`. Its panel is
+available in the Mac/iPad inspector and iPhone controls; a local model folder
+is selected through the system picker. Paint uses the shared source-coordinate
+rasterizer; Smart paint and People use pinned native SAM/RT-DETR inference.
+Selection/protection overlays use the shared inverse RAW geometry. The review
+RGB preview overlays the confirmed canvas without retiring its RAW owner, so
+Cancel writes nothing and reveals the existing confirmed render. Keep publishes
+through the durable history boundary. A full-XMP conflict retains the candidate
+and instructs the photographer to reopen the photo before using external edits.
+Native Paint workflow/model tests pass. The macOS app has also exercised Paint,
+Compare, Cancel, Keep, undo/redo and reopening on an isolated 39MP photographic
+RAW, verifying that the original remains byte-identical and Cancel creates no
+XMP or companions. Native Smart paint/People UI, automatic background-role
+selection, spread-person generation, photographic and hardware qualification
+remain under #1472.

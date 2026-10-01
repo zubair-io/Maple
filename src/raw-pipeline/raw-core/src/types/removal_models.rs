@@ -2,6 +2,11 @@
 //! These artifacts are not release-qualified; distribution/weights audit and
 //! photographic/device gates remain required before product activation.
 
+/// Concrete authoring defaults shared by the Apple and Web experiments.
+pub const REMOVAL_PERSON_MIN_SCORE: f32 = 0.5;
+pub const REMOVAL_HOLE_RADIUS: u32 = 1;
+pub const REMOVAL_FRINGE_RADIUS: f32 = 1.0;
+
 #[derive(Clone, Copy, serde::Serialize)]
 pub struct ExperimentalRemovalModelPin {
     pub id: &'static str,
