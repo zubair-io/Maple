@@ -73,5 +73,87 @@
     "No production rendering math, default, or acceptance budget changed."
   ],
   "nextRequiredEvidence": "Validate noise propagation through reconstruction and resizing, then run ordinary host preview versus full-quality export and CPU/GPU comparisons across the fixture corpus.",
-  "fullQualificationPassed": false
+  "fullQualificationPassed": false,
+  "crossFitComparison": {
+    "method": "Compare proxy-fit 1600px candidate against native-fit native-size reference, reduced to 1600x1067 by the same shared comparator. Includes both fit and resolution changes; still uses Preview reconstruction.",
+    "metrics": {
+      "default": {
+        "mean_deltaE": 2.919405073286166,
+        "p95_deltaE": 6.636432421932437,
+        "max_deltaE": 36.19359916682467,
+        "bias_r": -0.0017233309336006641,
+        "bias_g": -0.0013231171760708094,
+        "bias_b": -0.0009429101482965052,
+        "n_pixels": 1707200,
+        "zones": {
+          "shadow": {
+            "n": 351960,
+            "mean_deltaE": 3.3227033286951153,
+            "p95_deltaE": 6.471211912525034,
+            "max_deltaE": 33.249662589632436,
+            "bias_r": 0.018422888591885567,
+            "bias_g": 0.017774272710084915,
+            "bias_b": 0.01787419803440571
+          },
+          "mid": {
+            "n": 704132,
+            "mean_deltaE": 3.2433469293139554,
+            "p95_deltaE": 7.5293728863713625,
+            "max_deltaE": 36.19359916682467,
+            "bias_r": -0.0033671248238533735,
+            "bias_g": -0.0034631460439413786,
+            "bias_b": -0.004651946946978569
+          },
+          "highlight": {
+            "n": 651108,
+            "mean_deltaE": 2.351077421126625,
+            "p95_deltaE": 5.402759499941927,
+            "max_deltaE": 24.723819923404097,
+            "bias_r": -0.010833531618118286,
+            "bias_g": -0.009328825399279594,
+            "bias_b": -0.007105091121047735
+          }
+        }
+      },
+      "variance-scaled": {
+        "mean_deltaE": 2.2257252422816935,
+        "p95_deltaE": 4.50500070612634,
+        "max_deltaE": 33.92165290989168,
+        "bias_r": -0.0011212002718821168,
+        "bias_g": -0.0012002363801002502,
+        "bias_b": -0.0014451057650148869,
+        "n_pixels": 1707200,
+        "zones": {
+          "shadow": {
+            "n": 351960,
+            "mean_deltaE": 2.4942420701270756,
+            "p95_deltaE": 4.663010467848879,
+            "max_deltaE": 31.30972404239877,
+            "bias_r": 0.01844286173582077,
+            "bias_g": 0.018513843417167664,
+            "bias_b": 0.021878868341445923
+          },
+          "mid": {
+            "n": 704132,
+            "mean_deltaE": 2.3395132128123395,
+            "p95_deltaE": 5.058339955924331,
+            "max_deltaE": 33.33393921517756,
+            "bias_r": -0.001932744518853724,
+            "bias_g": -0.0032513150945305824,
+            "bias_b": -0.0054549830965697765
+          },
+          "highlight": {
+            "n": 651108,
+            "mean_deltaE": 1.9575225263050127,
+            "p95_deltaE": 3.739545081429673,
+            "max_deltaE": 33.92165290989168,
+            "bias_r": -0.01080238725990057,
+            "bias_g": -0.009634616784751415,
+            "bias_b": -0.00972224771976471
+          }
+        }
+      }
+    },
+    "interpretation": "Mean improves from 2.919405 to 2.225725, remaining above 2.0. Resize variance scaling alone does not resolve the combined discrepancy. No production fix or qualification pass is justified."
+  }
 }
