@@ -191,4 +191,73 @@ final class RemovalModelStateTests: XCTestCase {
     XCTAssertEqual(try XMPParser.parse(saved).1.stars, 4)
     XCTAssertEqual(try Data(contentsOf: raw), try fixture("source", "dng"))
   }
+
+  func testMalformedOwnedSidecarCannotValidateOrSeedAnOriginalCache() async throws {
+    let (raw, xml) = try stage()
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    try XMPSerializer.serialize(model: .default, culling: CullingState())
+      .write(to: sidecar, atomically: true, encoding: .utf8)
+    let asset = AssetRef(url: raw)
+    let image = CIImage(color: .gray).cropped(to: CGRect(x: 0, y: 0, width: 16, height: 8))
+    let actor = RenderActor(pipeline: ImageEditPipeline())
+    await actor.seed(asset: asset, decoded: image, rawResolution: image.extent.size)
+    try xml.replacingOccurrences(of: "&quot;schema&quot;:4", with: "&quot;schema&quot;:999")
+      .write(to: sidecar, atomically: true, encoding: .utf8)
+    let fresh = await actor._testDecodedCacheIsFresh(forAsset: asset)
+    XCTAssertFalse(fresh)
+    let result = await actor.sharedDecode(asset: asset, target: image.extent.size) { image, _ in
+      image
+    }
+    XCTAssertNil(result)
+    let empty = RenderActor(pipeline: ImageEditPipeline())
+    await empty.seed(asset: asset, decoded: image, rawResolution: image.extent.size)
+    let seeded = await empty.snapshot(forAsset: asset)
+    XCTAssertNil(seeded.image)
+    let accepted = await empty.seedIfUnpopulated(
+      asset: asset, decoded: image, rawResolution: image.extent.size)
+    XCTAssertFalse(accepted)
+  }
+
+  func testLateOriginalDecodeCannotPublishUnderNewRemovalRevision() async throws {
+    let (raw, xml) = try stage()
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    try XMPSerializer.serialize(model: .default, culling: CullingState())
+      .write(to: sidecar, atomically: true, encoding: .utf8)
+    let asset = AssetRef(url: raw)
+    let actor = RenderActor(pipeline: ImageEditPipeline())
+    let target = CGSize(width: 16, height: 8)
+    let stale = await actor.sharedDecode(
+      asset: asset, target: target, profile: .neutral, autoExposure: .off, quality: .full
+    ) { image, _ in
+      do {
+        try xml.write(to: sidecar, atomically: true, encoding: .utf8)
+      } catch {
+        XCTFail("Could not publish the accepted removal during decode: \(error)")
+      }
+      return image
+    }
+    XCTAssertNil(stale)
+    let populated = await actor._testDecodedCachePopulated(forAsset: asset)
+    XCTAssertFalse(populated, "Old pixels cannot claim the current accepted stack")
+    let next = await actor.sharedDecode(
+      asset: asset, target: target, profile: .neutral, autoExposure: .off, quality: .full
+    ) { image, _ in image }
+    let image = try XCTUnwrap(next)
+    let expectedResult = await ImageEditPipeline().decodeSceneLinearSized(
+      asset: asset, targetSize: target, xmpPath: sidecar, quality: .full,
+      profileOverride: .neutral, autoExposureOverride: .off)
+    let expected = try XCTUnwrap(expectedResult)
+    func bytes(_ image: CIImage) -> Data {
+      var output = Data(count: 16 * 8 * 16)
+      output.withUnsafeMutableBytes {
+        CIContext().render(
+          image, toBitmap: $0.baseAddress!, rowBytes: 16 * 16,
+          bounds: image.extent, format: .RGBAf,
+          colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!)
+      }
+      return output
+    }
+    XCTAssertEqual(bytes(image), bytes(expected.image))
+    XCTAssertEqual(try Data(contentsOf: raw), try fixture("source", "dng"))
+  }
 }
