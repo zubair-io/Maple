@@ -287,20 +287,20 @@ the index entirely.
 Every row below carries `live AND hidden = 0` as its `WHERE`; only the part
 that differs is written out.
 
-| Call site                                                              | SQLite                                                                      | Index                                               |
-| ---------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------- |
-| facet total, Meili live count, generated-search preview, buckets total | `COUNT(*)`                                                                  | `assets_live`                                       |
-| camera facet                                                           | `GROUP BY camera_make, camera_model`                                        | `assets_facet_camera`                               |
-| lens facet                                                             | `GROUP BY lens`                                                             | `assets_facet_lens`                                 |
-| places facet                                                           | `GROUP BY place_locality, place_region`                                     | `assets_facet_place_label`                          |
-| country drill-down                                                     | `GROUP BY place_country_code`                                               | `assets_facet_place`                                |
-| timeline buckets                                                       | `GROUP BY captured_year, captured_month`                                    | `assets_live_captured_ym`                           |
-| screenshot tri-state                                                   | `GROUP BY is_screenshot`                                                    | `assets_facet_screenshot`                           |
-| scene / activity facets                                                | `JOIN assets` + `WHERE vision_scene_type IS NOT NULL AND <> '' GROUP BY` it | `asset_detail_scene_type`, `asset_detail_activity`  |
-| capture range, ISO range                                               | `MIN` / `MAX`                                                               | `assets_live_captured`, table scan for ISO          |
-| extension facet                                                        | `GROUP BY` a suffix expression                                              | `asset_locations_filename` scan                     |
-| people facet                                                           | `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces`                     | `faces_person`                                      |
-| Meili vector coverage                                                  | `WHERE semantic_vector_fingerprint = ?`                                     | `assets_vector_fingerprint` (new — unindexed today) |
+| Call site                                                              | SQLite                                                                                                     | Index                                               |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| facet total, Meili live count, generated-search preview, buckets total | `COUNT(*)`                                                                                                 | `assets_live`                                       |
+| camera facet                                                           | `GROUP BY camera_make, camera_model`                                                                       | `assets_facet_camera`                               |
+| lens facet                                                             | `GROUP BY lens`                                                                                            | `assets_facet_lens`                                 |
+| places facet                                                           | `GROUP BY place_locality, place_region`                                                                    | `assets_facet_place_label`                          |
+| country drill-down                                                     | `GROUP BY place_country_code`                                                                              | `assets_facet_place`                                |
+| timeline buckets                                                       | `GROUP BY captured_year, captured_month`                                                                   | `assets_live_captured_ym`                           |
+| screenshot tri-state                                                   | `GROUP BY is_screenshot`                                                                                   | `assets_facet_screenshot`                           |
+| scene / activity facets                                                | mirrored live/hidden state + `WHERE` nonempty group key + `GROUP BY` it; join for additional asset filters | `asset_detail_scene_type`, `asset_detail_activity`  |
+| capture range, ISO range                                               | `MIN` / `MAX`                                                                                              | `assets_live_captured`, `assets_facet_iso`          |
+| extension facet                                                        | mirrored live/hidden state + `GROUP BY extension` on ordinal 0                                             | `asset_locations_facet_extension`                   |
+| people facet                                                           | mirrored live/hidden state + `SELECT person_id, COUNT(DISTINCT asset_id) FROM faces`                       | `faces_facet_person`                                |
+| Meili vector coverage                                                  | `WHERE semantic_vector_fingerprint = ?`                                                                    | `assets_vector_fingerprint` (new — unindexed today) |
 
 The vision facets are the one row where the exclusion is load-bearing rather
 than decorative. A bare `GROUP BY vision_scene_type` implies nothing about
@@ -332,6 +332,13 @@ below) took it to 81 ms and no further. The probe itself is the floor, because
 the answer is not in the grouped table.
 
 It is now. Each of those four tables carries two mirrored columns:
+
+Keep exact live, visible counts for scene and activity buckets (#3783), as for
+the other facets. Their API response includes a count, and the matching search
+excludes dead and hidden assets. Dropping liveness would let a bucket advertise
+photos the search cannot return. Migration `0003-facet-state` implements that
+choice without a per-candidate join; it also handles hidden-only and all-hidden
+queries through the indexed visibility column.
 
 | column         | mirrors                                          |
 | -------------- | ------------------------------------------------ |
@@ -892,6 +899,46 @@ A caution about reading any of these against a figure taken on another day:
 the same filtered set measured 25% slower across every row, including one whose
 plan this ticket does not touch, on a machine that had just run the test suite.
 Two numbers are comparable when they come out of the same run.
+
+### Three-size vision facet qualification (#3783)
+
+Re-measured on 2026-09-30 against main `63f0d45e6`, using Bun 1.4.3 on an
+Apple M5 Max running macOS 27.0. Each pair comes from one generated library:
+the benchmark first times the shipped query and indexes, then restores the
+pre-mirror indexes and times the old liveness join. Values are medians of five
+SQL executions, rather than HTTP latency or cold-cache timings.
+
+| assets    | facet      | old liveness join | mirrored state | speed-up |
+| --------- | ---------- | ----------------- | -------------- | -------- |
+| 335,377   | scene type | 253.81 ms         | 12.26 ms       | 20.7×    |
+| 335,377   | activity   | 444.27 ms         | 10.72 ms       | 41.4×    |
+| 600,000   | scene type | 472.67 ms         | 22.25 ms       | 21.2×    |
+| 600,000   | activity   | 828.65 ms         | 18.98 ms       | 43.7×    |
+| 1,000,000 | scene type | 1,470.73 ms       | 37.49 ms       | 39.2×    |
+| 1,000,000 | activity   | 1,360.24 ms       | 33.92 ms       | 40.1×    |
+
+All three runs passed the benchmark's bucket-and-count equivalence assertion.
+Each vision facet returned six buckets. The shipped plans read
+`asset_detail_scene_type` or `asset_detail_activity`, with no `assets` probe
+and no temporary grouping tree. They still sort the resulting bucket counts,
+which is separate from sorting or joining every candidate asset. Filtered
+queries retain the asset join described above.
+
+The existing `facet-state.test.ts`, `search.facets.test.ts` and
+`search.query-plan.test.ts` suites also passed (45 tests). They cover visibility,
+trash/restore, missing-file liveness, trigger recomputation, filtered-query
+equivalence and the join-free index plans. These generated-library measurements
+qualify the query optimization; they do not establish a production HTTP latency
+budget.
+
+Reproduce all three sizes with result equivalence checks enabled:
+
+```bash
+cd src/api
+bun scripts/sqlite-bench/search-facets-bench.ts 335377
+bun scripts/sqlite-bench/search-facets-bench.ts 600000
+bun scripts/sqlite-bench/search-facets-bench.ts 1000000
+```
 
 ## Reproducing the measurements
 
