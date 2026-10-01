@@ -18,6 +18,7 @@ import * as path from 'node:path';
 import { isRawDevelop, rawDevelopToBuffer, rawDevelopToFile } from './builder-raw-develop';
 import { isRawPath, type BuilderState } from './builder-state';
 import { callNative } from './worker-pool';
+import type { ExifTags } from './recipe';
 import type { ChannelStats, ImageMetadata, ImageStats, RawPixelInput } from './types';
 
 /** Run one `{v:1,what:[...]}` analyze request against `bytes`. */
@@ -291,28 +292,50 @@ export function applyWithMetadata(
   track(state, 'withMetadata');
 }
 
-/**
- * Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`).
- *
- * Diverges from sharp's own `withExif(exif: {IFD0?: Record<string,string>,
- * …})`, which takes an object of IFD tags and authors the TIFF block itself.
- * Maple has no IFD-object authoring yet (tracked as a follow-up, #3588) —
- * passing sharp's object shape here is rejected by name rather than
- * silently doing the wrong thing with it.
- */
-export function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): void {
-  if (!(exif instanceof Uint8Array)) {
-    if (typeof exif === 'object' && exif !== null) {
-      throw new Error(
-        'withExif: Maple takes a raw EXIF TIFF-header block (a Buffer), not an IFD object ' +
-          "like sharp's withExif({ IFD0: { ... } }) — IFD-object authoring is a follow-up " +
-          '(#3588).',
-      );
+/** Author an IFD tag object, or embed the existing raw TIFF-block extension (#3588). */
+export function applyWithExif(
+  state: BuilderState,
+  exif: ExifTags | Uint8Array | Buffer,
+  merge = false,
+): void {
+  if (exif instanceof Uint8Array && !merge) {
+    state.metadata.exif = state.aux.add(exif);
+    delete state.metadata.exifTags;
+    delete state.metadata.exifMerge;
+  } else {
+    if (
+      typeof exif !== 'object' ||
+      exif === null ||
+      Array.isArray(exif) ||
+      exif instanceof Uint8Array
+    ) {
+      throw invalidParameter('exif', merge ? 'an IFD object' : 'an IFD object or Buffer', exif);
     }
-    throw invalidParameter('exif', 'a Buffer', exif);
+    const entries = Object.entries(exif).map(([ifd, fields]) => {
+      if (typeof fields !== 'object' || fields === null || Array.isArray(fields)) {
+        throw invalidParameter(ifd, 'an object', fields);
+      }
+      const tags = Object.entries(fields).map(([tag, value]) => {
+        if (typeof value !== 'string') throw invalidParameter(`${ifd}.${tag}`, 'a string', value);
+        return [tag, value] as const;
+      });
+      return [ifd.toLowerCase(), Object.fromEntries(tags)] as const;
+    });
+    // Snapshot caller-owned objects; later mutation cannot silently alter a recipe.
+    const authored = entries.reduce<ExifTags>(
+      (result, [ifd, tags]) => ({ ...result, [ifd]: { ...result[ifd], ...tags } }),
+      {},
+    );
+    state.metadata.exifTags = Object.fromEntries(
+      Object.entries({ ...state.metadata.exifTags, ...authored }).map(([ifd, tags]) => [
+        ifd,
+        { ...state.metadata.exifTags?.[ifd], ...tags },
+      ]),
+    );
+    state.metadata.exifMerge = merge;
+    delete state.metadata.exif;
   }
-  state.metadata.exif = state.aux.add(exif);
-  track(state, 'withExif');
+  track(state, merge ? 'withExifMerge' : 'withExif');
 }
 
 /**

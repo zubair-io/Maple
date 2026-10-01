@@ -35,6 +35,12 @@ pub struct RecipeMetadata {
     /// Caller-supplied EXIF block, in the `aux` buffer. Wins over `keep`.
     #[serde(default)]
     pub exif: Option<AuxRef>,
+    /// Sharp-style IFD0–IFD4 string tag objects (#3588).
+    #[serde(default)]
+    pub exif_tags: Option<crate::raster_exif_author::ExifTags>,
+    /// Merge authored tags into input EXIF without keeping unrelated metadata.
+    #[serde(default)]
+    pub exif_merge: bool,
     /// Caller-supplied ICC profile, in the `aux` buffer. Wins over `keep`
     /// and over `iccName`.
     #[serde(default)]
@@ -169,6 +175,14 @@ pub fn resolve_metadata(
     auto_oriented: bool,
     primaries: TargetPrimaries,
 ) -> Result<ResolvedMetadata> {
+    if metadata.exif_tags.is_some() && metadata.exif.is_some() {
+        return Err(bad(
+            "metadata.exifTags and metadata.exif are mutually exclusive".into(),
+        ));
+    }
+    if metadata.exif_merge && metadata.exif_tags.is_none() {
+        return Err(bad("metadata.exifMerge requires metadata.exifTags".into()));
+    }
     let kept = if metadata.keep {
         crate::raster_meta::read_sidecars(input)
     } else {
@@ -201,9 +215,31 @@ pub fn resolve_metadata(
     // below wants the bare TIFF header.
     let supplied_exif = supplied("exif", metadata.exif)?
         .map(|block| crate::raster_meta::canonical_exif(&block).0.to_vec());
-    let exif_requested = supplied_exif.is_some();
-    let exif_base = supplied_exif.or(kept.exif);
-    let neutralised = if pixels_pre_oriented {
+    let exif_requested = supplied_exif.is_some() || metadata.exif_tags.is_some();
+    let exif_base = if let Some(tags) = &metadata.exif_tags {
+        let merge_source = metadata
+            .exif_merge
+            .then(|| crate::raster_meta::read_sidecars(input).exif)
+            .flatten();
+        Some(crate::raster_exif_author::author_exif(
+            tags,
+            merge_source.as_deref(),
+        )?)
+    } else {
+        supplied_exif.or(kept.exif)
+    };
+    // Like sharp, IFD-object Orientation describes the image's actual current
+    // orientation. Explicit orientation overrides belong in withMetadata().
+    let neutralised = if metadata.exif_tags.is_some() {
+        let orientation = if pixels_pre_oriented {
+            1
+        } else {
+            crate::raster::container_orientation(input).unwrap_or(1)
+        };
+        exif_base
+            .as_deref()
+            .map(|block| crate::raster_meta::set_exif_orientation(block, orientation))
+    } else if pixels_pre_oriented {
         exif_base
             .as_deref()
             .map(|block| crate::raster_meta::set_exif_orientation(block, 1))
@@ -226,7 +262,27 @@ pub fn resolve_metadata(
     // rewritten — with no block to carry, the container's own field is the
     // only place the density needs to be, and both Maple and sharp read
     // it back correctly from there.
-    let exif = match (metadata.density, oriented) {
+    // libvips derives EXIF resolution from the image header, overwriting tag
+    // strings; withMetadata({density}) is the explicit override for that header.
+    let density = metadata.density.or_else(|| {
+        metadata.exif_tags.as_ref().map(|_| {
+            crate::raster_meta::read_sidecars(input)
+                .density
+                .unwrap_or(25.4)
+        })
+    });
+    let exif = match (density, oriented) {
+        (Some(dpi), Some(block)) if metadata.exif_tags.is_some() => {
+            let tags = std::collections::BTreeMap::from([(
+                "IFD0".into(),
+                std::collections::BTreeMap::from([
+                    ("XResolution".into(), dpi.to_string()),
+                    ("YResolution".into(), dpi.to_string()),
+                    ("ResolutionUnit".into(), "2".into()),
+                ]),
+            )]);
+            Some(crate::raster_exif_author::author_exif(&tags, Some(&block))?)
+        }
         (Some(dpi), Some(block)) => Some(crate::raster_meta::set_exif_resolution(&block, dpi)),
         (_, block) => block,
     };
