@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-01",
+  "issues": [
+    3875,
+    3887,
+    3889
+  ],
+  "sourceRevision": "a0d8c7024",
+  "build": "Maple.DesignAudit228",
+  "physicalWindow": [
+    1024,
+    768
+  ],
+  "rasterizationScale": 1.5,
+  "method": "Computer-use sky click, press_key(Tab), scroll, and real HWND screenshots while the measured native-size checkpoint held the app. Isolated synthetic grey RAW.",
+  "observed": [
+    "Click visible Whites slider, then Tab: inspector scrolled and displayed Blacks label, value and full slider.",
+    "Negative wheel input over inspector returned Profile and upper Light controls into view.",
+    "Positive wheel input over inspector revealed Blacks again; settled UIA scrollbar value was 54.",
+    "Positive wheel input over dock revealed the full Crop icon and label; settled UIA scrollbar value was 48.",
+    "Visible Light values remained zero throughout the screenshots."
+  ],
+  "screenshots": [
+    {
+      "path": "test-fixtures/qualification/windows-input228/blacks-keyboard.png",
+      "sha256": "baa50f2c6985b3275ef7c6560dc465e504a669bbd24cdb40bd5e4a5e9cafc21f"
+    },
+    {
+      "path": "test-fixtures/qualification/windows-input228/blacks-wheel.png",
+      "sha256": "d4f32a8a4799ef73cac653c025273cb8329d906655efbb32f6a665e8fb7b6a19"
+    },
+    {
+      "path": "test-fixtures/qualification/windows-input228/blacks-and-crop-wheel.png",
+      "sha256": "a0ae632bab46543fb1f9736312be2659961b92b80a27ff39552845b61671cc9b"
+    }
+  ],
+  "captureRecovery": "Two immediate post-wheel captures reported no monitor found for window. Fresh window enumeration and state capture recovered the same window and confirmed completed scroll outcomes; inputs were not blindly repeated.",
+  "interactiveHarnessPassed": false,
+  "interactiveHarnessFailure": "Three-minute 1024x768 checkpoint expired before acknowledgement. Saved lifecycle.json reports timeout. This is not presented as a lifecycle pass.",
+  "scope": "Confirms the specific lower-control pointer/Tab reachability question from windows-visual226.json. Does not replace complete keyboard/Narrator coverage or the 100/200% DPI matrix.",
+  "fullQualificationPassed": false
+}
