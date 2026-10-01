@@ -187,18 +187,34 @@
         guard let self else { return }
         let data = await provider.thumbnail(for: source)
         guard !Task.isCancelled else { return }
-        guard let data, let image = Self.image(from: data) else {
-          // The source's terminal answer, not a slow one — stop the
-          // spinner rather than leaving it turning forever.
+        if let data, let image = await Self.image(from: data) {
+          imageView.image = image
+          hideStatusViews()
+          view.setNeedsLayout()
+          if refinementActive {
+            requestRefinement(maxDimension: screenPreviewDimension)
+          }
+          return
+        }
+
+        // A missing or undecodable grid thumbnail must not block Preview
+        // from using its display tier. That tier can be cached independently
+        // or generated from the source's embedded preview.
+        guard
+          !Task.isCancelled,
+          let previewData = await provider.preview(
+            for: source, maxDimension: screenPreviewDimension),
+          !Task.isCancelled,
+          let image = await Self.image(from: previewData),
+          !Task.isCancelled
+        else {
           showFailure()
           return
         }
         imageView.image = image
+        loadedMaxDimension = screenPreviewDimension
         hideStatusViews()
         view.setNeedsLayout()
-        if refinementActive {
-          requestRefinement(maxDimension: screenPreviewDimension)
-        }
       }
     }
 
@@ -261,17 +277,17 @@
         guard let data = await provider.preview(for: source, maxDimension: target),
           !Task.isCancelled, refinementActive,
           refinementGeneration == generation,
-          let image = Self.image(from: data)
+          let image = await Self.image(from: data),
+          !Task.isCancelled, refinementActive,
+          refinementGeneration == generation
         else { return }
         imageView.image = image
         loadedMaxDimension = target
       }
     }
 
-    private nonisolated static func image(from data: Data) -> UIImage? {
-      guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-        let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-      else { return nil }
+    private static func image(from data: Data) async -> UIImage? {
+      guard let image = await ThumbnailDecoder.decodeFull(data) else { return nil }
       return UIImage(cgImage: image)
     }
 
