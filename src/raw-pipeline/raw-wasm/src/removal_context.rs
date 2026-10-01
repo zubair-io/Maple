@@ -1,6 +1,15 @@
 //! Bounded fixed calibration context shared by CPU and WebGPU RAW sessions (#3955).
 use raw_core::{cancel::CancelToken, image::RawImage, types::accepted_removal::NativeWindow};
 
+pub(crate) fn source(
+    raw: &RawImage,
+    original: &raw_core::types::accepted_removal::ContentDigest,
+) -> Result<String, String> {
+    raw_core::pipeline::removal_calibration_source_anchor(raw, original)
+        .map_err(|e| e.to_string())
+        .and_then(|source| serde_json::to_string(&source).map_err(|e| e.to_string()))
+}
+
 /// Interleaved native f32 RGB in un-oriented DefaultCrop coordinates. Invoked
 /// once per generation context, never by the slider render path. The current
 /// fixed upstream policy remains an experiment, separate from saved rendering.
@@ -29,6 +38,13 @@ mod tests {
     fn retained_context_is_shared_native_rgb_and_geometry_errors_are_explicit() {
         let bytes = include_bytes!("../../../../test-fixtures/removal/basic/source.dng");
         let raw = raw_core::decode_raw(bytes, "dng").unwrap();
+        let original = raw_core::types::accepted_removal::ContentDigest::for_bytes(bytes);
+        let anchor: raw_core::types::accepted_removal::SourceAnchor =
+            serde_json::from_str(&source(&raw, &original).unwrap()).unwrap();
+        assert_eq!(
+            anchor,
+            raw_core::pipeline::removal_calibration_source_anchor(&raw, &original).unwrap()
+        );
         let window = NativeWindow {
             x: 1,
             y: 1,

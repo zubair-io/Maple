@@ -15,6 +15,7 @@ const MAX_WORKING_PIXELS: u64 = 8 * 1024 * 1024;
 #[wasm_bindgen]
 pub struct NativeDetailSession {
     raw: Arc<RawImage>,
+    original: raw_core::types::accepted_removal::ContentDigest,
     bytes: Vec<u8>,
     ext: String,
     prepared: Option<PreparedDetail>,
@@ -58,6 +59,7 @@ impl NativeDetailSession {
         let raw = raw_core::decode::decode_bytes(bytes, ext).map_err(js_error)?;
         Ok(Self {
             raw: Arc::new(raw),
+            original: raw_core::types::accepted_removal::ContentDigest::for_bytes(bytes),
             bytes: bytes.to_vec(),
             ext: ext.to_owned(),
             prepared: None,
@@ -69,6 +71,12 @@ impl NativeDetailSession {
     /// retained RAW; current creative edits are excluded. Authoring is not enabled.
     pub fn removal_calibration_context(&self, rect: &[u32]) -> Result<Vec<f32>, JsError> {
         crate::removal_context::prepare(&self.raw, rect).map_err(js_error)
+    }
+
+    /// Fixed calibration recipe and original-byte identity. Read when opening
+    /// removal authoring, never per stroke or slider tick.
+    pub fn removal_calibration_source(&self) -> Result<String, JsError> {
+        crate::removal_context::source(&self.raw, &self.original).map_err(js_error)
     }
 
     /// `rect` = x,y,width,height in oriented DefaultCrop-relative pixels.

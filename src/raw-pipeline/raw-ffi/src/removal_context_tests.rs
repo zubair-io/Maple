@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     cancel::{maple_cancel_flag_free, maple_cancel_flag_new, maple_cancel_flag_set},
-    handle::{maple_close_raw_handle, maple_open_raw_handle_bytes},
+    handle::{maple_close_raw_handle, maple_open_raw_handle, maple_open_raw_handle_bytes},
 };
 use std::ffi::CString;
 
@@ -33,6 +33,121 @@ impl Drop for Handle {
             maple_close_raw_handle(self.0);
         }
     }
+}
+
+#[test]
+fn retained_source_anchor_matches_core_and_never_writes_short_output() {
+    let handle = Handle::open();
+    let bytes = include_bytes!("../../../../test-fixtures/removal/basic/source.dng");
+    let original = raw_core::types::accepted_removal::ContentDigest::for_bytes(bytes);
+    let raw = raw_core::decode_raw(bytes, "dng").unwrap();
+    let expected = raw_core::pipeline::removal_calibration_source_anchor(&raw, &original).unwrap();
+    let mut length = 99;
+    assert_eq!(
+        unsafe {
+            maple_removal_calibration_source_buf(handle.0, std::ptr::null_mut(), 0, &mut length)
+        },
+        100
+    );
+    let mut output = vec![42; length];
+    let capacity = output.len();
+    assert_eq!(
+        unsafe {
+            maple_removal_calibration_source_buf(
+                handle.0,
+                output.as_mut_ptr(),
+                capacity - 1,
+                &mut length,
+            )
+        },
+        100
+    );
+    assert!(output.iter().all(|v| *v == 42));
+    assert_eq!(
+        unsafe {
+            maple_removal_calibration_source_buf(
+                handle.0,
+                output.as_mut_ptr(),
+                capacity,
+                &mut length,
+            )
+        },
+        0
+    );
+    let actual: raw_core::types::accepted_removal::SourceAnchor =
+        serde_json::from_slice(&output).unwrap();
+    assert_eq!(actual, expected);
+    unsafe {
+        (*((*handle.0).inner as *mut MapleRawHandleInner))
+            .model
+            .exposure = 2.0;
+    }
+    assert_eq!(
+        unsafe {
+            maple_removal_calibration_source_buf(
+                handle.0,
+                output.as_mut_ptr(),
+                capacity,
+                &mut length,
+            )
+        },
+        0
+    );
+    assert_eq!(
+        serde_json::from_slice::<raw_core::types::accepted_removal::SourceAnchor>(&output).unwrap(),
+        expected
+    );
+    assert_eq!(
+        unsafe {
+            maple_removal_calibration_source_buf(
+                std::ptr::null(),
+                output.as_mut_ptr(),
+                capacity,
+                &mut length,
+            )
+        },
+        1
+    );
+    assert_eq!(length, 0);
+}
+
+#[test]
+fn file_and_bytes_handles_bind_the_same_opened_original() {
+    let path = CString::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../test-fixtures/removal/basic/source.dng"
+    ))
+    .unwrap();
+    let mut file = std::ptr::null_mut();
+    assert_eq!(
+        unsafe { maple_open_raw_handle(path.as_ptr(), std::ptr::null(), &mut file) },
+        0
+    );
+    let file = Handle(file);
+    let bytes = Handle::open();
+    let anchor = |handle: &Handle| {
+        let mut length = 0;
+        assert_eq!(
+            unsafe {
+                maple_removal_calibration_source_buf(handle.0, std::ptr::null_mut(), 0, &mut length)
+            },
+            100
+        );
+        let mut output = vec![0; length];
+        assert_eq!(
+            unsafe {
+                maple_removal_calibration_source_buf(
+                    handle.0,
+                    output.as_mut_ptr(),
+                    output.len(),
+                    &mut length,
+                )
+            },
+            0
+        );
+        output
+    };
+    assert_eq!(anchor(&file), anchor(&bytes));
 }
 
 #[test]

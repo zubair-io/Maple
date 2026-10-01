@@ -166,7 +166,7 @@ public enum RemovalBridge {
     try check(rc)
   }
 
-  private static func buffer(
+  static func buffer(
     _ call: (UnsafeMutablePointer<UInt8>?, UInt, UnsafeMutablePointer<UInt>) -> Int32
   ) throws -> Data {
     var length: UInt = 0

@@ -12,11 +12,16 @@ use std::sync::{Arc, Mutex, PoisonError};
 pub(super) struct FrameCache(Mutex<Option<(RenderQuality, Arc<HighlightFrameContext>)>>);
 
 impl MapleRawHandleInner {
-    pub(super) fn new(raw: RawImage, model: AdjustmentModel) -> Self {
+    pub(super) fn new(
+        raw: RawImage,
+        model: AdjustmentModel,
+        original: raw_core::types::accepted_removal::ContentDigest,
+    ) -> Self {
         Self {
             raw: Arc::new(raw),
             model,
             frame: FrameCache::default(),
+            original,
         }
     }
 

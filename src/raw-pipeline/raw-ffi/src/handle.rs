@@ -49,6 +49,7 @@ pub(crate) struct MapleRawHandleInner {
     pub(crate) raw: std::sync::Arc<raw_core::image::RawImage>,
     frame: context::FrameCache,
     pub(crate) model: xmp::AdjustmentModel,
+    pub(crate) original: raw_core::types::accepted_removal::ContentDigest,
 }
 
 /// Opaque handle to a decoded RawImage + parsed AdjustmentModel.
@@ -135,7 +136,8 @@ pub unsafe extern "C" fn maple_open_raw_handle(
                 return 7;
             }
         };
-        let inner = Box::new(MapleRawHandleInner::new(raw_img, model));
+        let original = raw_core::types::accepted_removal::ContentDigest::for_bytes(&raw_bytes);
+        let inner = Box::new(MapleRawHandleInner::new(raw_img, model, original));
         let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
         let handle = Box::new(MapleRawHandle { inner: inner_ptr });
         unsafe {
@@ -200,7 +202,8 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
                 return 7;
             }
         };
-        let inner = Box::new(MapleRawHandleInner::new(raw_img, model));
+        let original = raw_core::types::accepted_removal::ContentDigest::for_bytes(&input);
+        let inner = Box::new(MapleRawHandleInner::new(raw_img, model, original));
         let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
         let handle = Box::new(MapleRawHandle { inner: inner_ptr });
         unsafe {
