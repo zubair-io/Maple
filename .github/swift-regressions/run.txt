@@ -262,3 +262,7 @@ GpuPreviewPersistTests
 # App Store feature flags (#3773): pure env / UserDefaults / semver-string
 # resolution, no fixtures, no Metal, no host services.
 FeatureFlagsTests
+
+# Files edit refresh (#3957): observation and generated ImageIO pixels;
+# no RAW fixtures, Metal device, or host services.
+DevelopedImageRevisionTests
