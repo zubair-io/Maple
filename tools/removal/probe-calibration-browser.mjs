@@ -15,10 +15,16 @@ if (
   rect.some((n) => !Number.isInteger(n) || n < 0 || n > 0xffffffff)
 )
   throw new Error("Rect must contain four unsigned 32-bit integers");
+if (!rect[2] || !rect[3] || rect[2] > 1024 || rect[3] > 1024)
+  throw new Error("Context dimensions must be 1–1024");
 const shared = resolve("src/raw-pipeline/raw-wasm/pkg");
 const files = new Map([
   ["/raw", resolve(rawArg)],
   ["/expected", resolve(expectedArg)],
+]);
+const dumps = new Map([
+  ["/cpu-context", resolve(reportArg + ".cpu.f32")],
+  ["/gpu-context", resolve(reportArg + ".gpu.f32")],
 ]);
 const html = `<!doctype html><meta charset="utf-8"><script type="module">
 import * as shared from '/shared/raw_wasm.js';
@@ -28,7 +34,7 @@ window.probe=async function() {
   const expected=new Float32Array(await (await fetch('/expected')).arrayBuffer());
   const rect=Uint32Array.from(${JSON.stringify(rect)});
   const ext=${JSON.stringify(extname(rawArg).slice(1).toLowerCase())};
-  function measure(session) {
+  async function measure(session, dump) {
     const start=performance.now(), pixels=session.removal_calibration_context(rect),contextMs=performance.now()-start;
     if(pixels.length!==expected.length||pixels.length!==rect[2]*rect[3]*3) throw new Error('Invalid RGB extent');
     let maxAbsError=0,changedChannels=0;
@@ -45,16 +51,18 @@ window.probe=async function() {
     const repeated=session.removal_calibration_context(rect);
     const repeatedBits=new Uint32Array(repeated.buffer,repeated.byteOffset,repeated.length);
     if(repeatedBits.length!==actualBits.length||!repeatedBits.every((v,i)=>v===actualBits[i])) throw new Error('Failure altered retained RAW');
+    const saved=await fetch(dump,{method:'POST',body:new Uint8Array(pixels.buffer,pixels.byteOffset,pixels.byteLength)});
+    if(!saved.ok) throw new Error('Could not save local context diagnostic');
     return {contextMs,channels:pixels.length,maxAbsError,changedChannels,nativeWasmByteIdentical:changedChannels===0,invalidGeometryRejected,repeatByteIdentical:true};
   }
   const opened=performance.now(), cpu=new shared.NativeDetailSession(raw,ext);
   let cpuResult;
-  try{cpuResult={openMs:performance.now()-opened,...measure(cpu)};}finally{cpu.free();}
+  try{cpuResult={openMs:performance.now()-opened,...await measure(cpu,'/cpu-context')};}finally{cpu.free();}
   let gpuResult={available:false};
   if(navigator.gpu) {
     const started=performance.now();
     const gpu=await shared.WebLiveSession.open(raw,ext,undefined,new OffscreenCanvas(256,256),256,'srgb');
-    try{gpuResult={available:true,openMs:performance.now()-started,...measure(gpu)};}finally{gpu.free();}
+    try{gpuResult={available:true,openMs:performance.now()-started,...await measure(gpu,'/gpu-context')};}finally{gpu.free();}
   }
   return {cpu:cpuResult,gpu:gpuResult,crossOriginIsolated};
 };
@@ -65,6 +73,28 @@ const server = createServer(async (request, response) => {
   response.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
   response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   response.setHeader("Cache-Control", "no-store");
+  const dump = dumps.get(pathname);
+  if (request.method === "POST" && dump) {
+    const expectedBytes = rect[2] * rect[3] * 3 * 4;
+    const chunks = [];
+    let length = 0;
+    try {
+      for await (const chunk of request) {
+        length += chunk.length;
+        if (length > expectedBytes)
+          throw new Error("Context exceeds expected length");
+        chunks.push(chunk);
+      }
+      if (length !== expectedBytes) throw new Error("Truncated context");
+      await fs.writeFile(dump, Buffer.concat(chunks));
+      response.writeHead(204);
+      response.end();
+    } catch {
+      response.writeHead(400);
+      response.end();
+    }
+    return;
+  }
   if (pathname === "/") {
     response.setHeader("Content-Type", "text/html");
     response.end(html);

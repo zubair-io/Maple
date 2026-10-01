@@ -49,7 +49,7 @@ fn bounded_context_matches_whole_plate_at_crop_offsets_and_exif() {
 }
 
 #[test]
-fn bounded_context_refuses_unsupported_formats_and_invalid_windows() {
+fn bounded_context_refuses_invalid_windows_and_inconsistent_linear_data() {
     use crate::types::accepted_removal::NativeWindow;
     let mut raw = source();
     let valid = NativeWindow {
@@ -110,13 +110,6 @@ fn bounded_context_refuses_unsupported_formats_and_invalid_windows() {
             .unwrap_err()
             .to_string()
             .contains("LinearRaw")
-    );
-    raw.cfa = crate::CfaPattern::XTrans([0; 36]);
-    assert!(
-        render_removal_calibration_context(&raw, valid, CancelToken::never())
-            .unwrap_err()
-            .to_string()
-            .contains("X-Trans")
     );
 }
 

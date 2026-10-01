@@ -52,6 +52,12 @@ enum Command {
         y: u32,
         output: PathBuf,
     },
+    /// Isolate context float drift through the same fixed SDR encoding.
+    ContextDisplayParity {
+        native: PathBuf,
+        browser: PathBuf,
+        output: PathBuf,
+    },
     Bake {
         raw: PathBuf,
         context: PathBuf,
@@ -407,6 +413,11 @@ fn main() -> ProbeResult<()> {
         Command::CalibrationParity { raw, x, y, output } => {
             calibration::compare(&raw, x, y, &output)
         }
+        Command::ContextDisplayParity {
+            native,
+            browser,
+            output,
+        } => calibration::compare_display(&native, &browser, &output),
         Command::Bake {
             raw,
             context,
