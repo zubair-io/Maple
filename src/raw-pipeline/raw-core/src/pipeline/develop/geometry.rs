@@ -138,7 +138,7 @@ pub(in crate::pipeline) fn effective_quality_divisor(
 ///
 /// Returns `Err(Error::Cancelled)` if the host cancelled during the
 /// estimate; the stage itself leaves the mosaic untouched in that case.
-pub(super) fn lateral_ca(
+pub(in crate::pipeline) fn lateral_ca(
     mosaic: &mut Image,
     raw: &RawImage,
     model: &AdjustmentModel,

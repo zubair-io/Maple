@@ -47,7 +47,9 @@ use super::{
 
 mod geometry;
 
-pub(super) use geometry::{crop_to_default, effective_quality_divisor, highlight_active_area};
+pub(super) use geometry::{
+    crop_to_default, effective_quality_divisor, highlight_active_area, lateral_ca,
+};
 
 // The three forwarding entries live in a sibling for the file-size budget
 // (#3409); the chain itself, and the `_with_gain` entry they all forward
@@ -539,6 +541,8 @@ mod tests;
 mod tests_vignette_opcode;
 
 #[cfg(test)]
+mod tests_defringe;
+#[cfg(test)]
 mod tests_highlight_bounds;
 #[cfg(test)]
-mod tests_defringe;
+mod tests_sized_lateral_ca;

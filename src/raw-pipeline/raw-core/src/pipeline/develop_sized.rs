@@ -29,7 +29,7 @@ use crate::{
 
 use super::{
     capture_sharpening_helper::capture_sharpening_params_from_model,
-    develop::{crop_to_default, effective_quality_divisor},
+    develop::{crop_to_default, effective_quality_divisor, lateral_ca},
     downsample::downsample_image_area,
     dump_after, stage, RenderQuality,
 };
@@ -146,6 +146,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             stage("sized_hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
+            lateral_ca(&mut mosaic, raw, model, cancel)?;
             stage("sized_demosaic_xtrans", || match quality {
                 RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
                 RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
@@ -159,6 +160,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
             stage("sized_hot_pixel", || {
                 hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
             });
+            lateral_ca(&mut mosaic, raw, model, cancel)?;
             // #1637: when the requested long edge is at most half the sensor's,
             // demosaic at HALF resolution (`half_res`, sensor/2) even for
             // Full/Amaze. The full-res RGB buffer (~1.4 GB on a 100 MP sensor)
