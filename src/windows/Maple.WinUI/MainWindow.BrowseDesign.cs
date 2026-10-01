@@ -42,6 +42,21 @@ public sealed partial class MainWindow
                         });
                 });
         };
+        PhotoGrid.ContainerContentChanging += (_, e) =>
+        {
+            if (!e.InRecycleQueue)
+                e.RegisterUpdateCallback((_, next) =>
+                {
+                    if (next.ItemContainer.ContentTemplateRoot is FrameworkElement root &&
+                        root.FindName("GridSelectionOutline") is Border outline)
+                        outline.SetBinding(UIElement.VisibilityProperty, new Microsoft.UI.Xaml.Data.Binding
+                        {
+                            Source = next.ItemContainer,
+                            Path = new PropertyPath("IsSelected"),
+                            Converter = new Converters.BoolVisibleConverter()
+                        });
+                });
+        };
         BrowseSortBox.SelectedIndex = (int)ViewModel.PhotoSort;
         BrowseDensityBox.SelectedIndex = _settings.ThumbnailSize <= 128 ? 0 : _settings.ThumbnailSize >= 240 ? 2 : 1;
         _browseDesignReady = true;

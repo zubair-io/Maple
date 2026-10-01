@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-01",
+  "issue": 3887,
+  "sourceBase": "a2e9f56d70fb6700b12609d33d3aefa2ea1c59e5",
+  "build": "Maple.DesignAudit210",
+  "buildErrors": 0,
+  "buildWarnings": 26,
+  "assemblySha256": "EF93C474B3DB7F314A23FA5A0F39E89DBCBE07325FEC29C50265CE6B9653A8FB",
+  "before": "Build 207 selected the clicked photo correctly (confirmed by Enter opening it), but displayed no clear selected outline. Accessibility focus text did not reliably reflect the visible keyboard focus, so it was not used as proof of selection failure.",
+  "change": "Bind a non-hit-testable MaplePrimary outline to each realized GridViewItem.IsSelected; retain native selection and keyboard focus behavior.",
+  "manualObservations": [
+    "Build 210 at 1908x1019 capture pixels in the 354-photo library.",
+    "Clicking _84A1041.CR2 displayed a red selection outline.",
+    "Shift+Right selected _84A1041.CR2 and _84A1041.JPG, with two red outlines and a separate white keyboard-focus border; count showed 2 selected.",
+    "Scrolled down to the _84A1125.JPG region: no stale red outlines on recycled unselected thumbnails.",
+    "Scrolled back to the beginning: both selected outlines remained.",
+    "Clicked _84A1042.CR2: its red outline appeared, both previous outlines cleared, and multi-selection count cleared.",
+    "No photo edits or metadata changes were made."
+  ],
+  "limitations": [
+    "Screenshots inspected in the conversation; no pixel-diff or physical DPI certification.",
+    "This verifies the grid selection affordance only; full issue 3875 qualification remains incomplete."
+  ],
+  "fullQualificationPassed": false
+}

@@ -608,6 +608,8 @@
                                                        Visibility="{Binding IsRenaming, Converter={StaticResource InverseBoolVisible}}" />
                                         </Grid>
                                     </Border>
+                                    <Border x:Name="GridSelectionOutline" BorderBrush="{StaticResource MaplePrimary}"
+                                            BorderThickness="2" CornerRadius="4" Visibility="Collapsed" IsHitTestVisible="False" />
                                 </Grid>
                             </DataTemplate>
                         </GridView.ItemTemplate>
