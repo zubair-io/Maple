@@ -56,16 +56,21 @@ extension RemovalSession {
       operation = run
       var selected = Data()
       var protected = manualProtection
+      var masks: [Data] = []
       for person in people {
         let mask = try await engine.personMask(person.detection, context: context, operation: run)
         guard current(token) else { return }
         if person.keep {
           protected = try RemovalBridge.combineMasks(protected, mask)
         } else {
+          masks.append(mask)
           selected = try RemovalBridge.combineMasks(selected, mask)
         }
       }
       selection = try RemovalBridge.combineMasks(selected, protected, subtract: true)
+      personMasks = try masks.map {
+        try RemovalBridge.combineMasks($0, protected, subtract: true)
+      }.filter { !$0.isEmpty }
       protection = protected
       operation = nil
       phase = .ready
@@ -81,27 +86,37 @@ extension RemovalSession {
     phase = .generating
     message = "Reconstructing selected pixels…"
     do {
-      let next = try await engine.authoringJob()
-      guard current(token) else {
-        next.cancel()
-        return
+      let masks = mode == .people ? personMasks : [selection]
+      guard !masks.isEmpty else { throw RemovalError.invalid("Select the people to remove first") }
+      var candidate = context
+      var generated: [NativeRemovalProposal] = []
+      for (index, mask) in masks.enumerated() {
+        let next = try await engine.authoringJob()
+        guard current(token) else {
+          next.cancel()
+          return
+        }
+        job = next
+        message = "Reconstructing object \(index + 1) of \(masks.count)…"
+        let proposal = try await next.propose(
+          handle: candidate.handle, saved: candidate.saved, xmp: candidate.xmp,
+          intent: mask, protected: protection,
+          holeRadius: ExperimentalRemovalModels.holeRadius,
+          fringeRadius: ExperimentalRemovalModels.fringeRadius)
+        guard current(token) else { return }
+        candidate = try await engine.appending(proposal, to: candidate)
+        guard current(token) else { return }
+        generated.append(proposal)
       }
-      job = next
-      let generated = try await next.propose(
-        handle: context.handle, saved: context.saved, xmp: context.xmp,
-        intent: selection, protected: protection,
-        holeRadius: ExperimentalRemovalModels.holeRadius,
-        fringeRadius: ExperimentalRemovalModels.fringeRadius)
+      guard session.model == snapshot.model, session.editRevision == snapshot.editRevision else {
+        throw RemovalError.saveConflict
+      }
+      let image = try await engine.review(candidate)
       guard current(token) else { return }
       guard session.model == snapshot.model, session.editRevision == snapshot.editRevision else {
         throw RemovalError.saveConflict
       }
-      let image = try await engine.review(generated, context: context)
-      guard current(token) else { return }
-      guard session.model == snapshot.model, session.editRevision == snapshot.editRevision else {
-        throw RemovalError.saveConflict
-      }
-      proposal = generated
+      proposals = generated
       preview = image
       compare = false
       job = nil
@@ -111,14 +126,14 @@ extension RemovalSession {
   }
 
   public func keep() async {
-    guard phase == .review, let proposal, let snapshot else { return }
+    guard phase == .review, !proposals.isEmpty, let snapshot else { return }
     let token = revision
     phase = .saving
     do {
-      try await session.acceptRemoval(proposal, snapshot: snapshot)
+      try await session.acceptRemovals(proposals, snapshot: snapshot)
       // A closed editor still finishes its owned durable save.
       guard current(token) else { return }
-      self.proposal = nil
+      proposals = []
       preview = nil
       compare = false
       phase = .ready

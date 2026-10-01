@@ -396,6 +396,7 @@ RemovalSidecarNamespaceTests
 RemovalSmartBridgeTests
 RemovalXMPRecordsTests
 RemovalHistoryTests
+RemovalGroupTests
 RemovalSnapshotTests
 RemovalSessionTests
 RemovalProxyTensorTests

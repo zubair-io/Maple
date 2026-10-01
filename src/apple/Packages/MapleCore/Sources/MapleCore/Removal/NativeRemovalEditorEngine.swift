@@ -12,6 +12,7 @@ struct NativeRemovalEditorContext: Sendable {
   let handle: MapleRawHandle
   let saved: NativeSavedRemovalSession
   let sourceBytes: Data
+  let assets: [String: Data]
   let source: String
   let width: UInt32
   let height: UInt32
@@ -88,7 +89,8 @@ actor NativeRemovalEditorEngine {
       source: sourceBytes, ext: raw.pathExtension, xmp: xmp, assets: assets)
     try Task.checkCancellation()
     return NativeRemovalEditorContext(
-      raw: raw, handle: handle, saved: saved, sourceBytes: sourceBytes, source: source,
+      raw: raw, handle: handle, saved: saved, sourceBytes: sourceBytes, assets: assets,
+      source: source,
       width: size.width, height: size.height, model: model, xmp: xmp)
   }
 
@@ -219,13 +221,15 @@ actor NativeRemovalEditorEngine {
     ])
   }
 
-  func review(_ proposal: NativeRemovalProposal, context: NativeRemovalEditorContext) async throws
-    -> NativeRemovalRender
+  /// Extend only the temporary stack so the next person sees prior generated
+  /// pixels and records their context dependencies. No companions are written.
+  func appending(_ proposal: NativeRemovalProposal, to context: NativeRemovalEditorContext)
+    async throws -> NativeRemovalEditorContext
   {
     let prior = context.model.inpaintRemovals?.json ?? "[]"
     let records = try RemovalBridge.prepare(
       request: proposal.request, prior: prior, mask: proposal.mask, patch: proposal.patch)
-    var assets = try await LocalRemovalAssetStore(rawURL: context.raw).readAssets(records: prior)
+    var assets = context.assets
     let names = try RemovalBridge.assetNames(records: records)
     for content in [proposal.mask, proposal.patch] {
       let digest = String(try RemovalBridge.digest(content).dropFirst(7))
@@ -240,7 +244,15 @@ actor NativeRemovalEditorEngine {
     let candidate = NativeSavedRemovalSession(handle: context.handle)
     _ = try await candidate.prepare(
       source: context.sourceBytes, ext: context.raw.pathExtension, xmp: xmp, assets: assets)
-    return try await candidate.preview(xmp: xmp, maxLongEdge: 2048)
+    try Task.checkCancellation()
+    return NativeRemovalEditorContext(
+      raw: context.raw, handle: context.handle, saved: candidate,
+      sourceBytes: context.sourceBytes, assets: assets, source: context.source,
+      width: context.width, height: context.height, model: model, xmp: xmp)
+  }
+
+  func review(_ context: NativeRemovalEditorContext) async throws -> NativeRemovalRender {
+    try await context.saved.preview(xmp: context.xmp, maxLongEdge: 2048)
   }
 
   private func json(_ value: [String: Any]) throws -> String {

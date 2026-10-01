@@ -46,7 +46,8 @@ public final class RemovalSession {
   @ObservationIgnored var gestureSizes: [Int] = []
   @ObservationIgnored var redoGestures: [[RemovalStroke]] = []
   @ObservationIgnored var manualProtection = Data()
-  @ObservationIgnored var proposal: NativeRemovalProposal?
+  @ObservationIgnored var proposals: [NativeRemovalProposal] = []
+  @ObservationIgnored var personMasks: [Data] = []
   @ObservationIgnored var job: NativeRemovalAuthoringJob?
   @ObservationIgnored var operation: NativeRemovalInferenceOperation?
   @ObservationIgnored private var scope: RemovalSecurityScope?
@@ -95,7 +96,8 @@ public final class RemovalSession {
     operation = nil
     context = nil
     snapshot = nil
-    proposal = nil
+    proposals = []
+    personMasks = []
     preview = nil
     compare = false
     selection = Data()
@@ -134,6 +136,7 @@ public final class RemovalSession {
     revision &+= 1
     selection = Data()
     strokes = []
+    personMasks = []
     gestureSizes = []
     redoGestures = []
   }
@@ -162,7 +165,7 @@ public final class RemovalSession {
     operation?.cancel()
     job = nil
     operation = nil
-    proposal = nil
+    proposals = []
     preview = nil
     compare = false
     message = ""
