@@ -6,6 +6,113 @@ use crate::{
 };
 
 #[test]
+fn saved_scene_tiles_match_unclipped_full_scene_and_reject_changed_inputs() {
+    let (mut raw, original, model, assets) = super::tests::fixture();
+    for orientation in [
+        ExifOrientation::Normal,
+        ExifOrientation::HorizontalFlip,
+        ExifOrientation::Rotate180,
+        ExifOrientation::VerticalFlip,
+        ExifOrientation::Transpose,
+        ExifOrientation::Rotate90,
+        ExifOrientation::Transverse,
+        ExifOrientation::Rotate270,
+    ] {
+        raw.orientation = orientation;
+        let stack =
+            ResolvedCalibrationRemovals::prepare(&raw, &original, &model.inpaint_removals, &assets)
+                .unwrap();
+        for temperature in [None, Some((4200.0, -20.0))] {
+            let mut grade = model.clone();
+            grade.exposure = 3.0;
+            if let Some((temperature, tint)) = temperature {
+                grade.temperature = temperature;
+                grade.tint = tint;
+                grade.temperature_seen = true;
+                grade.tint_seen = true;
+            }
+            let (width, height, full, _, _) = stack
+                .render_scene_linear_f32_with_anchors(
+                    &raw,
+                    &original,
+                    &grade,
+                    RenderQuality::Full,
+                    None,
+                    CancelToken::never(),
+                )
+                .unwrap();
+            assert!(full.iter().any(|value| *value > 1.0));
+            let rect = TileRect {
+                src_x: width / 4,
+                src_y: height / 4,
+                src_w: width / 2,
+                src_h: height / 2,
+                out_w: width / 2,
+                out_h: height / 2,
+            };
+            for gain in [1.0, 1.75] {
+                let (w, h, tile) = stack
+                    .render_scene_linear_tile_f32(
+                        &raw,
+                        &original,
+                        &grade,
+                        rect,
+                        RenderQuality::Full,
+                        None,
+                        gain,
+                    )
+                    .unwrap();
+                let expected: Vec<f32> = (rect.src_y..rect.src_y + h)
+                    .flat_map(|row| {
+                        let start = ((row * width + rect.src_x) * 4) as usize;
+                        full[start..start + w as usize * 4].iter().enumerate().map(
+                            move |(channel, value)| {
+                                if channel % 4 == 3 {
+                                    *value
+                                } else {
+                                    *value * gain
+                                }
+                            },
+                        )
+                    })
+                    .collect();
+                for (actual, expected) in tile.iter().zip(&expected) {
+                    assert!(
+                        (actual - expected).abs() < 1e-5,
+                        "{orientation:?} {temperature:?} {gain}: {actual} != {expected}"
+                    );
+                }
+                assert_eq!(tile.len(), expected.len());
+            }
+            let wrong = ContentDigest::for_bytes(b"changed");
+            assert!(stack
+                .render_scene_linear_tile_f32(
+                    &raw,
+                    &wrong,
+                    &grade,
+                    rect,
+                    RenderQuality::Full,
+                    None,
+                    1.0,
+                )
+                .is_err());
+            grade.hot_pixel_suppression = crate::xmp::HotPixelSuppressionMode::On;
+            assert!(stack
+                .render_scene_linear_tile_f32(
+                    &raw,
+                    &original,
+                    &grade,
+                    rect,
+                    RenderQuality::Full,
+                    None,
+                    1.0,
+                )
+                .is_err());
+        }
+    }
+}
+
+#[test]
 fn saved_detail_matches_native_saved_display_in_every_orientation() {
     let (mut raw, original, model, assets) = super::tests::fixture();
     for orientation in [

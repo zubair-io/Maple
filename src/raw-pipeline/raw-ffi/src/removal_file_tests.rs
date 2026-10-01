@@ -164,3 +164,6 @@ mod export;
 
 #[path = "removal_scene_file_tests.rs"]
 mod scene;
+
+#[path = "removal_handle_file_tests.rs"]
+mod handle;

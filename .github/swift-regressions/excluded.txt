@@ -190,3 +190,9 @@ WorkersFeedTests host talks to a host service (keychain, FileProvider, network, 
 WorkingSetListCacheTests slow render or decode workload that costs minutes on the runner
 
 PartialWhiteBalanceRenderTests gpu compares real Metal live pixels with core on committed calibrated RAW fixtures
+
+# AI removal: local pinned model/runtime qualification remains required before release.
+NativeRemovalAuthoringJobTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+NativeRemovalGenerationTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+NativeRemovalReconstructorTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+NativeRemovalSelectorTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips

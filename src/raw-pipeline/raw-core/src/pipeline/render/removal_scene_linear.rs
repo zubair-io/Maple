@@ -9,6 +9,49 @@ use crate::{
 };
 
 impl ResolvedCalibrationRemovals {
+    /// Bounded native scene pixels for host live grading. The host supplies
+    /// the already measured full-frame AE gain; a viewport never measures AE
+    /// or Whites. Coordinates and WB anchor match the ordinary tile ABI.
+    /// Immutable companions are retained; no asset I/O or inference occurs.
+    pub fn render_scene_linear_tile_f32(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+        rect: crate::pipeline::TileRect,
+        quality: RenderQuality,
+        decoded_wb_anchor: Option<(f32, f32)>,
+        ae_gain: f32,
+    ) -> Result<(u32, u32, Vec<f32>)> {
+        let patches = self.detail_patches(raw, original, model)?;
+        if !ae_gain.is_finite() || ae_gain <= 0.0 {
+            return Err(crate::Error::Pipeline("invalid saved tile AE gain".into()));
+        }
+        if !patches.is_empty() {
+            crate::pipeline::removal_calibration::validate_upstream(model)?;
+            if raw.opcode_list3.is_none() && crate::lens_profile::applies(raw, model) {
+                return Err(crate::Error::Pipeline(
+                    "saved native detail requires the full-image render when a lens profile is active".into(),
+                ));
+            }
+        }
+        if crate::pipeline::tile::tile_working_pixels(raw, model, rect, quality)? > 8 * 1024 * 1024
+        {
+            return Err(crate::Error::Pipeline(
+                "saved native tile exceeds working-pixel budget".into(),
+            ));
+        }
+        crate::pipeline::tile::develop_tile_oriented_f32(
+            raw,
+            model,
+            rect,
+            quality,
+            decoded_wb_anchor,
+            ae_gain,
+            patches,
+        )
+    }
+
     /// No display transform, crop or quantization. The host strips stages it
     /// replays live, exactly as on ordinary scene-linear decode. Source/stack
     /// validation precedes shared calibrated development, and the original
