@@ -36,7 +36,7 @@ test('an existing file upgrades without losing jobs, leases or recovery ledgers'
     const objects = reopened.query(queueObjects).all();
     const after = await getJob(job._id, testSqliteDb(reopened));
     const again = await runMigrations(fromBunSqlite(reopened), ALL_MIGRATIONS);
-    expect(applied.applied).toEqual([removeUnusedIndexerQueueMigration.id]);
+    expect(applied.applied).toEqual(ALL_MIGRATIONS.slice(previous.length).map((m) => m.id));
     expect(objects).toEqual([]);
     expect(after).toEqual(before);
     expect(again.applied).toEqual([]);
