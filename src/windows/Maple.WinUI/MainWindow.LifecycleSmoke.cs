@@ -74,6 +74,8 @@ namespace Maple.WinUI
                 renderer.FrameReady -= Cpu;
                 if (expectedPath != "empty")
                 {
+                    RecordSmokeStage(output, "thumbnail-fallback");
+                    await VerifyThumbnailFallbackAsync(raw, output);
                     await VerifyNativeDetailAsync();
                     await VerifyScopesAsync();
                     await VerifyPresetUndoAsync();
@@ -99,8 +101,6 @@ namespace Maple.WinUI
                     await VerifyImmediateUndoAsync();
                     RecordSmokeStage(output, "preview-recovery");
                     await VerifyPreviewRecoveryAsync(raw, output);
-                    RecordSmokeStage(output, "thumbnail-fallback");
-                    await VerifyThumbnailFallbackAsync(raw, output);
                     RecordSmokeStage(output, "cloud-opening");
                     await EditSessionViewModel.VerifyCloudOpeningAsync(raw, output);
                     RecordSmokeStage(output, "cloud-search");

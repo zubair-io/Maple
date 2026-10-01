@@ -90,7 +90,12 @@ public sealed partial class MainWindow
     {
         var photo = ViewModel.SelectedPhoto;
         var path = photo?.PreviewPath ?? photo?.ThumbnailPath;
-        BrowseDetailImage.Source = path == null ? null : new BitmapImage(new Uri(path));
+        var uri = path == null ? null : new Uri(path);
+        // Presentation toggles and thumbnail completions can leave the effective
+        // preview unchanged. Keep its decoder instead of releasing/recreating it.
+        if (uri == null) BrowseDetailImage.Source = null;
+        else if (BrowseDetailImage.Source is not BitmapImage current || current.UriSource != uri)
+            BrowseDetailImage.Source = new BitmapImage(uri);
         BrowseDetailPane.Visibility = photo == null ? Visibility.Collapsed : Visibility.Visible;
         BrowseDetailEmpty.Visibility = photo == null ? Visibility.Visible : Visibility.Collapsed;
     }
