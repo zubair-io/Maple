@@ -35,6 +35,8 @@ namespace Maple.WinUI
                 if (hwnd == IntPtr.Zero || _panelNative == IntPtr.Zero)
                     throw new InvalidOperationException("Real HWND and QI'd panel required");
                 var panel = _panelNative;
+                RecordSmokeStage(output, "export-recipe-editor");
+                VerifyExportRecipeEditor();
                 // A scheduler disposed before receiving a native target/image
                 // exercises partial initialization with its real loop.
                 var unattached = new RenderScheduler();
@@ -144,6 +146,7 @@ namespace Maple.WinUI
                 File.WriteAllText(reportPath, JsonSerializer.Serialize(new
                 {
                     passed = true,
+                    exportRecipeEditorRoundTrip = true,
                     hwnd = hwnd.ToInt64(),
                     renderPath = actualPath,
                     panelReleases = _panelReleaseCount,
