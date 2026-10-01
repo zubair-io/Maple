@@ -1,7 +1,7 @@
 /** Real SQLite ledger, child-process encoder and temporary synthetic RAWs. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from '../fs/mirrored.ts';
-import { join } from 'node:path';
+import { mkdtemp, mkdir, readFile, writeFile, rm, stat, realpath } from '../fs/mirrored.ts';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ObjectId } from '../db/object-id.ts';
 import {
@@ -19,14 +19,17 @@ import { batchSyncJobRoutes } from '../routes/jobs-batch-sync.ts';
 import { batchRecipeExportHandler } from '../job-runner/handlers/batch-recipe-export.ts';
 import type { JobHandlerContext } from '../job-runner/handlers/index.ts';
 import * as jobs from '../job-runner/jobs.repo.ts';
-import { _resetFfiPoolForTests } from '../ffi/ffi-pool.ts';
+import { _resetFfiPoolForTests, ffiPool } from '../ffi/ffi-pool.ts';
 import { parseExportPayload } from './export-payload.ts';
 import type { ExportEntry } from './export-files.ts';
 
-// The fixture is the whole gate now: the ledger is an ordinary SQLite database
-// this file opens for itself, so there is no second environment variable to
-// satisfy and no way for this suite to quietly skip because a service was down.
-const enabled = !!process.env['MAPLE_EXPORT_FIXTURE'];
+// The committed sensor RAW qualifies the shared native export/cache renderer
+// in CI (#3976). A caller may explicitly select a larger camera fixture; an
+// explicitly missing fixture must fail rather than silently skip the suite.
+const fixture =
+  process.env['MAPLE_EXPORT_FIXTURE'] ??
+  resolve(import.meta.dir, '../../../../test-fixtures/batch-transfer/source.dng');
+const enabled = ffiPool().available();
 let live: LiveTestDatabase | null = null;
 let root = '';
 let libraryId = '';
@@ -35,8 +38,8 @@ const xml =
   '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="1.2"/></rdf:RDF>';
 beforeAll(async () => {
   if (!enabled) return;
-  original = await readFile(process.env['MAPLE_EXPORT_FIXTURE']!);
-  root = await mkdtemp(join(tmpdir(), 'maple-recipe-'));
+  original = await readFile(fixture);
+  root = await realpath(await mkdtemp(join(tmpdir(), 'maple-recipe-')));
   await mkdir(join(root, 'exports'));
   registerRoot(root);
   live = await createLiveTestDatabase();

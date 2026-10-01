@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { maple } from 'maple';
+import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { resolveThumbPath, xmpSidecarPath } from '../fs/xmp.ts';
 import { fsThumbsRoutes } from '../routes/fs-thumbs.ts';
@@ -35,6 +36,13 @@ const editedXmp = `<?xml version="1.0"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
 <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="-2" crs:Highlights2012="-65"/>
 </rdf:RDF></x:xmpmeta>`;
+
+function withFilmLook(look: string): string {
+  return editedXmp.replace(
+    '<rdf:Description ',
+    `<rdf:Description xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:FilmLook="${look}" papp:FilmStrength="100" `,
+  );
+}
 
 describe('RAW derivatives preserve real XMP edits (#3971)', () => {
   let directory: string;
@@ -63,6 +71,72 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
       ok: true,
     });
     return (await maple(avif).toRaw()).data;
+  }
+
+  async function filmExpectedPixels(maxPx: number, quality: number, xml: string) {
+    const jpeg = join(directory, `film-oracle-${maxPx}.jpg`);
+    const avif = jpeg + '.avif';
+    expect(
+      await ffiPool().exportRecipeToFile(
+        rawPath,
+        xml,
+        JSON.stringify({ ...DEFAULT_EXPORT_RECIPE, quality: 90, maxLongEdge: maxPx }),
+        resolve(dirname(fixture), '../../resources/film-luts'),
+        jpeg,
+      ),
+    ).toBe(true);
+    expect(await ffiPool().renderBitmapThumbToFile(jpeg, avif, maxPx, quality, 'jpg')).toEqual({
+      ok: true,
+    });
+    return (await maple(avif).toRaw()).data;
+  }
+
+  for (const tier of [
+    { name: 'thumbnail', maxPx: 512, quality: 55, generate: generateThumb },
+    { name: 'preview', maxPx: 1280, quality: 70, generate: generatePreview },
+  ]) {
+    it.skipIf(!nativeAvailable)(
+      `${tier.name}: cold film regeneration matches the actual LUT render`,
+      async () => {
+        const xml = withFilmLook('color_negative_kodak_portra_400');
+        const xmp = xmpSidecarPath(rawPath);
+        await writeFile(xmp, xml);
+        const original = await readFile(rawPath);
+        const expected = await filmExpectedPixels(tier.maxPx, tier.quality, xml);
+        const withoutFilm = await expectedPixels(tier.maxPx, tier.quality, xmp);
+        expect(expected).not.toEqual(withoutFilm);
+        const output = join(directory, `${tier.name}.avif`);
+        await tier.generate(rawPath, output);
+        expect((await maple(output).toRaw()).data).toEqual(expected);
+        const first = await stat(output);
+        await tier.generate(rawPath, output);
+        expect((await stat(output)).mtimeMs).toBe(first.mtimeMs);
+        await rm(output);
+        await tier.generate(rawPath, output);
+        expect((await maple(output).toRaw()).data).toEqual(expected);
+        expect(await readFile(rawPath)).toEqual(original);
+        expect(await readFile(xmp, 'utf8')).toBe(xml);
+      },
+      30000,
+    );
+
+    it.skipIf(!nativeAvailable)(
+      `${tier.name}: an unresolved authored LUT fails without a cache or intermediates`,
+      async () => {
+        const xml = withFilmLook('maple_missing_test_lut');
+        await writeFile(xmpSidecarPath(rawPath), xml);
+        const output = join(directory, `${tier.name}.avif`);
+        await expect(tier.generate(rawPath, output)).rejects.toThrow();
+        await expect(stat(output)).rejects.toThrow();
+        expect(
+          (await readdir(directory)).filter(
+            (name) => name.includes('.tmp.') || name.includes('.develop.'),
+          ),
+        ).toEqual([]);
+        expect(await readFile(xmpSidecarPath(rawPath), 'utf8')).toBe(xml);
+      },
+      30000,
+    );
   }
 
   for (const tier of [
@@ -140,6 +214,29 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
       expect(await readFile(resolveThumbPath(rawPath))).toEqual(bytes);
     },
     30_000,
+  );
+
+  it.skipIf(!nativeAvailable)(
+    'filesystem route preserves the selected film look on cold, warm and regenerated reads',
+    async () => {
+      const xml = withFilmLook('color_negative_kodak_portra_400');
+      await writeFile(xmpSidecarPath(rawPath), xml);
+      const expected = await filmExpectedPixels(512, 55, xml);
+      const response = await getThumb();
+      expect(response.status).toBe(200);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      expect((await maple(bytes).toRaw()).data).toEqual(expected);
+      const warm = await getThumb();
+      expect(Buffer.from(await warm.arrayBuffer())).toEqual(bytes);
+      await rm(resolveThumbPath(rawPath));
+      const regenerated = await getThumb();
+      expect(regenerated.status).toBe(200);
+      expect((await maple(Buffer.from(await regenerated.arrayBuffer())).toRaw()).data).toEqual(
+        expected,
+      );
+      expect(await readFile(xmpSidecarPath(rawPath), 'utf8')).toBe(xml);
+    },
+    30000,
   );
 
   it.skipIf(!nativeAvailable)(

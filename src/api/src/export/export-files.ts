@@ -6,6 +6,7 @@ import { safeWriteAllowed } from '../fs/root.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
 import { tryGetRawFfi } from '../ffi/raw_ffi.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { filmLutDirectory } from '../ffi/film-lut-directory.ts';
 import { renderFilenameTemplate } from 'maple';
 import { EXPORT_ENCODERS } from '../generated/export-recipe.generated.ts';
 import type { ExportRecipe } from '../generated/export-recipe.generated.ts';
@@ -198,10 +199,7 @@ async function renderStaging(
 ): Promise<ExportEntry> {
   const tempPath = entry.tempPath!;
   try {
-    const localFilms = resolve(import.meta.dir, '../../../../resources/film-luts');
-    const filmDirectory = await stat(localFilms)
-      .then(() => localFilms)
-      .catch(() => resolve(import.meta.dir, '../../film-luts'));
+    const filmDirectory = await filmLutDirectory();
     const ok = await ffiPool().exportRecipeToFile(
       paths.source,
       target.xmp,
