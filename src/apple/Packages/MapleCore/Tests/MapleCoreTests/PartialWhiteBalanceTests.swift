@@ -106,11 +106,21 @@ final class PartialWhiteBalanceTests: XCTestCase {
     XCTAssertNil(try JSONDecoder().decode(AdjustmentModel.self, from: oldData).partialWhiteBalance)
   }
 
-  private var fixtureRoot: URL {
-    URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent()
-      .appendingPathComponent("test-fixtures/batch-transfer")
+  func testCommittedFixturesResolveInTheCIStagedPackageLayout() throws {
+    let stage = try SidecarContractIO.makeTempDirectory(prefix: "partial-wb-ci-layout")
+    defer { try? FileManager.default.removeItem(at: stage) }
+    let destination = stage.appendingPathComponent("test-fixtures/batch-transfer")
+    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+    for name in ["source.dng", "target.dng"] {
+      try FileManager.default.copyItem(
+        at: PartialWhiteBalanceFixture.root().appendingPathComponent(name),
+        to: destination.appendingPathComponent(name))
+    }
+    let compiled = stage.appendingPathComponent(
+      "Packages/MapleCore/Tests/MapleCoreTests/PartialWhiteBalanceTests.swift")
+    XCTAssertEqual(try PartialWhiteBalanceFixture.root(from: compiled).path, destination.path)
+    try FileManager.default.removeItem(at: destination.appendingPathComponent("target.dng"))
+    XCTAssertThrowsError(try PartialWhiteBalanceFixture.root(from: compiled))
   }
 
   func testColdRawResolutionPreservesOriginalAxesAndUsesActualCameraMetadata() async throws {
@@ -118,7 +128,8 @@ final class PartialWhiteBalanceTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     for name in ["source.dng", "target.dng"] {
       let raw = root.appendingPathComponent(name)
-      try FileManager.default.copyItem(at: fixtureRoot.appendingPathComponent(name), to: raw)
+      try FileManager.default.copyItem(
+        at: try PartialWhiteBalanceFixture.root().appendingPathComponent(name), to: raw)
       let bytes = try Data(contentsOf: raw)
       let decoded = try PipelineRenderer.renderSceneLinear(
         rawBytes: bytes, hint: "dng", quality: .full, profileOverride: .neutral)
@@ -183,7 +194,8 @@ final class PartialWhiteBalanceTests: XCTestCase {
     let root = try SidecarContractIO.makeTempDirectory(prefix: "partial-wb-session")
     defer { try? FileManager.default.removeItem(at: root) }
     let raw = root.appendingPathComponent("source.dng")
-    try FileManager.default.copyItem(at: fixtureRoot.appendingPathComponent("source.dng"), to: raw)
+    try FileManager.default.copyItem(
+      at: try PartialWhiteBalanceFixture.root().appendingPathComponent("source.dng"), to: raw)
     let originalBytes = try Data(contentsOf: raw)
     let sidecar = SidecarPath.sidecarURL(for: raw)
     try xml(#"crs:Temperature="8500""#).write(to: sidecar, atomically: true, encoding: .utf8)
@@ -263,7 +275,8 @@ final class PartialWhiteBalanceTests: XCTestCase {
     let root = try SidecarContractIO.makeTempDirectory(prefix: "partial-wb-authors")
     defer { try? FileManager.default.removeItem(at: root) }
     let raw = root.appendingPathComponent("source.dng")
-    try FileManager.default.copyItem(at: fixtureRoot.appendingPathComponent("source.dng"), to: raw)
+    try FileManager.default.copyItem(
+      at: try PartialWhiteBalanceFixture.root().appendingPathComponent("source.dng"), to: raw)
     let bytes = try Data(contentsOf: raw)
     let sidecar = SidecarPath.sidecarURL(for: raw)
     for preset in [WhiteBalancePreset.custom, .daylight, .auto, .asShot] {
@@ -320,4 +333,31 @@ final class PartialWhiteBalanceTests: XCTestCase {
     await session.releaseTransientMemory()
   }
 
+}
+
+/// The CI host builds a staged Packages/MapleCore tree rather than src/apple.
+/// Require both committed calibrations; missing fixtures fail instead of skip-passing.
+enum PartialWhiteBalanceFixture {
+  static func root(from file: URL = URL(fileURLWithPath: #filePath)) throws -> URL {
+    let parents = sequence(first: file.standardizedFileURL.deletingLastPathComponent()) {
+      directory -> URL? in
+      let parent = directory.deletingLastPathComponent().standardizedFileURL
+      return parent.path == directory.path ? nil : parent
+    }
+    let candidates = parents.lazy.map { $0.appendingPathComponent("test-fixtures/batch-transfer") }
+    guard
+      let root = candidates.first(where: { directory in
+        ["source.dng", "target.dng"].allSatisfy {
+          FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
+        }
+      })
+    else {
+      throw NSError(
+        domain: "PartialWhiteBalanceFixture", code: 1,
+        userInfo: [
+          NSLocalizedDescriptionKey: "Missing committed white-balance fixtures above \(file.path)"
+        ])
+    }
+    return root
+  }
 }
