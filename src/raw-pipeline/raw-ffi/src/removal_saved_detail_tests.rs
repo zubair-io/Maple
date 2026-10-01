@@ -173,3 +173,67 @@ fn saved_detail_rejects_stale_records_bad_geometry_budget_and_film_then_recovers
     );
     out.assert_empty();
 }
+
+#[test]
+fn saved_selection_proxy_ignores_creative_geometry_but_refuses_a_different_stack() {
+    let handle = Handle::open();
+    let owner = owner(&handle);
+    let mut expected = Output::new();
+    let initial = CString::new(XMP).unwrap();
+    assert_eq!(
+        unsafe {
+            maple_removal_saved_selection_proxy(
+                handle.0,
+                owner.0,
+                initial.as_ptr(),
+                &mut expected.0,
+            )
+        },
+        0
+    );
+    assert_eq!((expected.0.width, expected.0.height), (16, 8));
+    let baseline = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>"#;
+    let (rc, empty_owner) = prepare_xml(&handle, baseline, "[]", &[], RAW);
+    assert_eq!(rc, 0);
+    let baseline = CString::new(baseline).unwrap();
+    let mut empty_proxy = Output::new();
+    assert_eq!(
+        unsafe {
+            maple_removal_saved_selection_proxy(
+                handle.0,
+                empty_owner.0,
+                baseline.as_ptr(),
+                &mut empty_proxy.0,
+            )
+        },
+        0
+    );
+    assert_ne!(
+        expected.bytes(),
+        empty_proxy.bytes(),
+        "Selection must see accepted replacements"
+    );
+
+    let creative = XMP.replace("papp:InpaintRemovals=", r#"xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="3" crs:Temperature="9000" crs:HasCrop="True" crs:CropLeft="0.25" crs:CropRight="0.75" crs:CropAngle="7" crs:PerspectiveX="50" papp:InpaintRemovals="#);
+    let creative = CString::new(creative).unwrap();
+    let mut result = Output::new();
+    assert_eq!(
+        unsafe {
+            maple_removal_saved_selection_proxy(handle.0, owner.0, creative.as_ptr(), &mut result.0)
+        },
+        0
+    );
+    assert_eq!(result.bytes(), expected.bytes());
+    let stale = CString::new(
+        r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>"#,
+    )
+    .unwrap();
+    let mut failed = Output::new();
+    assert_eq!(
+        unsafe {
+            maple_removal_saved_selection_proxy(handle.0, owner.0, stale.as_ptr(), &mut failed.0)
+        },
+        5
+    );
+    failed.assert_empty();
+}
