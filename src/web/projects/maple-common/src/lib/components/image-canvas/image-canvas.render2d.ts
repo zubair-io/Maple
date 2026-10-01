@@ -1,3 +1,4 @@
+import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 // image-canvas.render2d.ts — the 2D-canvas decode/paint paths for
 // ImageCanvasComponent, extracted behind a host interface so the component
 // stays inside the file-size budget. Same precedent as image-canvas.gpu-present.ts
@@ -138,8 +139,7 @@ export async function coldOpen2d(
       assetId,
       decoded.asShotTemperature,
       decoded.asShotTint,
-      decoded.cameraSupport?.resolution !== undefined &&
-        !['rawler_fallback', 'decode_failed'].includes(decoded.cameraSupport.resolution),
+      hasCalibratedWhiteBalance(decoded.cameraSupport),
     );
     // #3182: record the decode-time lens-correction signal for the Lens
     // Corrections panel. Absent (older stubs / non-updated fakes) reads as

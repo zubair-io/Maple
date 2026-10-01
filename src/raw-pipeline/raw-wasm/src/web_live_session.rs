@@ -141,8 +141,8 @@ pub struct WebLiveSession {
 /// Parse the XMP model with the SAME fresh-open contract as `render_bytes` /
 /// `render_bytes_gpu` (#1892): a brand-new import (no XMP) stays at
 /// `AdjustmentModel::default()`, whose untouched `(6500, 0)` WB is both the
-/// As-Shot sentinel for the develop prefix and the identity point of the live
-/// chain's absolute WB matrix — so a fresh open presents the as-shot-balanced
+/// As-Shot sentinel for the develop prefix and the cached camera-frame delta
+/// resolver — so a fresh open presents the as-shot-balanced
 /// buffer unshifted. Shared by `open` + `render` so a session behaves
 /// identically to the one-shot path at every tick.
 fn parse_model(xmp: &Option<String>) -> Result<AdjustmentModel, String> {
