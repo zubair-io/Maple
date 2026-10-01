@@ -1,0 +1,29 @@
+{
+  "issue": 3875,
+  "sourceRevision": "97a052b883311cecab829e6251a6007b2afc8217",
+  "scope": "Full Windows functional suite after NR sampling propagation and fast-preview reduction fixes; uncommitted MuiInput-only styling does not enter the pure test assembly.",
+  "nativeLibrarySha256": "94071936098A49BE1A1D4FB2D5B4D1E4190088FB2BAD906E7FA6403E088BFCEC",
+  "fixture": {
+    "kind": "synthetic 3200x2200 Bayer DNG",
+    "sha256BeforeAndAfter": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8"
+  },
+  "windowsSuite": {
+    "total": 1427,
+    "passed": 1427,
+    "failed": 0,
+    "notExecuted": 0,
+    "skipPassMessages": 0,
+    "trxSha256": "475866C87EE63CB0F403684188812F89B45A23F4E6E76DCFE9221B0A68956745",
+    "trx": "%TEMP%/maple293-results/integration293.trx"
+  },
+  "environment": {
+    "MAPLE_RAW_FFI_DLL": "src/raw-pipeline/target/release/raw_ffi.dll",
+    "MAPLE_DEMOSAIC_TEST_RAW": "%TEMP%/maple-ui-qualification211/fixture.dng",
+    "MAPLE_RETOUCH_TEST_RAW": "%TEMP%/maple-ui-qualification211/fixture.dng",
+    "MAPLE_EXPORT_TEST_RAW": "%TEMP%/maple-ui-qualification211/fixture.dng"
+  },
+  "limitations": [
+    "Functional tests do not establish perceptual color parity; production284 still records a failing preview/export comparison.",
+    "No full DPI, Narrator, real-cloud, sustained native UI stability or physical hardware performance qualification."
+  ]
+}

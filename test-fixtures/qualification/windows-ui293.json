@@ -1,0 +1,20 @@
+{
+  "issues": [3875, 3887],
+  "sourceBase": "97a052b88",
+  "build": "Maple.DesignAudit293",
+  "buildResult": { "errors": 0, "warnings": 27 },
+  "change": "MuiInput binds the text placeholder and NumberBox template placeholder resources to MapleTextMuted; populated values retain MapleTextMain.",
+  "apiEvidence": "Installed Microsoft.WinUI.xml exposes TextBox.PlaceholderForeground; generic.xaml binds it in default, pointer-over, focused and disabled states. NumberBox's inner TextBox resolves the TextControlPlaceholderForeground resources.",
+  "method": "Live production browse inspection with @oai/sky after activating the uniquely selected build window.",
+  "screenshotDirectory": "%TEMP%/maple-ui291-evidence",
+  "screenshots": ["placeholder-default293.png", "placeholder-focused293.png"],
+  "verified": [
+    "Production search displays muted placeholder text while unfocused and focused.",
+    "Focused search retains the Maple red outline and descriptive accessible label."
+  ],
+  "limitations": [
+    "Numeric placeholder states verified by installed template and compilation, not live screenshot.",
+    "No full DPI, Narrator, cloud, stability, color or performance sign-off."
+  ],
+  "privacy": "Screenshots containing local user photos are retained locally, not committed."
+}

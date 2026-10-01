@@ -27,19 +27,9 @@ namespace Maple.UI.Atoms
     /// <see cref="NumberBox"/> (Numeric, which gets built-in increment/
     /// decrement steppers for free via SpinButtonPlacementMode) with its own
     /// chrome turned OFF (Background transparent, BorderThickness 0) — the
-    /// same reasoning MuiButton's doc comment gives for local-value color
-    /// overrides: this project can't compile-verify a ControlTemplate
-    /// rewrite in this worktree, so instead of fighting the native
-    /// TextBox/NumberBox template for `color.input_bg`/`color.border`, an
-    /// outer Border owns 100% of the visible chrome and the inner control
-    /// only handles text editing.
-    ///
-    /// KNOWN GAP: input.md's "Filled" state (`color.text_main` value vs.
-    /// `color.text_muted` placeholder) relies on the native
-    /// TextBox/NumberBox placeholder-vs-value color split, which this wave
-    /// leaves at its Fluent default rather than guessing at an uncertain
-    /// `PlaceholderForeground`-shaped API with no compiler to check it
-    /// against.
+    /// outer Border owns the visible fill and outline while the inner
+    /// control handles text editing. Value and placeholder foregrounds
+    /// use Maple tokens in every native interaction state.
     /// </summary>
     public sealed class MuiInput : ContentControl
     {
@@ -295,7 +285,14 @@ namespace Maple.UI.Atoms
             _fieldBorder.BorderThickness = new Thickness(1);
             _fieldBorder.Background = R("MapleInputBg");
             _textBox.Foreground = R("MapleTextMain");
+            _textBox.PlaceholderForeground = R("MapleTextMuted");
             _numberBox.Foreground = R("MapleTextMain");
+            // NumberBox's template contains a TextBox without a public
+            // PlaceholderForeground property on the NumberBox itself.
+            foreach (var key in new[] { "TextControlPlaceholderForeground",
+                "TextControlPlaceholderForegroundPointerOver", "TextControlPlaceholderForegroundFocused",
+                "TextControlPlaceholderForegroundDisabled" })
+                _numberBox.Resources[key] = R("MapleTextMuted");
             _helperText.Foreground = hasError ? R("MapleErrorText") : R("MapleTextMuted");
         }
 
