@@ -28,6 +28,7 @@ public sealed partial class MainWindow
         await ReadyAsync();
         if (ViewModel.UndoCount != depth + 1) throw new InvalidOperationException("Repair placement was not one undo entry");
         if (_repairCanvas.Children.Count < 3) throw new InvalidOperationException("Repair source, destination and connector were not drawn");
+        await VerifyRepairActionsLayoutAsync();
         RecordSmokeStage(output, "retouch-change-kind");
         _repairKind.SelectedItem = "Clone";
         await ReadyAsync();
@@ -74,6 +75,32 @@ public sealed partial class MainWindow
                 if (DateTime.UtcNow >= until) throw new TimeoutException("Repair diagnostic did not reach the expected state");
                 await Task.Delay(25);
             }
+        }
+    }
+
+    private async Task VerifyRepairActionsLayoutAsync()
+    {
+        var originalSize = AppWindow.Size;
+        var root = (Microsoft.UI.Xaml.FrameworkElement)Content;
+        try
+        {
+            foreach (var size in new[] { new Windows.Graphics.SizeInt32(1440, 900), new Windows.Graphics.SizeInt32(1024, 768) })
+            {
+                AppWindow.Resize(size);
+                await Task.Delay(300);
+                root.UpdateLayout();
+                if (AppWindow.Size.Width != size.Width || AppWindow.Size.Height != size.Height)
+                    throw new InvalidOperationException("Repair layout did not reach the requested native window size");
+                if (_repairAdd.ActualHeight < 44 || _repairDelete.ActualHeight < 44)
+                    throw new InvalidOperationException($"Repair actions do not meet the 44 DIP target height: add={_repairAdd.ActualHeight}, delete={_repairDelete.ActualHeight}");
+                await VerifyPanelControlReachableAsync(EditPanel, _repairDelete, "Delete selected repair");
+            }
+        }
+        finally
+        {
+            AppWindow.Resize(originalSize);
+            await Task.Delay(200);
+            root.UpdateLayout();
         }
     }
 }

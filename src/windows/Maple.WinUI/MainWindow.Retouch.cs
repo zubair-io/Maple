@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Maple.UI.Atoms;
 using Maple.WinUI.Models;
 using Maple.WinUI.Services;
 using Maple.WinUI.Services.Xmp;
@@ -15,8 +16,8 @@ public sealed partial class MainWindow
     private readonly StackPanel _repairPanel = new() { Spacing = 10 };
     private readonly ComboBox _repairKind = new() { Header = "Repair type", ItemsSource = Enum.GetNames<RetouchKind>(), HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ListView _repairList = new() { MaxHeight = 160, SelectionMode = ListViewSelectionMode.Single };
-    private readonly Button _repairAdd = new() { Content = "Add repair" };
-    private readonly Button _repairDelete = new() { Content = "Delete selected repair" };
+    private readonly MuiButton _repairAdd = new() { Label = "Add repair", ButtonSize = MuiButtonSize.Lg };
+    private readonly MuiButton _repairDelete = new() { Label = "Delete selected repair", ButtonSize = MuiButtonSize.Lg };
     private readonly TextBlock _repairStatus = new() { TextWrapping = TextWrapping.Wrap, FontSize = 12 };
     private readonly List<NumberBox> _repairValues = new();
     private int _repairSelection = -1;

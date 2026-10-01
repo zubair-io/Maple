@@ -10,6 +10,8 @@ The local and cloud source hierarchies use native WinUI `TreeView` controls for 
 
 Batch metadata keeps a native multiline `TextBox` for one-keyword-per-line entry because `MuiInput` is single-line. Its focused underline uses `MaplePrimary`; native text editing, line breaks and the accessible label remain intact.
 
+Heal/Clone actions use `MuiButton` with 44-DIP minimum heights. Its spot list retains native `ListView` virtualization and selection semantics, with Maple-red selection indicators and system high-contrast resources. Numeric repair fields retain `NumberBox` for bounded numeric entry and range automation; the shared single-line text input is not an equivalent numeric control.
+
 | Artifact            | Built from                                           | Role                                                                                                 |
 | ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `Maple.WinUI.exe`   | `src/windows/Maple.WinUI/Maple.WinUI.csproj`         | The app. WinUI 3, .NET 8, `win-x64` / `win-arm64`.                                                   |
