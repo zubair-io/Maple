@@ -109,6 +109,10 @@ fn normal_preview_carries_actual_raw_metadata_and_saved_pixels() {
     let stack = prepare(&raw, &original, &xmp, &manifest, &bytes).unwrap();
     let mut frame = preview(Some(&stack), &raw, &original, RAW, "dng", &xmp, 4, &[]).unwrap();
     let mut patch = render(Some(&stack), &raw, &original, RAW, "dng", &xmp, 4, &[]).unwrap();
+    assert_eq!(
+        (frame.crop_input_width(), frame.crop_input_height()),
+        (4, 2)
+    );
     assert_eq!(frame.take_rgb(), patch.take_rgb());
     assert_eq!(
         (frame.full_width(), frame.full_height()),

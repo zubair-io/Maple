@@ -52,6 +52,8 @@ type Settler<K extends PendingHandler['kind']> = (
 const settleLegacy: Settler<'legacy'> = (msg, handler) => {
   if (msg.type === 'decode-success') {
     handler.resolve({
+      cropInputWidth: msg.cropInputWidth,
+      cropInputHeight: msg.cropInputHeight,
       width: msg.width,
       height: msg.height,
       nativeWidth: msg.nativeWidth,
@@ -96,6 +98,8 @@ const settleSceneLinear: Settler<'scene-linear'> = (msg, handler) => {
 const settleOpenSession: Settler<'open-session'> = (msg, handler) => {
   if (msg.type === 'open-session-success') {
     handler.resolve({
+      cropInputWidth: msg.cropInputWidth,
+      cropInputHeight: msg.cropInputHeight,
       width: msg.width,
       height: msg.height,
       nativeWidth: msg.nativeWidth,
@@ -123,6 +127,8 @@ const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
     // No scopePixels here (#3397): the sample arrives out-of-band as a
     // 'scope-sample' broadcast so this reply doesn't wait on a GPU sync.
     handler.resolve({
+      cropInputWidth: msg.cropInputWidth,
+      cropInputHeight: msg.cropInputHeight,
       colorSpace: msg.colorSpace,
       lensProfile: msg.lensProfile,
       width: msg.width,

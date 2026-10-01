@@ -62,6 +62,22 @@ impl WebLiveSession {
         .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
+    /// Fixed As-Shot, unwarped source-framed SDR proxy for selection models.
+    pub fn removal_selection_proxy(
+        &self,
+        xmp: &str,
+    ) -> Result<crate::native_detail::NativeDetailPatch, JsValue> {
+        crate::removal_proxy::render(
+            &self.raw_img,
+            &self.original,
+            &self.raw,
+            &self.ext,
+            self.saved_removals.as_ref(),
+            xmp,
+        )
+        .map_err(|e| JsValue::from_str(&e))
+    }
+
     /// Normal saved-preview pixels and actual RAW support metadata (#3955).
     pub fn render_saved_preview(
         &self,

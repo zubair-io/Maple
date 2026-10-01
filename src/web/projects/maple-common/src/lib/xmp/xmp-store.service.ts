@@ -440,7 +440,12 @@ export class XmpStoreService {
               ],
               unknownNodes: source?.unknownNodes ?? [],
             };
-            const xml = this.serializer.serialize(model, passthrough, culling);
+            const xml = this.serializer.serialize(
+              model,
+              passthrough,
+              culling,
+              source ? undefined : this._metadata.get(assetId),
+            );
             await this.folderAccess.writeFile(
               folder,
               this._sidecarFilename(rawFilename),

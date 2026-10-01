@@ -40,6 +40,20 @@ export function runRemovalAuthoring(
     throw new Error('Removal RAW source changed; reopen the tool');
   }
   switch (command.kind) {
+    case 'proxy': {
+      if (!session.removal_selection_proxy) throw new Error('Selection proxy renderer unavailable');
+      const proxy = session.removal_selection_proxy(command.xmp);
+      try {
+        return {
+          kind: 'proxy',
+          width: proxy.width,
+          height: proxy.height,
+          rgb: proxy.take_rgb().slice().buffer as ArrayBuffer,
+        };
+      } finally {
+        proxy.free();
+      }
+    }
     case 'render-saved': {
       if (!session.render_saved_preview) throw new Error('Saved preview renderer unavailable');
       return {
@@ -119,7 +133,7 @@ export async function handleRemovalAuthoring(request: RemovalAuthoringRequest): 
       value,
     };
     const transfer =
-      value.kind === 'context'
+      value.kind === 'context' || value.kind === 'proxy'
         ? [value.rgb]
         : value.kind === 'selection'
           ? [value.mask]

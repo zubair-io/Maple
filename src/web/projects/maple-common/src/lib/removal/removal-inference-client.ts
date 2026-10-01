@@ -69,7 +69,7 @@ export class RemovalInferenceClient {
     prior: string,
     scene: Float32Array,
     intent: Uint8Array,
-    protectedMask = new Uint8Array(),
+    protectedMask: Uint8Array = new Uint8Array(),
   ): Promise<RemovalProposal> {
     return this.run(['lama'], async () => {
       const rgb = owned(scene),

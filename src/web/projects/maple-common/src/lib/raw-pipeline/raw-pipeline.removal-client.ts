@@ -92,6 +92,12 @@ export class RemovalAuthoringClient {
     return result.review;
   }
 
+  async proxy(xmp: string): Promise<{ width: number; height: number; rgb: Uint8Array }> {
+    const result = await this.operation({ kind: 'proxy', xmp });
+    if (result.kind !== 'proxy') throw new Error('Invalid selection proxy reply');
+    return { ...result, rgb: new Uint8Array(result.rgb) };
+  }
+
   async renderSaved(xmp: string, cap: number, film?: ArrayBuffer): Promise<DecodedImage> {
     const result = await this.operation({ kind: 'render-saved', xmp, cap, film });
     if (result.kind !== 'rendered') throw new Error('Invalid saved preview reply');

@@ -1,0 +1,192 @@
+<section
+  class="removal-panel flex w-[280px] max-w-full min-w-0 flex-col gap-2 p-3"
+  aria-label="AI object removal"
+  data-testid="removal-panel"
+>
+  <p class="text-[11px] text-text-muted">AI removal · Experimental</p>
+  <mui-segmented-toggle
+    [options]="modes"
+    [value]="session.mode()"
+    [disabled]="session.busy() || session.phase() === 'review'"
+    ariaLabel="Object selection mode"
+    (valueChange)="setMode($event)"
+  />
+  @if (session.phase() === 'closed') {
+    <mui-button size="sm" (pressed)="session.retryOpen()" ariaLabel="Retry opening removal"
+      >Retry opening photo</mui-button
+    >
+  }
+  @if (session.mode() !== 'people' && session.phase() !== 'review') {
+    <mui-living-slider
+      label="Brush size"
+      [value]="session.radius()"
+      [min]="0.0005"
+      [max]="0.1"
+      [step]="0.0005"
+      [disabled]="session.busy()"
+      (valueChange)="session.radius.set($event)"
+    />
+    <div class="flex gap-2">
+      <mui-button
+        size="sm"
+        [active]="!session.subtract()"
+        [disabled]="session.busy()"
+        (pressed)="session.subtract.set(false)"
+        ariaLabel="Paint to add selection"
+        >Add</mui-button
+      >
+      <mui-button
+        size="sm"
+        [active]="session.subtract()"
+        [disabled]="session.busy()"
+        (pressed)="session.subtract.set(true)"
+        ariaLabel="Paint to subtract selection"
+        >Subtract</mui-button
+      >
+      <mui-button
+        size="sm"
+        [disabled]="!session.canUndoSelection() || session.busy()"
+        (pressed)="session.undoSelection()"
+        ariaLabel="Undo selection stroke"
+        >Undo stroke</mui-button
+      >
+      <mui-button
+        size="sm"
+        [disabled]="!session.canRedoSelection() || session.busy()"
+        (pressed)="session.redoSelection()"
+        ariaLabel="Redo selection stroke"
+        >Redo stroke</mui-button
+      >
+    </div>
+  }
+  @if (session.mode() === 'people' && session.phase() !== 'review') {
+    <mui-button
+      size="sm"
+      [disabled]="session.phase() !== 'ready'"
+      (pressed)="session.detectPeople()"
+      >Find people</mui-button
+    >
+    <p class="text-[11px] text-text-muted">
+      Choose the people to keep. All other people will be proposed for removal.
+    </p>
+    <div class="people-list">
+      @for (person of session.people(); track $index) {
+        <mui-button
+          size="sm"
+          [active]="person.keep"
+          [disabled]="session.busy()"
+          [ariaLabel]="'Keep person ' + ($index + 1)"
+          [ariaPressed]="person.keep"
+          (pressed)="session.keepPerson($index)"
+          >Person {{ $index + 1 }} · {{ person.keep ? 'Keep' : 'Remove' }}</mui-button
+        >
+      }
+    </div>
+    <mui-button
+      size="sm"
+      [disabled]="!session.people().length || session.busy()"
+      (pressed)="session.selectBackgroundPeople()"
+      >Select background people</mui-button
+    >
+  }
+  @if (session.phase() === 'review' || session.phase() === 'recovery') {
+    <div class="flex gap-2">
+      <mui-button
+        size="sm"
+        [active]="session.compare()"
+        (pressed)="session.compare.set(!session.compare())"
+        ariaLabel="Compare removal with the current photo"
+        >Compare</mui-button
+      >
+      <mui-button
+        variant="primary"
+        size="sm"
+        [disabled]="session.phase() !== 'review'"
+        (pressed)="session.keep()"
+        >Keep</mui-button
+      >
+      <mui-button size="sm" (pressed)="session.cancel()">{{
+        session.phase() === 'recovery' ? 'Retry restoring photo' : 'Cancel'
+      }}</mui-button>
+    </div>
+  } @else {
+    <div class="flex flex-wrap gap-2">
+      <mui-button
+        size="sm"
+        [disabled]="!session.selection().length || session.busy()"
+        (pressed)="session.protectSelection()"
+        >Keep selected area</mui-button
+      >
+      <mui-button
+        size="sm"
+        [disabled]="!session.protection().length || session.busy()"
+        (pressed)="session.clearProtection()"
+        >Clear protection</mui-button
+      >
+      <mui-button
+        size="sm"
+        [disabled]="!session.selection().length || session.busy()"
+        (pressed)="session.clearSelection()"
+        >Clear selection</mui-button
+      >
+      <mui-button
+        variant="primary"
+        size="sm"
+        [disabled]="!session.selection().length || session.phase() !== 'ready' || installing()"
+        (pressed)="session.remove()"
+        >Remove</mui-button
+      >
+    </div>
+    @if (session.canUndoKeep()) {
+      <mui-button size="sm" [disabled]="session.busy()" (pressed)="session.undoKeep()"
+        >Undo last removal</mui-button
+      >
+    }
+  }
+  @if (session.busy()) {
+    <p class="text-[11px] text-text-muted" role="status">
+      {{ session.phase() === 'saving' ? 'Saving removal…' : session.stage() || 'Preparing photo…' }}
+    </p>
+    @if (session.phase() !== 'saving') {
+      <mui-button size="sm" (pressed)="session.cancel()">Cancel operation</mui-button>
+    }
+  }
+  <p class="text-[11px] text-text-muted break-words" role="status" aria-live="polite">
+    {{ session.message() }}
+  </p>
+  <details>
+    <summary class="text-[11px] text-text-muted">Local AI models</summary>
+    <p class="text-[11px] text-text-muted">
+      These experimental models are not release-qualified. Import the pinned files to test locally;
+      photos stay on this device.
+    </p>
+    @for (pin of session.models.pins; track pin.id) {
+      <p class="text-[10px] text-text-muted">
+        {{ pin.file }} · {{ session.models.models().has(pin.id) ? 'Installed' : 'Required' }}
+      </p>
+      @if (session.models.models().has(pin.id)) {
+        <mui-button
+          size="sm"
+          [disabled]="installing() || session.busy() || session.phase() === 'review'"
+          [ariaLabel]="'Remove model ' + pin.file"
+          (pressed)="uninstall(pin.id)"
+          >Remove model</mui-button
+        >
+      }
+    }
+    <label class="text-[11px] text-text-main"
+      >Import model files
+      <input
+        type="file"
+        multiple
+        accept=".onnx"
+        aria-label="Import local removal models"
+        [disabled]="installing() || session.busy() || session.phase() === 'review'"
+        (change)="install($event)"
+      />
+    </label>
+    <p class="text-[11px] text-text-muted" role="alert">
+      {{ installError() || session.models.error() }}
+    </p>
+  </details>
+</section>

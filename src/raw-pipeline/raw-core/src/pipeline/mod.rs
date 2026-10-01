@@ -88,7 +88,7 @@ pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetada
 pub use render::{
     cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
-    render_detail_base, render_detail_tile, render_export_from_raw,
+    render_display_with_geometry, render_detail_base, render_detail_tile, render_export_from_raw,
     render_export_from_raw_with_film, render_export_raster, render_from_raw,
     render_from_raw_with_quality, render_from_raw_with_quality_and_source,
     render_from_raw_with_quality_source_and_film, render_from_scene_linear,
@@ -104,7 +104,7 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source,
     render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, DetailContext,
-    DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RawInput,
+    DisplayRender, DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RawInput,
 };
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, apply_scene_linear_chain_f32_scoped,

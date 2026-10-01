@@ -375,13 +375,13 @@ pub(crate) fn chain_inputs_for_model(
 /// `None`/`0` → [`DEFAULT_TARGET_LONG_EDGE`]; either way the target is clamped to
 /// the device's texture cap via [`effective_target_long_edge`].
 #[cfg(any(target_arch = "wasm32", test))]
-async fn render_gpu_core(
+async fn render_gpu_with_geometry(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
     ext: &str,
     model: &AdjustmentModel,
     max_long_edge: Option<u32>,
-) -> Result<(u32, u32, Vec<u8>), String> {
+) -> Result<raw_core::pipeline::DisplayRender, String> {
     // Context FIRST: the effective develop target clamps to this device's
     // texture cap, so the device must exist before the sized develop runs.
     // Fallible (#1079): no adapter / device surfaces as an Err so the worker
@@ -412,12 +412,28 @@ async fn render_gpu_core(
 
     // EXIF-orient the u8 surface last, exactly as `render_bytes` does (the GPU
     // chain is orientation-agnostic; the develop buffer is in sensor framing).
-    Ok(raw_core::image::apply_orientation(
-        &rgb,
+    Ok(raw_core::pipeline::DisplayRender::from_quantized(
+        rgb,
         w,
         h,
         raw_img.orientation,
+        model,
     ))
+}
+
+#[cfg(test)]
+async fn render_gpu_core(
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    max_long_edge: Option<u32>,
+) -> Result<(u32, u32, Vec<u8>), String> {
+    Ok(
+        render_gpu_with_geometry(raw_img, raw, ext, model, max_long_edge)
+            .await?
+            .pixels,
+    )
 }
 
 /// Render a RAW from bytes to a u8 RGB display surface via the GPU live chain
@@ -470,7 +486,10 @@ pub async fn render_bytes_gpu(
     let model = crate::mask_registry::parse_model(xmp.as_deref())
         .map_err(|e| JsError::new(&e.to_string()))?;
 
-    let (ow, oh, oriented) = render_gpu_core(&raw_img, &raw, &ext, &model, max_long_edge)
+    let raw_core::pipeline::DisplayRender {
+        pixels: (ow, oh, oriented),
+        crop_input_size,
+    } = render_gpu_with_geometry(&raw_img, &raw, &ext, &model, max_long_edge)
         .await
         .map_err(|e| JsError::new(&e))?;
 
@@ -489,7 +508,8 @@ pub async fn render_bytes_gpu(
         raw_img.lens_correction_ca_inert(),
         camera_support,
         crate::lens_profile::metadata(&raw_img, &model),
-    ))
+    )
+    .with_crop_input(crop_input_size))
 }
 
 // Native-host tests drive the shared decode/GPU core; browser-only presentation

@@ -28,6 +28,7 @@ pub struct MapleRender {
     height: u32,
     full_width: u32,
     full_height: u32,
+    crop_input_size: Option<[u32; 2]>,
     rgb: Vec<u8>,
     as_shot_temperature: f32,
     as_shot_tint: f32,
@@ -38,6 +39,10 @@ pub struct MapleRender {
 }
 
 impl MapleRender {
+    pub(crate) fn with_crop_input(mut self, dimensions: [u32; 2]) -> Self {
+        self.crop_input_size = Some(dimensions);
+        self
+    }
     /// Internal constructor used by every render entry in this crate that
     /// isn't in THIS module (`gpu_render.rs`'s `render_bytes_gpu`,
     /// `render_film.rs`'s film-look siblings) — same-module entries
@@ -68,6 +73,7 @@ impl MapleRender {
             height,
             full_width,
             full_height,
+            crop_input_size: None,
             rgb,
             as_shot_temperature,
             as_shot_tint,
@@ -81,6 +87,14 @@ impl MapleRender {
 
 #[wasm_bindgen]
 impl MapleRender {
+    #[wasm_bindgen(getter)]
+    pub fn crop_input_width(&self) -> u32 {
+        self.crop_input_size.map_or(0, |d| d[0])
+    }
+    #[wasm_bindgen(getter)]
+    pub fn crop_input_height(&self) -> u32 {
+        self.crop_input_size.map_or(0, |d| d[1])
+    }
     #[wasm_bindgen(getter)]
     pub fn width(&self) -> u32 {
         self.width
@@ -244,8 +258,11 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     let source = Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext });
     match crate::cpu_budget::clamp_develop_long_edge(raw_img.width, raw_img.height, None) {
         None => {
-            let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
-                &raw_img, &model, quality, source,
+            let raw_core::pipeline::DisplayRender {
+                pixels: (w, h, bytes),
+                crop_input_size,
+            } = raw_core::pipeline::render_display_with_geometry(
+                &raw_img, &model, quality, source, None, None,
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
             Ok(MapleRender {
@@ -253,6 +270,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 height: h,
                 full_width: w,
                 full_height: h,
+                crop_input_size: Some(crop_input_size),
                 rgb: bytes,
                 as_shot_temperature,
                 as_shot_tint,
@@ -264,8 +282,16 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
         }
         Some(cap) => {
             let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-            let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
-                &raw_img, &model, quality, source, cap,
+            let raw_core::pipeline::DisplayRender {
+                pixels: (w, h, bytes),
+                crop_input_size,
+            } = raw_core::pipeline::render_display_with_geometry(
+                &raw_img,
+                &model,
+                quality,
+                source,
+                Some(cap),
+                None,
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
             Ok(MapleRender {
@@ -273,6 +299,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
                 height: h,
                 full_width,
                 full_height,
+                crop_input_size: Some(crop_input_size),
                 rgb: bytes,
                 as_shot_temperature,
                 as_shot_tint,
@@ -347,12 +374,16 @@ pub fn render_bytes_sized(
     )
     .unwrap_or(max_long_edge);
     let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-    let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
+    let raw_core::pipeline::DisplayRender {
+        pixels: (w, h, bytes),
+        crop_input_size,
+    } = raw_core::pipeline::render_display_with_geometry(
         &raw_img,
         &model,
         quality,
         Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
-        effective_long_edge,
+        Some(effective_long_edge),
+        None,
     )
     .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleRender {
@@ -360,6 +391,7 @@ pub fn render_bytes_sized(
         height: h,
         full_width,
         full_height,
+        crop_input_size: Some(crop_input_size),
         rgb: bytes,
         as_shot_temperature,
         as_shot_tint,
@@ -442,6 +474,7 @@ pub fn develop_non_raw(
         height,
         full_width: width,
         full_height: height,
+        crop_input_size: Some([width, height]),
         rgb,
         as_shot_temperature: 6500.0,
         as_shot_tint: 0.0,

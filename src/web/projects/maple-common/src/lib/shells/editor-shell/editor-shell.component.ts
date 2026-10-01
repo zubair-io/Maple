@@ -206,6 +206,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly maskArmed = computed<boolean>(() => this.editorState.armedTool() === 'mask');
   /** Heal (#3409) takes the same panel anchor as Mask. */
   readonly healArmed = computed<boolean>(() => this.editorState.armedTool() === 'heal');
+  readonly removalArmed = computed(() => this.editorState.armedTool() === 'remove');
 
   /** True while the Noise tool is armed (#1153) — mounts the SAME shared
    *  multi-param panel HSL uses, so the Noise pill's four tiers (Luminance,

@@ -183,6 +183,11 @@ export async function coldOpen2d(
     });
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
+    host.canvasSvc.cropInputDimensions.set(
+      decoded.cropInputWidth && decoded.cropInputHeight
+        ? { w: decoded.cropInputWidth, h: decoded.cropInputHeight }
+        : null,
+    );
     host.recordPaintedDims(decoded.width, decoded.height);
     host.clearProvisionalPreview(assetId);
     performance.mark(`maple:open:${assetId}:paint`);
@@ -257,6 +262,11 @@ export async function runRender2d(
     }
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
+    host.canvasSvc.cropInputDimensions.set(
+      decoded.cropInputWidth && decoded.cropInputHeight
+        ? { w: decoded.cropInputWidth, h: decoded.cropInputHeight }
+        : null,
+    );
     host.recordPaintedDims(decoded.width, decoded.height);
     host.lastRenderedXmp = xmp;
     if (host.currentAssetId)

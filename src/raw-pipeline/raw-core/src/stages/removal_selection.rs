@@ -85,6 +85,87 @@ pub fn rasterize(
     Ok(Some(mask))
 }
 
+/// Combine reviewed person masks or subtract protected intent in source space.
+/// Empty bytes mean no selection, matching the gesture replay boundary.
+pub fn combine_masks(left: &[u8], right: &[u8], subtract: bool) -> Result<Vec<u8>, String> {
+    let decode = |bytes: &[u8]| {
+        if bytes.is_empty() {
+            Ok(None)
+        } else {
+            crate::pipeline::removal_mask_from_bytes(bytes).map(Some)
+        }
+    };
+    let (left, right) = (decode(left)?, decode(right)?);
+    let Some(right) = right else {
+        return match left {
+            Some(mask) => crate::pipeline::removal_mask_to_bytes(&mask),
+            None => Ok(Vec::new()),
+        };
+    };
+    let Some(left) = left else {
+        return if subtract {
+            Ok(Vec::new())
+        } else {
+            crate::pipeline::removal_mask_to_bytes(&right)
+        };
+    };
+    if (left.source_width, left.source_height) != (right.source_width, right.source_height) {
+        return Err("removal selection: combined mask source geometry differs".into());
+    }
+    let x = if subtract {
+        left.x
+    } else {
+        left.x.min(right.x)
+    };
+    let y = if subtract {
+        left.y
+    } else {
+        left.y.min(right.y)
+    };
+    let width = if subtract {
+        left.width
+    } else {
+        (left.x + left.width).max(right.x + right.width) - x
+    };
+    let height = if subtract {
+        left.height
+    } else {
+        (left.y + left.height).max(right.y + right.height) - y
+    };
+    let count = validate_mask_layout(left.source_width, left.source_height, x, y, width, height)?;
+    let sample = |mask: &RemovalMask, sx: u32, sy: u32| {
+        sx >= mask.x
+            && sy >= mask.y
+            && sx < mask.x + mask.width
+            && sy < mask.y + mask.height
+            && mask.pixels[((sy - mask.y) * mask.width + sx - mask.x) as usize] == 255
+    };
+    let pixels = (0..count)
+        .map(|index| {
+            let sx = x + index as u32 % width;
+            let sy = y + index as u32 / width;
+            let (a, b) = (sample(&left, sx, sy), sample(&right, sx, sy));
+            if if subtract { a && !b } else { a || b } {
+                255
+            } else {
+                0
+            }
+        })
+        .collect::<Vec<_>>();
+    if pixels.iter().all(|v| *v == 0) {
+        return Ok(Vec::new());
+    }
+    crate::pipeline::removal_mask_to_bytes(&RemovalMask {
+        source_width: left.source_width,
+        source_height: left.source_height,
+        x,
+        y,
+        width,
+        height,
+        pixels,
+    })
+}
+
 fn stroke_bounds(w: u32, h: u32, stroke: &RemovalStroke) -> [u32; 4] {
     let radius = f64::from(stroke.radius) * f64::from(w);
     let mut bounds = [w, h, 0, 0];

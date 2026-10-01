@@ -1,3 +1,4 @@
+import { RemovalOverlayComponent } from '../removal-overlay/removal-overlay.component';
 // ImageCanvasComponent — center column; zoom + pan + before/after divider.
 // Uses real decoded pixels via RawPipelineService for imported assets.
 // Falls back to gradient placeholders for mock assets.
@@ -76,6 +77,7 @@ import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './imag
     GuidedGeometryOverlayComponent,
     MaskOverlayComponent,
     RetouchOverlayComponent,
+    RemovalOverlayComponent,
     CanvasPickOverlayComponent,
   ],
   templateUrl: './image-canvas.component.html',
@@ -291,6 +293,8 @@ export class ImageCanvasComponent
         this.lastRenderedXmp = null;
         this.coldOpenDone = false;
         this.canvasSvc.nativeDimensions.set(null);
+        this.canvasSvc.cropInputDimensions.set(null);
+        this.canvasSvc.displayLayout.set(null);
         this.paintedLongEdge = 0;
         this.canvasSvc.paintedAspect.set(null);
         this.byteLoadError.set(null);
@@ -458,7 +462,9 @@ export class ImageCanvasComponent
   /** The GPU canvas's CSS layout, mirrored from the 2D canvas. */
   currentLayout(): { canvasW: number; canvasH: number; pan: { x: number; y: number } } {
     const { canvasW, canvasH } = this.effectivePx();
-    return { canvasW, canvasH, pan: this.canvasSvc.pan() };
+    const layout = { canvasW, canvasH, pan: this.canvasSvc.pan() };
+    this.canvasSvc.displayLayout.set(layout);
+    return layout;
   }
   /** GPU develop target (#1080): viewport long edge in real px; `undefined` → WASM's 2048 cap. */
   viewportTargetLongEdge(): number | undefined {

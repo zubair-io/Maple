@@ -1,3 +1,4 @@
+import { RemovalPanelComponent } from '../../components/removal-panel/removal-panel.component';
 // editor-shell.imports.ts — the standalone components `EditorShellComponent`
 // projects into its template.
 //
@@ -60,6 +61,7 @@ export const EDITOR_SHELL_IMPORTS = [
   CropToolbarComponent,
   MaskPanelComponent,
   RetouchPanelComponent,
+  RemovalPanelComponent,
   PresetsPanelComponent,
   SubParamRowComponent,
   DragBarComponent,

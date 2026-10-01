@@ -24,6 +24,8 @@ import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
  * achieved canvas colour-space tag the browser configured.
  */
 export interface OpenedLiveSession {
+  cropInputWidth?: number;
+  cropInputHeight?: number;
   width: number;
   height: number;
   /**
@@ -63,6 +65,8 @@ export interface OpenedLiveSession {
  * colour-space tag. The scope readback left this reply in #3397 — see below.
  */
 export interface RenderedLiveSession {
+  cropInputWidth?: number;
+  cropInputHeight?: number;
   width: number;
   height: number;
   colorSpace: string;

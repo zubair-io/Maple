@@ -80,8 +80,11 @@ pub(crate) fn preview(
     let cap =
         crate::cpu_budget::clamp_develop_long_edge(raw.width, raw.height, (cap > 0).then_some(cap));
     let film = film(film_bytes)?;
-    let (w, h, rgb) = stack
-        .render_display(
+    let raw_core::pipeline::DisplayRender {
+        pixels: (w, h, rgb),
+        crop_input_size,
+    } = stack
+        .render_display_with_geometry(
             raw,
             original,
             &model,
@@ -105,7 +108,8 @@ pub(crate) fn preview(
         raw.lens_correction_ca_inert(),
         support,
         crate::lens_profile::metadata(raw, &model),
-    ))
+    )
+    .with_crop_input(crop_input_size))
 }
 
 pub(crate) fn export(

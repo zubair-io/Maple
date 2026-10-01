@@ -57,6 +57,15 @@ describe('retained native-detail client', () => {
     await expect(s.client.render(s.args, revision)).rejects.toThrow('superseded');
   });
 
+  it('releases a retained removal-only mosaic even when no tile used this client', () => {
+    const s = setup();
+    s.client.close(s.worker as unknown as Worker);
+    expect(s.worker.postMessage).toHaveBeenCalledExactlyOnceWith({
+      id: 1,
+      type: 'close-native-detail',
+    });
+  });
+
   it('resends RAW after a worker crash and leaves no pending entry after postMessage failure', async () => {
     const s = setup();
     let promise = s.client.render(s.args, s.client.revision());

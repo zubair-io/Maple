@@ -83,6 +83,7 @@ mod open_metadata;
 pub mod preview;
 mod removal_context;
 pub mod removal_proposal;
+mod removal_proxy;
 mod removal_saved;
 #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
 mod removal_saved_gpu;

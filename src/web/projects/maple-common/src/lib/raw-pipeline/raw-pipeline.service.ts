@@ -206,7 +206,7 @@ export class RawPipelineService implements OnDestroy {
 
   closeNativeDetail(): void {
     this.savedPreview.close();
-    this.detailClient.close();
+    this.detailClient.close(this.worker);
   }
 
   /**

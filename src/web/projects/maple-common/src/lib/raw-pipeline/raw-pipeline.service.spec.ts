@@ -247,7 +247,10 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
       filmLut,
     );
     await Promise.resolve();
-    const secondSent = workerStub.postMessage.mock.calls[1][0] as DecodeRequest;
+    const secondSent = workerStub.postMessage.mock.calls
+      .map(([request]) => request as { type: string })
+      .filter((request: { type: string }) => request.type === 'decode')
+      .at(-1) as DecodeRequest;
     expect(new Uint8Array(secondSent.filmLut!).length).toBe(
       new TextEncoder().encode('slide_fuji_velvia_50').length,
     );

@@ -40,6 +40,7 @@ const TOOL_TO_ICON: Record<ToolId, MapleIconName> = {
   // Mask (#1541) shares the dock's gradient glyph until a dedicated one lands.
   mask: 'tool-dehaze',
   heal: 'tool-texture',
+  remove: 'tool-texture',
   presets: 'tool-presets',
 };
 

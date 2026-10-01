@@ -73,7 +73,10 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
     >(async () => decoded);
     const host = {
       state: { seedLensProfile: vi.fn() },
-      canvasSvc: { currentPixels: signal<DecodedImage | null>(null) },
+      canvasSvc: {
+        cropInputDimensions: signal(null),
+        currentPixels: signal<DecodedImage | null>(null),
+      },
       pipeline: { decode },
       filmSync: { cpuLutBytesForCurrent: () => cpuLutBytes },
       nativeDetail: { recordBase: vi.fn() },
