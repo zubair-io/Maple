@@ -16,6 +16,8 @@
 #      no size flag; compare_images.py Lanczos-resizes the candidate down
 #      to the (small, committed) golden's dimensions, same as
 #      test_color_pipeline.sh's down/ references).
+#      Bundled automatic lens correction is disabled, matching the original
+#      goldens; the film ratchet must not absorb changes to lens geometry (#3465).
 #   3. Missing golden -> downscale the candidate to a 1024px-long-edge PNG,
 #      write it as the golden, FAIL with "baseline written" (UITest harness
 #      convention — eyeball then re-run).
@@ -60,80 +62,80 @@ err() { printf "test_film_looks: %s\n" "$*" >&2; }
 
 # ----- preflight / soft-skip --------------------------------------------
 if ! command -v python3 >/dev/null 2>&1; then
-  err "python3 not found — skipping"
-  exit 0
+	err "python3 not found — skipping"
+	exit 0
 fi
 
 if [[ ! -f "$RAW" ]]; then
-  echo "test_film_looks: fixture not found at $RAW — skipping"
-  echo "test_film_looks: (gitignored RAW; CI without fixtures is a soft pass)"
-  exit 0
+	echo "test_film_looks: fixture not found at $RAW — skipping"
+	echo "test_film_looks: (gitignored RAW; CI without fixtures is a soft pass)"
+	exit 0
 fi
 
 if [[ ! -d "$LUT_DIR" ]]; then
-  echo "test_film_looks: film-lut pack not found at $LUT_DIR — skipping"
-  exit 0
+	echo "test_film_looks: film-lut pack not found at $LUT_DIR — skipping"
+	exit 0
 fi
 
 if [[ ! -f "$COMPARE_PY" ]]; then
-  err "compare_images.py not found at $COMPARE_PY"
-  exit 2
+	err "compare_images.py not found at $COMPARE_PY"
+	exit 2
 fi
 
 if [[ -n "${MAPLE_CLI:-}" ]]; then
-  echo "test_film_looks: using caller-provided MAPLE_CLI=$MAPLE_CLI (no rebuild)"
-  if [[ ! -x "$MAPLE_CLI" ]]; then
-    err "MAPLE_CLI override is not an executable: $MAPLE_CLI"
-    exit 2
-  fi
+	echo "test_film_looks: using caller-provided MAPLE_CLI=$MAPLE_CLI (no rebuild)"
+	if [[ ! -x "$MAPLE_CLI" ]]; then
+		err "MAPLE_CLI override is not an executable: $MAPLE_CLI"
+		exit 2
+	fi
 else
-  if ! command -v cargo >/dev/null 2>&1; then
-    err "cargo not found — skipping"
-    exit 0
-  fi
-  echo "test_film_looks: building maple-cli (release; cargo rebuilds only if stale) ..."
-  (cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null)
-  MAPLE_CLI="$MAPLE_CLI_RELEASE"
+	if ! command -v cargo >/dev/null 2>&1; then
+		err "cargo not found — skipping"
+		exit 0
+	fi
+	echo "test_film_looks: building maple-cli (release; cargo rebuilds only if stale) ..."
+	(cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null)
+	MAPLE_CLI="$MAPLE_CLI_RELEASE"
 fi
 
 mkdir -p "$GOLDEN_DIR" "$DESKTOP_OUT"
 
 WORKDIR="$(mktemp -d -t maple-film-looks-XXXXXX)"
 cleanup() {
-  if [[ -z "${KEEP_TMP:-}" ]]; then
-    rm -rf "$WORKDIR"
-  else
-    echo "test_film_looks: KEEP_TMP set — candidates left at $WORKDIR"
-  fi
+	if [[ -z "${KEEP_TMP:-}" ]]; then
+		rm -rf "$WORKDIR"
+	else
+		echo "test_film_looks: KEEP_TMP set — candidates left at $WORKDIR"
+	fi
 }
 trap cleanup EXIT
 
 write_xmp() {
-  # $1 = out path, $2 = film-look id ("" for no-look control)
-  local out="$1" look="$2"
-  local look_attr=""
-  if [[ -n "$look" ]]; then
-    look_attr=" papp:FilmLook=\"$look\""
-  fi
-  cat >"$out" <<XMP
+	# $1 = out path, $2 = film-look id ("" for no-look control)
+	local out="$1" look="$2"
+	local look_attr=""
+	if [[ -n "$look" ]]; then
+		look_attr=" papp:FilmLook=\"$look\""
+	fi
+	cat >"$out" <<XMP
 <?xml version="1.0"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="maple:papp/1.0/"${look_attr}/></rdf:RDF></x:xmpmeta>
 XMP
 }
 
 render_look() {
-  # $1 = look id ("" for no-look control), $2 = out png path
-  local look="$1" out="$2"
-  local xmp="$WORKDIR/${look:-no_look}.xmp"
-  write_xmp "$xmp" "$look"
-  "$MAPLE_CLI" render "$RAW" --params "$xmp" --out "$out" --format png \
-    --film-lut-dir "$LUT_DIR" >/dev/null
+	# $1 = look id ("" for no-look control), $2 = out png path
+	local look="$1" out="$2"
+	local xmp="$WORKDIR/${look:-no_look}.xmp"
+	write_xmp "$xmp" "$look"
+	"$MAPLE_CLI" render "$RAW" --params "$xmp" --out "$out" --format png \
+		--film-lut-dir "$LUT_DIR" --no-bundled-lens >/dev/null
 }
 
 downscale_to_golden() {
-  # $1 = src png, $2 = dst png, long edge 1024 (matches SliderMatrix/UITest
-  # golden convention — keeps committed goldens small; compare_images.py
-  # Lanczos-resizes the full-res candidate down to whatever the golden is).
-  python3 - "$1" "$2" <<'PY'
+	# $1 = src png, $2 = dst png, long edge 1024 (matches SliderMatrix/UITest
+	# golden convention — keeps committed goldens small; compare_images.py
+	# Lanczos-resizes the full-res candidate down to whatever the golden is).
+	python3 - "$1" "$2" <<'PY'
 import sys
 from PIL import Image
 
@@ -159,60 +161,60 @@ baseline_written=0
 printf "%-42s %8s %8s %8s  %s\n" "look" "mean" "p95" "max" "verdict"
 
 for look in $LOOKS; do
-  candidate="$WORKDIR/$look.png"
-  render_look "$look" "$candidate"
-  cp "$candidate" "$DESKTOP_OUT/test_0017-$look.png"
+	candidate="$WORKDIR/$look.png"
+	render_look "$look" "$candidate"
+	cp "$candidate" "$DESKTOP_OUT/test_0017-$look.png"
 
-  golden="$GOLDEN_DIR/test_0017-$look.png"
+	golden="$GOLDEN_DIR/test_0017-$look.png"
 
-  # Identity guard: this look must actually move pixels vs the no-look
-  # render — a LUT that resolves to a no-op would otherwise sail through
-  # the self-consistency gate below by matching its own inert baseline.
-  identity_json="$(python3 "$COMPARE_PY" "$candidate" "$NO_LOOK_PNG")"
-  identity_mean="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['mean_deltaE'])" "$identity_json")"
-  if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) > float(sys.argv[2]) else 1)" "$identity_mean" "$IDENTITY_MIN_MEAN"; then
-    identity_verdict="ok"
-  else
-    identity_verdict="FAIL(identity)"
-    overall_exit=1
-  fi
+	# Identity guard: this look must actually move pixels vs the no-look
+	# render — a LUT that resolves to a no-op would otherwise sail through
+	# the self-consistency gate below by matching its own inert baseline.
+	identity_json="$(python3 "$COMPARE_PY" "$candidate" "$NO_LOOK_PNG")"
+	identity_mean="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['mean_deltaE'])" "$identity_json")"
+	if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) > float(sys.argv[2]) else 1)" "$identity_mean" "$IDENTITY_MIN_MEAN"; then
+		identity_verdict="ok"
+	else
+		identity_verdict="FAIL(identity)"
+		overall_exit=1
+	fi
 
-  if [[ ! -f "$golden" ]]; then
-    downscale_to_golden "$candidate" "$golden"
-    printf "%-42s %8s %8s %8s  %s\n" "$look" "--" "--" "--" "baseline written"
-    err "baseline written: $golden — eyeball then re-run"
-    baseline_written=1
-    continue
-  fi
+	if [[ ! -f "$golden" ]]; then
+		downscale_to_golden "$candidate" "$golden"
+		printf "%-42s %8s %8s %8s  %s\n" "$look" "--" "--" "--" "baseline written"
+		err "baseline written: $golden — eyeball then re-run"
+		baseline_written=1
+		continue
+	fi
 
-  diff_json="$(python3 "$COMPARE_PY" "$candidate" "$golden")"
-  mean="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['mean_deltaE'])" "$diff_json")"
-  p95="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['p95_deltaE'])" "$diff_json")"
-  max="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['max_deltaE'])" "$diff_json")"
+	diff_json="$(python3 "$COMPARE_PY" "$candidate" "$golden")"
+	mean="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['mean_deltaE'])" "$diff_json")"
+	p95="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['p95_deltaE'])" "$diff_json")"
+	max="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['max_deltaE'])" "$diff_json")"
 
-  verdict="PASS"
-  if ! python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)" "$mean" "$MEAN_BUDGET"; then
-    verdict="FAIL(mean)"
-    overall_exit=1
-  fi
-  if ! python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)" "$max" "$MAX_BUDGET"; then
-    verdict="FAIL(max)"
-    overall_exit=1
-  fi
-  if [[ "$identity_verdict" != "ok" ]]; then
-    verdict="$verdict,$identity_verdict"
-  fi
+	verdict="PASS"
+	if ! python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)" "$mean" "$MEAN_BUDGET"; then
+		verdict="FAIL(mean)"
+		overall_exit=1
+	fi
+	if ! python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)" "$max" "$MAX_BUDGET"; then
+		verdict="FAIL(max)"
+		overall_exit=1
+	fi
+	if [[ "$identity_verdict" != "ok" ]]; then
+		verdict="$verdict,$identity_verdict"
+	fi
 
-  printf "%-42s %8.3f %8.3f %8.3f  %s\n" "$look" "$mean" "$p95" "$max" "$verdict"
+	printf "%-42s %8.3f %8.3f %8.3f  %s\n" "$look" "$mean" "$p95" "$max" "$verdict"
 done
 
 if [[ "$baseline_written" -ne 0 ]]; then
-  err "one or more goldens were missing — baselines written, re-run to gate against them"
-  exit 1
+	err "one or more goldens were missing — baselines written, re-run to gate against them"
+	exit 1
 fi
 
 if [[ "$overall_exit" -ne 0 ]]; then
-  err "budget breach — see table above (mean <= $MEAN_BUDGET, max <= $MAX_BUDGET, identity mean > $IDENTITY_MIN_MEAN)"
+	err "budget breach — see table above (mean <= $MEAN_BUDGET, max <= $MAX_BUDGET, identity mean > $IDENTITY_MIN_MEAN)"
 fi
 
 exit "$overall_exit"

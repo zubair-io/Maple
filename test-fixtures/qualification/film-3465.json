@@ -1,0 +1,292 @@
+{
+  "base": "098d605fd07956c35ce9d3ec2d7d68d837de30e9",
+  "protocol": "1024px long edge, Pillow Lanczos; automatic bundled lens off; RGB luminance bands from old golden",
+  "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+  "rows": [
+    {
+      "look": "black_white_kodak_tri_x_400",
+      "old_sha256": "3efa64a463204837d2c3832ec6fad36f348d6e100326abc19ba51aa0757b133c",
+      "new_sha256": "2015f8d80c98e0ed9ea0bab9b0131a20788ab8d398463c01c4b13726bcf704fe",
+      "deltaE_old_to_new": {
+        "mean_deltaE": 0.23620159598460905,
+        "p95_deltaE": 1.4359421124685428,
+        "max_deltaE": 2.6306066220870017,
+        "bias_r": 0.003791844006627798,
+        "bias_g": 0.0037917315494269133,
+        "bias_b": 0.0037917818408459425,
+        "n_pixels": 699392
+      },
+      "bands": {
+        "shadows": {
+          "pixels": 0,
+          "percent": 0.0,
+          "mean_delta_rgb": null,
+          "max_delta_rgb": null
+        },
+        "mid_low": {
+          "pixels": 442607,
+          "percent": 63.28453857064422,
+          "mean_delta_rgb": 0.026684317737817764,
+          "max_delta_rgb": 3.0
+        },
+        "mid_high": {
+          "pixels": 145377,
+          "percent": 20.78619715409956,
+          "mean_delta_rgb": 1.0180587768554688,
+          "max_delta_rgb": 7.0
+        },
+        "highlights": {
+          "pixels": 111408,
+          "percent": 15.929264275256221,
+          "mean_delta_rgb": 4.818732261657715,
+          "max_delta_rgb": 13.0
+        }
+      },
+      "regenerated_golden_gate": {
+        "mean_deltaE": 0.0,
+        "p95_deltaE": 0.0,
+        "max_deltaE": 0.0,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "look": "cinema_print_kodak_2383_constlclip",
+      "old_sha256": "58075be1e909a85f53da3c6c0aaba825e00b3b39460b9b431090d4bcb329948b",
+      "new_sha256": "165e1962fe811424a210900a5dba4ac79dae351a720f5a4634922a9cc8854058",
+      "deltaE_old_to_new": {
+        "mean_deltaE": 0.8456116130847464,
+        "p95_deltaE": 4.816551286288569,
+        "max_deltaE": 17.431158965742675,
+        "bias_r": 0.0034658724907785654,
+        "bias_g": 0.002991038141772151,
+        "bias_b": 0.010768653824925423,
+        "n_pixels": 699392
+      },
+      "bands": {
+        "shadows": {
+          "pixels": 70142,
+          "percent": 10.02899661420205,
+          "mean_delta_rgb": 0.04293195903301239,
+          "max_delta_rgb": 2.3333332538604736
+        },
+        "mid_low": {
+          "pixels": 452401,
+          "percent": 64.68489773975111,
+          "mean_delta_rgb": 0.09515820443630219,
+          "max_delta_rgb": 4.666666507720947
+        },
+        "mid_high": {
+          "pixels": 69577,
+          "percent": 9.948212161420205,
+          "mean_delta_rgb": 2.8444409370422363,
+          "max_delta_rgb": 11.0
+        },
+        "highlights": {
+          "pixels": 107272,
+          "percent": 15.337893484626647,
+          "mean_delta_rgb": 7.700281620025635,
+          "max_delta_rgb": 21.0
+        }
+      },
+      "regenerated_golden_gate": {
+        "mean_deltaE": 0.0,
+        "p95_deltaE": 0.0,
+        "max_deltaE": 0.0,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "look": "color_negative_kodak_portra_400",
+      "old_sha256": "669ffbc9443ee033911ed783ad10390bbbe1c9c2596d2dd44723064a5d6179ed",
+      "new_sha256": "e23c04edf49ec3cc3597a6c28e15d2216771fb3ee30c41b153fe483bc1c6da9f",
+      "deltaE_old_to_new": {
+        "mean_deltaE": 1.0399720358058853,
+        "p95_deltaE": 6.006408633115024,
+        "max_deltaE": 15.42299143488794,
+        "bias_r": 0.005465477705001831,
+        "bias_g": 0.007163948379456997,
+        "bias_b": 0.012038743123412132,
+        "n_pixels": 699392
+      },
+      "bands": {
+        "shadows": {
+          "pixels": 3019,
+          "percent": 0.43166064238653,
+          "mean_delta_rgb": 0.04802914708852768,
+          "max_delta_rgb": 2.0
+        },
+        "mid_low": {
+          "pixels": 405141,
+          "percent": 57.92759997254758,
+          "mean_delta_rgb": 0.08432702720165253,
+          "max_delta_rgb": 3.6666667461395264
+        },
+        "mid_high": {
+          "pixels": 164993,
+          "percent": 23.590918969619327,
+          "mean_delta_rgb": 1.2606130838394165,
+          "max_delta_rgb": 10.333333015441895
+        },
+        "highlights": {
+          "pixels": 126239,
+          "percent": 18.04982041544656,
+          "mean_delta_rgb": 10.120586395263672,
+          "max_delta_rgb": 27.33333396911621
+        }
+      },
+      "regenerated_golden_gate": {
+        "mean_deltaE": 0.0,
+        "p95_deltaE": 0.0,
+        "max_deltaE": 0.0,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "look": "consumer_vintage_fuji_superia_400",
+      "old_sha256": "ef1002013ea1f3dcea7789b14fc39844b7b10b24bf55b72b8c2bc0a52b9996d8",
+      "new_sha256": "9c40b05e230fa45cc143e0fb7d4d84a297fd428cef435a0ba1467a639dbe65bf",
+      "deltaE_old_to_new": {
+        "mean_deltaE": 1.260260025447079,
+        "p95_deltaE": 6.923705853894489,
+        "max_deltaE": 18.398827526986857,
+        "bias_r": 0.004968461114913225,
+        "bias_g": 0.0076043084263801575,
+        "bias_b": 0.016441212967038155,
+        "n_pixels": 699392
+      },
+      "bands": {
+        "shadows": {
+          "pixels": 4736,
+          "percent": 0.6771595900439239,
+          "mean_delta_rgb": 0.09621340781450272,
+          "max_delta_rgb": 2.0
+        },
+        "mid_low": {
+          "pixels": 392339,
+          "percent": 56.09715295571011,
+          "mean_delta_rgb": 0.15040649473667145,
+          "max_delta_rgb": 4.0
+        },
+        "mid_high": {
+          "pixels": 168049,
+          "percent": 24.027869921303076,
+          "mean_delta_rgb": 1.142220377922058,
+          "max_delta_rgb": 11.333333015441895
+        },
+        "highlights": {
+          "pixels": 134268,
+          "percent": 19.1978175329429,
+          "mean_delta_rgb": 11.38844108581543,
+          "max_delta_rgb": 30.66666603088379
+        }
+      },
+      "regenerated_golden_gate": {
+        "mean_deltaE": 0.0,
+        "p95_deltaE": 0.0,
+        "max_deltaE": 0.0,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "look": "instant_polaroid_px_680",
+      "old_sha256": "42c5083a2135cacefe0cf1814d806a1385aae3439f4879dc75e861fd1923c5e6",
+      "new_sha256": "76858305758ed912b82915598da1e7c5d84e07dfc24eed241ba763f149129dfd",
+      "deltaE_old_to_new": {
+        "mean_deltaE": 1.0231926520923529,
+        "p95_deltaE": 4.885018390057719,
+        "max_deltaE": 8.449030699155305,
+        "bias_r": 0.0006671288283541799,
+        "bias_g": 0.006073412951081991,
+        "bias_b": 0.019536422565579414,
+        "n_pixels": 699392
+      },
+      "bands": {
+        "shadows": {
+          "pixels": 0,
+          "percent": 0.0,
+          "mean_delta_rgb": null,
+          "max_delta_rgb": null
+        },
+        "mid_low": {
+          "pixels": 402714,
+          "percent": 57.58058427891655,
+          "mean_delta_rgb": 0.5116468071937561,
+          "max_delta_rgb": 3.6666667461395264
+        },
+        "mid_high": {
+          "pixels": 161104,
+          "percent": 23.034864568081993,
+          "mean_delta_rgb": 1.4691028594970703,
+          "max_delta_rgb": 8.666666984558105
+        },
+        "highlights": {
+          "pixels": 135574,
+          "percent": 19.384551153001464,
+          "mean_delta_rgb": 10.850908279418945,
+          "max_delta_rgb": 15.666666984558105
+        }
+      },
+      "regenerated_golden_gate": {
+        "mean_deltaE": 0.0,
+        "p95_deltaE": 0.0,
+        "max_deltaE": 0.0,
+        "verdict": "PASS"
+      }
+    },
+    {
+      "look": "slide_fuji_velvia_50",
+      "old_sha256": "40103d91818ae8c3a129dc4b7da7b5507464d6c8f2fca7c8384d65fb09dd59ca",
+      "new_sha256": "742e1f6e4f3dab993e63b092367647b1e70e0a55f9c16b1f67a34dbc9da2c002",
+      "deltaE_old_to_new": {
+        "mean_deltaE": 1.3140086428356663,
+        "p95_deltaE": 11.632622551818923,
+        "max_deltaE": 26.80242510571179,
+        "bias_r": 0.002748526632785797,
+        "bias_g": 0.011532796546816826,
+        "bias_b": 0.009434725157916546,
+        "n_pixels": 699392
+      },
+      "bands": {
+        "shadows": {
+          "pixels": 57383,
+          "percent": 8.20469779465593,
+          "mean_delta_rgb": 0.0195934921503067,
+          "max_delta_rgb": 1.6666666269302368
+        },
+        "mid_low": {
+          "pixels": 465653,
+          "percent": 66.57968635614934,
+          "mean_delta_rgb": 0.053531989455223083,
+          "max_delta_rgb": 6.333333492279053
+        },
+        "mid_high": {
+          "pixels": 115972,
+          "percent": 16.5818310761347,
+          "mean_delta_rgb": 1.106816053390503,
+          "max_delta_rgb": 29.33333396911621
+        },
+        "highlights": {
+          "pixels": 60384,
+          "percent": 8.63378477306003,
+          "mean_delta_rgb": 23.32493782043457,
+          "max_delta_rgb": 46.66666793823242
+        }
+      },
+      "regenerated_golden_gate": {
+        "mean_deltaE": 0.0,
+        "p95_deltaE": 0.0,
+        "max_deltaE": 0.0,
+        "verdict": "PASS"
+      }
+    }
+  ],
+  "kind": "film-golden-refresh",
+  "reason": "Refresh the stale pre-BaselineExposure-recovery film references (#3465); isolate film from the newer automatic Lensfun geometry.",
+  "budgets": {
+    "mean_deltaE_max": 0.5,
+    "max_deltaE_max": 2.0,
+    "identity_mean_deltaE_min_exclusive": 0.5
+  },
+  "identity_guard": "All six full-resolution looks passed against the no-look control during the independent rerun.",
+  "scope": "Self-consistency only; this report does not qualify ACR colour parity."
+}
