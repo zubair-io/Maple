@@ -1,27 +1,4 @@
-//! Filter recipe-op glue (#3504 task E4): wires `blur`, `sharpen`, `median`,
-//! `threshold` and `convolve` from `raster_recipe::Op` into the
-//! `RasterImage` methods `raster_filter`/`raster_filter_ops`/`raster_sharpen`
-//! already provide. Split out of `raster_recipe_exec.rs` purely to stay
-//! under this crate's 400-line soft file-size budget — the same reason
-//! `raster_filter_ops.rs` was split out of `raster_filter.rs` at the
-//! `RasterImage` layer. `raster_recipe_exec::apply_op` tries
-//! [`apply_filter_op`] first and falls through to its own match for every
-//! other op.
-//!
-//! **The five wire structs below** (`BlurOp`/`SharpenOp`/`MedianOp`/
-//! `ThresholdOp`/`ConvolveOp`) used to be inline struct-like fields on
-//! `raster_recipe::Op`'s own variants. #3504 task E5 controller ruling (d)
-//! moved them here — and `Op`'s variants to the matching newtype form,
-//! `Blur(BlurOp)` rather than `Blur { sigma }` — specifically to bring
-//! `raster_recipe.rs` back under its 400-line soft budget once this task's
-//! other three rulings (a-c) added lines there and here; `raster_recipe.rs`
-//! re-exports nothing itself, it just imports these by name so `Op`'s
-//! definition compiles. Serde's internally-tagged representation
-//! (`#[serde(tag = "op")]`) supports newtype variants exactly like this
-//! whenever the newtype's inner type deserializes from a map, which every
-//! one of these five does (`#[serde(deny_unknown_fields)]` structs are
-//! trivially map-shaped) — so the wire format is byte-for-byte unchanged;
-//! only where the Rust field lists live moved.
+//! Resolve recipe resize/filter operations into the shared premultiplied chain.
 
 use crate::error::{Error, Result};
 use crate::raster::RasterImage;
@@ -123,14 +100,19 @@ pub struct ConvolveOp {
     pub offset: f64,
 }
 
-/// Whether `op` is one of the five filter ops this file owns.
-/// `raster_recipe_exec` groups maximal runs of consecutive filter ops with
+/// Operations sharing the resize/filter alpha sandwich.
+/// `raster_recipe_exec` groups maximal runs of consecutive resize/filter ops with
 /// this so a run shares one premultiply sandwich, the way sharp does — see
 /// [`crate::raster_filter_chain`].
-pub(crate) fn is_filter_op(op: &Op) -> bool {
+pub(crate) fn is_resize_filter_op(op: &Op) -> bool {
     matches!(
         op,
-        Op::Blur(_) | Op::Sharpen(_) | Op::Median(_) | Op::Threshold(_) | Op::Convolve(_)
+        Op::Resize { .. }
+            | Op::Blur(_)
+            | Op::Sharpen(_)
+            | Op::Median(_)
+            | Op::Threshold(_)
+            | Op::Convolve(_)
     )
 }
 
@@ -158,6 +140,9 @@ pub(crate) fn is_filter_op(op: &Op) -> bool {
 /// contract as `builder-filter.ts`'s `pushConvolve` on the TS side.
 fn filter_op_from_wire(op: &Op) -> Result<FilterOp<'_>> {
     match op {
+        Op::Resize { .. } => Ok(FilterOp::Resize(
+            crate::raster_recipe_resize::options_from_wire(op)?,
+        )),
         Op::Blur(BlurOp { sigma }) => Ok(FilterOp::Blur(*sigma)),
         Op::Sharpen(SharpenOp {
             sigma,
@@ -211,14 +196,14 @@ fn filter_op_from_wire(op: &Op) -> Result<FilterOp<'_>> {
             })
         }
         other => Err(Error::Pipeline(format!(
-            "{other:?} is not a filter op; apply_filter_run was called with the wrong run"
+            "{other:?} is not a resize/filter op; apply_resize_filter_run was called with the wrong run"
         ))),
     }
 }
 
-/// Run a maximal run of consecutive filter ops through one premultiply
+/// Run a maximal run of consecutive resize/filter ops through one premultiply
 /// sandwich, in the order the caller wrote them.
-pub(crate) fn apply_filter_run(image: &RasterImage, ops: &[Op]) -> Result<RasterImage> {
+pub(crate) fn apply_resize_filter_run(image: &RasterImage, ops: &[Op]) -> Result<RasterImage> {
     let resolved = ops
         .iter()
         .map(filter_op_from_wire)
@@ -229,3 +214,7 @@ pub(crate) fn apply_filter_run(image: &RasterImage, ops: &[Op]) -> Result<Raster
 #[cfg(test)]
 #[path = "raster_recipe_filter_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "raster_resize_filter_alpha_tests.rs"]
+mod resize_alpha_tests;

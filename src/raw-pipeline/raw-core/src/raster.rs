@@ -25,6 +25,7 @@ mod raster_ops;
 
 #[path = "raster_resize.rs"]
 mod raster_resize;
+pub(crate) use raster_resize::{needs_resampling, resize_premultiplied};
 pub use raster_resize::{resize_raster, FilterAlg, ResizeFit, ResizeOptions};
 /// Float32 tensor extraction — split out to keep this file inside the
 /// file-size budget (#3507 final fix wave, item 0); see its own module doc.

@@ -244,6 +244,25 @@ fn pad_to(
 
 /// High-performance SIMD resizing of a RasterImage using `fast_image_resize`.
 pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<RasterImage> {
+    resize_with_alpha(src, options, true)
+}
+
+pub(crate) fn needs_resampling(src: &RasterImage, options: &ResizeOptions) -> bool {
+    resolve_shrink(src, options) != (1.0, 1.0)
+}
+
+pub(crate) fn resize_premultiplied(
+    src: &RasterImage,
+    options: &ResizeOptions,
+) -> Result<RasterImage> {
+    resize_with_alpha(src, options, false)
+}
+
+fn resize_with_alpha(
+    src: &RasterImage,
+    options: &ResizeOptions,
+    mul_div_alpha: bool,
+) -> Result<RasterImage> {
     if src.width == 0 || src.height == 0 {
         return Err(Error::Decode {
             path: "<memory>".into(),
@@ -257,7 +276,7 @@ pub fn resize_raster(src: &RasterImage, options: &ResizeOptions) -> Result<Raste
     let scaled = if (dst_w, dst_h) == (src.width, src.height) {
         src.clone()
     } else {
-        resample(src, dst_w, dst_h, options.filter)?
+        resample(src, dst_w, dst_h, options.filter, mul_div_alpha)?
     };
 
     let box_ = (
@@ -314,29 +333,15 @@ fn resize_alg(filter: FilterAlg) -> fr::ResizeAlg {
     }
 }
 
-/// The `fast_image_resize` call itself.
-///
-/// `mul_div_alpha: true` (#3548) is the crate's own premultiplied-alpha
-/// resampling path: for a pixel type that carries alpha (`U8x4` here), it
-/// multiplies colour by alpha before the resize kernel runs and divides it
-/// back out after, internally, via the same `MulDiv` machinery the crate
-/// exposes standalone — see `resample_convolution` in
-/// `fast_image_resize::resizer`. Without it a fully transparent neighbour
-/// still contributes its raw colour to the kernel's weighted sum, so a
-/// resize can bleed colour from pixels that carry none of their own
-/// opacity — e.g. an opaque red pixel next to a transparent green one,
-/// downscaled together, would otherwise turn pink instead of staying red.
-/// It is the crate's default already (confirmed empirically: forcing it to
-/// `false` is what makes `downscaling_rgba_premultiplies_so_transparent_
-/// colour_does_not_bleed` fail below); it is spelled out here so the
-/// intent survives a future change to that default, and so a second,
-/// hand-rolled premultiply is never added on top — doing that would
-/// double-premultiply through this path and be wrong for anything but the
-/// 0/255 alpha extremes. 3-channel sources have no alpha channel, so
-/// `MulDiv::is_supported` reports `U8x3` unsupported and the crate falls
-/// through to the unchanged straight convolution — no separate branch is
-/// needed here to keep that path untouched.
-fn resample(src: &RasterImage, dst_w: u32, dst_h: u32, filter: FilterAlg) -> Result<RasterImage> {
+// Standalone resizing owns the alpha pair; a recipe run disables MulDiv
+// because its premultiplied pixels must stay that way through subsequent filters.
+fn resample(
+    src: &RasterImage,
+    dst_w: u32,
+    dst_h: u32,
+    filter: FilterAlg,
+    mul_div_alpha: bool,
+) -> Result<RasterImage> {
     let pixel_type = match src.channels {
         3 => fr::PixelType::U8x3,
         4 => fr::PixelType::U8x4,
@@ -359,7 +364,7 @@ fn resample(src: &RasterImage, dst_w: u32, dst_h: u32, filter: FilterAlg) -> Res
 
     let fr_opts = fr::ResizeOptions {
         algorithm: resize_alg(filter),
-        mul_div_alpha: true,
+        mul_div_alpha,
         ..Default::default()
     };
 
