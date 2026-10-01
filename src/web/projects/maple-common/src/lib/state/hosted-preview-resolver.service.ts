@@ -1,8 +1,6 @@
-// HostedPreviewResolver — Hosted-mode (File System Access API) counterpart to
-// the Self-Hosted `LibrarySource.previewBlob` network call: the real
-// embedded-preview-extraction path #2010 adds, replacing the old
-// canvas-resize-of-a-full-develop placeholder `LibraryCache.subscribePreviewUrl`
-// used to fall back to for Hosted mode.
+// Hosted-mode counterpart to Self-Hosted LibrarySource.previewBlob. Cold RAW
+// caches develop actual XMP and film looks (#3975); absent sidecars retain the
+// embedded-preview extraction fast path (#2010).
 //
 // Extracted out of `LibraryCache` (rather than living there as a private
 // method) purely to stay under this repo's file-size budget
@@ -19,6 +17,7 @@ import { MapleCacheService, type PreviewSourceIdentity } from '../maple-cache/ma
 import { samePreviewSource } from '../maple-cache/preview-cache-protocol';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
 import { isSupportedRaw } from './raw-extensions';
+import { HostedRawSidecarService } from './hosted-raw-sidecar.service';
 import { LibraryStore } from './library-store.service';
 import type { HostedByteSnapshot } from './hosted-byte-snapshot-cache';
 import { previewLocation, type PreviewLocation } from './preview-location';
@@ -33,19 +32,21 @@ export class HostedPreviewResolver {
   private readonly store = inject(LibraryStore);
   private readonly cache = inject(MapleCacheService);
   private readonly previewExtractor = inject(EmbeddedPreviewService);
+  private readonly sidecars = inject(HostedRawSidecarService);
 
   /**
-   * Resolve the best available unedited-preview blob for `id`, or `null` on
-   * any miss (non-RAW asset, extraction failure, or no embedded preview in
-   * this RAW — see `raw_core::preview`'s module doc). A `null` return is never
-   * a hard failure to the caller — `LibraryCache`'s stacked thumbnail stays the
-   * shown image either way.
+   * Resolve the best available authored or embedded preview blob for `id`, or `null` on
+   * unsupported assets or an embedded-preview miss (see raw_core::preview).
+   * Authored-sidecar failures reject, preventing an unedited RAW retry.
    *
-   * The returned display blob is the extracted preview JPEG (fast, universal).
+   * A present XMP is developed through Rust/WASM with its film LUT. Sidecar
+   * read/validation/develop failures reject so thumbnails cannot retry without
+   * the authored edits. An absent sidecar retains the embedded JPEG fast path.
+   * The returned display blob declares the actual encoded format.
    * A cache write happens as a fire-and-forget side effect on a real miss.
-   * The already extracted JPEG is stored directly under its real format,
-   * avoiding a redundant browser transcode. A warm revisit reads that
-   * declared artifact via `readPreview` without re-extracting.
+   * Embedded JPEGs are stored directly; developed previews use genuine AVIF
+   * or the existing JPEG fallback. A warm revisit reads the declared format
+   * through readPreview without developing or extracting again.
    *
    * `getSourceSnapshot` is `LibraryCache.hostedBytesSnapshotFor`, associating
    * cached bytes with the exact File identity on a genuine cache miss.
@@ -105,9 +106,9 @@ export class HostedPreviewResolver {
     );
   }
 
-  /** Read a coherent source snapshot, extract via the WASM worker, kick off an
-   * actual-format write-through, and return the display JPEG. `null` on any
-   * failure (logged), including a RAW without an embedded preview. */
+  /** Snapshot authored XMP and coherent RAW bytes, develop or extract through
+   * WASM, then schedule actual-format persistence. Authored failures reject;
+   * absent-sidecar extraction failures return null for the normal RAW retry. */
   private async _extractAndCache(
     id: AssetId,
     asset: Asset,
@@ -118,13 +119,18 @@ export class HostedPreviewResolver {
     sourceBefore: PreviewSourceIdentity | null,
     getSourceSnapshot?: (id: AssetId) => Promise<HostedByteSnapshot>,
   ): Promise<Blob | null> {
+    const xml = folder && location ? await this.sidecars.read(folder, location) : null;
     try {
       const snapshot = await this._sourceSnapshot(id, getBytes, sourceBefore, getSourceSnapshot);
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
-      const { blob } = await this.previewExtractor.extractEmbeddedPreview(snapshot.bytes, ext);
-      this._scheduleWrite(folder, location, blob, snapshot.source, id, getSourceIdentity);
+      const blob =
+        xml !== null
+          ? await this.sidecars.develop(snapshot.bytes, ext, xml)
+          : (await this.previewExtractor.extractEmbeddedPreview(snapshot.bytes, ext)).blob;
+      this._scheduleWrite(folder, location, blob, snapshot.source, id, getSourceIdentity, xml);
       return blob;
     } catch (err) {
+      if (xml !== null) throw err;
       console.warn('[state] embedded preview extraction failed for', asset.filename, err);
       return null;
     }
@@ -147,9 +153,10 @@ export class HostedPreviewResolver {
     source: PreviewSourceIdentity | null,
     id: AssetId,
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
+    xml: string | null,
   ): void {
     if (!folder?.write || !location || !source) return;
-    void this._writeWhenCurrent(folder, location, blob, source, id, getSourceIdentity);
+    void this._writeWhenCurrent(folder, location, blob, source, id, getSourceIdentity, xml);
   }
 
   private async _writeWhenCurrent(
@@ -159,9 +166,11 @@ export class HostedPreviewResolver {
     source: PreviewSourceIdentity,
     id: AssetId,
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
+    xml: string | null,
   ): Promise<void> {
     try {
       if (!samePreviewSource(source, await getSourceIdentity(id))) return;
+      if (xml !== (await this.sidecars.read(folder, location))) return;
       await this.cache.writePreview(folder, location.dir, location.filename, blob, source);
     } catch {
       // Cache writes are best-effort and never block the displayed preview.

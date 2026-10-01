@@ -156,12 +156,12 @@ export async function fallbackReadFile(
   if (isMapleCachePath(path)) {
     const cached = await fallbackReadBlob(folder.name, path);
     if (cached) return cached;
-    throw new Error(`fallback: file not found in IDB: ${path}`);
+    throw new DOMException(`fallback: file not found in IDB: ${path}`, 'NotFoundError');
   }
 
   // For regular files, find in the FileList.
   const match = fallbackSourceFile(folder, path);
-  if (!match) throw new Error(`fallback: file not found: ${filename}`);
+  if (!match) throw new DOMException(`fallback: file not found: ${filename}`, 'NotFoundError');
   return new Uint8Array(await match.arrayBuffer());
 }
 
@@ -174,7 +174,7 @@ export async function fallbackFileMetadata(
   }
   const filename = pathSegments(path).at(-1);
   const match = fallbackSourceFile(folder, path);
-  if (!match) throw new Error(`fallback: file not found: ${filename}`);
+  if (!match) throw new DOMException(`fallback: file not found: ${filename}`, 'NotFoundError');
   return { size: match.size, lastModified: match.lastModified };
 }
 
