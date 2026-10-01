@@ -22,16 +22,18 @@
 //! the tick budget; it is included so the stage's cost at that resolution is on
 //! the record too.
 
-use super::*;
 use crate::full_chain::{FullChainInputs, InputShape};
 use crate::tone_curves::{CurveMode, ToneCurveInputs};
 use crate::{CancelToken, GpuContext, LiveSession};
-use raw_core::types::{layers_to_flat, LocalAdjustment, Mask, PartialAdjustments, Point2};
+use raw_core::types::{
+    layers_to_flat, LocalAdjustment, Mask, MaskCombine, MaskComponent, MaskGroup,
+    PartialAdjustments, Point2,
+};
 use std::time::Instant;
 
 /// A neutral-ish chain carrying only the stage under test, so the marginal
 /// number is not buried under clarity or NLM.
-fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
+pub(super) fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
     use raw_core::view::auto_profile;
     FullChainInputs {
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
@@ -202,5 +204,42 @@ fn slider_tick_timing() {
              with one all-controls layer {loaded:.3} ms, marginal {:.3} ms",
             loaded - empty
         );
+    }
+}
+
+#[test]
+#[ignore = "viewport mask-group timing measurement; run on reference hardware"]
+fn slider_tick_mask_group_timing() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    println!("Mask-group timing adapter: {:?}", ctx.adapter.get_info());
+    let radial = Mask::Radial {
+        center: Point2::new(0.5, 0.5),
+        radii: Point2::new(0.45, 0.4),
+        angle: 0.3,
+        feather: 0.7,
+        invert: false,
+    };
+    let base = LocalAdjustment {
+        mask: radial.clone(),
+        range: None,
+        adjustments: worst_case_layer().remove(0).adjustments,
+    };
+    let grouped = LocalAdjustment {
+        mask: Mask::Group(MaskGroup::new(vec![
+            MaskComponent::new(radial, MaskCombine::Add, false).unwrap(),
+            MaskComponent::new(
+                worst_case_layer().remove(0).mask,
+                MaskCombine::Subtract,
+                false,
+            )
+            .unwrap(),
+        ])),
+        ..base.clone()
+    };
+    for (w, h) in [(1732, 1155), (3840, 2160)] {
+        let empty = tick_ms(&ctx, w, h, &[], 11);
+        let single = tick_ms(&ctx, w, h, std::slice::from_ref(&base), 11);
+        let group = tick_ms(&ctx, w, h, std::slice::from_ref(&grouped), 11);
+        println!("MASK GROUP TICK {w}x{h}: neutral {empty:.3} ms, radial {single:.3} ms, radial-minus-linear {group:.3} ms");
     }
 }

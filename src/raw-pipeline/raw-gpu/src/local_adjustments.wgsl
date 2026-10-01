@@ -94,10 +94,7 @@ struct Layer {
 
 // `f32::EPSILON`, the degenerate-geometry threshold the Rust evaluator uses.
 const F32_EPSILON: f32 = 1.1920929e-7;
-const KIND_RADIAL: f32 = 1.0;
-// raw_core::types::local_adjustment::flat::{KIND_BITMAP, KIND_EVERYWHERE} (#3271).
-const KIND_BITMAP: f32 = 2.0;
-const KIND_EVERYWHERE: f32 = 3.0;
+// Kind/stride constants are prepended from generated/local_mask_wire.wgsl.
 // raw_core::types::local_adjustment::flat::RANGE_KIND_COLOR (#3270).
 const RANGE_KIND_COLOR: f32 = 1.0;
 // raw_core::stages::local_adjustments::range::L_EDGE.
@@ -282,6 +279,35 @@ fn mask_weight(layer: Layer, p: vec2<f32>) -> f32 {
         return w;
     }
     return linear_weight(layer.geom.xy, layer.geom.zw, feather, p);
+}
+
+// One selection plane for the entire group, before its adjustment controls.
+// Headers/components have been validated by the host's logical-layer reader.
+fn group_weight(index: u32, p: vec2<f32>) -> f32 {
+    let header = layers[index];
+    let count = u32(header.geom.x);
+    if (count == 0u) {
+        return 0.0;
+    }
+    var weight = 0.0;
+    for (var ci = 0u; ci < count; ci = ci + 1u) {
+        var leaf = layers[index + 1u + ci];
+        let code = u32(leaf.shape.z - KIND_COMPONENT_BASE);
+        leaf.shape.z = f32(code % COMPONENT_COMBINE_STRIDE);
+        // A missing subtract/inverted bitmap must not widen the selection.
+        if (leaf.shape.z == KIND_BITMAP && leaf.geom.z < 0.0) {
+            return 0.0;
+        }
+        let raw = mask_weight(leaf, p);
+        let component = select(raw, 1.0 - raw, code >= COMPONENT_INVERT_OFFSET);
+        switch ((code % COMPONENT_INVERT_OFFSET) / COMPONENT_COMBINE_STRIDE) {
+            case 0u: { weight = weight + (1.0 - weight) * component; }
+            case 1u: { weight = weight * (1.0 - component); }
+            default: { weight = weight * component; }
+        }
+    }
+    let coverage = select(weight, 1.0 - weight, header.shape.w != 0.0);
+    return clamp(coverage, 0.0, 1.0) * clamp(header.geom.y, 0.0, 1.0);
 }
 
 // raw_core::stages::hsl::circular_delta_deg — absolute wrapped hue distance.
@@ -659,18 +685,32 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     var alpha = px.a;
     // Layers composite in order, in registers — see the module header for why
     // this is identical to the Rust stage's per-layer whole-image passes.
-    for (var li: u32 = 0u; li < params.layer_count; li = li + 1u) {
-        let layer = layers[li];
+    var record = 0u;
+    var logical = 0u;
+    while (record < params.layer_count) {
+        let index = record;
+        let layer = layers[index];
+        let is_group = layer.shape.z == KIND_GROUP;
+        record = record + 1u;
+        if (is_group) {
+            record = record + u32(layer.geom.x);
+        }
+        let is_scope_target = params.scope_layer >= 0 && logical == u32(params.scope_layer);
+        logical = logical + 1u;
         let present = u32(layer.flags.x);
         // A layer whose only controls are spatial (#3407) has nothing for
         // THIS kernel — `local_spatial.rs` owns those — but its mask still
         // has to be evaluated when it is the scope target.
         let has_point = (present & P_POINT_ANY) != 0u;
-        let is_scope_target = params.scope_layer >= 0 && li == u32(params.scope_layer);
         if (!has_point && !is_scope_target) {
             continue;
         }
-        let geometric = mask_weight(layer, n);
+        var geometric = 0.0;
+        if (is_group) {
+            geometric = group_weight(index, n);
+        } else {
+            geometric = mask_weight(layer, n);
+        }
         var w = 0.0;
         if (geometric > 0.0) {
             // Range refinement (#3270): evaluated on `p`, the pixel ENTERING

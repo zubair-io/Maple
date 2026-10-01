@@ -33,10 +33,12 @@
 //! buffers.
 
 pub mod flat;
+mod group;
 mod raster;
 mod wire;
 
 pub use flat::{layers_from_flat, layers_to_flat, LAYER_FLAT_LEN};
+pub use group::{MaskCombine, MaskComponent, MaskGroup};
 pub use raster::MaskRaster;
 pub use wire::{decode_local_adjustments, encode_local_adjustments};
 
@@ -194,6 +196,9 @@ pub enum Mask {
     /// Weight 1 everywhere — the "skin range only (whole image)" fallback
     /// when no person is detected (spec §3.2).
     Everywhere,
+    /// Ordered component composition (#3408), evaluated before the layer's
+    /// range refinement and adjustments. Components are leaf masks only.
+    Group(MaskGroup),
 }
 
 /// The recipe that regenerates a bitmap mask's raster (#3271, spec §5.3).

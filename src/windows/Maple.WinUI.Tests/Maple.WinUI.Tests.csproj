@@ -239,6 +239,7 @@
          MAPLE_RAW_FFI_DLL arms them (ExportLensProfileNativeTests). -->
     <Compile Include="..\Maple.WinUI\Services\LensProfileStore.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\MaskLayerSelectionLogic.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\MaskGroupEditing.cs" LinkBase="Services" />
     <!-- RefineDecodeQuality.cs (#3417) — the refine-escalation rule
          RenderEngine.Decode calls — and its own dependency,
          Metadata\ExifReader.cs, the EXIF/TIFF-IFD reader RenderEngine.Decode
@@ -255,6 +256,8 @@
     <Compile Include="..\Maple.WinUI\Services\Export\*.cs" LinkBase="Services\Export" />
     <Compile Include="..\Maple.WinUI\Generated\ExportRecipe.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Models\LocalAdjustment.cs" LinkBase="Models" />
+    <Compile Include="..\Maple.WinUI\Models\MaskGroup.cs" LinkBase="Models" />
+    <Compile Include="..\Maple.WinUI\Generated\LocalMaskWire.g.cs" LinkBase="Generated" />
     <!-- White-balance name + provenance (#2434): the generated vocabulary /
          AUTO version constant the parser and writer read, and the
          edit-time clearing/stamping helper — the WinUI-free seam of the

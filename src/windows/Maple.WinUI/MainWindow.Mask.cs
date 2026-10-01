@@ -39,14 +39,22 @@ namespace Maple.WinUI
         {
             MaskPanel.AddLinearRequested += (_, _) => AddMaskLayer(linear: true);
             MaskPanel.AddRadialRequested += (_, _) => AddMaskLayer(linear: false);
-            MaskPanel.LayerSelected += (_, index) => { _selectedMaskIndex = index; UpdateMaskDisplay(); };
+            MaskPanel.LayerSelected += (_, index) =>
+            {
+                MaskOverlay.CancelDrag();
+                ViewModel.EndAdjustmentGesture();
+                _selectedMaskIndex = index;
+                _selectedMaskComponentIndex = 0;
+                UpdateMaskDisplay();
+            };
             MaskPanel.LayerDeleteRequested += (_, index) => DeleteMaskLayer(index);
-            MaskPanel.FeatherChanged += (_, value) => EditSelectedMask(l => WithFeather(l, value / 100.0));
+            MaskPanel.FeatherChanged += (_, value) => EditSelectedMask(l => MaskGroupEditing.WithLeaf(l, _selectedMaskComponentIndex, mask => WithFeather(mask, value / 100.0)));
             MaskPanel.InvertChanged += (_, value) =>
-                EditSelectedMask(l => l.Mask is RadialMask r ? l with { Mask = r with { Invert = value } } : l);
+                EditMaskComposition(l => l.Mask is RadialMask r ? l with { Mask = r with { Invert = value } } : l, true);
             MaskPanel.AdjustmentChanged += (_, change) => EditSelectedMask(l => l with { Adjustments = WithControl(l.Adjustments, change.Field, change.Value) });
             MaskPanel.ResetRequested += OnMaskReset;
             MaskOverlay.ShapeChanged += OnMaskOverlayShapeChanged;
+            BuildMaskComposition();
         }
 
         private void EnterMaskMode()
@@ -64,6 +72,8 @@ namespace Maple.WinUI
             if (!_maskArmed)
                 return;
             _maskArmed = false;
+            MaskOverlay.CancelDrag();
+            ViewModel.EndAdjustmentGesture();
             MaskOverlay.Visibility = Visibility.Collapsed;
         }
 
@@ -72,6 +82,8 @@ namespace Maple.WinUI
         /// selected layer's geometry/controls into the overlay + panel.</summary>
         private void SyncMaskFromModel()
         {
+            MaskOverlay.CancelDrag();
+            ViewModel.EndAdjustmentGesture();
             var layers = ViewModel.Adjustments.LocalAdjustments;
             if (_selectedMaskIndex >= layers.Count)
                 _selectedMaskIndex = layers.Count > 0 ? layers.Count - 1 : -1;
@@ -92,16 +104,18 @@ namespace Maple.WinUI
 
             var layers = ViewModel.Adjustments.LocalAdjustments;
             var selected = _selectedMaskIndex >= 0 && _selectedMaskIndex < layers.Count ? layers[_selectedMaskIndex] : null;
-            MaskOverlay.Shape = selected?.Mask switch
+            SyncMaskComposition(selected);
+            var leaf = MaskGroupEditing.SelectedLeaf(selected, _selectedMaskComponentIndex);
+            MaskOverlay.Shape = leaf switch
             {
                 LinearMask l => new MuiLinearMaskShape(new MuiMaskPoint(l.Start.X, l.Start.Y), new MuiMaskPoint(l.End.X, l.End.Y)),
                 RadialMask r => new MuiRadialMaskShape(new MuiMaskPoint(r.Center.X, r.Center.Y), new MuiMaskPoint(r.Radii.X, r.Radii.Y), r.Angle),
                 _ => null,
             };
-            MaskOverlay.Invert = selected?.Mask is RadialMask { Invert: true };
+            MaskOverlay.Invert = leaf is RadialMask { Invert: true };
             MaskOverlay.Visibility = selected is null ? Visibility.Collapsed : Visibility.Visible;
 
-            var feather = selected?.Mask switch { LinearMask l => l.Feather, RadialMask r => r.Feather, _ => 0.5 };
+            var feather = leaf switch { LinearMask l => l.Feather, RadialMask r => r.Feather, _ => 0.5 };
             MaskPanel.Feather = feather * 100;
             MaskPanel.Invert = selected?.Mask is RadialMask { Invert: true };
             MaskPanel.Adjustments = ToMuiAdjustments(selected?.Adjustments ?? new PartialAdjustments());
@@ -112,17 +126,20 @@ namespace Maple.WinUI
         private MuiMaskLayerRow ToRow(LocalAdjustment layer, int index, System.Collections.Generic.List<LocalAdjustment> all)
         {
             var isRadial = layer.Mask is RadialMask;
-            var ordinal = all.Take(index + 1).Count(l => (l.Mask is RadialMask) == isRadial);
-            var name = $"{(isRadial ? "Radial" : "Linear")} {ordinal}";
+            var ordinal = all.Take(index + 1).Count(l => l.Mask.GetType() == layer.Mask.GetType());
+            var kind = layer.Mask is MaskGroup ? "Mask group" : isRadial ? "Radial" : "Linear";
+            var name = $"{kind} {ordinal}";
             var editedCount = CountEdited(layer.Adjustments);
             var invertedNote = layer.Mask is RadialMask { Invert: true } ? "inverted" : null;
             var editedNote = editedCount > 0 ? $"{editedCount} edited" : null;
-            var subtitle = string.Join(" · ", new[] { invertedNote, editedNote }.Where(s => s != null));
+            var componentNote = layer.Mask is MaskGroup group ? $"{group.Components.Count} components" : null;
+            var subtitle = string.Join(" · ", new[] { componentNote, invertedNote, editedNote }.Where(s => s != null));
             return new MuiMaskLayerRow(index.ToString(), name, subtitle, index == _selectedMaskIndex, isRadial);
         }
 
         private static int CountEdited(PartialAdjustments a) =>
-            new[] { a.Exposure, a.Contrast, a.Highlights, a.Shadows, a.Whites, a.Blacks, a.Saturation, a.Vibrance, a.Temperature, a.Tint, a.Hue }
+            new[] { a.Exposure, a.Contrast, a.Highlights, a.Shadows, a.Whites, a.Blacks, a.Saturation, a.Vibrance, a.Temperature, a.Tint, a.Hue,
+                a.Texture, a.Clarity, a.Dehaze, a.Sharpness, a.LuminanceNoise, a.Defringe }
                 .Count(v => v is not null);
 
         // --- Add / delete / reset ---
@@ -132,9 +149,12 @@ namespace Maple.WinUI
             var layer = linear
                 ? new LocalAdjustment(new LinearMask(new MaskPoint(0.3, 0.5), new MaskPoint(0.7, 0.5), 0.5), new PartialAdjustments())
                 : new LocalAdjustment(DefaultRadialMask(), new PartialAdjustments());
+            ViewModel.CommitPendingAdjustmentGesture();
             ViewModel.Adjustments.LocalAdjustments.Add(layer);
             _selectedMaskIndex = ViewModel.Adjustments.LocalAdjustments.Count - 1;
+            _selectedMaskComponentIndex = 0;
             ViewModel.NotifyAdjustmentEdited();
+            ViewModel.CommitPendingAdjustmentGesture();
             SyncMaskFromModel();
         }
 
@@ -155,39 +175,39 @@ namespace Maple.WinUI
             var layers = ViewModel.Adjustments.LocalAdjustments;
             if (index < 0 || index >= layers.Count)
                 return;
+            ViewModel.CommitPendingAdjustmentGesture();
+            if (index == _selectedMaskIndex) _selectedMaskComponentIndex = 0;
             layers.RemoveAt(index);
             _selectedMaskIndex = MaskLayerSelectionLogic.AfterDelete(_selectedMaskIndex, index, layers.Count);
             ViewModel.NotifyAdjustmentEdited();
+            ViewModel.CommitPendingAdjustmentGesture();
             SyncMaskFromModel();
         }
 
-        private void OnMaskReset(object? sender, EventArgs e) =>
-            EditSelectedMask(l => l with { Adjustments = new PartialAdjustments() });
+        private void OnMaskReset(object? sender, EventArgs e)
+        {
+            EditMaskComposition(l => l with { Adjustments = new PartialAdjustments() }, true);
+            UpdateMaskDisplay();
+        }
 
         // --- Overlay drag → model ---
 
         private void OnMaskOverlayShapeChanged(object? sender, MuiMaskShape shape) =>
-            EditSelectedMask(l => (shape, l.Mask) switch
+            EditSelectedMask(l => MaskGroupEditing.WithLeaf(l, _selectedMaskComponentIndex, mask => (shape, mask) switch
             {
-                (MuiLinearMaskShape lin, LinearMask existing) => l with
+                (MuiLinearMaskShape lin, LinearMask existing) => existing with
                 {
-                    Mask = existing with
-                    {
-                        Start = new MaskPoint(lin.Start.X, lin.Start.Y),
-                        End = new MaskPoint(lin.End.X, lin.End.Y),
-                    },
+                    Start = new MaskPoint(lin.Start.X, lin.Start.Y),
+                    End = new MaskPoint(lin.End.X, lin.End.Y),
                 },
-                (MuiRadialMaskShape rad, RadialMask existing) => l with
+                (MuiRadialMaskShape rad, RadialMask existing) => existing with
                 {
-                    Mask = existing with
-                    {
-                        Center = new MaskPoint(rad.Center.X, rad.Center.Y),
-                        Radii = new MaskPoint(rad.Radii.X, rad.Radii.Y),
-                        Angle = rad.Angle,
-                    },
+                    Center = new MaskPoint(rad.Center.X, rad.Center.Y),
+                    Radii = new MaskPoint(rad.Radii.X, rad.Radii.Y),
+                    Angle = rad.Angle,
                 },
-                _ => l, // shape/model kind mismatch (selection changed mid-drag) — no-op
-            });
+                _ => mask, // shape/model kind mismatch (selection changed mid-drag) — no-op
+            }));
 
         // --- Shared apply helper ---
 
@@ -202,16 +222,20 @@ namespace Maple.WinUI
             var layers = ViewModel.Adjustments.LocalAdjustments;
             if (_selectedMaskIndex < 0 || _selectedMaskIndex >= layers.Count)
                 return;
-            layers[_selectedMaskIndex] = edit(layers[_selectedMaskIndex]);
+            var before = layers[_selectedMaskIndex];
+            var after = edit(before);
+            if (after == before) return;
+            layers[_selectedMaskIndex] = after;
             ViewModel.NotifyAdjustmentEdited();
             MaskPanel.Layers = layers.Select((layer, i) => ToRow(layer, i, layers)).ToList();
+            SyncMaskComposition(after);
         }
 
-        private static LocalAdjustment WithFeather(LocalAdjustment l, double feather01) => l.Mask switch
+        private static LocalMask WithFeather(LocalMask mask, double feather01) => mask switch
         {
-            LinearMask lin => l with { Mask = lin with { Feather = feather01 } },
-            RadialMask rad => l with { Mask = rad with { Feather = feather01 } },
-            _ => l,
+            LinearMask lin => lin with { Feather = feather01 },
+            RadialMask rad => rad with { Feather = feather01 },
+            _ => mask,
         };
 
         private static PartialAdjustments WithControl(PartialAdjustments a, string field, double value) => field switch

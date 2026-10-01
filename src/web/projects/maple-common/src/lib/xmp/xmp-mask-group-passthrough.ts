@@ -15,15 +15,14 @@ import {
 const childrenNamed = (element: Element, name: string): Element[] =>
   Array.from(element.children).filter((child) => managedXmpName(child) === name);
 
-/** Composite/foreign masks stay opaque: selecting the first recognized leaf
- * would discard the rest of the mask, and could apply a different selection. */
+/** Every component must be modelled together; unsupported recipes stay opaque. */
 function modeledCorrection(item: Element): LocalAdjustment | undefined {
   if (managedXmpName(item) !== 'rdf:li' || item.children.length !== 1) return undefined;
   const description = childrenNamed(item, 'rdf:Description')[0];
   if (!description) return undefined;
   const masks = childrenNamed(description, 'crs:CorrectionMasks');
   const sequences = masks.length === 1 ? childrenNamed(masks[0], 'rdf:Seq') : [];
-  if (sequences.length !== 1 || sequences[0].children.length !== 1) return undefined;
+  if (sequences.length !== 1 || sequences[0].children.length === 0) return undefined;
   return parseLocalCorrection(description, 'group');
 }
 
@@ -150,7 +149,7 @@ export function collectMaskGroups(
 }
 
 const isGroup = (layer: LocalAdjustment): boolean =>
-  layer.mask.kind === 'bitmap' || layer.mask.kind === 'everywhere';
+  layer.mask.kind === 'bitmap' || layer.mask.kind === 'everywhere' || layer.mask.kind === 'group';
 
 /** New canonical entries need their own namespaces: a foreign container may
  * legitimately rebind the conventional rdf/crs/papp prefixes. */

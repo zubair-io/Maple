@@ -39,10 +39,10 @@ struct EditorCanvasView: View {
           if state.armedTool == .crop {
             CropOverlay(state: state)
           }
-          // Mask overlay (#3275): the selected bitmap mask's raster,
-          // tinted red, while the Mask tool is armed.
+          // Mask coverage and handles for the selected component (#3408).
           if state.armedTool == .mask {
             MaskOverlay(state: state)
+              .id(ObjectIdentifier(state.session))
           }
           // Heal overlay (#3409): every repair spot's destination disc, plus
           // the selected spot's source disc and the line joining them.

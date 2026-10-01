@@ -1,83 +1,81 @@
-// MaskOverlay.swift — translucent red tint of the selected mask's raster
-// over the canvas (#3275, spec §3.2, §6.3). Visualizes ONLY the geometric
-// raster (what Vision selected), not the live colour-range refinement — the
-// vectorscope is what makes the refinement visible.
-//
-// Geometry follows the CANVAS, not a fit assumption (#3354): the raster is
-// laid out exactly where `CanvasZoomHost` lays out the image —
-// `displayFrameInPoints`, centred, offset by the pan — expanded back to the
-// full frame when a crop is applied, and rotated by the straighten angle
-// about the frame centre the way `CropImageStage` rotates the pixels. The
-// first version used `CropGeometry.fitFootprint` like `CropOverlay`, which
-// is correct only at fit zoom with zero pan; at any other zoom the red
-// silhouette was a smaller, offset copy of the subject.
-
+// Coverage and selected-component handles follow the live canvas's crop,
+// straighten, zoom and pan. Colour-range refinement remains in the vectorscope.
 import MapleCore
 import SwiftUI
 
 struct MaskOverlay: View {
-    @Bindable var state: EditorState
-    @State private var previewImage: CGImage?
+  @Bindable var state: EditorState
+  @State private var previewImage: CGImage?
+  @State private var previewGeneration: UInt64 = 0
 
-    private var selectedLayer: LocalAdjustment? {
-        state.session.model.localAdjustments.first { $0.id == state.session.selectedMaskId }
-    }
+  private struct CoverageRequest: Hashable {
+    let mask: LocalMask?
+    let width: Double
+    let height: Double
+    let adjusting: Bool
+  }
+  private var request: CoverageRequest {
+    CoverageRequest(
+      mask: state.session.selectedMaskLayer?.mask,
+      width: state.session.nativeImageSize.width, height: state.session.nativeImageSize.height,
+      adjusting: state.session.isAdjustingMask)
+  }
 
-    var body: some View {
-        GeometryReader { geo in
-            if let previewImage, case .bitmap = selectedLayer?.mask,
-                let frame = state.zoom.displayFrameInPoints,
-                let full = MaskOverlayGeometry.fullFrameRect(
-                    containerSize: geo.size, displayFrame: frame,
-                    panOffset: state.zoom.panOffset, crop: state.session.model.crop)
-            {
-                let shown = state.session.showsMaskOverlay
-                Image(decorative: previewImage, scale: 1)
-                    .resizable()
-                    .renderingMode(.template)
-                    .foregroundStyle(.red.opacity(0.45))
-                    .frame(width: full.width, height: full.height)
-                    // Straighten rotates the full frame about its centre
-                    // before the crop is cut; the raster is full-frame, so
-                    // it rotates the same way. Positive = clockwise in both.
-                    .rotationEffect(.degrees(state.session.model.crop.angle))
-                    .position(x: full.midX, y: full.midY)
-                    // Faded, not unmounted (#3364): dropping the view would
-                    // re-run `loadRasterPreview` on every drag release and
-                    // flash the raster back in after a decode.
-                    .opacity(shown ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.12), value: shown)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+  var body: some View {
+    GeometryReader { geo in
+      if let frame = state.zoom.displayFrameInPoints,
+        let full = MaskOverlayGeometry.fullFrameRect(
+          containerSize: geo.size, displayFrame: frame,
+          panOffset: state.zoom.panOffset, crop: state.session.model.crop)
+      {
+        ZStack {
+          if let previewImage {
+            let shown = state.session.showsMaskOverlay
+            let display = MaskOverlayGeometry.displayRect(
+              containerSize: geo.size, displayFrame: frame, panOffset: state.zoom.panOffset)
+            ZStack {
+              Image(decorative: previewImage, scale: 1)
+                .resizable()
+                .renderingMode(.template)
+                .foregroundStyle(.red.opacity(0.45))
+                .frame(width: full.width, height: full.height)
+                .rotationEffect(.degrees(state.session.model.crop.angle))
+                .position(x: full.midX, y: full.midY)
+                .opacity(shown ? 1 : 0)
+                .animation(.easeInOut(duration: 0.12), value: shown)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .mask {
+              Rectangle().frame(width: display.width, height: display.height)
+                .position(x: display.midX, y: display.midY)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+          }
+          MaskGeometryHandles(state: state, fullFrame: full)
         }
-        .task(id: state.session.selectedMaskId) { await loadRasterPreview() }
+        .frame(width: geo.size.width, height: geo.size.height)
+        .clipped()
+      }
     }
+    .task(id: request) { await loadCoverage() }
+  }
 
-    @MainActor
-    private func loadRasterPreview() async {
-        guard let layer = selectedLayer, case .bitmap(let recipe, _) = layer.mask else {
-            previewImage = nil
-            return
-        }
-        let path = await state.session.maskRasterStore.cachedPath(digest: recipe.digest)
-        guard let provider = CGDataProvider(url: path as CFURL) else {
-            previewImage = nil
-            return
-        }
-        guard
-            let gray = CGImage(
-                pngDataProviderSource: provider, decode: nil, shouldInterpolate: true,
-                intent: .defaultIntent)
-        else {
-            previewImage = nil
-            return
-        }
-        // Rasters are 8-bit GRAYSCALE with no alpha channel — coverage is
-        // luminance. `.renderingMode(.template)` below tints by ALPHA, so
-        // the raw raster (opaque everywhere) tinted the entire frame flat
-        // red and the skin was indistinguishable from the background
-        // (#3354). Convert coverage into alpha first.
-        previewImage = MaskRasterAlpha.alphaFromLuminance(gray)
+  @MainActor
+  private func loadCoverage() async {
+    previewGeneration &+= 1
+    let generation = previewGeneration
+    let current = request
+    guard let mask = current.mask else {
+      previewImage = nil
+      return
     }
+    // Mask drags hide the tint. Wait until their undo transaction closes
+    // rather than allocating a coverage image on each pointer move.
+    guard !state.session.isAdjustingMask else { return }
+    previewImage = nil
+    let image = await state.session.maskCoveragePreview(for: mask)
+    guard !Task.isCancelled, generation == previewGeneration, current == request else { return }
+    previewImage = image
+  }
 }

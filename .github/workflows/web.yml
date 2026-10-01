@@ -313,11 +313,11 @@ jobs:
         id: fixture
         shell: bash
         run: |
-          if [[ -f test-fixtures/raws/test_0006.DNG ]]; then
+          if [[ -f test-fixtures/raws/test_0006.DNG || -f test-fixtures/raws/test_0017.dng ]]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping WebGPU smoke: test-fixtures/raws/test_0006.DNG is missing."
+            echo "::notice::Skipping WebGPU smoke: neither test_0006.DNG nor test_0017.dng is available."
             echo "WebGPU smoke skipped: RAW fixture missing; dependency and browser provisioning were skipped." >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -359,14 +359,15 @@ jobs:
         run: bun x playwright install --with-deps chromium
 
       # MAPLE_PERF=1 un-skips slider-tick-render.perf.spec.ts; raw-open.spec.ts
-      # has no such gate. Both still skip individually without the RAW
+      # has no such gate. The mask-group interaction test also runs here.
+      # Each still skips individually without its RAW
       # fixture — see the job comment above.
-      - name: Browser WebGPU smoke (raw-open + slider-tick-render)
+      - name: Browser WebGPU smoke (raw-open + slider-tick-render + mask-groups)
         if: steps.fixture.outputs.available == 'true'
         working-directory: src/web
         env:
           MAPLE_PERF: '1'
-        run: bun x playwright test e2e/raw-open.spec.ts e2e/slider-tick-render.perf.spec.ts
+        run: bun x playwright test e2e/raw-open.spec.ts e2e/slider-tick-render.perf.spec.ts e2e/mask-groups.spec.ts
 
       # playwright.config.ts has no HTML reporter (`reporter: [['list']]`), so
       # the artifact worth keeping on a failure is the trace

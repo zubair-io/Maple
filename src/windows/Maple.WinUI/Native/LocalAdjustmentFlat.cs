@@ -15,18 +15,20 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Maple.WinUI.Generated;
 using Maple.WinUI.Models;
 
 namespace Maple.WinUI.Native
 {
     internal static class LocalAdjustmentFlat
     {
-        /// <summary>Floats per serialized layer — eight WGSL vec4&lt;f32&gt;
+        /// <summary>Floats per serialized layer — ten WGSL vec4&lt;f32&gt;
         /// members, matching raw-core's `LAYER_FLAT_LEN`.</summary>
-        public const int LayerFlatLen = 32;
+        public const int LayerFlatLen = LocalMaskWire.LAYER_FLAT_LEN;
 
-        private const float KindLinear = 0f;
-        private const float KindRadial = 1f;
+        private const float KindLinear = LocalMaskWire.KIND_LINEAR;
+        private const float KindRadial = LocalMaskWire.KIND_RADIAL;
 
         private const uint PresentExposure = 1u << 0;
         private const uint PresentContrast = 1u << 1;
@@ -41,15 +43,30 @@ namespace Maple.WinUI.Native
         private const uint PresentHue = 1u << 10;
 
         /// <summary>Serialize a layer stack to the flat wire — length is
-        /// always <c>layers.Count * LayerFlatLen</c>; an empty stack yields
+        /// <c>physical records * LayerFlatLen</c> (a group header followed by its leaves); an empty stack yields
         /// an empty array (both FFI structs read that as "no local
         /// adjustments," the bit-identical short-circuit raw-core's own
         /// `apply` takes on an empty slice).</summary>
         public static float[] ToFlat(IReadOnlyList<LocalAdjustment> layers)
         {
-            var flat = new float[layers.Count * LayerFlatLen];
-            for (var i = 0; i < layers.Count; i++)
-                WriteLayer(layers[i], flat.AsSpan(i * LayerFlatLen, LayerFlatLen));
+            var records = layers.Sum(layer => layer.Mask is MaskGroup group ? 1 + group.Components.Count : 1);
+            var flat = new float[records * LayerFlatLen];
+            var offset = 0;
+            foreach (var layer in layers)
+            {
+                WriteLayer(layer, flat.AsSpan(offset * LayerFlatLen, LayerFlatLen));
+                offset++;
+                if (layer.Mask is not MaskGroup group) continue;
+                foreach (var component in group.Components)
+                {
+                    var slot = flat.AsSpan(offset * LayerFlatLen, LayerFlatLen);
+                    WriteMask(component.Mask, slot);
+                    slot[6] += LocalMaskWire.KIND_COMPONENT_BASE
+                        + (int)component.Combine * LocalMaskWire.COMPONENT_COMBINE_STRIDE
+                        + (component.Invert ? LocalMaskWire.COMPONENT_INVERT_OFFSET : 0);
+                    offset++;
+                }
+            }
             return flat;
         }
 
@@ -64,6 +81,12 @@ namespace Maple.WinUI.Native
         {
             switch (mask)
             {
+                case MaskGroup group:
+                    slot[0] = group.Components.Count;
+                    slot[1] = (float)group.Opacity;
+                    slot[6] = LocalMaskWire.KIND_GROUP;
+                    slot[7] = group.Invert ? 1f : 0f;
+                    break;
                 case LinearMask l:
                     slot[0] = (float)l.Start.X;
                     slot[1] = (float)l.Start.Y;
@@ -104,6 +127,12 @@ namespace Maple.WinUI.Native
             if (a.Temperature is { } temperature) { slot[20] = (float)temperature; present |= PresentTemperature; }
             if (a.Tint is { } tint) { slot[21] = (float)tint; present |= PresentTint; }
             if (a.Hue is { } hue) { slot[22] = (float)hue; present |= PresentHue; }
+            if (a.Texture is { } texture) { slot[32] = (float)texture; present |= 1u << 11; }
+            if (a.Clarity is { } clarity) { slot[33] = (float)clarity; present |= 1u << 12; }
+            if (a.Dehaze is { } dehaze) { slot[34] = (float)dehaze; present |= 1u << 13; }
+            if (a.Sharpness is { } sharpness) { slot[35] = (float)sharpness; present |= 1u << 14; }
+            if (a.LuminanceNoise is { } noise) { slot[36] = (float)noise; present |= 1u << 15; }
+            if (a.Defringe is { } defringe) { slot[37] = (float)defringe; present |= 1u << 16; }
             slot[8] = present;
         }
 

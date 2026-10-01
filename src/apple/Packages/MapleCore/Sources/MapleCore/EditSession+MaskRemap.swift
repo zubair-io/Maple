@@ -37,19 +37,21 @@ extension EditSession {
 
   /// `layers` re-expressed in the coordinate space `affine` maps back to
   /// the full frame. Identity ⇒ `layers` unchanged. A bitmap layer whose
-  /// derived raster cannot be produced (its source raster is unavailable
-  /// and cannot be regenerated) keeps its original id — logged, and no
-  /// worse than the frame-space placement every tick had before #355 —
-  /// rather than failing the whole present.
+  /// derived raster cannot be produced keeps an unresolved id. This makes
+  /// its entire group inert rather than using incorrectly placed coverage.
   func remappedLocalAdjustments(
     _ layers: [LocalAdjustment], through affine: MaskAffine
   ) async -> [LocalAdjustment] {
     guard !affine.isIdentity, !layers.isEmpty else { return layers }
     var out = MaskRemap.remappedGeometry(layers, through: affine)
     for index in out.indices {
-      guard case .bitmap(let recipe, let rasterId) = out[index].mask, rasterId != 0 else { continue }
-      guard let derived = await derivedMaskRasterId(recipe: recipe, affine: affine) else { continue }
-      out[index].mask = .bitmap(recipe: recipe, rasterId: derived)
+      out[index].mask = await out[index].mask.mappingLeavesAsync { mask in
+        guard case .bitmap(let recipe, let rasterId) = mask, rasterId != 0 else { return mask }
+        guard let derived = await self.derivedMaskRasterId(recipe: recipe, affine: affine) else {
+          return .bitmap(recipe: recipe, rasterId: 0)
+        }
+        return .bitmap(recipe: recipe, rasterId: derived)
+      }
     }
     return out
   }

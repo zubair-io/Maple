@@ -43,7 +43,7 @@ use crate::context::GpuContext;
 use crate::defringe::DefringePass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::local_adjustments::{
-    layer_present_bits, GpuMaskRaster, LocalAdjustmentsPass, LAYER_FLAT_LEN, PRESENT_SPATIAL_MASK,
+    layer_present_bits, logical_layers, GpuMaskRaster, LocalAdjustmentsPass, PRESENT_SPATIAL_MASK,
 };
 use crate::noise_reduction::NlmLumaPass;
 use crate::sharpen::SharpenPass;
@@ -184,14 +184,15 @@ pub struct LocalSpatialPass {
 }
 
 impl LocalSpatialPass {
-    /// Build the pass for ONE flat layer record. `layer_flat` must be
-    /// exactly [`LAYER_FLAT_LEN`] floats; `rasters` resolves a bitmap mask
+    /// Build the pass for ONE logical layer, including a group's component
+    /// records; `rasters` resolves a bitmap mask
     /// exactly as [`LocalAdjustmentsPass::new`] does.
     pub fn new(layer_flat: &[f32], rasters: &[GpuMaskRaster], is_scope_target: bool) -> Self {
-        assert_eq!(
-            layer_flat.len(),
-            LAYER_FLAT_LEN,
-            "LocalSpatialPass takes exactly one flat layer record"
+        assert!(
+            logical_layers(layer_flat)
+                .next()
+                .is_some_and(|layer| layer.len() == layer_flat.len()),
+            "LocalSpatialPass takes exactly one complete logical layer"
         );
         Self {
             point: LocalAdjustmentsPass::new(layer_flat, rasters).with_scope_layer(0),

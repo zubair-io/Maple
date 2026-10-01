@@ -96,10 +96,10 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32), session_id: u
     // the stage contributes and how many pooled scratch buffers each draws,
     // so two models with the same layer COUNT can still need different
     // chains. Values still do not participate — see `layer_shape_key`.
-    for layer in inputs
-        .local_adjustments
-        .chunks_exact(crate::local_adjustments::LAYER_FLAT_LEN)
-    {
+    for layer in crate::local_adjustments::logical_layers(&inputs.local_adjustments) {
+        // Group layout changes per-layer storage sizes even at an identical
+        // total record count; pooled bindings must follow that split.
+        layer.len().hash(&mut h);
         crate::local_spatial::layer_shape_key(layer).hash(&mut h);
     }
     // The mask-plane TOTAL FLOAT COUNT (#3271) is the third such buffer: a

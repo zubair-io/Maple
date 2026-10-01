@@ -18,7 +18,15 @@
 
 import type { Crop } from '../../models/adjustment-model';
 import { isCropRectValid, isIdentityCrop } from '../../models/adjustment-model';
-import { isGeometricMask, type LocalMask, type MaskPoint } from '../../models/local-adjustment';
+import {
+  isGeometricMask,
+  type LinearMask,
+  type LocalMask,
+  type MaskPoint,
+  type MaskGroup,
+  type MaskCombine,
+  type RadialMask,
+} from '../../models/local-adjustment';
 import type { Footprint } from '../crop-overlay/crop-geometry';
 
 // ── Weight ────────────────────────────────────────────────────────────────
@@ -37,6 +45,7 @@ const EPSILON = 1.1920929e-7;
  *  the same "never a silent global correction" rule raw-core applies to an
  *  unresolved raster id (#3300). `everywhere` is weight 1 by definition. */
 export function evaluateMaskWeight(mask: LocalMask, x: number, y: number): number {
+  if (mask.kind === 'group') return evaluateGroupWeight(mask, x, y);
   if (mask.kind === 'everywhere') return 1;
   if (mask.kind === 'bitmap') return 0;
   if (mask.kind === 'linear') {
@@ -67,6 +76,31 @@ export function evaluateMaskWeight(mask: LocalMask, x: number, y: number): numbe
     return 1 - smoothstep((d - lo) / (1 - lo));
   })();
   return invert ? 1 - w : w;
+}
+
+function combineCoverage(weight: number, value: number, combine: MaskCombine): number {
+  switch (combine) {
+    case 'add':
+      return weight + (1 - weight) * value;
+    case 'subtract':
+      return weight * (1 - value);
+    case 'intersect':
+      return weight * value;
+  }
+}
+
+function evaluateGroupWeight(mask: MaskGroup, x: number, y: number): number {
+  if (!mask.components.length || !Number.isFinite(mask.opacity)) return 0;
+  // An unresolved component keeps the entire group inert, even when inverted.
+  for (const component of mask.components) if (component.mask.kind === 'bitmap') return 0;
+  let weight = 0;
+  for (const component of mask.components) {
+    const raw = evaluateMaskWeight(component.mask, x, y);
+    const value = component.invert ? 1 - raw : raw;
+    weight = combineCoverage(weight, value, component.combine);
+  }
+  const coverage = mask.invert ? 1 - weight : weight;
+  return Math.min(1, Math.max(0, coverage)) * Math.min(1, Math.max(0, mask.opacity));
 }
 
 // ── Affine map (crop-normalized ↔ full-frame normalized) ──────────────────
@@ -197,13 +231,13 @@ export const MIN_RADIUS = 0.01;
 /** Where the rotation pin sits along the local x axis, as a multiple of `rx`. */
 export const ROTATE_HANDLE_FACTOR = 1.3;
 
-export function defaultLinearMask(): LocalMask {
+export function defaultLinearMask(): LinearMask {
   return { kind: 'linear', start: { x: 0.5, y: 0.15 }, end: { x: 0.5, y: 0.55 }, feather: 0.5 };
 }
 
 /** A centered radial mask; `imageAspect` (w/h) pre-corrects the radii so it
  *  reads as a circle on screen (the evaluator itself is aspect-agnostic). */
-export function defaultRadialMask(imageAspect: number): LocalMask {
+export function defaultRadialMask(imageAspect: number): RadialMask {
   const aspect = Number.isFinite(imageAspect) && imageAspect > 0 ? imageAspect : 1;
   return {
     kind: 'radial',

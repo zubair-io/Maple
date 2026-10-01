@@ -25,11 +25,27 @@ import type { AdjustmentModel } from '../models/adjustment-model';
 import type {
   LocalAdjustment,
   LocalMask,
+  LeafMask,
+  MaskComponent,
   MaskPoint,
   PartialAdjustments,
   RangeRefinement,
+  RadialMask,
+  BitmapMask,
 } from '../models/local-adjustment';
+import { MASK_GROUP_VERSION } from '../generated/local-mask-wire.generated';
+import {
+  componentMetadata,
+  localMetadata,
+  localMetadataAttributes,
+  localMetadataNodes,
+} from './xmp-local-metadata';
 import { numericSerializer } from './xmp-fields';
+import {
+  validGroupComponentAttributes,
+  validGroupFlags,
+  groupComponentOperation,
+} from './xmp-mask-group-validation';
 import { attrOf, managedXmpName } from './xmp-dom-utils';
 import {
   correctionDescriptions,
@@ -115,6 +131,18 @@ const RANGE_KEYS: ReadonlyArray<readonly [string, Exclude<keyof RangeRefinement,
     ['papp:RangeFeather', 'feather', 0.3],
   ];
 
+const CORRECTION_ATTRIBUTES = new Set([
+  'crs:What',
+  'crs:CorrectionAmount',
+  'crs:CorrectionActive',
+  ...SLIDER_KEYS.map(([key]) => key),
+  ...RANGE_KEYS.map(([key]) => key),
+  'papp:RangeKind',
+  'papp:MaskGroupVersion',
+  'papp:MaskGroupOpacity',
+  'papp:MaskGroupInverted',
+]);
+
 /** Which container `child` is, or undefined when it is not one. */
 export function localAdjustmentContainerKind(
   child: Element,
@@ -141,7 +169,7 @@ function parseRange(description: Element): RangeRefinement | undefined {
   return { kind: 'color', ...Object.fromEntries(values) } as RangeRefinement;
 }
 
-function parseLinearLeaf(leaf: Element): LocalMask | undefined {
+function parseLinearLeaf(leaf: Element): LeafMask | undefined {
   const zx = finiteAttr(leaf, 'crs:ZeroX');
   const zy = finiteAttr(leaf, 'crs:ZeroY');
   const fx = finiteAttr(leaf, 'crs:FullX');
@@ -156,23 +184,36 @@ function parseLinearLeaf(leaf: Element): LocalMask | undefined {
   };
 }
 
-function parseRadialLeaf(leaf: Element): LocalMask | undefined {
+function radialBounds(leaf: Element): Pick<RadialMask, 'center' | 'radii'> | undefined {
   const top = finiteAttr(leaf, 'crs:Top');
   const left = finiteAttr(leaf, 'crs:Left');
   const bottom = finiteAttr(leaf, 'crs:Bottom');
   const right = finiteAttr(leaf, 'crs:Right');
-  if (top === undefined || left === undefined || bottom === undefined || right === undefined) {
+  if (top === undefined || left === undefined || bottom === undefined || right === undefined)
     return undefined;
-  }
+  return {
+    center: point((left + right) / 2, (top + bottom) / 2),
+    radii: point((right - left) / 2, (bottom - top) / 2),
+  };
+}
+
+function radialVersion(leaf: Element): boolean | undefined {
+  const version = finiteAttr(leaf, 'crs:Version') ?? 1;
+  return version === 1 || version === 2 ? version === 2 : undefined;
+}
+
+function parseRadialLeaf(leaf: Element): LeafMask | undefined {
+  const bounds = radialBounds(leaf);
+  const modern = radialVersion(leaf);
+  if (!bounds || modern === undefined) return undefined;
   const angleDeg = finiteAttr(leaf, 'crs:Angle') ?? 0;
   const featherPct = finiteAttr(leaf, 'crs:Feather') ?? 50;
   return {
     kind: 'radial',
-    center: point((left + right) / 2, (top + bottom) / 2),
-    radii: point((right - left) / 2, (bottom - top) / 2),
+    ...bounds,
     angle: (angleDeg * Math.PI) / 180,
-    feather: Math.min(1, Math.max(0, featherPct / 100)),
-    invert: xmpBool(attrOf(leaf, ['crs:Flipped'])) ?? false,
+    feather: Math.min(1, Math.max(0, featherPct / (modern ? 50 : 100))),
+    invert: (xmpBool(attrOf(leaf, ['crs:Flipped'])) ?? false) !== modern,
   };
 }
 
@@ -185,7 +226,7 @@ function parseRadialLeaf(leaf: Element): LocalMask | undefined {
  * too (raw-core hard-errors there; this reader is tolerant like its siblings).
  * The recipe's other fields default the way raw-core's parser defaults them.
  */
-function parseGroupLeaf(leaf: Element): LocalMask | undefined {
+function parseGroupLeaf(leaf: Element): LeafMask | undefined {
   const source = attrOf(leaf, ['papp:MaskSource']);
   if (source === 'Everywhere') return { kind: 'everywhere' };
   if (source !== 'PersonSkin') return undefined;
@@ -207,8 +248,46 @@ function parseGroupLeaf(leaf: Element): LocalMask | undefined {
 }
 
 const LEAF_PARSERS: Readonly<
-  Record<LocalAdjustmentContainerKind, (leaf: Element) => LocalMask | undefined>
+  Record<LocalAdjustmentContainerKind, (leaf: Element) => LeafMask | undefined>
 > = { linear: parseLinearLeaf, radial: parseRadialLeaf, group: parseGroupLeaf };
+
+function parseGroupComponent(leaf: Element): MaskComponent | undefined {
+  if (!validGroupComponentAttributes(leaf)) return undefined;
+  const kind = (Object.keys(MASK_WHAT) as LocalAdjustmentContainerKind[]).find(
+    (key) => MASK_WHAT[key] === attrOf(leaf, ['crs:What']),
+  );
+  const mask = kind ? LEAF_PARSERS[kind](leaf) : undefined;
+  if (!mask) return undefined;
+  const operation = groupComponentOperation(leaf);
+  if (!operation) return undefined;
+  const xmpMetadata = componentMetadata(leaf);
+  return { mask, ...operation, ...(xmpMetadata ? { xmpMetadata } : {}) };
+}
+
+function standaloneLegacyLeaf(components: MaskComponent[]): LeafMask | undefined {
+  if (components.length !== 1) return undefined;
+  const [first] = components;
+  if (first.combine !== 'add' || first.invert || first.xmpMetadata) return undefined;
+  return ['bitmap', 'everywhere'].includes(first.mask.kind) ? first.mask : undefined;
+}
+
+function unmarkedGroup(description: Element, opacity: number, invert: boolean): boolean {
+  return attrOf(description, ['papp:MaskGroupVersion']) === null && opacity === 1 && !invert;
+}
+
+function parseMaskGroup(description: Element, leaves: Element[]): LocalMask | undefined {
+  if (!validGroupFlags(description)) return undefined;
+  const components = leaves.map(parseGroupComponent);
+  if (!components.length || components.some((c) => !c)) return undefined;
+  const recognized = components as MaskComponent[];
+  const opacity = finiteAttr(description, 'papp:MaskGroupOpacity') ?? 1;
+  const invert = xmpBool(attrOf(description, ['papp:MaskGroupInverted'])) ?? false;
+  if (unmarkedGroup(description, opacity, invert)) {
+    const leaf = standaloneLegacyLeaf(recognized);
+    if (leaf) return leaf;
+  }
+  return { kind: 'group', components: recognized, opacity, invert };
+}
 
 /** The first `crs:CorrectionMasks` leaf whose `crs:What` this container models. */
 function parseMask(
@@ -222,9 +301,9 @@ function parseMask(
     (c) => managedXmpName(c) === MASKS_ELEMENT,
   )?.localName;
   if (!masksLocalName) return undefined;
-  const leaves = maskLeaves(description, masksLocalName).filter(
-    (leaf) => attrOf(leaf, ['crs:What']) === MASK_WHAT[kind],
-  );
+  const allLeaves = maskLeaves(description, masksLocalName);
+  if (kind === 'group') return parseMaskGroup(description, allLeaves);
+  const leaves = allLeaves.filter((leaf) => attrOf(leaf, ['crs:What']) === MASK_WHAT[kind]);
   return firstRecognisedLeaf(leaves, LEAF_PARSERS[kind]);
 }
 
@@ -248,7 +327,16 @@ export function parseLocalCorrection(
     }),
   ) as PartialAdjustments;
   const range = parseRange(description);
-  return range ? { mask, adjustments, range } : { mask, adjustments };
+  const xmpMetadata =
+    kind === 'group'
+      ? localMetadata(description, CORRECTION_ATTRIBUTES, new Set([MASKS_ELEMENT]))
+      : undefined;
+  return {
+    mask,
+    adjustments,
+    ...(range ? { range } : {}),
+    ...(xmpMetadata ? { xmpMetadata } : {}),
+  };
 }
 
 /**
@@ -296,8 +384,47 @@ function rangeLines(range: RangeRefinement | undefined, indent: string): string[
   ];
 }
 
-function maskLines(mask: LocalMask, indent: string): string[] {
-  const n = numericSerializer;
+function componentLines(component: MaskComponent, indent: string): string[] {
+  const subtract = component.combine !== 'add';
+  const inverted = component.invert !== (component.combine === 'intersect');
+  const lines = maskLines(component.mask, indent, true).map((line) =>
+    line.replace('crs:MaskValue="1"', `crs:MaskValue="${subtract ? 0 : 1}"`).replace('/>', ''),
+  );
+  const combine = component.combine[0].toUpperCase() + component.combine.slice(1);
+  return [
+    ...lines,
+    ...localMetadataAttributes(component.xmpMetadata, indent + '  '),
+    `${indent}  papp:MaskCombine="${combine}"`,
+    `${indent}  crs:MaskActive="True"`,
+    `${indent}  crs:MaskBlendMode="${subtract ? 1 : 0}"`,
+    `${indent}  crs:MaskInverted="${inverted ? 'True' : 'False'}"${component.xmpMetadata?.nodes.length ? '>' : '/>'}`,
+    ...localMetadataNodes(component.xmpMetadata, indent + '  '),
+    ...(component.xmpMetadata?.nodes.length ? [`${indent}</rdf:li>`] : []),
+  ];
+}
+
+function bitmapLines(mask: BitmapMask, indent: string): string[] {
+  // `rasterId` is deliberately NOT written — it is an in-process handle,
+  // resolved from `papp:MaskDigest` on load, so the sidecar stays portable.
+  const { recipe } = mask;
+  return [
+    `${indent}<rdf:li`,
+    `${indent}  crs:What="${MASK_WHAT.group}"`,
+    `${indent}  crs:MaskSubType="1"`,
+    `${indent}  crs:MaskValue="1"`,
+    `${indent}  papp:MaskSource="PersonSkin"`,
+    `${indent}  papp:MaskPerson="${recipe.person}"`,
+    `${indent}  papp:MaskFacialSkin="${recipe.facialSkin ? 'True' : 'False'}"`,
+    `${indent}  papp:MaskBodySkin="${recipe.bodySkin ? 'True' : 'False'}"`,
+    `${indent}  papp:MaskModel="${escapeRecipeAttr(recipe.model)}"`,
+    `${indent}  papp:MaskDigest="${escapeRecipeAttr(recipe.digest)}"/>`,
+  ];
+}
+
+function maskLines(mask: LocalMask, indent: string, modern = false): string[] {
+  if (mask.kind === 'group')
+    return mask.components.flatMap((component) => componentLines(component, indent));
+  const n = modern ? (value: number) => String(value) : numericSerializer;
   if (mask.kind === 'linear') {
     return [
       `${indent}<rdf:li`,
@@ -308,23 +435,7 @@ function maskLines(mask: LocalMask, indent: string): string[] {
       `${indent}  papp:LocalFeather="${n(mask.feather)}"/>`,
     ];
   }
-  if (mask.kind === 'bitmap') {
-    // `rasterId` is deliberately NOT written — it is an in-process handle,
-    // resolved from `papp:MaskDigest` on load, so the sidecar stays portable.
-    const { recipe } = mask;
-    return [
-      `${indent}<rdf:li`,
-      `${indent}  crs:What="${MASK_WHAT.group}"`,
-      `${indent}  crs:MaskSubType="1"`,
-      `${indent}  crs:MaskValue="1"`,
-      `${indent}  papp:MaskSource="PersonSkin"`,
-      `${indent}  papp:MaskPerson="${recipe.person}"`,
-      `${indent}  papp:MaskFacialSkin="${recipe.facialSkin ? 'True' : 'False'}"`,
-      `${indent}  papp:MaskBodySkin="${recipe.bodySkin ? 'True' : 'False'}"`,
-      `${indent}  papp:MaskModel="${escapeRecipeAttr(recipe.model)}"`,
-      `${indent}  papp:MaskDigest="${escapeRecipeAttr(recipe.digest)}"/>`,
-    ];
-  }
+  if (mask.kind === 'bitmap') return bitmapLines(mask, indent);
   if (mask.kind === 'everywhere') {
     return [
       `${indent}<rdf:li`,
@@ -343,7 +454,7 @@ function maskLines(mask: LocalMask, indent: string): string[] {
     `${indent}  crs:MaskValue="1"`,
     `${indent}  crs:Top="${top}" crs:Left="${left}" crs:Bottom="${bottom}" crs:Right="${right}"`,
     `${indent}  crs:Angle="${n((mask.angle * 180) / Math.PI)}" crs:Midpoint="50" crs:Roundness="0"`,
-    `${indent}  crs:Feather="${n(mask.feather * 100)}" crs:Flipped="${mask.invert ? 'True' : 'False'}"/>`,
+    `${indent}  crs:Feather="${n(mask.feather * (modern ? 50 : 100))}" crs:Flipped="${mask.invert !== modern ? 'True' : 'False'}"${modern ? ' crs:Version="2"' : ''}/>`,
   ];
 }
 
@@ -367,6 +478,14 @@ export function localCorrectionBlock(layer: LocalAdjustment, indent: string): st
         : [];
     }),
     ...rangeLines(layer.range, i2),
+    ...localMetadataAttributes(layer.xmpMetadata, i2),
+    ...(layer.mask.kind === 'group'
+      ? [
+          `${i2}papp:MaskGroupVersion="${MASK_GROUP_VERSION}"`,
+          `${i2}papp:MaskGroupOpacity="${layer.mask.opacity}"`,
+          `${i2}papp:MaskGroupInverted="${layer.mask.invert ? 'True' : 'False'}"`,
+        ]
+      : []),
   ];
   return [
     `${indent}<rdf:li>`,
@@ -377,6 +496,7 @@ export function localCorrectionBlock(layer: LocalAdjustment, indent: string): st
     ...maskLines(layer.mask, i4),
     `${i3}</rdf:Seq>`,
     `${i2}</crs:CorrectionMasks>`,
+    ...localMetadataNodes(layer.xmpMetadata, i2),
     `${i1}</rdf:Description>`,
     `${indent}</rdf:li>`,
   ].join('\n');

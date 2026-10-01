@@ -17,6 +17,7 @@ struct MaskListRow: View {
     case .linear: return "line.diagonal"
     case .radial: return "circle.dashed"
     case .bitmap, .everywhere: return "person.crop.rectangle"
+    case .group: return "square.stack"
     }
   }
 
@@ -26,6 +27,7 @@ struct MaskListRow: View {
     case .everywhere: return "Skin (whole image)"
     case .linear: return "Gradient"
     case .radial: return "Radial"
+    case .group: return "Mask group"
     }
   }
 

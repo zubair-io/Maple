@@ -117,13 +117,17 @@
 
 use super::AdjustmentModel;
 use crate::error::Result;
-use crate::types::local_adjustment::{LocalAdjustment, Mask, PartialAdjustments, RangeRefinement};
+use crate::types::local_adjustment::{
+    LocalAdjustment, Mask, MaskCombine, MaskComponent, MaskGroup, PartialAdjustments,
+    RangeRefinement,
+};
 use quick_xml::events::BytesStart;
 
+mod namespaces;
 mod parse;
 mod serialize;
 
-use parse::{parse_correction_attrs, parse_mask_attrs};
+use parse::{parse_correction_attrs, parse_group_component, parse_mask_attrs};
 pub use serialize::serialize_local_adjustments;
 
 const LINEAR_CONTAINER: &str = "crs:GradientBasedCorrections";
@@ -150,13 +154,13 @@ enum Kind {
 }
 
 fn is_seq(name: &str) -> bool {
-    name == "Seq" || name.ends_with(":Seq")
+    name == "Seq" || name == "rdf:Seq"
 }
 fn is_li(name: &str) -> bool {
-    name == "li" || name.ends_with(":li")
+    name == "li" || name == "rdf:li"
 }
 fn is_description(name: &str) -> bool {
-    name == "Description" || name.ends_with(":Description")
+    name == "Description" || name == "rdf:Description"
 }
 
 /// A correction whose `rdf:Description` is open but not yet closed.
@@ -170,6 +174,11 @@ struct InProgressCorrection {
     active: bool,
     /// `Some` once its `crs:CorrectionMasks` leaf has been recognized.
     mask: Option<Mask>,
+    components: Vec<MaskComponent>,
+    group_opacity: f32,
+    group_invert: bool,
+    group_supported: bool,
+    group_explicit: bool,
 }
 
 /// Incremental state for the local-adjustments nested-element walk, driven
@@ -186,13 +195,17 @@ pub(super) struct LocalAdjustmentsWalker {
     in_masks: bool,
     in_masks_seq: bool,
     finished: Vec<LocalAdjustment>,
+    namespaces: namespaces::Namespaces,
 }
 
 impl LocalAdjustmentsWalker {
     /// Handle an element opening (`Event::Start`). Returns `true` when the
     /// element is part of (or opens) a local-adjustments subtree, in which
     /// case the caller skips the flat crs:/papp: attribute walk for it.
-    pub(super) fn start(&mut self, name: &str, e: &BytesStart<'_>) -> Result<bool> {
+    pub(super) fn start(&mut self, _name: &str, e: &BytesStart<'_>) -> Result<bool> {
+        let (name, normalized) = self.namespaces.start(e)?;
+        let name = name.as_str();
+        let e = &normalized;
         if self.container.is_none() {
             self.container = match name {
                 LINEAR_CONTAINER => Some(Kind::Linear),
@@ -218,6 +231,11 @@ impl LocalAdjustmentsWalker {
                     range: attrs.range,
                     active: attrs.active,
                     mask: None,
+                    components: Vec::new(),
+                    group_opacity: attrs.group_opacity,
+                    group_invert: attrs.group_invert,
+                    group_supported: attrs.group_supported,
+                    group_explicit: attrs.group_explicit,
                 });
                 return Ok(true);
             }
@@ -250,7 +268,10 @@ impl LocalAdjustmentsWalker {
     /// Handle a self-closing element (`Event::Empty`) — Maple's own writer
     /// always emits mask `rdf:li` leaves this way. Returns `true` when
     /// handled.
-    pub(super) fn empty(&mut self, name: &str, e: &BytesStart<'_>) -> Result<bool> {
+    pub(super) fn empty(&mut self, _name: &str, e: &BytesStart<'_>) -> Result<bool> {
+        let (name, normalized) = self.namespaces.empty(e)?;
+        let name = name.as_str();
+        let e = &normalized;
         if self.container.is_none() {
             return Ok(false);
         }
@@ -269,13 +290,23 @@ impl LocalAdjustmentsWalker {
     /// masks Maple doesn't model alongside one it does).
     fn record_mask(&mut self, name: &str, e: &BytesStart<'_>) -> Result<()> {
         if !is_li(name) {
+            if name == "unowned:li" && self.container == Some(Kind::Group) {
+                if let Some(current) = self.current.as_mut() {
+                    current.group_supported = false;
+                }
+            }
             return Ok(());
         }
         let Some(cur) = self.current.as_mut() else {
             return Ok(());
         };
-        if cur.mask.is_none() {
-            let kind = self.container.expect("container set while in_masks_seq");
+        let kind = self.container.expect("container set while in_masks_seq");
+        if kind == Kind::Group {
+            match parse_group_component(e)? {
+                Some(component) => cur.components.push(component),
+                None => cur.group_supported = false,
+            }
+        } else if cur.mask.is_none() {
             cur.mask = parse_mask_attrs(kind, e)?;
         }
         Ok(())
@@ -283,6 +314,8 @@ impl LocalAdjustmentsWalker {
 
     /// Handle an element closing (`Event::End`).
     pub(super) fn end(&mut self, name: &str) {
+        let name = self.namespaces.end(name);
+        let name = name.as_str();
         if self.container.is_none() {
             return;
         }
@@ -304,7 +337,35 @@ impl LocalAdjustmentsWalker {
                 // pin) or no mask (unrecognized `What`, or none at all) ⇒
                 // drop this one correction.
                 if cur.active {
-                    if let Some(mask) = cur.mask {
+                    let mask = if self.container == Some(Kind::Group) && cur.group_supported {
+                        if !cur.group_explicit
+                            && cur.components.len() == 1
+                            && cur.components[0].combine == MaskCombine::Add
+                            && !cur.components[0].invert
+                            && matches!(
+                                cur.components[0].mask(),
+                                Mask::Bitmap { .. } | Mask::Everywhere
+                            )
+                            && cur.group_opacity == 1.0
+                            && !cur.group_invert
+                        {
+                            cur.components
+                                .into_iter()
+                                .next()
+                                .map(MaskComponent::into_mask)
+                        } else if cur.components.is_empty() {
+                            None
+                        } else {
+                            Some(Mask::Group(MaskGroup {
+                                components: cur.components,
+                                opacity: cur.group_opacity,
+                                invert: cur.group_invert,
+                            }))
+                        }
+                    } else {
+                        cur.mask
+                    };
+                    if let Some(mask) = mask {
                         self.finished.push(LocalAdjustment {
                             mask,
                             range: cur.range,

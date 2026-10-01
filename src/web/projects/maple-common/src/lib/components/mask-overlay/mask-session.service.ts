@@ -17,7 +17,7 @@
 // closes it with `endGesture()` on release, mirroring the Apple
 // `EditorState+Masks` API.
 
-import { Injectable, computed, effect, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, linkedSignal, signal } from '@angular/core';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
@@ -25,6 +25,9 @@ import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import type {
   LocalAdjustment,
   LocalMask,
+  LeafMask,
+  MaskCombine,
+  MaskComponent,
   PartialAdjustments,
   RangeRefinement,
 } from '../../models/local-adjustment';
@@ -61,6 +64,133 @@ export class MaskSessionService {
     const layers = this.layers();
     return index !== null && index >= 0 && index < layers.length ? layers[index] : null;
   });
+
+  private readonly componentSelection = linkedSignal({
+    source: () => `${this.library.focusedAsset()?.id}:${this.selectedIndex()}`,
+    computation: () => 0,
+  });
+  readonly componentIndex = computed(() => {
+    const mask = this.selected()?.mask;
+    return mask?.kind === 'group'
+      ? Math.max(0, Math.min(this.componentSelection(), mask.components.length - 1))
+      : 0;
+  });
+  readonly selectedMask = computed<LeafMask | null>(() => {
+    const mask = this.selected()?.mask;
+    return mask?.kind === 'group'
+      ? (mask.components[this.componentIndex()]?.mask ?? null)
+      : (mask ?? null);
+  });
+
+  selectComponent(index: number): void {
+    this.endGesture();
+    const mask = this.selected()?.mask;
+    if (mask?.kind === 'group' && index >= 0 && index < mask.components.length)
+      this.componentSelection.set(index);
+  }
+
+  addComponent(kind: 'linear' | 'radial', combine: MaskCombine): void {
+    const selected = this.selected();
+    if (!selected) return;
+    const asset = this.library.focusedAsset();
+    const aspect = asset?.width && asset?.height ? asset.width / asset.height : 1;
+    const mask = kind === 'linear' ? defaultLinearMask() : defaultRadialMask(aspect);
+    const index = selected.mask.kind === 'group' ? selected.mask.components.length : 1;
+    this.updateSelected(true, (layer) => {
+      const group =
+        layer.mask.kind === 'group'
+          ? layer.mask
+          : {
+              kind: 'group' as const,
+              components: [{ mask: layer.mask, combine: 'add' as const, invert: false }],
+              opacity: 1,
+              invert: false,
+            };
+      return {
+        ...layer,
+        mask: { ...group, components: [...group.components, { mask, combine, invert: false }] },
+      };
+    });
+    this.componentSelection.set(index);
+  }
+
+  removeComponent(index: number): void {
+    const mask = this.selected()?.mask;
+    if (
+      mask?.kind !== 'group' ||
+      mask.components.length <= 1 ||
+      index < 0 ||
+      index >= mask.components.length
+    )
+      return;
+    const selected = this.componentIndex();
+    this.updateSelected(true, (layer) =>
+      layer.mask.kind === 'group' &&
+      layer.mask.components.length > 1 &&
+      index >= 0 &&
+      index < layer.mask.components.length
+        ? {
+            ...layer,
+            mask: {
+              ...layer.mask,
+              components: layer.mask.components.filter((_, i) => i !== index),
+            },
+          }
+        : layer,
+    );
+    this.componentSelection.set(
+      Math.min(index < selected ? selected - 1 : selected, this.componentIndex()),
+    );
+  }
+
+  setComponentCombine(combine: MaskCombine): void {
+    this.updateSelectedComponent((component) => ({ ...component, combine }));
+  }
+
+  setComponentInverted(invert: boolean): void {
+    this.updateSelectedComponent((component) => ({ ...component, invert }));
+  }
+
+  private updateSelectedComponent(update: (component: MaskComponent) => MaskComponent): void {
+    const index = this.componentIndex();
+    this.updateSelected(true, (layer) =>
+      layer.mask.kind === 'group'
+        ? {
+            ...layer,
+            mask: {
+              ...layer.mask,
+              components: layer.mask.components.map((component, i) =>
+                i === index ? update(component) : component,
+              ),
+            },
+          }
+        : layer,
+    );
+  }
+
+  setOpacity(opacity: number): void {
+    if (!Number.isFinite(opacity)) return;
+    const clamped = Math.min(1, Math.max(0, opacity));
+    this.updateSelected(false, (layer) => {
+      if (layer.mask.kind !== 'group' && clamped === 1) return layer;
+      const mask =
+        layer.mask.kind === 'group'
+          ? layer.mask
+          : {
+              kind: 'group' as const,
+              components: [{ mask: layer.mask, combine: 'add' as const, invert: false }],
+              opacity: 1,
+              invert: false,
+            };
+      return { ...layer, mask: { ...mask, opacity: clamped } };
+    });
+  }
+
+  setGroupInverted(invert: boolean): void {
+    this.updateSelected(true, (layer) =>
+      layer.mask.kind === 'group' ? { ...layer, mask: { ...layer.mask, invert } } : layer,
+    );
+  }
 
   private gestureOpen = false;
 
@@ -149,7 +279,20 @@ export class MaskSessionService {
   }
 
   setShape(mask: LocalMask): void {
-    this.updateSelected(false, (layer) => ({ ...layer, mask }));
+    const index = this.componentIndex();
+    this.updateSelected(false, (layer) =>
+      layer.mask.kind === 'group' && mask.kind !== 'group'
+        ? {
+            ...layer,
+            mask: {
+              ...layer.mask,
+              components: layer.mask.components.map((component, i) =>
+                i === index ? { ...component, mask } : component,
+              ),
+            },
+          }
+        : { ...layer, mask },
+    );
   }
 
   /** The selected layer's value for `field`, `0` when unset. */
@@ -169,10 +312,8 @@ export class MaskSessionService {
   }
 
   setFeather(feather: number): void {
-    this.updateSelected(false, (layer) => ({
-      ...layer,
-      mask: withMaskFeather(layer.mask, feather),
-    }));
+    const mask = this.selectedMask();
+    if (mask) this.setShape(withMaskFeather(mask, feather));
   }
 
   /** Flip a radial layer's sense; no-op for a linear layer. */

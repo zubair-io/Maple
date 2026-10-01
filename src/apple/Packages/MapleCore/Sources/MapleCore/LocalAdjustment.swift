@@ -29,101 +29,101 @@ import Foundation
 /// raw-core runs them after the point group as one grouped pass over the
 /// layer's output and lerps the result back by the mask weight.
 public struct PartialAdjustments: Codable, Sendable, Equatable, Hashable {
-    public var exposure: Double?
-    public var contrast: Double?
-    public var highlights: Double?
-    public var shadows: Double?
-    public var whites: Double?
-    public var blacks: Double?
-    public var saturation: Double?
-    public var vibrance: Double?
-    public var temperature: Double?
-    public var tint: Double?
-    /// Oklab hue rotation, −100…100 → ±30° (#3269, `crs:LocalHue`). Applied
-    /// after `blacks` and before `saturation`, reusing saturation's
-    /// soft-knee gamut handling.
-    public var hue: Double?
-    /// Fine-detail local contrast, −100…100 (#3407, `crs:LocalTexture`).
-    public var texture: Double?
-    /// Structure-scale local contrast, −100…100 (#3407,
-    /// `crs:LocalClarity2012`).
-    public var clarity: Double?
-    /// Haze removal, −100…100 (#3407, `crs:LocalDehaze`). Its dark-channel
-    /// statistics are whole-buffer, which is why a layer that sets it makes
-    /// the tile path refuse a render exactly as the global slider does.
-    public var dehaze: Double?
-    /// Luminance-only unsharp mask, −100…100 (#3407, `crs:LocalSharpness`).
-    public var sharpness: Double?
-    /// Luminance noise reduction, 0…100 (#3407,
-    /// `crs:LocalLuminanceNoise`).
-    public var luminanceNoise: Double?
-    /// Chroma-fringe suppression at high-contrast edges, 0…100 (#3407,
-    /// `crs:LocalDefringe`).
-    public var defringe: Double?
+  public var exposure: Double?
+  public var contrast: Double?
+  public var highlights: Double?
+  public var shadows: Double?
+  public var whites: Double?
+  public var blacks: Double?
+  public var saturation: Double?
+  public var vibrance: Double?
+  public var temperature: Double?
+  public var tint: Double?
+  /// Oklab hue rotation, −100…100 → ±30° (#3269, `crs:LocalHue`). Applied
+  /// after `blacks` and before `saturation`, reusing saturation's
+  /// soft-knee gamut handling.
+  public var hue: Double?
+  /// Fine-detail local contrast, −100…100 (#3407, `crs:LocalTexture`).
+  public var texture: Double?
+  /// Structure-scale local contrast, −100…100 (#3407,
+  /// `crs:LocalClarity2012`).
+  public var clarity: Double?
+  /// Haze removal, −100…100 (#3407, `crs:LocalDehaze`). Its dark-channel
+  /// statistics are whole-buffer, which is why a layer that sets it makes
+  /// the tile path refuse a render exactly as the global slider does.
+  public var dehaze: Double?
+  /// Luminance-only unsharp mask, −100…100 (#3407, `crs:LocalSharpness`).
+  public var sharpness: Double?
+  /// Luminance noise reduction, 0…100 (#3407,
+  /// `crs:LocalLuminanceNoise`).
+  public var luminanceNoise: Double?
+  /// Chroma-fringe suppression at high-contrast edges, 0…100 (#3407,
+  /// `crs:LocalDefringe`).
+  public var defringe: Double?
 
-    public init(
-        exposure: Double? = nil,
-        contrast: Double? = nil,
-        highlights: Double? = nil,
-        shadows: Double? = nil,
-        whites: Double? = nil,
-        blacks: Double? = nil,
-        saturation: Double? = nil,
-        vibrance: Double? = nil,
-        temperature: Double? = nil,
-        tint: Double? = nil,
-        hue: Double? = nil,
-        texture: Double? = nil,
-        clarity: Double? = nil,
-        dehaze: Double? = nil,
-        sharpness: Double? = nil,
-        luminanceNoise: Double? = nil,
-        defringe: Double? = nil
-    ) {
-        self.exposure = exposure
-        self.contrast = contrast
-        self.highlights = highlights
-        self.shadows = shadows
-        self.whites = whites
-        self.blacks = blacks
-        self.saturation = saturation
-        self.vibrance = vibrance
-        self.temperature = temperature
-        self.tint = tint
-        self.hue = hue
-        self.texture = texture
-        self.clarity = clarity
-        self.dehaze = dehaze
-        self.sharpness = sharpness
-        self.luminanceNoise = luminanceNoise
-        self.defringe = defringe
-    }
+  public init(
+    exposure: Double? = nil,
+    contrast: Double? = nil,
+    highlights: Double? = nil,
+    shadows: Double? = nil,
+    whites: Double? = nil,
+    blacks: Double? = nil,
+    saturation: Double? = nil,
+    vibrance: Double? = nil,
+    temperature: Double? = nil,
+    tint: Double? = nil,
+    hue: Double? = nil,
+    texture: Double? = nil,
+    clarity: Double? = nil,
+    dehaze: Double? = nil,
+    sharpness: Double? = nil,
+    luminanceNoise: Double? = nil,
+    defringe: Double? = nil
+  ) {
+    self.exposure = exposure
+    self.contrast = contrast
+    self.highlights = highlights
+    self.shadows = shadows
+    self.whites = whites
+    self.blacks = blacks
+    self.saturation = saturation
+    self.vibrance = vibrance
+    self.temperature = temperature
+    self.tint = tint
+    self.hue = hue
+    self.texture = texture
+    self.clarity = clarity
+    self.dehaze = dehaze
+    self.sharpness = sharpness
+    self.luminanceNoise = luminanceNoise
+    self.defringe = defringe
+  }
 
-    /// True when no field is set — the layer would change nothing.
-    public var isEmpty: Bool {
-        exposure == nil && contrast == nil && highlights == nil && shadows == nil
-            && whites == nil && blacks == nil && saturation == nil && vibrance == nil
-            && temperature == nil && tint == nil && hue == nil && spatialIsEmpty
-    }
+  /// True when no field is set — the layer would change nothing.
+  public var isEmpty: Bool {
+    exposure == nil && contrast == nil && highlights == nil && shadows == nil
+      && whites == nil && blacks == nil && saturation == nil && vibrance == nil
+      && temperature == nil && tint == nil && hue == nil && spatialIsEmpty
+  }
 
-    /// True when none of the six SPATIAL controls (#3407) is set. Split out
-    /// of `isEmpty` because the apply stage asks the two questions
-    /// separately — mirror of `PartialAdjustments::spatial_is_empty`.
-    public var spatialIsEmpty: Bool {
-        texture == nil && clarity == nil && dehaze == nil && sharpness == nil
-            && luminanceNoise == nil && defringe == nil
-    }
+  /// True when none of the six SPATIAL controls (#3407) is set. Split out
+  /// of `isEmpty` because the apply stage asks the two questions
+  /// separately — mirror of `PartialAdjustments::spatial_is_empty`.
+  public var spatialIsEmpty: Bool {
+    texture == nil && clarity == nil && dehaze == nil && sharpness == nil
+      && luminanceNoise == nil && defringe == nil
+  }
 }
 
 /// Normalized 2D point: `x` across the width, `y` down from the top edge.
 public struct MaskPoint: Codable, Sendable, Equatable, Hashable {
-    public var x: Double
-    public var y: Double
+  public var x: Double
+  public var y: Double
 
-    public init(x: Double, y: Double) {
-        self.x = x
-        self.y = y
-    }
+  public init(x: Double, y: Double) {
+    self.x = x
+    self.y = y
+  }
 }
 
 /// How a `.bitmap` mask's raster was produced (#3275). The raster itself is
@@ -131,19 +131,19 @@ public struct MaskPoint: Codable, Sendable, Equatable, Hashable {
 /// records enough to regenerate or invalidate it. Mirror of
 /// `raw_core::types::BitmapRecipe`.
 public struct BitmapRecipe: Codable, Sendable, Equatable, Hashable {
-    public var person: Int
-    public var facialSkin: Bool
-    public var bodySkin: Bool
-    public var model: String
-    public var digest: String
+  public var person: Int
+  public var facialSkin: Bool
+  public var bodySkin: Bool
+  public var model: String
+  public var digest: String
 
-    public init(person: Int, facialSkin: Bool, bodySkin: Bool, model: String, digest: String) {
-        self.person = person
-        self.facialSkin = facialSkin
-        self.bodySkin = bodySkin
-        self.model = model
-        self.digest = digest
-    }
+  public init(person: Int, facialSkin: Bool, bodySkin: Bool, model: String, digest: String) {
+    self.person = person
+    self.facialSkin = facialSkin
+    self.bodySkin = bodySkin
+    self.model = model
+    self.digest = digest
+  }
 }
 
 /// Mask shape — the per-pixel weight `w ∈ [0, 1]` a layer is scaled by.
@@ -162,77 +162,90 @@ public struct BitmapRecipe: Codable, Sendable, Equatable, Hashable {
 /// - `everywhere`: weight 1 over the whole frame — the whole-image case a
 ///   range refinement then narrows.
 public enum LocalMask: Codable, Sendable, Equatable, Hashable {
-    case linear(start: MaskPoint, end: MaskPoint, feather: Double)
-    case radial(center: MaskPoint, radii: MaskPoint, angle: Double, feather: Double, invert: Bool)
-    case bitmap(recipe: BitmapRecipe, rasterId: UInt32)
-    case everywhere
+  case linear(start: MaskPoint, end: MaskPoint, feather: Double)
+  case radial(center: MaskPoint, radii: MaskPoint, angle: Double, feather: Double, invert: Bool)
+  case bitmap(recipe: BitmapRecipe, rasterId: UInt32)
+  case everywhere
+  case group(MaskGroup)
 }
 
 /// An optional colour-range gate multiplied into the mask weight (#3270) —
 /// an Oklab band, so "the skin in this gradient" is one layer rather than a
 /// hand-painted mask. Mirror of `raw_core::types::RangeRefinement`.
 public enum RangeRefinement: Codable, Sendable, Equatable, Hashable {
-    case color(
-        hueDeg: Double, hueHalfWidthDeg: Double, chromaMin: Double,
-        lMin: Double, lMax: Double, feather: Double)
+  case color(
+    hueDeg: Double, hueHalfWidthDeg: Double, chromaMin: Double,
+    lMin: Double, lMax: Double, feather: Double)
 
-    /// The preset the skin-tone workflow arms by default (spec §3.2).
-    public static let skinTone: RangeRefinement = .color(
-        hueDeg: 55.0, hueHalfWidthDeg: 25.0, chromaMin: 0.02,
-        lMin: 0.15, lMax: 0.95, feather: 0.3
-    )
+  /// The preset the skin-tone workflow arms by default (spec §3.2).
+  public static let skinTone: RangeRefinement = .color(
+    hueDeg: 55.0, hueHalfWidthDeg: 25.0, chromaMin: 0.02,
+    lMin: 0.15, lMax: 0.95, feather: 0.3
+  )
 }
 
 /// One local-adjustment layer: a mask, an optional colour-range refinement,
 /// and the controls they scale.
 public struct LocalAdjustment: Codable, Sendable, Equatable, Hashable, Identifiable {
-    /// Stable identity for SwiftUI list/selection only — deliberately NOT
-    /// part of `==`/`hash` (see below) and not present in the Rust type.
-    public let id: UUID
-    public var mask: LocalMask
-    public var range: RangeRefinement?
-    public var adjustments: PartialAdjustments
+  /// Stable identity for SwiftUI list/selection only — deliberately NOT
+  /// part of `==`/`hash` (see below) and not present in the Rust type.
+  public let id: UUID
+  public var mask: LocalMask
+  public var range: RangeRefinement?
+  public var adjustments: PartialAdjustments
+  public var xmpMetadata: LocalXmpMetadata?
+  public var xmpGroupSlot: Int?
 
-    public init(
-        id: UUID = UUID(),
-        mask: LocalMask,
-        range: RangeRefinement? = nil,
-        adjustments: PartialAdjustments
-    ) {
-        self.id = id
-        self.mask = mask
-        self.range = range
-        self.adjustments = adjustments
-    }
+  public init(
+    id: UUID = UUID(),
+    mask: LocalMask,
+    range: RangeRefinement? = nil,
+    adjustments: PartialAdjustments,
+    xmpMetadata: LocalXmpMetadata? = nil,
+    xmpGroupSlot: Int? = nil
+  ) {
+    self.id = id
+    self.mask = mask
+    self.range = range
+    self.adjustments = adjustments
+    self.xmpMetadata = xmpMetadata
+    self.xmpGroupSlot = xmpGroupSlot
+  }
 
-    public static func == (lhs: LocalAdjustment, rhs: LocalAdjustment) -> Bool {
-        // Identity excluded from equality: two layers with the same content
-        // but different UUIDs (e.g. a decode/re-encode round trip) compare
-        // equal — matching the Rust `LocalAdjustment`'s derived `PartialEq`,
-        // which has no id field at all.
-        lhs.mask == rhs.mask && lhs.range == rhs.range && lhs.adjustments == rhs.adjustments
-    }
+  public static func == (lhs: LocalAdjustment, rhs: LocalAdjustment) -> Bool {
+    // Identity excluded from equality: two layers with the same content
+    // but different UUIDs (e.g. a decode/re-encode round trip) compare
+    // equal — matching the Rust `LocalAdjustment`'s derived `PartialEq`,
+    // which has no id field at all.
+    lhs.mask == rhs.mask && lhs.range == rhs.range && lhs.adjustments == rhs.adjustments
+      && lhs.xmpMetadata == rhs.xmpMetadata
+      && lhs.xmpGroupSlot == rhs.xmpGroupSlot
+  }
 
-    // Hashes only the fields `==` compares — `id` must stay out so two
-    // equal values (per the override above) never hash unequally.
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(mask)
-        hasher.combine(range)
-        hasher.combine(adjustments)
-    }
+  // Hashes only the fields `==` compares — `id` must stay out so two
+  // equal values (per the override above) never hash unequally.
+  public func hash(into hasher: inout Hasher) {
+    hasher.combine(mask)
+    hasher.combine(range)
+    hasher.combine(adjustments)
+    hasher.combine(xmpMetadata)
+    hasher.combine(xmpGroupSlot)
+  }
 
-    private enum CodingKeys: String, CodingKey {
-        case id, mask, range, adjustments
-    }
+  private enum CodingKeys: String, CodingKey {
+    case id, mask, range, adjustments, xmpMetadata, xmpGroupSlot
+  }
 
-    /// `id` is decoded leniently: it is a UI-side identity with no Rust
-    /// counterpart, so a sidecar/JSON written before #3274 (or by any other
-    /// platform's writer) carries no `id` field and must still decode.
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-        self.mask = try c.decode(LocalMask.self, forKey: .mask)
-        self.range = try c.decodeIfPresent(RangeRefinement.self, forKey: .range)
-        self.adjustments = try c.decode(PartialAdjustments.self, forKey: .adjustments)
-    }
+  /// `id` is decoded leniently: it is a UI-side identity with no Rust
+  /// counterpart, so a sidecar/JSON written before #3274 (or by any other
+  /// platform's writer) carries no `id` field and must still decode.
+  public init(from decoder: any Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    self.id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+    self.mask = try c.decode(LocalMask.self, forKey: .mask)
+    self.range = try c.decodeIfPresent(RangeRefinement.self, forKey: .range)
+    self.adjustments = try c.decode(PartialAdjustments.self, forKey: .adjustments)
+    self.xmpMetadata = try c.decodeIfPresent(LocalXmpMetadata.self, forKey: .xmpMetadata)
+    self.xmpGroupSlot = try c.decodeIfPresent(Int.self, forKey: .xmpGroupSlot)
+  }
 }

@@ -441,7 +441,17 @@ public final class EditSession {
   @ObservationIgnored let maskRemapRasters = MaskRemapRasterCache()
 
   /// The mask panel's selection — the highlighted row, whose sliders show, and the scope HUD's target.
-  public var selectedMaskId: UUID?
+  public var selectedMaskId: UUID? {
+    didSet { if selectedMaskId != oldValue { selectedMaskComponentIndex = 0 } }
+  }
+  var maskComponentSelection = 0
+  public internal(set) var selectedMaskComponentIndex: Int {
+    get {
+      guard case .group(let group) = selectedMaskLayer?.mask else { return 0 }
+      return min(max(maskComponentSelection, 0), max(group.components.count - 1, 0))
+    }
+    set { maskComponentSelection = newValue }
+  }
 
   /// Masks switched off in the panel — session-only; `model` keeps every slider
   /// and only `renderModel` clears these layers (#3291 review).

@@ -192,8 +192,7 @@ namespace Maple.WinUI.Services.Xmp
         {
             var modeledBlocks = XmpSchema.ToneCurveElements
                 .Select(e => (e.Tag, Block: ToneCurveBlock(e.Tag, e.Curve(doc.Adjustments))))
-                .Concat(XmpLocalAdjustments.ContainerTags.Select(tag =>
-                    (Tag: tag, Block: XmpLocalAdjustments.Block(tag, doc.Adjustments.LocalAdjustments, ChildIndent))))
+                .Concat(XmpMaskGroupTemplate.Blocks(doc, ChildIndent))
                 .ToList();
             var blocksByTag = modeledBlocks.ToDictionary(b => b.Tag, b => b.Block);
 

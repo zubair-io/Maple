@@ -28,6 +28,7 @@ import {
   isGeometricMask,
   type LocalAdjustment,
   type LocalMask,
+  type MaskCombine,
   type PartialAdjustments,
 } from '../../models/local-adjustment';
 import { MaskSessionService } from '../mask-overlay/mask-session.service';
@@ -83,6 +84,7 @@ const MASK_KIND_LABEL: Readonly<Record<LocalMask['kind'], string>> = {
   radial: 'Radial',
   bitmap: 'Person',
   everywhere: 'Everywhere',
+  group: 'Mask group',
 };
 
 const MASK_KIND_ICON: Readonly<Record<LocalMask['kind'], MapleIconName>> = {
@@ -90,6 +92,7 @@ const MASK_KIND_ICON: Readonly<Record<LocalMask['kind'], MapleIconName>> = {
   radial: 'tool-vignette',
   bitmap: 'person-circle',
   everywhere: 'photos',
+  group: 'photos',
 };
 
 function maskLayerTitle(mask: LocalMask, index: number): string {
@@ -136,7 +139,32 @@ export class MaskPanelComponent {
   );
 
   protected readonly selected = this.session.selected;
-  protected readonly isRadial = computed(() => this.selected()?.mask.kind === 'radial');
+  protected readonly combineModes: readonly MaskCombine[] = ['add', 'subtract', 'intersect'];
+  protected readonly combineLabels: Record<MaskCombine, string> = {
+    add: 'Add',
+    subtract: 'Subtract',
+    intersect: 'Intersect',
+  };
+  protected readonly group = computed(() => {
+    const mask = this.selected()?.mask;
+    return mask?.kind === 'group' ? mask : null;
+  });
+  protected readonly componentRows = computed(
+    () =>
+      this.group()?.components.map((component, index) => ({
+        index,
+        title: `${MASK_KIND_LABEL[component.mask.kind]} ${index + 1}`,
+        icon: MASK_KIND_ICON[component.mask.kind],
+        combine: component.combine,
+        invert: component.invert,
+      })) ?? [],
+  );
+  protected readonly selectedComponent = computed(
+    () => this.group()?.components[this.session.componentIndex()] ?? null,
+  );
+  protected readonly isRadial = computed(
+    () => this.session.selectedMask()?.kind === 'radial' && !this.group(),
+  );
   protected readonly inverted = computed(() => {
     const mask = this.selected()?.mask;
     return mask?.kind === 'radial' ? mask.invert : false;
@@ -144,7 +172,7 @@ export class MaskPanelComponent {
   /** The selected layer's feather, or null for a bitmap/everywhere mask
    *  (no parametric edge to feather — the slider is hidden, #3300). */
   protected readonly feather = computed<number | null>(() => {
-    const mask = this.selected()?.mask;
+    const mask = this.session.selectedMask();
     return mask && isGeometricMask(mask) ? mask.feather : null;
   });
 
