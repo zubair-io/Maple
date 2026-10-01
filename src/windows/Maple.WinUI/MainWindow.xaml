@@ -905,7 +905,7 @@
                                 <TextBlock x:Name="RenderStatsText" Visibility="Collapsed" FontSize="10" VerticalAlignment="Center"
                                            Foreground="{StaticResource MapleTextMuted}" />
                                 <mui:MuiButton IconName="export" IconSize="Md24" Variant="Ghost" ButtonSize="Sm"
-                                        IconColor="{StaticResource MaplePrimary}" Click="OnExportPhotos"
+                                        IconColor="{StaticResource MapleTextMain}" Click="OnExportPhotos"
                                         ToolTipService.ToolTip="Export JPEG (Ctrl+Shift+E)"
                                         AutomationProperties.Name="Export photo" />
                                 </StackPanel>
@@ -977,7 +977,9 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
-                                <Grid Grid.Row="0" Margin="0,0,0,6">
+                                <Border Grid.Row="0" BorderBrush="{StaticResource MapleBorder}" BorderThickness="0,0,0,1"
+                                        Padding="0,0,0,6" Margin="0,0,0,6">
+                                <Grid>
                                     <TextBlock x:Name="EditPanelTitle" FontSize="15"
                                                Foreground="{StaticResource MapleTextMain}" />
                                     <mui:MuiButton x:Name="GroupResetButton" Label="Reset" Variant="Ghost" ButtonSize="Sm"
@@ -986,6 +988,7 @@
                                             Click="OnResetGroup" ToolTipService.ToolTip="Reset this group"
                                             AutomationProperties.Name="Reset group" />
                                 </Grid>
+                                </Border>
                                 <StackPanel x:Name="ColorTabRow" Grid.Row="1" Orientation="Horizontal" Spacing="4"
                                             Margin="0,0,0,6" Visibility="Collapsed">
                                     <mui:MuiActionButton x:Name="ColorTabBasic" Label="Basic" ButtonSize="Sm"
