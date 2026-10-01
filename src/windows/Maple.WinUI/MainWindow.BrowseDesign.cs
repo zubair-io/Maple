@@ -186,9 +186,19 @@ public sealed partial class MainWindow
         var list = _browseListDetail ? (ListViewBase)BrowsePhotoList : PhotoGrid;
         var panel = list.ItemsPanelRoot;
         if (panel == null) return ViewModel.SelectedPhoto;
+        PhotoItem? anchor = null;
+        var firstY = double.PositiveInfinity;
         foreach (var child in panel.Children.OfType<FrameworkElement>())
-            if (child.DataContext is PhotoItem photo && child.TransformToVisual(list).TransformPoint(default).Y >= 0)
-                return photo;
+        {
+            var y = child.TransformToVisual(list).TransformPoint(default).Y;
+            if (y + child.ActualHeight > 0 && y < list.ActualHeight && y < firstY &&
+                list.ItemFromContainer(child) is PhotoItem photo)
+            {
+                anchor = photo;
+                firstY = y;
+            }
+        }
+        if (anchor != null) return anchor;
         return ViewModel.SelectedPhoto;
     }
 
@@ -198,6 +208,7 @@ public sealed partial class MainWindow
         DispatcherQueue.TryEnqueue(() =>
         {
             var list = _browseListDetail ? (ListViewBase)BrowsePhotoList : PhotoGrid;
+            ((FrameworkElement)Content).UpdateLayout();
             list.ScrollIntoView(anchor, ScrollIntoViewAlignment.Leading);
         });
     }

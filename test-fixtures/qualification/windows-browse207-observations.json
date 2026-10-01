@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-01",
+  "issue": 3887,
+  "sourceBase": "ea769946c",
+  "build": "Maple.DesignAudit207",
+  "buildErrors": 0,
+  "buildWarnings": 26,
+  "assemblySha256": "5C1334CA1C927DB9951ED08B7052FE36B5B89022B84D867744E01CFDFDBB2027",
+  "nativeGpuLifecyclePassed": true,
+  "lifecycleReportSha256": "7B9CB666BBDE3139280C8C1BE4A7DF6B80AC496E5A397C684CA72E3F928864BA",
+  "regression": {
+    "before": "Build 203 lost the visible grid anchor when switching to list/detail after Preview and Back; the list returned to the first photo.",
+    "cause": "Container DataContext did not identify the photo reliably. Capture must use ItemFromContainer and viewport intersection; restoration must lay out the newly visible destination.",
+    "nativeCoverage": "120 synthetic photo entries, scrolling both presentations to the end and back; scroll grid to index 60, toggle to list/detail, require captured photo to intersect the viewport.",
+    "diagnosticRuns": [
+      "204 failed to capture the scrolled photo.",
+      "205 and 206 captured the photo but failed an exact nonnegative top-coordinate assertion. The 206 diagnostic showed index 60 at -0.001953125 DIP, visible at the top.",
+      "207 checks viewport intersection rather than an exact-zero boundary and passed the full lifecycle run."
+    ]
+  },
+  "manualObservations": [
+    "Native window resized to 1024 by 770 capture pixels, with a real 354-photo local library.",
+    "Wheel scrolling moved from the first photos to a partially visible top row beginning with _84A1052.JPG.",
+    "Opened _84A1056.CR2 in Preview (33/354). Back retained the grid position.",
+    "Switching to list/detail retained _84A1052.JPG as the top row and _84A1056.CR2 as the selected detail photo.",
+    "Switching back to grid retained _84A1052.JPG in the first row.",
+    "No image adjustments or photo metadata were changed during the manual check."
+  ],
+  "limitations": [
+    "Screenshots were inspected in the conversation; no pixel-diff or physical DPI matrix claim.",
+    "This verifies Browse scroll restoration, not complete Windows feature/design qualification."
+  ],
+  "fullQualificationPassed": false
+}

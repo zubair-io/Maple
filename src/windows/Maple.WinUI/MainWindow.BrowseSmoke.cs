@@ -63,6 +63,33 @@ public sealed partial class MainWindow
                     throw new InvalidOperationException($"Browse could not scroll back to the top (list={listDetail}, accepted={topAccepted}, offset={scroll.VerticalOffset}, extent={scroll.ScrollableHeight}, firstY={firstY}, firstHeight={firstContainer?.ActualHeight})");
                 }
             }
+            _browseListDetail = false;
+            UpdateBrowsePresentation();
+            root.UpdateLayout();
+            var gridScroll = FindDescendant<ScrollViewer>(PhotoGrid)!;
+            await WaitForBrowseScrollSettledAsync(root, gridScroll,
+                () => PhotoGrid.ScrollIntoView(ViewModel.Photos[60], ScrollIntoViewAlignment.Leading));
+            var anchor = BrowseScrollAnchor();
+            if (anchor == null || !ViewModel.Photos.Contains(anchor) || ViewModel.Photos.IndexOf(anchor) < 40)
+                throw new InvalidOperationException("Scrolled grid did not capture a visible photo anchor");
+            OnToggleBrowseView(BrowseViewButton, new RoutedEventArgs());
+            var anchorDeadline = Environment.TickCount64 + 5000;
+            bool anchorVisible;
+            do
+            {
+                await Task.Delay(50);
+                root.UpdateLayout();
+                var row = BrowsePhotoList.ContainerFromItem(anchor) as FrameworkElement;
+                var y = row?.TransformToVisual(BrowsePhotoList).TransformPoint(default).Y;
+                anchorVisible = y + row?.ActualHeight > 0 && y < BrowsePhotoList.ActualHeight;
+            } while (!anchorVisible && Environment.TickCount64 < anchorDeadline);
+            if (!anchorVisible)
+            {
+                var scroll = FindDescendant<ScrollViewer>(BrowsePhotoList);
+                var row = BrowsePhotoList.ContainerFromItem(anchor) as FrameworkElement;
+                var y = row?.TransformToVisual(BrowsePhotoList).TransformPoint(default).Y;
+                throw new InvalidOperationException($"Switching to list/detail lost the grid scroll anchor (index={ViewModel.Photos.IndexOf(anchor)}, y={y}, height={BrowsePhotoList.ActualHeight}, offset={scroll?.VerticalOffset}, extent={scroll?.ScrollableHeight})");
+            }
         }
         finally
         {
@@ -70,6 +97,7 @@ public sealed partial class MainWindow
             foreach (var photo in originals) ViewModel.AllPhotos.Add(photo);
             ViewModel.ApplyFilters();
             _browseListDetail = originalView;
+            Services.AppSettings.Update(settings => settings.BrowseListDetail = originalView);
             UpdateBrowsePresentation();
             root.Width = root.Height = double.NaN;
             ViewModel.SelectedPhoto = selected;
