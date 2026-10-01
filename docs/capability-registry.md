@@ -32,7 +32,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — corpus changed since the record
   - `apple_canvas_golden` — no record
 
 ### `tone` — Tone (exposure, contrast, parametric and point curves)
@@ -55,7 +55,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — corpus changed since the record
   - `apple_canvas_golden` — no record
 
 ### `color` — Color (HSL, B&W mixer, color grading, profile and look)
@@ -78,7 +78,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — corpus changed since the record
   - `apple_canvas_golden` — no record
 
 ### `detail` — Detail (sharpening, noise reduction, presence, dehaze, lens)
@@ -101,7 +101,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `grey_dcp` — satisfied
   - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — corpus changed since the record
   - `apple_canvas_golden` — no record
 
 ### `effects` — Effects (vignette, grain, film looks)
@@ -120,7 +120,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
   - `grey_adjustments` — satisfied
-  - `gpu_chain_parity_metal` — satisfied
+  - `gpu_chain_parity_metal` — corpus changed since the record
   - `apple_canvas_golden` — no record
 
 ### `geometry` — Crop and straighten

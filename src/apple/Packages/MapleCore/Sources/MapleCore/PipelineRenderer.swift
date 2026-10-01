@@ -1375,15 +1375,10 @@ extension PipelineRenderer {
     // struct to 18 fields. See #565.
     var params = MapleAdjustmentParams()
     params.whites_anchor_ev = whitesAnchorEv
-<<<<<<< HEAD
     let wb = model.liveWhiteBalance(in: wbFrame)
     params.temperature = Float(wb.temperature)
     params.tint = Float(wb.tint)
-=======
     params.nr_sampling_scale = nrSamplingScale
-    params.temperature = Float(model.temperature)
-    params.tint = Float(model.tint)
->>>>>>> 590984786 (fix(apple): retain decode sampling density through render paths)
     params.exposure = Float(model.exposure)
     params.contrast = Float(model.contrast)
     params.highlights = Float(model.highlights)

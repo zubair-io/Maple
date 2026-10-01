@@ -80,8 +80,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -179,8 +179,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -305,8 +305,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -408,8 +408,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -470,8 +470,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",

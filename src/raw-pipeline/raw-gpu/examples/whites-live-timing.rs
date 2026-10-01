@@ -7,7 +7,7 @@ use raw_gpu::InputShape;
 use raw_gpu::{CancelToken, FullChainInputs, GpuContext, LiveSession};
 use raw_gpu::{CurveMode, ToneCurveInputs};
 use std::{path::Path, time::Instant};
-fn bench_inputs(anchor: f32) -> FullChainInputs<'static> {
+fn bench_inputs(anchor: f32, sampling_scale: f32) -> FullChainInputs<'static> {
     use raw_core::view::auto_profile;
     FullChainInputs {
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
@@ -62,6 +62,7 @@ fn bench_inputs(anchor: f32) -> FullChainInputs<'static> {
         sharpen_masking: 0.0,
         nr_luminance: 0.0,
         nr_color: 0.0,
+        nr_sampling_scale: sampling_scale,
         contrast: 0.0,
         capture_sharpening: None,
         profile_curve_flat: auto_profile::curve::ProfileCurve::identity()
@@ -106,7 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let ctx = GpuContext::new_blocking()?;
     let session = LiveSession::new(&ctx, &rgba, scene.width, scene.height)?;
-    let mut inputs = bench_inputs(anchor);
+    let mut inputs = bench_inputs(anchor, scene.nr_sampling_scale);
     let cancel = CancelToken::new();
     println!("image={}x{} anchor_ev={anchor}", scene.width, scene.height);
     // Exercise all slider values before timing so lazy pipelines and pooled
