@@ -87,6 +87,8 @@ CapabilityRegistryTests
 ChangeCursorStoreTests
 ChangeFeedClientBackoffTests
 ChangeFeedClientDateDecodingTests
+ChangeFeedClientRestartTests
+SSELineDecoderTests
 CollisionResolverTests
 ColorGradingXMPTests
 
