@@ -638,11 +638,17 @@ jobs:
       # child-process entry points (worker-main.ts, *.child.ts, etc.) that
       # Bun.spawn wires up via dynamic string paths — invisible to static
       # analysis without them. See #1829.
+      - name: Run API tests with measured Istanbul coverage
+        working-directory: src/api
+        env:
+          MAPLE_JWT_SECRET: ci-test-secret-not-for-production-only
+        run: bun run test:coverage
+
       - name: fallow audit (changed files only)
         working-directory: src/api
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
-        run: HOME=/tmp/xbun ./node_modules/.bin/fallow audit --base "origin/${BASE_REF}"
+        run: ./node_modules/.bin/fallow audit --base "origin/${BASE_REF}" --coverage coverage/coverage-final.json
 
   gitleaks:
     name: gitleaks (PR commits)
