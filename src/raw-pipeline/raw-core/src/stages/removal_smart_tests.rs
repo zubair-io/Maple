@@ -168,3 +168,46 @@ fn invalid_or_future_requests_are_rejected() {
         assert!(model_prompts_json(&req.to_string()).is_err(), "{req}");
     }
 }
+
+#[test]
+fn embedding_identity_is_canonical_and_ignores_refinement_intent() {
+    use crate::types::accepted_removal::{ContentDigest, SourceAnchor};
+    let source = SourceAnchor {
+        original: ContentDigest::for_bytes(b"raw"),
+        decode: ContentDigest::for_bytes(b"calibration"),
+        width: 4096,
+        height: 2048,
+    };
+    let mut request = request();
+    let before = context_identity(&source, &request.to_string()).unwrap();
+    request["prompts"][0]["position"][0] = json!(1130.0 / 4096.0);
+    assert_eq!(
+        before,
+        context_identity(&source, &request.to_string()).unwrap()
+    );
+    let unordered = format!(
+        r#"{{"height":2048,"decode":"{}","width":4096,"original":"{}"}}"#,
+        source.decode.as_str(),
+        source.original.as_str()
+    );
+    assert_eq!(
+        before.as_str(),
+        context_identity_json(&unordered, &request.to_string()).unwrap()
+    );
+    request["window"]["x"] = json!(101);
+    assert_ne!(
+        before,
+        context_identity(&source, &request.to_string()).unwrap()
+    );
+    let changed = SourceAnchor {
+        original: ContentDigest::for_bytes(b"other"),
+        ..source
+    };
+    assert_ne!(
+        context_identity(&changed, &request.to_string()).unwrap(),
+        ContentDigest::parse(&context_identity_json(&unordered, &request.to_string()).unwrap())
+            .unwrap()
+    );
+    request["source_width"] = json!(4095);
+    assert!(context_identity(&changed, &request.to_string()).is_err());
+}
