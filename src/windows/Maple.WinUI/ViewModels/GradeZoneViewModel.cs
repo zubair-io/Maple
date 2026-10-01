@@ -59,6 +59,12 @@ namespace Maple.WinUI.ViewModels
         /// discarded with it (web wheel dblclick behavior).</summary>
         public void Reset() => ApplyWheel(0, 0);
 
+        internal void ResetModelValue(AdjustmentState model)
+        {
+            _setHue(model, 0);
+            _setSat(model, 0);
+        }
+
         public void SyncFromModel()
         {
             Hue = _getHue(_session.Adjustments);

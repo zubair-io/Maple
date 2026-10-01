@@ -416,12 +416,15 @@ namespace Maple.WinUI
             }
             if (_activeGroup == "Color" && _colorTab == "HSL")
             {
-                foreach (var band in ViewModel.HslBands)
+                ViewModel.ApplyDecodeFieldEdit(model =>
                 {
-                    band.Hue.Reset();
-                    band.Sat.Reset();
-                    band.Lum.Reset();
-                }
+                    foreach (var band in ViewModel.HslBands)
+                    {
+                        band.Hue.ResetModelValue(model);
+                        band.Sat.ResetModelValue(model);
+                        band.Lum.ResetModelValue(model);
+                    }
+                });
                 return;
             }
             if (_activeGroup == "Crop")
@@ -440,33 +443,39 @@ namespace Maple.WinUI
             }
             if (_activeGroup == "Effects" && _effectsTab == "Grade")
             {
-                foreach (var zone in ViewModel.GradeZones)
-                    zone.Reset();
-                foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, "Grade").Sliders)
-                    slider.Reset();
+                ViewModel.ApplyDecodeFieldEdit(model =>
+                {
+                    foreach (var zone in ViewModel.GradeZones)
+                        zone.ResetModelValue(model);
+                    foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, "Grade").Sliders)
+                        slider.ResetModelValue(model);
+                });
                 return;
             }
             if (_activeGroup == "Tone Curve")
             {
-                ViewModel.Adjustments.ToneCurveLuma.Clear();
-                ViewModel.Adjustments.ToneCurveRed.Clear();
-                ViewModel.Adjustments.ToneCurveGreen.Clear();
-                ViewModel.Adjustments.ToneCurveBlue.Clear();
-                foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, "Tone Curve").Sliders)
-                    slider.Reset();
-                ViewModel.NotifyAdjustmentEdited();
+                ViewModel.ApplyDecodeFieldEdit(model =>
+                {
+                    model.ToneCurveLuma.Clear();
+                    model.ToneCurveRed.Clear();
+                    model.ToneCurveGreen.Clear();
+                    model.ToneCurveBlue.Clear();
+                    foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, "Tone Curve").Sliders)
+                        slider.ResetModelValue(model);
+                });
                 RefreshCurvePlot();
                 return;
             }
             var sectionTitle = _activeGroup == "Color"
                 ? (_colorTab == "B&W" ? "B&W" : "Color")
                 : _activeGroup;
-            foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, sectionTitle).Sliders)
-                slider.Reset();
-            if (sectionTitle == "Detail" && ViewModel.Adjustments.Demosaic != "Auto")
-                ViewModel.ApplyDecodeFieldEdit(model => model.Demosaic = "Auto");
-            if (sectionTitle == "B&W")
-                ViewModel.BlackWhiteOn = false;
+            ViewModel.ApplyDecodeFieldEdit(model =>
+            {
+                foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, sectionTitle).Sliders)
+                    slider.ResetModelValue(model);
+                if (sectionTitle == "Detail") model.Demosaic = "Auto";
+                if (sectionTitle == "B&W") model.BlackWhite = Models.ToggleMode.Off;
+            });
         }
 
     }

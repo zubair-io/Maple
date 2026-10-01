@@ -148,6 +148,8 @@ namespace Maple.WinUI.ViewModels
             Value = DefaultValue;
             CommitDeferred();
         }
+
+        internal void ResetModelValue(AdjustmentState model) => _set(model, DefaultValue);
     }
 
     /// <summary>A titled expander group of sliders (Tone, Color & WB, ...).</summary>

@@ -46,6 +46,7 @@ public sealed partial class MainWindow
     private async Task VerifyAdjustmentGestureUndoAsync()
     {
         await VerifyHistoryBranchingAsync();
+        await VerifyGroupResetUndoAsync();
         var original = ViewModel.Adjustments.Exposure;
         var depth = ViewModel.UndoCount;
         var ruler = new object();
