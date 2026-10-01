@@ -51,11 +51,11 @@ fixtures = []
 # in `OrtRuntime::preflight` selects the `ort::init_from` path first, so
 # host tests pass normally. The `ml-static` path is only reached in iOS
 # cross-compilation where `ml` is absent.
-ml = ["dep:ort", "ort/load-dynamic", "dep:libloading", "dep:sha2", "dep:toml"]
+ml = ["dep:ort", "ort/load-dynamic", "dep:maple-ort", "maple-ort/ml", "dep:sha2", "dep:toml"]
 # `ort/std` is required for `commit_from_file` (which is #[cfg(feature = "std")]
 # in ort). `load-dynamic` implies `std`, so the `ml` path gets it transitively;
 # `ml-static` must add it explicitly since we omit `load-dynamic`.
-ml-static = ["dep:ort", "ort/std", "dep:sha2", "dep:toml"]
+ml-static = ["dep:ort", "ort/std", "dep:maple-ort", "maple-ort/ml-static", "dep:sha2", "dep:toml"]
 
 [[bin]]
 name = "pano-gt-render"
@@ -122,7 +122,7 @@ ort = { workspace = true, optional = true }
 # `ort` with `load-dynamic` panics when the dylib is missing/unloadable;
 # the loader probes with libloading first and returns a typed MlError.
 # Not needed for `ml-static` — no dlopen occurs.
-libloading = { workspace = true, optional = true }
+maple-ort = { path = "../maple-ort", optional = true }
 # SHA-256 verification of model files against models.toml.
 sha2 = { workspace = true, optional = true }
 # models.toml manifest parsing.

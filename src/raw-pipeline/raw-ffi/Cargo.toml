@@ -52,6 +52,10 @@ fixtures = ["raw-core/fixtures"]
 pano = ["dep:maple-pano", "maple-pano/ml"]
 pano-ios = ["dep:maple-pano", "maple-pano/ml-static"]
 
+# Native authoring inference (#3941); same ORT environment as panorama.
+removal = ["dep:maple-removal", "maple-removal/ml"]
+removal-ios = ["dep:maple-removal", "maple-removal/ml-static"]
+
 [dependencies]
 serde_json = "1"
 # `avif` unconditionally on: the thumbnail encoder (thumbnail.rs) is AVIF-only
@@ -74,6 +78,7 @@ raw-gpu = { path = "../raw-gpu", optional = true }
 # means `load-dynamic` wins — but in practice the build script never
 # activates both simultaneously).
 maple-pano = { path = "../maple-pano", optional = true }
+maple-removal = { path = "../maple-removal", optional = true }
 rawler.workspace = true
 image.workspace = true
 thiserror.workspace = true

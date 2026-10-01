@@ -1,0 +1,68 @@
+//! Single-source experimental model pins (#3941). Codegen emits probe JSON.
+//! These artifacts are not release-qualified; distribution/weights audit and
+//! photographic/device gates remain required before product activation.
+
+#[derive(Clone, Copy, serde::Serialize)]
+pub struct ExperimentalRemovalModelPin {
+    pub id: &'static str,
+    pub file: &'static str,
+    pub probe_path: &'static str,
+    pub size: u64,
+    pub sha256: &'static str,
+    pub source_revision: &'static str,
+    pub checkpoint_sha256: &'static str,
+    pub license: &'static str,
+    pub native_side: u32,
+    pub release_qualified: bool,
+}
+
+pub const EXPERIMENTAL_REMOVAL_MODELS: [ExperimentalRemovalModelPin; 4] = [
+    ExperimentalRemovalModelPin {
+        id: "lama",
+        file: "lama-native-1024.onnx",
+        probe_path: "lama/native-build/lama-native-1024.onnx",
+        size: 204794328,
+        sha256: "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        source_revision: "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+        checkpoint_sha256: "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+        license: "Apache-2.0",
+        native_side: 1024,
+        release_qualified: false,
+    },
+    ExperimentalRemovalModelPin {
+        id: "encoder",
+        file: "mobile-sam-encoder.onnx",
+        probe_path: "mobile-sam/native-build/mobile-sam-encoder.onnx",
+        size: 27996392,
+        sha256: "e12aec77d292b119aaa8add4e23a21114d3ff4fac44a1abfb8ca2a391f03bf2b",
+        source_revision: "f706ad9c4eb7f219c00d9050e46328518ffb65d2",
+        checkpoint_sha256: "6dbb90523a35330fedd7f1d3dfc66f995213d81b29a5ca8108dbcdd4e37d6c2f",
+        license: "Apache-2.0",
+        native_side: 1024,
+        release_qualified: false,
+    },
+    ExperimentalRemovalModelPin {
+        id: "decoder",
+        file: "mobile-sam-decoder.onnx",
+        probe_path: "mobile-sam/native-build/mobile-sam-decoder.onnx",
+        size: 16496934,
+        sha256: "878e0ba9952d4d35c78d8cbd3ee57cdc3691fda0deb39d2cf1f0c8004f2f38e7",
+        source_revision: "f706ad9c4eb7f219c00d9050e46328518ffb65d2",
+        checkpoint_sha256: "6dbb90523a35330fedd7f1d3dfc66f995213d81b29a5ca8108dbcdd4e37d6c2f",
+        license: "Apache-2.0",
+        native_side: 1024,
+        release_qualified: false,
+    },
+    ExperimentalRemovalModelPin {
+        id: "detector",
+        file: "rtdetrv2-r18.onnx",
+        probe_path: "rtdetr/native-build/rtdetrv2-r18.onnx",
+        size: 80426004,
+        sha256: "e83fb962424fc2a881d080148194ed57c3276a9b186a1bc381e772c397228f58",
+        source_revision: "29320b6fd828f8e0987a71426cf2d961b09dfed7",
+        checkpoint_sha256: "2ace52184b620204004509b72752ac7bfe64aadaf7fc1d076b18df8ab5a5c77e",
+        license: "Apache-2.0",
+        native_side: 640,
+        release_qualified: false,
+    },
+];

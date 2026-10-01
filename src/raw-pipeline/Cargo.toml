@@ -5,6 +5,8 @@ members = [
     "raw-gpu",
     "maple-cli",
     "maple-pano",
+    "maple-ort",
+    "maple-removal",
     "raw-ffi",
     "raw-wasm",
     "raw-napi",
