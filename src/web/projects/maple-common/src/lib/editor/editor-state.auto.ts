@@ -31,6 +31,7 @@ function autoAdjustmentPatch(
     temperature: clamp('temperature', result.temperature),
     tint: clamp('tint', result.tint),
     whiteBalancePreset: 'Auto',
+    partialWhiteBalance: null,
     wbScaleVersion: 5,
     wbSource: 'Auto',
     wbSampleX: 0,

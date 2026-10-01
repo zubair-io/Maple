@@ -10,6 +10,7 @@ describe('sampledWbPatch (#2434)', () => {
     expect(sampledWbPatch(sample, 0.25, 0.75)).toEqual({
       temperature: 4820,
       tint: -12,
+      wbScaleVersion: 5,
       wbSource: 'Sampled',
       wbSampleX: 0.25,
       wbSampleY: 0.75,
@@ -19,7 +20,15 @@ describe('sampledWbPatch (#2434)', () => {
 
   it('touches nothing but white balance — a sample is not a tone edit', () => {
     expect(Object.keys(sampledWbPatch(sample, 0.5, 0.5)).sort()).toEqual(
-      ['tint', 'temperature', 'wbAlgorithmVersion', 'wbSampleX', 'wbSampleY', 'wbSource'].sort(),
+      [
+        'tint',
+        'temperature',
+        'wbScaleVersion',
+        'wbAlgorithmVersion',
+        'wbSampleX',
+        'wbSampleY',
+        'wbSource',
+      ].sort(),
     );
   });
 });

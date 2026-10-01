@@ -127,14 +127,16 @@ fn auto_will_fit(model: &AdjustmentModel, bytes: &[u8], ext: &str) -> bool {
         || auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some()
 }
 
-// The stripped-prefix model + FullChainInputs assembly (pure model
-// arithmetic, no GPU calls) live in the sibling `gpu_render/model.rs` —
-// split out to keep this file under the 600-LOC budget (#1170).
 #[cfg(any(target_arch = "wasm32", test))]
 #[path = "gpu_render/model.rs"]
 mod model;
 #[cfg(any(target_arch = "wasm32", test))]
 use model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
+#[cfg(any(target_arch = "wasm32", test))]
+#[path = "gpu_render/white_balance.rs"]
+mod white_balance;
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) use white_balance::GpuWhiteBalance;
 
 /// The effective auto-exposure mode the stripped-prefix develop must use — the
 /// SAME one the CPU render uses (`auto_will_fit` → Off when Auto Profile fits,
@@ -434,11 +436,9 @@ async fn render_gpu_core(
 
     let (rgba, w, h, _prefix_model, whites_anchor_ev) =
         develop_prefix_rgba(raw_img, raw, ext, model, target)?;
-    // No film-look on the one-shot GPU path: this entry has no session to hold
-    // the uploaded `.mlut` bytes across calls (a per-call upload would defeat
-    // the "cache-served, cheap to rebuild" cost profile the tick loop needs).
-    // The persistent `WebLiveSession` carries the loaded look instead (Task 9).
-    let inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
+    // Film looks are session-resident; one-shot renders have no uploaded LUT.
+    let mut inputs = chain_inputs_for_model(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
+    GpuWhiteBalance::resolve(raw_img)?.apply(model, &mut inputs);
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.

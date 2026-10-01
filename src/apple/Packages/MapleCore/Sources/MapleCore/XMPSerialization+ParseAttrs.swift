@@ -30,8 +30,16 @@ extension _XMPParserDelegate {
   func applyAttribute(key: String, value: String, hasCrop: Bool = false) {
     // Strip namespace prefix for matching
     switch key {
-    case "crs:Temperature": model.temperature = d(value) ?? model.temperature
-    case "crs:Tint": model.tint = d(value) ?? model.tint
+    case "crs:Temperature":
+      if let parsed = d(value), parsed.isFinite {
+        model.temperature = parsed
+        temperatureSeen = true
+      }
+    case "crs:Tint":
+      if let parsed = d(value), parsed.isFinite {
+        model.tint = parsed
+        tintSeen = true
+      }
     case "crs:Exposure2012": model.exposure = d(value) ?? model.exposure
     // Brightness (#1102) — Maple-proprietary midtone-band gain. Lives
     // under `papp:` because the ACR `crs:Brightness` key is PV2010 with

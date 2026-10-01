@@ -60,6 +60,7 @@ export function sampledWbPatch(
   return {
     temperature: sample.temperature,
     tint: sample.tint,
+    wbScaleVersion: 5,
     wbSource: 'Sampled',
     wbSampleX: nx,
     wbSampleY: ny,

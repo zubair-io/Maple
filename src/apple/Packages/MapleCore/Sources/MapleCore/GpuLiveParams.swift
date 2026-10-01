@@ -126,8 +126,9 @@ extension PipelineRenderer {
         (0.0, 0.0)
       }
 
-    p.temperature = Float(model.temperature)
-    p.tint = Float(model.tint)
+    let wb = model.liveWhiteBalance(in: wbFrame)
+    p.temperature = Float(wb.temperature)
+    p.tint = Float(wb.tint)
     p.decoded_temperature = Float(decodedAnchor.temperature)
     p.decoded_tint = Float(decodedAnchor.tint)
     // Exhaustive switch, not a `== .diagonalRec2020 ? 1 : 0` ternary

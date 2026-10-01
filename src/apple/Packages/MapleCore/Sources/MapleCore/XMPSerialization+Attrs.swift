@@ -28,32 +28,7 @@ extension XMPSerializer {
     culling: CullingState,
     omitWhiteBalance: Bool = false
   ) -> [(String, String)] {
-    let wbAttrs: [(String, String)] =
-      omitWhiteBalance
-      ? []
-      : [
-        // Preserve a chosen illuminant; legacy numerical-only models keep Custom.
-        ("crs:WhiteBalance", model.whiteBalancePreset.rawValue),
-        // Fractional-preserving (fmtNum): normalized WB pairs are
-        // non-integer post-#1893/#1894 (a V3-authored −144 loads as a
-        // fractional V5 pair), and the frame-hydrated as-shot
-        // temperature is fractional too — integer rounding here
-        // shifted the stored WB on every re-save, drifting the
-        // rendered look.
-        ("crs:Temperature", fmtNum(model.temperature)),
-        ("crs:Tint", fmtNum(model.tint)),
-        // WB scale stamp (#1780/#1875/#1893/#1894): every sidecar save
-        // writes explicit Temperature/Tint, so the scale those numbers
-        // are expressed in is always stamped alongside them. V1
-        // re-emits as 1 (raw-core converts at develop, so stored V1
-        // values keep their meaning across saves); everything else
-        // emits 5 — the parse normalizes V2/V3/V4 models to V5
-        // (Robertson-native) at load, so a non-1 model always holds V5
-        // values. Clamped to {1, 5}: raw-core's parser hard-fails on an
-        // unknown stamp, so a corrupted model field must never reach
-        // the sidecar.
-        ("papp:WbScaleVersion", String(model.wbScaleVersion == 1 ? 1 : 5)),
-      ]
+    let wbAttrs = omitWhiteBalance ? [] : whiteBalanceAttrs(model)
     var attrs: [(String, String)] =
       [
         // Process-version signalling, always emitted (canonical format

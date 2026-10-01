@@ -353,7 +353,13 @@ export class ImageCanvasGpuPresent {
       const nativeH = info.nativeHeight ?? info.height;
       this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
       this.host.recordNativeDims(nativeW, nativeH);
-      this.host.state.seedAsShotWhiteBalance(assetId, info.asShotTemperature, info.asShotTint);
+      this.host.state.seedAsShotWhiteBalance(
+        assetId,
+        info.asShotTemperature,
+        info.asShotTint,
+        info.cameraSupport?.resolution !== undefined &&
+          !['rawler_fallback', 'decode_failed'].includes(info.cameraSupport.resolution),
+      );
       // #3182 — see `decodeSupportFrom` in `image-canvas.render2d.ts`.
       const support = decodeSupportFrom(info);
       this.host.state.seedLensCorrections(

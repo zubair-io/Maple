@@ -14,7 +14,12 @@ import {
 // A model whose only non-scalar chain sliders are at the stripped prefix's zeros
 // (sharpen + color NR off) — the baseline on which the fast path IS faithful.
 function fastPathBaseline(): AdjustmentModel {
-  return { ...defaultAdjustmentModel(), sharpenAmount: 0, nrColor: 0 };
+  return {
+    ...defaultAdjustmentModel(),
+    whiteBalancePreset: 'Custom',
+    sharpenAmount: 0,
+    nrColor: 0,
+  };
 }
 
 const NON_IDENTITY_CROP: Crop = { top: 0.1, left: 0.1, bottom: 0.9, right: 0.9, angle: 0 };
@@ -52,6 +57,24 @@ describe('canUseLiveFastPath (#1914)', () => {
       tint: 12,
     };
     expect(canUseLiveFastPath(m)).toBe(true);
+  });
+
+  it('routes legacy complete pairs and partial imports through XMP so their scales and presence survive', () => {
+    expect(canUseLiveFastPath({ ...fastPathBaseline(), wbScaleVersion: 1 })).toBe(false);
+    expect(
+      canUseLiveFastPath({
+        ...fastPathBaseline(),
+        partialWhiteBalance: { temperature: 8500, version: 5 },
+      }),
+    ).toBe(false);
+    expect(
+      canUseLiveFastPath({
+        ...fastPathBaseline(),
+        temperature: 6500,
+        tint: 0,
+        whiteBalancePreset: 'Custom',
+      }),
+    ).toBe(true);
   });
 
   // Every non-scalar edit the fast path can't carry must route to render(xmp).
@@ -147,15 +170,14 @@ describe('buildLiveParams (#1914)', () => {
     ]);
   });
 
-  it('sends the identity WB pair (6500/0) for an As-Shot model, not the seeded slider values (#1892)', () => {
-    const m: AdjustmentModel = {
-      ...fastPathBaseline(),
-      whiteBalancePreset: 'As Shot',
-      temperature: 4800, // camera As-Shot slider seed — must NOT be sent as an edit
-      tint: -20,
-    };
-    const p = buildLiveParams(m);
-    expect(p[9]).toBe(6500);
-    expect(p[10]).toBe(0);
+  it('routes As-Shot through XMP even with seeded slider values (#3434)', () => {
+    expect(
+      canUseLiveFastPath({
+        ...fastPathBaseline(),
+        whiteBalancePreset: 'As Shot',
+        temperature: 4800,
+        tint: -20,
+      }),
+    ).toBe(false);
   });
 });

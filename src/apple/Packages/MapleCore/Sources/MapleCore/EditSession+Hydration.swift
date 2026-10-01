@@ -103,7 +103,20 @@ extension EditSession {
     // their rasters before the model lands, so `originalModel` and
     // `model` agree (#3366). Awaited outside the hydration window on
     // purpose: this can run Vision on a cache miss.
-    let base = await rehydratedMaskRasters(in: seeded)
+    let wbResolved: AdjustmentModel
+    do {
+      wbResolved = try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: seeded)
+      partialWhiteBalanceImportError = nil
+    } catch {
+      guard !Task.isCancelled, model == startingModel,
+        transactions.nextID == startingTransaction
+      else { return }
+      partialWhiteBalanceImportError = error
+      renderError = error
+      // Preserve every parsed field for unrelated edits; block unresolved live pixels.
+      wbResolved = seeded
+    }
+    let base = await rehydratedMaskRasters(in: wbResolved)
     let seededRasterIds = Set(
       seeded.localAdjustments.compactMap { layer -> UInt32? in
         guard case .bitmap(_, let rasterId) = layer.mask, rasterId != 0 else { return nil }
@@ -205,6 +218,14 @@ extension EditSession {
     let oldTint = wbSeedTint
     asShotCCT = newCCT
     asShotTint = newTint
+    if model.partialWhiteBalance != nil || originalModel.partialWhiteBalance != nil {
+      isHydratingInitialState = true
+      model = model.hydratingPartialWhiteBalance(in: frame)
+      originalModel = originalModel.hydratingPartialWhiteBalance(in: frame)
+      isHydratingInitialState = false
+      if renderRequested { _scheduleRender(phase: .fast) }
+      return
+    }
     // Re-seed only an untouched As-Shot model: both the live model and
     // the RESET baseline still sit exactly at the recorded hydration
     // seed (`wbSeedTemperature`/`wbSeedTint` — the placeholder pair, or

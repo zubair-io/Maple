@@ -33,9 +33,9 @@ fn to_gpu_rasters(
 /// and — via `ae_mode` — the `auto_exposure` mode the `auto_will_fit` probe
 /// pins).
 ///
-/// WB is pinned to the 6500K/0 neutral so `white_balance::apply` returns at its
-/// identity short-circuit (`(temp-6500).abs()<0.5 && tint.abs()<0.5`); the GPU
-/// chain applies the user's ABSOLUTE WB instead.
+/// WB is pinned to the unauthored 6500K/0 sentinel, so the core develops at
+/// this camera's actual As-Shot point. The live binding applies a camera-frame
+/// delta using the same resolver as full develop.
 ///
 /// ## Why the GPU-only SUB-params are also neutralized (#1038)
 ///
@@ -57,9 +57,14 @@ pub(super) fn stripped_prefix_model(
 ) -> AdjustmentModel {
     use raw_core::types::{ToneCurveMode, WbMethod};
     AdjustmentModel {
-        // Neutral WB → the stage no-ops; the GPU chain re-applies absolute WB.
+        // Unauthored defaults → the camera As-Shot prefix; live WB is a frame delta.
         temperature: 6500.0,
         tint: 0.0,
+        // The prefix is the camera As-Shot develop, independent of imported
+        // axes and scale. The live binding resolves those against its cached frame.
+        temperature_seen: false,
+        tint_seen: false,
+        wb_scale_version: raw_core::types::WbScaleVersion::V5,
         // WB method is inert at the neutral short-circuit; pin it so toggling the
         // method doesn't spuriously change the prefix (the GPU chain owns WB).
         wb_method: WbMethod::Cat16,

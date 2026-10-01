@@ -198,6 +198,8 @@ public final class EditSession {
   public let deepDenoiseProgress = DeepDenoiseProgressMonitor()
   /// Last render error, if any. Views can surface a banner when non-nil.
   public var renderError: Error?
+  /// A failed partial-WB import must never display a default full render (#3434).
+  var partialWhiteBalanceImportError: Error?
   /// Last sidecar write error, if any. Views can surface a banner when non-nil.
   public var sidecarError: Error?
 

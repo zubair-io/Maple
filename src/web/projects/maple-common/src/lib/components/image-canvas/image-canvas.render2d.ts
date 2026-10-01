@@ -134,7 +134,13 @@ export async function coldOpen2d(
 
     // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
     // what Rust used; guarded on "still default" so it never clobbers edits).
-    host.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
+    host.state.seedAsShotWhiteBalance(
+      assetId,
+      decoded.asShotTemperature,
+      decoded.asShotTint,
+      decoded.cameraSupport?.resolution !== undefined &&
+        !['rawler_fallback', 'decode_failed'].includes(decoded.cameraSupport.resolution),
+    );
     // #3182: record the decode-time lens-correction signal for the Lens
     // Corrections panel. Absent (older stubs / non-updated fakes) reads as
     // the fail-closed default (see `decodeSupportFrom` above).

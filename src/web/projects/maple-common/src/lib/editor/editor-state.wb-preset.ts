@@ -22,6 +22,7 @@ export async function applyWhiteBalancePresetInto(
     ...pair,
     ...(pair ? { wbScaleVersion: 5 } : {}),
     whiteBalancePreset: preset,
+    partialWhiteBalance: null,
     wbSource: preset === 'As Shot' ? 'AsShot' : preset === 'Custom' ? 'Manual' : 'Preset',
     wbSampleX: 0,
     wbSampleY: 0,

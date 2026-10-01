@@ -62,6 +62,7 @@ mod mask_range_sample;
 mod as_shot_white_balance;
 mod deep_denoise_progress;
 mod error;
+mod imported_white_balance;
 // Batch-rename filename-template engine FFI (#2628). Pure marshalling over
 // `raw_core::filename` — no worker-thread dispatch, no GPU gate.
 mod filename;

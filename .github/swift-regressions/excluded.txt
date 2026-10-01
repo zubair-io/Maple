@@ -206,3 +206,5 @@ WorkerTriageDecodingTests host talks to a host service (keychain, FileProvider, 
 WorkersAdminClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 WorkersFeedTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 WorkingSetListCacheTests slow render or decode workload that costs minutes on the runner
+
+PartialWhiteBalanceRenderTests gpu compares real Metal live pixels with core on committed calibrated RAW fixtures

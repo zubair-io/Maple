@@ -244,6 +244,7 @@ final class SceneLinearChainCache: @unchecked Sendable {
 
     // white_balance (delta) — temperature/tint plus the decoded
     // baseline + wbFrame threaded through the FFI params below.
+    h.combine(model.partialWhiteBalance)
     h.combine(model.temperature.bitPattern)
     h.combine(model.tint.bitPattern)
     // scene_tone_controls — exposure, brightness (#1102), contrast, and
