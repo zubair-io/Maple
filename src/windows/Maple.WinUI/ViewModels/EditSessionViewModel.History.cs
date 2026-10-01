@@ -104,6 +104,9 @@ namespace Maple.WinUI.ViewModels
         {
             if (!AdjustmentsReady) return;
             _adjustmentGesture = null;
+            _undoTimer?.Dispose();
+            _undoTimer = null;
+            CommitUndoBoundary();
             if (_redoStack.Count == 0)
                 return;
             var before = Adjustments;
@@ -121,6 +124,7 @@ namespace Maple.WinUI.ViewModels
             if (!AdjustmentsReady) return;
             var before = Adjustments;
             _undoStack.Add(Adjustments.Clone());
+            _redoStack.Clear();
             Adjustments = new AdjustmentState
             {
                 Temperature = _asShotTemperature,
@@ -139,6 +143,7 @@ namespace Maple.WinUI.ViewModels
                 return;
             var before = Adjustments;
             _undoStack.Add(Adjustments.Clone());
+            _redoStack.Clear();
             Adjustments = _originalModel.Clone();
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
