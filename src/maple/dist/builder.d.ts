@@ -4,6 +4,7 @@
  * Provides a unified chaining interface for RAW photo development,
  * non-RAW bitmap SIMD resizing, in-memory transcoding, and AI tensor extraction.
  */
+import type { ExifTags } from './recipe';
 import type { AvifOutputOptions, Colour, CompositeLayer, ConvolveKernel, EncodeOptions, ExportColorSpace, ExportFormat, ExportRecipe, ExportResult, ExtendOptions, ExtractRegion, ImageMetadata, ImageStats, IntegrityResult, JpegOutputOptions, PngOutputOptions, RawPixelInput, RawPixels, RawPixelsAny, ResizeOptions, RotateOptions, SharpenOptions, TensorOptions, TensorResult, TiffOutputOptions, TrimOptions, WebpOutputOptions } from './types';
 export declare class MapleImageBuilder {
     private readonly s;
@@ -180,19 +181,11 @@ export declare class MapleImageBuilder {
         orientation?: number;
         density?: number;
     }): this;
-    /**
-     * Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`).
-     * Diverges from sharp's `withExif({IFD0: {...}})` — see the doc on
-     * `applyWithExif` in `builder-metadata.ts`.
-     */
-    withExif(exif: Uint8Array | Buffer): this;
-    /**
-     * Tag the output with an ICC profile: `'srgb'` (Maple's own built-in
-     * profile), a filesystem path, or raw profile bytes. This never converts
-     * pixels, which is why `'p3'` is a named error — see the doc on
-     * `applyWithIccProfile` in `builder-metadata.ts` for that and for the
-     * other divergences from sharp's own `string`-only signature.
-     */
+    /** Replace input EXIF with authored IFD tags or a raw TIFF-header block. */
+    withExif(exif: ExifTags | Uint8Array | Buffer): this;
+    /** Merge authored IFD tags into the input EXIF. */
+    withExifMerge(exif: ExifTags): this;
+    /** Embed an ICC profile; named srgb/p3 profiles also select output primaries. */
     withIccProfile(icc: string | Uint8Array | Buffer): this;
     /** Embed this XMP packet. */
     withXmp(xmp: string | Uint8Array | Buffer): this;

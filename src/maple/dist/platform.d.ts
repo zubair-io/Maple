@@ -27,9 +27,9 @@ export declare function getPlatformBinaryFilename(platform?: NodeJS.Platform): s
 export declare function getPlatformNapiFilename(platform?: NodeJS.Platform, arch?: NodeJS.Architecture, musl?: boolean): string;
 /**
  * Resolves the napi addon the same way `resolvePlatformPackageLib` resolves
- * the bun:ffi dylib — installed platform package first, then monorepo-local
- * dev paths. Returns null (never throws) when nothing matches, so the
- * caller (`native-napi.ts`) can fall back to bun:ffi.
+ * the bun:ffi dylib — source-built binary first in a monorepo checkout,
+ * then installed/assembled platform packages. Returns null (never throws)
+ * when nothing matches, so `native-napi.ts` can fall back to bun:ffi.
  *
  * The monorepo-dev candidates point straight at `raw-napi`'s own cargo
  * target dir, at the plain `.dylib`/`.so` cargo produces — NOT renamed to

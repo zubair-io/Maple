@@ -12,6 +12,7 @@
  * the recipe `metadata` block the `with*`/`keep*` methods populate.
  */
 import { type BuilderState } from './builder-state';
+import type { ExifTags } from './recipe';
 import type { ImageMetadata, ImageStats } from './types';
 /**
  * Dimensions, format, orientation and — for an in-memory bitmap or a
@@ -43,16 +44,8 @@ export declare function applyWithMetadata(state: BuilderState, options?: {
     orientation?: number;
     density?: number;
 }): void;
-/**
- * Embed this EXIF block (a bare TIFF block, starting `II*` or `MM*`).
- *
- * Diverges from sharp's own `withExif(exif: {IFD0?: Record<string,string>,
- * …})`, which takes an object of IFD tags and authors the TIFF block itself.
- * Maple has no IFD-object authoring yet (tracked as a follow-up, #3588) —
- * passing sharp's object shape here is rejected by name rather than
- * silently doing the wrong thing with it.
- */
-export declare function applyWithExif(state: BuilderState, exif: Uint8Array | Buffer): void;
+/** Author an IFD tag object, or embed the existing raw TIFF-block extension (#3588). */
+export declare function applyWithExif(state: BuilderState, exif: ExifTags | Uint8Array | Buffer, merge?: boolean): void;
 /**
  * Embed an ICC profile — `'srgb'` or `'p3'` (Maple's own built-in profiles,
  * no bytes to supply), a filesystem path (read lazily — queued as a pending
