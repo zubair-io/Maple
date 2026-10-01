@@ -20,6 +20,7 @@
 #     * generated/color_matrices.wgsl   — the Oklab / Rec.2020<->sRGB mul_*
 #                                          helpers (compile_with_matrices / _nr)
 #     * generated/agx_coeffs.wgsl       — the AgX inset/outset matrices (agx only)
+#     * generated/local_mask_wire.wgsl — the local mask composition wire constants
 #   So validating a kernel that calls `mul_rec2020_to_srgb` standalone reports a
 #   false "unknown identifier". To mirror the runtime concat without hard-coding
 #   a per-kernel header map (which would drift from the Rust source), each kernel
@@ -27,7 +28,8 @@
 #       (a) standalone
 #       (b) color_matrices + kernel
 #       (c) color_matrices + agx_coeffs + kernel
-#       (d) present_chain + kernel (display histogram shares the display quantizer)
+#       (d) color_matrices + local_mask_wire + kernel
+#       (e) present_chain + kernel (display histogram shares the display quantizer)
 #   A kernel PASSES if it validates under ANY rung (unused header helpers are
 #   legal WGSL), and FAILS only if a genuine syntax/type error makes every rung
 #   fail. The generated headers are themselves validated standalone (rung a).
@@ -47,17 +49,18 @@ GEN_DIR="$WGSL_DIR/generated"
 
 NAGA="${NAGA:-naga}"
 if ! command -v "$NAGA" >/dev/null 2>&1; then
-  echo "check_wgsl: naga not found (set NAGA=/path/to/naga or 'cargo install naga-cli --locked')" >&2
-  exit 2
+	echo "check_wgsl: naga not found (set NAGA=/path/to/naga or 'cargo install naga-cli --locked')" >&2
+	exit 2
 fi
 
 COLOR_MATRICES="$GEN_DIR/color_matrices.wgsl"
 AGX_COEFFS="$GEN_DIR/agx_coeffs.wgsl"
-for f in "$COLOR_MATRICES" "$AGX_COEFFS"; do
-  if [[ ! -f "$f" ]]; then
-    echo "check_wgsl: generated header missing: $f (run tools/codegen.sh)" >&2
-    exit 2
-  fi
+LOCAL_MASK_WIRE="$GEN_DIR/local_mask_wire.wgsl"
+for f in "$COLOR_MATRICES" "$AGX_COEFFS" "$LOCAL_MASK_WIRE"; do
+	if [[ ! -f "$f" ]]; then
+		echo "check_wgsl: generated header missing: $f (run tools/codegen.sh)" >&2
+		exit 2
+	fi
 done
 
 TMP="$(mktemp -d -t check-wgsl-XXXXXX)"
@@ -67,50 +70,57 @@ trap 'rm -rf "$TMP"' EXIT
 # WGSL diagnostic and exits non-zero on a parse/validation error; with only an
 # input file (no output file) it performs validation only.
 validate() {
-  local src="$1"
-  "$NAGA" "$src" >/dev/null 2>"$TMP/err"
+	local src="$1"
+	"$NAGA" "$src" >/dev/null 2>"$TMP/err"
 }
 
 fail=0
 checked=0
-# Every hand-written kernel plus the two generated headers.
+# Every hand-written kernel plus the generated headers.
 while IFS= read -r kernel; do
-  checked=$((checked + 1))
-  base="$(basename "$kernel")"
-  assembled="$TMP/assembled.wgsl"
+	checked=$((checked + 1))
+	base="$(basename "$kernel")"
+	assembled="$TMP/assembled.wgsl"
 
-  # Rung (a): standalone.
-  cp "$kernel" "$assembled"
-  if validate "$assembled"; then
-    echo "PASS  $base  (standalone)"
-    continue
-  fi
+	# Rung (a): standalone.
+	cp "$kernel" "$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (standalone)"
+		continue
+	fi
 
-  # Rung (b): color_matrices + kernel.
-  cat "$COLOR_MATRICES" "$kernel" > "$assembled"
-  if validate "$assembled"; then
-    echo "PASS  $base  (+color_matrices)"
-    continue
-  fi
+	# Rung (b): color_matrices + kernel.
+	cat "$COLOR_MATRICES" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+color_matrices)"
+		continue
+	fi
 
-  # Rung (c): color_matrices + agx_coeffs + kernel.
-  cat "$COLOR_MATRICES" "$AGX_COEFFS" "$kernel" > "$assembled"
-  if validate "$assembled"; then
-    echo "PASS  $base  (+color_matrices+agx_coeffs)"
-    continue
-  fi
+	# Rung (c): color_matrices + agx_coeffs + kernel.
+	cat "$COLOR_MATRICES" "$AGX_COEFFS" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+color_matrices+agx_coeffs)"
+		continue
+	fi
 
-  # Rung (d): display histogram shares the present shader's quantization.
-  cat "$WGSL_DIR/present_chain.wgsl" "$kernel" > "$assembled"
-  if validate "$assembled"; then
-    echo "PASS  $base  (+present_chain)"
-    continue
-  fi
+	# Rung (d): local adjustments share the generated mask wire layout.
+	cat "$COLOR_MATRICES" "$LOCAL_MASK_WIRE" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+color_matrices+local_mask_wire)"
+		continue
+	fi
 
-  # Failed every rung — a real error. Show the richest-context diagnostic.
-  echo "FAIL  $base — WGSL does not validate under any header prefix:" >&2
-  sed 's/^/    /' "$TMP/err" >&2
-  fail=$((fail + 1))
+	# Rung (e): display histogram shares the present shader's quantization.
+	cat "$WGSL_DIR/present_chain.wgsl" "$kernel" >"$assembled"
+	if validate "$assembled"; then
+		echo "PASS  $base  (+present_chain)"
+		continue
+	fi
+
+	# Failed every rung — a real error. Show the richest-context diagnostic.
+	echo "FAIL  $base — WGSL does not validate under any header prefix:" >&2
+	sed 's/^/    /' "$TMP/err" >&2
+	fail=$((fail + 1))
 done < <(find "$WGSL_DIR" -type f -name '*.wgsl' | sort)
 
 echo ""
