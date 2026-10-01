@@ -5,9 +5,9 @@
   "executed_cases": 19,
   "expected_cases": 19,
   "failed_cases": 0,
-  "git_sha": "4d731ad15a25a16d4602d52d7fba8ac15f94f23c",
-  "pipeline_version": 6,
-  "recorded_at": "2026-10-01T13:22:33Z",
+  "git_sha": "17f341d204cf46c987d8e96d6187c1d2c97fe769",
+  "pipeline_version": 7,
+  "recorded_at": "2026-10-01T23:26:26Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "gpu_chain_parity_metal"
