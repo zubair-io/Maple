@@ -81,6 +81,7 @@ namespace Maple.WinUI
                     await VerifyRetouchUndoAsync();
                     await VerifyTransferUndoAsync(output);
                     VerifyViewerDesignNavigation();
+                    await VerifyFilmstripMetadataAsync();
                     await VerifyComparisonAsync(raw);
                     await VerifyFilmComparisonAsync(raw, output);
                     await VerifyResponsiveDesignAsync();
