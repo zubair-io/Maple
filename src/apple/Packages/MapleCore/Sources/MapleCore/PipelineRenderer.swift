@@ -1371,8 +1371,9 @@ extension PipelineRenderer {
     // struct to 18 fields. See #565.
     var params = MapleAdjustmentParams()
     params.whites_anchor_ev = whitesAnchorEv
-    params.temperature = Float(model.temperature)
-    params.tint = Float(model.tint)
+    let wb = model.liveWhiteBalance(in: wbFrame)
+    params.temperature = Float(wb.temperature)
+    params.tint = Float(wb.tint)
     params.exposure = Float(model.exposure)
     params.contrast = Float(model.contrast)
     params.highlights = Float(model.highlights)

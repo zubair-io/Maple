@@ -56,7 +56,7 @@
 
 use crate::gpu_render::{
     chain_inputs_for_model, develop_prefix_rgba, effective_target_long_edge, prefix_model_for,
-    resolve_target_color_space,
+    resolve_target_color_space, GpuWhiteBalance,
 };
 use raw_core::stages::perspective;
 use raw_core::xmp::AdjustmentModel;
@@ -95,6 +95,7 @@ pub struct WebLiveSession {
     prefix_model: AdjustmentModel,
     /// Pre-AE anchor measured alongside the uploaded prefix, reused on every tick.
     whites_anchor_ev: f32,
+    white_balance: GpuWhiteBalance,
     /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
     /// normalized + clamped to the device texture cap in `open`. Fixed for the
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
@@ -202,6 +203,7 @@ impl WebLiveSession {
         let ((as_shot_temperature, as_shot_tint), camera_support) =
             crate::open_metadata::assess(&raw_img);
         let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
+        let white_balance = GpuWhiteBalance::resolve(&raw_img).map_err(|e| JsError::new(&e))?;
 
         // Context BEFORE develop: the effective develop target clamps to this
         // device's texture cap (#1080, composing with #1079's adapter-clamped
@@ -250,6 +252,7 @@ impl WebLiveSession {
             session,
             prefix_model,
             whites_anchor_ev,
+            white_balance,
             target_long_edge,
             width,
             height,
@@ -340,6 +343,8 @@ impl WebLiveSession {
         model.saturation = params[8];
         model.temperature = params[9];
         model.tint = params[10];
+        model.temperature_seen = true;
+        model.tint_seen = true;
         model.clarity = params[11];
         model.texture = params[12];
         model.dehaze = params[13];
@@ -506,6 +511,7 @@ impl WebLiveSession {
             self.film_lut_key,
             self.whites_anchor_ev,
         );
+        self.white_balance.apply(model, &mut inputs);
         // #1913 (generalised by #3191): the display-encode primaries MUST match
         // the canvas colour-space tag the present surface ACHIEVED — not the
         // `target_color_space` `open` was asked for, which the browser may not

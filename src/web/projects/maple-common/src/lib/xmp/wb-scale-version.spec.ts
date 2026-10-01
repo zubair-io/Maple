@@ -85,16 +85,12 @@ describe('XMP WbScaleVersion (#1780)', () => {
     expect(model.tint).toBe(10);
   });
 
-  it('honours an explicit stamp over the authorship heuristic', () => {
-    // A V2 stamp beats the V1 heuristic, then load-normalizes to 5. No
-    // tint was authored (absent-tint convention: 0), but the pair
-    // conversion is JOINT (#1894) — an authored temperature alone still
-    // moves both components, so `tint` is no longer undefined afterward.
+  it('honours an explicit stamp without inventing a missing legacy axis', () => {
     const xml = mapleSidecar(`crs:Temperature="5700" papp:WbScaleVersion="2"`);
     const { model } = parser.parseAdjustmentModel(xml);
-    expect(model.wbScaleVersion).toBe(5);
-    expect(model.temperature).toBeCloseTo(5697.0, 1);
-    expect(model.tint).toBeCloseTo(11.08, 2);
+    expect(model.wbScaleVersion).toBe(2);
+    expect(model.temperature).toBe(5700);
+    expect(model.partialWhiteBalance).toEqual({ temperature: 5700, version: 2 });
   });
 
   it('leaves a WB-less V2/V3/V4-stamped sidecar untouched — no manufactured WB (#1901 review)', () => {

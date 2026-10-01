@@ -39,14 +39,18 @@ public struct BatchAdjustmentLibrary {
     if let live = session(asset) {
       await live.loadSidecar()
       guard live.hasLoadedSidecar else {
-        throw live.sidecarError ?? BatchAdjustmentError.invalidOperation
+        throw live.sidecarError ?? live.renderError ?? BatchAdjustmentError.invalidOperation
+      }
+      if let error = live.partialWhiteBalanceImportError, live.model.partialWhiteBalance != nil {
+        throw error
       }
       return live.model
     }
     let scope = asset.scopeParentURL ?? asset.primaryURL
     let accessing = scope?.startAccessingSecurityScopedResource() ?? false
     defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
-    return try await store(asset).loadIfPresent()?.0 ?? .default
+    let loaded = try await store(asset).loadIfPresent()?.0 ?? .default
+    return try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: loaded)
   }
 
   public func prepare(

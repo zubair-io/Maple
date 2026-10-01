@@ -74,7 +74,7 @@ extension EditSession {
 
   /// Bake the current model against a fresh full-quality decode for export.
   public func renderForExport(sizeOption: ExportSizeOption = .full) async throws -> CIImage {
-    let exportModel = model
+    let exportModel = try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: model)
     let isFast = sizeOption == .fast
     let qualityOverride: PipelineRenderer.Quality? = isFast ? .preview : nil
     let targetSize: CGSize? = {

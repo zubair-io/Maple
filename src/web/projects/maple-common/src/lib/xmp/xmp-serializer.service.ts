@@ -54,7 +54,10 @@ import {
  * on #3309). Same rule in raw-core and Swift.
  */
 function fieldIsWithheld(modelKey: string, model: AdjustmentModel, wbIsAsShot: boolean): boolean {
-  if (wbIsAsShot && (modelKey === 'temperature' || modelKey === 'tint')) return true;
+  if (modelKey === 'temperature' || modelKey === 'tint') {
+    if (model.partialWhiteBalance) return model.partialWhiteBalance[modelKey] === undefined;
+    if (wbIsAsShot) return true;
+  }
   const derived = model.wbAlgorithmVersion !== 0;
   if (modelKey === 'wbSampleX' || modelKey === 'wbSampleY') {
     return model.wbSource !== 'Sampled' || !derived;
@@ -247,7 +250,9 @@ export class XmpSerializerService {
     parts.push(...fieldParts);
 
     if (emittedKeys.has('crs:Temperature') || emittedKeys.has('crs:Tint')) {
-      parts.push(`papp:WbScaleVersion="${model.wbScaleVersion === 1 ? 1 : 5}"`);
+      parts.push(
+        `papp:WbScaleVersion="${model.partialWhiteBalance?.version ?? (model.wbScaleVersion === 1 ? 1 : 5)}"`,
+      );
     }
 
     return parts;
@@ -267,7 +272,11 @@ export class XmpSerializerService {
     const emittedKeys = new Set<string>();
     for (const f of ADJUSTMENT_FIELDS) {
       if (fieldIsWithheld(f.modelKey, model, wbIsAsShot)) continue;
-      const value = model[f.modelKey];
+      const wbField = f.modelKey === 'temperature' || f.modelKey === 'tint';
+      const value =
+        wbField && model.partialWhiteBalance
+          ? model.partialWhiteBalance[f.modelKey as 'temperature' | 'tint']
+          : model[f.modelKey];
       if (value === undefined || value === null) continue;
       // A `NaN`/`Infinity`/`-Infinity` model value (a corrupted in-memory
       // model, or a hand-edited/malicious sidecar that round-tripped one
@@ -281,7 +290,7 @@ export class XmpSerializerService {
       // emit the default wire value for near-default inputs (0.004 →
       // `="0"`), churning otherwise-identical sidecars (PR #2192 review).
       const wire = f.serialize(value);
-      if (wire !== f.serialize(f.defaultValue(model))) {
+      if (wbField || wire !== f.serialize(f.defaultValue(model))) {
         fieldParts.push(`${f.xmpKey}="${wire}"`);
         emittedKeys.add(f.xmpKey);
       }

@@ -244,8 +244,8 @@ export class LibraryStateService {
     this.store.updateAssetDimensions(id, width, height);
   }
 
-  seedAsShotWhiteBalance(id: AssetId, temperature: number, tint: number): void {
-    this.store.seedAsShotWhiteBalance(id, temperature, tint);
+  seedAsShotWhiteBalance(id: AssetId, temperature: number, tint: number, calibrated = false): void {
+    this.store.seedAsShotWhiteBalance(id, temperature, tint, calibrated);
   }
 
   /** Camera As-Shot white balance for `id` (Kelvin + tint), or undefined. */

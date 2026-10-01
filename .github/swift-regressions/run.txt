@@ -272,3 +272,5 @@ DevelopedImageRevisionTests
 # RAW derivative regeneration (#3973): real committed sensor RAW and XMP,
 # including authored pixels, film LUT, and malformed/unreadable sidecars.
 ThumbnailLoaderRawSidecarTests
+
+PartialWhiteBalanceTests
