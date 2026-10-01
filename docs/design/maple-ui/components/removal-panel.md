@@ -50,7 +50,7 @@ broader announcements and Web global undo/history integration remain tracked by 
 
 ## Persistence and scope
 
-Require a writable filesystem RAW folder and explicitly imported, checksum-verified model files. XMP stores ordered accepted records; `.maple/inpaint/` stores immutable masks and scene-linear patches. Reopening, compatible CPU native-detail tiles and local browser exports use verified assets without inference. Export retains selection, review, dedicated undo and viewport across CPU RAW-owner retirement. Missing/corrupt assets fail visibly. The original is immutable. Native Smart paint/People UI, native-detail tiles on WebGPU, remaining remote/server/Windows consumers, model photographic quality, model distribution and physical-device budgets remain unqualified under #1472.
+Require a writable filesystem RAW folder and explicitly imported, checksum-verified model files. XMP stores ordered accepted records; `.maple/inpaint/` stores immutable masks and scene-linear patches. Reopening, compatible CPU native-detail tiles and local browser exports use verified assets without inference. Export retains selection, review, dedicated undo and viewport across CPU RAW-owner retirement. Missing/corrupt assets fail visibly. The original is immutable. Broader native selection qualification, native-detail tiles on WebGPU, remaining remote/server/Windows consumers, model photographic quality, model distribution and physical-device budgets remain unqualified under #1472.
 
 Apple owns temporary selection and review in `RemovalSession`. Its panel is
 available in the Mac/iPad inspector and iPhone controls; a local model folder
@@ -70,6 +70,13 @@ native extent; large-object reconstruction remains unqualified under #1472.
 Native Paint workflow/model tests pass. The macOS app has also exercised Paint,
 Compare, Cancel, Keep, undo/redo and reopening on an isolated 39MP photographic
 RAW, verifying that the original remains byte-identical and Cancel creates no
-XMP or companions. Native Smart paint/People UI, automatic background-role
-selection, photographic and hardware qualification
-remain under #1472.
+draft companions. Smart paint on the same RAW now runs actual segmentation,
+Remove, Compare, Cancel and Keep, preserving the exact accepted XMP and
+companion set on Cancel. Paint click/drag and selection undo/redo work after
+reopening saved removals. Native People detection and manual keeper selection
+produce a protected subject mask and disable Remove when no other person
+remains. On macOS a native pointer surface delivers brush samples; iOS retains
+the SwiftUI drag gesture. Both feed the same shared source-coordinate mapping.
+These are single-scene workflow checks. Automatic background-role selection,
+multiple-person photographic scenes, large-object reconstruction and broad
+photographic/hardware qualification remain under #1472.
