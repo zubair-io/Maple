@@ -187,6 +187,7 @@ ThumbnailEncoderTests slow render or decode workload that costs minutes on the r
 ThumbnailFetchGateTests slow render or decode workload that costs minutes on the runner
 ThumbnailLoaderDisplayPreviewTests slow render or decode workload that costs minutes on the runner
 ThumbnailLoaderNonRawSlowPathTests slow render or decode workload that costs minutes on the runner
+ThumbnailLoaderRawCameraTierTests fixture needs the gitignored camera RAW; committed RAW/XMP pixel and failure coverage runs in ThumbnailLoaderRawSidecarTests
 ThumbnailLoaderSidecarTests slow render or decode workload that costs minutes on the runner
 ThumbnailLoaderSourcelessTests slow render or decode workload that costs minutes on the runner
 ThumbnailLoaderTests slow render or decode workload that costs minutes on the runner

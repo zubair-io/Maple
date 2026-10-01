@@ -9,18 +9,12 @@ final class ThumbnailLoaderRawSidecarTests: XCTestCase {
   private var root: URL!
   private var raw: URL!
 
-  private var repositoryRoot: URL {
-    URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent()
-  }
-
   override func setUpWithError() throws {
     root = fm.temporaryDirectory.appendingPathComponent("raw-derivative-\(UUID())")
     try fm.createDirectory(at: root, withIntermediateDirectories: true)
     raw = root.appendingPathComponent("photo-\(UUID()).dng")
     try fm.copyItem(
-      at: repositoryRoot.appendingPathComponent("test-fixtures/batch-transfer/source.dng"), to: raw)
+      at: try XCTUnwrap(rawDerivativeFixture("test-fixtures/batch-transfer/source.dng")), to: raw)
   }
 
   override func tearDownWithError() throws {
@@ -124,27 +118,6 @@ final class ThumbnailLoaderRawSidecarTests: XCTestCase {
     XCTAssertNotEqual(try decodedPixels(result), try decodedPixels(expected(model, quality: 0.55)))
   }
 
-  func testCameraRawRegenerationUsesTheSharedThumbnailAndDisplayTierSizes() async throws {
-    let camera = repositoryRoot.appendingPathComponent("test-fixtures/raws/test_0017.dng")
-    guard fm.fileExists(atPath: camera.path) else {
-      throw XCTSkip(
-        "Camera RAW fixture unavailable; committed sensor fixture still covers XMP pixels")
-    }
-    try fm.removeItem(at: raw)
-    try fm.copyItem(at: camera, to: raw)
-    try writeSidecar(AdjustmentModel(exposure: -1, highlights: -65))
-    await ThumbnailDiskCache.shared.configure(folderURL: root)
-    let loader = ThumbnailLoader()
-    let thumbnailResult = await loader.load(for: raw)
-    let thumbnail = try XCTUnwrap(thumbnailResult)
-    let thumbImage = try XCTUnwrap(CIImage(data: thumbnail))
-    XCTAssertEqual(max(thumbImage.extent.width, thumbImage.extent.height), 512)
-    let previewResult = await loader.loadDisplayPreview(for: AssetRef(url: raw))
-    let preview = try XCTUnwrap(previewResult)
-    let previewImage = try XCTUnwrap(CIImage(data: preview))
-    XCTAssertEqual(max(previewImage.extent.width, previewImage.extent.height), 1280)
-  }
-
   func testMalformedAndUnreadableSidecarsNeverPublishCameraOriginals() async throws {
     await ThumbnailDiskCache.shared.configure(folderURL: root)
     for unreadable in [false, true] {
@@ -173,4 +146,45 @@ final class ThumbnailLoaderRawSidecarTests: XCTestCase {
     XCTAssertThrowsError(
       try ThumbnailLoader.renderRawSidecarDerivative(at: raw, targetLongEdge: 512, quality: 0.55))
   }
+}
+
+final class ThumbnailLoaderRawCameraTierTests: XCTestCase {
+  func testCameraRawRegenerationUsesTheSharedThumbnailAndDisplayTierSizes() async throws {
+    guard let camera = rawDerivativeFixture("test-fixtures/raws/test_0017.dng") else {
+      throw XCTSkip(
+        "Camera RAW fixture unavailable; committed sensor fixture still covers XMP pixels")
+    }
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("raw-camera-tier-\(UUID())")
+    try fm.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: root) }
+    let raw = root.appendingPathComponent("photo-\(UUID()).dng")
+    try fm.copyItem(at: camera, to: raw)
+    let xml = XMPSerializer.serialize(
+      model: AdjustmentModel(exposure: -1, highlights: -65), culling: CullingState())
+    try Data(xml.utf8).write(to: SidecarPath.sidecarURL(for: raw))
+    await ThumbnailDiskCache.shared.configure(folderURL: root)
+    let loader = ThumbnailLoader()
+    let thumbnailResult = await loader.load(for: raw)
+    let thumbnail = try XCTUnwrap(thumbnailResult)
+    let thumbImage = try XCTUnwrap(CIImage(data: thumbnail))
+    XCTAssertEqual(max(thumbImage.extent.width, thumbImage.extent.height), 512)
+    let previewResult = await loader.loadDisplayPreview(for: AssetRef(url: raw))
+    let preview = try XCTUnwrap(previewResult)
+    let previewImage = try XCTUnwrap(CIImage(data: preview))
+    XCTAssertEqual(max(previewImage.extent.width, previewImage.extent.height), 1280)
+  }
+
+}
+
+// CI stages the committed sensor fixture beside Packages, while a checkout
+// keeps it at the repository root. Locate the same real file in either layout.
+private func rawDerivativeFixture(_ relativePath: String) -> URL? {
+  var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+  while directory.path != "/" {
+    let candidate = directory.appendingPathComponent(relativePath)
+    if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+    directory.deleteLastPathComponent()
+  }
+  return nil
 }

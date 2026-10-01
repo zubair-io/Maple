@@ -266,3 +266,7 @@ FeatureFlagsTests
 # Files edit refresh (#3957): observation and generated ImageIO pixels;
 # no RAW fixtures, Metal device, or host services.
 DevelopedImageRevisionTests
+
+# RAW derivative regeneration (#3973): real committed sensor RAW and XMP,
+# including authored pixels, film LUT, and malformed/unreadable sidecars.
+ThumbnailLoaderRawSidecarTests
