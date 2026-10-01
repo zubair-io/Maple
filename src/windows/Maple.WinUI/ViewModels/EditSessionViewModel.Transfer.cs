@@ -9,6 +9,29 @@ namespace Maple.WinUI.ViewModels;
 
 public partial class EditSessionViewModel
 {
+    public async Task RefreshCloudTransferThumbnailsAsync(Services.Cloud.CloudClient client, string[] applied)
+    {
+        var ids = applied.ToHashSet(StringComparer.Ordinal);
+        var photos = AllPhotos.Where(photo => photo.IsCloud && photo.CloudAddress != null
+            && ids.Contains(photo.CloudAddress ?? photo.FilePath)).ToArray();
+        foreach (var photo in photos)
+        {
+            if (_disposed || !ReferenceEquals(client, _cloud)) return;
+            if (!AllPhotos.Contains(photo) || ReferenceEquals(photo, SelectedPhoto)) continue;
+            var address = photo.CloudAddress!;
+            var before = photo.ThumbnailPath;
+            var path = await client.FetchImageAsync("thumb", address, CancellationToken.None);
+            path = await Services.DisplayImageCache.PrepareAsync(path, Services.ThumbnailService.ThumbnailMaxPx, CancellationToken.None);
+            if (path == null) throw new InvalidOperationException($"The transfer was saved, but the thumbnail for {photo.FileName} could not be refreshed. Refresh the job status to retry.");
+            await OnUiAcknowledgedAsync(() =>
+            {
+                if (_disposed || !ReferenceEquals(client, _cloud) || !AllPhotos.Contains(photo)
+                    || ReferenceEquals(photo, SelectedPhoto) || photo.CloudAddress != address || photo.ThumbnailPath != before) return;
+                photo.ThumbnailPath = new Uri(path).AbsoluteUri;
+            });
+        }
+    }
+
     public async Task RefreshLocalTransferThumbnailsAsync(Services.Transfer.LocalTransferJob job)
     {
         var visible = AllPhotos.Where(photo => !photo.IsCloud)

@@ -29,6 +29,7 @@ public sealed class CloudTransferJob
     public string StorageId => Path.GetFileNameWithoutExtension(_path);
     public IReadOnlyDictionary<string, string> Names => _journal.Names;
     public bool SubmissionPending => _journal.PendingRoute != null;
+    public CloudClient Client => _client;
     private CloudTransferJob(string path, CloudClient client, CloudTransferJournal journal) => (_path, _client, _journal) = (path, client, journal);
 
     public static async Task<CloudTransferJob> PrepareAsync(string root, CloudClient client,

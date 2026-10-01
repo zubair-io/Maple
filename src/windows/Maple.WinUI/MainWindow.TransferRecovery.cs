@@ -116,6 +116,7 @@ public sealed partial class MainWindow
             busy = true; operation?.Dispose(); operation = new(); Enable();
             try
             {
+                string[] cloudApplied = [];
                 await ViewModel.PrepareMetadataAsync();
                 if (local != null)
                 {
@@ -141,6 +142,7 @@ public sealed partial class MainWindow
                         CloudSummary(state);
                         if (state.Status is not ("queued" or "running"))
                         {
+                            cloudApplied = (state.Result ?? state.Checkpoint)?.Applied ?? [];
                             var selectedId = selectedPhoto?.CloudAddress ?? selectedPhoto?.FilePath;
                             if (selectedId == null || (state.Result ?? state.Checkpoint)?.Applied.Contains(selectedId) != true) undoBefore = null;
                             break;
@@ -160,6 +162,7 @@ public sealed partial class MainWindow
                     undoBefore = null;
                 }
                 if (local != null) await ViewModel.RefreshLocalTransferThumbnailsAsync(local);
+                else await ViewModel.RefreshCloudTransferThumbnailsAsync(cloud!.Client, cloudApplied);
             }
             catch (Exception error)
             {

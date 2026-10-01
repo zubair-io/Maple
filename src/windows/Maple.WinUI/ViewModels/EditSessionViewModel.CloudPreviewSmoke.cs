@@ -90,6 +90,19 @@ public partial class EditSessionViewModel
             throw new InvalidOperationException("Metadata-only cloud transfer retained stale metadata");
         await Wait(() => session._previewRequest == null);
 
+        var cloudThumbnail = Path.Combine(output, "cloud-transfer-thumb.avif");
+        if (Native.RawFfi.maple_raster_resize_to_file(new Uri(photo.ThumbnailPath!).LocalPath,
+            cloudThumbnail, 512, 512, 2, "avif", 80) != 0)
+            throw new InvalidOperationException(Native.RawFfi.LastError() ?? "Cloud thumbnail fixture encoding failed");
+        handler.Thumbnail = await File.ReadAllBytesAsync(cloudThumbnail);
+        var appliedPhoto = new PhotoItem { FilePath = "/applied.dng", FileName = "applied.dng", IsCloud = true, CloudAddress = "lib:applied.dng" };
+        var failedPhoto = new PhotoItem { FilePath = "/failed.dng", FileName = "failed.dng", IsCloud = true, CloudAddress = "lib:failed.dng" };
+        session.AllPhotos.Add(appliedPhoto);
+        session.AllPhotos.Add(failedPhoto);
+        await session.RefreshCloudTransferThumbnailsAsync(client, ["lib:applied.dng"]);
+        if (appliedPhoto.ThumbnailPath == null || failedPhoto.ThumbnailPath != null || handler.ThumbnailReads != 1)
+            throw new InvalidOperationException("Cloud transfer did not refresh only acknowledged grid targets");
+
         static async Task Wait(Func<bool> ready)
         {
             var timer = Stopwatch.StartNew();
@@ -103,8 +116,15 @@ public partial class EditSessionViewModel
         public int Writes;
         public bool Reject;
         public readonly List<byte[]> Published = new();
+        public byte[]? Thumbnail;
+        public int ThumbnailReads;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellation)
         {
+            if (request.RequestUri?.AbsolutePath.StartsWith("/api/thumb/") == true)
+            {
+                ThumbnailReads++;
+                return new(HttpStatusCode.OK) { Content = new ByteArrayContent(Thumbnail ?? throw new InvalidOperationException("Thumbnail fixture missing")) };
+            }
             if (request.Method == HttpMethod.Put && request.RequestUri?.AbsolutePath == "/api/preview")
             {
                 Published.Add(await request.Content!.ReadAsByteArrayAsync(cancellation));
