@@ -196,11 +196,27 @@ pub fn apply_color_cancellable(
     noise_profile: Option<&[f32]>,
     iso: u32,
 ) {
+    apply_color_sampled_cancellable(img, amount, cancel, noise_profile, iso, 1.0);
+}
+
+/// #3875 sampling contract: output pixels per pixel of the developed full
+/// frame. A native crop uses one, regardless of its cropped dimensions.
+/// Only search support changes; noise variance and slider strength do not.
+/// Legacy callers stay at one until decode/binding metadata is connected.
+pub fn apply_color_sampled_cancellable(
+    img: &mut Image,
+    amount: f32,
+    cancel: CancelToken<'_>,
+    noise_profile: Option<&[f32]>,
+    iso: u32,
+    sampling_scale: f32,
+) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 {
         return;
     }
-    let params = chroma_params(amount);
+    let mut params = chroma_params(amount);
+    params.search_radius = chroma_search_radius(sampling_scale);
 
     let w = img.width as usize;
     let h = img.height as usize;
@@ -256,6 +272,16 @@ pub fn apply_color_cancellable(
         .for_each(|(((dst, lab), &new_a), &new_b)| {
             *dst = oklab_to_rec2020([lab[0], new_a, new_b]);
         });
+}
+
+/// Invalid/unavailable sampling metadata preserves native behavior.
+pub fn chroma_search_radius(scale: f32) -> usize {
+    if !scale.is_finite() || scale <= 0.0 {
+        return CHROMA_SEARCH_RADIUS;
+    }
+    (CHROMA_SEARCH_RADIUS as f32 * scale.min(1.0))
+        .round()
+        .max(1.0) as usize
 }
 
 #[cfg(test)]

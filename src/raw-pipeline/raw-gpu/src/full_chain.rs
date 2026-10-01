@@ -484,6 +484,7 @@ pub fn build_split<'a>(
         iso: inputs.iso,
     }));
     suffix.push(Box::new(NlmColorPass {
+        sampling_scale: 1.0,
         nr_color: inputs.nr_color,
         noise_profile: inputs.noise_profile.clone(),
         iso: inputs.iso,

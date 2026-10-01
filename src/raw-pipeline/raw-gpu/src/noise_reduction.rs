@@ -349,6 +349,9 @@ impl Pass for NlmLumaPass {
 /// `raw_core::stages::noise_reduction::apply_color`.
 pub struct NlmColorPass {
     pub nr_color: f32,
+    /// #3875 output pixels per full-frame developed pixel; native crops use
+    /// one. Binding metadata integration is tracked by that issue.
+    pub sampling_scale: f32,
     /// See [`NlmLumaPass::noise_profile`]. The chroma planes take the a/b
     /// coefficient combination (`is_chroma`), not the luma one.
     pub noise_profile: Vec<f32>,
@@ -365,7 +368,14 @@ impl Pass for NlmColorPass {
         dims: (u32, u32),
     ) {
         let (width, height) = dims;
-        let params = chroma_params(self.nr_color);
+        let mut params = chroma_params(self.nr_color);
+        params.search_radius = if self.sampling_scale.is_finite() && self.sampling_scale > 0.0 {
+            (CHROMA_SEARCH_RADIUS as f32 * self.sampling_scale.min(1.0))
+                .round()
+                .max(1.0) as usize
+        } else {
+            CHROMA_SEARCH_RADIUS
+        };
         if self.nr_color.abs() < 1e-3 || params.h <= 0.0 || params.search_radius == 0 {
             copy_through(encoder, src, dst, width, height);
             return;
@@ -457,3 +467,7 @@ mod bench;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "noise_reduction/tests_profile.rs"]
 mod tests_profile;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "noise_reduction/tests_sampling.rs"]
+mod tests_sampling;

@@ -190,6 +190,7 @@ fn luma_pass_profiled(amount: f32) -> NlmLumaPass {
 /// A color pass carrying the test profile.
 fn color_pass_profiled(amount: f32) -> NlmColorPass {
     NlmColorPass {
+        sampling_scale: 1.0,
         nr_color: amount,
         noise_profile: TEST_NOISE_PROFILE.to_vec(),
         iso: TEST_ISO,

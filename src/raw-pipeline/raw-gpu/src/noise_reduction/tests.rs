@@ -106,6 +106,7 @@ pub(super) fn luma_pass(amount: f32) -> NlmLumaPass {
 /// The color-NR sibling of [`luma_pass`].
 pub(super) fn color_pass(amount: f32) -> NlmColorPass {
     NlmColorPass {
+        sampling_scale: 1.0,
         nr_color: amount,
         noise_profile: Vec::new(),
         iso: 100,
