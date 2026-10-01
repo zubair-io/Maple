@@ -39,6 +39,27 @@ export class NativeDetailWorker {
     this.current = null;
   }
 
+  /** CPU authoring reuses the mosaic already retained for native detail.
+   * A gesture cannot quietly reopen a released or different source. */
+  async withRemovalSession<T>(
+    sourceId: string,
+    ext: string,
+    bytes: ArrayBuffer | undefined,
+    action: (session: Session) => T,
+  ): Promise<T> {
+    const generation = this.epoch;
+    await this.deps.ready();
+    if (generation !== this.epoch) throw new NativeDetailSupersededError();
+    if (this.current?.sourceId !== sourceId) {
+      if (!bytes) throw new Error('Removal RAW session changed; reopen the tool');
+      this.close();
+      this.current = { sourceId, session: this.deps.open(new Uint8Array(bytes), ext) };
+    }
+    // Synchronous use stays inside the owner: another queued image open must
+    // not free this WASM object between returning it and calling into it.
+    return action(this.current.session);
+  }
+
   async render(req: NativeDetailRequest): Promise<void> {
     const generation = this.epoch;
     try {
@@ -97,3 +118,10 @@ const worker = new NativeDetailWorker({
 export const closeNativeDetail = (): void => worker.close();
 export const handleNativeDetail = (request: NativeDetailRequest): Promise<void> =>
   worker.render(request);
+
+export const withNativeRemovalSession = <T>(
+  sourceId: string,
+  ext: string,
+  bytes: ArrayBuffer | undefined,
+  action: (session: Session) => T,
+): Promise<T> => worker.withRemovalSession(sourceId, ext, bytes, action);

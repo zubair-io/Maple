@@ -17,6 +17,7 @@ import type {
   WorkerResponse,
 } from './raw-pipeline.types';
 import { dispatchExport } from './raw-pipeline.export-request';
+import { RemovalAuthoringClient } from './raw-pipeline.removal-client';
 import { dispatchAutoAdjust } from './raw-pipeline.auto-adjust-request';
 import {
   dispatchImportLensProfile,
@@ -89,6 +90,12 @@ export class RawPipelineService implements OnDestroy {
   private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<number, PendingHandler>();
+  /** Paint/Smart paint preparation (#3934 / #3942), never a slider operation. */
+  readonly removal = new RemovalAuthoringClient(
+    () => this.ensureWorker(),
+    () => this.nextId++,
+    this.pending,
+  );
 
   // T10: threaded-state, reported by the worker once WASM init completes.
   // `isThreaded$`/`threadCount$`, the observables that used to surface this
@@ -167,6 +174,7 @@ export class RawPipelineService implements OnDestroy {
     if (this.worker !== worker) return;
     this.deepDenoiseProgress.set(null);
     this.detailClient.workerFailed();
+    this.removal.close();
     this.pending.forEach(({ reject }) => reject(new Error(message)));
     this.pending.clear();
     this.worker = null;
@@ -547,6 +555,7 @@ export class RawPipelineService implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.removal.close();
     this.worker?.terminate();
     this.worker = null;
     this.pending.forEach(({ reject }) => reject(new Error('RawPipelineService destroyed')));

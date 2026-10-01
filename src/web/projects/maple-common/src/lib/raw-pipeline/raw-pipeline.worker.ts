@@ -40,6 +40,7 @@ import { handleExport } from './raw-pipeline.export-handler';
 import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
 import { handleSampleRange } from './raw-pipeline.sample-range-handler';
 import { handleGuidedGeometry } from './raw-pipeline.guided-geometry-handler';
+import { handleRemovalAuthoring } from './raw-pipeline.removal-handler';
 import {
   handleRegisterMaskRaster,
   handleReleaseMaskRaster,
@@ -110,6 +111,9 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   if (await tryHandleLensProfileChoiceRequest(req)) return;
   if ('xmp' in req) await restoreLensProfile(req.xmp ?? null);
   switch (req.type) {
+    case 'removal-authoring':
+      await handleRemovalAuthoring(req);
+      return;
     case 'native-detail':
       await handleNativeDetail(req);
       return;

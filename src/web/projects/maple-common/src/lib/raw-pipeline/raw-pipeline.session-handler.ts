@@ -51,6 +51,23 @@ let liveSession: WebLiveSessionInstance | null = null;
 // the next chains after it. (#846's generation counter drops stale RESULTS on the
 // main thread — necessary but not sufficient; this prevents the re-entrant CALL.)
 let sessionChain: Promise<unknown> = Promise.resolve();
+
+/** Removal reads share the render queue: never enter an async mutable WASM
+ * borrow while a render/open/close owns it. No extra decoded mosaic on WebGPU. */
+export function withLiveRemovalSession<T>(
+  action: (session: import('./raw-pipeline.removal.types').RemovalRawSession) => T,
+): Promise<{ value: T } | null> {
+  return enqueueSessionOp(async () =>
+    liveSession
+      ? {
+          value: action(
+            liveSession as WebLiveSessionInstance &
+              import('./raw-pipeline.removal.types').RemovalRawSession,
+          ),
+        }
+      : null,
+  );
+}
 function enqueueSessionOp<T>(op: () => Promise<T>): Promise<T> {
   const next = sessionChain.then(op, op);
   sessionChain = next.catch(() => undefined);
