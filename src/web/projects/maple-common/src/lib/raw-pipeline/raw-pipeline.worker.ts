@@ -324,7 +324,8 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const autoFit = result.auto_fit;
   const rgb = result.take_rgb();
   result.free();
-  const buffer = new Uint8Array(rgb).buffer;
+  // One owned transfer copy, including when the source backing store is shared (#3970).
+  const buffer = rgb.slice().buffer;
   const response: WorkerResponse = {
     id: req.id,
     type: 'decode-success',
