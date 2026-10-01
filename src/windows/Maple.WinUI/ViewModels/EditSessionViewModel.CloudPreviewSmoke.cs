@@ -103,6 +103,20 @@ public partial class EditSessionViewModel
         if (appliedPhoto.ThumbnailPath == null || failedPhoto.ThumbnailPath != null || handler.ThumbnailReads != 1)
             throw new InvalidOperationException("Cloud transfer did not refresh only acknowledged grid targets");
 
+        handler.RejectPreview = true;
+        session.QueueCloudPreviewPublication(publication);
+        try
+        {
+            await session._cloudPreviewPublication;
+            throw new InvalidOperationException("Rejected preview was accepted");
+        }
+        catch (InvalidOperationException error) when (error.Message.StartsWith("Pending cloud save failed:")) { }
+        var publishedBeforeRetry = handler.Published.Count;
+        handler.RejectPreview = false;
+        await session.PrepareCloseAsync();
+        if (handler.Published.Count != publishedBeforeRetry + 1)
+            throw new InvalidOperationException("Close did not retry and drain the failed preview publication");
+
         var retainedDocument = session._cloudDoc;
         var retainedAdjustments = session.Adjustments;
         var retainedPreview = photo.PreviewPath;
@@ -133,6 +147,7 @@ public partial class EditSessionViewModel
     {
         public int Writes;
         public bool Reject;
+        public bool RejectPreview;
         public readonly List<byte[]> Published = new();
         public byte[]? Thumbnail;
         public int ThumbnailReads;
@@ -147,6 +162,7 @@ public partial class EditSessionViewModel
             }
             if (request.Method == HttpMethod.Put && request.RequestUri?.AbsolutePath == "/api/preview")
             {
+                if (RejectPreview) return new(HttpStatusCode.ServiceUnavailable);
                 Published.Add(await request.Content!.ReadAsByteArrayAsync(cancellation));
                 return new(HttpStatusCode.OK);
             }

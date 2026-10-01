@@ -10,17 +10,49 @@ namespace Maple.WinUI
     {
         private bool _closing;
         private bool _closeReady;
+        private bool _closeSavePending;
         private Task? _shutdownTask;
         private int _panelReleaseCount;
 
-        private void OnWindowClosed(object sender, WindowEventArgs args)
+        private async void OnWindowClosed(object sender, WindowEventArgs args)
         {
             if (_closeReady) return;
             // WinUI 1.6 DesktopWindowImpl.CloseImpl checks Handled before
             // destroying XAML/the HWND. Return from this callback first;
             // re-enter Close only after the async drain on the live dispatcher.
             args.Handled = true;
-            if (_closing) return;
+            if (_closing || _closeSavePending || _modalFlowGate.IsEntered) return;
+            _closeSavePending = true;
+            try
+            {
+                await RunModalFlowGuardedAsync(async () =>
+                {
+                    Exception? saveError = null;
+                    var finished = false;
+                    var saving = new Microsoft.UI.Xaml.Controls.ContentDialog
+                    {
+                        Title = "Saving changes",
+                        Content = "Finishing local saves and cloud preview uploads…",
+                        XamlRoot = Content.XamlRoot
+                    };
+                    saving.Opened += async (_, _) =>
+                    {
+                        try { await ViewModel.PrepareCloseAsync(); }
+                        catch (Exception error) { saveError = error; }
+                        finally { finished = true; saving.Hide(); }
+                    };
+                    saving.Closing += (_, closing) => closing.Cancel = !finished;
+                    await saving.ShowAsync();
+                    if (saveError != null) throw saveError;
+                });
+            }
+            catch (Exception error)
+            {
+                _closeSavePending = false;
+                await ShowMessageAsync("Could not finish saving", error.Message + "\nThe window remains open. Check the connection or save location, then close again to retry.");
+                return;
+            }
+            _closeSavePending = false;
             _closing = true;
             StopSaveTime();
             DisposeCloudMap();

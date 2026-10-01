@@ -11,15 +11,21 @@ namespace Maple.WinUI.ViewModels;
 public partial class EditSessionViewModel
 {
     private sealed record CloudPreviewPublication(CloudClient Client, string ServerPath, string OriginalPath, string Xmp);
-    private Task _cloudPreviewPublication = Task.CompletedTask;
+    private readonly PendingCloudSidecarWrites _cloudPreviewPublications = new();
+    private Task _cloudPreviewPublication => _cloudPreviewPublications.DrainAsync();
+
+    public async Task PrepareCloseAsync()
+    {
+        await PrepareMetadataAsync();
+        PublishPendingCloudPreview();
+        await _cloudPreviewPublications.DrainAsync(retryFailed: true);
+    }
 
     private void QueueCloudPreviewPublication(CloudPreviewPublication publication)
     {
         // UI-thread enqueue order follows acknowledged saves. A slow older
         // render/upload cannot finish after and replace a newer publication.
-        _cloudPreviewPublication = _cloudPreviewPublication.ContinueWith(
-            _ => PublishCloudPreviewAsync(publication), CancellationToken.None,
-            TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+        _cloudPreviewPublications.Enqueue(() => PublishCloudPreviewAsync(publication));
     }
 
     private async Task PublishCloudPreviewAsync(CloudPreviewPublication publication)
@@ -39,6 +45,7 @@ public partial class EditSessionViewModel
         {
             DiagLog.Write($"[cloud] preview publish failed: {error.Message}");
             OnUi(() => { if (!_disposed) CloudStatus = $"Adjustments saved; preview upload failed: {error.Message}"; });
+            throw;
         }
         finally
         {

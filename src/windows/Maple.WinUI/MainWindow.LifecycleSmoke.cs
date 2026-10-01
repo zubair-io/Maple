@@ -136,14 +136,15 @@ namespace Maple.WinUI
                 }
                 Close();
                 Close(); // repeated request before the dispatcher starts its drain
-                // Close schedules the drain after returning from WinUI's callback.
-                await Task.Yield();
+                var closeDeadline = Environment.TickCount64 + 30000;
+                while (_shutdownTask == null && Environment.TickCount64 < closeDeadline) await Task.Delay(20);
+                if (_shutdownTask == null) throw new TimeoutException("Close did not finish its save preflight");
                 await ShutdownAsync();
                 await ShutdownAsync();
                 if (!renderer.IsStopped || _panelNative != IntPtr.Zero || _panelReleaseCount != 1)
                     throw new InvalidOperationException("Shutdown did not join/close/release exactly once");
-                if (expectedPath == "gpu" && renderer.DroppedClosingPresents == 0)
-                    throw new InvalidOperationException("Queued present was not drained during close");
+                if (expectedPath == "gpu" && renderer.HasPendingPresent)
+                    throw new InvalidOperationException("Queued present survived shutdown");
                 // Exercise a real late decoded result, after close has started.
                 var late = await Task.Run(() => RenderEngine.Decode(raw, new AdjustmentState(), 256, RefineDecodeQuality.Preview, IntPtr.Zero));
                 renderer.SetImage(late);

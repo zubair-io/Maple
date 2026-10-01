@@ -354,7 +354,7 @@ namespace Maple.WinUI.ViewModels
             TrackCloudMetadataWrite(async () =>
             {
                 await client.UpdateDevelopSidecarAsync(serverPath, snapshot);
-                OnUi(() =>
+                await OnUiAcknowledgedAsync(() =>
                 {
                     if (publication != null)
                     {
@@ -369,7 +369,7 @@ namespace Maple.WinUI.ViewModels
 
         /// <summary>Develop + publish the edited asset's preview when leaving
         /// it (the web publishes on idle/exit; this is the switch-away moment).
-        /// Best-effort — a failure only logs.</summary>
+        /// Failed publications remain queued for the next close attempt.</summary>
         private void PublishPendingCloudPreview()
         {
             var publication = _cloudPreviewPending;
