@@ -28,3 +28,5 @@ pub mod types;
 
 #[cfg(feature = "pano")]
 pub mod pano;
+
+mod removal;

@@ -86,6 +86,17 @@ pub(super) fn render_path(
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
     render_lens::report_lens_resolution(&raw, model)?;
+    if let Some((saved, original)) = super::removal::prepare(&raw, &bytes, model, raw_path)? {
+        return Ok(saved.render_display(
+            &raw,
+            &original,
+            model,
+            RenderQuality::Full,
+            Some(RawInput::Path(raw_path)),
+            None,
+            film_lut,
+        )?);
+    }
     Ok(render_from_raw_with_quality_source_and_film(
         &raw,
         model,
@@ -110,6 +121,17 @@ fn render_path_with_quality(
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
     render_lens::report_lens_resolution(&raw, model)?;
+    if let Some((saved, original)) = super::removal::prepare(&raw, &bytes, model, raw_path)? {
+        return Ok(saved.render_display(
+            &raw,
+            &original,
+            model,
+            quality,
+            Some(RawInput::Path(raw_path)),
+            None,
+            film_lut,
+        )?);
+    }
     Ok(render_from_raw_with_quality_source_and_film(
         &raw,
         model,
@@ -140,6 +162,23 @@ fn render_path_with_primaries(
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
     render_lens::report_lens_resolution(&raw, model)?;
+    if let Some((saved, original)) = super::removal::prepare(&raw, &bytes, model, raw_path)? {
+        let (w, h, pixels) = saved.render_export(
+            &raw,
+            &original,
+            model,
+            quality,
+            Some(RawInput::Path(raw_path)),
+            None,
+            target_primaries,
+            ExportDepth::Eight,
+            film_lut,
+        )?;
+        let ExportPixels::Eight(rgb) = pixels else {
+            unreachable!("Eight terminal returned Sixteen")
+        };
+        return Ok((w, h, rgb));
+    }
     let (w, h, pixels) = render_export_from_raw_with_film(
         &raw,
         model,
