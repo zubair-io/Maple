@@ -34,17 +34,17 @@ namespace Maple.WinUI.ViewModels
                     item.FileSizeBytes, exif?.DateTimeOriginal, exif?.CameraSerial);
                 var originalThumbnail = item.ThumbnailPath;
                 var originalPath = item.FilePath;
-                var thumb = await _thumbnails.GetOrCreateLibraryThumbnailAsync(originalPath, ct);
+                var thumb = await _thumbnails.GetOrCreateAsync(originalPath, ct);
                 thumb = await Services.DisplayImageCache.PrepareAsync(thumb, Services.ThumbnailService.ThumbnailMaxPx, ct);
 
-                App.MainDispatcherQueue?.TryEnqueue(() =>
+                await OnUiAcknowledgedAsync(() =>
                 {
                     if (_disposed || ct.IsCancellationRequested || item.FilePath != originalPath) return;
                     // JPEGs are directly displayable, so a missing embedded
                     // preview falls back to the file itself.
                     var effectiveThumb = thumb
                         ?? (item.Format is "JPG" or "JPEG" ? item.FilePath : null);
-                    if (effectiveThumb != null && item.ThumbnailPath == originalThumbnail)
+                    if (effectiveThumb != null && originalThumbnail == null && item.ThumbnailPath == null)
                         item.ThumbnailPath = new Uri(effectiveThumb).AbsoluteUri;
                     if (exif != null)
                     {
@@ -71,6 +71,14 @@ namespace Maple.WinUI.ViewModels
             }
             if (!ct.IsCancellationRequested && folderPath != null)
                 SaveRenameSnapshot(folderPath, snapshot);
+            // Populate the whole library before serialized RAW development.
+            // Otherwise one edited 100MP photo blocks every following cell.
+            foreach (var item in items)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!System.IO.File.Exists(Services.Xmp.SidecarStore.SidecarPathFor(item.FilePath))) continue;
+                await RefreshLocalThumbnailAsync(item, ct);
+            }
         }
 
         private static string? Join(string? a, string? b) =>

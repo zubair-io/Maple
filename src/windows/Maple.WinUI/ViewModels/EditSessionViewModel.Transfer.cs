@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.Transfer;
@@ -8,6 +9,21 @@ namespace Maple.WinUI.ViewModels;
 
 public partial class EditSessionViewModel
 {
+    public async Task RefreshLocalTransferThumbnailsAsync(Services.Transfer.LocalTransferJob job)
+    {
+        var visible = AllPhotos.Where(photo => !photo.IsCloud)
+            .ToLookup(photo => photo.FilePath, StringComparer.OrdinalIgnoreCase);
+        await foreach (var path in job.CurrentAppliedPathsAsync())
+        {
+            if (_disposed) return;
+            foreach (var photo in visible[path])
+            {
+                if (!AllPhotos.Contains(photo) || ReferenceEquals(photo, SelectedPhoto)) continue;
+                await RefreshLocalThumbnailAsync(photo, CancellationToken.None);
+            }
+        }
+    }
+
     /// <summary>Reload acknowledged sidecars after external batch delivery. The
     /// batch journal owns recovery. A transfer initiated in this window retains
     /// one undo boundary even when the sidecar watcher wins the reload race.</summary>

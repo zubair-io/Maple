@@ -5,7 +5,9 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Models;
+using Maple.WinUI.Services;
 using Maple.WinUI.Services.Xmp;
+using Maple.WinUI.Services.Transfer;
 
 namespace Maple.WinUI.ViewModels;
 
@@ -48,6 +50,26 @@ public partial class EditSessionViewModel
         await Wait(() => session._previewRequest == null, "Latest preview request did not settle");
         if (abandoned.PreviewPath != null || photo.PreviewPath != cold)
             throw new InvalidOperationException("Stale selection published an edited preview");
+
+        session.SelectedPhoto = null;
+        session.AllPhotos.Add(photo);
+        var snapshot = await TransferSnapshot.ReadAsync(fixture, null, CancellationToken.None);
+        var incoming = baseline.Clone();
+        incoming.Exposure = 1;
+        var patch = AdjustmentTransfer.Build(new(incoming, snapshot.Document.WbScaleVersion, null), new[] { "tone" });
+        var job = await LocalTransferJob.CreateAsync(Path.Combine(Path.GetDirectoryName(fixture)!, "thumbnail-transfer"),
+            new[] { new TransferJobInput(fixture, photo.FileName, snapshot.ExpectedHash!, patch) });
+        var result = await job.RunAsync(false, CancellationToken.None);
+        if (result.Applied != 1) throw new InvalidOperationException("Thumbnail transfer fixture failed");
+        await session.RefreshLocalTransferThumbnailsAsync(job);
+        if (photo.ThumbnailPath == coldThumbnail || session.SelectedPhoto != null)
+            throw new InvalidOperationException("Unselected transfer target did not refresh its thumbnail");
+        // A later external edit must not be mistaken for the journal's write.
+        File.WriteAllText(sidecar, XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = baseline }));
+        var transferredThumbnail = photo.ThumbnailPath;
+        await session.RefreshLocalTransferThumbnailsAsync(job);
+        if (photo.ThumbnailPath != transferredThumbnail)
+            throw new InvalidOperationException("Stale transfer checkpoint refreshed an externally changed target");
 
         static async Task Wait(Func<bool> ready, string error)
         {

@@ -144,26 +144,26 @@ namespace Maple.WinUI.ViewModels
             photo.FileName = Path.GetFileName(newPrimaryPath);
             photo.ThumbnailPath = null;
             photo.PreviewPath = null;
-            _ = RefreshRenamedThumbnailAsync(photo);
+            _ = RefreshLocalThumbnailAsync(photo, CancellationToken.None);
             if (ReferenceEquals(_openPhoto, photo))
                 RequestEmbeddedPreview(photo);
         }
 
-        private async Task RefreshRenamedThumbnailAsync(PhotoItem photo)
+        private async Task RefreshLocalThumbnailAsync(PhotoItem photo, CancellationToken ct)
         {
             var originalPath = photo.FilePath;
             var originalThumbnail = photo.ThumbnailPath;
-            var thumb = await _thumbnails.GetOrCreateLibraryThumbnailAsync(originalPath, CancellationToken.None)
+            var thumb = await _thumbnails.GetOrCreateLibraryThumbnailAsync(originalPath, ct)
                 .ConfigureAwait(false);
-            thumb = await DisplayImageCache.PrepareAsync(thumb, ThumbnailService.ThumbnailMaxPx, CancellationToken.None);
+            thumb = await DisplayImageCache.PrepareAsync(thumb, ThumbnailService.ThumbnailMaxPx, ct);
             var effectiveThumb = thumb
                 ?? (photo.Format is "JPG" or "JPEG" ? photo.FilePath : null);
             if (effectiveThumb == null)
                 return;
             var uri = new Uri(effectiveThumb).AbsoluteUri;
-            OnUi(() =>
+            await OnUiAcknowledgedAsync(() =>
             {
-                if (!_disposed && photo.FilePath == originalPath && photo.ThumbnailPath == originalThumbnail)
+                if (!_disposed && !ct.IsCancellationRequested && photo.FilePath == originalPath && photo.ThumbnailPath == originalThumbnail)
                     photo.ThumbnailPath = uri;
             });
         }

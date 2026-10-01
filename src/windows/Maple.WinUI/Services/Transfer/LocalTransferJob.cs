@@ -163,6 +163,20 @@ public sealed class LocalTransferJob
         return false;
     }
 
+    public async IAsyncEnumerable<string> CurrentAppliedPathsAsync()
+    {
+        // Read each checkpoint once, including recovery after a partial run.
+        // Only still-current, acknowledged writes invalidate visible pixels.
+        for (var index = 0; index < Count; index++)
+        {
+            var item = await ReadItemAsync(index);
+            if (item.Status != "applied" || item.After == null) continue;
+            var current = await Task.Run(() => SidecarStore.ReadSnapshot(item.Input.Path));
+            if (SidecarStore.SnapshotHash(current) == SidecarStore.SnapshotHash(Encoding.UTF8.GetBytes(item.After)))
+                yield return item.Input.Path;
+        }
+    }
+
     private async Task<TransferJobItem> ReadItemAsync(int index)
     {
         var item = JsonSerializer.Deserialize<TransferJobItem>(await File.ReadAllTextAsync(ItemPath(index)))

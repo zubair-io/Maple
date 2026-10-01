@@ -159,6 +159,7 @@ public sealed partial class MainWindow
                     await ViewModel.RefreshAfterTransferAsync(selectedPhoto, undoBefore);
                     undoBefore = null;
                 }
+                if (local != null) await ViewModel.RefreshLocalTransferThumbnailsAsync(local);
             }
             catch (Exception error)
             {
