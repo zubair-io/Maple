@@ -1,49 +1,11 @@
-//! The one place a run of filter operations is premultiplied, executed and
-//! unpremultiplied (#3504 PR-E final fix wave).
-//!
-//! sharp does not premultiply per operation. `pipeline.cc` decides **once**
-//! whether the whole job needs it —
-//! `shouldPremultiplyAlpha = has_alpha && (shouldResize || shouldBlur ||
-//! shouldConv || shouldSharpen)` — premultiplies there, runs median,
-//! threshold, blur, convolve and sharpen in that fixed order without
-//! re-quantising, and unpremultiplies once afterwards. Maple keeps the
-//! caller's own order (see the package README's op-order note), but it
-//! follows sharp on the sandwich: one premultiply, one unpremultiply, one
-//! cast back to bytes for a whole run of consecutive filter ops.
-//!
-//! The model, measured against sharp 0.34.5 and matching libvips 8.17.3's
-//! source exactly:
-//!
-//! 1. `vips_premultiply` scales colour by `alpha/255` and leaves alpha
-//!    alone, in float; sharp then casts straight back to the input format
-//!    (`image.premultiply().cast(premultiplyFormat)`), and libvips' cast to
-//!    `uchar` **clips then truncates** (`cast.c`: "now does floor(), not
-//!    rint()"). So the run starts from premultiplied *bytes*.
-//! 2. Every filter then runs in `f64` with no intermediate clamp. libvips'
-//!    float convolutions write float images, so an over- or undershoot is
-//!    not clipped away between operations.
-//! 3. `vips_unpremultiply` divides colour by `alpha/255` — deliberately
-//!    using the *unclipped* alpha, so its comment goes, "we want over and
-//!    undershoots on alpha and RGB to cancel" — treating an alpha whose
-//!    magnitude is under 0.01 as zero, and clips only the alpha band.
-//! 4. One clipping, truncating cast to `u8` at the end.
-//!
-//! Step 3's use of the unclipped alpha is what makes sharp's output for a
-//! transparent pixel beside an opaque one reproducible at all: on an 8x4
-//! half-opaque `(200,10,10,255)` / half-transparent `(0,250,0,0)` fixture,
-//! `sharpen()` drives the alpha accumulator to −31.875 and the red
-//! accumulator to −25.0, and `255/−31.875 · −25.0` is exactly the 200 sharp
-//! writes there. Clamping either accumulator at 0 first — which is what a
-//! per-operation `u8` sandwich does — gives 0 instead, and that single
-//! difference was worth a max diff of 255 before this wave.
-//!
-//! `median` and `threshold` do not themselves need premultiplied input, but
-//! they land *inside* the sandwich whenever the same run also has a blur,
-//! convolve or sharpen — exactly as they do in sharp — so they are part of
-//! the run rather than special-cased out of it.
+//! Byte resampling and float filters share one alpha premultiply/unpremultiply pair.
+//! sharp 0.34.5 quantises premultiplied input to bytes before resize, retains
+//! float overshoots through filters, and unpremultiplies before the final byte cast.
+//! Median and threshold inherit the pair when the same run resizes, blurs,
+//! convolves or sharpens. Maple retains caller order within each consecutive run.
 
 use crate::error::Result;
-use crate::raster::RasterImage;
+use crate::raster::{needs_resampling, resize_premultiplied, RasterImage, ResizeOptions};
 use crate::raster_sharpen::SharpenOptions;
 
 /// A filter run's working buffer: interleaved samples in `f64`, still on the
@@ -87,8 +49,9 @@ impl Plane {
 /// One filter operation, resolved from either a recipe op or a direct
 /// `RasterImage` method call. `Convolve` borrows its kernel so a recipe op's
 /// `Vec<f64>` needs no copy.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum FilterOp<'a> {
+    Resize(ResizeOptions),
     Blur(Option<f64>),
     Sharpen(SharpenOptions),
     Median(u32),
@@ -121,67 +84,114 @@ impl FilterOp<'_> {
 
 /// `vips_premultiply`: colour scaled by the clipped alpha, alpha itself
 /// passed through unchanged.
+// libvips alpha transforms use f32; byte truncation depends on that precision.
+fn premultiply_pixel(px: &[f64]) -> [f64; 4] {
+    let alpha = px[3].clamp(0.0, 255.0) as f32 / 255.0;
+    [
+        f64::from(px[0] as f32 * alpha),
+        f64::from(px[1] as f32 * alpha),
+        f64::from(px[2] as f32 * alpha),
+        px[3],
+    ]
+}
+
 fn premultiply(plane: &Plane) -> Plane {
-    let data = plane
-        .data
-        .chunks_exact(4)
-        .flat_map(|px| {
-            // `f32`, not `f64`: `vips_premultiply` writes a float image and
-            // computes `nalpha` as a float, and the difference shows. A
-            // sweep of all 65,536 (alpha, value) pairs through this
-            // quantising cast finds 12 where `f32` and `f64` truncate to
-            // different bytes — e.g. alpha 147, value 85: `f32` rounds the
-            // product to 49, `f64` to 48. That one-byte gap survives a
-            // `blur(1.5)` round trip through this module's premultiply /
-            // unpremultiply sandwich: Maple's `f32` path lands back on 85,
-            // matching sharp 0.34.5 exactly, while a hypothetical pure-`f64`
-            // implementation would land on 83.
-            let nalpha = (px[3].clamp(0.0, 255.0) as f32) / 255.0;
-            [
-                f64::from(px[0] as f32 * nalpha),
-                f64::from(px[1] as f32 * nalpha),
-                f64::from(px[2] as f32 * nalpha),
-                px[3],
-            ]
-        })
-        .collect();
-    plane.with_data(data)
+    plane.with_data(
+        plane
+            .data
+            .chunks_exact(4)
+            .flat_map(premultiply_pixel)
+            .collect(),
+    )
 }
 
-/// `vips_unpremultiply`: colour divided by the *unclipped* alpha (so
-/// over- and undershoots cancel), alpha clipped into range. An alpha whose
-/// magnitude is below 0.01 zeroes the colour rather than dividing, which is
-/// libvips' own float-image guard against producing infinities.
+fn unpremultiply_pixel(px: &[f64]) -> [f64; 4] {
+    let factor: f32 = if px[3].abs() < 0.01 {
+        0.0
+    } else {
+        255.0 / px[3] as f32
+    };
+    [
+        f64::from(px[0] as f32 * factor),
+        f64::from(px[1] as f32 * factor),
+        f64::from(px[2] as f32 * factor),
+        px[3].clamp(0.0, 255.0),
+    ]
+}
+
 fn unpremultiply(plane: &Plane) -> Plane {
-    let data = plane
-        .data
-        .chunks_exact(4)
-        .flat_map(|px| {
-            // `f32` for the same reason [`premultiply`] uses it: libvips'
-            // `factor` and the multiply that follows are float.
-            let factor: f32 = if px[3].abs() < 0.01 {
-                0.0
-            } else {
-                255.0 / px[3] as f32
-            };
-            [
-                f64::from(px[0] as f32 * factor),
-                f64::from(px[1] as f32 * factor),
-                f64::from(px[2] as f32 * factor),
-                px[3].clamp(0.0, 255.0),
-            ]
-        })
-        .collect();
-    plane.with_data(data)
+    plane.with_data(
+        plane
+            .data
+            .chunks_exact(4)
+            .flat_map(unpremultiply_pixel)
+            .collect(),
+    )
 }
 
-fn apply_to_plane(plane: &Plane, op: &FilterOp<'_>) -> Result<Plane> {
-    match *op {
-        FilterOp::Blur(sigma) => crate::raster_filter::blur_plane(plane, sigma),
-        FilterOp::Sharpen(options) => crate::raster_sharpen::sharpen_plane(plane, &options),
-        FilterOp::Median(size) => crate::raster_filter_ops::median_plane(plane, size),
+fn transform_alpha_bytes(src: &RasterImage, transform: fn(&[f64]) -> [f64; 4]) -> RasterImage {
+    RasterImage {
+        width: src.width,
+        height: src.height,
+        channels: src.channels,
+        orientation: src.orientation,
+        data: src
+            .data
+            .chunks_exact(4)
+            .flat_map(|px| {
+                transform(&[
+                    f64::from(px[0]),
+                    f64::from(px[1]),
+                    f64::from(px[2]),
+                    f64::from(px[3]),
+                ])
+            })
+            .map(|sample| sample.clamp(0.0, 255.0) as u8)
+            .collect(),
+    }
+}
+
+fn resize_in_sandwich(
+    image: &RasterImage,
+    options: &ResizeOptions,
+    sandwich: bool,
+) -> Result<RasterImage> {
+    let background = if sandwich {
+        premultiply_pixel(&options.background.map(f64::from)).map(|sample| sample as u8)
+    } else {
+        options.background
+    };
+    resize_premultiplied(
+        image,
+        &ResizeOptions {
+            background,
+            ..options.clone()
+        },
+    )
+}
+
+fn apply_to_plane(plane: &Plane, op: &FilterOp<'_>, sandwich: bool) -> Result<Plane> {
+    match op {
+        FilterOp::Resize(options) => {
+            let image = RasterImage::from_raw(
+                plane.width as u32,
+                plane.height as u32,
+                plane.channels as u8,
+                plane.to_u8(),
+            )?;
+            let resized = resize_in_sandwich(&image, options, sandwich)?;
+            Ok(Plane {
+                width: resized.width as usize,
+                height: resized.height as usize,
+                channels: resized.channels as usize,
+                data: resized.data.into_iter().map(f64::from).collect(),
+            })
+        }
+        FilterOp::Blur(sigma) => crate::raster_filter::blur_plane(plane, *sigma),
+        FilterOp::Sharpen(options) => crate::raster_sharpen::sharpen_plane(plane, options),
+        FilterOp::Median(size) => crate::raster_filter_ops::median_plane(plane, *size),
         FilterOp::Threshold { value, greyscale } => Ok(crate::raster_filter_ops::threshold_plane(
-            plane, value, greyscale,
+            plane, *value, *greyscale,
         )),
         FilterOp::Convolve {
             width,
@@ -189,39 +199,71 @@ fn apply_to_plane(plane: &Plane, op: &FilterOp<'_>) -> Result<Plane> {
             kernel,
             scale,
             offset,
-        } => crate::raster_filter_ops::convolve_plane(plane, width, height, kernel, scale, offset),
+        } => crate::raster_filter_ops::convolve_plane(
+            plane, *width, *height, kernel, *scale, *offset,
+        ),
     }
 }
 
 /// Run `ops` in order over `src` inside a single premultiply sandwich (when
-/// the image has alpha and the run contains a blur, convolve or sharpen),
+/// the image has alpha and the run resizes, blurs, convolves or sharpens),
 /// with one truncating cast back to bytes at the end.
 pub(crate) fn run_filter_chain(src: &RasterImage, ops: &[FilterOp<'_>]) -> Result<RasterImage> {
-    let sandwich = src.channels == 4 && ops.iter().any(FilterOp::triggers_premultiply);
-    let start = Plane {
-        width: src.width as usize,
-        height: src.height as usize,
-        channels: src.channels as usize,
-        data: src.data.iter().map(|&v| v as f64).collect(),
-    };
-    // sharp's `premultiply().cast(uchar)` — the cast is why the run starts
-    // from bytes rather than from the raw float product.
-    let start = if sandwich {
-        premultiply(&start).quantised()
+    let sandwich = src.channels == 4
+        && ops.iter().any(|op| {
+            op.triggers_premultiply()
+                || matches!(op, FilterOp::Resize(options) if needs_resampling(src, options))
+        });
+    let (start, ops) = if let Some((FilterOp::Resize(options), rest)) = ops.split_first() {
+        // Resize full-resolution bytes before allocating the smaller float filter plane.
+        let premultiplied = sandwich.then(|| transform_alpha_bytes(src, premultiply_pixel));
+        let resized = resize_in_sandwich(premultiplied.as_ref().unwrap_or(src), options, sandwich)?;
+        if rest.is_empty() {
+            return Ok(if sandwich {
+                transform_alpha_bytes(&resized, unpremultiply_pixel)
+            } else {
+                resized
+            });
+        }
+        (
+            Plane {
+                width: resized.width as usize,
+                height: resized.height as usize,
+                channels: resized.channels as usize,
+                data: resized.data.into_iter().map(f64::from).collect(),
+            },
+            rest,
+        )
     } else {
-        start
+        let plane = Plane {
+            width: src.width as usize,
+            height: src.height as usize,
+            channels: src.channels as usize,
+            data: src.data.iter().copied().map(f64::from).collect(),
+        };
+        (
+            if sandwich {
+                premultiply(&plane).quantised()
+            } else {
+                plane
+            },
+            ops,
+        )
     };
     let filtered = ops
         .iter()
-        .try_fold(start, |plane, op| apply_to_plane(&plane, op))?;
+        .try_fold(start, |plane, op| apply_to_plane(&plane, op, sandwich))?;
     let finished = if sandwich {
         unpremultiply(&filtered)
     } else {
         filtered
     };
     Ok(RasterImage {
+        width: finished.width as u32,
+        height: finished.height as u32,
+        channels: finished.channels as u8,
         data: finished.to_u8(),
-        ..src.clone()
+        orientation: src.orientation,
     })
 }
 

@@ -637,19 +637,25 @@ pixels. Resolving the whole op list into sharp's stage order at assembly
 time, the way `gamma` already is, is tracked separately.
 
 The five filters have their own stage order inside that list — **median →
-threshold → blur → convolve → sharpen** — and sharp wraps the whole group in
-a single premultiply/unpremultiply pair when the image has alpha. Maple
-matches the premultiply part: each run of consecutive filter calls shares one
-premultiply, one unpremultiply and one cast back to bytes, so `median` and
-`threshold` land inside the sandwich exactly as they do in sharp. It does not
-match the reordering. Whenever your call order already agrees with sharp's
-stage order the two are byte-identical; when it does not, Maple does what you
-wrote. Measured on 32x32 noise: `.threshold(128).blur(1.5)` and
-`.blur(1.5).threshold(128)` are byte-identical in sharp and differ by up to
-190 in Maple (the first order matches sharp exactly, the second is Maple's own
-answer); `.blur(2).sharpen()` versus `.sharpen().blur(2)` is 0 in sharp and up
-to 10 in Maple, again with the first order byte-identical. Call them in
-sharp's stage order if you want sharp's numbers.
+threshold → blur → convolve → sharpen** — and sharp wraps resize and those
+filters in a single premultiply/unpremultiply pair when alpha is present and
+resize, blur, convolve or sharpen requires it. Maple shares that pair across
+consecutive resize/filter calls, including `median` and `threshold`. Resize
+uses premultiplied bytes with the resampler's own alpha pair disabled; filters
+retain their float working buffer until the final unpremultiply and byte cast.
+A resize that does not resample does not trigger alpha conversion by itself.
+On a structured 32×32 RGBA fixture with opaque, partial-alpha and transparent
+regions, the package oracle pins resize alone and six following filter chains
+byte-for-byte against sharp 0.34.5 across all six supported kernels. This does
+not close the separate libvips resampling/staging differences in #3573.
+
+Maple keeps the caller's operation order. Measured on 32x32 noise:
+`.threshold(128).blur(1.5)` and `.blur(1.5).threshold(128)` are byte-identical in
+sharp and differ by up to 190 in Maple; the first order matches sharp exactly.
+`.blur(2).sharpen()` versus `.sharpen().blur(2)` is 0 in sharp and up to 10 in
+Maple, again with the first order byte-identical. Call filters in sharp's stage
+order to use the same ordering. An intervening colour or geometry operation
+ends Maple's consecutive resize/filter run.
 
 ## Native Core & Linux Support
 

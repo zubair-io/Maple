@@ -18,10 +18,9 @@ use crate::raster_recipe_output::output_from_wire;
 use crate::raster_composite::{composite, BlendMode, CompositeLayer, Gravity};
 use crate::raster_encode::RasterOutput;
 use crate::raster_recipe_encode::encode_raster_output;
-use crate::raster_recipe_filter::{apply_filter_run, is_filter_op};
+use crate::raster_recipe_filter::{apply_resize_filter_run, is_resize_filter_op};
 use crate::raster_recipe_geometry::apply_geometry_op;
 use crate::raster_recipe_meta::{resolve_metadata, ResolvedMetadata};
-use crate::raster_recipe_resize::{apply_resize_op, ResizeOpArgs};
 use crate::view::encode::TargetPrimaries;
 
 /// What a recipe produced: the encoded bytes (or raw pixels for
@@ -61,7 +60,7 @@ fn decode_layer(layer: &Layer, aux: &[u8]) -> Result<RasterImage> {
 /// it, using the incoming value as `from` rather than an assumed sRGB (see
 /// its doc comment).
 ///
-/// Handles every op except the five filter ops, which `apply_filter_run`
+/// Resize/filter ops are grouped by `apply_resize_filter_run`, which
 /// takes as whole runs rather than one at a time (see [`run_recipe`]).
 fn apply_op(
     image: RasterImage,
@@ -75,31 +74,6 @@ fn apply_op(
             oriented.auto_orient();
             Ok((oriented, primaries))
         }
-        Op::Resize {
-            width,
-            height,
-            fit,
-            position,
-            kernel,
-            without_enlargement,
-            without_reduction,
-            background,
-        } => Ok((
-            apply_resize_op(
-                &image,
-                &ResizeOpArgs {
-                    width: *width,
-                    height: *height,
-                    fit,
-                    position,
-                    kernel,
-                    without_enlargement: *without_enlargement,
-                    without_reduction: *without_reduction,
-                    background: *background,
-                },
-            )?,
-            primaries,
-        )),
         Op::Flatten { background } => Ok((
             image.flatten([background[0], background[1], background[2]]),
             primaries,
@@ -146,17 +120,14 @@ fn apply_op(
         | Op::Modulate { .. }
         | Op::Tint { .. }
         | Op::ToColourspace { .. } => apply_colour_op(image, primaries, op),
-        Op::Blur(_) | Op::Sharpen(_) | Op::Median(_) | Op::Threshold(_) | Op::Convolve(_) => {
-            // `run_recipe` routes every filter op through `apply_filter_run`,
-            // so reaching here means a new filter variant was added to
-            // `is_filter_op`'s list without being wired into
-            // `filter_op_from_wire`. An error beats a panic: this function
-            // runs behind the C-FFI boundary, where unwinding is not the
-            // caller's problem to catch.
-            Err(bad(format!(
-                "{op:?} is a filter op and must run through apply_filter_run"
-            )))
-        }
+        Op::Resize { .. }
+        | Op::Blur(_)
+        | Op::Sharpen(_)
+        | Op::Median(_)
+        | Op::Threshold(_)
+        | Op::Convolve(_) => Err(bad(format!(
+            "{op:?} is a resize/filter op and must run through apply_resize_filter_run"
+        ))),
     }
 }
 
@@ -259,7 +230,7 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     // primaries alongside the image so a `ToColourspace` op rotates from
     // where the pixels are, not from an assumed sRGB (#3503 fix-round-1).
     //
-    // Consecutive filter ops run as ONE premultiply sandwich, matching
+    // Consecutive resize/filter ops run as ONE premultiply sandwich, matching
     // sharp's single `premultiply()` / `unpremultiply()` pair around its
     // whole filter stage — see `raster_filter_chain`. `chunk_by` groups a
     // maximal run of them; every other op comes back as a chunk of one. No
@@ -267,12 +238,12 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     // straight back out.
     let (processed, _primaries) = recipe
         .ops
-        .chunk_by(|a, b| is_filter_op(a) && is_filter_op(b))
+        .chunk_by(|a, b| is_resize_filter_op(a) && is_resize_filter_op(b))
         .try_fold(
             (decoded, TargetPrimaries::Srgb),
             |(image, primaries), chunk| {
-                if is_filter_op(&chunk[0]) {
-                    apply_filter_run(&image, chunk).map(|filtered| (filtered, primaries))
+                if is_resize_filter_op(&chunk[0]) {
+                    apply_resize_filter_run(&image, chunk).map(|filtered| (filtered, primaries))
                 } else {
                     apply_op(image, primaries, &chunk[0], aux)
                 }
