@@ -320,6 +320,7 @@ import type {
 } from './raw-pipeline.brush-raster.types';
 
 export type WorkerResponse =
+  | import('./raw-pipeline.removal.types').RemovalAuthoringResponse
   | import('./raw-pipeline.guided-geometry').GuidedGeometryResponse
   | import('./raw-pipeline.native-detail.types').NativeDetailResponse
   | LensProfileSuccess
@@ -436,6 +437,7 @@ export interface ExportedFile {
 
 /** All request messages the raw-pipeline worker accepts. */
 export type WorkerRequest =
+  | import('./raw-pipeline.removal.types').RemovalAuthoringRequest
   | import('./raw-pipeline.guided-geometry').GuidedGeometryRequest
   | import('./raw-pipeline.native-detail.types').NativeDetailRequest
   | import('./raw-pipeline.native-detail.types').CloseNativeDetailRequest

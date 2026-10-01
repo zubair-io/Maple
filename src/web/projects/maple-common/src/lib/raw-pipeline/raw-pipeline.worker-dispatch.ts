@@ -296,10 +296,23 @@ const settleNativeDetail = (
 
 type NonNativeKind = Exclude<PendingHandler, { kind: 'native-detail' }>['kind'];
 
+const settleRemovalAuthoring: Settler<'removal-authoring'> = (msg, handler) => {
+  if (msg.type === 'removal-authoring-success') {
+    handler.resolve(msg.value);
+    return true;
+  }
+  if (msg.type === 'removal-authoring-error') {
+    handler.reject(new Error(msg.message));
+    return true;
+  }
+  return false;
+};
+
 /** One settler per handler kind — a table rather than a `switch`, so adding a
  *  request kind is one entry, not another branch on a function whose
  *  cyclomatic count already tracks the number of kinds (fallow gate, #3300). */
 const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
+  'removal-authoring': settleRemovalAuthoring,
   legacy: settleLegacy,
   'scene-linear': settleSceneLinear,
   'open-session': settleOpenSession,

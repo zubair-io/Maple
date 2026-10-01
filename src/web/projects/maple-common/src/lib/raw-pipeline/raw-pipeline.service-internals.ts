@@ -77,6 +77,11 @@ export interface RenderedLiveSession {
 /** Discriminated union of all pending worker-request handler entries. */
 export type PendingHandler =
   | {
+      kind: 'removal-authoring';
+      resolve: (value: import('./raw-pipeline.removal.types').RemovalAuthoringValue) => void;
+      reject: (error: Error) => void;
+    }
+  | {
       kind: 'guided-geometry';
       resolve: (correction: import('./raw-pipeline.guided-geometry').GuidedCorrection) => void;
       reject: (error: Error) => void;
