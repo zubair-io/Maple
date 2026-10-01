@@ -103,6 +103,9 @@ namespace Maple.WinUI.Services
             || before.Demosaic != after.Demosaic
             || before.Retouch.Xml != after.Retouch.Xml
             || before.AutoExposure != after.AutoExposure
+            || before.HotPixelSuppression != after.HotPixelSuppression
+            || before.AutoLateralCa != after.AutoLateralCa
+            || Math.Abs(before.ChromaPrefilter - after.ChromaPrefilter) > 1e-6
             || before.LensProfileEnable != after.LensProfileEnable
             // The imported profile and all three strengths are applied in the
             // scene-linear decode stage (#3480), never by the per-tick chain.

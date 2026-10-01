@@ -139,9 +139,8 @@ namespace Maple.WinUI.ViewModels
             {
                 if (AutoLateralCaOn == value)
                     return;
-                Adjustments.AutoLateralCa = value ? ToggleMode.On : ToggleMode.Off;
+                ApplyDecodeFieldEdit(model => model.AutoLateralCa = value ? ToggleMode.On : ToggleMode.Off);
                 OnPropertyChanged();
-                NotifyAdjustmentEdited();
             }
         }
 
@@ -397,6 +396,7 @@ namespace Maple.WinUI.ViewModels
             foreach (var zone in GradeZones)
                 zone.SyncFromModel();
             OnPropertyChanged(nameof(BlackWhiteOn));
+            OnPropertyChanged(nameof(AutoLateralCaOn));
             ModelSynced?.Invoke();
         }
 

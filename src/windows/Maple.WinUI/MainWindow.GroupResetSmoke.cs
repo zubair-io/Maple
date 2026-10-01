@@ -51,6 +51,17 @@ public sealed partial class MainWindow
             if (Snapshot() != original || ViewModel.UndoCount != depth)
                 throw new InvalidOperationException("Group reset verification changed the original document.");
         }
+        var caBefore = ViewModel.AutoLateralCaOn;
+        ViewModel.AutoLateralCaOn = !caBefore;
+        if (!ViewModel.IsDecoding || ViewModel.UndoCount != depth + 1)
+            throw new InvalidOperationException("Lateral CA did not start a decode with one undo entry.");
+        await ReadyAsync();
+        ViewModel.Undo();
+        if (!ViewModel.IsDecoding || ViewModel.AutoLateralCaOn != caBefore)
+            throw new InvalidOperationException("Lateral CA Undo did not restore and re-decode the source.");
+        await ReadyAsync();
+        if (Snapshot() != original || ViewModel.UndoCount != depth)
+            throw new InvalidOperationException("Lateral CA verification changed the original document.");
         CloseGroupPanel();
         _colorTab = _effectsTab = "Basic";
 
