@@ -148,7 +148,11 @@ pub fn decode_removals(s: &str) -> Result<Vec<Removal>, String> {
 
 pub(crate) fn removal_to_json(r: &Removal) -> Value {
     let mut record = json!({
-        "schema": if r.accepted.is_some() { 3 } else { 2 },
+        "schema": match r.accepted.as_ref().map(|a| a.plate) {
+            None => 2,
+            Some(super::accepted_removal::RemovalPlate::PostDcpV1) => 3,
+            Some(super::accepted_removal::RemovalPlate::LinearCalibrationV1) => 4,
+        },
         "kind": "removal",
         "region": [r.region[0], r.region[1], r.region[2], r.region[3]],
         "patch": r.patch_ref,
@@ -176,19 +180,26 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
     // A recognized future schema cannot safely be interpreted as schema 2.
     let schema = obj.get("schema").map(|v| v.as_u64()).unwrap_or(Some(2));
     if let Some(value) = obj.get("schema") {
-        if schema != Some(2) && schema != Some(3) {
+        if schema != Some(2) && schema != Some(3) && schema != Some(4) {
             return Err(format!("unsupported removal schema: {value}"));
         }
     }
-    let accepted = if schema == Some(3) {
-        Some(
-            serde_json::from_value(
-                obj.get("accepted")
-                    .cloned()
-                    .ok_or_else(|| "schema-3 removal missing accepted metadata".to_string())?,
-            )
-            .map_err(|e| format!("invalid accepted removal: {e}"))?,
-        )
+    let accepted = if schema == Some(3) || schema == Some(4) {
+        let value = obj
+            .get("accepted")
+            .ok_or_else(|| "accepted removal missing metadata".to_string())?;
+        if schema == Some(3) && value.get("plate").is_some() {
+            return Err("schema-3 removal cannot change its post-DCP plate".into());
+        }
+        let accepted: super::accepted_removal::AcceptedRemoval =
+            serde_json::from_value(value.clone())
+                .map_err(|e| format!("invalid accepted removal: {e}"))?;
+        if schema == Some(4)
+            && accepted.plate != super::accepted_removal::RemovalPlate::LinearCalibrationV1
+        {
+            return Err("schema-4 removal requires its linear calibration plate".into());
+        }
+        Some(accepted)
     } else {
         if obj.contains_key("accepted") {
             return Err("legacy removal cannot contain accepted metadata".into());

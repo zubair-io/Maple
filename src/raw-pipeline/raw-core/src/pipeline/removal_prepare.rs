@@ -1,12 +1,16 @@
 //! Shared accepted-record preparation (#3936). No host duplicates the saved
 //! wire format, digest naming or context dependency computation.
-use crate::types::accepted_removal::{AcceptedRemoval, ContentDigest, NativeWindow, SourceAnchor};
+use crate::types::accepted_removal::{
+    AcceptedRemoval, ContentDigest, NativeWindow, RemovalPlate, SourceAnchor,
+};
 use crate::types::{BakeGrade, Removal};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
+    #[serde(default)]
+    plate: RemovalPlate,
     source: SourceAnchor,
     patch_window: NativeWindow,
     context_window: NativeWindow,
@@ -30,6 +34,7 @@ pub fn prepare_accepted_removal(
         serde_json::from_str(request).map_err(|e| format!("removal request: {e}"))?;
     let earlier = crate::types::inpaint::decode_removals(prior)?;
     let mut accepted = AcceptedRemoval {
+        plate: request.plate,
         source: request.source,
         mask: ContentDigest::for_bytes(mask),
         patch_window: request.patch_window,
@@ -108,6 +113,21 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+        let mut linear_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+        linear_request["plate"] = "linear-calibration-v1".into();
+        let linear =
+            prepare_accepted_removal(&linear_request.to_string(), prior, &mask, &patch).unwrap();
+        let linear_value: serde_json::Value = serde_json::from_str(&linear).unwrap();
+        assert_eq!(linear_value[0], original[0]);
+        assert_eq!(linear_value[1]["schema"], 4);
+        assert_eq!(
+            linear_value[1]["accepted"]["plate"],
+            "linear-calibration-v1"
+        );
+        linear_request["plate"] = "future-plate-v2".into();
+        assert!(
+            prepare_accepted_removal(&linear_request.to_string(), prior, &mask, &patch).is_err()
         );
         assert!(prepare_accepted_removal(&request, prior, &[], &patch).is_err());
         assert!(prepare_accepted_removal(&request, "{}", &mask, &patch).is_err());

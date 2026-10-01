@@ -54,6 +54,32 @@ final class LocalRemovalAssetStoreTests: XCTestCase {
     XCTAssertEqual(reopened, files)
   }
 
+  func testLinearCalibrationPlatePublishesAndReopensWithoutChangingLegacySemantics() async throws {
+    let raw = try stage()
+    var request = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: fixture("request.txt")) as? [String: Any])
+    request["plate"] = "linear-calibration-v1"
+    let requestData = try JSONSerialization.data(withJSONObject: request)
+    let assets = LocalRemovalAssetStore(rawURL: raw)
+    let records = try await assets.publish(
+      request: String(decoding: requestData, as: UTF8.self), prior: "[]",
+      mask: fixture("mask.mimf"), patch: fixture("patch.f16"))
+    let values = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: Data(records.utf8)) as? [[String: Any]])
+    XCTAssertEqual(values[0]["schema"] as? Int, 4)
+    let accepted = try XCTUnwrap(values[0]["accepted"] as? [String: Any])
+    XCTAssertEqual(accepted["plate"] as? String, "linear-calibration-v1")
+    try await XMPSidecarStore(rawURL: raw).writeRemovalConfirmed(
+      records: records, expectedRecords: "[]", model: .default, culling: CullingState())
+    let sidecar = raw.deletingPathExtension().appendingPathExtension("xmp")
+    XCTAssertEqual(try RemovalXMPRecords.read(Data(contentsOf: sidecar)), records)
+    let reopened = try await assets.readAssets(records: records)
+    XCTAssertEqual(reopened.count, 2)
+    XCTAssertEqual(try Data(contentsOf: raw), try fixture("source.dng"))
+    let downgraded = records.replacingOccurrences(of: "\"schema\":4", with: "\"schema\":3")
+    XCTAssertThrowsError(try RemovalBridge.assetNames(records: downgraded))
+  }
+
   func testStaleCommitAndMissingAssetsNeverReplaceSidecar() async throws {
     let raw = try stage()
     let assets = LocalRemovalAssetStore(rawURL: raw)

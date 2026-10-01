@@ -1,4 +1,4 @@
-//! Schema-3 accepted-edit identities (#3936). Native un-oriented DefaultCrop
+//! Accepted-edit identities and versioned plate semantics (#3936 / #3955). Native un-oriented DefaultCrop
 //! coordinates and durable content references, independent of model runtime.
 use serde::{Deserialize, Serialize};
 
@@ -120,9 +120,29 @@ pub struct RemovalDependency {
     pub patch: ContentDigest,
 }
 
+/// The composition seam is part of the saved contract. A pre-WB calibration
+/// patch cannot be interpreted as an older post-DCP scene patch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RemovalPlate {
+    #[default]
+    PostDcpV1,
+    LinearCalibrationV1,
+}
+
+impl RemovalPlate {
+    fn is_legacy(&self) -> bool {
+        *self == Self::PostDcpV1
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AcceptedRemoval {
+    /// Omitted for schema 3 to preserve its wire bytes. Schema 4 requires the
+    /// explicit linear-calibration-v1 plate; older readers reject that schema.
+    #[serde(default, skip_serializing_if = "RemovalPlate::is_legacy")]
+    pub plate: RemovalPlate,
     pub source: SourceAnchor,
     pub mask: ContentDigest,
     pub patch_window: NativeWindow,
