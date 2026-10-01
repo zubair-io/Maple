@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-01",
+  "sourceRevision": "cc9be8eb4d62c3f98de8f2a10050619485e0837d",
+  "mainRevision": "fc07926243c6db74ad004c1c52bd5b9238982ef6",
+  "mainIsAncestor": true,
+  "scope": "Windows unit and native integration suite; not physical performance or visual qualification",
+  "configuration": "Release, net8.0, Windows x64",
+  "nativeLibrarySha256": "6155758CC716A40626B13B7A765CBAACCFB188815D78ADC30C8F0E0CCB9F0D99",
+  "fixture": {
+    "kind": "synthetic Bayer DNG",
+    "dimensions": [3200, 2200],
+    "sha256": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8"
+  },
+  "unitRunWithoutNativeEnvironment": { "passed": 1393, "failed": 0, "skipped": 14 },
+  "runWithNativeAndExplicitFixtures": {
+    "passed": 1407,
+    "failed": 0,
+    "skipped": 0,
+    "durationSecondsReported": 47,
+    "fixtureVariables": ["MAPLE_DEMOSAIC_TEST_RAW", "MAPLE_EXPORT_TEST_RAW", "MAPLE_RETOUCH_TEST_RAW"],
+    "resultFile": "%TEMP%/maple-tests202-native/windows-parity-native.trx"
+  },
+  "buildWrapperTests": {
+    "windowsEncodingCasePassed": 1,
+    "wslUbuntuCasesPassed": 9,
+    "testCorrection": "Normalize checkout line endings for the expected shader; retain UTF-8 and LF assertions on generated output.",
+    "initialWindowsWrapperAttempt": "Eight POSIX setup errors due to unavailable symlink privilege; rerun in WSL passed."
+  },
+  "limitations": [
+    "Synthetic fixture execution does not qualify 100MP performance or camera-specific image quality.",
+    "The native suite does not replace the required screenshot, DPI and Narrator matrix.",
+    "The existing preview/export perceptual parity failure remains unresolved."
+  ],
+  "fullQualificationPassed": false
+}

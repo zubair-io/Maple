@@ -229,7 +229,7 @@ class WindowsCodegenEncoding(unittest.TestCase):
                 shader,
                 (
                     repo / "src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl"
-                ).read_bytes(),
+                ).read_text(encoding="utf-8").encode("utf-8"),
             )
 
 
