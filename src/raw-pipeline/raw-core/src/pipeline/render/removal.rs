@@ -22,7 +22,6 @@ impl ResolvedCalibrationRemovals {
         options: &crate::export::ExportOptions,
         film_lut: Option<&FilmLut>,
     ) -> crate::Result<crate::export::ExportedImage> {
-        crate::export::reject_untagged_avif_p3(options.format, options.target)?;
         let (w, h, pixels) = self.render_export(
             raw,
             original,
@@ -50,21 +49,56 @@ impl ResolvedCalibrationRemovals {
         max_long_edge: Option<u32>,
         film_lut: Option<&FilmLut>,
     ) -> crate::Result<(u32, u32, Vec<u8>)> {
-        let (w, h, pixels) = self.render_export(
+        Ok(self
+            .render_display_with_geometry(
+                raw,
+                original,
+                model,
+                quality,
+                raw_source,
+                max_long_edge,
+                film_lut,
+            )?
+            .pixels)
+    }
+
+    /// The crop input comes from this saved render's actual scene buffer.
+    pub fn render_display_with_geometry(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+        quality: RenderQuality,
+        raw_source: Option<RawInput<'_>>,
+        max_long_edge: Option<u32>,
+        film_lut: Option<&FilmLut>,
+    ) -> crate::Result<super::DisplayRender> {
+        let (mut scene, context) = render_display_scene_with_removals(
             raw,
-            original,
             model,
             quality,
             raw_source,
             max_long_edge,
             TargetPrimaries::Srgb,
-            ExportDepth::Eight,
             film_lut,
+            Some((self, original)),
         )?;
-        match pixels {
-            ExportPixels::Eight(bytes) => Ok((w, h, bytes)),
-            ExportPixels::Sixteen(_) => unreachable!("Eight terminal returned Sixteen"),
-        }
+        let crop_input_size = if raw.orientation.swaps_wh() {
+            [scene.height, scene.width]
+        } else {
+            [scene.width, scene.height]
+        };
+        let (w, h, pixels) = export::finish_eight(&mut scene, raw.orientation, model);
+        let auto_fit = (model.profile == crate::types::adjustment::Profile::Auto)
+            .then_some(context.profile_curve.is_some() || context.profile_lut.is_some());
+        let ExportPixels::Eight(rgb) = pixels else {
+            unreachable!("Eight terminal returned Sixteen")
+        };
+        Ok(super::DisplayRender {
+            pixels: (w, h, rgb),
+            crop_input_size,
+            auto_fit,
+        })
     }
 
     /// Full or viewport-sized export, with one depth-specific quantize after the

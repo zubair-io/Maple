@@ -322,6 +322,11 @@ export class ImageCanvasGpuPresent {
     const nativeH = info.nativeHeight ?? info.height;
     this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
     this.host.recordNativeDims(nativeW, nativeH);
+    this.host.canvasSvc.cropInputDimensions.set(
+      info.cropInputWidth && info.cropInputHeight
+        ? { w: info.cropInputWidth, h: info.cropInputHeight }
+        : null,
+    );
     this.host.recordPaintedDims(info.width, info.height);
     this.applyView();
     this.host.state.seedAsShotWhiteBalance(
@@ -380,6 +385,11 @@ export class ImageCanvasGpuPresent {
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
       this.publishRenderedStatus(rendered, fastParams, params, fitAsset, fitRevision);
+      this.host.canvasSvc.cropInputDimensions.set(
+        rendered.cropInputWidth && rendered.cropInputHeight
+          ? { w: rendered.cropInputWidth, h: rendered.cropInputHeight }
+          : null,
+      );
       this.host.recordPaintedDims(rendered.width, rendered.height);
       this.applyView();
       // Scopes are no longer fed from this reply (#3397): the readback now

@@ -176,7 +176,9 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
 
     const second = service.decode(new Uint8Array([0x44]), 'dng');
     await Promise.resolve();
-    const sentAfter = workerStub.postMessage.mock.calls[1][0] as DecodeRequest;
+    const sentAfter = workerStub.postMessage.mock.calls
+      .map(([request]) => request as DecodeRequest)
+      .filter((request) => request.type === 'decode')[1];
     expect(sentAfter.gpu).toBe(false);
     replyOnePixel(workerStub, sentAfter.id);
     await second;

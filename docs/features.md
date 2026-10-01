@@ -324,6 +324,7 @@ Web is split into its two deployments because they differ substantially. Every c
 | Manual geometry                    | yes                                              | yes               | yes                | yes                       | no        |
 | Masks / local adjustments          | yes                                              | yes               | yes                | yes                       | no        |
 | Clone / heal brush                 | yes                                              | yes               | yes                | no                        | no        |
+| AI object removal                  | no                                               | no                | partial (local experiment #1472) | no                        | no        |
 | AUTO                               | yes                                              | yes               | yes                | yes                       | no        |
 | Reset all                          | yes                                              | yes               | yes                | yes                       | no        |
 | Copy / paste / sync settings       | yes                                              | yes               | yes                | no                        | no        |

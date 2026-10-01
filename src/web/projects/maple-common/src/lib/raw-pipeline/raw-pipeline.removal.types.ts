@@ -10,6 +10,7 @@ export interface RemovalInput {
 
 export type RemovalAuthoringCommand =
   | { kind: 'source'; bytes: ArrayBuffer }
+  | { kind: 'proxy'; xmp: string }
   | { kind: 'map'; xmp: string; request: string }
   | { kind: 'context'; rect: readonly [number, number, number, number] }
   | {
@@ -36,6 +37,7 @@ export interface RemovalAuthoringRequest {
 export type RemovalAuthoringValue =
   | { kind: 'rendered'; frame: Omit<DecodeSuccess, 'id' | 'type'> }
   | { kind: 'source'; source: string }
+  | { kind: 'proxy'; width: number; height: number; rgb: ArrayBuffer }
   | { kind: 'map'; mapping: string }
   | { kind: 'context'; rgb: ArrayBuffer }
   | { kind: 'selection'; mask: ArrayBuffer }
@@ -46,6 +48,12 @@ export type RemovalAuthoringResponse =
   | { id: number; type: 'removal-authoring-error'; message: string };
 
 export interface RemovalRawSession {
+  removal_selection_proxy?(xmp: string): {
+    width: number;
+    height: number;
+    take_rgb(): Uint8Array;
+    free(): void;
+  };
   render_saved_preview?(xmp: string, cap: number, film: Uint8Array): MapleRender;
   removal_calibration_source(): string;
   removal_map_points(xmp: string, request: string): string;

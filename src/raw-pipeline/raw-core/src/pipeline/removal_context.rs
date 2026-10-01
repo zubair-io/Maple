@@ -92,6 +92,7 @@ pub fn render_removal_context(raw: &RawImage, window: NativeWindow) -> Result<Im
         pixels: native.chunks_exact(4).map(|p| [p[0], p[1], p[2]]).collect(),
         space: ColorSpace::SceneLinearRec2020,
         whites_anchor_ev: None,
+        nr_sampling_scale: 1.0,
     })
 }
 

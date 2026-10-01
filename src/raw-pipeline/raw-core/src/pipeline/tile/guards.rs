@@ -106,7 +106,6 @@ pub(super) fn reject_untileable(
             }
         }
     }
-    }
     let TileRect {
         src_w,
         src_h,

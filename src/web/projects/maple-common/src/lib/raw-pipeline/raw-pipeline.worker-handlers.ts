@@ -88,6 +88,8 @@ export interface WebLiveSessionInstance {
   readonly width: number;
   readonly height: number;
   /** Native oriented dims — what a full-res render would produce (#1080). */
+  readonly cropInputWidth?: number;
+  readonly cropInputHeight?: number;
   readonly fullWidth: number;
   readonly fullHeight: number;
   readonly asShotTemperature: number;

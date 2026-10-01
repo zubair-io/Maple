@@ -179,3 +179,54 @@ fn sized_display_below_native_caps_long_edge() {
         zero_ratio * 100.0
     );
 }
+
+// The UI must invert the crop rounded on the actual viewport, not native dims.
+#[test]
+fn crop_input_metadata_measures_odd_default_crop_at_each_render_size() {
+    let crop_rect = Some(CropRect {
+        x: 1,
+        y: 1,
+        w: 29,
+        h: 17,
+    });
+    for orientation in 1..=8 {
+        let raw = raw_with(32, 20, ExifOrientation::from_u16(orientation), crop_rect);
+        for cap in [9, 16, 64] {
+            for quality in [RenderQuality::Preview, RenderQuality::Amaze] {
+                let base = AdjustmentModel {
+                    profile: Profile::Neutral,
+                    sharpen_amount: 0.0,
+                    nr_color: 0.0,
+                    ..Default::default()
+                };
+                let uncropped =
+                    render_display_with_geometry(&raw, &base, quality, None, Some(cap), None)
+                        .unwrap();
+                let expected = [uncropped.pixels.0, uncropped.pixels.1];
+                assert_eq!(uncropped.crop_input_size, expected);
+                for angle in [0.0, 90.0, 7.0] {
+                    let model = AdjustmentModel {
+                        crop: crate::types::Crop {
+                            left: 0.13,
+                            top: 0.17,
+                            right: 0.81,
+                            bottom: 0.89,
+                            angle,
+                        },
+                        perspective_horizontal: 20.0,
+                        ..base.clone()
+                    };
+                    let rendered =
+                        render_display_with_geometry(&raw, &model, quality, None, Some(cap), None)
+                            .unwrap();
+                    assert_eq!(rendered.crop_input_size, expected);
+                    let legacy = render_sized_from_raw_with_quality_and_source(
+                        &raw, &model, quality, None, cap,
+                    )
+                    .unwrap();
+                    assert_eq!(rendered.pixels, legacy);
+                }
+            }
+        }
+    }
+}

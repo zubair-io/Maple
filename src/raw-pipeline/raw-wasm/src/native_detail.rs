@@ -142,6 +142,22 @@ impl NativeDetailSession {
         .map_err(js_error)
     }
 
+    /// Fixed As-Shot, unwarped source-framed SDR proxy for selection models.
+    pub fn removal_selection_proxy(
+        &self,
+        xmp: &str,
+    ) -> Result<crate::native_detail::NativeDetailPatch, JsError> {
+        crate::removal_proxy::render(
+            &self.raw,
+            &self.original,
+            &self.bytes,
+            &self.ext,
+            self.saved_removals.as_ref(),
+            xmp,
+        )
+        .map_err(js_error)
+    }
+
     /// Normal saved-preview pixels and actual RAW support metadata (#3955).
     pub fn render_saved_preview(
         &self,

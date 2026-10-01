@@ -38,6 +38,10 @@ import type { DecodeRequest } from './raw-pipeline.decode.types';
 export type { DecodeRequest } from './raw-pipeline.decode.types';
 
 export interface DecodeSuccess {
+  /** Actual oriented develop-buffer dimensions before perspective/crop. */
+  cropInputWidth?: number;
+  cropInputHeight?: number;
+
   id: number;
   type: 'decode-success';
   width: number;
@@ -214,6 +218,10 @@ export interface ScopeSnapshot {
 
 /** Reply to `open-session`: the session is live + presenting its first frame. */
 export interface OpenSessionSuccess {
+  /** Actual oriented develop-buffer dimensions before perspective/crop. */
+  cropInputWidth?: number;
+  cropInputHeight?: number;
+
   id: number;
   type: 'open-session-success';
   /** Developed (viewport-sized per #1080) dims — also the canvas dims. */
@@ -247,6 +255,10 @@ export interface OpenSessionSuccess {
 
 /** Reply to `render-session`: a frame was presented to the surface. */
 export interface RenderSessionSuccess {
+  /** Actual oriented develop-buffer dimensions before perspective/crop. */
+  cropInputWidth?: number;
+  cropInputHeight?: number;
+
   id: number;
   type: 'render-session-success';
   width: number;
@@ -465,6 +477,10 @@ export type WorkerRequest =
   | ExportRequest;
 
 export interface DecodedImage {
+  /** Actual oriented develop-buffer dimensions before perspective/crop. */
+  cropInputWidth?: number;
+  cropInputHeight?: number;
+
   width: number;
   height: number;
   rgb: Uint8Array; // view over the transferred buffer

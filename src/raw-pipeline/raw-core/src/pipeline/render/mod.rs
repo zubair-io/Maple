@@ -179,20 +179,58 @@ fn render_display_from_raw(
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(u32, u32, Vec<u8>)> {
     render_from_raw_with_auto_fit(raw, model, quality, raw_source, max_long_edge, film_lut)
-        .map(|(w, h, bytes, _)| (w, h, bytes))
+        .map(|(w, h, pixels, _)| (w, h, pixels))
 }
 
 /// Display render with the actual Auto tail outcome (#4096). `None` means
 /// Auto was not selected; `Some(false)` means no usable fit was applied.
 /// Retains the existing render's result, without a second fit or source probe.
-pub fn render_from_raw_with_auto_fit(
+/// Actual oriented crop-input extent, measured from the developed display
+/// buffer rather than estimated from sensor dimensions (#3941).
+pub struct DisplayRender {
+    pub pixels: (u32, u32, Vec<u8>),
+    pub crop_input_size: [u32; 2],
+    pub auto_fit: Option<bool>,
+}
+
+impl DisplayRender {
+    pub fn from_quantized(
+        bytes: Vec<u8>,
+        width: u32,
+        height: u32,
+        orientation: crate::image::ExifOrientation,
+        model: &AdjustmentModel,
+        auto_fit: Option<bool>,
+    ) -> Self {
+        let crop_input_size = if orientation.swaps_wh() {
+            [height, width]
+        } else {
+            [width, height]
+        };
+        let pixels = finish::apply_geometry(
+            bytes,
+            width,
+            height,
+            orientation,
+            &crate::stages::perspective::Perspective::from_model(model),
+            &model.crop,
+        );
+        Self {
+            pixels,
+            crop_input_size,
+            auto_fit,
+        }
+    }
+}
+
+pub fn render_display_with_geometry(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     raw_source: Option<RawInput<'_>>,
     max_long_edge: Option<u32>,
     film_lut: Option<&film::FilmLut>,
-) -> Result<(u32, u32, Vec<u8>, Option<bool>)> {
+) -> Result<DisplayRender> {
     let (mut scene, context) = render_display_scene_with_context(
         raw,
         model,
@@ -208,15 +246,21 @@ pub fn render_from_raw_with_auto_fit(
     });
     let auto_fit = (model.profile == Profile::Auto)
         .then_some(context.profile_curve.is_some() || context.profile_lut.is_some());
-    let (w, h, bytes) = finish::apply_geometry(
-        bytes,
-        w,
-        h,
-        raw.orientation,
-        &crate::stages::perspective::Perspective::from_model(model),
-        &model.crop,
-    );
-    Ok((w, h, bytes, auto_fit))
+    Ok(DisplayRender::from_quantized(bytes, w, h, raw.orientation, model, auto_fit))
+}
+
+/// Display render plus the actual Auto tail outcome (#4096).
+pub fn render_from_raw_with_auto_fit(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+    film_lut: Option<&film::FilmLut>,
+) -> Result<(u32, u32, Vec<u8>, Option<bool>)> {
+    let rendered = render_display_with_geometry(raw, model, quality, raw_source, max_long_edge, film_lut)?;
+    let (w, h, bytes) = rendered.pixels;
+    Ok((w, h, bytes, rendered.auto_fit))
 }
 
 /// Shared body of every display-referred render: develop (full-res or

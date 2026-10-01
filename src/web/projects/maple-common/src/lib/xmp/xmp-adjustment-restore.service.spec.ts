@@ -34,7 +34,7 @@ import { SidecarSaveStateService } from './sidecar-save-state.service';
 import { XmpAdjustmentRestoreService } from './xmp-adjustment-restore.service';
 import { XmpStoreService } from './xmp-store.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
-import { fsAccessWriteFile } from '../folder-access/fs-access-backend';
+import { fsAccessReadFile, fsAccessWriteFile } from '../folder-access/fs-access-backend';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 
 // The deep-linked asset: `/edit/photos/raws/test_0004.fff` resolves to the
@@ -119,7 +119,10 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
         { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
         { provide: BunApiBackendService, useValue: api },
         { provide: SIDECAR_CACHE, useValue: new NoopSidecarCache() },
-        { provide: FolderAccessService, useValue: { writeFile: fsAccessWriteFile } },
+        {
+          provide: FolderAccessService,
+          useValue: { readFile: fsAccessReadFile, writeFile: fsAccessWriteFile },
+        },
       ],
     });
 

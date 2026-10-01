@@ -106,6 +106,16 @@ pub fn removal_selection(
 }
 
 #[wasm_bindgen]
+pub fn removal_combine_masks(
+    left: &[u8],
+    right: &[u8],
+    subtract: bool,
+) -> Result<Vec<u8>, JsError> {
+    raw_core::stages::removal_selection::combine_masks(left, right, subtract)
+        .map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
 pub struct RemovalMask {
     mask: raw_core::types::removal_mask::RemovalMask,
 }

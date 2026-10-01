@@ -44,9 +44,12 @@ export class NativeDetailClient {
     });
   }
 
-  close(): void {
+  close(retainedWorker: Worker | null = null): void {
     this.epoch++;
-    this.usedWorker?.postMessage({ id: this.nextId(), type: 'close-native-detail' });
+    (this.usedWorker ?? retainedWorker)?.postMessage({
+      id: this.nextId(),
+      type: 'close-native-detail',
+    });
     this.sourceId = null;
     this.usedWorker = null;
   }

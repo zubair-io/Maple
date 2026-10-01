@@ -151,6 +151,11 @@ export async function coldOpen2d(
     }
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
+    host.canvasSvc.cropInputDimensions.set(
+      decoded.cropInputWidth && decoded.cropInputHeight
+        ? { w: decoded.cropInputWidth, h: decoded.cropInputHeight }
+        : null,
+    );
     host.canvasSvc.currentPixels.set(decoded);
     publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision, serializeOpened);
     host.nativeDetail?.recordBase({
@@ -296,6 +301,11 @@ export async function runRender2d(
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
     host.canvasSvc.currentPixels.set(decoded);
+    host.canvasSvc.cropInputDimensions.set(
+      decoded.cropInputWidth && decoded.cropInputHeight
+        ? { w: decoded.cropInputWidth, h: decoded.cropInputHeight }
+        : null,
+    );
     // #3479: every render reply is authoritative about the imported profile
     // it consumed — the panel enables per calibrated family from this.
     if (host.currentAssetId)

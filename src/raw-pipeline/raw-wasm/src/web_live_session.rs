@@ -335,6 +335,27 @@ impl WebLiveSession {
         self.height
     }
 
+    /// Actual EXIF-oriented buffer before perspective/crop. Measured from the
+    /// resident prefix; never inferred from native zoom metadata (#3941).
+    #[wasm_bindgen(getter, js_name = cropInputWidth)]
+    pub fn crop_input_width(&self) -> u32 {
+        let (w, h) = self.session.dims();
+        if self.raw_img.orientation.swaps_wh() {
+            h
+        } else {
+            w
+        }
+    }
+    #[wasm_bindgen(getter, js_name = cropInputHeight)]
+    pub fn crop_input_height(&self) -> u32 {
+        let (w, h) = self.session.dims();
+        if self.raw_img.orientation.swaps_wh() {
+            w
+        } else {
+            h
+        }
+    }
+
     /// NATIVE oriented width — what a full-res render of this RAW would produce
     /// (`native_render_dims`). The session is viewport-sized (#1080), so the
     /// editor records THESE dims for its fit/100% zoom math (#1101 contract).

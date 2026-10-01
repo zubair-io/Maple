@@ -114,3 +114,43 @@ fn host_request_rejects_unknown_version_and_fields() {
         .unwrap()
         .is_empty());
 }
+
+#[test]
+fn reviewed_people_union_and_protection_are_source_bound_and_leave_no_empty_asset() {
+    let encode = |x, y, width, height, pixels| {
+        crate::pipeline::removal_mask_to_bytes(&RemovalMask {
+            source_width: 10,
+            source_height: 8,
+            x,
+            y,
+            width,
+            height,
+            pixels,
+        })
+        .unwrap()
+    };
+    let a = encode(1, 1, 2, 1, vec![255, 255]);
+    let b = encode(2, 1, 1, 2, vec![255, 255]);
+    let union = combine_masks(&a, &b, false).unwrap();
+    let mask = crate::pipeline::removal_mask_from_bytes(&union).unwrap();
+    assert_eq!((mask.x, mask.y, mask.width, mask.height), (1, 1, 2, 2));
+    assert_eq!(mask.pixels, vec![255, 255, 0, 255]);
+    let protected = combine_masks(&union, &b, true).unwrap();
+    assert_eq!(
+        crate::pipeline::removal_mask_from_bytes(&protected)
+            .unwrap()
+            .pixels,
+        vec![255, 0, 0, 0]
+    );
+    assert!(combine_masks(&union, &union, true).unwrap().is_empty());
+    assert_eq!(combine_masks(&[], &a, false).unwrap(), a);
+    assert!(combine_masks(&[], &a, true).unwrap().is_empty());
+    let mut other = crate::pipeline::removal_mask_from_bytes(&a).unwrap();
+    other.source_width = 11;
+    assert!(combine_masks(
+        &a,
+        &crate::pipeline::removal_mask_to_bytes(&other).unwrap(),
+        false
+    )
+    .is_err());
+}

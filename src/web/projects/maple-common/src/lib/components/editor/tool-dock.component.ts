@@ -143,6 +143,8 @@ const DOCK_ENTRIES: readonly DockEntry[] = [
   // Heal (#3409) — the clone / heal brush, same shape as Mask: the dock
   // entry arms the canvas overlay + its own panel.
   { id: 'heal', icon: 'tool-texture', label: 'Heal', tool: 'heal' },
+  // Explicit model installation gates this staged #3941 experiment.
+  { id: 'remove', icon: 'tool-texture', label: 'Remove', tool: 'remove', exclusive: true },
   ...PLACEHOLDER_ENTRIES,
 ];
 

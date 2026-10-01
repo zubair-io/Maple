@@ -7,6 +7,8 @@ import type { MapleRender } from './pkg/raw_wasm';
 export function takeRenderFrame(result: MapleRender): Omit<DecodeSuccess, 'id' | 'type'> {
   try {
     const metadata = {
+      cropInputWidth: result.crop_input_width || undefined,
+      cropInputHeight: result.crop_input_height || undefined,
       width: result.width,
       height: result.height,
       nativeWidth: result.full_width,

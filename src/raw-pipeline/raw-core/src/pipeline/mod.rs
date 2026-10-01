@@ -93,6 +93,7 @@ pub use render::{
     render_detail_tile, render_detail_tile_cancellable, render_export_from_raw,
     render_export_from_raw_with_film, render_export_raster, render_export_raster_cancellable,
     render_from_raw, render_from_raw_with_auto_fit, render_from_raw_with_quality,
+    render_display_with_geometry,
     render_from_raw_with_quality_and_source, render_from_raw_with_quality_source_and_film,
     render_from_scene_linear, render_from_scene_linear_with_chain,
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
@@ -106,7 +107,8 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source,
     render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, DetailContext,
-    DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage, RawInput,
+    DisplayRender, DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage,
+    RawInput,
 };
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, apply_scene_linear_chain_f32_scoped,

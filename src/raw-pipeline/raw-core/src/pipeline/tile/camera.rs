@@ -74,6 +74,7 @@ pub(super) fn finish(
     model: &AdjustmentModel,
     active_area: Option<CropRect>,
 ) -> Result<Image>
+{
     if raw.baseline_exposure.abs() > 1e-4 {
         stage("tile_baseline_exposure", || {
             let be_gain = raw.baseline_exposure.exp2();

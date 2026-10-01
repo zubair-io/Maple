@@ -153,6 +153,8 @@ function postOpenSessionSuccess(req: OpenSessionRequest, session: WebLiveSession
   const response: WorkerResponse = {
     id: req.id,
     type: 'open-session-success',
+    cropInputWidth: session.cropInputWidth,
+    cropInputHeight: session.cropInputHeight,
     width: session.width,
     height: session.height,
     // Native oriented dims (#1080): the session is viewport-sized, so the
@@ -271,6 +273,8 @@ function postRenderSessionSuccess(
   const response: WorkerResponse = {
     id: req.id,
     type: 'render-session-success',
+    cropInputWidth: session.cropInputWidth,
+    cropInputHeight: session.cropInputHeight,
     width: session.width,
     height: session.height,
     colorSpace,
