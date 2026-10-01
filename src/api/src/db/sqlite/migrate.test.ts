@@ -429,65 +429,76 @@ describe('0003 on a database that already carries 0001 and 0002', () => {
   });
 });
 
-describe('0010 on a database that already carries 0001 through 0009', () => {
-  test('adds owner_id column and backfills existing assets with the server owner', async () => {
-    using handle = createBlankTestDatabase();
-    const { db, migrationDb } = handle;
-    // Apply 0001 through 0009.
-    await runMigrations(migrationDb, ALL_MIGRATIONS.slice(0, 9));
+describe('0011 asset ownership upgrade', () => {
+  test.each([9, 10])(
+    'backfills the server owner after %i applied migrations',
+    async (appliedCount) => {
+      using handle = createBlankTestDatabase('file');
+      const { db, migrationDb } = handle;
+      await runMigrations(migrationDb, ALL_MIGRATIONS.slice(0, appliedCount));
 
-    // Check owner_id column is absent.
-    const colsBefore = (
-      db.query(`SELECT name FROM pragma_table_info('assets')`).all() as Array<{ name: string }>
-    ).map((r) => r.name);
-    expect(colsBefore).not.toContain('owner_id');
+      // Check owner_id column is absent.
+      const colsBefore = (
+        db.query(`SELECT name FROM pragma_table_info('assets')`).all() as Array<{ name: string }>
+      ).map((r) => r.name);
+      expect(colsBefore).not.toContain('owner_id');
 
-    // Seed an owner user and a member user.
-    const ownerId = '000000000000000000000001';
-    const memberId = '000000000000000000000002';
-    db.run(
-      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, 'owner@maple.test', 'owner@maple.test', 'owner', '2026-01-01T00:00:00Z')`,
-      [ownerId],
-    );
-    db.run(
-      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, 'member@maple.test', 'member@maple.test', 'member', '2026-01-02T00:00:00Z')`,
-      [memberId],
-    );
-
-    // Seed two assets before migration.
-    const assetA = '0000000000000000000000aa';
-    const assetB = '0000000000000000000000bb';
-    for (const id of [assetA, assetB]) {
+      // Seed an owner user and a member user.
+      const ownerId = '000000000000000000000001';
+      const memberId = '000000000000000000000002';
       db.run(
-        `INSERT INTO assets (id, size, mtime, indexed_at, live_location_count)
-         VALUES (?, 1, 1, '2026-01-01T00:00:00Z', 1)`,
-        [id],
+        `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, 'owner@maple.test', 'owner@maple.test', 'owner', '2026-01-01T00:00:00Z')`,
+        [ownerId],
       );
-    }
+      db.run(
+        `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, 'member@maple.test', 'member@maple.test', 'member', '2026-01-02T00:00:00Z')`,
+        [memberId],
+      );
 
-    // Run remaining migration (0010).
-    await runMigrations(migrationDb, ALL_MIGRATIONS);
+      // Seed two assets before migration.
+      const assetA = '0000000000000000000000aa';
+      const assetB = '0000000000000000000000bb';
+      for (const id of [assetA, assetB]) {
+        db.run(
+          `INSERT INTO assets (id, size, mtime, indexed_at, live_location_count)
+         VALUES (?, 1, 1, '2026-01-01T00:00:00Z', 1)`,
+          [id],
+        );
+      }
 
-    // Verify column exists.
-    const colsAfter = (
-      db.query(`SELECT name FROM pragma_table_info('assets')`).all() as Array<{ name: string }>
-    ).map((r) => r.name);
-    expect(colsAfter).toContain('owner_id');
+      const result = await runMigrations(migrationDb, ALL_MIGRATIONS);
+      expect(result.applied).toEqual(
+        ALL_MIGRATIONS.slice(appliedCount).map((migration) => migration.id),
+      );
+      expect((await runMigrations(migrationDb, ALL_MIGRATIONS)).applied).toEqual([]);
 
-    // Verify index exists.
-    const indexNames = (
-      db
-        .query(`SELECT name FROM sqlite_master WHERE type='index' AND name='assets_facet_owner'`)
-        .all() as Array<{ name: string }>
-    ).map((r) => r.name);
-    expect(indexNames).toContain('assets_facet_owner');
+      // Verify column exists.
+      const colsAfter = (
+        db.query(`SELECT name FROM pragma_table_info('assets')`).all() as Array<{ name: string }>
+      ).map((r) => r.name);
+      expect(colsAfter).toContain('owner_id');
 
-    // Verify both assets are backfilled to ownerId.
-    const rows = db.query(`SELECT id, owner_id FROM assets`).all() as Array<{
-      id: string;
-      owner_id: string;
-    }>;
-    expect(rows.find((r) => r.id === assetA)?.owner_id).toBe(ownerId);
-    expect(rows.find((r) => r.id === assetB)?.owner_id).toBe(ownerId);
-  });
+      // Verify index exists.
+      const indexNames = (
+        db
+          .query(`SELECT name FROM sqlite_master WHERE type='index' AND name='assets_facet_owner'`)
+          .all() as Array<{ name: string }>
+      ).map((r) => r.name);
+      expect(indexNames).toContain('assets_facet_owner');
+
+      // Verify both assets are backfilled to ownerId.
+      const rows = db.query(`SELECT id, owner_id FROM assets`).all() as Array<{
+        id: string;
+        owner_id: string;
+      }>;
+      expect(rows.find((r) => r.id === assetA)?.owner_id).toBe(ownerId);
+      expect(rows.find((r) => r.id === assetB)?.owner_id).toBe(ownerId);
+      db.run('DELETE FROM users WHERE id = ?', [ownerId]);
+      expect(db.query('SELECT owner_id FROM assets').all()).toEqual([
+        { owner_id: null },
+        { owner_id: null },
+      ]);
+      expect(db.query('SELECT id FROM users').all()).toEqual([{ id: memberId }]);
+    },
+  );
 });
