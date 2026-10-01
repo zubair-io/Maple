@@ -13,7 +13,7 @@ const instrumenter = createInstrumenter({
 
 // Babel's stack formatter breaks Bun's Error subclasses, so instrumentation runs before the test process (#3780).
 for (const relativePath of new Glob('**/*.ts').scanSync(sourceRoot)) {
-  if (relativePath.endsWith('.test.ts')) continue;
+  if (relativePath.endsWith('.test.ts') || relativePath.endsWith('.d.ts')) continue;
   const source = resolve(sourceRoot, relativePath);
   const output = resolve('coverage', 'instrumented', relativePath);
   mkdirSync(dirname(output), { recursive: true });
