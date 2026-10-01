@@ -59,6 +59,24 @@ fn main() {
     let mut resized = scene.clone();
     downsample_image_area(&mut resized, edge);
     write_frame(out, "no-nr", resized.clone(), &model);
+    // Diagnostic only: independent samples averaged over an area have variance
+    // reduced by that area. Demosaic introduces correlation, so this is a
+    // hypothesis test, not a calibrated production noise model.
+    if args.iter().any(|arg| arg == "--variance-scaled") {
+        if let Some(profile) = raw.noise_profile.as_deref() {
+            let area_ratio = (resized.width as f64 * resized.height as f64)
+                / (scene.width as f64 * scene.height as f64);
+            let scaled: Vec<f32> = profile
+                .iter()
+                .map(|value| value * area_ratio as f32)
+                .collect();
+            let mut candidate = resized.clone();
+            let started = Instant::now();
+            noise_reduction::apply_color(&mut candidate, amount, Some(&scaled), raw.iso);
+            println!("Variance ratio={area_ratio}, NR: {:?}", started.elapsed());
+            write_frame(out, "nr-variance-scaled", candidate, &model);
+        }
+    }
     // Separate nonlinear colour-space averaging from NLM neighbourhood effects.
     let mut perceptual_average = scene.clone();
     for pixel in &mut perceptual_average.pixels {

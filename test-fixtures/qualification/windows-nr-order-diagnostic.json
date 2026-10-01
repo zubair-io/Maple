@@ -55,5 +55,46 @@
     "One fixture and one common half-resolution scene",
     "No production algorithm or budget changed",
     "No claim of full-resolution export parity or performance qualification"
-  ]
+  ],
+  "varianceScalingDiagnostic": {
+    "sourceBase": "08e98bb87",
+    "exampleSha256": "2be08d07d4eda0cdb69f3628fc0f3251c2dc29574d7b5f6a9b3adc90542b110d",
+    "command": "nr-resize-order <same RAW> <output> 1600 --variance-scaled",
+    "varianceRatio": 0.06783803304036458,
+    "metrics": {
+      "nr-after-resize": {
+        "mean_deltaE": 2.0773010900617677,
+        "p95_deltaE": 5.101602117501494,
+        "max_deltaE": 34.075264947424714,
+        "bias_r": 0.00040737984818406403,
+        "bias_g": 8.539031114196405E-05,
+        "bias_b": 0.0001908874837681651,
+        "n_pixels": 1707200
+      },
+      "nr-variance-scaled": {
+        "mean_deltaE": 1.3754648926189288,
+        "p95_deltaE": 3.0691859408250313,
+        "max_deltaE": 18.808239883860203,
+        "bias_r": 0.00041676979162730277,
+        "bias_g": -2.0142722860327922E-05,
+        "bias_b": 0.00012566664372570813,
+        "n_pixels": 1707200
+      },
+      "no-nr": {
+        "mean_deltaE": 1.1269876161111307,
+        "p95_deltaE": 2.5880841754570563,
+        "max_deltaE": 10.020965384027164,
+        "bias_r": 0.00016968407726380974,
+        "bias_g": -0.0002028285089181736,
+        "bias_b": -0.0004190236213617027,
+        "n_pixels": 1707200
+      }
+    },
+    "interpretation": "Scaling noise-profile variance by output/input area improves mean deltaE00 from 2.0773 to 1.3755 but leaves a substantial residual and does not outperform the no-NR diagnostic control. The independent-sample assumption is uncalibrated for demosaiced, correlated noise. No production algorithm or budget changed.",
+    "limitations": [
+      "Same single common half-resolution scene; not full export or ACR",
+      "No CPU/GPU parity or reference-hardware performance qualification",
+      "Noise amount remains 25; profile coefficients alone are scaled"
+    ]
+  }
 }
