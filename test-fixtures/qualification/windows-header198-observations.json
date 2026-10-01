@@ -1,0 +1,24 @@
+{
+  "kind": "targeted-native-layout-and-manual-observation",
+  "issue": 3887,
+  "date": "2026-10-01",
+  "build": "Maple.DesignAudit198.exe",
+  "sourceBase": "d2b88c750",
+  "sourceChange": "Remove the 760-DIP histogram visibility cutoff in MainWindow.Viewport.cs; assert histogram visibility and bounds in the native responsive smoke.",
+  "buildErrors": 0,
+  "buildWarnings": 26,
+  "nativeGpuLifecyclePassed": true,
+  "nativeLayoutSizesDip": [[1440, 900], [1024, 768], [960, 600], [683, 512], [720, 450], [512, 384]],
+  "manualObservations": [
+    "Opened the same local RAW as the build-196 observation; retained its existing +2 EV adjustment without changing it.",
+    "Resized the native window using its left border to approximately 694 by 1019 capture pixels.",
+    "The histogram remained populated in the centered, width-constrained header; filename/status, back, Undo, Compare, More and Export were visible without clipping.",
+    "Light retained Profile, Reset and its six primary sliders; all seven labeled dock tools remained visible."
+  ],
+  "limitations": [
+    "Screenshots remain in the audit conversation; no pixel-diff or measured DPI claim.",
+    "Native content-size tests do not substitute for physical 100/150/200-percent display qualification.",
+    "This qualifies the histogram regression only, not full design, accessibility, color or performance parity."
+  ],
+  "fullDesignSignOff": false
+}

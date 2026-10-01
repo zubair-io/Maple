@@ -305,6 +305,12 @@ namespace Maple.WinUI
                         throw new InvalidOperationException($"GPU surface exceeds fitted viewport at {size}");
                 }
                 var buttonBounds = CompareButton.TransformToVisual(root).TransformBounds(new Windows.Foundation.Rect(0, 0, CompareButton.ActualWidth, CompareButton.ActualHeight));
+                var histogramBounds = HeaderHistogram.TransformToVisual(EditTopBar).TransformBounds(
+                    new Windows.Foundation.Rect(0, 0, HeaderHistogram.ActualWidth, HeaderHistogram.ActualHeight));
+                if (HeaderHistogram.Visibility != Microsoft.UI.Xaml.Visibility.Visible || HeaderHistogram.ActualWidth < 96 ||
+                    histogramBounds.Left < 0 || histogramBounds.Right > EditTopBar.ActualWidth ||
+                    histogramBounds.Top < 0 || histogramBounds.Bottom > EditTopBar.ActualHeight)
+                    throw new InvalidOperationException($"Header histogram is hidden or clipped at {size}");
                 if (buttonBounds.Right > size.Item1 || buttonBounds.Left < 0 || EditPanel.ActualHeight > size.Item2 ||
                     EditPanel.Visibility != Microsoft.UI.Xaml.Visibility.Visible || EditPanel.ActualHeight <= 0)
                     throw new InvalidOperationException($"Editor chrome overflow at {size}");

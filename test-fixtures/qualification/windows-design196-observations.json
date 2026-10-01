@@ -33,10 +33,12 @@
     "Curve displayed its live histogram backdrop, Luma/R/G/B tabs, editable plot and four parametric sliders.",
     "Mask displayed the empty state and Add linear mask/Add radial mask actions.",
     "Crop displayed its overlay, straighten control, Reset and Done. Horizontal scrolling moved the aspect chips; the accessibility tree exposed all nine ratios and named keyboard-operable crop handles.",
-    "More editing actions exposed Lens corrections, Film looks, Heal / Clone, Presets, Geometry, Brightness and Scopes. Film looks opened with category chips and the film catalog. No film was applied."
+    "More editing actions exposed Lens corrections, Film looks, Heal / Clone, Presets, Geometry, Brightness and Scopes. Film looks opened with category chips and the film catalog. No film was applied.",
+    "A native border resize produced a 694-by-1019 capture. The selected photo and existing +2 EV adjustment were retained; Light still showed all six primary sliders, Profile and Reset, and all seven dock tools remained visible. Film retained a vertically scrollable catalog.",
+    "At 694 pixels wide the editor header hid the histogram despite spare filename space. This is a failed design observation in build 196, not a narrow-window sign-off."
   ],
   "limitations": [
-    "This records panel appearance and navigation at one window size. It does not qualify every editing action, populated-mask state, subtab, responsive breakpoint or keyboard path.",
+    "This records panel appearance and navigation at two window sizes. It does not qualify every editing action, populated-mask state, subtab, responsive breakpoint or keyboard path.",
     "No ratings, flags or adjustments were changed during this inspection.",
     "RAW decode visibly required a wait; no controlled timing was captured.",
     "Current DPI was not measured; this is not the required 100/150/200 percent matrix.",
