@@ -57,7 +57,8 @@ public partial class EditSessionViewModel
         var snapshot = await TransferSnapshot.ReadAsync(photo.FilePath, cloud, CancellationToken.None);
         await OnUiAcknowledgedAsync(() =>
         {
-            if (_disposed || version != _photoOpenVersion || !ReferenceEquals(SelectedPhoto, photo)) return;
+            if (_disposed || version != _photoOpenVersion || !ReferenceEquals(SelectedPhoto, photo)
+                || (cloud != null && !ReferenceEquals(cloud, _cloud))) return;
             if (_sidecarDirty) throw new InvalidOperationException("Newer edits are pending; reload the photo after saving them.");
             var before = Adjustments;
             var doc = snapshot.Document;

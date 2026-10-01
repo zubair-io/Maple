@@ -103,6 +103,24 @@ public partial class EditSessionViewModel
         if (appliedPhoto.ThumbnailPath == null || failedPhoto.ThumbnailPath != null || handler.ThumbnailReads != 1)
             throw new InvalidOperationException("Cloud transfer did not refresh only acknowledged grid targets");
 
+        var retainedDocument = session._cloudDoc;
+        var retainedAdjustments = session.Adjustments;
+        var retainedPreview = photo.PreviewPath;
+        transferred.Rating = 5;
+        transferred.Adjustments.Exposure = -2;
+        await File.WriteAllTextAsync(sidecar, XmpWriter.Serialize(transferred));
+        handler.ReadStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        handler.ReadRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var staleRefresh = session.RefreshAfterTransferAsync(photo);
+        await handler.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        using var replacementClient = new CloudClient("https://replacement-cloud.invalid");
+        session._cloud = replacementClient;
+        handler.ReadRelease.SetResult();
+        await staleRefresh;
+        if (!ReferenceEquals(retainedDocument, session._cloudDoc) || !ReferenceEquals(retainedAdjustments, session.Adjustments)
+            || photo.Rating != 2 || photo.PreviewPath != retainedPreview)
+            throw new InvalidOperationException("Transfer response from the previous server changed the current session");
+
         static async Task Wait(Func<bool> ready)
         {
             var timer = Stopwatch.StartNew();
@@ -118,6 +136,8 @@ public partial class EditSessionViewModel
         public readonly List<byte[]> Published = new();
         public byte[]? Thumbnail;
         public int ThumbnailReads;
+        public TaskCompletionSource? ReadStarted;
+        public TaskCompletionSource? ReadRelease;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellation)
         {
             if (request.RequestUri?.AbsolutePath.StartsWith("/api/thumb/") == true)
@@ -137,7 +157,13 @@ public partial class EditSessionViewModel
                 await File.WriteAllTextAsync(sidecar, await request.Content!.ReadAsStringAsync(cancellation), cancellation);
                 Writes++;
             }
-            return new(HttpStatusCode.OK) { Content = new StringContent(await File.ReadAllTextAsync(sidecar, cancellation)) };
+            var xml = await File.ReadAllTextAsync(sidecar, cancellation);
+            if (request.Method == HttpMethod.Get && ReadStarted != null && ReadRelease != null)
+            {
+                ReadStarted.TrySetResult();
+                await ReadRelease.Task.WaitAsync(cancellation);
+            }
+            return new(HttpStatusCode.OK) { Content = new StringContent(xml) };
         }
     }
 }
