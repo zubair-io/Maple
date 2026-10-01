@@ -147,6 +147,7 @@ pub fn apply_scene_linear_chain(
         endcaps::unpack_fp16(in_fp16_rgba, width, height)
     });
     img.whites_anchor_ev = whites_anchor_ev;
+    img.nr_sampling_scale = nr_sampling_scale;
 
     // Per-stage application — mirrors `develop_scene_linear_from_raw_with_quality`
     // from `pipeline.rs:182-192`. The order MUST match the Rust reference so

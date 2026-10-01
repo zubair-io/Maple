@@ -84,6 +84,14 @@ fn verify_sized_lateral_ca(cfa: crate::image::CfaPattern) {
         };
         let baseline = sized(&off);
         let corrected = sized(&on);
+        let developed_edge = if matches!(cfa, crate::image::CfaPattern::Rggb) {
+            256
+        } else {
+            512
+        };
+        let expected_scale = (edge as f32 / developed_edge as f32).min(1.0);
+        assert_eq!(baseline.nr_sampling_scale, expected_scale);
+        assert_eq!(corrected.nr_sampling_scale, expected_scale);
         let max_delta = baseline
             .pixels
             .iter()

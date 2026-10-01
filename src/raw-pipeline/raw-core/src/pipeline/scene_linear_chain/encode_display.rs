@@ -84,6 +84,7 @@ pub fn encode_display_f32(
             height,
             pixels,
             space: ColorSpace::DisplayLinearRec2020,
+            nr_sampling_scale: 1.0,
             whites_anchor_ev: None,
         }
     });

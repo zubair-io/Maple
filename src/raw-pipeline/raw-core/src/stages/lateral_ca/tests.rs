@@ -49,6 +49,7 @@ fn synthetic_mosaic(k_red: f32, k_blue: f32) -> Image {
         })
         .collect();
     Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
@@ -197,6 +198,7 @@ fn a_ca_free_mosaic_is_left_alone() {
 #[test]
 fn a_flat_field_yields_no_fit() {
     let mut img = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
@@ -216,6 +218,7 @@ fn a_flat_field_yields_no_fit() {
 #[test]
 fn an_image_too_small_for_the_block_grid_is_skipped() {
     let mut img = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: 64,
         height: 64,
@@ -285,6 +288,7 @@ fn xtrans_sites_round_trip_through_the_sparse_sampler() {
         })
         .collect();
     let mut img = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
@@ -316,6 +320,7 @@ fn xtrans_sites_round_trip_through_the_sparse_sampler() {
 #[should_panic(expected = "must run BEFORE demosaic")]
 fn applying_after_demosaic_is_rejected_rather_than_silently_wrong() {
     let mut demosaiced = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
@@ -335,6 +340,7 @@ fn applying_after_demosaic_is_rejected_rather_than_silently_wrong() {
 #[test]
 fn the_off_default_skips_before_the_space_guard() {
     let mut demosaiced = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,

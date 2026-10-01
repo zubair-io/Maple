@@ -63,6 +63,7 @@ fn forward_display(
     method: WbMethod,
 ) -> Vec<[f32; 3]> {
     let mut img = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
@@ -107,6 +108,7 @@ fn synthetic_raw_roundtrip_regrades_within_budget() {
     // --- Invert: u8 → pre-grade scene-linear (full inverse chain). ---
     let slope0 = 1.0; // contrast 0
     let mut recov = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,

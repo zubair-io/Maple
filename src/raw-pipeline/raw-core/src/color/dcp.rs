@@ -405,11 +405,7 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
         // tone mapping. See the `apply_colorimetry` doc-comment for the full
         // rationale and `grey_dcp_phase1::profile_tone_curve_is_noop_under_colorimetry_only`
         // for the test that pins this contract.
-        let mut pro = Image::new(
-            camera.width,
-            camera.height,
-            ColorSpace::CameraNativeLinearRgb,
-        );
+        let mut pro = camera.empty_in_space(ColorSpace::CameraNativeLinearRgb);
         pro.pixels
             .par_iter_mut()
             .zip(camera.pixels.par_iter())
@@ -423,7 +419,7 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
             apply_look_table(&mut pro, table);
         }
         let exit = m_pro_to_rec2020();
-        let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
+        let mut out = camera.empty_in_space(ColorSpace::SceneLinearRec2020);
         out.pixels
             .par_iter_mut()
             .zip(pro.pixels.par_iter())
@@ -436,7 +432,7 @@ fn apply_with_post_pro(camera: &Image, profile: &DcpProfile) -> crate::Result<Im
     // Fast path: no HSM. Fold cam_to_pro and exit into one matrix.
     let exit = m_pro_to_rec2020();
     let m = exit.mul_mat(&cam_to_pro);
-    let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
+    let mut out = camera.empty_in_space(ColorSpace::SceneLinearRec2020);
     out.pixels
         .par_iter_mut()
         .zip(camera.pixels.par_iter())

@@ -58,6 +58,7 @@ pub(super) fn apply_scene_linear_chain_f32_inner(
         endcaps::unpack_f32(in_f32_rgba, width, height)
     });
     img.whites_anchor_ev = whites_anchor_ev;
+    img.nr_sampling_scale = nr_sampling_scale;
 
     // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
     // sibling) verbatim. The order MUST match the Rust reference so

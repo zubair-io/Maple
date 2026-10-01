@@ -234,6 +234,7 @@ fn deterministic_across_thread_counts() {
             .build()
             .expect("build pool");
         let mut img = Image {
+            nr_sampling_scale: 1.0,
             whites_anchor_ev: None,
             width: base.width,
             height: base.height,

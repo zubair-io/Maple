@@ -132,6 +132,7 @@ pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32
             }
         });
 
+    image.nr_sampling_scale *= dw.max(dh) as f32 / long_edge as f32;
     image.pixels = out;
     image.width = dw;
     image.height = dh;
@@ -141,6 +142,41 @@ pub fn downsample_image_area(image: &mut crate::image::Image, max_long_edge: u32
 mod tests {
     use super::downsample_image_area;
     use crate::image::{ColorSpace, Image};
+
+    #[test]
+    fn sampling_density_composes_through_resize_crop_and_stage_output() {
+        for (w, h) in [(128, 64), (64, 128)] {
+            let mut image = detailed(w, h);
+            image.whites_anchor_ev = Some(2.0);
+            downsample_image_area(&mut image, 64);
+            assert_eq!(image.nr_sampling_scale, 0.5);
+            let mut cropped = crate::pipeline::develop::crop_to_default(
+                &image,
+                crate::image::CropRect {
+                    x: 2,
+                    y: 2,
+                    w: 24,
+                    h: 16,
+                },
+                1,
+            )
+            .unwrap();
+            assert_eq!(
+                cropped.nr_sampling_scale, 0.5,
+                "crop must not imply resampling"
+            );
+            assert_eq!(cropped.whites_anchor_ev, Some(2.0));
+            downsample_image_area(&mut cropped, 12);
+            assert_eq!(cropped.nr_sampling_scale, 0.25);
+            let pixels = cropped.pixels.clone();
+            downsample_image_area(&mut cropped, 48);
+            assert_eq!(cropped.nr_sampling_scale, 0.25);
+            assert_eq!(cropped.pixels, pixels);
+            let output = cropped.empty_in_space(ColorSpace::SceneLinearRec2020);
+            assert_eq!(output.nr_sampling_scale, 0.25);
+            assert_eq!(output.whites_anchor_ev, Some(2.0));
+        }
+    }
 
     /// Deterministic scene-linear content with real high-frequency detail, so
     /// every arm of the Mitchell kernel is exercised and no tap short-circuits
@@ -160,6 +196,7 @@ mod tests {
             })
             .collect();
         Image {
+            nr_sampling_scale: 1.0,
             whites_anchor_ev: None,
             width,
             height,

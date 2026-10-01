@@ -37,6 +37,7 @@ pub fn composite_into_f32(
             .map(|c| [c[0], c[1], c[2]])
             .collect(),
         space: ColorSpace::SceneLinearRec2020,
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
     };
     crate::stages::inpaint_composite::apply(&mut img, patches);
@@ -92,6 +93,7 @@ pub fn composite_into_fp16(
             })
             .collect(),
         space: ColorSpace::SceneLinearRec2020,
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
     };
     crate::stages::inpaint_composite::apply(&mut img, patches);

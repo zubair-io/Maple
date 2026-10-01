@@ -173,6 +173,7 @@ fn chroma_noise_energy_shrinks_and_is_monotone_in_strength() {
     let mut prev = e0;
     for &s in &[25.0f32, 50.0, 100.0] {
         let mut img = Image {
+            nr_sampling_scale: 1.0,
             whites_anchor_ev: None,
             width: base.width,
             height: base.height,
@@ -267,6 +268,7 @@ fn deterministic_across_thread_counts() {
             .build()
             .expect("build pool");
         let mut img = Image {
+            nr_sampling_scale: 1.0,
             whites_anchor_ev: None,
             width: base.width,
             height: base.height,

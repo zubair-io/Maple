@@ -138,6 +138,7 @@ pub fn render_detail_tile(
         height: sh,
         pixels: rgb.chunks_exact(3).map(|p| [p[0], p[1], p[2]]).collect(),
         space: ColorSpace::SceneLinearRec2020,
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: context.whites_anchor_ev,
     };
     let (sx, sy, _, _) = raw.orientation.display_rect_to_sensor(

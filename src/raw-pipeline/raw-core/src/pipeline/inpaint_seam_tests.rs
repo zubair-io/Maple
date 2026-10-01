@@ -46,6 +46,7 @@ fn synthetic_scene() -> Vec<[f32; 3]> {
 /// → rec2020→sRGB → gamma. Returns display-encoded f32 in [0,1].
 fn forward_display(pre: &[[f32; 3]], t: f32, tint: f32, ev: f32, m: WbMethod) -> Vec<[f32; 3]> {
     let mut img = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,
@@ -113,6 +114,7 @@ fn baked_patch_composited_at_seam_regrades_like_sensor() {
 
     // 3) Composite into a copy of the pre-grade scene via the real stage.
     let mut composited = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: W as u32,
         height: H as u32,

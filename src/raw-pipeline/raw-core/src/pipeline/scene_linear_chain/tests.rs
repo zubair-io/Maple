@@ -472,6 +472,7 @@ fn with_patches_equals_manual_composite_then_chain_f32() {
     .unwrap();
     // Manual: composite into a copy of the input, then the plain chain.
     let mut img = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: w,
         height: h,

@@ -54,6 +54,9 @@ pub struct Image {
     pub space: ColorSpace,
     /// Full-frame pre-AE scene white, carried through edits and detail crops.
     pub whites_anchor_ev: Option<f32>,
+    /// Output pixels per developed full-frame pixel; cropping preserves density.
+    /// #3875: host/ABI propagation is staged separately; never infer this from a crop.
+    pub nr_sampling_scale: f32,
 }
 
 impl Image {
@@ -65,7 +68,16 @@ impl Image {
             pixels: vec![[0.0; 3]; len],
             space,
             whites_anchor_ev: None,
+            nr_sampling_scale: 1.0,
         }
+    }
+
+    /// Allocate a same-size stage output while retaining per-frame metadata.
+    pub fn empty_in_space(&self, space: ColorSpace) -> Self {
+        let mut out = Self::new(self.width, self.height, space);
+        out.whites_anchor_ev = self.whites_anchor_ev;
+        out.nr_sampling_scale = self.nr_sampling_scale;
+        out
     }
 
     pub fn pixel_count(&self) -> usize {

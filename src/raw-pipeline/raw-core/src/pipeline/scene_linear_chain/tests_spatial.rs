@@ -121,6 +121,7 @@ fn edge_and_chroma_f32(w: u32, h: u32) -> Vec<f32> {
 /// staged reference can be compared lane-for-lane.
 fn image_from_f32_rgba(buf: &[f32], w: u32, h: u32) -> crate::image::Image {
     crate::image::Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: w,
         height: h,

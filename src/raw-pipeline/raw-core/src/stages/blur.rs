@@ -523,7 +523,7 @@ pub fn gaussian_blur_rgb(img: &Image, radius: usize) -> Image {
         b_plane = box_blur_channel(&b_plane, w, h, r_box);
     }
 
-    let mut out = Image::new(img.width, img.height, ColorSpace::SceneLinearRec2020);
+    let mut out = img.empty_in_space(ColorSpace::SceneLinearRec2020);
     for i in 0..img.pixels.len() {
         out.pixels[i] = [r_plane[i], g_plane[i], b_plane[i]];
     }

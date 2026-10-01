@@ -12,6 +12,7 @@ use crate::types::{Mask, Point2};
 /// isn't worth the indirection.
 fn flat_image(w: u32, h: u32, v: f32) -> Image {
     Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: w,
         height: h,
@@ -55,6 +56,7 @@ fn hue_100_rotates_oklab_hue_by_30_degrees_and_keeps_l_and_c() {
         },
     )];
     let mut img = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: 3,
         height: 1,
@@ -244,6 +246,7 @@ fn range_refinement_scopes_the_layer_to_matching_pixels_only() {
     };
     let blue = [0.05, 0.08, 0.6];
     let mut img = Image {
+        nr_sampling_scale: 1.0,
         whites_anchor_ev: None,
         width: 2,
         height: 1,

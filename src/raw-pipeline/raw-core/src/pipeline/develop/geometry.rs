@@ -78,6 +78,8 @@ pub(in crate::pipeline) fn crop_to_default(
         return None;
     }
     let mut out = Image::new(cw, ch, image.space);
+    out.nr_sampling_scale = image.nr_sampling_scale;
+    out.whites_anchor_ev = image.whites_anchor_ev;
     let in_w = image.width as usize;
     let cw_us = cw as usize;
     let cx_us = cx as usize;
