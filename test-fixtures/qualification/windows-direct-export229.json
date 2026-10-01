@@ -1,0 +1,39 @@
+{
+  "kind": "saved-production-artifact-comparison",
+  "issue": 3875,
+  "date": "2026-10-01",
+  "harnessCommit": "47ef46f8b",
+  "provenance": {
+    "managed_app_sha256": "0B6294F7B57ABF8C9B9F2DF9C6FCD3A38653F18580793D983B26C20B7677F3AB",
+    "qualification_limits": [
+      "Physical reference hardware and 100MP source dimensions require separate verification.",
+      "GPU screenshot perceptual parity is not covered by these CPU-preview and production-export comparisons."
+    ],
+    "cli_sha256": "E7755BD3588FC7D466838BB401D58376FAAB1984B815F43E8063C9E0C62E3F94",
+    "app_sha256": "86E11E78BF13F4606E451A3488F79368016656A6E88367B91C0003879FC92FE8",
+    "native_pipeline_sha256": "DCC1832E742D9EFE8DFC3E03F6D8697F32C74200E1F6A7DDD380227C7350C22D",
+    "physical_reference_qualified": false,
+    "sidecar_sha256": null,
+    "fixture_sha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5"
+  },
+  "previewSha256": "EEDF11990342498FF49C7674CE8A42CEF80C99D0B7F5DD7BBFDB6F56D79B53B5",
+  "exportSha256": "4279AAD20D27BF312ED1278A4A908788DF9CD65C6ADB0219A6C66B03368758E3",
+  "comparator": "src/scripts/compare_images.py candidate=app-frame.png reference=cpu/export/qualification.tif; default sRGB; candidate Lanczos-resized to native reference dimensions",
+  "metrics": {
+    "mean_deltaE": 4.376861294097864,
+    "p95_deltaE": 10.665480094539088,
+    "max_deltaE": 66.5473004603225,
+    "bias_r": -0.002822661539539695,
+    "bias_g": -0.001872505061328411,
+    "bias_b": -0.0024415652733296156,
+    "n_pixels": 100663296
+  },
+  "meanBudget": 2.0,
+  "verdict": "FAIL",
+  "limitations": [
+    "Reuses previously produced artifacts identified by hashes; not a fresh current-branch application run.",
+    "Compares CPU preview to production export; does not establish GPU screenshot parity or hardware timing.",
+    "Native-reference comparison upsamples the preview; matched-viewport and corpus qualification remain required."
+  ],
+  "conclusion": "The direct production pair fails without the CLI reference. CLI AMaZE versus export Auto policy does not by itself explain away preview/export divergence."
+}
