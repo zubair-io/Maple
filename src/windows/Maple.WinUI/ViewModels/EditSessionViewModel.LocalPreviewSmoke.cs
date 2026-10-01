@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Maple.WinUI.Models;
 using Maple.WinUI.Services.Xmp;
@@ -16,6 +18,11 @@ public partial class EditSessionViewModel
         File.WriteAllText(sidecar, XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = baseline }));
         using var session = new EditSessionViewModel(restoreSources: false);
         var photo = new PhotoItem { FilePath = fixture, FileName = Path.GetFileName(fixture) };
+        await session.HydrateLibraryAsync(new List<PhotoItem> { photo }, null, CancellationToken.None);
+        await Wait(() => photo.ThumbnailPath != null, "Cold library hydration did not publish edited thumbnail");
+        var coldThumbnail = photo.ThumbnailPath;
+        if (!coldThumbnail!.Contains("edited-") || !coldThumbnail.EndsWith(".thumb.png"))
+            throw new InvalidOperationException("Cold library used embedded pixels for an edited photo");
         session.SelectedPhoto = photo;
         await Wait(() => photo.PreviewPath != null, "Cold edited selection did not publish a preview");
         var cold = photo.PreviewPath;
@@ -25,9 +32,13 @@ public partial class EditSessionViewModel
         session.ScheduleSidecarWrite();
         session.FlushSidecarNow();
         await Wait(() => photo.PreviewPath != cold, "Saved adjustment did not refresh Browse");
+        if (photo.ThumbnailPath == coldThumbnail)
+            throw new InvalidOperationException("Saved adjustment did not refresh grid/filmstrip");
         File.WriteAllText(sidecar, XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = baseline }));
         session.OnSidecarChangedOnDisk(null, sidecar);
         await Wait(() => photo.PreviewPath == cold, "External sidecar reset did not restore cached preview");
+        if (photo.ThumbnailPath != coldThumbnail)
+            throw new InvalidOperationException("External sidecar reset did not restore cached thumbnail");
 
         // Requests are issued on the UI thread in one turn. Their dispatcher
         // completions cannot publish until after the selection is replaced.

@@ -47,6 +47,7 @@ public partial class EditSessionViewModel
             photo.Rating = doc.Rating ?? 0; photo.FlagStatus = doc.Flag ?? "none"; photo.ColorLabel = doc.ColorLabel;
             SyncSlidersFromModel();
             RefreshRenderAfterModelChange(before);
+            RefreshLocalPreview();
         });
     }
 }

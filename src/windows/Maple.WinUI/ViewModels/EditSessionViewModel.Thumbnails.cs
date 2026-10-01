@@ -32,17 +32,19 @@ namespace Maple.WinUI.ViewModels
                 var exif = SafeReadExif(item.FilePath);
                 snapshot[item.FileName] = new RenameReconciliationLogic.Fingerprint(
                     item.FileSizeBytes, exif?.DateTimeOriginal, exif?.CameraSerial);
-                var thumb = await _thumbnails.GetOrCreateAsync(item.FilePath, ct);
+                var originalThumbnail = item.ThumbnailPath;
+                var originalPath = item.FilePath;
+                var thumb = await _thumbnails.GetOrCreateLibraryThumbnailAsync(originalPath, ct);
                 thumb = await Services.DisplayImageCache.PrepareAsync(thumb, Services.ThumbnailService.ThumbnailMaxPx, ct);
 
                 App.MainDispatcherQueue?.TryEnqueue(() =>
                 {
-                    if (ct.IsCancellationRequested) return;
+                    if (_disposed || ct.IsCancellationRequested || item.FilePath != originalPath) return;
                     // JPEGs are directly displayable, so a missing embedded
                     // preview falls back to the file itself.
                     var effectiveThumb = thumb
                         ?? (item.Format is "JPG" or "JPEG" ? item.FilePath : null);
-                    if (effectiveThumb != null)
+                    if (effectiveThumb != null && item.ThumbnailPath == originalThumbnail)
                         item.ThumbnailPath = new Uri(effectiveThumb).AbsoluteUri;
                     if (exif != null)
                     {

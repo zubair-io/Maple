@@ -43,11 +43,17 @@ public partial class EditSessionViewModel
         _ = Task.Run(async () =>
         {
             string? path = null;
+            string? thumbnail = null;
             try
             {
-                path = System.IO.File.Exists(SidecarStore.SidecarPathFor(photo.FilePath))
+                var hasSidecar = System.IO.File.Exists(SidecarStore.SidecarPathFor(photo.FilePath));
+                path = hasSidecar
                     ? await _thumbnails.GetOrCreateAdjustedPreviewAsync(photo.FilePath, model, request.Token)
                     : await _thumbnails.GetOrCreateAsync(photo.FilePath, request.Token, ThumbnailService.PreviewMaxPx);
+                thumbnail = hasSidecar
+                    ? await _thumbnails.GetOrCreateAdjustedThumbnailAsync(photo.FilePath, model, request.Token)
+                    : await _thumbnails.GetOrCreateAsync(photo.FilePath, request.Token);
+                thumbnail = await DisplayImageCache.PrepareAsync(thumbnail, ThumbnailService.ThumbnailMaxPx, request.Token);
             }
             catch (OperationCanceledException) { }
             catch (Exception error) { DiagLog.Write($"[preview] {error.Message}"); }
@@ -59,6 +65,7 @@ public partial class EditSessionViewModel
                 request.Dispose();
                 if (_disposed || cancelled || !current || version != _photoOpenVersion || !ReferenceEquals(photo, SelectedPhoto)) return;
                 photo.PreviewPath = path == null ? null : new Uri(path).AbsoluteUri;
+                if (thumbnail != null) photo.ThumbnailPath = new Uri(thumbnail).AbsoluteUri;
                 if (path == null) EnsureDecoded();
             });
         });

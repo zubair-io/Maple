@@ -151,7 +151,9 @@ namespace Maple.WinUI.ViewModels
 
         private async Task RefreshRenamedThumbnailAsync(PhotoItem photo)
         {
-            var thumb = await _thumbnails.GetOrCreateAsync(photo.FilePath, CancellationToken.None)
+            var originalPath = photo.FilePath;
+            var originalThumbnail = photo.ThumbnailPath;
+            var thumb = await _thumbnails.GetOrCreateLibraryThumbnailAsync(originalPath, CancellationToken.None)
                 .ConfigureAwait(false);
             thumb = await DisplayImageCache.PrepareAsync(thumb, ThumbnailService.ThumbnailMaxPx, CancellationToken.None);
             var effectiveThumb = thumb
@@ -159,7 +161,11 @@ namespace Maple.WinUI.ViewModels
             if (effectiveThumb == null)
                 return;
             var uri = new Uri(effectiveThumb).AbsoluteUri;
-            OnUi(() => photo.ThumbnailPath = uri);
+            OnUi(() =>
+            {
+                if (!_disposed && photo.FilePath == originalPath && photo.ThumbnailPath == originalThumbnail)
+                    photo.ThumbnailPath = uri;
+            });
         }
     }
 }

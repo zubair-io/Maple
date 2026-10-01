@@ -63,6 +63,19 @@ public sealed partial class MainWindow
         var editedPixels = await ReadDerivativePixelsAsync(brighter);
         if (first == brighter || firstPixels.SequenceEqual(editedPixels))
             throw new InvalidOperationException("Browse derivative ignored the exposure adjustment");
+        var thumbnail = await thumbnails.GetOrCreateAdjustedThumbnailAsync(fixture, edited, CancellationToken.None)
+            ?? throw new InvalidOperationException("Edited thumbnail missing");
+        using (var file = File.OpenRead(thumbnail))
+        {
+            var decoder = await BitmapDecoder.CreateAsync(file.AsRandomAccessStream());
+            if (decoder.PixelWidth == 0 || decoder.PixelHeight == 0 ||
+                Math.Max(decoder.PixelWidth, decoder.PixelHeight) > ThumbnailService.ThumbnailMaxPx)
+                throw new InvalidOperationException("Edited thumbnail exceeds grid tier");
+        }
+        var thumbnailStamp = File.GetLastWriteTimeUtc(thumbnail);
+        if (thumbnail != await thumbnails.GetOrCreateAdjustedThumbnailAsync(fixture, edited, CancellationToken.None)
+            || File.GetLastWriteTimeUtc(thumbnail) != thumbnailStamp)
+            throw new InvalidOperationException("Edited thumbnail cache hit regenerated pixels");
         var stamp = File.GetLastWriteTimeUtc(brighter);
         if (brighter != await thumbnails.GetOrCreateAdjustedPreviewAsync(fixture, edited, CancellationToken.None)
             || stamp != File.GetLastWriteTimeUtc(brighter)
