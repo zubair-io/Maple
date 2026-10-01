@@ -4,9 +4,16 @@
   "sourceRevision": "08e98bb87",
   "build": "Maple.DesignAudit196.exe",
   "date": "2026-10-01",
-  "captureSize": [1908, 1019],
+  "captureSize": [
+    1908,
+    1019
+  ],
   "method": "Windows computer-use screenshots and accessibility tree; screenshots are retained in the audit conversation. No screenshot pixel-diff or DPI measurement is claimed.",
-  "references": ["Windows-editor.png", "iPad-left-strip-info.png", "01-preview-layouts.png"],
+  "references": [
+    "Windows-editor.png",
+    "iPad-left-strip-info.png",
+    "01-preview-layouts.png"
+  ],
   "userOverride": "Editor header must be bounded and centered rather than full width.",
   "observed": [
     "Browse grid populated from the 354-photo local folder.",
@@ -18,10 +25,18 @@
     "Editor filmstrip was a bounded floating panel showing five thumbnails and the current selection.",
     "Back returned to Preview; Info opened as a right pane with rating, clear, three flag choices, camera/file metadata and metadata-edit entry point.",
     "Opening Info reduced the photo viewport and kept the selected photo.",
-    "Expanding Preview navigation changed the rail to filename/metadata rows while preserving the selected photo and the open Info pane. The toggle remained in the pane header."
+    "Expanding Preview navigation changed the rail to filename/metadata rows while preserving the selected photo and the open Info pane. The toggle remained in the pane header.",
+    "Color Basic displayed white-balance preset/picker, temperature, tint, vibrance and saturation in the floating inspector.",
+    "HSL displayed the color-band sliders; wheel scrolling advanced from Red/Orange/Yellow to Green/Aqua/Blue/Purple/Magenta while keeping the Color tabs visible.",
+    "Effects Basic displayed clarity, texture, dehaze, vignette/feather and grain amount/size/roughness.",
+    "Detail displayed sharpening, noise reduction and defringe controls; vertical scrolling exposed the lower demosaic description and Remove Chromatic Aberration switch.",
+    "Curve displayed its live histogram backdrop, Luma/R/G/B tabs, editable plot and four parametric sliders.",
+    "Mask displayed the empty state and Add linear mask/Add radial mask actions.",
+    "Crop displayed its overlay, straighten control, Reset and Done. Horizontal scrolling moved the aspect chips; the accessibility tree exposed all nine ratios and named keyboard-operable crop handles.",
+    "More editing actions exposed Lens corrections, Film looks, Heal / Clone, Presets, Geometry, Brightness and Scopes. Film looks opened with category chips and the film catalog. No film was applied."
   ],
   "limitations": [
-    "This records only the listed screens and navigation; other tool panels and responsive breakpoints are not signed off by this observation.",
+    "This records panel appearance and navigation at one window size. It does not qualify every editing action, populated-mask state, subtab, responsive breakpoint or keyboard path.",
     "No ratings, flags or adjustments were changed during this inspection.",
     "RAW decode visibly required a wait; no controlled timing was captured.",
     "Current DPI was not measured; this is not the required 100/150/200 percent matrix.",
