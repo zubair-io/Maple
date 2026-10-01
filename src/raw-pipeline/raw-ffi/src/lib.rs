@@ -269,6 +269,8 @@ mod scene_linear_chain_patches_tests;
 #[path = "scene_linear_chain_tests.rs"]
 mod scene_linear_chain_tests;
 #[cfg(test)]
+mod scene_linear_sampling_tests;
+#[cfg(test)]
 #[path = "scene_linear_tests.rs"]
 mod scene_linear_tests;
 #[cfg(test)]

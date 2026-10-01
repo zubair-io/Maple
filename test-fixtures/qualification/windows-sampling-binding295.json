@@ -1,0 +1,20 @@
+{
+  "issue": 3875,
+  "sourceBase": "8c0cea4c5",
+  "command": "cargo test --release -p raw-ffi --lib scene_linear_sampling_tests",
+  "result": { "passed": 2, "failed": 0, "ignored": 0 },
+  "verified": [
+    "The real f32 C-ABI chain with sampling scale 0.25 matches direct shared chroma NR within 1e-6 per channel and preserves alpha.",
+    "The fixture distinguishes scale 0.25 from native scale, so dropping the metadata fails the regression.",
+    "Zero, negative, NaN and infinite sampling metadata produce exactly the native-scale output."
+  ],
+  "bindingAudit": {
+    "apple": "Incomplete: PipelineRenderer.swift does not retain buf.nr_sampling_scale in MapleSceneLinearImageData; GpuLiveSession.swift binds noise profile and ISO but not sampling scale. Zero-initialized FFI params therefore retain native support rather than sized-preview support.",
+    "requiredFollowup": "Carry decode sampling scale with Swift scene buffers, decode snapshots, CPU chain/cache keys and GPU session identity; keep native-detail tiles at native density and qualify on Apple."
+  },
+  "limitations": [
+    "Tests exercise Rust C-ABI behavior, not Swift compilation or an Apple device.",
+    "This is boundary coverage, not a fix for the open production preview/export color mismatch.",
+    "Full UI, accessibility, cloud, native stability and physical performance qualification remains open."
+  ]
+}
