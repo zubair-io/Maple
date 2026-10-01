@@ -8,6 +8,7 @@ use crate::{
     image::{CropRect, ExifOrientation},
     stages::wb_camera,
     types::DemosaicChoice,
+    xmp::LensProfileEnable,
 };
 use std::sync::atomic::AtomicBool;
 
@@ -134,7 +135,7 @@ fn signed_hdr_transport_has_no_hsm_or_soft_floor_loss() {
         let mut p = patch(&camera);
         p.pixels[0] = to_scene.mul_vec(value);
         p.coverage[0] = 1.0;
-        composite_camera(&mut camera, &[p], &profile).unwrap();
+        composite_camera(&mut camera, &[p], &profile, [0.0, 0.0, 1.0, 1.0]).unwrap();
         close(camera.pixels[0], value);
         assert!(camera.pixels[0][0] < 0.0);
         assert!(camera.pixels[0][1] > 1.0);
@@ -164,7 +165,7 @@ fn replacement_runs_through_nonlinear_profile_after_camera_wb() {
         pixels: vec![to_scene.mul_vec(replacement); 2],
         coverage: vec![0.0, 1.0],
     };
-    composite_camera(&mut camera, &[p], &profile).unwrap();
+    composite_camera(&mut camera, &[p], &profile, [0.0, 0.0, 1.0, 1.0]).unwrap();
     assert_eq!(camera.pixels[0], untouched);
     let frame = wb_camera::SliderFrame::resolve(&raw, &profile);
     for (temperature, tint) in [(4000.0, -10.0), (9500.0, 25.0)] {
@@ -201,19 +202,25 @@ fn invalid_later_patch_or_singular_calibration_never_partially_mutates() {
     valid.coverage = vec![1.0; 2];
     let mut invalid = valid.clone();
     invalid.pixels[1][0] = f32::NAN;
-    assert!(composite_camera(&mut camera, &[valid.clone(), invalid], &profile).is_err());
+    assert!(composite_camera(
+        &mut camera,
+        &[valid.clone(), invalid],
+        &profile,
+        [0.0, 0.0, 1.0, 1.0]
+    )
+    .is_err());
     assert_eq!(camera.pixels, before);
     let mut singular = profile.clone();
     singular.forward_matrix = Some(Matrix3([[0.0; 3]; 3]));
     singular.wb_already_baked = true;
-    assert!(composite_camera(&mut camera, &[valid], &singular).is_err());
+    assert!(composite_camera(&mut camera, &[valid], &singular, [0.0, 0.0, 1.0, 1.0]).is_err());
     assert_eq!(camera.pixels, before);
     singular.forward_matrix = Some(Matrix3([[f32::INFINITY; 3]; 3]));
     assert!(matrices(&singular).is_err());
     let mut overflowing = patch(&camera);
     overflowing.coverage = vec![1.0; 2];
     overflowing.pixels[0][0] = f32::MAX;
-    assert!(composite_camera(&mut camera, &[overflowing], &profile).is_err());
+    assert!(composite_camera(&mut camera, &[overflowing], &profile, [0.0, 0.0, 1.0, 1.0]).is_err());
     assert_eq!(camera.pixels, before);
 }
 
@@ -260,10 +267,6 @@ fn mismatched_upstream_settings_are_refused_before_rendering() {
         },
         AdjustmentModel {
             auto_lateral_ca: crate::xmp::AutoLateralCa::On,
-            ..anchor_model()
-        },
-        AdjustmentModel {
-            lens_profile_enable: LensProfileEnable::On,
             ..anchor_model()
         },
         AdjustmentModel {

@@ -119,10 +119,11 @@ pub(crate) fn apply_camera_patches(
     img: &mut Image,
     patches: &[InpaintPatch],
     camera_from_calibration: crate::math::Matrix3,
+    window: [f32; 4],
 ) {
     img.assert_space(ColorSpace::CameraNativeLinearRgb);
     for patch in patches {
-        composite_patch(img, patch, [0.0, 0.0, 1.0, 1.0], |rgb| {
+        composite_patch(img, patch, window, |rgb| {
             camera_from_calibration.mul_vec(rgb)
         });
     }

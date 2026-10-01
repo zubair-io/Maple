@@ -72,15 +72,25 @@ pub(super) fn develop_with_calibration_patches(
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
-    // #3955 qualification entry only: fixed linear calibration pixels
-    // return to camera RGB BEFORE user WB / FM retarget / nonlinear HSM.
-    // Existing entries pass an empty stack; no extra pixel work or allocation.
+    // #3955 qualification entry: replacements return to sensor camera RGB
+    // before optical resampling. Measure Whites from the original normal
+    // geometry above. Drop that buffer before repeating the fixed prefix to
+    // avoid retaining two full-resolution RGB plates. This whole-frame probe
+    // is not a slider entry; retained source/stack preparation remains #3955.
+    // Empty stacks do no additional pixel work or allocation.
     if !calibration_patches.is_empty() {
+        drop(camera_rgb);
+        let (mut unwarped, _) = camera::prepare_unwarped(raw, model, quality, cancel)?;
         super::removal_calibration::composite_camera(
-            &mut camera_rgb,
+            &mut unwarped,
             calibration_patches,
             &profile,
+            super::removal_calibration::sensor_window(raw),
         )?;
+        camera_rgb = camera::finish_geometry(raw, model, quality, unwarped)?;
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
     }
     // Camera-space user white balance (#1726): moves the temperature/tint
     // sliders upstream of DCP, in camera-native linear RGB, matching ACR —

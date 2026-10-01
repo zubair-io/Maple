@@ -19,6 +19,19 @@ pub(in crate::pipeline) fn prepare(
     quality: RenderQuality,
     cancel: CancelToken<'_>,
 ) -> Result<(Image, bool)> {
+    let (camera, skip_pre_gain) = prepare_unwarped(raw, model, quality, cancel)?;
+    Ok((finish_geometry(raw, model, quality, camera)?, skip_pre_gain))
+}
+
+/// Sensor-sized camera RGB before any optical correction or DefaultCrop.
+/// Removal's fixed plate is transported here, so the normal optical stages
+/// subsequently process originals and replacements together (#3955).
+pub(in crate::pipeline) fn prepare_unwarped(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<(Image, bool)> {
     // Bail before any work if the host already cancelled (e.g. the decode
     // task was superseded before the worker thread even started).
     if cancel.is_cancelled() {
@@ -148,6 +161,15 @@ pub(in crate::pipeline) fn prepare(
     });
     dump_after("00b_highlight_recovery", &camera_rgb);
 
+    Ok((camera_rgb, skip_pre_gain))
+}
+
+pub(in crate::pipeline) fn finish_geometry(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    mut camera_rgb: Image,
+) -> Result<Image> {
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in
     // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
     // `aa` is in raw-sensor coordinates; Preview quality's half-res Bayer
@@ -205,5 +227,5 @@ pub(in crate::pipeline) fn prepare(
     }
     dump_after("01b_crop_to_default", &camera_rgb);
 
-    Ok((camera_rgb, skip_pre_gain))
+    Ok(camera_rgb)
 }
