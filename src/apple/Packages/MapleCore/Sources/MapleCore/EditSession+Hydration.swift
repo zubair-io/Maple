@@ -105,15 +105,9 @@ extension EditSession {
     // purpose: this can run Vision on a cache miss.
     let base = await rehydratedMaskRasters(in: seeded)
     let seededRasterIds = Set(
-      seeded.localAdjustments.compactMap { layer -> UInt32? in
-        guard case .bitmap(_, let rasterId) = layer.mask, rasterId != 0 else { return nil }
-        return rasterId
-      })
+      seeded.localAdjustments.flatMap { $0.mask.bitmapMasks.map(\.rasterId) }.filter { $0 != 0 })
     let registeredRasterIds = Set(
-      base.localAdjustments.compactMap { layer -> UInt32? in
-        guard case .bitmap(_, let rasterId) = layer.mask, rasterId != 0 else { return nil }
-        return rasterId
-      }
+      base.localAdjustments.flatMap { $0.mask.bitmapMasks.map(\.rasterId) }.filter { $0 != 0 }
     ).subtracting(seededRasterIds)
     guard !Task.isCancelled, !hasLoadedSidecar else {
       registeredRasterIds.forEach(MaskRasterRegistry.release)

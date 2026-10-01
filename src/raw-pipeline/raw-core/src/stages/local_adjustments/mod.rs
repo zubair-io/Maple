@@ -224,15 +224,22 @@ fn apply_core(
         // and the scope pass already records exactly that buffer — so a
         // scope-target layer reuses it rather than evaluating the mask twice.
         let spatial_on = spatial::engaged(&layer.adjustments);
+        let group = match &layer.mask {
+            Mask::Group(group) => Some(group),
+            _ => None,
+        };
         let record = if is_scope_target {
             weights.as_mut()
-        } else if spatial_on {
+        } else if spatial_on || group.is_some() {
             Some(spatial_weights.get_or_insert_with(|| vec![0.0f32; w * h]))
         } else {
             None
         };
         match record {
             Some(weight_buf) => {
+                if let Some(group) = group {
+                    mask::fill_group_weights(group, rasters, weight_buf, w, origin, (inv_w, inv_h));
+                }
                 img.pixels
                     .par_chunks_mut(w)
                     .zip(weight_buf.par_chunks_mut(w))
@@ -241,14 +248,22 @@ fn apply_core(
                         let ny = (origin.1 + y as i32) as f32 * inv_h;
                         for (x, p) in row.iter_mut().enumerate() {
                             let nx = (origin.0 + x as i32) as f32 * inv_w;
-                            let weight = combined_weight(
-                                &layer.mask,
-                                raster,
-                                layer.range.as_ref(),
-                                nx,
-                                ny,
-                                p,
-                            );
+                            let weight = if group.is_some() {
+                                let geometric = weight_row[x];
+                                layer
+                                    .range
+                                    .as_ref()
+                                    .map_or(geometric, |r| geometric * range::weight(r, *p))
+                            } else {
+                                combined_weight(
+                                    &layer.mask,
+                                    raster,
+                                    layer.range.as_ref(),
+                                    nx,
+                                    ny,
+                                    p,
+                                )
+                            };
                             weight_row[x] = weight;
                             if weight <= 0.0 || layer.adjustments.is_empty() {
                                 continue;

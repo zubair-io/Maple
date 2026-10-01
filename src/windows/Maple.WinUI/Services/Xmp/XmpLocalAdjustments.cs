@@ -23,13 +23,14 @@ using Maple.WinUI.Models;
 
 namespace Maple.WinUI.Services.Xmp
 {
-    internal static class XmpLocalAdjustments
+    internal static partial class XmpLocalAdjustments
     {
         public const string LinearContainer = "crs:GradientBasedCorrections";
         public const string RadialContainer = "crs:CircularGradientBasedCorrections";
+        public const string GroupContainer = "crs:MaskGroupBasedCorrections";
 
         /// <summary>Both containers, in canonical emit order.</summary>
-        public static readonly IReadOnlyList<string> ContainerTags = new[] { LinearContainer, RadialContainer };
+        public static readonly IReadOnlyList<string> ContainerTags = new[] { LinearContainer, RadialContainer, GroupContainer };
 
         private const string MasksLocalName = "CorrectionMasks";
         private const string MaskWhatLinear = "Mask/Gradient";
@@ -161,12 +162,15 @@ namespace Maple.WinUI.Services.Xmp
             var right = Finite(leaf, "crs:Right");
             if (top is null || left is null || bottom is null || right is null) return null;
             var featherPct = Finite(leaf, "crs:Feather") ?? 50;
+            var version = Finite(leaf, "crs:Version") ?? 1;
+            if (version != 1 && version != 2) return null;
+            var modern = version == 2;
             return new RadialMask(
                 new MaskPoint((left.Value + right.Value) / 2, (top.Value + bottom.Value) / 2),
                 new MaskPoint((right.Value - left.Value) / 2, (bottom.Value - top.Value) / 2),
                 DegreesToRadians(Finite(leaf, "crs:Angle") ?? 0),
-                Math.Clamp(featherPct / 100, 0, 1),
-                XmpBool(Attr(leaf, "crs:Flipped")) ?? false);
+                Math.Clamp(featherPct / (modern ? 50 : 100), 0, 1),
+                (XmpBool(Attr(leaf, "crs:Flipped")) ?? false) != modern);
         }
 
         /// <summary>The first `crs:CorrectionMasks` leaf whose `crs:What` this container models.</summary>
@@ -238,6 +242,9 @@ namespace Maple.WinUI.Services.Xmp
             var linear = containerTag == LinearContainer;
             var seq = ChildrenNamed(container, "Seq").FirstOrDefault();
             if (seq is null) return new List<LocalAdjustment>();
+            if (containerTag == GroupContainer)
+                return seq.Elements(Rdf + "li").Select(ParseGroupCorrection)
+                    .Where(layer => layer is not null).Select(layer => layer!).ToList();
             return ChildrenNamed(seq, "li")
                 .Select(li => ChildrenNamed(li, "Description").FirstOrDefault())
                 .Where(description => description is not null)
@@ -333,8 +340,8 @@ namespace Maple.WinUI.Services.Xmp
         /// </summary>
         public static string? Block(string tag, IReadOnlyList<LocalAdjustment> layers, string indent)
         {
-            var linear = tag == LinearContainer;
-            var ofKind = layers.Where(l => (l.Mask is LinearMask) == linear).ToList();
+            if (tag == GroupContainer) return GroupBlock(layers, indent);
+            var ofKind = layers.Where(l => tag == LinearContainer ? l.Mask is LinearMask : l.Mask is RadialMask).ToList();
             return ofKind.Count == 0 ? null : ContainerBlock(tag, ofKind, indent);
         }
 

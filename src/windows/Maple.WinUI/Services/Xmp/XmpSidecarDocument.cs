@@ -92,6 +92,8 @@ namespace Maple.WinUI.Services.Xmp
         /// input for the writer's fallback ordering.
         /// </summary>
         public List<ChildSlot> ChildOrder { get; set; } = new();
+        /// <summary>Original group containers with stable modeled slots and opaque XML.</summary>
+        internal List<XmpMaskGroupTemplate> MaskGroups { get; } = new();
 
         /// <summary>Siblings of `rdf:Description` inside `rdf:RDF`, verbatim XML.</summary>
         public List<string> PassthroughRdfNodes { get; set; } = new();

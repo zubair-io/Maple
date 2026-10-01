@@ -42,11 +42,14 @@ use crate::chain::Pass;
 use crate::context::GpuContext;
 use crate::spatial::{encode_simple, pool_data_storage};
 
-/// Floats per serialized layer. MUST equal
-/// `raw_core::types::local_adjustment::LAYER_FLAT_LEN`; the parity test pins
-/// the two together, and the WGSL `Layer` struct (ten `vec4<f32>`) is the
-/// same 160 bytes.
-pub const LAYER_FLAT_LEN: usize = 40;
+#[path = "local_adjustments/flat.rs"]
+mod flat;
+#[allow(dead_code)]
+#[path = "generated/local_mask_wire.rs"]
+mod wire;
+pub use flat::logical_layers;
+/// Flat stride and mask discriminants generated from raw-core.
+pub use wire::{KIND_BITMAP, KIND_GROUP, LAYER_FLAT_LEN};
 
 /// Index of the presence-bitmask slot within a layer record. A layer whose mask
 /// is zero sets no controls, and both the Rust stage and the kernel skip it.
@@ -60,12 +63,6 @@ const KIND_SLOT: usize = 6;
 /// them — `crate::local_spatial` does — but the inclusion predicates below
 /// have to tell a spatial-only layer apart from a point layer.
 pub const PRESENT_SPATIAL_MASK: u32 = 0b111111 << 11;
-
-/// `kind` slot value for [`Mask::Bitmap`](raw_core doc) records (#3271).
-/// Mirrored from `raw_core::types::local_adjustment::flat::KIND_BITMAP`; the
-/// parity test pins the two together, the same way [`LAYER_FLAT_LEN`] is
-/// pinned against `raw_core`'s constant.
-pub const KIND_BITMAP: f32 = 2.0;
 
 /// Largest mask-plane length whose every offset is still an exact `f32`
 /// (`2^24`; the flat record carries the plane offset as a float).
@@ -102,13 +99,11 @@ pub struct GpuMaskRaster {
 /// layer's weight written to alpha. `scope_layer` uses the same `-1` = "no
 /// target" convention as [`crate::ScopeRequest`].
 pub fn local_adjustments_are_active(layers_flat: &[f32], scope_layer: i32) -> bool {
-    let layer_count = (layers_flat.len() / LAYER_FLAT_LEN) as i32;
+    let layer_count = logical_layers(layers_flat).count() as i32;
     if scope_layer >= 0 && scope_layer < layer_count {
         return true;
     }
-    layers_flat
-        .chunks_exact(LAYER_FLAT_LEN)
-        .any(|layer| layer[PRESENT_SLOT] != 0.0)
+    logical_layers(layers_flat).any(|layer| layer[PRESENT_SLOT] != 0.0)
 }
 
 /// The presence bitmask a layer record carries, as a `u32`. `as u32` on a
@@ -126,9 +121,7 @@ pub fn layer_present_bits(layer: &[f32]) -> u32 {
 /// per layer so a layer's spatial group can be interleaved in the right
 /// place.
 pub fn local_adjustments_need_spatial(layers_flat: &[f32]) -> bool {
-    layers_flat
-        .chunks_exact(LAYER_FLAT_LEN)
-        .any(|layer| layer_present_bits(layer) & PRESENT_SPATIAL_MASK != 0)
+    logical_layers(layers_flat).any(|layer| layer_present_bits(layer) & PRESENT_SPATIAL_MASK != 0)
 }
 
 /// `repr(C)` params uniform shared with `local_adjustments.wgsl`. 32 bytes
@@ -208,7 +201,7 @@ impl LocalAdjustmentsPass {
     /// rewriting its plane-offset slot to `-1.0`; see `sample_raster` in
     /// `local_adjustments.wgsl`.
     pub fn new(layers_flat: &[f32], rasters: &[GpuMaskRaster]) -> Self {
-        let whole = layers_flat.len() - layers_flat.len() % LAYER_FLAT_LEN;
+        let whole: usize = logical_layers(layers_flat).map(<[f32]>::len).sum();
         let mut layers_flat = layers_flat[..whole].to_vec();
         let mut plane: Vec<f32> = Vec::new();
         // `raster_id -> plane offset` for rasters already appended: two
@@ -216,7 +209,10 @@ impl LocalAdjustmentsPass {
         // ranges" case) must not upload its pixels twice (#3282 review).
         let mut placed: Vec<(u32, usize)> = Vec::new();
         for slot in layers_flat.chunks_exact_mut(LAYER_FLAT_LEN) {
-            if slot[KIND_SLOT] != KIND_BITMAP {
+            if slot[KIND_SLOT] == KIND_GROUP && !slot[1].is_finite() {
+                slot[1] = 0.0;
+            }
+            if !flat::is_bitmap_record(slot[KIND_SLOT]) {
                 continue;
             }
             let raster_id = slot[2] as u32;
@@ -351,6 +347,10 @@ mod tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "local_adjustments/tests_bitmap.rs"]
 mod tests_bitmap;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "local_adjustments/tests_group.rs"]
+mod tests_group;
 
 // The slider-tick timing harness — `#[ignore]`d, not a gate. Sibling file for
 // the same file-budget reason as `tests.rs`.

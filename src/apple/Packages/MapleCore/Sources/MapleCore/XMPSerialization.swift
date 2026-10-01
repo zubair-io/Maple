@@ -51,6 +51,9 @@ public struct XMPParser {
     // rather than the flat attribute switch; see
     // `XMPSerialization+LocalAdjustments.swift`.
     m.localAdjustments = delegate.localAdjustments.finish()
+    let groups = XMPMaskGroupSources.collect(xml)
+    m.localAdjustments =
+      m.localAdjustments.filter { !XMPMaskGroupSources.isGroup($0.mask) } + groups.layers
     // Repair spots (#3409) — same nested-element walker shape; see
     // `XMPSerialization+Retouch.swift`.
     m.retouchSpots = delegate.retouch.finish()
@@ -430,8 +433,8 @@ public struct XMPSerializer {
     // Local adjustments (#358) — the canonical mask containers, after
     // the curves and before the passthrough nodes, the slot the
     // TypeScript and C# writers use too.
-    let localAdjustmentsBlock = _buildLocalAdjustmentsBlock(
-      model: model, indent: XMPCanonical.childIndent)
+    let localAdjustmentsBlock = _buildLocalAdjustmentsBlockWithPassthrough(
+      model: model, indent: XMPCanonical.childIndent, templates: passthrough.maskGroups)
     // Repair spots (#3409) — the `crs:RetouchAreas` container, after the
     // mask containers and before the passthrough nodes, the same slot the
     // TypeScript writer gives it.
@@ -445,8 +448,8 @@ public struct XMPSerializer {
     let children = [
       keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, retouchBlock, passthroughBlock,
     ]
-      .filter { !$0.isEmpty }
-      .joined(separator: "\n")
+    .filter { !$0.isEmpty }
+    .joined(separator: "\n")
 
     return XMPCanonical.document(
       extraNamespaces: culling.keywords.isEmpty ? [] : [dcNamespace],

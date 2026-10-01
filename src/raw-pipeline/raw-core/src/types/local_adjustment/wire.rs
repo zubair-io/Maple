@@ -134,6 +134,18 @@ fn mask_to_json(m: &Mask) -> Value {
         Mask::Everywhere => json!({
             "type": "everywhere",
         }),
+        // Groups postdate this migration-only wire, as do Bitmap/Everywhere.
+        // Canonical persistence uses MaskGroupBasedCorrections (#3408).
+        Mask::Group(ref group) => json!({
+            "type": "group",
+            "components": group.components.iter().map(|c| json!({
+                "mask": mask_to_json(c.mask()),
+                "combine": format!("{:?}", c.combine).to_lowercase(),
+                "invert": c.invert,
+            })).collect::<Vec<_>>(),
+            "opacity": group.opacity,
+            "invert": group.invert,
+        }),
     }
 }
 

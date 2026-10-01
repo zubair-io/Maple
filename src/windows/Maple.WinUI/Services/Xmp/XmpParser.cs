@@ -63,7 +63,7 @@ namespace Maple.WinUI.Services.Xmp
             XDocument source;
             try
             {
-                source = XDocument.Parse(xml, LoadOptions.PreserveWhitespace);
+                source = XDocument.Parse(xml, LoadOptions.PreserveWhitespace | LoadOptions.SetLineInfo);
             }
             catch (Exception)
             {
@@ -81,7 +81,7 @@ namespace Maple.WinUI.Services.Xmp
             var doc = new XmpSidecarDocument();
             var sawPapp = DocumentCarriesPappNamespace(source);
             ParseAttributes(primary, doc, sawPapp);
-            ParseChildren(primary, doc);
+            ParseChildren(primary, doc, xml);
             CollectSiblingPassthrough(rdf, primary, doc);
             return doc;
         }
@@ -334,7 +334,7 @@ namespace Maple.WinUI.Services.Xmp
 
         // ── Children ────────────────────────────────────────────────────────
 
-        private static void ParseChildren(XElement desc, XmpSidecarDocument doc)
+        private static void ParseChildren(XElement desc, XmpSidecarDocument doc, string source)
         {
             foreach (var child in desc.Elements())
             {
@@ -356,6 +356,11 @@ namespace Maple.WinUI.Services.Xmp
                 // radial alike — and never reach the passthrough list, or the
                 // writer would emit them twice.
                 var containerTag = XmpLocalAdjustments.ContainerTagFor(child);
+                if (containerTag == XmpLocalAdjustments.GroupContainer)
+                {
+                    XmpMaskGroupTemplate.Capture(child, source, doc);
+                    continue;
+                }
                 if (containerTag is not null)
                 {
                     doc.Adjustments.LocalAdjustments.AddRange(XmpLocalAdjustments.Parse(child, containerTag));

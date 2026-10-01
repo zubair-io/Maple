@@ -181,6 +181,12 @@ MapleItemCapabilitiesTests
 MapleItemTests
 MapleSidecarPathsTests
 MaskOverlayGeometryTests
+MaskGroupTests
+MaskGroupPassthroughTests
+MaskGroupAuthoringTests
+MaskGroupRasterLifecycleTests
+MaskHandleGeometryTests
+MaskCoveragePreviewTests
 MaskOverlayVisibilityTests
 MaskRangePickerTests
 MaskRangeXMPTests

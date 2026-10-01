@@ -8,7 +8,8 @@
 //! pre-corrects. The same convention is what Lightroom uses internally; UI
 //! layers stretch/transform on top.
 
-use crate::types::{Mask, MaskRaster, Point2};
+use crate::types::{Mask, MaskGroup, MaskRaster, Point2};
+use rayon::prelude::*;
 use std::sync::Arc;
 
 /// Smoothstep S(t) = 3t² − 2t³, clamped to [0, 1].
@@ -67,7 +68,61 @@ pub fn evaluate(mask: &Mask, raster: Option<&MaskRaster>, x: f32, y: f32) -> f32
         }
         Mask::Bitmap { .. } => raster.map(|r| r.sample(x, y)).unwrap_or(0.0),
         Mask::Everywhere => 1.0,
+        Mask::Group(group) => {
+            // A single raster argument cannot resolve several component
+            // recipes. The render stage uses fill_group_weights instead.
+            if group
+                .components
+                .iter()
+                .any(|component| matches!(component.mask(), Mask::Bitmap { .. }))
+            {
+                return 0.0;
+            }
+            group.finish_weight(group.components.iter().fold(0.0, |weight, component| {
+                let raw = evaluate(component.mask(), None, x, y);
+                let value = if component.invert { 1.0 - raw } else { raw };
+                component.combine.weight(weight, value)
+            }))
+        }
     }
+}
+
+/// Reuse the stage's scope/spatial weight scratch for a group. Each raster
+/// lookup runs once per component, outside its row-parallel pixel pass;
+/// there are no allocations per component, layer, or pixel.
+pub(super) fn fill_group_weights(
+    group: &MaskGroup,
+    rasters: &[Arc<MaskRaster>],
+    weights: &mut [f32],
+    width: usize,
+    origin: (i32, i32),
+    inv: (f32, f32),
+) {
+    weights.fill(0.0);
+    for component in &group.components {
+        let raster = resolve(component.mask(), rasters);
+        if matches!(component.mask(), Mask::Bitmap { .. }) && raster.is_none() {
+            // Missing subtract/intersect coverage must not silently widen
+            // a selection. The whole group stays unresolved.
+            weights.fill(0.0);
+            return;
+        }
+        weights
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row)| {
+                let ny = (origin.1 + y as i32) as f32 * inv.1;
+                for (x, weight) in row.iter_mut().enumerate() {
+                    let nx = (origin.0 + x as i32) as f32 * inv.0;
+                    let raw = evaluate(component.mask(), raster, nx, ny);
+                    let value = if component.invert { 1.0 - raw } else { raw };
+                    *weight = component.combine.weight(*weight, value);
+                }
+            });
+    }
+    weights
+        .par_iter_mut()
+        .for_each(|weight| *weight = group.finish_weight(*weight));
 }
 
 /// Linear gradient weight along the line from `start` to `end`.
@@ -328,7 +383,13 @@ mod tests {
 
     #[test]
     fn resolve_returns_none_for_geometric_masks() {
-        let rasters = [Arc::new(MaskRaster::from_u8(1, "0123456789abcdef", 1, 1, &[255]))];
+        let rasters = [Arc::new(MaskRaster::from_u8(
+            1,
+            "0123456789abcdef",
+            1,
+            1,
+            &[255],
+        ))];
         assert!(resolve(&linear_mask(), &rasters).is_none());
         assert!(resolve(&radial_mask(), &rasters).is_none());
         assert!(resolve(&Mask::Everywhere, &rasters).is_none());

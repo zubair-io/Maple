@@ -5,8 +5,9 @@
 
 use super::{Kind, MASK_WHAT_IMAGE, MASK_WHAT_LINEAR, MASK_WHAT_RADIAL};
 use crate::error::{Error, Result};
+use crate::types::local_adjustment::flat::MASK_GROUP_VERSION;
 use crate::types::local_adjustment::{
-    BitmapRecipe, Mask, PartialAdjustments, Point2, RangeRefinement,
+    BitmapRecipe, Mask, MaskCombine, MaskComponent, PartialAdjustments, Point2, RangeRefinement,
 };
 use crate::types::SKIN_TONE_RANGE;
 use crate::xmp::parse_xmp_bool;
@@ -42,6 +43,15 @@ fn attr_f32(e: &BytesStart<'_>, key: &str) -> Result<Option<f32>> {
     }
 }
 
+fn valid_optional_booleans(e: &BytesStart<'_>, keys: &[&str]) -> Result<bool> {
+    for key in keys {
+        if attr_str(e, key)?.is_some_and(|value| parse_xmp_bool(&value).is_none()) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Like [`attr_f32`], but a missing attribute is itself the error — for the
 /// handful of geometry fields that define WHERE a recognized mask sits, a
 /// silently invented `0`/`1` default would render a plausible-looking mask
@@ -58,6 +68,10 @@ pub(super) struct CorrectionAttrs {
     /// `false` when `crs:CorrectionActive="False"` — the correction is a
     /// disabled pin and contributes nothing.
     pub(super) active: bool,
+    pub(super) group_opacity: f32,
+    pub(super) group_invert: bool,
+    pub(super) group_supported: bool,
+    pub(super) group_explicit: bool,
 }
 
 /// Parse a correction `rdf:Description`'s Local* sliders plus the
@@ -113,6 +127,15 @@ pub(super) fn parse_correction_attrs(e: &BytesStart<'_>) -> Result<CorrectionAtt
         adjustments,
         range,
         active,
+        group_opacity: attr_f32(e, "papp:MaskGroupOpacity")?.unwrap_or(1.0),
+        group_invert: attr_str(e, "papp:MaskGroupInverted")?
+            .and_then(|v| parse_xmp_bool(&v))
+            .unwrap_or(false),
+        group_supported: attr_str(e, "papp:MaskGroupVersion")?
+            .is_none_or(|version| version == MASK_GROUP_VERSION.to_string())
+            && attr_str(e, "papp:RangeKind")?.is_none_or(|kind| kind == "Color")
+            && valid_optional_booleans(e, &["papp:MaskGroupInverted", "crs:CorrectionActive"])?,
+        group_explicit: attr_str(e, "papp:MaskGroupVersion")?.is_some(),
     })
 }
 
@@ -216,12 +239,17 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
             let flipped = attr_str(e, "crs:Flipped")?
                 .and_then(|v| parse_xmp_bool(&v))
                 .unwrap_or(false);
+            let version = attr_f32(e, "crs:Version")?.unwrap_or(1.0);
+            if version != 1.0 && version != 2.0 {
+                return Ok(None);
+            }
+            let modern = version == 2.0;
             Ok(Some(Mask::Radial {
                 center: Point2::new((left + right) / 2.0, (top + bottom) / 2.0),
                 radii: Point2::new((right - left) / 2.0, (bottom - top) / 2.0),
                 angle: angle_deg.to_radians(),
-                feather: (feather_pct / 100.0).clamp(0.0, 1.0),
-                invert: flipped,
+                feather: (feather_pct / if modern { 50.0 } else { 100.0 }).clamp(0.0, 1.0),
+                invert: flipped ^ modern,
             }))
         }
         Kind::Group => match attr_str(e, "papp:MaskSource")?.as_deref() {
@@ -253,4 +281,70 @@ pub(super) fn parse_mask_attrs(kind: Kind, e: &BytesStart<'_>) -> Result<Option<
             _ => Ok(None),
         },
     }
+}
+
+/// A geometric/recipe component in a modern Adobe group. Unknown leaf kinds
+/// or composition encodings invalidate the entire group, never just the
+/// subtracting component: partial import would widen the selected region.
+pub(super) fn parse_group_component(e: &BytesStart<'_>) -> Result<Option<MaskComponent>> {
+    let result = parse_group_component_attrs(e);
+    // Preserve the legacy hard error for a corrupt Maple bitmap recipe.
+    // Malformed geometric leaves invalidate the whole imported composition
+    // without preventing the rest of a well-formed sidecar from opening.
+    if attr_str(e, "crs:What")?.as_deref() == Some(MASK_WHAT_IMAGE) {
+        result
+    } else {
+        Ok(result.unwrap_or(None))
+    }
+}
+
+fn parse_group_component_attrs(e: &BytesStart<'_>) -> Result<Option<MaskComponent>> {
+    if !valid_optional_booleans(e, &["crs:MaskActive", "crs:MaskInverted", "crs:Flipped"])? {
+        return Ok(None);
+    }
+    if attr_str(e, "crs:MaskActive")?.and_then(|v| parse_xmp_bool(&v)) == Some(false) {
+        return Ok(None);
+    }
+    let kind = match attr_str(e, "crs:What")?.as_deref() {
+        Some(MASK_WHAT_LINEAR) => Kind::Linear,
+        Some(MASK_WHAT_RADIAL) => Kind::Radial,
+        Some(MASK_WHAT_IMAGE) => Kind::Group,
+        _ => return Ok(None),
+    };
+    let version = attr_f32(e, "crs:Version")?.unwrap_or(1.0);
+    if version != 1.0 && version != 2.0 {
+        return Ok(None);
+    }
+    if kind == Kind::Radial
+        && (attr_f32(e, "crs:Midpoint")?.unwrap_or(50.0) != 50.0
+            || attr_f32(e, "crs:Roundness")?.unwrap_or(0.0) != 0.0)
+    {
+        return Ok(None);
+    }
+    let Some(mask) = parse_mask_attrs(kind, e)? else {
+        return Ok(None);
+    };
+    let mode = attr_f32(e, "crs:MaskBlendMode")?.unwrap_or(0.0);
+    let value = attr_f32(e, "crs:MaskValue")?.unwrap_or(1.0);
+    let inverted = attr_str(e, "crs:MaskInverted")?
+        .and_then(|v| parse_xmp_bool(&v))
+        .unwrap_or(false);
+    let adobe = match (mode, value, inverted) {
+        (0.0, 1.0, _) => MaskCombine::Add,
+        (1.0, 0.0, false) => MaskCombine::Subtract,
+        (1.0, 0.0, true) => MaskCombine::Intersect,
+        _ => return Ok(None),
+    };
+    let combine = match attr_str(e, "papp:MaskCombine")?.as_deref() {
+        None => adobe,
+        Some("Add") if mode == 0.0 => MaskCombine::Add,
+        Some("Subtract") if mode == 1.0 => MaskCombine::Subtract,
+        Some("Intersect") if mode == 1.0 => MaskCombine::Intersect,
+        _ => return Ok(None),
+    };
+    Ok(MaskComponent::new(
+        mask,
+        combine,
+        inverted ^ (combine == MaskCombine::Intersect),
+    ))
 }

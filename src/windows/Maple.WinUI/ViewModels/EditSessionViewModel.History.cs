@@ -7,6 +7,7 @@ namespace Maple.WinUI.ViewModels
 {
     public partial class EditSessionViewModel
     {
+        private bool _adjustmentGestureActive;
         // --- Adjustment edits ---
 
         /// <summary>Called by every slider on value change: re-render, debounce
@@ -16,6 +17,12 @@ namespace Maple.WinUI.ViewModels
             Renderer.RequestRender(Adjustments.Clone());
             ScheduleSidecarWrite();
             _undoTimer?.Dispose();
+            _undoTimer = null;
+            if (_adjustmentGestureActive)
+            {
+                AdjustmentEdited?.Invoke();
+                return;
+            }
             Timer? timer = null;
             timer = new Timer(_ => OnUi(() =>
             {
@@ -38,8 +45,32 @@ namespace Maple.WinUI.ViewModels
             _undoBaseline = Adjustments.Clone();
         }
 
+        /// <summary>Separate discrete mask operations from a pending slider/handle drag.</summary>
+        public void CommitPendingAdjustmentGesture()
+        {
+            _undoTimer?.Dispose();
+            _undoTimer = null;
+            if (_undoBaseline is not null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) !=
+                XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments })) CommitUndoBoundary();
+        }
+
+        public void BeginAdjustmentGesture()
+        {
+            if (_adjustmentGestureActive) return;
+            CommitPendingAdjustmentGesture();
+            _adjustmentGestureActive = true;
+        }
+
+        public void EndAdjustmentGesture()
+        {
+            if (!_adjustmentGestureActive) return;
+            _adjustmentGestureActive = false;
+            CommitPendingAdjustmentGesture();
+        }
+
         public void Undo()
         {
+            _adjustmentGestureActive = false;
             _undoTimer?.Dispose();
             _undoTimer = null;
             if (_undoBaseline != null && XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) !=
@@ -57,6 +88,7 @@ namespace Maple.WinUI.ViewModels
 
         public void Redo()
         {
+            _adjustmentGestureActive = false;
             if (_redoStack.Count == 0)
                 return;
             var before = Adjustments;

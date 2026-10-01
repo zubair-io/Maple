@@ -211,6 +211,10 @@ The vectorscope scope pass (#3272, spec §4/§5.4) is a side channel off the liv
 
 Constants the kernels bake in are generated, not hand-typed: `src/generated/color_matrices.wgsl` (Rec.2020↔sRGB/P3 and the Oklab pair) and `src/generated/agx_coeffs.wgsl` (inset/outset matrices and the log-encode scalars). The Rust pipeline accessors prepend those modules before compiling a kernel — WGSL has no `#include` — and `src/scripts/check_wgsl.sh` reproduces that concatenation to run naga's front-end and validator on CPU, so shader breakage is caught on a runner with no GPU.
 
+### Ordered local mask groups (#3408)
+
+One correction may contain ordered Add, Subtract and Intersect components, independent component/group inversion, and final opacity. CPU and WGSL evaluate the same union/product coverage formulas described in `xmp-canonical-format.md`; local controls and scope selection address logical layers, not the group's physical component records. The flat wire retains its 40-float stride: kind 4 is a group header carrying component count, opacity and group inversion, followed by control-free leaf records whose encoded kind carries shape, combine operation and inversion. Layout constants are generated for Rust, WGSL, Swift, TypeScript and C#. Shape changes update the live-chain signature; geometry/opacity changes only update parameters. GPU components share the existing chain and bitmap bindings, without intermediate component planes or new per-tick GPU buffers. Missing any group bitmap makes the entire group inert, even if inverted.
+
 ## The FFI surface
 
 `raw-ffi` is thin marshalling over `raw-core`: type shims, pointer helpers, error codes, and a `LAST_ERROR` thread-local read back through `maple_last_error`. The generated header is `RawPipeline.h`, produced by cbindgen (config in `raw-ffi/cbindgen.toml`) as part of `src/apple/scripts/build-xcframework.sh`, not by `tools/codegen.sh`. Platform-specific entries are wrapped by cbindgen `[defines]` mappings — `__APPLE__`, `TARGET_OS_IOS`, `_WIN32`.

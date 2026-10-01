@@ -79,7 +79,8 @@ namespace Maple.WinUI.Models
 
     /// <summary>
     /// Mask shape — the per-pixel weight w ∈ [0, 1] a layer is scaled by.
-    /// Mirror of `raw_core::types::Mask`; exactly two shapes today.
+    /// Mirror of `raw_core::types::Mask`: linear/radial leaves and ordered
+    /// composition groups. Unsupported imported leaves remain opaque XMP.
     /// </summary>
     public abstract record LocalMask;
 
@@ -100,7 +101,13 @@ namespace Maple.WinUI.Models
 
     /// <summary>One local-adjustment layer: a mask and the controls it scales.</summary>
     public sealed record LocalAdjustment(
-        LocalMask Mask, PartialAdjustments Adjustments, ColorRangeRefinement? Range = null);
+        LocalMask Mask, PartialAdjustments Adjustments, ColorRangeRefinement? Range = null)
+    {
+        /// <summary>Stable position among imported and opaque group corrections.</summary>
+        public int? XmpGroupSlot { get; init; }
+        /// <summary>Imported correction metadata; never sent to the render core.</summary>
+        public string? XmpSource { get; init; }
+    }
 
     /// <summary>Color selection multiplied into the primary mask; raw-core's Color range variant.</summary>
     public sealed record ColorRangeRefinement(

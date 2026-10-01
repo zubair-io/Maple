@@ -92,23 +92,26 @@ extension EditSession {
   func rehydratedMaskRasters(in source: AdjustmentModel) async -> AdjustmentModel {
     var out = source
     for index in out.localAdjustments.indices {
-      guard case .bitmap(let recipe, let rasterId) = out.localAdjustments[index].mask, rasterId == 0
-      else { continue }
-      do {
-        let (w, h, bytes) = try await sourceMaskRaster(for: recipe)
-        guard
-          let id = MaskRasterRegistry.register(
-            digest: recipe.digest, width: w, height: h, bytes: bytes)
-        else {
+      out.localAdjustments[index].mask = await out.localAdjustments[index].mask.mappingLeavesAsync {
+        mask in
+        guard case .bitmap(let recipe, let rasterId) = mask, rasterId == 0 else { return mask }
+        do {
+          let (w, h, bytes) = try await self.sourceMaskRaster(for: recipe)
+          guard
+            let id = MaskRasterRegistry.register(
+              digest: recipe.digest, width: w, height: h, bytes: bytes)
+          else {
+            editSessionLogger.error(
+              "mask raster \(recipe.digest, privacy: .public): registration rejected")
+            return mask
+          }
+          return .bitmap(recipe: recipe, rasterId: id)
+        } catch {
           editSessionLogger.error(
-            "mask raster \(recipe.digest, privacy: .public): registration rejected")
-          continue
+            "mask raster \(recipe.digest, privacy: .public): \(String(describing: error), privacy: .public)"
+          )
+          return mask
         }
-        out.localAdjustments[index].mask = .bitmap(recipe: recipe, rasterId: id)
-      } catch {
-        editSessionLogger.error(
-          "mask raster \(recipe.digest, privacy: .public): \(String(describing: error), privacy: .public)"
-        )
       }
     }
     return out
@@ -137,12 +140,7 @@ extension EditSession {
 
   public func deleteMask(id: UUID) {
     guard let layer = model.localAdjustments.first(where: { $0.id == id }) else { return }
-    if case .bitmap(let recipe, let rasterId) = layer.mask {
-      MaskRasterRegistry.release(rasterId)
-      // The disk raster outlives a layer: re-adding the same person uses
-      // MaskRasterStore rather than running Vision again.
-      _ = recipe
-    }
+    Set(layer.mask.bitmapMasks.map(\.rasterId)).forEach(MaskRasterRegistry.release)
     model.localAdjustments.removeAll { $0.id == id }
     disabledMaskIds.remove(id)
     if selectedMaskId == id { selectedMaskId = nil }

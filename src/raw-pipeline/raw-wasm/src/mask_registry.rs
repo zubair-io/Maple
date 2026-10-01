@@ -130,6 +130,17 @@ pub fn mask_raster_release(id: u32) {
 pub(crate) fn resolve_into(model: &mut AdjustmentModel) {
     let mut rasters: Vec<Arc<MaskRaster>> = Vec::new();
     for layer in &mut model.local_adjustments {
+        if let Mask::Group(group) = &mut layer.mask {
+            for component in &mut group.components {
+                if let Some(raster) = resolve_bitmap(component.mask()) {
+                    component.set_raster_id(raster.id);
+                    if !rasters.iter().any(|r| r.id == raster.id) {
+                        rasters.push(raster);
+                    }
+                }
+            }
+            continue;
+        }
         let Mask::Bitmap { recipe, raster_id } = &mut layer.mask else {
             continue;
         };
@@ -142,6 +153,13 @@ pub(crate) fn resolve_into(model: &mut AdjustmentModel) {
         }
     }
     model.mask_rasters = rasters;
+}
+
+fn resolve_bitmap(mask: &Mask) -> Option<Arc<MaskRaster>> {
+    let Mask::Bitmap { recipe, raster_id } = mask else {
+        return None;
+    };
+    lookup(*raster_id).or_else(|| lookup_digest(&recipe.digest))
 }
 
 /// Parse an optional XMP sidecar into a model with its bitmap masks resolved
@@ -161,3 +179,7 @@ pub(crate) fn parse_model(xmp: Option<&str>) -> raw_core::Result<AdjustmentModel
 #[cfg(test)]
 #[path = "mask_registry_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "mask_registry_group_tests.rs"]
+mod group_tests;

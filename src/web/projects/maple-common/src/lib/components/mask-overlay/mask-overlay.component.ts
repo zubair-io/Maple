@@ -98,7 +98,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
   protected readonly footprint = this.placement.footprint;
   protected readonly map = this.placement.map;
 
-  protected readonly mask = computed<LocalMask | null>(() => this.session.selected()?.mask ?? null);
+  protected readonly mask = this.session.selectedMask;
 
   /** SVG path for the shape: the gradient axis, or the ellipse outline plus
    *  its rotation lead. */
@@ -162,7 +162,7 @@ export class MaskOverlayComponent implements AfterViewInit, OnDestroy {
     // read first, so re-arming re-runs the effect and repaints immediately.
     effect(() => {
       if (!this.session.active()) return;
-      const mask = this.mask();
+      const mask = this.session.selected()?.mask ?? null;
       const map = this.map();
       const canvas = this.tintCanvas()?.nativeElement;
       if (!canvas) return;
