@@ -142,15 +142,35 @@ pub unsafe extern "C" fn maple_export_developed_to_file(
             },
             max_long_edge: (max_long_edge > 0).then_some(max_long_edge),
         };
-        let exported = match export_from_raw(
-            &raw_img,
-            &model,
-            Some(RawInput::Bytes {
-                bytes: &raw_bytes,
-                ext,
-            }),
-            &options,
-        ) {
+        let rendered =
+            crate::removal_file::prepare_saved(&raw_img, &raw_bytes, &model, raw_path.parent())
+                .map(|saved| {
+                    saved.and_then(|(saved, original)| {
+                        saved.export_encoded(
+                            &raw_img,
+                            &original,
+                            &model,
+                            Some(RawInput::Bytes {
+                                bytes: &raw_bytes,
+                                ext,
+                            }),
+                            &options,
+                            None,
+                        )
+                    })
+                })
+                .unwrap_or_else(|| {
+                    export_from_raw(
+                        &raw_img,
+                        &model,
+                        Some(RawInput::Bytes {
+                            bytes: &raw_bytes,
+                            ext,
+                        }),
+                        &options,
+                    )
+                });
+        let exported = match rendered {
             Ok(e) => e,
             Err(e) => {
                 set_last_error(format!("export: {}", e));

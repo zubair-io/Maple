@@ -11,15 +11,12 @@ use std::{collections::BTreeMap, path::Path};
 /// Return None for the historical unedited path, preserving its exact caller
 /// semantics. A saved stack requires all immutable companions and source checks;
 /// inability to resolve them cannot become a successful unedited render.
-pub(crate) fn render_saved(
+pub(crate) fn prepare_saved(
     raw: &RawImage,
     source_bytes: &[u8],
     model: &AdjustmentModel,
     directory: Option<&Path>,
-    source: Option<RawInput<'_>>,
-    quality: RenderQuality,
-    film: Option<&raw_core::film::FilmLut>,
-) -> Option<raw_core::Result<(u32, u32, Vec<u8>)>> {
+) -> Option<raw_core::Result<(ResolvedCalibrationRemovals, ContentDigest)>> {
     if model.inpaint_removals.is_empty() {
         return None;
     }
@@ -51,6 +48,22 @@ pub(crate) fn render_saved(
         let saved =
             ResolvedCalibrationRemovals::prepare(raw, &original, &model.inpaint_removals, &assets)
                 .map_err(raw_core::Error::Pipeline)?;
-        saved.render_display(raw, &original, model, quality, source, None, film)
+        Ok((saved, original))
     })())
+}
+
+pub(crate) fn render_saved(
+    raw: &RawImage,
+    source_bytes: &[u8],
+    model: &AdjustmentModel,
+    directory: Option<&Path>,
+    source: Option<RawInput<'_>>,
+    quality: RenderQuality,
+    film: Option<&raw_core::film::FilmLut>,
+) -> Option<raw_core::Result<(u32, u32, Vec<u8>)>> {
+    prepare_saved(raw, source_bytes, model, directory).map(|saved| {
+        saved.and_then(|(saved, original)| {
+            saved.render_display(raw, &original, model, quality, source, None, film)
+        })
+    })
 }

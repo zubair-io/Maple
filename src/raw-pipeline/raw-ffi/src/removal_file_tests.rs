@@ -158,3 +158,6 @@ fn file_render_resolves_companions_from_original_directory_with_temporary_parame
         maple_free_buffer(&mut image);
     }
 }
+
+#[path = "removal_export_file_tests.rs"]
+mod export;

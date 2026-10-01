@@ -78,13 +78,23 @@ pub fn run(
             &fs::read(&path).map_err(|e| format!("film LUT {}: {e}", path.display()))?,
         )?)
     };
-    let exported = export_with_recipe(
-        &decoded,
-        &model,
-        Some(RawInput::Bytes { bytes: &bytes, ext }),
-        &recipe,
-        film.as_ref(),
-    )?;
+    let exported = match super::removal::prepare(&decoded, &bytes, &model, &source)? {
+        Some((saved, original)) => saved.export_encoded(
+            &decoded,
+            &original,
+            &model,
+            Some(RawInput::Bytes { bytes: &bytes, ext }),
+            &recipe.options()?,
+            film.as_ref(),
+        )?,
+        None => export_with_recipe(
+            &decoded,
+            &model,
+            Some(RawInput::Bytes { bytes: &bytes, ext }),
+            &recipe,
+            film.as_ref(),
+        )?,
+    };
     let mut staging = tempfile::Builder::new()
         .prefix(".maple-export-")
         .suffix(".tmp")
