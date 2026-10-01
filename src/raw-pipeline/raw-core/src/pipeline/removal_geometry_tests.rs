@@ -108,6 +108,62 @@ fn perspective_and_orientation_follow_the_real_float_render_tail() {
     }
 }
 
+#[test]
+fn a_sized_frame_uses_the_presented_aspect_for_manual_geometry() {
+    let raw = raw();
+    let (w, h) = (7, 3); // Sized integer rounding changes native 16:8 aspect.
+    let model = AdjustmentModel {
+        perspective_vertical: 25.0,
+        perspective_horizontal: 20.0,
+        perspective_scale: 170.0,
+        ..Default::default()
+    };
+    let pixels: Vec<f32> = (0..h)
+        .flat_map(|y| {
+            (0..w).flat_map(move |x| {
+                [
+                    (x as f32 + 0.5) / w as f32,
+                    (y as f32 + 0.5) / h as f32,
+                    0.5,
+                    1.0,
+                ]
+            })
+        })
+        .collect();
+    let inverse = Perspective::from_model(&model)
+        .inverse_matrix(crate::stages::perspective::aspect_ratio(w, h));
+    let rendered = crate::stages::perspective::warp_f32_rgba(&pixels, w, h, &inverse);
+    let points: Vec<_> = (0..h)
+        .flat_map(|y| {
+            (0..w).map(move |x| [(x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32])
+        })
+        .collect();
+    let request =
+        serde_json::json!({"schema":1,"crop_input_size":[w,h],"points":points}).to_string();
+    let result: serde_json::Value =
+        serde_json::from_str(&map_removal_display_points(&raw, &model, &request).unwrap()).unwrap();
+    let mut compared = 0;
+    for (index, mapped) in result["points"].as_array().unwrap().iter().enumerate() {
+        if let Some(mapped) = mapped.as_array() {
+            let source = [
+                mapped[0].as_f64().unwrap() as f32,
+                mapped[1].as_f64().unwrap() as f32,
+            ];
+            if source[0] > 0.5 / w as f32
+                && source[0] < 1.0 - 0.5 / w as f32
+                && source[1] > 0.5 / h as f32
+                && source[1] < 1.0 - 0.5 / h as f32
+            {
+                for axis in 0..2 {
+                    assert!((source[axis] - rendered[index * 4 + axis]).abs() < 1e-7);
+                }
+                compared += 1;
+            }
+        }
+    }
+    assert!(compared > 10);
+}
+
 fn warp(radial: f64, tangential: f64) -> WarpRectilinearOpcode {
     WarpRectilinearOpcode {
         center_x: 0.4,

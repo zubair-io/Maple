@@ -34,6 +34,14 @@ pub struct RemovalGeometry {
 
 impl RemovalGeometry {
     pub fn new(raw: &RawImage, model: &AdjustmentModel) -> Result<Self, String> {
+        Self::for_frame(raw, model, None)
+    }
+
+    fn for_frame(
+        raw: &RawImage,
+        model: &AdjustmentModel,
+        frame_size: Option<[u32; 2]>,
+    ) -> Result<Self, String> {
         let crop = raw
             .crop_rect
             .and_then(|c| CropRect::clamped(c.x, c.y, c.w, c.h, raw.width, raw.height))
@@ -110,7 +118,9 @@ impl RemovalGeometry {
         } else {
             Optics::Identity
         };
-        let aspect = if raw.orientation.swaps_wh() {
+        let aspect = if let Some([w, h]) = frame_size {
+            crate::stages::perspective::aspect_ratio(w, h)
+        } else if raw.orientation.swaps_wh() {
             crop.h as f32 / crop.w as f32
         } else {
             crop.w as f32 / crop.h as f32
@@ -232,7 +242,7 @@ pub fn map_removal_display_points(
     {
         return Err("removal geometry: crop input dimensions must be nonzero".into());
     }
-    let map = RemovalGeometry::new(raw, model)?;
+    let map = RemovalGeometry::for_frame(raw, model, request.crop_input_size)?;
     let points: Vec<_> = request
         .points
         .into_iter()
