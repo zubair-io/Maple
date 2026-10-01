@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-01",
+  "sourceRevision": "3a5192b9f76ba0593eb3f724469fe8c3abebc610",
+  "mainRevision": "655f5d7955bcf33caacc816908f94c5cc43301d5",
+  "previousRevision": "e7dadc83814c2764c32681449547bc321dcc6040",
+  "rebaseConflicts": 0,
+  "windowsAndRustTreesUnchanged": true,
+  "suite": "Maple.WinUI.Tests Release with explicit native DLL and RAW fixture variables",
+  "passed": 1407,
+  "failed": 0,
+  "skipped": 0,
+  "durationSecondsReported": 44,
+  "reportSha256": "E90210D46E5FAC75A67C5EC94821C10CA1FC974E607054B71FCBF11EF6DA0906",
+  "nativeLibrarySha256": "6155758CC716A40626B13B7A765CBAACCFB188815D78ADC30C8F0E0CCB9F0D99",
+  "scope": "Rebased integration check. Full Windows visual, DPI, accessibility, perceptual parity and performance qualification remains incomplete.",
+  "fullQualificationPassed": false
+}
