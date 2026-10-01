@@ -129,7 +129,9 @@ public sealed partial class MainWindow
         {
             var state = ViewModel.Adjustments.Retouch;
             _repairSelection = Math.Min(_repairSelection, state.Spots.Count - 1);
-            _repairList.ItemsSource = state.Spots.Select((entry, index) => $"{index + 1}. {entry.Spot.Kind}").ToArray();
+            var labels = state.Spots.Select((entry, index) => $"{index + 1}. {entry.Spot.Kind}").ToArray();
+            if (_repairList.ItemsSource is not string[] current || !current.SequenceEqual(labels))
+                _repairList.ItemsSource = labels;
             _repairList.SelectedIndex = _repairSelection;
             var selected = SelectedRepair;
             _repairKind.SelectedItem = selected?.Kind.ToString();

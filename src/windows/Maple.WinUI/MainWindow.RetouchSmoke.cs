@@ -32,11 +32,18 @@ public sealed partial class MainWindow
         await ReadyAsync();
         if (SelectedRepair?.Kind != RetouchKind.Clone || ViewModel.UndoCount != depth + 2)
             throw new InvalidOperationException("Repair type control did not commit one edit");
+        var repairItems = _repairList.ItemsSource;
+        _repairList.SelectedIndex = -1;
+        _repairList.SelectedIndex = before.Spots.Count;
+        if (!ReferenceEquals(repairItems, _repairList.ItemsSource) || SelectedRepair?.Kind != RetouchKind.Clone)
+            throw new InvalidOperationException("Repair selection rebuilt its own list or lost the selected spot");
         RecordSmokeStage(output, "retouch-change-radius");
         _repairValues[0].Value = 4;
         await ReadyAsync();
         if (SelectedRepair?.Radius != .04 || ViewModel.UndoCount != depth + 3)
             throw new InvalidOperationException("Repair size control did not commit one edit");
+        if (!ReferenceEquals(repairItems, _repairList.ItemsSource))
+            throw new InvalidOperationException("Repair size edit unnecessarily rebuilt the spot list");
         RecordSmokeStage(output, "retouch-undo-redo-radius");
         ViewModel.Undo();
         await ReadyAsync();
