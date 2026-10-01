@@ -1,0 +1,184 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "kind": "diagnostic-only",
+  "sourceRevision": "9807b559a",
+  "comparator": "src/scripts/compare_images.py",
+  "comparatorSha256": "15F1441B43B9459573312B2DA4D2D5BA4D9EBD492A58B30101E82A5CA5578EFC",
+  "method": "compare_images.diff(candidate, reference, reference_size=recorded_size, zones=True); existing unmodified renders from windows-auto-variance208.json",
+  "pairs": [
+    {
+      "name": "fit-only-common-1536-buffer",
+      "candidate": "test_0000-proxy.png",
+      "candidate_sha256": "34FF53C616841AB6B4E82899AA2C1CC57D8AFB5BAD7150CAF99EDBB0F9DA6FE5",
+      "reference": "test_0000-native.png",
+      "reference_sha256": "AD275A7122613FF6DF989D4D05A3858B4C40137231C473D07B9E582B720E45F0",
+      "reference_size": null,
+      "mean_deltaE": 1.639402208364559,
+      "p95_deltaE": 3.563175328033994,
+      "zones": {
+        "shadow": {
+          "n": 339807,
+          "mean_deltaE": 2.395173366606814,
+          "p95_deltaE": 4.602808824484516,
+          "max_deltaE": 6.446303426158533,
+          "bias_r": 0.0236367117613554,
+          "bias_g": 0.025101542472839355,
+          "bias_b": 0.02881823107600212
+        },
+        "mid": {
+          "n": 613353,
+          "mean_deltaE": 1.3874714228529061,
+          "p95_deltaE": 2.575236951336251,
+          "max_deltaE": 5.876832111303757,
+          "bias_r": -0.0048397681675851345,
+          "bias_g": -0.005522043909877539,
+          "bias_b": -0.007248155307024717
+        },
+        "highlight": {
+          "n": 619704,
+          "mean_deltaE": 1.474333357940974,
+          "p95_deltaE": 2.580855246407887,
+          "max_deltaE": 5.150041449367102,
+          "bias_r": -0.013330750167369843,
+          "bias_g": -0.011161859147250652,
+          "bias_b": -0.011089559644460678
+        }
+      }
+    },
+    {
+      "name": "fit-only-native-render",
+      "candidate": "test_0000-proxy-fit-12288-default.png",
+      "candidate_sha256": "3C710D7D056DDC31C51BFBAD9BD383CC9686B23CE34CBE40B85EEAB68F147DC8",
+      "reference": "test_0000-native-fit-12288-default.png",
+      "reference_sha256": "1D035A68995DCC592E74C97E8FC965E76436C7F06A431D47C3AF3C6662B7E1CD",
+      "reference_size": [
+        1600,
+        1067
+      ],
+      "mean_deltaE": 1.7930151589191836,
+      "p95_deltaE": 3.533939802776924,
+      "zones": {
+        "shadow": {
+          "n": 351960,
+          "mean_deltaE": 2.4293330962681763,
+          "p95_deltaE": 4.578271867015617,
+          "max_deltaE": 7.5800627937916385,
+          "bias_r": 0.02207285724580288,
+          "bias_g": 0.023898351937532425,
+          "bias_b": 0.028779437765479088
+        },
+        "mid": {
+          "n": 704132,
+          "mean_deltaE": 1.560701102873371,
+          "p95_deltaE": 2.8367830586755267,
+          "max_deltaE": 5.946465436301494,
+          "bias_r": -0.004098031669855118,
+          "bias_g": -0.005021869670599699,
+          "bias_b": -0.006745347753167152
+        },
+        "highlight": {
+          "n": 651108,
+          "mean_deltaE": 1.7002829235331927,
+          "p95_deltaE": 2.9905506326640854,
+          "max_deltaE": 6.155150377101587,
+          "bias_r": -0.0132644297555089,
+          "bias_g": -0.011241705156862736,
+          "bias_b": -0.0122759360820055
+        }
+      }
+    },
+    {
+      "name": "native-fit-resolution",
+      "candidate": "test_0000-native-fit-1600-default.png",
+      "candidate_sha256": "E404CDEF2BA2AD2DFED60E3E6BB1E57222F0FDF94879E03C40097C29DAF312F0",
+      "reference": "test_0000-native-fit-12288-default.png",
+      "reference_sha256": "1D035A68995DCC592E74C97E8FC965E76436C7F06A431D47C3AF3C6662B7E1CD",
+      "reference_size": [
+        1600,
+        1067
+      ],
+      "mean_deltaE": 2.594881464394683,
+      "p95_deltaE": 6.686651863122471,
+      "zones": {
+        "shadow": {
+          "n": 351960,
+          "mean_deltaE": 2.7218869572299758,
+          "p95_deltaE": 6.625830065085938,
+          "max_deltaE": 34.506905557322334,
+          "bias_r": -0.005811324343085289,
+          "bias_g": -0.007930219173431396,
+          "bias_b": -0.011738023720681667
+        },
+        "mid": {
+          "n": 704132,
+          "mean_deltaE": 3.1055408666340423,
+          "p95_deltaE": 7.617732435564746,
+          "max_deltaE": 35.80057364302396,
+          "bias_r": 0.0012053457321599126,
+          "bias_g": 0.0017353122821077704,
+          "bias_b": 0.002205464756116271
+        },
+        "highlight": {
+          "n": 651108,
+          "mean_deltaE": 1.9739821981041235,
+          "p95_deltaE": 5.313435625988741,
+          "max_deltaE": 25.276880225748226,
+          "bias_r": 0.00263654300943017,
+          "bias_g": 0.0018536780262365937,
+          "bias_b": 0.004008866846561432
+        }
+      }
+    },
+    {
+      "name": "proxy-fit-resolution",
+      "candidate": "test_0000-proxy-fit-1600-default.png",
+      "candidate_sha256": "B39FA5F9665792025F251527FD723CA89C02589E887B86E2759CD101EFB20829",
+      "reference": "test_0000-proxy-fit-12288-default.png",
+      "reference_sha256": "3C710D7D056DDC31C51BFBAD9BD383CC9686B23CE34CBE40B85EEAB68F147DC8",
+      "reference_size": [
+        1600,
+        1067
+      ],
+      "mean_deltaE": 3.074502683357385,
+      "p95_deltaE": 7.664913187691284,
+      "zones": {
+        "shadow": {
+          "n": 328977,
+          "mean_deltaE": 3.0425512942364823,
+          "p95_deltaE": 7.129129234794411,
+          "max_deltaE": 31.553887481029346,
+          "bias_r": -0.0036920001730322838,
+          "bias_g": -0.006226459052413702,
+          "bias_b": -0.011075861752033234
+        },
+        "mid": {
+          "n": 748150,
+          "mean_deltaE": 3.5519145735558784,
+          "p95_deltaE": 8.519079744237512,
+          "max_deltaE": 36.75531098098828,
+          "bias_r": 0.0008346046088263392,
+          "bias_g": 0.001588967745192349,
+          "bias_b": 0.002024501096457243
+        },
+        "highlight": {
+          "n": 630073,
+          "mean_deltaE": 2.524305430795895,
+          "p95_deltaE": 6.619335036367304,
+          "max_deltaE": 24.915657624232413,
+          "bias_r": 0.0022319250274449587,
+          "bias_g": 0.0016699560219421983,
+          "bias_b": 0.004972654394805431
+        }
+      }
+    }
+  ],
+  "interpretation": "Changing only the fixed Auto fit produces mean differences of 1.6394 on a common buffer and 1.7930 at native render size. Holding either fit fixed still fails the 2.0 mean budget across resolutions (2.5949 native fit, 3.0745 proxy fit); midtones contribute the largest zone mean in both. Changing Auto fit alone cannot resolve the measured resolution-dependent discrepancy. DeltaE values are not additive.",
+  "nextInvestigation": "Trace the fixed-fit scene before and after downsampling and spatial detail stages; retain NR and the existing budget. Avoid tuning the Auto LUT to compensate for resolution-dependent rendering.",
+  "limitations": [
+    "One camera fixture and Preview quality; native output is half-sensor reconstruction, not full-resolution production export.",
+    "Stored artifacts are diagnostic renders with injected fixed fit caches; this is not a new end-to-end WinUI qualification run.",
+    "No production behavior or budgets changed. Physical performance and full UI qualification remain incomplete."
+  ],
+  "fullQualificationPassed": false
+}
