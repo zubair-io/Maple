@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-01",
+  "issues": [
+    3875,
+    3889
+  ],
+  "sourceBase": "dc40e2135",
+  "checks": {
+    "budgetHeadroom": "passed against origin/main",
+    "prettier": "passed for changed eligible files after local CRLF normalization; no tracked formatting changes",
+    "mapleUiContracts": "28 contracts passed",
+    "editorParityManifest": "63 capabilities passed",
+    "editorParityCheckerTests": "19 passed, 0 failed",
+    "apiLint": "passed with existing warnings after the temporary-fixture import exception",
+    "sidecarStatTests": "3 passed, 0 failed",
+    "wholeRepositoryFileBudget": "still running; not yet a pass"
+  },
+  "change": "Document the raw-filesystem exception for assets.sidecar-stat.test.ts, whose writes and deletion affect only its mkdtemp fixture directory.",
+  "limitations": [
+    "Repository gates are not visual, color or physical-performance qualification.",
+    "Whole-repository file-budget scan remains pending."
+  ],
+  "fullQualificationPassed": false
+}

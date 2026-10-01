@@ -167,6 +167,8 @@
         "src/routes/xmp.records-change.test.ts",
         "src/routes/assets.histogram.test.ts",
         "src/routes/assets.thumb-etag.test.ts",
+        // Sidecar stat regression uses disposable fixtures under os.tmpdir(), never durable library writes.
+        "src/routes/assets.sidecar-stat.test.ts",
         "src/routes/assets/histogram.ts",
         "src/routes/assets/metadata.ts",
         "src/routes/assets/relocate.test.ts",
