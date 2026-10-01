@@ -18,6 +18,36 @@ public sealed partial class MainWindow
             (FrameworkElement)PanelSliders.ItemsPanelRoot.Children[^1], "last Light row");
         await VerifyPanelControlReachableAsync(EditRail,
             (FrameworkElement)EditRailStack.Children[^1], "Crop tool");
+        VerifyCropTargetsWithinImage();
+    }
+
+    private void VerifyCropTargetsWithinImage()
+    {
+        var wasArmed = _cropArmed;
+        try
+        {
+            _cropArmed = true;
+            UpdateCropDisplay();
+            ((FrameworkElement)Content).UpdateLayout();
+            var canvas = (Canvas)CropOverlay.Content;
+            var count = 0;
+            foreach (var child in canvas.Children)
+            {
+                if (child is not Maple.UI.MuiOverlayHandle handle) continue;
+                var bounds = handle.TransformToVisual(canvas).TransformBounds(
+                    new Rect(0, 0, handle.ActualWidth, handle.ActualHeight));
+                if (bounds.Width <= 0 || bounds.Height <= 0 || bounds.Left < -.5 || bounds.Top < -.5
+                    || bounds.Right > CropOverlay.Bounds.Width + .5 || bounds.Bottom > CropOverlay.Bounds.Height + .5)
+                    throw new InvalidOperationException($"Crop target clipped outside image: {bounds}, image={CropOverlay.Bounds}");
+                count++;
+            }
+            if (count != 9) throw new InvalidOperationException($"Expected crop region and eight handles; found {count}");
+        }
+        finally
+        {
+            _cropArmed = wasArmed;
+            UpdateCropDisplay();
+        }
     }
 
     private async Task VerifyPanelControlReachableAsync(FrameworkElement panel, FrameworkElement target, string name)

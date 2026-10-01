@@ -294,8 +294,11 @@ namespace Maple.UI
                 handle.Frame.Background = R("MapleSurface");
                 handle.Frame.BorderBrush = R("MaplePrimary");
                 var (x, y) = HandlePosition(_handleKind[handle]);
-                Canvas.SetLeft(handle, x - HandleSize / 2);
-                Canvas.SetTop(handle, y - HandleSize / 2);
+                // At a full-frame crop the image can touch the ScrollViewer
+                // boundary. Keep the entire target visible instead of clipping
+                // half of it; pointer deltas still resize the actual crop edge.
+                Canvas.SetLeft(handle, Math.Clamp(x - HandleSize / 2, 0, Math.Max(0, boundsWidth - HandleSize)));
+                Canvas.SetTop(handle, Math.Clamp(y - HandleSize / 2, 0, Math.Max(0, boundsHeight - HandleSize)));
             }
         }
 
