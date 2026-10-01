@@ -89,10 +89,22 @@ public sealed partial class MainWindow
             foreach (var size in new[] { new Windows.Graphics.SizeInt32(1440, 900), new Windows.Graphics.SizeInt32(1024, 768) })
             {
                 AppWindow.Resize(size);
-                await Task.Delay(300);
+                // Native resize and XAML measure complete on separate dispatcher
+                // turns. Await the requested size, as the main resize smoke does.
+                var deadline = Environment.TickCount64 + 5000;
+                do
+                {
+                    await Task.Delay(100);
+                    root.UpdateLayout();
+                } while ((AppWindow.Size.Width != size.Width || AppWindow.Size.Height != size.Height) &&
+                    Environment.TickCount64 < deadline);
+                await Task.Delay(200);
                 root.UpdateLayout();
                 if (AppWindow.Size.Width != size.Width || AppWindow.Size.Height != size.Height)
-                    throw new InvalidOperationException("Repair layout did not reach the requested native window size");
+                    throw new InvalidOperationException($"Repair layout requested {size.Width}x{size.Height}, "
+                        + $"reached {AppWindow.Size.Width}x{AppWindow.Size.Height}; "
+                        + $"logical={root.ActualWidth}x{root.ActualHeight}, scale={root.XamlRoot.RasterizationScale}, "
+                        + $"presenter={AppWindow.Presenter.Kind}");
                 if (_repairAdd.ActualHeight < 44 || _repairDelete.ActualHeight < 44)
                     throw new InvalidOperationException($"Repair actions do not meet the 44 DIP target height: add={_repairAdd.ActualHeight}, delete={_repairDelete.ActualHeight}");
                 await VerifyPanelControlReachableAsync(EditPanel, _repairDelete, "Delete selected repair");
