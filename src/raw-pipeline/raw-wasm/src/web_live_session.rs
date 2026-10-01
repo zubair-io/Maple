@@ -416,6 +416,14 @@ impl WebLiveSession {
         self.as_shot_tint
     }
 
+    /// One native generation context from the retained RAW, before WB/HSM
+    /// (#3955). UNORIENTED DefaultCrop x,y,width,height; interleaved f32 RGB.
+    /// Called on context preparation, never on the live slider path.
+    pub fn removal_calibration_context(&self, rect: &[u32]) -> Result<Vec<f32>, JsValue> {
+        crate::removal_context::prepare(&self.raw_img, rect)
+            .map_err(|error| JsValue::from_str(&error))
+    }
+
     /// The developed (viewport-sized) image width (== canvas width). ≤ the
     /// session's effective `max_long_edge` target on the long edge (#1080).
     #[wasm_bindgen(getter)]

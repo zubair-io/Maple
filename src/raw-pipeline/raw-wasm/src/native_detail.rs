@@ -63,6 +63,13 @@ impl NativeDetailSession {
         })
     }
 
+    /// Fixed pre-WB/HSM f32 RGB for a native generation context (#3955).
+    /// rect is x,y,width,height in UNORIENTED DefaultCrop pixels. Reuses the
+    /// retained RAW; current creative edits are excluded. Authoring is not enabled.
+    pub fn removal_calibration_context(&self, rect: &[u32]) -> Result<Vec<f32>, JsError> {
+        crate::removal_context::prepare(&self.raw, rect).map_err(js_error)
+    }
+
     /// `rect` = x,y,width,height in oriented DefaultCrop-relative pixels.
     /// `cap` and `preview` describe the canvas's last completed base render,
     /// not the patch. The same reference anchors survive subsequent pans.
