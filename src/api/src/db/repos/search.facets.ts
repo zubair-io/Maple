@@ -58,6 +58,7 @@ export interface SearchFacets {
   /** Person id → assets showing them. The route resolves ids to names. */
   people: Array<{ id: string; count: number }>;
   places: ValueBucket[];
+  owners: Array<{ id: string; count: number }>;
 }
 
 /** A non-empty string, or `null` — the filter every text bucket applies. */
@@ -178,5 +179,8 @@ export async function searchFacets(
       .filter((row): row is { id: string; count: number } => typeof row.id === 'string')
       .map((row) => ({ id: row.id, count: row.count })),
     places: placeBuckets(as('places')),
+    owners: as<{ id: string | null; count: number }>('owners')
+      .filter((row): row is { id: string; count: number } => typeof row.id === 'string')
+      .map((row) => ({ id: row.id, count: row.count })),
   };
 }

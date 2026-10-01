@@ -139,6 +139,20 @@ function toTranscriptDto(text: string | null): TranscriptDto | null {
   };
 }
 
+function toDetailEnrichmentFields(detail: AssetBundle['detail']) {
+  return {
+    description: detail?.description ?? null,
+    description_meta: json<unknown>(detail?.description_meta ?? null),
+    ocr_text: detail?.ocr_text ?? null,
+    ocr_meta: json<NonNullable<AssetDoc['ocr_meta']>>(detail?.ocr_meta ?? null),
+    vision: json<VisionDoc>(detail?.vision ?? null),
+    vision_meta: json<VisionMeta>(detail?.vision_meta ?? null),
+    transcript: toTranscriptDto(detail?.transcript ?? null),
+    video_description: json<VideoDescriptionDoc>(detail?.video_description ?? null),
+    video_description_meta: json<VideoDescriptionMeta>(detail?.video_description_meta ?? null),
+  };
+}
+
 /** Full single-asset DTO, as `GET /api/assets/:id` returns it. */
 export function toDetailDto(
   row: AssetCoreRow,
@@ -147,7 +161,6 @@ export function toDetailDto(
 ): AssetDetailDto {
   const fileinfo = toFileInfoOrAbsent(bundle.locations);
   const primary = resolvePrimary(fileinfo, libraries);
-  const detail = bundle.detail;
   const faces: DetailFaceDto[] = bundle.faces.map((face) => toFace(face));
   return {
     id: row.id,
@@ -164,20 +177,13 @@ export function toDetailDto(
     indexed_at: row.indexed_at,
     place: json<Place>(row.place),
     faces,
-    description: detail?.description ?? null,
-    description_meta: json<unknown>(detail?.description_meta ?? null),
-    ocr_text: detail?.ocr_text ?? null,
-    ocr_meta: json<NonNullable<AssetDoc['ocr_meta']>>(detail?.ocr_meta ?? null),
-    vision: json<VisionDoc>(detail?.vision ?? null),
-    vision_meta: json<VisionMeta>(detail?.vision_meta ?? null),
     is_screenshot: nullableBool(row.is_screenshot),
-    transcript: toTranscriptDto(detail?.transcript ?? null),
-    video_description: json<VideoDescriptionDoc>(detail?.video_description ?? null),
-    video_description_meta: json<VideoDescriptionMeta>(detail?.video_description_meta ?? null),
     hidden: bool(row.hidden),
     hidden_reason: row.hidden_reason as AssetDetailDto['hidden_reason'],
     hidden_ack: bool(row.hidden_ack),
     enrichment: toEnrichment(bundle.enrichment),
+    owner_id: row.owner_id ?? null,
+    ...toDetailEnrichmentFields(bundle.detail),
   };
 }
 
@@ -209,6 +215,7 @@ export function toListItemDto(
     hidden: bool(row.hidden),
     hidden_reason: row.hidden_reason as AssetListItemDto['hidden_reason'],
     hidden_ack: bool(row.hidden_ack),
+    owner_id: row.owner_id ?? null,
   };
 }
 
@@ -241,5 +248,6 @@ export function toCoreInfo(
     description: bundle.detail?.description ?? null,
     ocr_text: bundle.detail?.ocr_text ?? null,
     exif: json<AssetExif>(row.exif),
+    owner_id: row.owner_id ? new ObjectId(row.owner_id) : null,
   };
 }

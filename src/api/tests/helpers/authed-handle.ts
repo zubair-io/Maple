@@ -13,11 +13,23 @@
 import { app } from '../../src/index.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
 
-async function makeBearer(): Promise<string> {
+export const DEFAULT_AUTHED_USER_ID = '0'.repeat(24);
+
+export async function makeBearer(user?: {
+  sub?: string;
+  email?: string;
+  role?: 'owner' | 'member';
+  file_access?: boolean;
+}): Promise<string> {
   const secret = process.env.MAPLE_JWT_SECRET ?? 'x'.repeat(32);
   process.env.MAPLE_JWT_SECRET = secret;
   return `Bearer ${await signAccessToken(
-    { sub: '0'.repeat(24), email: 'test@maple.local', role: 'owner', file_access: true },
+    {
+      sub: user?.sub ?? DEFAULT_AUTHED_USER_ID,
+      email: user?.email ?? 'test@maple.local',
+      role: user?.role ?? 'owner',
+      file_access: user?.file_access ?? true,
+    },
     secret,
   )}`;
 }

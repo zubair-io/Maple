@@ -111,6 +111,43 @@ export async function listUsers(dbOverride?: SqliteDb): Promise<WithId<UserDoc>[
 }
 
 /**
+ * Look up emails for a set of user ids.
+ * Returns a Map of lowercase hex id -> email.
+ */
+export async function emailsForUserIds(
+  ids: readonly string[],
+  dbOverride?: SqliteDb,
+): Promise<Map<string, string>> {
+  const hexes = ids.map((id) => id.toLowerCase()).filter((id) => /^[0-9a-f]{24}$/.test(id));
+  if (hexes.length === 0) return new Map();
+  const placeholders = hexes.map(() => '?').join(', ');
+  const rows = await sqliteDb(dbOverride).read<{ id: string; email: string | null }>(
+    `SELECT id, email FROM users WHERE id IN (${placeholders})`,
+    hexes,
+  );
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (row.email) map.set(row.id.toLowerCase(), row.email);
+  }
+  return map;
+}
+
+/**
+ * Backfill owner_id on all assets that do not currently have an owner.
+ * Used when the first owner is registered / server claimed.
+ */
+export async function backfillAssetOwner(
+  ownerId: ObjectId | string,
+  dbOverride?: SqliteDb,
+): Promise<number> {
+  const result = await sqliteDb(dbOverride).write(
+    `UPDATE assets SET owner_id = ? WHERE owner_id IS NULL`,
+    [toHex(ownerId)],
+  );
+  return result.changes;
+}
+
+/**
  * Whether any account exists at all.
  *
  * Backs the bootstrap route's `claimed` flag and the ownership-claim backfill.

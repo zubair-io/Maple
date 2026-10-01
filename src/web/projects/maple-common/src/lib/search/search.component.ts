@@ -56,7 +56,11 @@ import {
 } from '../api/search.service';
 import { FilesystemBrowseService } from '../api/filesystem-browse.service';
 import { SearchBarComponent } from './search-bar.component';
-import { SearchFilterPanelComponent, FacetOption } from './search-filter-panel.component';
+import {
+  SearchFilterPanelComponent,
+  FacetOption,
+  OwnerOption,
+} from './search-filter-panel.component';
 import { SearchTagPickerComponent, TagPick } from './search-tag-picker.component';
 import { PhotoResultsSectionComponent } from './photo-results-section.component';
 import { RecentQueriesComponent } from './recent-queries.component';
@@ -195,6 +199,9 @@ export class SearchComponent implements OnInit, AfterViewInit {
   );
   protected readonly facetPlaces = computed<readonly FacetOption[]>(
     () => this.facets()?.places ?? [],
+  );
+  protected readonly facetOwners = computed<readonly OwnerOption[]>(
+    () => this.facets()?.owners ?? [],
   );
   protected readonly facetTotal = computed(() => this.facets()?.total ?? null);
 

@@ -45,6 +45,7 @@ export function seedLibrary(
 export function seedUser(
   db: Database,
   opts: {
+    id?: string;
     email: string | null;
     role?: UserRole;
     fileAccess?: boolean;
@@ -52,7 +53,7 @@ export function seedUser(
     lastSeenAt?: string | null;
   },
 ): ObjectId {
-  const id = newObjectIdHex();
+  const id = opts.id ?? newObjectIdHex();
   run(
     db,
     `INSERT INTO users (id, email, email_key, role, file_access, created_at, last_seen_at)

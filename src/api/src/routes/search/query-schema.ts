@@ -88,6 +88,8 @@ export interface SearchQuery {
    * display photos unattended (Maple TV's Light Table) set it so someone the
    * operator deliberately hid can't reappear on a living-room screen. */
   excludeHiddenPeople?: string;
+  ownerId?: string;
+  owner_id?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -128,6 +130,8 @@ export const SearchQueryT = t.Object({
   scope: t.Optional(t.String()),
   hidden: t.Optional(t.String()),
   excludeHiddenPeople: t.Optional(t.String()),
+  ownerId: t.Optional(t.String()),
+  owner_id: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),

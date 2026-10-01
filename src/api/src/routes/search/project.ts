@@ -56,13 +56,14 @@ export interface SearchResult {
    * readers coerce missing as `false`. */
   has_xmp?: boolean;
   hidden?: boolean;
+  owner_id: string | null;
 }
 
 /**
  * Compute the `slug:relPath` address for an asset's primary file location.
  * `null` when there's no primary file, or its library has no registered slug.
  */
-export function computeAddress(
+function computeAddress(
   primary: FileInfo | null,
   idToSlug: ReadonlyMap<string, string>,
 ): string | null {
@@ -70,6 +71,11 @@ export function computeAddress(
   const slug = idToSlug.get(primary.library_id.toHexString());
   if (!slug) return null;
   return `${slug}:${primary.path ? `${primary.path}/${primary.filename}` : primary.filename}`;
+}
+
+function ownerIdString(ownerId: ObjectId | string | null | undefined): string | null {
+  if (!ownerId) return null;
+  return typeof ownerId === 'string' ? ownerId : ownerId.toHexString();
 }
 
 export function projectAsset(
@@ -118,6 +124,7 @@ export function projectAsset(
     // S2 "Edited" filter chip backing (#628) — coerce missing to false.
     has_xmp: d.has_xmp ?? false,
     hidden: d.hidden,
+    owner_id: ownerIdString(d.owner_id),
   };
   if (d.phasset_links && d.phasset_links.length > 0) {
     // Strip `device_id` and `first_seen` from the wire shape — the merged

@@ -66,6 +66,7 @@ describe('/api/search/facets', () => {
     expect(isoRange.max).toBe(1600);
     // Capture range covers the seeded ISO 8601 strings.
     expect(captureRange.from <= captureRange.to).toBe(true);
+    expect(Array.isArray(body.owners)).toBe(true);
   });
 
   it('respects libraryId scope', async () => {

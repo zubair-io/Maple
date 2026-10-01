@@ -205,4 +205,24 @@ describe('buildSearchWhere — the clause list', () => {
     if ('error' in where) throw new Error(where.error);
     expect(where.params).toEqual(['2024-01-01T00:00:00.000Z', '2024-12-31T23:59:59.999Z']);
   });
+
+  test('ownerId and owner_id are normalized to lowercase hex', () => {
+    const ownerLower = '66400000000000000000000a';
+    const ownerUpper = '66400000000000000000000A';
+
+    const whereA = buildSearchWhere({ ownerId: ownerLower });
+    if ('error' in whereA) throw new Error(whereA.error);
+    expect(whereA.clauses).toContain('assets.owner_id = ?');
+    expect(whereA.params).toEqual([ownerLower]);
+
+    const whereB = buildSearchWhere({ ownerId: ownerUpper });
+    if ('error' in whereB) throw new Error(whereB.error);
+    expect(whereB.clauses).toContain('assets.owner_id = ?');
+    expect(whereB.params).toEqual([ownerLower]);
+
+    const whereC = buildSearchWhere({ owner_id: ownerUpper });
+    if ('error' in whereC) throw new Error(whereC.error);
+    expect(whereC.clauses).toContain('assets.owner_id = ?');
+    expect(whereC.params).toEqual([ownerLower]);
+  });
 });

@@ -16,6 +16,7 @@
 import { Elysia } from 'elysia';
 import { ObjectId } from '../../db/object-id.ts';
 import { searchFacets } from '../../db/repos/search.repo.ts';
+import { emailsForUserIds } from '../../db/repos/auth.users.repo.ts';
 import { namesForPersonIds } from '../../people/people-search-filter.repo.ts';
 import { SearchQueryT, type SearchQuery } from './query.ts';
 import { resolveSearchScope } from './scope.ts';
@@ -37,12 +38,24 @@ export const facetsRoute = new Elysia().get(
 
     // Join the person-id buckets to display names; ids whose person is
     // hidden, merged away, or gone drop out (count order is preserved).
-    const personNames = await namesForPersonIds(facets.people.map((row) => canonicalHex(row.id)));
+    const [personNames, ownerEmails] = await Promise.all([
+      namesForPersonIds(facets.people.map((row) => canonicalHex(row.id))),
+      emailsForUserIds(facets.owners.map((row) => canonicalHex(row.id))),
+    ]);
     const people = facets.people
       .map((row) => ({ value: personNames.get(canonicalHex(row.id)), count: row.count }))
       .filter((row): row is { value: string; count: number } => typeof row.value === 'string');
 
-    return { ...facets, people };
+    const owners = facets.owners.map((row) => {
+      const hex = canonicalHex(row.id);
+      return {
+        id: hex,
+        email: ownerEmails.get(hex) ?? hex,
+        count: row.count,
+      };
+    });
+
+    return { ...facets, people, owners };
   },
   { query: SearchQueryT },
 );

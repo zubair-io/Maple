@@ -14,12 +14,13 @@
 // (`filtersChange`) instead of per-dimension outputs — the host owns state.
 
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { SearchFacetSectionComponent } from './search-facet-section.component';
+import { FacetRow, SearchFacetSectionComponent } from './search-facet-section.component';
 import { MapleIconComponent } from '../icons/maple-icon.component';
 import {
   DATE_PRESETS,
   SearchFilters,
   setCustomRange,
+  toggleOwner,
   togglePerson,
   togglePlace,
   togglePreset,
@@ -27,6 +28,12 @@ import {
 
 export interface FacetOption {
   readonly value: string;
+  readonly count: number;
+}
+
+export interface OwnerOption {
+  readonly id: string;
+  readonly email: string;
   readonly count: number;
 }
 
@@ -48,9 +55,10 @@ export class SearchFilterPanelComponent {
       : 'bg-transparent border-border text-text-main';
   }
   readonly filters = input.required<SearchFilters>();
-  /** Facet rows for the People / Places sections (filter-aware counts). */
+  /** Facet rows for the People / Places / Owner sections (filter-aware counts). */
   readonly people = input<readonly FacetOption[]>([]);
   readonly places = input<readonly FacetOption[]>([]);
+  readonly owners = input<readonly OwnerOption[]>([]);
   /** Live result count for the footer button; null while loading. */
   readonly total = input<number | null>(null);
   /** True when the host renders this inside the phone bottom sheet —
@@ -75,6 +83,26 @@ export class SearchFilterPanelComponent {
    * can always be untoggled from the panel. */
   protected readonly peopleRows = computed(() => this.mergeSelected(this.people(), 'people'));
   protected readonly placeRows = computed(() => this.mergeSelected(this.places(), 'places'));
+  protected readonly ownerRows = computed<FacetRow[]>(() => {
+    const selectedId = this.filters().ownerId;
+    const selectedLabel = this.filters().ownerLabel;
+    const options = this.owners();
+    const rows: FacetRow[] = options.map((o) => ({
+      value: o.id,
+      label: o.email,
+      count: o.count,
+      selected: selectedId === o.id,
+    }));
+    if (selectedId !== null && !options.some((o) => o.id === selectedId)) {
+      rows.push({
+        value: selectedId,
+        label: selectedLabel ?? selectedId,
+        count: 0,
+        selected: true,
+      });
+    }
+    return rows;
+  });
 
   private mergeSelected(
     options: readonly FacetOption[],
@@ -109,5 +137,10 @@ export class SearchFilterPanelComponent {
 
   protected onPlace(label: string): void {
     this.filtersChange.emit(togglePlace(this.filters(), label));
+  }
+
+  protected onOwner(id: string): void {
+    const opt = this.owners().find((o) => o.id === id);
+    this.filtersChange.emit(toggleOwner(this.filters(), id, opt?.email));
   }
 }

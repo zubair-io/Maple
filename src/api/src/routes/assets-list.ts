@@ -17,6 +17,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { normaliseObjectIdHex } from '../db/object-id.ts';
 import { findListItems, type ListFilter } from '../db/assets.repo.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 
@@ -45,6 +46,15 @@ export const assetsListRoutes = new Elysia({ prefix: '/api/assets' }).use(requir
       }
       filter.capturedAfterIso = d.toISOString();
     }
+    const rawOwnerId = query.owner_id;
+    if (rawOwnerId !== undefined) {
+      const ownerId = normaliseObjectIdHex(rawOwnerId);
+      if (ownerId === null) {
+        set.status = 400;
+        return { error: 'owner_id must be a valid ObjectId' };
+      }
+      filter.ownerId = ownerId;
+    }
     // Validate `limit` here rather than letting `Number.parseInt` pass
     // `NaN` through to the repo's `Math.min(Math.max(NaN, 1), 20000)`
     // (which propagates NaN, then turns into an unbounded find). Reject
@@ -69,6 +79,7 @@ export const assetsListRoutes = new Elysia({ prefix: '/api/assets' }).use(requir
       rating_gte: t.Optional(t.String()),
       captured_after: t.Optional(t.String()),
       limit: t.Optional(t.String()),
+      owner_id: t.Optional(t.String()),
     }),
   },
 );

@@ -271,6 +271,7 @@ export interface AppendBackupLocationInput {
   libraryId: ObjectId;
   /** The device link to record alongside it, or `null` when already linked. */
   link: PhassetLink | null;
+  ownerId?: ObjectId | string | null;
 }
 
 /**
@@ -297,6 +298,14 @@ export async function appendBackupLocation(
       params: [hex, toHex(input.libraryId), dir, filename, hex],
     },
     ...(input.link === null ? [] : [linkStatement(hex, input.link)]),
+    ...(input.ownerId
+      ? [
+          {
+            sql: `UPDATE assets SET owner_id = COALESCE(owner_id, ?) WHERE id = ?`,
+            params: [toHex(input.ownerId), hex],
+          },
+        ]
+      : []),
   ]);
   await refreshMediaKind(db, hex);
 }
@@ -309,6 +318,7 @@ export interface InsertBackupAssetInput {
   mapleId: string;
   isScreenshot: boolean;
   link: PhassetLink;
+  ownerId?: ObjectId | string | null;
 }
 
 /**
@@ -329,8 +339,9 @@ export async function insertBackupAsset(
     {
       sql: `INSERT INTO assets
               (id, size, mtime, indexed_at, rating, flag, color_label, media_kind,
-               is_screenshot, maple_id, deleted_from_photos)
-            VALUES (?, ?, ?, ?, 0, 0, '', ?, ?, ?, 0)`,
+               is_screenshot, maple_id, deleted_from_photos, owner_id)
+            VALUES (?, ?, ?, ?, 0, 0, '', ?, ?, ?, 0,
+              COALESCE(?, (SELECT id FROM users WHERE role = 'owner' ORDER BY created_at ASC LIMIT 1)))`,
       params: [
         id,
         input.totalBytes,
@@ -339,6 +350,7 @@ export async function insertBackupAsset(
         classifyMediaType(filename),
         input.isScreenshot ? 1 : 0,
         input.mapleId,
+        input.ownerId ? toHex(input.ownerId) : null,
       ],
     },
     {

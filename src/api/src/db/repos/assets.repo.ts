@@ -40,6 +40,7 @@
  */
 
 import { ObjectId } from '../object-id.ts';
+import { toHex } from './values.ts';
 import { toCoreInfo, toDetailDto, toListItemDto, EMPTY_BUNDLE } from './assets.dto.ts';
 import { loadBundles, loadCoreBundle, loadLibraries, loadLocations } from './assets.read.ts';
 import type { AssetCoreRow, ListItemRow } from './assets.rows.ts';
@@ -223,6 +224,7 @@ export interface ListFilter {
   hasXmp?: boolean;
   ratingGte?: number;
   capturedAfterIso?: string;
+  ownerId?: string | ObjectId;
 }
 
 /**
@@ -239,6 +241,9 @@ function listResiduals(filter: ListFilter): { clauses: string[]; params: Array<s
     ...(filter.capturedAfterIso === undefined
       ? []
       : [{ sql: 'captured_at > ?', value: filter.capturedAfterIso }]),
+    ...(filter.ownerId === undefined
+      ? []
+      : [{ sql: 'owner_id = ?', value: toHex(filter.ownerId) }]),
   ];
   return {
     clauses: predicates.map((p) => p.sql),

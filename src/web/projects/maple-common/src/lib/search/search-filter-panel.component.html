@@ -72,6 +72,13 @@
       emptyLabel="No geocoded places yet"
       (rowToggle)="onPlace($event)"
     />
+    <app-search-facet-section
+      title="Owner"
+      kind="owner"
+      [rows]="ownerRows()"
+      emptyLabel="No owners found"
+      (rowToggle)="onOwner($event)"
+    />
   </div>
 
   <footer class="flex shrink-0 gap-2 border-t border-border px-5 py-3.5">

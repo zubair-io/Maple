@@ -33,7 +33,8 @@ import { setCachedPlace } from '../src/db/repos/geocode-cache.repo.ts';
 import { quantizedKey } from '../src/enrichment/coordinate-cache.ts';
 import { GEOCODE_HANDLER_VERSION } from '../src/workers/stages/geocode.ts';
 import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
-import { seedLibrary } from './helpers/sqlite-fixtures.ts';
+import { seedLibrary, seedUser } from './helpers/sqlite-fixtures.ts';
+import { DEFAULT_AUTHED_USER_ID } from './helpers/authed-handle.ts';
 import type { Place } from '../src/db/schema.ts';
 
 /** The coordinate the happy-path GPS test sends, and the place it resolves to.
@@ -118,6 +119,11 @@ export function setupBackupIngestSuite(opts: BackupIngestSetupOptions = {}): Bac
       tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-ingest-test-'));
       live = await createLiveTestDatabase();
       libId = seedLibrary(live.db, { path: tmpLib, label: 'ingest-test' });
+      seedUser(live.db, {
+        id: DEFAULT_AUTHED_USER_ID,
+        email: 'test@maple.local',
+        role: 'owner',
+      });
       // The library-roots cache memoises folder rows; drop it so the freshly
       // seeded library resolves, and again on teardown so it doesn't outlive
       // the database it was read from.

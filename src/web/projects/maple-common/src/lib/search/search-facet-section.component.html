@@ -15,14 +15,14 @@
           [attr.data-testid]="'filter-' + kind() + '-' + r.value"
           (click)="rowToggle.emit(r.value)"
         >
-          @if (kind() === 'person') {
-            <span class="mui-chrome-option-avatar">{{ initial(r.value) }}</span>
+          @if (kind() === 'person' || kind() === 'owner') {
+            <span class="mui-chrome-option-avatar">{{ initial(r.label ?? r.value) }}</span>
           } @else {
             <span class="mui-chrome-option-avatar">
               <maple-icon name="search-chip-place" [size]="13" aria-hidden="true" />
             </span>
           }
-          <span class="mui-chrome-option-name">{{ r.value }}</span>
+          <span class="mui-chrome-option-name">{{ r.label ?? r.value }}</span>
           <span class="mui-chrome-option-count">{{ r.count }}</span>
           @if (r.selected) {
             <maple-icon

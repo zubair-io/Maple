@@ -59,7 +59,8 @@ export type FacetName =
   | 'subjects'
   | 'is_screenshot'
   | 'people'
-  | 'places';
+  | 'places'
+  | 'owners';
 
 /** One facet that groups a table other than `assets`. */
 interface SatelliteFacet {
@@ -318,6 +319,15 @@ export function facetStatements(where: SearchWhere): Record<FacetName, BoundStat
       {
         sql: `((assets.place_locality IS NOT NULL AND assets.place_locality <> '')
           OR (assets.place_region IS NOT NULL AND assets.place_region <> ''))`,
+        params: [],
+      },
+    ),
+    owners: statement(
+      'assets.owner_id AS id, COUNT(*) AS count',
+      where,
+      'GROUP BY assets.owner_id ORDER BY count DESC LIMIT 50',
+      {
+        sql: 'assets.owner_id IS NOT NULL',
         params: [],
       },
     ),

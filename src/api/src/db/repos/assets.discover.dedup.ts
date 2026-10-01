@@ -207,6 +207,7 @@ export interface DiscoveredAsset {
   mediaKind: 'image' | 'video' | 'audio';
   /** Stage names to seed at version 0 — the `blankStagesSkeleton` equivalent. */
   stages: readonly string[];
+  ownerId?: ObjectId | string | null;
 }
 
 /**
@@ -229,8 +230,9 @@ export async function insertDiscoveredAsset(
     {
       sql: `INSERT INTO assets
               (id, size, mtime, indexed_at, rating, flag, color_label, media_kind,
-               maple_id, sha1_head, deleted_at, exif)
-            VALUES (?, ?, ?, ?, 0, 0, '', ?, ?, ?, NULL, NULL)`,
+               maple_id, sha1_head, deleted_at, exif, owner_id)
+            VALUES (?, ?, ?, ?, 0, 0, '', ?, ?, ?, NULL, NULL,
+              COALESCE(?, (SELECT id FROM users WHERE role = 'owner' ORDER BY created_at ASC LIMIT 1)))`,
       params: [
         id,
         asset.size,
@@ -239,6 +241,7 @@ export async function insertDiscoveredAsset(
         asset.mediaKind,
         asset.mapleId,
         asset.sha1Head,
+        asset.ownerId ? toHex(asset.ownerId) : null,
       ],
     },
     {

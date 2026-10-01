@@ -508,6 +508,12 @@ export interface AssetDoc {
   /** When this record was created (ISO string). */
   indexed_at: string;
   /**
+   * User ID of the owner of this asset (references users.id).
+   * Optional/nullable because legacy rows or unauthenticated ingests may
+   * lack an owner until claimed, or if the user is deleted.
+   */
+  owner_id?: ObjectId | string | null;
+  /**
    * Per-stage enrichment bookkeeping written by Phase 1's skeleton upsert and
    * patched by Phase 2+ workers. Optional because rows that pre-date the
    * skeleton schema may not have it; readers must default to "all stages

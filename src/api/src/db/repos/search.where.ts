@@ -48,7 +48,7 @@
  * it and the clause would otherwise not use the index at all.
  */
 
-import { ObjectId } from '../object-id.ts';
+import { ObjectId, normaliseObjectIdHex } from '../object-id.ts';
 import { LIVE_ASSET_PREDICATE } from '../sqlite/ddl/assets.ts';
 import { toTextFilter, type TextFilter } from './search.fts.ts';
 import {
@@ -153,6 +153,10 @@ const VALIDATIONS: ReadonlyArray<(q: SearchQuery) => string | null> = [
     q.sceneType !== undefined && q.sceneType !== '' && !SCENE_TYPES.has(q.sceneType)
       ? `Invalid sceneType: ${q.sceneType}`
       : null,
+  (q) => {
+    const ownerId = q.ownerId ?? q.owner_id;
+    return ownerId && !ObjectId.isValid(ownerId) ? 'Invalid ownerId' : null;
+  },
 ];
 
 function validate(q: SearchQuery): { error: string } | null {
@@ -190,6 +194,7 @@ export function buildSearchWhere(
     ...screenshotTerms(q),
     ...visionTerms(q),
     ...fileTerms(q, extensions),
+    ...ownerTerms(q),
     ...scopeTerms(q.scope),
   ];
 
@@ -266,6 +271,14 @@ function fileTerms(q: SearchQuery, extensions: readonly string[]): Term[] {
     ...(pathPrefix.length === 0 ? [] : [pathPrefixTerm(pathPrefix)]),
     ...(extensions.length === 0 ? [] : [extensionTerm(extensions)]),
   ];
+}
+
+/** Filter by asset owner ID. */
+function ownerTerms(q: SearchQuery): Term[] {
+  const raw = text(q.ownerId ?? q.owner_id);
+  if (raw === undefined) return [];
+  const ownerId = normaliseObjectIdHex(raw) ?? raw.toLowerCase();
+  return [{ sql: `assets.owner_id = ?`, params: [ownerId] }];
 }
 
 /** A predicate and its bound values, ready to splice into a statement. */

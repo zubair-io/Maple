@@ -10,6 +10,7 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from '../db/object-id.ts';
 import {
   anyUserExists,
+  backfillAssetOwner,
   deleteUser,
   findCredentialByCredentialId,
   listUsers,
@@ -207,6 +208,9 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         }
         const now = new Date().toISOString();
         userId = await insertUser({ email, role, created_at: now, last_seen_at: now });
+        if (wonOwnership) {
+          await backfillAssetOwner(userId);
+        }
 
         await insertCredential(
           credentialFromRegistration({

@@ -147,7 +147,7 @@ const CAPTURE_SORTS = new Set(['captured_desc', 'captured_asc']);
 /** The narrow asset projection a search result row is built from. */
 const PAGE_COLUMNS = `assets.id, assets.size, assets.mtime, assets.indexed_at,
            assets.rating, assets.flag, assets.color_label, assets.has_xmp, assets.hidden,
-           assets.exif, assets.place`;
+           assets.exif, assets.place, assets.owner_id`;
 
 /**
  * One page of the grid.

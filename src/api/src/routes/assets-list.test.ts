@@ -63,7 +63,7 @@ function seedAsset(
 }
 
 /** The three-asset fixture every filter case runs against. */
-function seed(): { libraryId: string; a: string } {
+function seed(): { libraryId: string; a: string; b: string } {
   const libraryId = insertFolder(live.db, { path: '/p' });
   const a = seedAsset(libraryId, {
     filename: 'a.dng',
@@ -71,9 +71,9 @@ function seed(): { libraryId: string; a: string } {
     hasXmp: true,
     capturedAt: NOW,
   });
-  seedAsset(libraryId, { filename: 'b.dng', rating: 0, hasXmp: false, capturedAt: OLD });
+  const b = seedAsset(libraryId, { filename: 'b.dng', rating: 0, hasXmp: false, capturedAt: OLD });
   seedAsset(libraryId, { filename: 'c.dng', rating: 3, hasXmp: true, capturedAt: NOW });
-  return { libraryId, a };
+  return { libraryId, a, b };
 }
 
 function app() {
@@ -155,5 +155,50 @@ describe('GET /api/assets', () => {
     const reconstructed = new Date(g.mtime * 1000);
     expect(reconstructed.getUTCFullYear()).toBe(2026);
     expect(g.mtime).toBe(Math.floor(mtimeMs / 1000));
+  });
+
+  it('filters by owner_id and returns 400 for invalid owner_id', async () => {
+    const { a, b } = seed();
+    const ownerA = '664000000000000000000001';
+    const ownerB = '664000000000000000000002';
+    run(
+      live.db,
+      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'owner', ?)`,
+      ownerA,
+      'a@example.com',
+      'a@example.com',
+      new Date().toISOString(),
+    );
+    run(
+      live.db,
+      `INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, 'member', ?)`,
+      ownerB,
+      'b@example.com',
+      'b@example.com',
+      new Date().toISOString(),
+    );
+    run(live.db, `UPDATE assets SET owner_id = ? WHERE id = ?`, ownerA, a);
+    run(live.db, `UPDATE assets SET owner_id = ? WHERE id = ?`, ownerB, b);
+
+    const bad = await app().handle(new Request('http://localhost/api/assets?owner_id=invalid'));
+    expect(bad.status).toBe(400);
+    const badBody = await bad.json();
+    expect(badBody.error).toMatch(/owner_id/);
+
+    const resA = await app().handle(new Request(`http://localhost/api/assets?owner_id=${ownerA}`));
+    expect(resA.status).toBe(200);
+    const bodyA = await resA.json();
+    expect(bodyA.assets.length).toBe(1);
+    expect(bodyA.assets[0].filename).toBe('a.dng');
+    expect(bodyA.assets[0].owner_id).toBe(ownerA);
+
+    const resAUpper = await app().handle(
+      new Request(`http://localhost/api/assets?owner_id=${ownerA.toUpperCase()}`),
+    );
+    expect(resAUpper.status).toBe(200);
+    const bodyAUpper = await resAUpper.json();
+    expect(bodyAUpper.assets.length).toBe(1);
+    expect(bodyAUpper.assets[0].filename).toBe('a.dng');
+    expect(bodyAUpper.assets[0].owner_id).toBe(ownerA);
   });
 });

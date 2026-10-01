@@ -18,12 +18,12 @@ set -euo pipefail
 
 mode="--check"
 case "${1:-}" in
-  "" | --check) ;;
-  --write) mode="--write" ;;
-  *)
-    echo "usage: format.sh [--check|--write]" >&2
-    exit 2
-    ;;
+"" | --check) ;;
+--write) mode="--write" ;;
+*)
+  echo "usage: format.sh [--check|--write]" >&2
+  exit 2
+  ;;
 esac
 
 repo_root="$(git rev-parse --show-toplevel)"
@@ -49,14 +49,14 @@ trap 'rm -f "$raw" "$list"' EXIT
 {
   git diff --name-only --diff-filter=ACMR "$merge_base"
   git ls-files --others --exclude-standard
-} | sort -u > "$raw"
+} | sort -u >"$raw"
 
 # Same extension filter and path excludes as cross.yml.
-grep -E '\.(ts|tsx|js|jsx|json|html|scss|css|md|yml|yaml)$' "$raw" \
-  | grep -v -E '^(test-fixtures/|node_modules/|.*/node_modules/|.*/dist/|src/raw-pipeline/vendor/)' \
-  > "$list" || true
+grep -E '\.(ts|tsx|js|jsx|json|html|scss|css|md|yml|yaml)$' "$raw" |
+  grep -v -E '^(test-fixtures/|node_modules/|.*/node_modules/|.*/dist/|src/raw-pipeline/vendor/|src/raw-pipeline/third_party/)' \
+    >"$list" || true
 
-count="$(wc -l < "$list" | tr -d ' ')"
+count="$(wc -l <"$list" | tr -d ' ')"
 if [ "$count" = "0" ]; then
   echo "format.sh: no prettier-eligible files changed vs $base_ref — nothing to do."
   exit 0
@@ -64,4 +64,4 @@ fi
 
 echo "format.sh: prettier $mode over $count file(s) changed vs $base_ref:"
 cat "$list"
-tr '\n' '\0' < "$list" | xargs -0 "$prettier_bin" "$mode" --config src/web/.prettierrc
+tr '\n' '\0' <"$list" | xargs -0 "$prettier_bin" "$mode" --config src/web/.prettierrc

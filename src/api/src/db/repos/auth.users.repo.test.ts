@@ -23,6 +23,7 @@ import {
   listCredentialDescriptorsForUser,
   listCredentialSummariesForUser,
   listUsers,
+  emailsForUserIds,
   touchCredential,
   touchUserLastSeen,
   updateUser,
@@ -169,6 +170,37 @@ describe('users', () => {
     );
     await deleteUser(id, db);
     expect(await findCredentialByCredentialId('cred-rollback', db)).toBeNull();
+  });
+
+  test('emailsForUserIds returns mapped emails for matching valid hex ids', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const idA = await seedOwner(db, 'alice@example.com');
+    const idB = await insertUser(
+      { email: 'bob@example.com', role: 'member', created_at: NOW, last_seen_at: null },
+      db,
+    );
+
+    const map = await emailsForUserIds(
+      [
+        idA.toHexString().toUpperCase(),
+        idB.toHexString(),
+        'not-a-valid-hex',
+        '000000000000000000000000',
+      ],
+      db,
+    );
+
+    expect(map.size).toBe(2);
+    expect(map.get(idA.toHexString())).toBe('alice@example.com');
+    expect(map.get(idB.toHexString())).toBe('bob@example.com');
+  });
+
+  test('emailsForUserIds returns an empty map for empty or invalid ids without querying', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    expect((await emailsForUserIds([], db)).size).toBe(0);
+    expect((await emailsForUserIds(['invalid-id'], db)).size).toBe(0);
   });
 });
 
