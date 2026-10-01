@@ -20,7 +20,7 @@ namespace Maple.UI
     {
         public static readonly DependencyProperty ItemsProperty =
             DependencyProperty.Register(nameof(Items), typeof(IReadOnlyList<MuiFilmstripItem>), typeof(MuiFilmstripRail),
-                new PropertyMetadata(null, (d, _) => ((MuiFilmstripRail)d).RebuildCells()));
+                new PropertyMetadata(null, (d, _) => ((MuiFilmstripRail)d).RefreshItems()));
 
         public static readonly DependencyProperty ActiveIdProperty =
             DependencyProperty.Register(nameof(ActiveId), typeof(string), typeof(MuiFilmstripRail),
@@ -139,12 +139,37 @@ namespace Maple.UI
             Activated?.Invoke(this, id);
         }
 
+        private IReadOnlyList<MuiFilmstripItem> _renderedItems = Array.Empty<MuiFilmstripItem>();
+
+        private void RefreshItems()
+        {
+            var items = Items ?? Array.Empty<MuiFilmstripItem>();
+            if (items.Count != _renderedItems.Count) { RebuildCells(); return; }
+            for (var i = 0; i < items.Count; i++)
+                if (items[i].Id != _renderedItems[i].Id) { RebuildCells(); return; }
+
+            // Metadata-only updates preserve image instances, keyboard focus,
+            // and the user's scroll position. Structural changes still rebuild.
+            for (var i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                _cells[i].Source = item.Source;
+                _cells[i].Alt = item.Alt;
+                _cells[i].Badges = item.Badges;
+                ((TextBlock)_metadata[i].Children[0]).Text = item.Alt;
+                ((TextBlock)_metadata[i].Children[1]).Text = item.Metadata
+                    ?? string.Join(" · ", item.Badges ?? Array.Empty<string>());
+            }
+            _renderedItems = items;
+        }
+
         private void RebuildCells()
         {
             _column.Children.Clear();
             _cells.Clear();
             _rows.Clear();
             _metadata.Clear();
+            _renderedItems = Items ?? Array.Empty<MuiFilmstripItem>();
 
             foreach (var item in Items ?? Array.Empty<MuiFilmstripItem>())
             {

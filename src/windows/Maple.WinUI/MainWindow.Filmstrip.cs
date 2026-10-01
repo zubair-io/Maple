@@ -91,9 +91,18 @@ namespace Maple.WinUI
             if (sender is not PhotoItem photo) return;
             if (e.PropertyName is nameof(PhotoItem.FileName) or nameof(PhotoItem.Rating) or nameof(PhotoItem.FlagStatus))
             {
-                // Accessible names and passive culling badges live in the
-                // item record; thumbnail changes still reuse their bitmap.
-                InvalidateFilmstripRail();
+                var metadataIndex = _railPhotos.IndexOf(photo);
+                if (metadataIndex < 0 || FilmstripRail.Items == null) return;
+                var items = FilmstripRail.Items.ToArray();
+                if (metadataIndex >= items.Length) return;
+                var badges = ViewerFilmstripLogic.CullingBadgesFor(photo.Rating, photo.FlagStatus);
+                items[metadataIndex] = items[metadataIndex] with
+                {
+                    Alt = photo.FileName,
+                    Badges = badges,
+                    Metadata = $"{photo.Format} · {photo.FileSizeBytes / (1024.0 * 1024.0):0.0} MB · {string.Join(" ", badges)}",
+                };
+                FilmstripRail.Items = items;
                 return;
             }
             if (e.PropertyName != nameof(PhotoItem.ThumbnailPath)) return;
