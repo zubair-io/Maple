@@ -37,7 +37,7 @@
     "maximumTickMs": 47.7889,
     "physicalReferenceQualified": false
   },
-  "fullReferenceComparisons": "Preview/reference failed; export/reference and native-size preview/export still running in session 65624",
+  "fullReferenceComparisons": "Complete: harness exit 1; export/reference passes, both preview comparisons fail.",
   "limits": [
     "One real RAW fixture only",
     "CPU preview versus production export; not GPU screenshot parity",
@@ -51,5 +51,22 @@
     "meanDeltaE": 4.0104025784531,
     "maxDeltaE": 68.95681101315762,
     "verdict": "FAIL"
+  },
+  "exportFullReference": {
+    "meanDeltaE": 0.5863638150561259,
+    "maxDeltaE": 23.71250312820742,
+    "p95DeltaE": 1.3255641912670881,
+    "verdict": "PASS",
+    "meanBudget": 2.0,
+    "pixels": 100663296
+  },
+  "previewProductionExport": {
+    "comparator": "Bounded-chunk comparator; all pixels retained; exact statistics equivalence tests pass for sRGB/P3, ROI, zones and hue bins.",
+    "meanDeltaE": 3.9681796821974076,
+    "maxDeltaE": 69.20422825127976,
+    "p95DeltaE": 9.998560314541402,
+    "verdict": "FAIL",
+    "meanBudget": 2.0,
+    "pixels": 100663296
   }
 }

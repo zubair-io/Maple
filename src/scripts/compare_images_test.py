@@ -240,6 +240,48 @@ def test_nonbaseline_down_only_retains_legacy_comparison():
                 raise AssertionError(f"{label} accepted a down-only reference")
 
 
+def test_chunking_preserves_all_statistics_and_roi():
+    from unittest.mock import patch
+
+    import compare_images_chunks as chunks
+
+    def monolithic(candidate, reference, lab, retain_lab):
+        a, b = lab(candidate), lab(reference)
+        return ci.colour.delta_E(a, b, method="CIE 2000"), a, b
+
+    rng = np.random.default_rng(3875)
+    with tempfile.TemporaryDirectory() as d:
+        candidate, reference, roi = [
+            Path(d) / name for name in ("a.png", "b.png", "roi.png")
+        ]
+        _write(candidate, rng.integers(0, 256, (23, 31, 3), dtype=np.uint8))
+        _write(reference, rng.integers(0, 256, (23, 31, 3), dtype=np.uint8))
+        Image.fromarray(
+            (np.indices((23, 31)).sum(axis=0) % 3 == 0).astype(np.uint8) * 255
+        ).save(roi)
+        for primaries in ("srgb", "p3"):
+            for mask in (None, str(roi)):
+                for detailed in (False, True):
+                    options = {
+                        "source_primaries": primaries,
+                        "roi_path": mask,
+                        "zones": detailed,
+                        "hue_bins": 8 if detailed else 0,
+                    }
+                    with patch.object(ci, "perceptual_difference", monolithic):
+                        expected = ci.diff(str(candidate), str(reference), **options)
+                    # Cross row boundaries and exercise a partial final block.
+                    with patch.object(chunks, "BLOCK_PIXELS", 17):
+                        actual = ci.diff(str(candidate), str(reference), **options)
+                    assert actual == expected, (
+                        primaries,
+                        mask,
+                        detailed,
+                        actual,
+                        expected,
+                    )
+
+
 def main():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

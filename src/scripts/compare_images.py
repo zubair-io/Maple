@@ -48,6 +48,7 @@ from decimal import Decimal, InvalidOperation
 
 import colour
 import numpy as np
+from compare_images_chunks import perceptual_difference
 from PIL import Image
 
 # 4000x2667 (down) and 12288x8192 (full) ACR refs trip Pillow's
@@ -229,9 +230,9 @@ def diff(
                 f"ROI {roi_path!r} selects zero pixels at the reference's size"
             )
 
-    cand_lab = _lab(cand)
-    ref_lab = _lab(ref)
-    dE = colour.delta_E(cand_lab, ref_lab, method="CIE 2000")
+    dE, cand_lab, ref_lab = perceptual_difference(
+        cand, ref, _lab, zones or hue_bins > 0
+    )
 
     if roi_mask is not None:
         dE_flat = dE[roi_mask]
