@@ -1,0 +1,86 @@
+{
+  "issue": 3875,
+  "related_issue": 3877,
+  "date": "2026-10-01",
+  "source_revision": "1afd40d71e7866ff228f06c46860534d47b5bc33",
+  "base_revision": "f15257200acf4059b51b5b5f97e9da62b690c5c5",
+  "platform": "Windows x64",
+  "scope": "CLI CPU film golden self-consistency and non-identity; not live Windows CPU/GPU/export parity, ACR accuracy, or physical performance qualification",
+  "command": "KEEP_TMP=1 MAPLE_CLI=<fresh release maple-cli.exe> bash src/scripts/test_film_looks.sh",
+  "build": "Visual Studio 2022 x64 developer environment; cargo release maple-cli",
+  "cli_sha256": "2beef98ff0af1ff905c6b1cf22e37ea5d1139efd4db42d86ba440316c91c1bef",
+  "raw": "test-fixtures/raws/test_0017.dng",
+  "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+  "protocol": "Full-resolution PNG, film strength 100, automatic bundled lens correction disabled; compare_images.py Lanczos resizing to committed golden dimensions; CIEDE2000",
+  "budgets": {
+    "mean_deltaE_max": 0.5,
+    "max_deltaE_max": 2.0,
+    "identity_mean_deltaE_min_exclusive": 0.5
+  },
+  "executed": 6,
+  "skipped": 0,
+  "failed": 0,
+  "metrics_precision": "Three decimal places as emitted by the canonical harness",
+  "rows": [
+    {
+      "look": "black_white_kodak_tri_x_400",
+      "mean_deltaE_rounded": 0.0,
+      "p95_deltaE_rounded": 0.0,
+      "max_deltaE_rounded": 1.015,
+      "verdict": "PASS",
+      "identity_guard": "PASS: mean DeltaE > 0.5 versus full-resolution no-look control",
+      "candidate_sha256": "852b1fbca39dca91241b36bb2a894907bad31a07495cf319790ba9b8b972d3da",
+      "golden_sha256": "2015f8d80c98e0ed9ea0bab9b0131a20788ab8d398463c01c4b13726bcf704fe"
+    },
+    {
+      "look": "cinema_print_kodak_2383_constlclip",
+      "mean_deltaE_rounded": 0.0,
+      "p95_deltaE_rounded": 0.0,
+      "max_deltaE_rounded": 0.893,
+      "verdict": "PASS",
+      "identity_guard": "PASS: mean DeltaE > 0.5 versus full-resolution no-look control",
+      "candidate_sha256": "45df8e6e6d6a5abc2e7b9745f4580c1b8102691c438d6214f2e7007732b5edba",
+      "golden_sha256": "165e1962fe811424a210900a5dba4ac79dae351a720f5a4634922a9cc8854058"
+    },
+    {
+      "look": "color_negative_kodak_portra_400",
+      "mean_deltaE_rounded": 0.001,
+      "p95_deltaE_rounded": 0.0,
+      "max_deltaE_rounded": 0.983,
+      "verdict": "PASS",
+      "identity_guard": "PASS: mean DeltaE > 0.5 versus full-resolution no-look control",
+      "candidate_sha256": "ee2271f2a0a8438626c90f14fb69533a9a7c716524747b009eab49e4b6d8e21d",
+      "golden_sha256": "e23c04edf49ec3cc3597a6c28e15d2216771fb3ee30c41b153fe483bc1c6da9f"
+    },
+    {
+      "look": "consumer_vintage_fuji_superia_400",
+      "mean_deltaE_rounded": 0.0,
+      "p95_deltaE_rounded": 0.0,
+      "max_deltaE_rounded": 0.871,
+      "verdict": "PASS",
+      "identity_guard": "PASS: mean DeltaE > 0.5 versus full-resolution no-look control",
+      "candidate_sha256": "00f014df809345fa51da47520a860de0f6a6bd6f239acd922819b59a1ac39614",
+      "golden_sha256": "9c40b05e230fa45cc143e0fb7d4d84a297fd428cef435a0ba1467a639dbe65bf"
+    },
+    {
+      "look": "instant_polaroid_px_680",
+      "mean_deltaE_rounded": 0.0,
+      "p95_deltaE_rounded": 0.0,
+      "max_deltaE_rounded": 0.837,
+      "verdict": "PASS",
+      "identity_guard": "PASS: mean DeltaE > 0.5 versus full-resolution no-look control",
+      "candidate_sha256": "57de21574bc4235c29996a96ce1dfa8c29269062c70b74a6704c10145c4fbbec",
+      "golden_sha256": "76858305758ed912b82915598da1e7c5d84e07dfc24eed241ba763f149129dfd"
+    },
+    {
+      "look": "slide_fuji_velvia_50",
+      "mean_deltaE_rounded": 0.0,
+      "p95_deltaE_rounded": 0.0,
+      "max_deltaE_rounded": 0.96,
+      "verdict": "PASS",
+      "identity_guard": "PASS: mean DeltaE > 0.5 versus full-resolution no-look control",
+      "candidate_sha256": "a1a55af3fee2e67d94af3f8eaf7cd43a9f804cc00555584d4256557a29fcc005",
+      "golden_sha256": "742e1f6e4f3dab993e63b092367647b1e70e0a55f9c16b1f67a34dbc9da2c002"
+    }
+  ]
+}
