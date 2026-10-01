@@ -163,8 +163,10 @@ public actor ThumbnailLoader {
     return result
   }
 
-  /// Check the cached image container and dimensions without decoding its
-  /// pixels; grid bitmap decoding remains in `ThumbnailDecoder` off-main.
+  /// Check that ImageIO can decode the cached image, not just read its header.
+  /// Truncated AVIFs can expose valid dimensions while failing at pixel decode;
+  /// accepting those bytes strands the grid and preview on placeholders. Decode
+  /// only a tiny eager thumbnail here so the cache check stays inexpensive.
   nonisolated static func isUsableImageData(_ data: Data) -> Bool {
     guard
       let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -175,7 +177,13 @@ public actor ThumbnailLoader {
       let width = properties[kCGImagePropertyPixelWidth] as? Int,
       let height = properties[kCGImagePropertyPixelHeight] as? Int
     else { return false }
-    return width > 0 && height > 0
+    guard width > 0 && height > 0 else { return false }
+    let decodeOptions: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceThumbnailMaxPixelSize: 32,
+      kCGImageSourceShouldCacheImmediately: true,
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) != nil
   }
 
   /// The produce path behind the URL-keyed `load`: asset-relative
