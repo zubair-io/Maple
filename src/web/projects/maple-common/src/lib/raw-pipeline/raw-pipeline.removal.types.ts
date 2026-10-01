@@ -10,6 +10,13 @@ export type RemovalAuthoringCommand =
   | { kind: 'source'; bytes: ArrayBuffer }
   | { kind: 'map'; xmp: string; request: string }
   | { kind: 'context'; rect: readonly [number, number, number, number] }
+  | {
+      kind: 'generation-context';
+      xmp: string;
+      rect: readonly [number, number, number, number];
+      manifest: string;
+      companions: ArrayBuffer;
+    }
   | { kind: 'selection'; request: string };
 
 export interface RemovalAuthoringRequest {
@@ -36,4 +43,6 @@ export interface RemovalRawSession {
   removal_calibration_source(): string;
   removal_map_points(xmp: string, request: string): string;
   removal_calibration_context(rect: Uint32Array): Float32Array;
+  removal_generation_context(xmp: string, rect: Uint32Array): Float32Array;
+  prepare_saved_removals(xmp: string, manifest: string, bytes: Uint8Array): string;
 }

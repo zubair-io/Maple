@@ -76,6 +76,50 @@ pub(super) fn fixture() -> (
 }
 
 #[test]
+fn generation_context_sees_saved_pixels_and_refuses_a_changed_stack() {
+    let (raw, original, model, assets) = fixture();
+    let stack =
+        ResolvedCalibrationRemovals::prepare(&raw, &original, &model.inpaint_removals, &assets)
+            .unwrap();
+    let window = NativeWindow {
+        x: 2,
+        y: 1,
+        width: 6,
+        height: 4,
+    };
+    let context = stack
+        .generation_context(&raw, &original, &model, window, CancelToken::never())
+        .unwrap();
+    let plain =
+        super::super::render_removal_calibration_context(&raw, window, CancelToken::never())
+            .unwrap();
+    assert_eq!(context.pixels[0], plain.pixels[0]);
+    for (record, x) in model.inpaint_removals.iter().zip([3, 5]) {
+        let name = format!(
+            "{}.f16",
+            ContentDigest::parse(&record.patch_ref).unwrap().hex()
+        );
+        let patch = super::super::patch_from_bytes(&assets[&name]).unwrap();
+        let index = (window.width + x - window.x) as usize;
+        assert_eq!(
+            context.pixels[index],
+            patch.pixels[(2 * patch.width + x) as usize]
+        );
+        assert_ne!(context.pixels[index], plain.pixels[index]);
+    }
+    let mut changed = model.clone();
+    changed.inpaint_removals.pop();
+    assert!(stack
+        .generation_context(&raw, &original, &changed, window, CancelToken::never())
+        .is_err());
+    let flag = std::sync::atomic::AtomicBool::new(true);
+    assert!(matches!(
+        stack.generation_context(&raw, &original, &model, window, CancelToken::new(&flag)),
+        Err(crate::Error::Cancelled)
+    ));
+}
+
+#[test]
 fn saved_stack_reopens_from_real_sidecar_and_companions_without_inference() {
     let (raw, original, model, assets) = fixture();
     let dir = tempfile::tempdir().unwrap();

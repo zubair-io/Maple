@@ -36,6 +36,37 @@ pub(crate) fn prepare(raw: &RawImage, rect: &[u32]) -> Result<Vec<f32>, String> 
     Ok(image.pixels.into_iter().flatten().collect())
 }
 
+/// Source-bound authoring context after complete saved companion preparation.
+/// Stack mismatch fails; it cannot silently generate against original pixels.
+pub(crate) fn generation(
+    stack: Option<&raw_core::pipeline::ResolvedCalibrationRemovals>,
+    raw: &RawImage,
+    original: &raw_core::types::accepted_removal::ContentDigest,
+    xmp: &str,
+    rect: &[u32],
+) -> Result<Vec<f32>, String> {
+    let [x, y, width, height] = rect else {
+        return Err("removal context requires x,y,width,height".into());
+    };
+    let stack = stack.ok_or("saved removals have not been prepared for generation")?;
+    let model = crate::mask_registry::parse_model(Some(xmp)).map_err(|e| e.to_string())?;
+    let image = stack
+        .generation_context(
+            raw,
+            original,
+            &model,
+            NativeWindow {
+                x: *x,
+                y: *y,
+                width: *width,
+                height: *height,
+            },
+            CancelToken::never(),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(image.pixels.into_iter().flatten().collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { initSync, NativeDetailSession, removal_selection } from './pkg/raw_wasm';
 import { NativeDetailWorker } from './raw-pipeline.native-detail-handler';
 import { runRemovalAuthoring } from './raw-pipeline.removal-handler';
+import { bundleRemovalCompanions } from '../removal/removal-companion-bundle';
 import type { RemovalAuthoringRequest, RemovalRawSession } from './raw-pipeline.removal.types';
 
 const raw = new Uint8Array(
@@ -75,6 +76,57 @@ describe('retained CPU RAW authoring worker', () => {
       );
       if (selection.kind !== 'selection') throw Error('Unexpected selection reply');
       expect(new Uint8Array(selection.mask)).toEqual(removal_selection(16, 8, strokes));
+      const fixture = resolve(process.cwd(), '../../test-fixtures/removal/calibration');
+      const savedXmp = readFileSync(resolve(fixture, 'saved.xmp'), 'utf8');
+      const records = JSON.parse(readFileSync(resolve(fixture, 'records.txt'), 'utf8')) as {
+        accepted: { mask: string };
+        patch: string;
+      }[];
+      const bundle = bundleRemovalCompanions(
+        new Map([
+          [
+            records[0].accepted.mask.slice(7) + '.mask',
+            new Uint8Array(readFileSync(resolve(fixture, 'mask.mimf'))),
+          ],
+          [
+            records[0].patch.slice(7) + '.f16',
+            new Uint8Array(readFileSync(resolve(fixture, 'patch.f16'))),
+          ],
+        ]),
+      );
+      const savedContext = await call(
+        request(
+          {
+            kind: 'generation-context',
+            xmp: savedXmp,
+            rect: [1, 1, 7, 5],
+            manifest: bundle.manifest,
+            companions: bundle.bytes.buffer,
+          },
+          anchor.original,
+        ),
+      );
+      if (savedContext.kind !== 'context') throw Error('Unexpected generation context reply');
+      const before = new Float32Array(context.rgb),
+        after = new Float32Array(savedContext.rgb);
+      expect(after).toHaveLength(before.length);
+      expect(after.some((value, index) => value !== before[index])).toBe(true);
+      const corrupt = bundle.bytes.slice();
+      corrupt[0] ^= 1;
+      await expect(
+        call(
+          request(
+            {
+              kind: 'generation-context',
+              xmp: savedXmp,
+              rect: [1, 1, 7, 5],
+              manifest: bundle.manifest,
+              companions: corrupt.buffer,
+            },
+            anchor.original,
+          ),
+        ),
+      ).rejects.toThrow();
       expect(opens).toBe(1);
       await expect(
         call(request({ kind: 'context', rect: [0, 0, 1, 1] }, 'blake3:' + 'f'.repeat(64))),

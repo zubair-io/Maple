@@ -27,6 +27,37 @@ public actor NativeSavedRemovalSession {
 
   public func reset() { owner = nil }
 
+  /// Source-bound generation context includes previously accepted pixels.
+  public func generationContext(
+    xmp: String, x: UInt32, y: UInt32, width: UInt32, height: UInt32,
+    cancel: CancelFlag? = nil
+  ) throws -> [Float] {
+    try Task.checkCancellation()
+    try Self.requireCString(xmp)
+    guard let owner, width > 0, height > 0, width <= 1024, height <= 1024 else {
+      throw RemovalError.invalid("Saved removal context is unprepared or has invalid extent")
+    }
+    let count = Int(width) * Int(height) * 3
+    var output = [Float](repeating: 0, count: count)
+    var length: UInt = 0
+    let rc = withExtendedLifetime((handle, owner, cancel)) {
+      xmp.withCString { xmp in
+        output.withUnsafeMutableBufferPointer {
+          maple_removal_saved_context_f32(
+            handle.pointer, owner.pointer, xmp, x, y, width, height,
+            cancel?.pointer, $0.baseAddress, UInt(count), &length)
+        }
+      }
+    }
+    if rc == 20 { throw PipelineError.cancelled }
+    try Self.check(rc)
+    try Task.checkCancellation()
+    guard length == UInt(count) else {
+      throw RemovalError.invalid("Saved context dimensions changed")
+    }
+    return output
+  }
+
   /// Returns ordered indices needing dependency review. A failed preparation
   /// clears the previous stack; it cannot leave another photo's result usable.
   public func prepare(source: Data, ext: String, xmp: String, assets: [String: Data]) throws

@@ -1,5 +1,5 @@
 use crate::{
-    models::{load, output_f32, Model},
+    models::{load_verified, output_f32, Model},
     valid_floats, OrtRuntime, RemovalRunOptions, Result,
 };
 use ort::{session::Session, value::Tensor};
@@ -8,13 +8,17 @@ use std::path::Path;
 /// One retained CPU reconstruction session, used only while authoring a patch.
 pub struct RemovalReconstructor {
     session: Session,
+    digest: raw_core::types::accepted_removal::ContentDigest,
 }
 
 impl RemovalReconstructor {
     pub fn load(directory: &Path, runtime: &OrtRuntime) -> Result<Self> {
-        Ok(Self {
-            session: load(Model::Lama, directory, runtime)?,
-        })
+        let (session, digest) = load_verified(Model::Lama, directory, runtime)?;
+        Ok(Self { session, digest })
+    }
+
+    pub fn model_digest(&self) -> &raw_core::types::accepted_removal::ContentDigest {
+        &self.digest
     }
 
     /// Prepared photographic CHW RGB and binary generation hole, native 1024².

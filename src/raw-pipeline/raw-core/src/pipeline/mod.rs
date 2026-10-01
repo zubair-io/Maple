@@ -50,6 +50,10 @@ mod removal_resolved;
 pub use removal_resolved::ResolvedCalibrationRemovals;
 mod removal_prepare;
 pub use removal_prepare::prepare_accepted_removal;
+mod removal_proposal;
+pub use removal_proposal::PreparedRemovalGeneration;
+mod removal_proposal_plan;
+pub use removal_proposal_plan::plan_removal_generation;
 mod render;
 mod scene_linear_chain;
 pub use accepted_removal::{

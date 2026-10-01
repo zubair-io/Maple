@@ -6,6 +6,7 @@ import type {
   RemovalInferenceReply,
   RemovalInferenceResult,
   RemovalInferenceStage,
+  RemovalProposal,
 } from './removal-inference.types';
 
 function cancelled(): DOMException {
@@ -58,6 +59,35 @@ export class RemovalInferenceClient {
         mask.buffer,
       ]);
       if (!(result instanceof Float32Array)) throw new Error('Invalid reconstruction reply.');
+      return result;
+    });
+  }
+  /** Native scene values are encoded/decoded by Rust in the inference worker.
+   * The current selection stays owned by the editor; only copies transfer. */
+  propose(
+    request: string,
+    prior: string,
+    scene: Float32Array,
+    intent: Uint8Array,
+    protectedMask = new Uint8Array(),
+  ): Promise<RemovalProposal> {
+    return this.run(['lama'], async () => {
+      const rgb = owned(scene),
+        mask = intent.slice(),
+        protectedCopy = protectedMask.slice();
+      const result = await this.send(
+        { kind: 'propose', request, prior, scene: rgb, intent: mask, protected: protectedCopy },
+        [rgb.buffer, mask.buffer, protectedCopy.buffer],
+      );
+      if (
+        !result ||
+        typeof result !== 'object' ||
+        !('request' in result) ||
+        typeof result.request !== 'string' ||
+        !(result.mask instanceof Uint8Array) ||
+        !(result.patch instanceof Uint8Array)
+      )
+        throw new Error('Invalid removal proposal reply.');
       return result;
     });
   }

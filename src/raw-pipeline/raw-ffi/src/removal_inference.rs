@@ -86,6 +86,49 @@ pub unsafe extern "C" fn maple_removal_reconstructor_close(model: *mut MapleRemo
     }
 }
 
+/// Identity of exactly the verified graph bytes consumed by this ORT session.
+/// 0 success, 1 null length, 5 invalid, 100 size probe. UTF-8, no NUL.
+/// # Safety
+/// model stays live; length writable, output writable for cap bytes and disjoint.
+#[no_mangle]
+pub unsafe extern "C" fn maple_removal_reconstructor_digest_buf(
+    model: *const MapleRemovalReconstructor,
+    output: *mut u8,
+    cap: usize,
+    length: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_removal_reconstructor_digest_buf", || {
+        if length.is_null() {
+            return 1;
+        }
+        *length = 0;
+        let Some(model) = model
+            .as_ref()
+            .and_then(|v| v.inner.cast::<Mutex<RemovalReconstructor>>().as_ref())
+        else {
+            return 5;
+        };
+        let model = match model.lock() {
+            Ok(model) => model,
+            Err(_) => {
+                set_last_error("removal model mutex poisoned".into());
+                return 5;
+            }
+        };
+        let digest = model.model_digest().as_str();
+        *length = digest.len();
+        if output.is_null() || cap < digest.len() {
+            return 100;
+        }
+        if cap > isize::MAX as usize {
+            *length = 0;
+            return 5;
+        }
+        std::ptr::copy_nonoverlapping(digest.as_ptr(), output, digest.len());
+        0
+    })
+}
+
 /// Create one inference operation after the model's runtime is initialized.
 /// Operation flags must outlive generation and cancellation calls. Codes match
 /// open. A terminated operation cannot be reused for another generation.

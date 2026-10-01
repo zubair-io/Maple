@@ -30,6 +30,10 @@ const routes = new Map([
   ["/client.mjs", resolve(out, "client.mjs")],
   ["/raw_wasm_bg.wasm", resolve(pkg, "raw_wasm_bg.wasm")],
   ["/source.dng", resolve("test-fixtures/removal/basic/source.dng")],
+  ["/saved.xmp", resolve("test-fixtures/removal/calibration/saved.xmp")],
+  ["/records.json", resolve("test-fixtures/removal/calibration/records.txt")],
+  ["/mask.mimf", resolve("test-fixtures/removal/calibration/mask.mimf")],
+  ["/patch.f16", resolve("test-fixtures/removal/calibration/patch.f16")],
 ]);
 const server = createServer(async (request, response) => {
   for (const [name, value] of [
@@ -163,6 +167,43 @@ try {
           strokes: [{ points: [[0.5, 0.5]], radius: 0.1, subtract: false }],
         }),
       );
+      const records = await (await fetch("/records.json")).json();
+      const savedXmp = await (await fetch("/saved.xmp")).text();
+      const maskBytes = new Uint8Array(
+        await (await fetch("/mask.mimf")).arrayBuffer(),
+      );
+      const patchBytes = new Uint8Array(
+        await (await fetch("/patch.f16")).arrayBuffer(),
+      );
+      const manifest = JSON.stringify([
+        {
+          name: records[0].accepted.mask.slice(7) + ".mask",
+          length: maskBytes.length,
+        },
+        { name: records[0].patch.slice(7) + ".f16", length: patchBytes.length },
+      ]);
+      const companions = new Uint8Array(maskBytes.length + patchBytes.length);
+      companions.set(maskBytes);
+      companions.set(patchBytes, maskBytes.length);
+      const generationContext = await client.generationContext(
+        savedXmp,
+        [1, 1, 7, 5],
+        { manifest, bytes: companions },
+      );
+      if (!generationContext.some((v, i) => v !== context[i]))
+        throw Error("Generation context omitted accepted pixels");
+      const corrupt = companions.slice();
+      corrupt[0] ^= 1;
+      let corruptRejected = false;
+      try {
+        await client.generationContext(savedXmp, [1, 1, 7, 5], {
+          manifest,
+          bytes: corrupt,
+        });
+      } catch {
+        corruptRejected = true;
+      }
+      if (!corruptRejected) throw Error("Corrupt generation context accepted");
       let wrongSourceRejected = false;
       try {
         await rpc({
@@ -203,6 +244,8 @@ try {
         mapped,
         crop,
         context: Array.from(context),
+        generationContext: Array.from(generationContext),
+        corruptRejected,
         mask: Array.from(mask),
         wrongSourceRejected,
         closedRejected,
