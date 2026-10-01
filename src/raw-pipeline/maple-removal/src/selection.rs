@@ -4,15 +4,14 @@ use crate::{
 };
 use ort::{session::Session, value::Tensor};
 use raw_core::{
-    stages::removal_smart::{mask_from_logits_json, model_prompts_json, SmartMaskRequest},
-    types::accepted_removal::SourceAnchor,
+    stages::removal_smart::{context_identity, mask_from_logits_json, model_prompts_json},
+    types::accepted_removal::{ContentDigest, SourceAnchor},
 };
 use std::path::Path;
 
 /// Immutable embedding from one fixed photographic context, never a grade.
 pub struct SelectionEmbedding {
-    source: SourceAnchor,
-    geometry: [u32; 8],
+    context: ContentDigest,
     values: Vec<f32>,
 }
 
@@ -20,35 +19,6 @@ pub struct SelectionEmbedding {
 pub struct SmartSelector {
     encoder: Session,
     decoder: Session,
-}
-
-fn geometry(source: &SourceAnchor, request: &str) -> Result<[u32; 8]> {
-    model_prompts_json(request).map_err(RemovalInferenceError::Input)?;
-    let parsed: SmartMaskRequest =
-        serde_json::from_str(request).map_err(|e| RemovalInferenceError::Input(e.to_string()))?;
-    source
-        .original
-        .validate()
-        .map_err(RemovalInferenceError::Input)?;
-    source
-        .decode
-        .validate()
-        .map_err(RemovalInferenceError::Input)?;
-    if source.width != parsed.source_width || source.height != parsed.source_height {
-        return Err(RemovalInferenceError::Input(
-            "selection source geometry mismatch".into(),
-        ));
-    }
-    Ok([
-        source.width,
-        source.height,
-        parsed.window.x,
-        parsed.window.y,
-        parsed.window.width,
-        parsed.window.height,
-        parsed.input_width,
-        parsed.input_height,
-    ])
 }
 
 #[derive(serde::Deserialize)]
@@ -73,15 +43,14 @@ impl SmartSelector {
         rgb: &[f32],
         cancel: &RemovalRunOptions,
     ) -> Result<SelectionEmbedding> {
-        let geometry = geometry(source, request)?;
+        let context = context_identity(source, request).map_err(RemovalInferenceError::Input)?;
         valid_floats(rgb, 3 * 1024 * 1024, 0.0, 255.0)?;
         let outputs = self.encoder.run_with_options(
             ort::inputs!["image" => Tensor::from_array(([1,3,1024,1024], rgb.to_vec()))?],
             cancel,
         )?;
         Ok(SelectionEmbedding {
-            source: source.clone(),
-            geometry,
+            context,
             values: output_f32(&outputs, "image_embeddings", &[1, 256, 64, 64])?,
         })
     }
@@ -95,7 +64,9 @@ impl SmartSelector {
         request: &str,
         cancel: &RemovalRunOptions,
     ) -> Result<Vec<u8>> {
-        if source != &embedding.source || geometry(source, request)? != embedding.geometry {
+        if context_identity(source, request).map_err(RemovalInferenceError::Input)?
+            != embedding.context
+        {
             return Err(RemovalInferenceError::Input(
                 "stale selection embedding".into(),
             ));
@@ -143,15 +114,12 @@ mod tests {
             height: 1024,
         };
         let request = r#"{"schema":1,"source_width":1024,"source_height":1024,"window":{"x":0,"y":0,"width":1024,"height":1024},"input_width":1024,"input_height":1024,"prompts":[{"position":[0.5,0.5],"label":1}]}"#;
-        assert_eq!(
-            geometry(&source, request).unwrap(),
-            [1024, 1024, 0, 0, 1024, 1024, 1024, 1024]
-        );
+        assert!(context_identity(&source, request).is_ok());
         let wrong = SourceAnchor {
             width: 512,
             ..source
         };
-        assert!(geometry(&wrong, request).is_err());
-        assert!(geometry(&wrong, &request.replace("\"label\":1", "\"label\":0")).is_err());
+        assert!(context_identity(&wrong, request).is_err());
+        assert!(context_identity(&wrong, &request.replace("\"label\":1", "\"label\":0")).is_err());
     }
 }

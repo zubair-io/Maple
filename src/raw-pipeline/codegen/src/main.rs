@@ -47,6 +47,7 @@ mod filename;
 mod film_catalog;
 mod local_mask_wire;
 mod raster_recipe;
+mod removal_models;
 mod scope_targets;
 mod support_evidence;
 mod support_tiers;
@@ -211,8 +212,9 @@ fn main() {
             .expect("serialize embedded removal pins")
                 + "\n"
         }
+        (Schema::RemovalModels, Target::Ts) => removal_models::emit_ts(),
         (Schema::RemovalModels, _) => {
-            eprintln!("codegen: --schema removal-models supports only json target");
+            eprintln!("codegen: --schema removal-models supports only json / ts targets");
             std::process::exit(2);
         }
 

@@ -139,6 +139,37 @@ pub fn model_prompts_json(request: &str) -> Result<String, String> {
         .map_err(|e| format!("smart selection: cannot serialize prompts: {e}"))
 }
 
+/// Embedding identity shared by native and browser authoring. Prompts/strokes
+/// may change during refinement; the fixed source and proxy geometry may not.
+pub fn context_identity(
+    source: &crate::types::accepted_removal::SourceAnchor,
+    request: &str,
+) -> Result<crate::types::accepted_removal::ContentDigest, String> {
+    source.original.validate()?;
+    source.decode.validate()?;
+    let request = parse_request(request)?;
+    request.model_prompts()?;
+    if source.width != request.source_width || source.height != request.source_height {
+        return Err("smart selection: source geometry mismatch".into());
+    }
+    let bytes = serde_json::to_vec(&(
+        source,
+        request.window,
+        request.input_width,
+        request.input_height,
+    ))
+    .map_err(|e| format!("smart selection: context identity: {e}"))?;
+    Ok(crate::types::accepted_removal::ContentDigest::for_bytes(
+        &bytes,
+    ))
+}
+
+pub fn context_identity_json(source: &str, request: &str) -> Result<String, String> {
+    let source = serde_json::from_str(source)
+        .map_err(|e| format!("smart selection: invalid source: {e}"))?;
+    Ok(context_identity(&source, request)?.as_str().to_owned())
+}
+
 /// Validate model candidates and return a lossless native intent asset. An
 /// error retains the editor's previous selection; it must never replace it
 /// with an empty or prompt-violating proposal. Scores rank only valid masks.

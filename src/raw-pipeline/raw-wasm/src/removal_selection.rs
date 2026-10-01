@@ -23,6 +23,12 @@ pub fn removal_smart_prompts(request: &str) -> Result<String, JsError> {
 }
 
 #[wasm_bindgen]
+pub fn removal_smart_context_identity(source: &str, request: &str) -> Result<String, JsError> {
+    raw_core::stages::removal_smart::context_identity_json(source, request)
+        .map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
 pub fn removal_smart_mask(
     request: &str,
     logits: &[f32],
