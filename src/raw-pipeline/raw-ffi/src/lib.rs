@@ -121,6 +121,7 @@ mod removal_generation;
 #[cfg(any(feature = "removal", feature = "removal-ios"))]
 mod removal_inference;
 mod removal_prepare;
+mod removal_saved;
 mod removal_selection;
 mod removal_smart;
 mod render;
@@ -217,6 +218,11 @@ pub use removal_inference::{
     maple_removal_reconstructor_open, MapleRemovalInference, MapleRemovalReconstructor,
 };
 pub use removal_prepare::{maple_removal_content_digest, maple_removal_prepare_buf};
+pub use removal_saved::{
+    maple_removal_saved_close, maple_removal_saved_export, maple_removal_saved_free_buffer,
+    maple_removal_saved_open, maple_removal_saved_preview, maple_removal_saved_review_buf,
+    MapleRemovalBuffer, MapleSavedRemovals,
+};
 pub use removal_selection::{maple_removal_mask_decode_buf, maple_removal_selection_buf};
 pub use removal_smart::{
     maple_removal_smart_mask_buf, maple_removal_smart_prompts_buf, maple_removal_smart_strokes_buf,

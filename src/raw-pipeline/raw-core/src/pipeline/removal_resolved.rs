@@ -22,6 +22,48 @@ pub struct ResolvedCalibrationRemovals {
 }
 
 impl ResolvedCalibrationRemovals {
+    /// Complete host transfer: digest filenames and lengths describe bytes
+    /// concatenated in manifest order. Both C and WASM use this verifier.
+    pub fn prepare_bundle(
+        raw: &RawImage,
+        original: &ContentDigest,
+        records: &[Removal],
+        manifest: &str,
+        bytes: &[u8],
+    ) -> Result<Self, String> {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Companion {
+            name: String,
+            length: usize,
+        }
+        let encoded = crate::types::inpaint::encode_removals(records)?;
+        let expected = super::removal_asset_names(&encoded)?;
+        let entries: Vec<Companion> = serde_json::from_str(manifest).map_err(|e| e.to_string())?;
+        if entries.len() != expected.len() {
+            return Err("saved companion count changed".into());
+        }
+        let mut assets = BTreeMap::new();
+        let mut offset = 0usize;
+        for entry in entries {
+            if !expected.contains(&entry.name) || assets.contains_key(&entry.name) {
+                return Err("unexpected or duplicate saved companion name".into());
+            }
+            let end = offset
+                .checked_add(entry.length)
+                .ok_or("saved companion length overflows")?;
+            let value = bytes
+                .get(offset..end)
+                .ok_or("saved companion bundle is truncated")?;
+            assets.insert(entry.name, value.to_vec());
+            offset = end;
+        }
+        if offset != bytes.len() {
+            return Err("saved companion bundle has trailing bytes".into());
+        }
+        Self::prepare(raw, original, records, &assets)
+    }
+
     pub fn needs_review(&self) -> &[usize] {
         &self.needs_review
     }

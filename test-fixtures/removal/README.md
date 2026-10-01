@@ -18,3 +18,15 @@ cp test-fixtures/removal/basic/* src/apple/Packages/MapleCore/Tests/MapleCoreTes
 
 The Apple copy is required by Swift Package Manager's resource boundary. Commit
 both copies together and verify that they remain byte-identical.
+
+`calibration/` binds the same RAW and signed HDR patch to the real decoder's
+fixed linear-calibration source anchor (schema 4). `saved.xmp` references both
+companions. The RGB8 previews at 4px and 64px long-edge requests come from the
+shared Auto-quality display chain, before any host image conversion. C and Swift
+saved-session tests compare those bytes and decode lossless exports. This is a
+synthetic interoperability fixture, not photographic or device qualification.
+
+```sh
+cargo run --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --example removal-fixture -- test-fixtures/removal/calibration --calibration
+cp test-fixtures/removal/calibration/* src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/removal/calibration/
+```
