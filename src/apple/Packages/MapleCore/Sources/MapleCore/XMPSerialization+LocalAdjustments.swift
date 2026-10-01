@@ -406,19 +406,24 @@ extension XMPSerializer {
       } + _localAdjustmentRangeLines(layer.range, indent: i4)
       + _maskGroupAttributes(layer.mask, indent: i4)
       + _localMetadataAttributes(layer.xmpMetadata, indent: i4)
-    return [
+    let opening = [
       "\(i2)<rdf:li>",
       "\(i3)<rdf:Description",
       attrs.joined(separator: "\n") + ">",
       "\(i4)<crs:CorrectionMasks>",
       "\(i5)<rdf:Seq>",
-    ] + _localAdjustmentMaskLines(layer.mask, indent: i6) + [
+    ]
+    let maskLines = _localAdjustmentMaskLines(layer.mask, indent: i6)
+    let maskClosing = [
       "\(i5)</rdf:Seq>",
       "\(i4)</crs:CorrectionMasks>",
-    ] + _localMetadataNodes(layer.xmpMetadata, indent: i4) + [
+    ]
+    let metadataNodes = _localMetadataNodes(layer.xmpMetadata, indent: i4)
+    let closing = [
       "\(i3)</rdf:Description>",
       "\(i2)</rdf:li>",
     ]
+    return [opening, maskLines, maskClosing, metadataNodes, closing].flatMap { $0 }
   }
 
   /// `papp:Range*` attributes for a colour-range refinement (#3270), in
