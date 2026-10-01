@@ -692,37 +692,40 @@
 
                     <Border x:Name="InfoPane" Grid.Column="1" Canvas.ZIndex="3" Visibility="Collapsed"
                             Background="{StaticResource MapleSidebar}" BorderBrush="{StaticResource MapleBorder}" BorderThickness="1,0,0,0">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
-                            <StackPanel Spacing="10">
-                                <Grid Margin="0,0,0,12">
-                                    <TextBlock Text="Info" FontSize="20" Foreground="{StaticResource MapleTextMain}" />
-                                    <mui:MuiButton IconName="x" Variant="Ghost" ButtonSize="Sm" HorizontalAlignment="Right"
-                                                   Click="OnToggleInfoPane" AutomationProperties.Name="Close photo info" />
-                                </Grid>
-                                <TextBlock Text="{Binding SelectedPhoto.FileName}" Foreground="{StaticResource MapleTextMuted}" TextTrimming="CharacterEllipsis" />
-                                <mui:MuiText Text="Rating" Variant="Body" ColorRole="Muted" Margin="0,18,0,0" />
-                                <Grid>
-                                    <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="0" />
-                                    <mui:MuiButton Label="Clear" Variant="Ghost" ButtonSize="Sm" HorizontalAlignment="Right"
-                                                   Click="OnClearRating" AutomationProperties.Name="Clear rating" />
-                                </Grid>
-                                <mui:MuiText Text="Flag" Variant="Body" ColorRole="Muted" Margin="0,12,0,0" />
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                    <mui:MuiActionButton x:Name="UnflaggedBtn" Label="Unflagged" ButtonSize="Sm" Outlined="True" HorizontalAlignment="Stretch" Height="44" Click="OnClearFlag" AutomationProperties.Name="Unflagged" />
-                                    <mui:MuiActionButton x:Name="PickBtn" Grid.Column="1" Label="Pick" ButtonSize="Sm" Outlined="True" HorizontalAlignment="Stretch" Height="44" Click="OnFlagPick" AutomationProperties.Name="Flag as pick" />
-                                    <mui:MuiActionButton x:Name="RejectBtn" Grid.Column="2" Label="Reject" ButtonSize="Sm" Outlined="True" HorizontalAlignment="Stretch" Height="44" Click="OnFlagReject" AutomationProperties.Name="Flag as reject" />
-                                </Grid>
-                                <Border Height="1" Background="{StaticResource MapleBorder}" Margin="0,12,0,12" />
-                                <mui:MuiText Text="CAMERA" Variant="Eyebrow" />
-                                <StackPanel x:Name="ExifRows" Spacing="6" />
-                                <mui:MuiText Text="FILE" Variant="Eyebrow" Margin="0,6,0,0" />
-                                <StackPanel x:Name="FileRows" Spacing="6" />
-                                <StackPanel x:Name="ExtraInfoRows" Spacing="12" Margin="0,12,0,0" />
-                                <mui:MuiButton Label="Edit this photo’s metadata…" Variant="Secondary" Click="OnEditPhotoMetadata"
-                                               AutomationProperties.Name="Edit this photo’s metadata" />
-                            </StackPanel>
-                        </ScrollViewer>
+                        <Grid>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                            <Grid Margin="16,16,16,22">
+                                <TextBlock Text="Info" FontSize="20" Foreground="{StaticResource MapleTextMain}" />
+                                <mui:MuiButton IconName="x" Variant="Ghost" ButtonSize="Sm" HorizontalAlignment="Right"
+                                               Click="OnToggleInfoPane" AutomationProperties.Name="Close photo info" />
+                            </Grid>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16,0,16,16">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="{Binding SelectedPhoto.FileName}" Foreground="{StaticResource MapleTextMuted}" TextTrimming="CharacterEllipsis" />
+                                    <mui:MuiText Text="Rating" Variant="Body" ColorRole="Muted" Margin="0,18,0,0" />
+                                    <Grid>
+                                        <StackPanel x:Name="StarRow" Orientation="Horizontal" Spacing="0" />
+                                        <mui:MuiButton Label="Clear" Variant="Ghost" ButtonSize="Sm" HorizontalAlignment="Right"
+                                                       Click="OnClearRating" AutomationProperties.Name="Clear rating" />
+                                    </Grid>
+                                    <mui:MuiText Text="Flag" Variant="Body" ColorRole="Muted" Margin="0,12,0,0" />
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                        <mui:MuiActionButton x:Name="UnflaggedBtn" Label="Unflagged" ButtonSize="Sm" Outlined="True" HorizontalAlignment="Stretch" Height="44" Click="OnClearFlag" AutomationProperties.Name="Unflagged" />
+                                        <mui:MuiActionButton x:Name="PickBtn" Grid.Column="1" Label="Pick" ButtonSize="Sm" Outlined="True" HorizontalAlignment="Stretch" Height="44" Click="OnFlagPick" AutomationProperties.Name="Flag as pick" />
+                                        <mui:MuiActionButton x:Name="RejectBtn" Grid.Column="2" Label="Reject" ButtonSize="Sm" Outlined="True" HorizontalAlignment="Stretch" Height="44" Click="OnFlagReject" AutomationProperties.Name="Flag as reject" />
+                                    </Grid>
+                                    <Border Height="1" Background="{StaticResource MapleBorder}" Margin="0,12,0,12" />
+                                    <mui:MuiText Text="CAMERA" Variant="Eyebrow" />
+                                    <StackPanel x:Name="ExifRows" Spacing="6" />
+                                    <mui:MuiText Text="FILE" Variant="Eyebrow" Margin="0,6,0,0" />
+                                    <StackPanel x:Name="FileRows" Spacing="6" />
+                                    <StackPanel x:Name="ExtraInfoRows" Spacing="12" Margin="0,12,0,0" />
+                                    <mui:MuiButton Label="Edit this photo’s metadata…" Variant="Secondary" Click="OnEditPhotoMetadata"
+                                                   AutomationProperties.Name="Edit this photo’s metadata" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
                     </Border>
 
                     <Grid x:Name="CanvasHost" SizeChanged="OnCanvasHostSizeChanged">
