@@ -104,6 +104,29 @@ fn retained_saved_preview_and_lossless_exports_use_verified_companions_without_i
 }
 
 #[test]
+fn normal_preview_carries_actual_raw_metadata_and_saved_pixels() {
+    let (raw, original, xmp, manifest, bytes) = fixture();
+    let stack = prepare(&raw, &original, &xmp, &manifest, &bytes).unwrap();
+    let mut frame = preview(Some(&stack), &raw, &original, RAW, "dng", &xmp, 4, &[]).unwrap();
+    let mut patch = render(Some(&stack), &raw, &original, RAW, "dng", &xmp, 4, &[]).unwrap();
+    assert_eq!(frame.take_rgb(), patch.take_rgb());
+    assert_eq!(
+        (frame.full_width(), frame.full_height()),
+        raw_core::pipeline::native_render_dims(&raw)
+    );
+    let ((temperature, tint), _) = crate::open_metadata::assess(&raw);
+    assert_eq!(
+        (frame.as_shot_temperature(), frame.as_shot_tint()),
+        (temperature, tint)
+    );
+    assert_eq!(frame.has_lens_corrections(), raw.has_lens_corrections());
+    assert_eq!(
+        frame.lens_correction_ca_inert(),
+        raw.lens_correction_ca_inert()
+    );
+}
+
+#[test]
 fn manifest_cannot_supply_paths_duplicates_truncation_or_unlisted_bytes() {
     let (raw, original, xmp, manifest, bytes) = fixture();
     let entries: serde_json::Value = serde_json::from_str(&manifest).unwrap();

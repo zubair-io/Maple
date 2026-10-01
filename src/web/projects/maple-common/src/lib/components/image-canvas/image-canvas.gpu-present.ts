@@ -39,6 +39,9 @@ import type {
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { probeGpuPresent } from './image-canvas.gpu-probe';
+import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
+import { savedRemovalRecords } from '../../removal/saved-removal-records';
 import type { AssetId } from '../../models/asset';
 import { type AdjustmentModel, isDefaultAdjustment } from '../../models/adjustment-model';
 import type {
@@ -62,6 +65,7 @@ export interface GpuPresentHost {
   readonly state: LibraryStateService;
   readonly canvasSvc: ImageCanvasService;
   readonly xmpSerializer: XmpSerializerService;
+  readonly savedRemovals: SavedRemovalRenderService;
   /** Where a fallback to the 2D path is reported (#2415) so the UI can
    *  surface a notice instead of only the console warning below. */
   readonly gpuFallback: GpuFallbackNoticeService;
@@ -223,7 +227,10 @@ export class ImageCanvasGpuPresent {
       // a serialized default instead could perturb that WB path.
       const openModel = this.host.state.adjustmentFor(assetId)();
       const serializeOpened = this.host.captureRenderSerializer();
-      const openXmp = isDefaultAdjustment(openModel) ? undefined : serializeOpened(openModel);
+      const xml = serializeOpened(openModel);
+      const openXmp = isDefaultAdjustment(openModel) && !savedRemovalRecords(xml) ? undefined : xml;
+      const saved = await this.host.savedRemovals.load(assetId, xml);
+      if (assetId !== this.host.currentAssetId || this.canvasEl !== canvasEl) return true;
       // Develop fit to the viewport (#1080): pass the wrap's long edge in real
       // pixels so the session never develops (or sizes a surface at) full sensor
       // res. The session pins this target for its lifetime; CSS scales the
@@ -234,6 +241,7 @@ export class ImageCanvasGpuPresent {
         ext,
         openXmp,
         this.host.viewportTargetLongEdge(),
+        saved,
       );
 
       // Stale guard: a fast asset switch may have moved on (or torn this down)
@@ -336,7 +344,6 @@ export class ImageCanvasGpuPresent {
     // Release queued edits only after recording the frame's actual intent (#4101).
     if (this.host.lastRenderedXmp === null) {
       this.host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, info));
-    }
     }
     this.host.markColdOpenDone();
   }

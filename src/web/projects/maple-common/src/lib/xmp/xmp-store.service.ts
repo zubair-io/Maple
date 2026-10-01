@@ -9,7 +9,7 @@
 //                       subsequent writes can reproduce unknown content verbatim.
 // - flushAll()          cancels all pending timers (call on beforeunload).
 
-import { Injectable, inject, DestroyRef } from '@angular/core';
+import { Injectable, inject, DestroyRef, signal } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
 import type { AssetId } from '../models/asset';
@@ -130,6 +130,7 @@ export class XmpStoreService {
 
   /** Per-asset passthrough buckets loaded from the source sidecar. */
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
+  private readonly passthroughRevision = signal(0);
   private readonly _metadata = new Map<AssetId, XmpMetadata>();
 
   rememberMetadata(assetId: AssetId, metadata: XmpMetadata): void {
@@ -144,6 +145,7 @@ export class XmpStoreService {
    */
   rememberPassthrough(assetId: AssetId, passthrough: PassthroughBucket): void {
     this._passthroughs.set(assetId, passthrough);
+    this.passthroughRevision.update((revision) => revision + 1);
   }
 
   /**
@@ -168,6 +170,7 @@ export class XmpStoreService {
     for (const [assetId, metadata] of metadataReplacements) {
       this._metadata.set(assetId, metadata);
     }
+    this.passthroughRevision.update((revision) => revision + 1);
   }
 
   /**
@@ -176,6 +179,7 @@ export class XmpStoreService {
    * `scheduleWrite` (e.g. the Self-Hosted API path in LibraryStateService).
    */
   passthroughFor(assetId: AssetId): PassthroughBucket | undefined {
+    this.passthroughRevision();
     return this._passthroughs.get(assetId);
   }
 
@@ -460,7 +464,7 @@ export class XmpStoreService {
             ) {
               throw new Error('Removal sidecar verification failed.');
             }
-            this._passthroughs.set(assetId, passthrough);
+            this.rememberPassthrough(assetId, passthrough);
           });
           this.saveState.saved(assetId, revision);
         } catch (error) {

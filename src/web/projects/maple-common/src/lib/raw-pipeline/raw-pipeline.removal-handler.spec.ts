@@ -106,6 +106,25 @@ describe('retained CPU RAW authoring worker', () => {
         ),
       );
       expect(installed).toEqual({ kind: 'prepared', review: '[]' });
+      const rendered = await call(
+        request({ kind: 'render-saved', xmp: savedXmp, cap: 4 }, anchor.original),
+      );
+      if (rendered.kind !== 'rendered') throw Error('Unexpected saved preview reply');
+      const expected = new NativeDetailSession(raw, 'dng');
+      expected.prepare_saved_removals(savedXmp, bundle.manifest, bundle.bytes);
+      const image = expected.render_saved_preview(savedXmp, 4, new Uint8Array());
+      try {
+        expect(new Uint8Array(rendered.frame.rgb)).toEqual(image.take_rgb());
+        expect([rendered.frame.nativeWidth, rendered.frame.nativeHeight]).toEqual([
+          image.full_width,
+          image.full_height,
+        ]);
+        expect(rendered.frame.asShotTemperature).toBe(image.as_shot_temperature);
+        expect(rendered.frame.asShotTint).toBe(image.as_shot_tint);
+      } finally {
+        image.free();
+        expected.free();
+      }
       const savedContext = await call(
         request(
           {

@@ -2,6 +2,10 @@ import { promises as fs, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as workerThreads from 'node:worker_threads';
+import { computed } from '@angular/core';
+import { LibraryStateService } from '../state/library-state.service';
+import { SavedRemovalRenderService } from './saved-removal-render.service';
+import { savedRemovalRecords } from './saved-removal-records';
 import { TestBed } from '@angular/core/testing';
 import { beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { initSync } from '../raw-pipeline/pkg/raw_wasm';
@@ -63,6 +67,13 @@ describe('durable browser removal through actual WASM and filesystem files', () 
     TestBed.configureTestingModule({
       providers: [
         {
+          provide: LibraryStateService,
+          useValue: {
+            focusedAsset: () => ({ id: 'photo', filename: 'photo.dng' }),
+            currentFolder: () => folder,
+          },
+        },
+        {
           provide: FolderAccessService,
           useValue: { readFile: fsAccessReadFile, writeFile: fsAccessWriteFile },
         },
@@ -73,6 +84,43 @@ describe('durable browser removal through actual WASM and filesystem files', () 
   });
   afterEach(async () => {
     await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('updates the normal render recipe only after a confirmed sidecar commit and loads its real companions', async () => {
+    const renderer = TestBed.inject(SavedRemovalRenderService);
+    const xml = computed(() => renderer.serialize('photo', defaultAdjustmentModel()));
+    expect(savedRemovalRecords(xml())).toBeUndefined();
+    const records = await publish();
+    await commit(records);
+    expect(savedRemovalRecords(xml())).toBe(records);
+    const bundle = await renderer.load('photo', xml());
+    expect(bundle).toBeDefined();
+    expect(JSON.parse(bundle!.manifest)).toHaveLength(2);
+    expect(bundle!.bytes.byteLength).toBe(
+      fixture('mask.mimf').byteLength + fixture('patch.f16').byteLength,
+    );
+    const sidecar = await fs.readFile(join(root, 'photo.xmp'), 'utf8');
+    expect(savedRemovalRecords(sidecar)).toBe(records);
+    const names = JSON.parse(bundle!.manifest) as { name: string }[];
+    await fs.rm(join(root, '.maple', 'inpaint', names[0].name));
+    await expect(renderer.load('photo', xml())).rejects.toThrow();
+  });
+
+  it('reopens verified companions from a read-only folder and refuses publication', async () => {
+    const records = await publish();
+    const reader = new LocalRemovalAssets(
+      TestBed.inject(FolderAccessService),
+      { ...folder, write: false },
+      'photo.dng',
+    );
+    const bundle = await reader.readBundle(records);
+    expect(JSON.parse(bundle.manifest)).toHaveLength(2);
+    await expect(
+      reader.publish(text('request.txt'), '[]', fixture('mask.mimf'), fixture('patch.f16')),
+    ).rejects.toThrow('write access');
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(
+      fixture('source.dng'),
+    );
   });
 
   it('publishes shared bytes idempotently and confirms XMP without changing the RAW or foreign XML', async () => {

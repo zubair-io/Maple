@@ -1,3 +1,4 @@
+import type { DecodedImage } from './raw-pipeline.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
 import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 import type {
@@ -89,6 +90,12 @@ export class RemovalAuthoringClient {
     );
     if (result.kind !== 'prepared') throw new Error('Invalid saved removal preparation reply');
     return result.review;
+  }
+
+  async renderSaved(xmp: string, cap: number, film?: ArrayBuffer): Promise<DecodedImage> {
+    const result = await this.operation({ kind: 'render-saved', xmp, cap, film });
+    if (result.kind !== 'rendered') throw new Error('Invalid saved preview reply');
+    return { ...result.frame, rgb: new Uint8Array(result.frame.rgb) };
   }
 
   async selection(request: string): Promise<Uint8Array> {

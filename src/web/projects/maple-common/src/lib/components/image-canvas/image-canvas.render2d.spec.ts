@@ -366,7 +366,8 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
         seedLensProfile: vi.fn(),
         adjustmentFor: () => () => model,
       },
-      serializeForRender: () => `<rdf:Description papp:LensProfile="${reference}"/>`,
+      serializeForRender: () =>
+        `<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:LensProfile="${reference}"/>`,
       fastTargetPx: () => 512,
       markColdOpenDone: vi.fn(),
       hasProvisionalPreview: () => false,

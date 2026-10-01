@@ -142,6 +142,26 @@ impl NativeDetailSession {
         .map_err(js_error)
     }
 
+    /// Normal saved-preview pixels and actual RAW support metadata (#3955).
+    pub fn render_saved_preview(
+        &self,
+        xmp: &str,
+        cap: u32,
+        film: &[u8],
+    ) -> Result<crate::render::MapleRender, JsError> {
+        crate::removal_saved::preview(
+            self.saved_removals.as_ref(),
+            &self.raw,
+            &self.original,
+            &self.bytes,
+            &self.ext,
+            xmp,
+            cap,
+            film,
+        )
+        .map_err(js_error)
+    }
+
     /// Export accepted pixels without installed inference models or a re-decode.
     pub fn export_saved_removals(
         &self,

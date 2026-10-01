@@ -19,11 +19,7 @@ export class LocalRemovalAssets {
     private readonly folder: MapleFolderHandle,
     private readonly rawFilename: string,
   ) {
-    if (!folder.native || !folder.write) {
-      throw new Error(
-        'A folder with filesystem write access is required to save removal companions.',
-      );
-    }
+    if (!folder.read) throw new Error('Folder read access is required to open removal companions.');
     if (!rawFilename || /[/\\\0]/.test(rawFilename) || rawFilename === '..') {
       throw new Error('Removal requires a photo basename in its containing folder.');
     }
@@ -35,6 +31,11 @@ export class LocalRemovalAssets {
     mask: Uint8Array,
     patch: Uint8Array,
   ): Promise<string> {
+    if (!this.folder.native || !this.folder.write) {
+      throw new Error(
+        'A folder with filesystem write access is required to save removal companions.',
+      );
+    }
     await init();
     return withRemovalWriteLock(this.folder, this.rawFilename, async () => {
       const records = removal_prepare(request, prior, mask, patch);

@@ -55,6 +55,26 @@ pub(crate) fn render(
     cap: u32,
     film_bytes: &[u8],
 ) -> Result<crate::native_detail::NativeDetailPatch, String> {
+    let mut image = preview(stack, raw, original, bytes, ext, xmp, cap, film_bytes)?;
+    Ok(crate::native_detail::NativeDetailPatch::from_rgb(
+        image.width(),
+        image.height(),
+        image.take_rgb(),
+    ))
+}
+
+/// Complete normal-preview reply: the same saved pixels and authoritative
+/// metadata consumed by ordinary editor opens, with no second decode.
+pub(crate) fn preview(
+    stack: Option<&ResolvedCalibrationRemovals>,
+    raw: &RawImage,
+    original: &ContentDigest,
+    bytes: &[u8],
+    ext: &str,
+    xmp: &str,
+    cap: u32,
+    film_bytes: &[u8],
+) -> Result<crate::render::MapleRender, String> {
     let stack = stack.ok_or("saved removals have not been prepared")?;
     let model = crate::mask_registry::parse_model(Some(xmp)).map_err(|e| e.to_string())?;
     let cap =
@@ -71,7 +91,21 @@ pub(crate) fn render(
             film.as_ref(),
         )
         .map_err(|e| e.to_string())?;
-    Ok(crate::native_detail::NativeDetailPatch::from_rgb(w, h, rgb))
+    let (full_width, full_height) = raw_core::pipeline::native_render_dims(raw);
+    let ((temperature, tint), support) = crate::open_metadata::assess(raw);
+    Ok(crate::render::MapleRender::new(
+        w,
+        h,
+        full_width,
+        full_height,
+        rgb,
+        temperature,
+        tint,
+        raw.has_lens_corrections(),
+        raw.lens_correction_ca_inert(),
+        support,
+        crate::lens_profile::metadata(raw, &model),
+    ))
 }
 
 pub(crate) fn export(
