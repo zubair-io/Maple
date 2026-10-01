@@ -1,0 +1,134 @@
+{
+  "issue": 3875,
+  "sourceRevision": "a39ae7a6705728c0daed6ffcf21d56af8853d2ee",
+  "build": "full-audit298",
+  "buildErrors": 0,
+  "buildWarnings": 26,
+  "managedAssemblySha256": "B16C982578D29139A3A906A174BDA2C9320D4ADAC5F1846C13688E2234FFF25B",
+  "nativeDllSha256": "94071936098A49BE1A1D4FB2D5B4D1E4190088FB2BAD906E7FA6403E088BFCEC",
+  "modes": {
+    "cpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 4459382,
+      "renderPath": "cpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    },
+    "empty": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 1774988,
+      "renderPath": "empty",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": false,
+      "localSaveFailureRecovery": false,
+      "nativeDetailActualSize": false,
+      "presetUndoRedoAndReset": false,
+      "adjustmentGestureUndoRedo": false,
+      "repairControlsUndoRedo": false,
+      "scopesLifecycle": false,
+      "transferWatcherUndoRedo": false,
+      "comparisonPreservesDocument": false,
+      "cloudOpeningReadiness": false,
+      "cloudSearchPagination": false,
+      "cloudMapHost": false,
+      "responsiveDesign": false,
+      "browseSelectionAndSort": false,
+      "browseScrolling": false,
+      "immediateUndo": false
+    },
+    "gpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 43389036,
+      "renderPath": "gpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 1,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    }
+  },
+  "nativeLayouts": {
+    "cpu": [
+      {
+        "requestedWidth": 1440,
+        "requestedHeight": 900,
+        "actualWidth": 1440,
+        "actualHeight": 900,
+        "logicalWidth": 945.3333129882812,
+        "logicalHeight": 592,
+        "rasterizationScale": 1.5
+      },
+      {
+        "requestedWidth": 1024,
+        "requestedHeight": 768,
+        "actualWidth": 1024,
+        "actualHeight": 768,
+        "logicalWidth": 668,
+        "logicalHeight": 504,
+        "rasterizationScale": 1.5
+      }
+    ],
+    "gpu": [
+      {
+        "requestedWidth": 1440,
+        "requestedHeight": 900,
+        "actualWidth": 1440,
+        "actualHeight": 900,
+        "logicalWidth": 945.3333129882812,
+        "logicalHeight": 592,
+        "rasterizationScale": 1.5
+      },
+      {
+        "requestedWidth": 1024,
+        "requestedHeight": 768,
+        "actualWidth": 1024,
+        "actualHeight": 768,
+        "logicalWidth": 668,
+        "logicalHeight": 504,
+        "rasterizationScale": 1.5
+      }
+    ]
+  },
+  "limitations": [
+    "Native DLL reused from the previously recorded integration293 build; it does not include the new raster export bounds fix.",
+    "Programmatic native-window lifecycle evidence at 150 percent DPI, not a screenshot comparison or full 100/150/200 percent visual audit.",
+    "Local pass does not prove the GitHub Windows runner resize failure is resolved; fresh CI remains required.",
+    "Synthetic fixture and controlled cloud fixtures do not qualify real cloud service behavior, production color parity or 100MP performance."
+  ]
+}
