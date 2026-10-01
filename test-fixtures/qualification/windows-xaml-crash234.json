@@ -1,0 +1,52 @@
+{
+  "issue": 3875,
+  "date": "2026-10-01",
+  "source": "abeb2e5eddfc3345b67935a9bc397d20aa2790cd",
+  "build": "Maple.DesignAudit233",
+  "verdict": "FAIL",
+  "phase": "retouch-undo; before interactive visual checkpoint",
+  "eventId": 1000,
+  "eventRecordId": 10253,
+  "eventTime": "2026-10-01T09:56:14.6476749-04:00",
+  "faultModule": "Microsoft.UI.Xaml.dll 3.1.6.0",
+  "exceptionCode": "0xc000027b",
+  "faultOffset": "0x9125",
+  "reportId": "2ca4bb05-1ed4-42d6-b80c-c018a0a74948",
+  "lastStages": [
+    {
+      "stage": "scopes",
+      "time": "2026-10-01T09:56:04.5299048-04:00",
+      "threads": 51,
+      "workingSetBytes": 393334784
+    },
+    {
+      "stage": "preset-undo",
+      "time": "2026-10-01T09:56:09.6004258-04:00",
+      "threads": 51,
+      "workingSetBytes": 418537472
+    },
+    {
+      "stage": "adjustment-gesture",
+      "time": "2026-10-01T09:56:11.0081851-04:00",
+      "threads": 52,
+      "workingSetBytes": 423190528
+    },
+    {
+      "stage": "retouch-undo",
+      "time": "2026-10-01T09:56:13.033156-04:00",
+      "threads": 55,
+      "workingSetBytes": 424665088
+    }
+  ],
+  "computerUse": [
+    "activate_window timed out",
+    "Recovery capture returned no accessibility tree and did not establish the synthetic fixture state",
+    "No test keyboard input sent"
+  ],
+  "limitations": [
+    "No native stack captured; fault code does not establish the root cause.",
+    "Not proven to be the same cause as the previous CPU timeout.",
+    "Earlier passing lifecycle run remains valid for that run, but does not resolve this intermittent failure."
+  ],
+  "nextAction": "Capture a native stowed-exception stack or narrow the failing retouch operation before claiming a fix."
+}
