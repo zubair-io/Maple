@@ -66,7 +66,8 @@ is_allowlisted() {
   [[ -f "$ALLOWLIST" ]] || return 1
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"
-    line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
     [[ -z "$line" ]] && continue
     [[ "$line" == "$candidate" ]] && return 0
   done <"$ALLOWLIST"
@@ -254,7 +255,7 @@ self_test() {
   # The allowlist override must actually take effect — if the script ignores it
   # the fixture is silently judged against the real repo's allowlist.
   local allowlisted_out
-  printf 'small.ts\n' >"$tmp/one-entry-allowlist.txt"
+  printf '# comment\n  \t\n\tsmall.ts \t # exempt fixture\n' >"$tmp/one-entry-allowlist.txt"
   allowlisted_out="$(cd "$tmp" && ALLOWLIST="$tmp/one-entry-allowlist.txt" \
     bash "$SCRIPT_DIR/check-budget-headroom.sh" base-ref 2>&1)" || true
   if grep -q 'ERROR small.ts' <<<"$allowlisted_out"; then

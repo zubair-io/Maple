@@ -26,6 +26,15 @@
     "testCorrection": "Normalize checkout line endings for the expected shader; retain UTF-8 and LF assertions on generated output.",
     "initialWindowsWrapperAttempt": "Eight POSIX setup errors due to unavailable symlink privilege; rerun in WSL passed."
   },
+  "sourceBudgetFollowup": {
+    "revision": "f9b3bf9e1",
+    "hardViolations": 0,
+    "softWarnings": 496,
+    "allowlistedFiles": 19,
+    "headroomPassed": true,
+    "headroomSelfTestPassed": true,
+    "headroomImplementation": "Equivalent Bash whitespace trimming replaced per-entry sed processes; whitespace and inline-comment allowlist coverage passed. Thresholds unchanged."
+  },
   "limitations": [
     "Synthetic fixture execution does not qualify 100MP performance or camera-specific image quality.",
     "The native suite does not replace the required screenshot, DPI and Narrator matrix.",
