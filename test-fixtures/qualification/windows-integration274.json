@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceRevision": "06353f98dce124280f9d037ce3e630f61d387cf7",
+  "nativeLibrarySha256": "9E5FA8ED7A90952713D8DC509198109F4D56FE4B026DBD4CEF3213A6642408AD",
+  "fixture": {
+    "kind": "synthetic 3200x2200 Bayer DNG",
+    "sha256": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8"
+  },
+  "windowsSuite": {
+    "total": 1423,
+    "failed": 0,
+    "notExecuted": 0,
+    "trxSha256": "78C39FEB0B30647085711402ED4A60B6054FBE45C5C07F2DE351D1E1388FA0AD",
+    "passed": 1423
+  },
+  "tileSuite": {
+    "failed": 0,
+    "logSha256": "79CC7A6347679D9F9F04719A01BC8DD7E5B928844FA0684D1ED9C6BB1044A91A",
+    "command": "cargo test -p raw-core --lib pipeline::tile::",
+    "ignored": 9,
+    "passed": 20
+  },
+  "environment": {
+    "MAPLE_RETOUCH_TEST_RAW": "<temp>/maple-ui-qualification211/fixture.dng",
+    "MAPLE_EXPORT_TEST_RAW": "<temp>/maple-ui-qualification211/fixture.dng",
+    "MAPLE_RAW_FFI_DLL": "src/raw-pipeline/target/release/raw_ffi.dll",
+    "MAPLE_DEMOSAIC_TEST_RAW": "<temp>/maple-ui-qualification211/fixture.dng"
+  },
+  "limitations": [
+    "Nine real-RAW tile tests remain explicitly ignored without the fixtures feature; synthetic parity cases ran.",
+    "Functional integration does not qualify perceptual color, physical performance, DPI screenshots, Narrator or real-cloud behavior.",
+    "Intermittent native UI crash remains unresolved.",
+    "Corrected native detail with automatic CA uses explicit preview fallback; no full-resolution correction claim."
+  ]
+}
