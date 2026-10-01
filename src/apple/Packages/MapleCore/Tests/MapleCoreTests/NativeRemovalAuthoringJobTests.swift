@@ -1,0 +1,88 @@
+import Foundation
+import XCTest
+
+@testable import MapleCore
+
+final class NativeRemovalAuthoringJobTests: XCTestCase {
+  func testActualGenerationReviewKeepReopenAndCancellationDoNotModifyOriginal() async throws {
+    #if os(macOS)
+      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
+        value.deletingLastPathComponent()
+      }.appendingPathComponent("test-fixtures/raws/removal-inference")
+      guard
+        FileManager.default.fileExists(atPath: root.appendingPathComponent("runtime.dylib").path),
+        FileManager.default.fileExists(
+          atPath: root.appendingPathComponent("lama-native-1024.onnx").path)
+      else {
+        throw XCTSkip("Native model corpus must be installed for authoring qualification (#3984)")
+      }
+      let fixture = try XCTUnwrap(
+        Bundle.module.url(
+          forResource: "source", withExtension: "dng", subdirectory: "removal/calibration"))
+      let source = try Data(contentsOf: fixture)
+      let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+      let raw = folder.appendingPathComponent("photo.dng")
+      try source.write(to: raw)
+      let model = try NativeRemovalReconstructor.open(
+        directory: root, runtime: root.appendingPathComponent("runtime.dylib"))
+      let handle = try PipelineRenderer.openRawHandle(rawPath: raw)
+      let saved = NativeSavedRemovalSession(handle: handle)
+      let initialXMP = XMPSerializer.serialize(model: .default, culling: CullingState())
+      _ = try await saved.prepare(source: source, ext: "dng", xmp: initialXMP, assets: [:])
+      let mask = try RemovalBridge.selection(
+        width: 16, height: 8,
+        request:
+          "{\"schema\":1,\"strokes\":[{\"subtract\":false,\"radius\":0.06,\"points\":[[0.5,0.5]]}]}"
+      )
+      let job = try NativeRemovalAuthoringJob(model: model)
+      let proposal = try await job.propose(
+        handle: handle, saved: saved, xmp: initialXMP, intent: mask, holeRadius: 1, fringeRadius: 1)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: raw).path))
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: folder.appendingPathComponent(".maple").path))
+      let assets = LocalRemovalAssetStore(rawURL: raw)
+      let records = try await assets.publish(
+        request: proposal.request, prior: "[]", mask: proposal.mask, patch: proposal.patch)
+      try await XMPSidecarStore(rawURL: raw).writeRemovalConfirmed(
+        records: records, expectedRecords: "[]", model: .default, culling: CullingState())
+      let sidecar = try Data(contentsOf: SidecarPath.sidecarURL(for: raw))
+      let xmp = String(decoding: sidecar, as: UTF8.self)
+      XCTAssertEqual(try RemovalXMPRecords.read(sidecar), records)
+      let reopened = NativeSavedRemovalSession(handle: handle)
+      _ = try await reopened.prepare(
+        source: source, ext: "dng", xmp: xmp, assets: assets.readAssets(records: records))
+      let preview = try await reopened.preview(xmp: xmp, maxLongEdge: 16)
+      XCTAssertEqual(preview.bytes.count, 384)
+      let next = try NativeRemovalAuthoringJob(model: model)
+      let second = try await next.propose(
+        handle: handle, saved: reopened, xmp: xmp, intent: mask, holeRadius: 1, fringeRadius: 1)
+      let appended = try RemovalBridge.prepare(
+        request: second.request, prior: records, mask: second.mask, patch: second.patch)
+      let decoded = try XCTUnwrap(
+        JSONSerialization.jsonObject(with: Data(appended.utf8)) as? [[String: Any]])
+      XCTAssertEqual(decoded.count, 2)
+      let accepted = try XCTUnwrap(decoded[1]["accepted"] as? [String: Any])
+      XCTAssertEqual((accepted["dependencies"] as? [Any])?.count, 1)
+      let cancelled = try NativeRemovalAuthoringJob(model: model)
+      cancelled.cancel()
+      do {
+        _ = try await cancelled.propose(
+          handle: handle, saved: reopened, xmp: xmp, intent: mask, holeRadius: 1, fringeRadius: 1)
+        XCTFail("Cancelled jobs must not produce a proposal")
+      } catch {
+        guard case PipelineError.cancelled = error else { return XCTFail("\(error)") }
+      }
+      do {
+        _ = try await job.propose(
+          handle: handle, saved: reopened, xmp: xmp, intent: mask, holeRadius: 1, fringeRadius: 1)
+        XCTFail("Each generation must have its own cancellation owner")
+      } catch { XCTAssertTrue(error is RemovalError) }
+      XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: raw)), sidecar)
+      XCTAssertEqual(try Data(contentsOf: raw), source)
+    #else
+      throw XCTSkip("Physical iOS inference qualification is tracked by #3941")
+    #endif
+  }
+}
