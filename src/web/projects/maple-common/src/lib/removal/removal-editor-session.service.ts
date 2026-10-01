@@ -1,4 +1,5 @@
 import * as publication from './removal-editor-publication';
+import { rebindAfterExport } from './removal-editor-rebind';
 // Complete local authoring flow for the explicitly installed #3941 experiment.
 // Release remains gated on #1472 photo quality, hardware and consumer parity.
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
@@ -95,6 +96,7 @@ export class RemovalEditorSession {
   masks: Uint8Array[] = [];
   revision = 0;
   key = '';
+  private exportRevision = 0;
   private scopeFolder?: MapleFolderHandle;
   undoRecords?: { prior: string; accepted: string };
 
@@ -103,19 +105,32 @@ export class RemovalEditorSession {
       const asset = this.library.focusedAsset();
       const folder = this.library.currentFolder();
       const active = this.active();
+      const exportRevision = active ? this.pipeline.exportRevision() : 0;
+      const phase = this.phase();
       const xml =
         active && asset ? this.serialize(asset.id, this.library.adjustmentFor(asset.id)()) : '';
       untracked(() => {
         const key = active && asset ? this.keyFor(asset, xml) : '';
         if (
-          (this.key === key && this.scopeFolder === folder) ||
-          (this.phase() === 'saving' &&
+          (this.key === key &&
+            this.scopeFolder === folder &&
+            this.exportRevision === exportRevision) ||
+          (phase === 'saving' &&
             this.committingXml === xml &&
             this.photo?.asset.id === asset?.id &&
             this.photo?.asset.filename === asset?.filename &&
             this.photo?.folder === folder)
         )
           return;
+        if (this.key === key && this.scopeFolder === folder && this.photo) {
+          if (phase === 'saving') return;
+          this.exportRevision = exportRevision;
+          void rebindAfterExport(this, () =>
+            this.files.readFile(this.photo!.folder, asset!.filename),
+          );
+          return;
+        }
+        this.exportRevision = exportRevision;
         this.close();
         this.key = key;
         this.scopeFolder = folder ?? undefined;

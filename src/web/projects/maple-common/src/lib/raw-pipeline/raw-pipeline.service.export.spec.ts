@@ -45,6 +45,7 @@ describe('export worker recovery', () => {
     ]);
     worker.reply({ id: requests[2].id, type: 'export-error', message: 'Test complete' });
     await expect(exportPromise).rejects.toThrow('Test complete');
+    expect(service.exportRevision()).toBe(1);
   });
 
   it('terminates a poisoned WASM worker and renders the next photo in a fresh worker', async () => {
@@ -76,6 +77,7 @@ describe('export worker recovery', () => {
         blob: new Blob(['encoded bytes']),
       });
       await expect(next).resolves.toMatchObject({ width: 1, height: 1 });
+      expect(service.exportRevision()).toBe(2);
       expect(replacement.terminate).not.toHaveBeenCalled();
     } finally {
       undoReplacement();
@@ -90,5 +92,33 @@ describe('export worker recovery', () => {
     worker.reply({ id: request.id, type: 'export-error', message: 'Choose at most 4096 pixels' });
     await expect(failed).rejects.toThrow('4096 pixels');
     expect(worker.terminate).not.toHaveBeenCalled();
+  });
+
+  it('transfers owned companion copies and leaves retained export inputs usable', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const raw = new Uint8Array([1, 2, 3]);
+    const saved = { manifest: '[]', bytes: new Uint8Array([4, 5, 6]) };
+    const exported = service.exportImage(raw, 'dng', options, '<xmp/>', undefined, saved);
+    await Promise.resolve();
+    const [request, transfer] = worker.postMessage.mock.calls[0] as unknown as [
+      ExportRequest,
+      Transferable[],
+    ];
+    const received = structuredClone(request, { transfer });
+    expect(new Uint8Array(received.bytes)).toEqual(raw);
+    expect(new Uint8Array(received.removals!.companions)).toEqual(saved.bytes);
+    expect(request.bytes.byteLength).toBe(0);
+    expect(request.removals!.companions.byteLength).toBe(0);
+    expect(raw).toEqual(new Uint8Array([1, 2, 3]));
+    expect(saved.bytes).toEqual(new Uint8Array([4, 5, 6]));
+    worker.reply({
+      id: received.id,
+      type: 'export-success',
+      width: 1,
+      height: 1,
+      extension: 'jpg',
+      blob: new Blob(['encoded bytes']),
+    });
+    await expect(exported).resolves.toMatchObject({ width: 1, height: 1 });
   });
 });

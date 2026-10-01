@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 import { mkdtemp, copyFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { savedPng } from './saved-export-oracle';
 import { installProductionFolderPicker } from '../support/production-folder-picker';
 
 const fixture = resolve(__dirname, '../../../../test-fixtures/removal/basic/source.dng');
@@ -90,6 +91,34 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath('reopened.png') });
     expect(await readFile(join(root, 'photo.xmp'), 'utf8')).toBe(accepted);
+    await panel.getByText('Local AI models', { exact: true }).click();
+    await panel
+      .getByRole('button', { name: 'Remove model lama-native-1024.onnx', exact: true })
+      .click();
+    await expect(
+      panel.getByText('lama-native-1024.onnx · Required', { exact: false }),
+    ).toBeVisible();
+    if (testInfo.project.name === 'removal-cpu')
+      await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    await page.getByTestId('editor-shell-export').click();
+    const exportDialog = page.getByRole('dialog', { name: 'Export image', exact: true });
+    await exportDialog.getByRole('radio', { name: 'PNG', exact: true }).click();
+    const downloading = page.waitForEvent('download');
+    await exportDialog.getByRole('button', { name: 'Export', exact: true }).click();
+    const download = await downloading;
+    expect(download.suggestedFilename()).toBe('photo.png');
+    const destination = testInfo.outputPath('photo.png');
+    await download.saveAs(destination);
+    expect(new Uint8Array(await readFile(destination))).toEqual(
+      await savedPng(root, testInfo.outputPath('oracle.png')),
+    );
+    expect(await readFile(join(root, 'photo.dng'))).toEqual(original);
+    await exportDialog.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(exportDialog).toBeHidden();
+    await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
+    await page.mouse.click(rect.x + rect.width / 2 - 1.5, rect.y + rect.height / 2 - 0.5);
+    await expect(panel.getByRole('button', { name: 'Clear selection', exact: true })).toBeEnabled();
+    await page.screenshot({ path: testInfo.outputPath('exported.png') });
     expect(failures).toEqual([]);
   } finally {
     await rm(root, { recursive: true, force: true });

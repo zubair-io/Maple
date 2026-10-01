@@ -31,6 +31,7 @@ import { XmpParserService } from '../xmp/xmp-parser.service';
 import { savedRemovalRecords } from './saved-removal-records';
 import { RemovalModelStore } from './removal-model-store.service';
 import { RemovalEditorSession } from './removal-editor-session.service';
+import { ImageCanvasService } from '../components/image-canvas/image-canvas.service';
 import type { RemovalInferenceClient } from './removal-inference-client';
 import type { RemovalProposal } from './removal-inference.types';
 
@@ -186,7 +187,7 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
           provide: FolderAccessService,
           useValue: { readFile: fsAccessReadFile, writeFile: fsAccessWriteFile },
         },
-        { provide: RawPipelineService, useValue: { removal } },
+        { provide: RawPipelineService, useValue: { removal, exportRevision: signal(0) } },
         {
           provide: RemovalModelStore,
           useValue: { installed: async () => new Map(), models: signal(new Map()) },
@@ -237,6 +238,56 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
     TestBed.tick();
     expect(savedRemovalRecords(await fs.readFile(join(root, 'photo.xmp'), 'utf8'))).toBeUndefined();
     expect(session.message()).toBe('Removal undone.');
+  });
+  it('rebinds after a cold export has released the retained CPU mosaic', async () => {
+    await paint();
+    const selected = session.selection().slice();
+    const canvas = TestBed.inject(ImageCanvasService);
+    canvas.zoomTo100();
+    canvas.pan.set({ x: 13, y: -8 });
+    worker.close();
+    session.pipeline.exportRevision.update((value) => value + 1);
+    TestBed.tick();
+    await vi.waitFor(() => expect(session.phase()).toBe('ready'));
+    expect(session.selection()).toEqual(selected);
+    expect(session.canUndoSelection()).toBe(true);
+    expect(canvas.pixelScale()).toBe(1);
+    expect(canvas.pan()).toEqual({ x: 13, y: -8 });
+    await paint();
+    expect(session.selection().length).toBeGreaterThan(0);
+    expect(session.message()).toBe('');
+  });
+  it('retains an unsaved review across export and can still Keep the exact draft', async () => {
+    await paint();
+    await session.remove();
+    const draft = session.draft;
+    const preview = session.preview();
+    worker.close();
+    session.pipeline.exportRevision.update((value) => value + 1);
+    TestBed.tick();
+    await vi.waitFor(() => expect(session.phase()).toBe('review'));
+    expect(session.draft).toBe(draft);
+    expect(session.preview()).toBe(preview);
+    expect(await fs.readFile(join(root, 'photo.xmp'), 'utf8')).toBe(prior);
+    await session.keep();
+    TestBed.tick();
+    expect(session.phase()).toBe('ready');
+    expect(savedRemovalRecords(await fs.readFile(join(root, 'photo.xmp'), 'utf8'))).toBe(
+      draft!.records,
+    );
+  });
+  it('retains dedicated saved-removal undo across export', async () => {
+    await paint();
+    await session.remove();
+    await session.keep();
+    TestBed.tick();
+    worker.close();
+    session.pipeline.exportRevision.update((value) => value + 1);
+    TestBed.tick();
+    await vi.waitFor(() => expect(session.phase()).toBe('ready'));
+    expect(session.canUndoKeep()).toBe(true);
+    await session.undoKeep();
+    expect(savedRemovalRecords(await fs.readFile(join(root, 'photo.xmp'), 'utf8'))).toBeUndefined();
   });
   it('cancel leaves no sidecar edit or published companion and restores the confirmed stack', async () => {
     await paint();
