@@ -520,6 +520,15 @@ These are the twelve `cross.yml` jobs. Fallow checks introduced findings in chan
 | `fallow-audit-api`                 | Same over `src/api`. `.fallowrc.json` declares the Bun child-process entry points that `Bun.spawn` wires up by dynamic path and static analysis can't see                                                                                                                                                                                                                                                                                                  |
 | `gitleaks`                         | Pinned 8.21.2, installed from GitHub releases with double SHA-256 verification, scanning only this PR/push's own commit range so deep history is never re-flagged                                                                                                                                                                                                                                                                                          |
 
+The API Fallow job runs `bun run test:coverage` before `fallow audit --coverage coverage/coverage-final.json` (#3780). A separate preparation process instruments API source with Istanbul and retains original TypeScript function/statement coordinates. The test-only preload loads those prepared sources; Babel never changes the test process's global stack formatter. Its global `afterAll` hook saves cumulative counters after each test file because Bun's test runner does not emit process exit hooks. The producer regression test runs preparation and an isolated child test, checks that executed statements have counts while unused functions and branches remain zero, and verifies the stack formatter and a real HTTP dependency survive loading. Coverage output is gitignored.
+
+The measured map covers code executed in the test process. Modules never loaded, and code running only in independent workers or child processes, have no measured entry; Fallow keeps its conservative estimate for unmatched functions. The CRAP ceiling stays at 30. The SSE generator no longer carries a complexity suppression. Reproduce the gate from `src/api`:
+
+```bash
+bun run test:coverage
+./node_modules/.bin/fallow audit --base origin/main --coverage coverage/coverage-final.json
+```
+
 Why 570 exists alongside 600: splitting a file to clear the hard ceiling naturally lands it at 598 or 599, because that is the cheapest change that turns CI green. The next unrelated PR adding two lines is then the one that fails, and the two never conflict textually so neither author is warned. The headroom gate charges the PR that _consumes_ the margin. **When you split a file, split it with real margin.**
 
 The codegen gate matters because every constant appearing in more than one language is single-sourced from `raw-core` and emitted by the `codegen` crate: Swift `let`s, TypeScript `export const`s, SCSS tokens, XAML tokens, and WGSL consts. When a matrix or schema changes, run `bash tools/codegen.sh` and commit the regenerated files.

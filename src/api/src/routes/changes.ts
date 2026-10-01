@@ -274,19 +274,6 @@ export const changesRoutes = new Elysia({ prefix: '/api/changes' })
   )
   .get(
     '/subscribe',
-    // Tracked by #3780, which is what retires this line rather than leaving it
-    // open-ended. The handler is at 10 cyclomatic / 15 cognitive after the
-    // backlog, the park-and-wait race, the `since` parsing and the replay
-    // snapshot came out into named helpers — both inside fallow's limits. What
-    // still trips the gate is CRAP 31.6 against a ceiling of 30, and CRAP is
-    // the one metric fallow *estimates* when no coverage file is supplied,
-    // which the API's audit job does not supply. This generator is covered by
-    // the seven tests in `changes.sse.test.ts` and the four in
-    // `change-feed.delta-sync.test.ts`; at its real coverage the score is
-    // nowhere near the ceiling. Splitting further would mean cutting the
-    // replay/subscribe handshake, whose ordering is exactly what the numbered
-    // comments below exist to protect.
-    // fallow-ignore-next-line complexity
     async function* ({ query, set, request }) {
       const since = parseSince(query.since);
       if (since === null) {

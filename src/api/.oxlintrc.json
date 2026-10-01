@@ -52,6 +52,10 @@
     {
       "files": [
         "scripts/ffi-contention.ts",
+        // #3780: disposable coverage artifacts and isolated test scratch files, never library writes.
+        "tests/coverage.instrument.ts",
+        "tests/coverage.preload.ts",
+        "tests/coverage.preload.test.ts",
 
         // #3785. The schema gate and its suite. The gate creates the directory
         // holding the library database before anything can open it — that is a
