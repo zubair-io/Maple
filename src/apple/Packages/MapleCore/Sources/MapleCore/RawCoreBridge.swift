@@ -357,15 +357,26 @@ public enum RawCoreBridge {
     guard original != nil || profileOverride != nil || autoExposureOverride != nil else {
       return try body(nil)
     }
+    // Accepted edits remain opaque to the scalar model, but decode must carry
+    // the namespace-owned stack into its stripped XMP (#3955). Malformed owned
+    // metadata fails instead of becoming a successful original-only preview.
+    let originalXML = original.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+    let removalRecords: String?
+    if let originalXML {
+      removalRecords = try RemovalXMPRecords.read(Data(originalXML.utf8))
+    } else {
+      removalRecords = nil
+    }
     var stripped: AdjustmentModel
     let culling: CullingState
     if let original {
       do {
-        let xml = try String(contentsOf: original, encoding: .utf8)
-        let parsed = try XMPParser.parse(xml)
+        guard let originalXML else { throw CocoaError(.fileReadUnknown) }
+        let parsed = try XMPParser.parse(originalXML)
         stripped = stripAppleGPUStages(parsed.0)
         culling = parsed.1
       } catch {
+        if removalRecords != nil { throw error }
         bridgeLog.warning(
           "withStrippedXMP: failed to read/parse \(original.path, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to defaults."
         )
@@ -380,7 +391,8 @@ public enum RawCoreBridge {
     }
     applyOverrides(
       profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
-    return try withTemporaryXMP(model: stripped, culling: culling, body: body)
+    return try withTemporaryXMP(
+      model: stripped, culling: culling, removalRecords: removalRecords, body: body)
   }
 
   /// Variant of `withStrippedXMP` for renderers that must use the live
@@ -443,6 +455,7 @@ public enum RawCoreBridge {
   private static func withTemporaryXMP<T>(
     model: AdjustmentModel,
     culling: CullingState,
+    removalRecords: String? = nil,
     body: (URL?) throws -> T
   ) throws -> T {
     // `omitWhiteBalance` (#1883): the decode contract is "WB no-ops at
@@ -458,7 +471,11 @@ public enum RawCoreBridge {
     // `withStrippedXMP` and the live-model `withStrippedModelXMP` (the
     // native-detail tile path re-applies WB live through the decoded
     // temperature/tint anchors, exactly like the whole-image chain).
-    let xml = XMPSerializer.serialize(model: model, culling: culling, omitWhiteBalance: true)
+    let passthrough = XMPPassthrough(
+      unknownAttributes: removalRecords.map { [.init(name: "papp:InpaintRemovals", value: $0)] }
+        ?? [])
+    let xml = XMPSerializer.serialize(
+      model: model, culling: culling, omitWhiteBalance: true, passthrough: passthrough)
     // Unique temp file name — UUID avoids collision across concurrent
     // renders, and the .xmp suffix keeps the extension intact so any
     // downstream extension-based dispatching still sees an XMP.
@@ -470,6 +487,7 @@ public enum RawCoreBridge {
       bridgeLog.error(
         "withStrippedXMP: failed to write temp XMP \(tmp.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
       )
+      if removalRecords != nil { throw error }
       // Fall back to nil — FFI uses AdjustmentModel::default,
       // which is the same defaults the strip would produce.
       return try body(nil)

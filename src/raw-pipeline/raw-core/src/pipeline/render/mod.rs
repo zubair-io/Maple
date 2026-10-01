@@ -51,6 +51,7 @@ pub use detail::{
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
 pub(super) mod removal;
+mod removal_scene_linear;
 pub use export::{
     decode_raster_base, render_export_from_raw, render_export_from_raw_with_film,
     render_export_raster, render_export_raster_cancellable, validate_raster_adjustments,

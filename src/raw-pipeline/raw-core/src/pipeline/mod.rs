@@ -27,6 +27,8 @@ mod develop;
 mod develop_sized;
 mod downsample;
 mod fp16;
+// Native legacy scene handoffs use the same half encoder as core rendering.
+pub use fp16::f32_to_f16_bits;
 mod inpaint_store;
 pub mod mask;
 mod orient;
