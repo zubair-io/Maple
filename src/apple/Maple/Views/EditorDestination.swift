@@ -114,7 +114,6 @@
           // `session` capture so the write lands even if the popped
           // destination's session is released right after.
           Task { await session.persistDisplayPreviewOnExit() }
-          Task.detached { await session.flushPendingSidecarWrite() }
         }
       }
     }

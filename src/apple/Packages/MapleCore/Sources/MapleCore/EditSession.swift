@@ -524,7 +524,8 @@ public final class EditSession {
     // else no destination.
     if let url = asset.primaryURL {
       self.previewPersistence = DisplayPreviewPersistence(
-        sink: LocalDisplayPreviewSink(previewURL: MapleSidecarPaths.previewURL(for: url)))
+        sink: LocalDisplayPreviewSink(
+          previewURL: MapleSidecarPaths.previewURL(for: url), scopeParentURL: asset.scopeParentURL))
     } else {
       self.previewPersistence = DisplayPreviewPersistence(sink: remotePreviewSink)
     }

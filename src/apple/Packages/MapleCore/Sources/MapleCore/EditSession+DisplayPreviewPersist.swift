@@ -52,16 +52,32 @@ extension EditSession {
   /// review, #2009).
   public func persistDisplayPreviewOnExit() async {
     let exitModel = model
+    // Files bookmarks grant access on the resolved parent, not on child URLs.
+    // Keep that grant through XMP flush, GPU readback and all cache writes.
+    let scope = asset.scopeParentURL ?? asset.primaryURL?.deletingLastPathComponent()
+    let accessing = scope?.startAccessingSecurityScopedResource() ?? false
+    defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
     // Cache variants use the sidecar mtime: commit the final transaction
     // before capturing pixels and their cache revision.
     await flushPendingSidecarWrite()
+    _ = await latestRenderSchedule?.value
+    await renderActor.awaitCurrentRenderIfInFlight()
     guard model == exitModel else { return }
     // Cancellation alone cannot stop an encode/write already in progress.
     // Drain it before the current GPU frame can become the final sink write.
     guard await cancelAndJoinDisplayPreviewPersist(expectedModel: exitModel) else { return }
+    // CPU render publishes enqueue a thumbnail write. Await a final write here
+    // as well, so the reload signal below always follows the final pixels.
+    if !gpuFramePresented, previewIsFullRender, !isFullQualityDecoding,
+      let url = asset.primaryURL, let image = renderedPreview
+    {
+      await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
+    }
     await refreshThumbnailFromCurrentGpuFrame(expectedModel: exitModel)
     guard model == exitModel else { return }
     await flushDisplayPreviewPersist(expectedModel: exitModel)
+    guard model == exitModel, let url = asset.primaryURL else { return }
+    DevelopedImageRevision.shared.didPersist(for: url)
   }
 
 }

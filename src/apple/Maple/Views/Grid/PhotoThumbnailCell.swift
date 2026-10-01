@@ -74,8 +74,13 @@ struct PhotoThumbnailCell: View {
   // MARK: State
 
   /// Decoded thumbnail bitmap. Fetched + decoded OFF the main actor in the
-  /// `.task` below and cached by `item.id`; never decoded in `body`.
+  /// `.task` below and cached by asset id + saved revision; never decoded in `body`.
   @State private var decoded: CGImage?
+
+  private var decodedKey: String {
+    DevelopedImageRevision.shared.decodedKey(
+      for: item.id, url: item.thumbnailSource.localAssetURL)
+  }
 
   /// Multi-select-aware accessibility label — restores the per-cell
   /// "<name>, selected / not selected" announcement BrowseGrid had before the
@@ -120,7 +125,7 @@ struct PhotoThumbnailCell: View {
     // previously-decoded tile immediately on scroll-back, with no
     // placeholder flash and no main-thread decode.
     ThumbnailImage(
-      image: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id),
+      image: decoded ?? ThumbnailDecoder.cachedImage(forKey: decodedKey),
       displayMode: displayMode
     )
     .opacity(item.overlays.hidden ? 0.4 : 1.0)
@@ -174,7 +179,7 @@ struct PhotoThumbnailCell: View {
     .modifier(
       DragPayloadModifier(
         payload: dragPayload,
-        thumbnail: decoded ?? ThumbnailDecoder.cachedImage(forKey: item.id))
+        thumbnail: decoded ?? ThumbnailDecoder.cachedImage(forKey: decodedKey))
     )
     .onAppear { onAppear?() }
     .modifier(OptionalContextMenu(items: contextMenuItems))
@@ -184,9 +189,10 @@ struct PhotoThumbnailCell: View {
     .accessibilityIdentifier("thumb-\(item.displayName)")
     .accessibilityLabel(accessibilityLabelText)
     .accessibilityHint(accessibilityHintText)
-    .task(id: item.id) {
+    .task(id: decodedKey) {
+      let key = decodedKey
       // Fetch bytes, then decode — both OFF the main actor. The whole
-      // load is one task keyed on the lightweight `item.id`, and it is
+      // load is keyed on the asset id + saved revision, and it is
       // cancelled when the cell scrolls off-screen, so a fast fling
       // doesn't decode tiles that are no longer visible. No arrival
       // animation: a `withAnimation` fade here runs a 0.18s opacity
@@ -196,7 +202,7 @@ struct PhotoThumbnailCell: View {
       // (Photos.app does the same during scroll).
       let bytes = await provider.thumbnail(for: item.thumbnailSource)
       guard !Task.isCancelled else { return }
-      let image = await ThumbnailDecoder.image(for: bytes, key: item.id)
+      let image = await ThumbnailDecoder.image(for: bytes, key: key)
       guard !Task.isCancelled else { return }
       decoded = image
     }
