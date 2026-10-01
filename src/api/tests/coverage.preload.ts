@@ -12,7 +12,7 @@ plugin({
   name: 'maple-api-istanbul',
   setup(builder) {
     builder.onLoad(
-      { filter: new RegExp(`^${sourcePattern}(?!.*\\.test\\.ts$).*\\.ts$`) },
+      { filter: new RegExp(`^${sourcePattern}(?!.*\\.(?:test|d)\\.ts$).*\\.ts$`) },
       ({ path }) => ({
         contents: readFileSync(
           resolve('coverage', 'instrumented', path.slice(sourceRoot.length)),
@@ -24,7 +24,8 @@ plugin({
   },
 });
 
-// Bun's test runner does not emit process exit hooks; the global hook saves cumulative counters after each file (#3780).
+// Plain `bun test` shares one process/global across files; each hook saves cumulative counters (#3780).
+// This producer is not for --parallel: separate workers would need merged reports.
 afterAll(() => {
   const coverage = (globalThis as typeof globalThis & { __coverage__?: CoverageMapData })
     .__coverage__;
