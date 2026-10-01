@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.Xmp;
 
@@ -35,6 +36,27 @@ public sealed partial class MainWindow
                     throw new InvalidOperationException("Local save failure was not displayed with the affected photo");
                 if (!before.AsSpan().SequenceEqual(File.ReadAllBytes(sidecar)))
                     throw new InvalidOperationException("Failed save changed the existing sidecar");
+                Close();
+                Microsoft.UI.Xaml.Controls.ContentDialog? failure = null;
+                var closeDeadline = Environment.TickCount64 + 10000;
+                while (failure == null && Environment.TickCount64 < closeDeadline)
+                {
+                    await Task.Delay(20);
+                    failure = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot)
+                        .Select(popup => popup.Child as Microsoft.UI.Xaml.Controls.ContentDialog
+                            ?? FindDescendant<Microsoft.UI.Xaml.Controls.ContentDialog>(popup.Child))
+                        .FirstOrDefault(dialog => dialog?.Title?.ToString() == "Could not finish saving");
+                }
+                if (failure == null || !_closeSavePending || _closing || ViewModel.Renderer.IsStopped)
+                    throw new InvalidOperationException("Failed close did not retain the editable session");
+                Close();
+                await Task.Delay(50);
+                if (!_closeSavePending || _closing || _shutdownTask != null)
+                    throw new InvalidOperationException("Repeated close bypassed the save failure dialog");
+                failure.Hide();
+                while (_closeSavePending && Environment.TickCount64 < closeDeadline) await Task.Delay(20);
+                if (_closeSavePending || _modalFlowGate.IsEntered)
+                    throw new InvalidOperationException("Save failure dismissal did not restore interaction");
             }
             // Invoke the same handler as the visible Retry action.
             OnRetryLocalSave(LocalSaveRetry, new Microsoft.UI.Xaml.RoutedEventArgs());

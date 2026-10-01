@@ -48,8 +48,12 @@ namespace Maple.WinUI
             }
             catch (Exception error)
             {
-                _closeSavePending = false;
-                await ShowMessageAsync("Could not finish saving", error.Message + "\nThe window remains open. Check the connection or save location, then close again to retry.");
+                try
+                {
+                    await RunModalFlowGuardedAsync(() => ShowMessageAsync("Could not finish saving",
+                        error.Message + "\nThe window remains open. Check the connection or save location, then close again to retry."));
+                }
+                finally { _closeSavePending = false; }
                 return;
             }
             _closeSavePending = false;
