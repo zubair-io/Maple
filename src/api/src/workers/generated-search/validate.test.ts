@@ -96,6 +96,8 @@ describe('validateProposal — server-controlled keys', () => {
         excludeHiddenPeople: 'false',
         isScreenshot: 'true',
         libraryId: '507f1f77bcf86cd799439011',
+        ownerId: 'hallucinated-owner',
+        owner_id: '66400000000000000000000a',
       },
     });
     const keys = Object.keys(value.query);
@@ -105,6 +107,8 @@ describe('validateProposal — server-controlled keys', () => {
       'excludeHiddenPeople',
       'isScreenshot',
       'libraryId',
+      'ownerId',
+      'owner_id',
     ]) {
       expect(keys).not.toContain(forbidden);
     }

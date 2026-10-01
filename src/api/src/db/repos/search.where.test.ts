@@ -225,4 +225,13 @@ describe('buildSearchWhere — the clause list', () => {
     expect(whereC.clauses).toContain('assets.owner_id = ?');
     expect(whereC.params).toEqual([ownerLower]);
   });
+
+  test('malformed explicit owner filters return a validation error for either alias', () => {
+    expect(buildSearchWhere({ ownerId: 'hallucinated-owner' })).toEqual({
+      error: 'Invalid ownerId',
+    });
+    expect(buildSearchWhere({ owner_id: 'hallucinated-owner' })).toEqual({
+      error: 'Invalid ownerId',
+    });
+  });
 });

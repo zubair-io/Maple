@@ -85,6 +85,18 @@ describe('toSearchQuery — passthrough', () => {
  * than trusting that setting the flag is enough.
  */
 describe('toSearchQuery — composed with the search where-builder', () => {
+  for (const key of ['ownerId', 'owner_id']) {
+    for (const value of ['hallucinated-owner', '66400000000000000000000a']) {
+      it(`drops stored ${key}=${value} before executing a generated query`, () => {
+        const baseline = toSearchQuery({ placeQuery: 'beach' }, LIB);
+        const query = toSearchQuery({ placeQuery: 'beach', [key]: value } as never, LIB);
+
+        expect(query).toEqual(baseline);
+        expect(buildSearchWhere(query)).toEqual(buildSearchWhere(baseline));
+      });
+    }
+  }
+
   it('produces a WHERE that excludes assets showing a hidden person', () => {
     const where = buildSearchWhere(toSearchQuery({ placeQuery: 'beach' }, LIB), [HIDDEN]);
     if ('error' in where) throw new Error(where.error);
