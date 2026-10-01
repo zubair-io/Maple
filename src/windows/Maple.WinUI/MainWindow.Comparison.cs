@@ -75,8 +75,12 @@ public sealed partial class MainWindow
         DispatcherQueue.TryEnqueue(() => _ignoreCompareClick = false);
     }
 
-    private void UpdateEditStatus() => EditStatusText.Text = $"{ViewModel.SelectedPhoto?.Format}" +
-        (ViewModel.HasNonDefaultEdits() ? " · Edited" : string.Empty);
+    private void UpdateEditStatus()
+    {
+        var status = ViewModel.AdjustmentsReady && ViewModel.HasNonDefaultEdits() ? " · Edited" : string.Empty;
+        EditStatusText.Text = $"{ViewModel.SelectedPhoto?.Format}" + status;
+        BrowseEditedStatus.Text = status;
+    }
     private void OnCompareClick(object sender, RoutedEventArgs e)
     {
         if (_ignoreCompareClick) { _ignoreCompareClick = false; return; }

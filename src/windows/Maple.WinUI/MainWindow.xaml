@@ -658,7 +658,9 @@
                                 <Image x:Name="BrowseDetailImage" Stretch="Uniform" AutomationProperties.Name="Selected photo preview" />
                                 <StackPanel Grid.Row="1" Spacing="12" Margin="0,16,0,0">
                                     <TextBlock Text="{Binding SelectedPhoto.FileName}" FontSize="16" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding SelectedPhoto.DetailSummary}" FontSize="12" Foreground="{StaticResource MapleTextMuted}" TextWrapping="Wrap" />
+                                    <TextBlock FontSize="12" Foreground="{StaticResource MapleTextMuted}" TextWrapping="Wrap">
+                                        <Run Text="{Binding SelectedPhoto.DetailSummary}" /><Run x:Name="BrowseEditedStatus" />
+                                    </TextBlock>
                                     <ScrollViewer HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
                                         <StackPanel Orientation="Horizontal" Spacing="12">
                                             <mui:MuiButton Label="Open in editor" Variant="Primary" Click="OnBrowseOpenEditor" />
