@@ -33,6 +33,9 @@ const SAME = [
   ['josé', 'JOSÉ'],
   ['ÅNGSTRÖM', 'ångström'],
   ['Ω', 'ω'],
+  ['Σ', 'ς'],
+  ['ΟΣ', 'οσ'],
+  ['οσ', 'ος'],
   // Canonically equivalent: composed é against e + combining acute.
   ['é', 'é'],
   // Compatibility forms — why the normalisation is NFKC and not NFC.

@@ -10,9 +10,9 @@
  * startup should let that throw propagate: an API that cannot open its
  * database must refuse to start, not serve requests that block the event loop.
  *
- * Nothing calls `openSqlitePool` yet. This slice delivers the pool and its
- * tests only; the schema (#3743), the importer (#3744) and the repository
- * ports land separately, and startup is wired at the cutover (#3752).
+ * API startup (`index.ts`) and worker startup (`workers/worker-main.ts`) call
+ * `openSqlitePool` before using repositories (#3752). The importer and tests
+ * own isolated handles rather than borrowing this process-wide pool.
  */
 
 import { SqlitePool, type SqlitePoolOptions } from './pool.ts';

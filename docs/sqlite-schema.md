@@ -755,6 +755,83 @@ few percent of a claim, well inside the spread between runs, and a claim is
 spent once per tick against a handler that then runs for seconds — so a
 returning-capable primitive is not worth adding to the pool for it.
 
+## Repository migration contracts
+
+The cross-repository audit for #3778 covers the asset, change-feed, stage,
+people, search, authentication, settings, import, backup and maintenance ports.
+The rules below describe the live SQLite implementation, including the
+post-cutover compatibility entry points; references to Mongo describe the
+previous contract rather than a second running backend.
+
+**Case-insensitive identity is a stored key.** People names, preset names and
+email identities use `caseFoldKey`: NFKC, locale-independent lowercase, and
+final sigma `ς` folded to `σ`. Lowercase alone missed Greek final sigma
+equivalence (#3980). Original spelling remains the display value. Migration
+`0012-greek-sigma-identity-keys` updates existing keys, preserves references
+and nullable email, and rejects ambiguous active identity collisions inside
+the migration transaction. Merged-away people may share a key with their
+survivor; active people, presets and non-null email identities may not.
+Accents, `ß` versus `ss`, and dotted `İ` versus `i` remain distinct. Filesystem
+paths retain exact spelling: the folder registry uses exact paths and orders
+by creation time, while subtree search uses exact `substr` comparisons.
+
+**Upserts update the fields their callers own.** The audit includes every
+`ON CONFLICT` site under `src/api/src/db/repos/`; there is no `INSERT OR REPLACE`
+there. The following distinctions matter more than whether a statement happens
+to insert a full row:
+
+| Writers                                                                                              | Conflict behavior                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Worker configuration, managed certificates, app settings                                             | Only supplied fields; undefined fields are omitted. Settings patch JSON paths rather than replacing the document.                                                                           |
+| Indexer checkpoints, worker status, asset skeletons, backup progress                                 | Omitted sweep generation, face-model snapshot, EXIF and total count preserve existing values. Explicit EXIF null clears it. Backup counters increment and the start time stays insert-only. |
+| Asset detail/search/stage patches, derivative audit, people search reindex, stage invalidation/rearm | Update only the named output, JSON path or stage row. Stage reset assignments implement the requested reset; unrelated stages and other detail columns survive.                             |
+| Mirror queue and APNs registration                                                                   | Preserve queue attempts/lease/enqueue time, or token identity/creation time; update the mutable fields.                                                                                     |
+| Geocode cache, video-geocode verdict, new Meilisearch backfill generation                            | Deliberate replacement of that record's payload; a new generation deliberately clears previous progress. Meilisearch failure attempts increment, and its lease updates only owner/expiry.   |
+| Discover frontier, lens profile, location/merge-dismissal/stage seeds                                | `DO NOTHING` preserves the existing identity and payload.                                                                                                                                   |
+| Server-state values and the change cursor                                                            | Value writes leave the allocator alone; cursor allocation updates only `seq` and is atomic with its journal insert.                                                                         |
+
+**Absence is preserved where a consumer distinguishes it.** Screenshot
+classification remains null until classification and uses `nullableBool` in
+the detail DTO. `users.file_access` remains nullable: absent means legacy access
+is allowed, not denied. Nullable worker configuration preserves stage defaults
+and `pausedOnFirstBoot`; absent configurable values are omitted from reads.
+Refresh-token `secure` is nullable too: absence reads as true, while LAN handoff explicitly stores false. Hidden/acknowledged, face
+hidden/excluded, cancellation, pending-scan and dead-letter flags are genuinely
+two-valued. Their absent state means false; counts and attempts default to zero.
+Settings JSON retains explicit null independently of absent fields.
+
+**A caught write needs an observable result or a named recovery.** Repository
+writes otherwise propagate failure. Person creation and uploaded-address races
+re-read a committed winner and rethrow if there is none. Stage writeback retries
+failed batches individually, returns remaining failures and leaves leases to
+expire for re-claim. Auth expiry reports each failed table and retries on the
+next sweep; authentication queries independently check expiry. Change-feed
+publication is the accepted best-effort exception: the primary asset write is
+authoritative, and stale-cursor recovery performs full re-enumeration. Read
+fallbacks for status/configuration, malformed optional JSON and invalid IDs are
+not successful writes. The caller-side XMP dirty-stage regression remains in
+`routes/xmp-batch.test.ts`.
+
+**Planner and performance claims require executable evidence.** Partial-index
+predicates must be checked with `EXPLAIN QUERY PLAN`, including the literal
+predicate alongside narrowed media-kind filters. `schema.indexes.test.ts`
+executes the query-to-index map; facet-state tests check the derived values.
+Publish timings with the command, fixture size/distribution, engine version and
+cold/warm conditions, after checking that the command works in a fresh scratch
+directory. A successful small smoke run verifies reproducibility, not the
+large-library timings recorded below. Apple framework module maps are committed;
+`RawPipeline.h` and static archives are generated, as `docs/apple.md` documents.
+
+To reproduce the contract checks and inventory:
+
+```bash
+cd src/api
+bun test src/db/sqlite src/db/repos
+rg -n 'ON CONFLICT|INSERT OR REPLACE|catch' src/db/repos --glob '*.ts' --glob '!*.test.ts' --glob '!*.test-helpers.ts'
+# Small clean-directory smoke run; use the sizes below for performance evidence.
+SQLITE_BENCH_DIR="$(mktemp -d)/fresh" bun scripts/sqlite-bench/run.ts 1000
+```
+
 ## The migration runner
 
 `src/api/src/db/sqlite/migrate.ts`, run at boot by

@@ -48,8 +48,8 @@ import { EMPTY_BUNDLE, type AssetBundle } from './assets.dto.ts';
  * writer invalidates would serve a stale root after a library is renamed or
  * removed, which is worse than the read it saves. The read costs one pooled
  * round trip over a table with tens of rows, and every caller here issues it
- * inside the same `Promise.all` as its bundle loads, so it adds no latency to
- * a request — only throughput.
+ * inside the same `Promise.all` as its bundle loads. The root read runs
+ * concurrently with those reads; its latency still contributes to the request.
  */
 export async function loadLibraries(db: SqliteDb): Promise<ReadonlyMap<string, string>> {
   try {

@@ -33,6 +33,7 @@ import { removeUnusedIndexerQueueMigration } from './0008-remove-unused-indexer-
 import { unicodePresetEmailKeysMigration } from './0009-unicode-preset-email-keys.ts';
 import { removeUnusedImageCapabilitiesMigration } from './0010-remove-unused-image-capabilities.ts';
 import { assetOwnerIdMigration } from './0011-asset-owner-id.ts';
+import { greekSigmaIdentityKeysMigration } from './0012-greek-sigma-identity-keys.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -46,4 +47,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   unicodePresetEmailKeysMigration,
   removeUnusedImageCapabilitiesMigration,
   assetOwnerIdMigration,
+  greekSigmaIdentityKeysMigration,
 ];

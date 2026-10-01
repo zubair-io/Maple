@@ -20,10 +20,11 @@
  *
  * ## What the fold is
  *
- * `NFKC` then `toLowerCase`. Checked against
+ * `NFKC`, then `toLowerCase`, then final sigma (`ς`) to sigma (`σ`). Unicode
+ * lowercase alone keeps the two sigma forms distinct, while ICU's strength-2
+ * comparison considers them equal (#3980). Checked against
  * `localeCompare(b, 'en', { sensitivity: 'accent' })`, which is the same
- * strength-2 rule the Mongo collation applies, the two agree on every case
- * that distinguishes them: `José`/`JOSÉ` and `Ω`/`ω` fold together, `e`/`é`
+ * strength-2 rule the Mongo collation applies, the regression corpus checks: `José`/`JOSÉ` and `Ω`/`ω` fold together, `e`/`é`
  * and `ß`/`ss` and `İ`/`i` stay apart, and the compatibility forms `ﬁ`/`fi`,
  * `Ⅻ`/`xii` and `ＡＢ`/`ab` fold together — the last three are why the
  * normalisation is `NFKC` and not `NFC`.
@@ -46,5 +47,5 @@
  * sees, and this is only ever what the database compares.
  */
 export function caseFoldKey(value: string): string {
-  return value.normalize('NFKC').toLowerCase();
+  return value.normalize('NFKC').toLowerCase().replaceAll('ς', 'σ');
 }

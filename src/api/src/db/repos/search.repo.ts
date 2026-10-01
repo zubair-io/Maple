@@ -2,19 +2,12 @@
  * Search repository — the SQLite port of the `/api/search*` route family's data
  * layer and of the two `$text` call sites (#3750).
  *
- * ## Why both implementations exist right now
+ * The search routes now use this live SQLite repository (#3752).
+ * There is no runtime switch selecting a Mongo backend.
  *
- * MongoDB is still the live database. Nothing here is wired into a route yet
- * and the Mongo code is untouched and still serving every request. That is the
- * same staged shape the connection pool (#3742), the schema (#3743), the test
- * harness (#3745) and the assets repository (#3746) landed in: build the
- * replacement beside the original, prove it, then switch the imports in one
- * reviewable commit (#3752). There is deliberately no runtime switch, no config
- * flag and no factory choosing between the two.
+ * ## Query shape
  *
- * ## What the cutover will do
- *
- * The Mongo routes build a filter once and use it several times:
+ * The previous Mongo routes built a filter once and use it several times:
  *
  * ```ts
  * const filter = buildFilter(query, dropIds, peopleIds);   // or { error }

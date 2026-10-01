@@ -33,8 +33,8 @@
  * {@link sanitizeWorkerConfig} keys its optional fields off `typeof … ===
  * 'string'`.
  *
- * MongoDB is still the live database; nothing imports this module yet. The
- * cutover (#3752) swaps the import paths.
+ * The compatibility entry point now re-exports this live SQLite repository
+ * after the cutover (#3752).
  */
 
 import { sqliteDb, type SqliteDb } from './db-handle.ts';

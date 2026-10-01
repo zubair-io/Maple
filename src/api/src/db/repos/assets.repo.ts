@@ -8,16 +8,8 @@
  * a Mongo `Db`. No route passes it — it is the tests' seam, and it was already
  * that on the Mongo side.
  *
- * ## Why both repositories exist right now
- *
- * MongoDB is still the live database. This module is not wired into any route
- * yet and the Mongo repo is untouched and still serving every request. That is
- * deliberate staged work, tracked by the cutover ticket, and it is the same
- * shape the connection pool (#3742) and the schema (#3743) landed in: build
- * the replacement beside the original, prove it, then switch the imports in
- * one reviewable commit. There is deliberately no runtime switch, no config
- * flag and no factory choosing between the two — a toggle would be a third
- * thing to reason about and would outlive its usefulness by exactly one PR.
+ * The compatibility entry point `db/assets.repo.ts` now re-exports this live
+ * SQLite repository after the cutover (#3752).
  *
  * ## Layout
  *

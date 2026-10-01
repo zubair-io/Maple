@@ -22,8 +22,8 @@
  * for no benefit — the cursor shares nothing with these two beyond the table
  * name. The `seq` column exists for it; nothing in this file touches it.
  *
- * MongoDB is still the live database; nothing imports this module yet. The
- * cutover (#3752) swaps the import paths.
+ * The compatibility entry point now re-exports this live SQLite repository
+ * after the cutover (#3752).
  */
 
 import { randomBytes } from 'node:crypto';
