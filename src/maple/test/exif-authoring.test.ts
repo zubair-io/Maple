@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import sharp from 'sharp';
 import { maple, type ExifTags } from '../src/index.ts';
+import { loadSharpOracle } from './support/sharp-oracle.ts';
+
+const sharp = loadSharpOracle();
+if (sharp === null)
+  throw new Error('EXIF authoring tests require sharp; run bun install in src/maple.');
 
 // Independent TIFF reader: inspect encoded output, not the builder's recipe.
 function directories(block: Buffer) {
