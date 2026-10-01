@@ -1,0 +1,44 @@
+{
+  "date": "2026-10-01",
+  "issues": [
+    3875,
+    3887,
+    3889
+  ],
+  "sourceBase": "7cffa0587",
+  "build": "Maple.DesignAudit223",
+  "assemblySha256": "49409E29DB61304B6FA4079E85B404D4006113816F6AF085FCA4695A7B2EB8DB",
+  "validation": {
+    "buildErrors": 0,
+    "buildWarnings": 26,
+    "gpuLifecyclePassed": true,
+    "outputDirectory": "maple-lifecycle223-782c71a7266b40d0aa7115aaba2fefb0",
+    "nativeWindowMeasurements": [
+      {
+        "requestedWidth": 1440,
+        "requestedHeight": 900,
+        "actualWidth": 1440,
+        "actualHeight": 900,
+        "logicalWidth": 945.3333129882812,
+        "logicalHeight": 592,
+        "rasterizationScale": 1.5
+      },
+      {
+        "requestedWidth": 1024,
+        "requestedHeight": 768,
+        "actualWidth": 1024,
+        "actualHeight": 768,
+        "logicalWidth": 668,
+        "logicalHeight": 504,
+        "rasterizationScale": 1.5
+      }
+    ],
+    "assertions": "Native window dimensions match requested sizes; header remains centered and bounded; all five header actions remain visible tab stops with at least 44x44 logical bounds; selected photo, adjustment model and active group survive native resize."
+  },
+  "limitations": [
+    "This test records real native window sizing and current 150% display scale; it does not exercise 100% or 200%.",
+    "No screenshot was captured at these two sizes; visual and Narrator qualification remain outstanding.",
+    "No color-parity or 100MP performance qualification claimed."
+  ],
+  "fullQualificationPassed": false
+}

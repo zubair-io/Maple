@@ -62,6 +62,14 @@ XMP projection, absent/invalid XML, and cloud field/route mapping. The app's
 shutdown, Preview/Info navigation, comparison immutability, native slider
 template/RangeValue support, Browse multi-selection/order, and responsive layout.
 
+The lifecycle harness also resizes the native AppWindow to 1440×900 and
+1024×768 physical pixels. `native-window-layout.jsonl` records requested and
+actual window dimensions, logical content dimensions and the current XAML
+rasterization scale. It checks the centered header's action bounds and document
+and active-tool preservation. This supplements the six logical-root layout
+cases; it does not simulate another monitor DPI or replace screenshot/Narrator
+qualification at 100%, 150% and 200%.
+
 The initial Browse smoke used only two photos and did not test overflow. After
 the user reported broken grid scrolling, a 120-photo real WinUI regression
 reproduced a zero vertical scroll range. The grid now explicitly wraps across

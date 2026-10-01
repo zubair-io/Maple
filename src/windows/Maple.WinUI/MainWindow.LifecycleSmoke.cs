@@ -102,6 +102,7 @@ namespace Maple.WinUI
                     await VerifyFilmComparisonAsync(raw, output);
                     RecordSmokeStage(output, "responsive-layout");
                     await VerifyResponsiveDesignAsync();
+                    await VerifyNativeWindowLayoutAsync(output);
                     RecordSmokeStage(output, "browse-selection");
                     VerifyBrowseSelection();
                     RecordSmokeStage(output, "browse-scrolling");
