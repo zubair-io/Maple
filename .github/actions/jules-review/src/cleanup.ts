@@ -1,4 +1,58 @@
 import { setTimeout } from 'node:timers/promises';
+import type { SessionClient } from '@google/jules-sdk';
+
+type ReviewSession = Pick<SessionClient, 'id' | 'info' | 'history'> & {
+  activities: Pick<SessionClient['activities'], 'hydrate'>;
+};
+
+// Match HTTP status codes, not digits embedded in a Jules session ID.
+export function isAuthError(message: string): boolean {
+  return /\b(?:401|403)\b/.test(message);
+}
+
+export async function pollForReview(session: ReviewSession, timeoutMs: number): Promise<string> {
+  // Manual cleanup imports this module without installing action dependencies.
+  // Load review-only dependencies when polling, keeping recovery standalone.
+  const core = await import('@actions/core');
+  const { AutomatedSessionFailedError } = await import('@google/jules-sdk');
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+  while (Date.now() < deadline) {
+    attempt++;
+    try {
+      // Check state before activity I/O: a failed history/hydration request must
+      // not hide an already terminal session behind the retry loop (#3994).
+      const initial = await session.info();
+      if (initial.state === 'failed') throw new AutomatedSessionFailedError();
+      await session.activities.hydrate();
+      let last = '';
+      for await (const activity of session.history()) {
+        if (activity.type === 'agentMessaged') last = activity.message;
+      }
+      const { state } = initial.state === 'completed' ? initial : await session.info();
+      if (state === 'failed') throw new AutomatedSessionFailedError();
+      if (isFinalReview(state, last)) {
+        core.info(`Got agentMessaged on attempt ${attempt}.`);
+        return last;
+      }
+      core.info(`No final review yet (attempt ${attempt})…`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof AutomatedSessionFailedError) {
+        throw new Error(
+          `Jules review session ${session.id} failed. ` +
+            `Inspect https://jules.google.com/session/${session.id}.`,
+        );
+      }
+      if (isAuthError(message)) {
+        throw new Error(`Jules API rejected request (${message}). Check JULES_API_KEY is valid.`);
+      }
+      core.info(`Review polling error (attempt ${attempt}): ${message}`);
+    }
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 20_000));
+  }
+  return '';
+}
 
 export function isFinalReview(state: string, message: string): boolean {
   return state === 'completed' && /^`?VERDICT:\s*(approve|comment|block)`?\s*$/im.test(message);
