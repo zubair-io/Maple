@@ -251,6 +251,8 @@ Apple's sidebar offers the folder operations as a right-click context menu on a 
 
 Apple routes trash by source: on macOS a local file goes to the real Finder Trash, on iOS/iPadOS and SMB it goes to Maple's own `.maple/trash` with an in-app browser and restore, a server asset is trashed through the API, and PhotoKit assets cannot be trashed at all. Windows uses the Windows Recycle Bin for local fixed drives and Maple's trash for network paths.
 
+The local Apple durability work for AI removal (#3944, preparatory to #1472) carries accepted `.maple/inpaint/` companions through copy, move and Maple Trash restore before publishing the exact XMP snapshot. A move rechecks the original and sidecar before unlinking the source; source companions remain for shared references and history. On macOS, an accepted removal goes to Finder Trash as one Recovery folder containing the RAW, XMP, companions and a manifest. Recover the whole folder to retain the edit; `restoreRemovalTrashPackage` verifies the manifest and restores the photo to its recorded folder within the selected library. Restoring the RAW alone is incomplete. The authoring tool and its recovery UI remain unavailable under #1472.
+
 ---
 
 ## 7. Settings and admin

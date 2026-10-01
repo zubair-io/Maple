@@ -121,4 +121,59 @@ final class LocalRemovalAssetStoreTests: XCTestCase {
     } catch RemovalError.invalid {}
     XCTAssertEqual(try Data(contentsOf: sidecar), before)
   }
+
+  func testRelocationCompanionsPublishBeforePrimaryAndSidecarAndRetainSource() async throws {
+    let raw = try stage()
+    let source = LocalRemovalAssetStore(rawURL: raw)
+    let records = try await publish(source)
+    let before = try await source.readAssets(records: records)
+    let destinationRaw = raw.deletingLastPathComponent().appendingPathComponent(
+      "destination/photo.dng")
+    try await source.copyAssets(records: records, to: destinationRaw)
+    let destination = LocalRemovalAssetStore(rawURL: destinationRaw)
+    let copied = try await destination.readAssets(records: records)
+    XCTAssertEqual(copied, before)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destinationRaw.path))
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: destinationRaw).path))
+    let retained = try await source.readAssets(records: records)
+    XCTAssertEqual(retained, before)
+    // Repeated transfer and same-directory rename share immutable companions.
+    try await source.copyAssets(records: records, to: destinationRaw)
+    try await source.copyAssets(
+      records: records, to: raw.deletingLastPathComponent().appendingPathComponent("renamed.dng"))
+    XCTAssertEqual(try Data(contentsOf: raw), try fixture("source.dng"))
+  }
+
+  func testMissingSourceAndCorruptDestinationCannotReportSuccessfulTransfer() async throws {
+    let raw = try stage()
+    let source = LocalRemovalAssetStore(rawURL: raw)
+    let records = try await publish(source)
+    let names = try RemovalBridge.assetNames(records: records)
+    let parent = raw.deletingLastPathComponent()
+    let missingDestination = parent.appendingPathComponent("missing/photo.dng")
+    let sourceAsset = parent.appendingPathComponent(".maple/inpaint").appendingPathComponent(
+      names[0])
+    let bytes = try Data(contentsOf: sourceAsset)
+    try FileManager.default.removeItem(at: sourceAsset)
+    do {
+      try await source.copyAssets(records: records, to: missingDestination)
+      XCTFail("Missing companions cannot be transferred")
+    } catch RemovalError.missingCompanion {}
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: missingDestination.deletingLastPathComponent().path))
+    try bytes.write(to: sourceAsset)
+    let destination = parent.appendingPathComponent("corrupt/photo.dng")
+    let directory = destination.deletingLastPathComponent().appendingPathComponent(".maple/inpaint")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let corrupt = directory.appendingPathComponent(names[0])
+    let corruptedBytes = Data("corrupt immutable asset".utf8)
+    try corruptedBytes.write(to: corrupt)
+    do {
+      try await source.copyAssets(records: records, to: destination)
+      XCTFail("A conflicting immutable destination cannot be replaced")
+    } catch RemovalError.invalid {}
+    XCTAssertEqual(try Data(contentsOf: corrupt), corruptedBytes)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+  }
 }

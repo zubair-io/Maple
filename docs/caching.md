@@ -17,6 +17,7 @@ Every layer agrees on this layout, sitting inside the folder that holds the phot
 | `.maple/index.json`                                   | Per-folder file list + culling state (Apple cold-open)         | Apple only                                      |
 | `.maple/id-cache-<writer>.json`                       | `path → maple_id` rows with size/mtime validation              | Apple (`-apple`), Web (`-web`)                  |
 | `.maple/trash/…`                                      | Trashed items plus `<basename>.trashed-YYYY-MM-DD` marker dirs | Apple (local + SMB)                             |
+| `.maple/inpaint/<content-digest>.mimf` / `.f16`  | Durable accepted removal masks and baked patches; never cache-purged | Local Apple and browser removal asset stores (#3940 / #1472) |
 
 `sha256_prefix16` is the first 16 lowercase hex characters (8 bytes) of `SHA-256` over the **basename with its extension** — UTF-8, no path. Four implementations must agree byte-for-byte, and cross-platform hash vectors pin them: `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleThumbCacheKey.swift`, `src/api/src/fs/xmp.ts`, `src/web/projects/maple-common/src/lib/maple-cache/sha.ts`, `src/windows/Maple.WinUI/Services/ThumbCachePaths.cs`.
 
