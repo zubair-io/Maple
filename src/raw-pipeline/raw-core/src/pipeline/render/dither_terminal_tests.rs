@@ -65,11 +65,11 @@ fn slice_fn<'a>(src: &'a str, name: &str) -> &'a str {
     // followed by a public one must not swallow the private one's body.
     let after_sig = &src[start + name.len()..];
     let rest = &after_sig[1..];
-    let next_fn_rel = match (rest.find("\npub fn "), rest.find("\nfn ")) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (found, None) | (None, found) => found,
-    }
-    .map(|i| i + 1);
+    let next_fn_rel = ["\npub fn ", "\npub(super) fn ", "\npub(crate) fn ", "\nfn "]
+        .iter()
+        .filter_map(|signature| rest.find(signature))
+        .min()
+        .map(|i| i + 1);
     match next_fn_rel {
         Some(rel) => &src[start..start + name.len() + rel],
         None => &src[start..],
@@ -87,9 +87,9 @@ fn slice_fn<'a>(src: &'a str, name: &str) -> &'a str {
 fn colour_chain() -> Vec<&'static str> {
     let render = include_str!("mod.rs");
     assert!(slice_fn(render, "render_display_scene").contains("render_display_scene_with_context("));
-    let wrapper = slice_fn(render, "render_display_scene_with_context");
-    assert!(wrapper.contains("render_display_scene_with_context_cancellable("));
-    let body = slice_fn(render, "render_display_scene_with_context_cancellable");
+    assert!(slice_fn(render, "render_display_scene_with_context")
+        .contains("render_display_scene_with_removals("));
+    let body = slice_fn(render, "render_display_scene_with_removals");
     assert!(body.contains("display_prefix::apply("));
     let mut stages = stage_call_order(include_str!("display_prefix.rs"));
     stages.extend(stage_call_order(body));

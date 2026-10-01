@@ -7,9 +7,10 @@ use crate::{
     types::{accepted_removal::NativeWindow, inpaint::decode_removals, removal_mask::RemovalMask},
 };
 
-const RAW: &[u8] = include_bytes!("../../../../../test-fixtures/removal/basic/source.dng");
+pub(super) const RAW: &[u8] =
+    include_bytes!("../../../../../test-fixtures/removal/basic/source.dng");
 
-fn fixture() -> (
+pub(super) fn fixture() -> (
     RawImage,
     ContentDigest,
     AdjustmentModel,

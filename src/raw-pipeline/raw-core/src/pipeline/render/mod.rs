@@ -50,6 +50,7 @@ pub use detail::{
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
+pub(super) mod removal;
 pub use export::{
     decode_raster_base, render_export_from_raw, render_export_from_raw_with_film,
     render_export_raster, render_export_raster_cancellable, validate_raster_adjustments,
@@ -260,7 +261,7 @@ fn render_display_scene_with_context(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
 ) -> Result<(Image, DetailContext)> {
-    render_display_scene_with_context_cancellable(
+    render_display_scene_with_removals(
         raw,
         model,
         quality,
@@ -269,11 +270,11 @@ fn render_display_scene_with_context(
         target,
         film_lut,
         crate::CancelToken::never(),
+        None,
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn render_display_scene_with_context_cancellable(
+fn render_display_scene_with_removals(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
@@ -282,10 +283,11 @@ fn render_display_scene_with_context_cancellable(
     target: encode::TargetPrimaries,
     film_lut: Option<&film::FilmLut>,
     cancel: crate::CancelToken<'_>,
+    removals: Option<(
+        &super::ResolvedCalibrationRemovals,
+        &crate::types::accepted_removal::ContentDigest,
+    )>,
 ) -> Result<(Image, DetailContext)> {
-    if cancel.is_cancelled() {
-        return Err(crate::error::Error::Cancelled);
-    }
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
     // curve owns the entire scene→JPEG brightness relationship. Otherwise
@@ -369,22 +371,32 @@ fn render_display_scene_with_context_cancellable(
     } else {
         model
     };
-    let (mut scene, ae_gain) = match max_long_edge {
-        // Sized: early-downsample develop — post-demosaic stages run on the
-        // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
-        Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+    let (mut scene, ae_gain) = if let Some((stack, original)) = removals {
+        stack.develop_with_gain(
             raw,
+            original,
             active_model,
             quality,
-            mle,
+            max_long_edge,
             cancel,
-        )?,
-        None => develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
-            raw,
-            active_model,
-            quality,
-            cancel,
-        )?,
+        )?
+    } else {
+        match max_long_edge {
+            // Sized: early-downsample develop — post-demosaic stages run on the
+            // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
+            Some(mle) => develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
+                raw,
+                active_model,
+                quality,
+                mle,
+                cancel,
+            )?,
+            None => {
+                develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+                    raw, active_model, quality, cancel,
+                )?
+            }
+        }
     };
 
     if cancel.is_cancelled() {

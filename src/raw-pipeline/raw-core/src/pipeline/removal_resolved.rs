@@ -73,7 +73,7 @@ impl ResolvedCalibrationRemovals {
     /// Native full-frame saved-result qualification. Current source and ordered
     /// metadata must still match preparation; source/stack changes require a new
     /// preparation rather than applying an old result to the new image.
-    /// This is not the retained live/tile/export integration (#3955).
+    /// Retained live/tile integration remains tracked by #3955.
     pub fn develop(
         &self,
         raw: &RawImage,
@@ -81,6 +81,26 @@ impl ResolvedCalibrationRemovals {
         model: &AdjustmentModel,
         cancel: CancelToken<'_>,
     ) -> crate::Result<Image> {
+        self.develop_with_gain(
+            raw,
+            original,
+            model,
+            super::RenderQuality::Amaze,
+            None,
+            cancel,
+        )
+        .map(|(scene, _)| scene)
+    }
+
+    pub(crate) fn develop_with_gain(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+        quality: super::RenderQuality,
+        max_long_edge: Option<u32>,
+        cancel: CancelToken<'_>,
+    ) -> crate::Result<(Image, f32)> {
         if cancel.is_cancelled() {
             return Err(crate::Error::Cancelled);
         }
@@ -92,10 +112,21 @@ impl ResolvedCalibrationRemovals {
                 "saved removal source or stack changed".into(),
             ));
         }
-        super::develop_removal_calibration_patches(raw, model, &self.patches, cancel)
+        super::removal_calibration::develop_with_gain(
+            raw,
+            model,
+            quality,
+            max_long_edge,
+            &self.patches,
+            cancel,
+        )
     }
 }
 
 #[cfg(test)]
 #[path = "removal_resolved_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "removal_resolved_display_tests.rs"]
+mod display_tests;

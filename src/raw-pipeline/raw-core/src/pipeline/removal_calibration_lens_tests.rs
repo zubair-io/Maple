@@ -10,7 +10,7 @@ use crate::{
     xmp::LensProfileEnable,
 };
 
-fn source(value: f32) -> RawImage {
+pub(super) fn source(value: f32) -> RawImage {
     crate::decode_raw(
         &SyntheticGreyDng {
             width: 64,
@@ -24,7 +24,7 @@ fn source(value: f32) -> RawImage {
     .unwrap()
 }
 
-fn optics(raw: &mut RawImage) {
+pub(super) fn optics(raw: &mut RawImage) {
     raw.opcode_list3 = Some((
         OpcodeList3 {
             opcodes: vec![
@@ -68,7 +68,7 @@ fn optics(raw: &mut RawImage) {
     ));
 }
 
-fn opaque(plate: Image) -> InpaintPatch {
+pub(super) fn opaque(plate: Image) -> InpaintPatch {
     InpaintPatch {
         width: plate.width,
         height: plate.height,

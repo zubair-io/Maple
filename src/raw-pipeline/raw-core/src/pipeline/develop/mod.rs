@@ -277,11 +277,18 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     if !calibration_patches.is_empty() {
         drop(camera_rgb);
         let (mut unwarped, _) = camera::prepare_unwarped(raw, model, quality, cancel)?;
-        super::removal_calibration::composite_camera(
+        let divisor = effective_quality_divisor(quality, raw.cfa);
+        let window = super::removal_calibration::sensor_buffer_window(
+            raw,
+            [unwarped.width, unwarped.height],
+            divisor,
+        );
+        super::removal_calibration::composite_camera_sampled(
             &mut unwarped,
             calibration_patches,
             &profile,
-            super::removal_calibration::sensor_window(raw),
+            window,
+            divisor,
         )?;
         camera_rgb = camera::finish_geometry(raw, model, quality, unwarped)?;
         if cancel.is_cancelled() {
