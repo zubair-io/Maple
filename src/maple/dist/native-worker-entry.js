@@ -117,27 +117,31 @@ function resolvePlatformNapiAddon() {
   if (!pkgName)
     return null;
   const napiName = getPlatformNapiFilename();
-  try {
-    const resolved = __require.resolve(`${pkgName}/${napiName}`);
-    if (fs.existsSync(resolved))
-      return path.resolve(resolved);
-  } catch {}
   const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
-  const shortName = pkgName.replace("@justmaple/maple-", "");
   const napiCargoTarget = path.join(currentDir, "..", "..", "raw-pipeline", "target");
   const napiLibName = napiCargoLibFilename();
-  const candidates = [
-    path.join(currentDir, "..", "..", pkgName, napiName),
-    path.join(currentDir, "..", "node_modules", pkgName, napiName),
-    path.join(process.cwd(), "node_modules", pkgName, napiName),
-    path.join(currentDir, "..", "npm", shortName, napiName),
-    path.join(process.cwd(), "npm", shortName, napiName),
+  const sourceBuilt = [
     path.join(napiCargoTarget, "release", napiLibName),
     path.join(napiCargoTarget, "aarch64-apple-darwin", "release", napiLibName),
     path.join(napiCargoTarget, "x86_64-apple-darwin", "release", napiLibName),
     path.join(napiCargoTarget, "x86_64-unknown-linux-gnu", "release", napiLibName),
     path.join(napiCargoTarget, "aarch64-unknown-linux-gnu", "release", napiLibName),
     path.join(napiCargoTarget, "x86_64-pc-windows-msvc", "release", napiLibName)
+  ].find((candidate) => fs.existsSync(candidate));
+  if (sourceBuilt)
+    return sourceBuilt;
+  try {
+    const resolved = __require.resolve(`${pkgName}/${napiName}`);
+    if (fs.existsSync(resolved))
+      return path.resolve(resolved);
+  } catch {}
+  const shortName = pkgName.replace("@justmaple/maple-", "");
+  const candidates = [
+    path.join(currentDir, "..", "..", pkgName, napiName),
+    path.join(currentDir, "..", "node_modules", pkgName, napiName),
+    path.join(process.cwd(), "node_modules", pkgName, napiName),
+    path.join(currentDir, "..", "npm", shortName, napiName),
+    path.join(process.cwd(), "npm", shortName, napiName)
   ];
   return candidates.find((c) => fs.existsSync(c)) ?? null;
 }

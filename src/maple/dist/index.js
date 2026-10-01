@@ -101,27 +101,31 @@ function resolvePlatformNapiAddon() {
   if (!pkgName)
     return null;
   const napiName = getPlatformNapiFilename();
-  try {
-    const resolved = __require.resolve(`${pkgName}/${napiName}`);
-    if (fs.existsSync(resolved))
-      return path.resolve(resolved);
-  } catch {}
   const currentDir = import.meta.dir || path.dirname(fileURLToPath(import.meta.url));
-  const shortName = pkgName.replace("@justmaple/maple-", "");
   const napiCargoTarget = path.join(currentDir, "..", "..", "raw-pipeline", "target");
   const napiLibName = napiCargoLibFilename();
-  const candidates = [
-    path.join(currentDir, "..", "..", pkgName, napiName),
-    path.join(currentDir, "..", "node_modules", pkgName, napiName),
-    path.join(process.cwd(), "node_modules", pkgName, napiName),
-    path.join(currentDir, "..", "npm", shortName, napiName),
-    path.join(process.cwd(), "npm", shortName, napiName),
+  const sourceBuilt = [
     path.join(napiCargoTarget, "release", napiLibName),
     path.join(napiCargoTarget, "aarch64-apple-darwin", "release", napiLibName),
     path.join(napiCargoTarget, "x86_64-apple-darwin", "release", napiLibName),
     path.join(napiCargoTarget, "x86_64-unknown-linux-gnu", "release", napiLibName),
     path.join(napiCargoTarget, "aarch64-unknown-linux-gnu", "release", napiLibName),
     path.join(napiCargoTarget, "x86_64-pc-windows-msvc", "release", napiLibName)
+  ].find((candidate) => fs.existsSync(candidate));
+  if (sourceBuilt)
+    return sourceBuilt;
+  try {
+    const resolved = __require.resolve(`${pkgName}/${napiName}`);
+    if (fs.existsSync(resolved))
+      return path.resolve(resolved);
+  } catch {}
+  const shortName = pkgName.replace("@justmaple/maple-", "");
+  const candidates = [
+    path.join(currentDir, "..", "..", pkgName, napiName),
+    path.join(currentDir, "..", "node_modules", pkgName, napiName),
+    path.join(process.cwd(), "node_modules", pkgName, napiName),
+    path.join(currentDir, "..", "npm", shortName, napiName),
+    path.join(process.cwd(), "npm", shortName, napiName)
   ];
   return candidates.find((c) => fs.existsSync(c)) ?? null;
 }
@@ -2362,15 +2366,35 @@ function applyWithMetadata(state, options) {
   }
   track(state, "withMetadata");
 }
-function applyWithExif(state, exif) {
-  if (!(exif instanceof Uint8Array)) {
-    if (typeof exif === "object" && exif !== null) {
-      throw new Error("withExif: Maple takes a raw EXIF TIFF-header block (a Buffer), not an IFD object " + "like sharp's withExif({ IFD0: { ... } }) — IFD-object authoring is a follow-up " + "(#3588).");
+function applyWithExif(state, exif, merge = false) {
+  if (exif instanceof Uint8Array && !merge) {
+    state.metadata.exif = state.aux.add(exif);
+    delete state.metadata.exifTags;
+    delete state.metadata.exifMerge;
+  } else {
+    if (typeof exif !== "object" || exif === null || Array.isArray(exif) || exif instanceof Uint8Array) {
+      throw invalidParameter2("exif", merge ? "an IFD object" : "an IFD object or Buffer", exif);
     }
-    throw invalidParameter2("exif", "a Buffer", exif);
+    const entries = Object.entries(exif).map(([ifd, fields]) => {
+      if (typeof fields !== "object" || fields === null || Array.isArray(fields)) {
+        throw invalidParameter2(ifd, "an object", fields);
+      }
+      const tags = Object.entries(fields).map(([tag, value]) => {
+        if (typeof value !== "string")
+          throw invalidParameter2(`${ifd}.${tag}`, "a string", value);
+        return [tag, value];
+      });
+      return [ifd.toLowerCase(), Object.fromEntries(tags)];
+    });
+    const authored = entries.reduce((result, [ifd, tags]) => ({ ...result, [ifd]: { ...result[ifd], ...tags } }), {});
+    state.metadata.exifTags = Object.fromEntries(Object.entries({ ...state.metadata.exifTags, ...authored }).map(([ifd, tags]) => [
+      ifd,
+      { ...state.metadata.exifTags?.[ifd], ...tags }
+    ]));
+    state.metadata.exifMerge = merge;
+    delete state.metadata.exif;
   }
-  state.metadata.exif = state.aux.add(exif);
-  track(state, "withExif");
+  track(state, merge ? "withExifMerge" : "withExif");
 }
 var NAMED_ICC_PROFILES = new Set(["srgb", "p3"]);
 function applyWithIccProfile(state, icc) {
@@ -2435,8 +2459,7 @@ class MapleImageBuilder {
   resize(optionsOrWidth, height) {
     const opts = typeof optionsOrWidth === "number" || optionsOrWidth === null || optionsOrWidth === undefined ? { width: optionsOrWidth ?? 0, height: height ?? 0 } : optionsOrWidth;
     const background = resolveColour(opts.background, [0, 0, 0, 255]);
-    this.s.ops = this.s.ops.filter((op) => op.op !== "resize");
-    this.s.ops.push({
+    const resize = {
       op: "resize",
       width: Math.max(0, opts.width ?? 0),
       height: Math.max(0, opts.height ?? 0),
@@ -2446,7 +2469,8 @@ class MapleImageBuilder {
       withoutEnlargement: opts.withoutEnlargement ?? true,
       withoutReduction: opts.withoutReduction ?? false,
       background
-    });
+    };
+    this.s.ops = this.s.ops.some((op) => op.op === "resize") ? this.s.ops.map((op) => op.op === "resize" ? resize : op) : [...this.s.ops, resize];
     return this;
   }
   rotate(angle, options) {
@@ -2643,6 +2667,10 @@ class MapleImageBuilder {
   }
   withExif(exif) {
     applyWithExif(this.s, exif);
+    return this;
+  }
+  withExifMerge(exif) {
+    applyWithExif(this.s, exif, true);
     return this;
   }
   withIccProfile(icc) {

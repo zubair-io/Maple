@@ -149,8 +149,8 @@ function napiCargoLibFilename(platform = process.platform): string {
 
 /**
  * Resolves the napi addon the same way `resolvePlatformPackageLib` resolves
- * the bun:ffi dylib — installed platform package first, then monorepo-local
- * dev paths. Returns null (never throws) when nothing matches, so the
+ * the bun:ffi dylib — source-built binary first in a monorepo checkout,
+ * then installed/assembled platform packages. Returns null (never throws) when nothing matches, so the
  * caller (`native-napi.ts`) can fall back to bun:ffi.
  *
  * The monorepo-dev candidates point straight at `raw-napi`'s own cargo
@@ -169,17 +169,27 @@ export function resolvePlatformNapiAddon(): string | null {
   const pkgName = getPlatformPackageName();
   if (!pkgName) return null;
   const napiName = getPlatformNapiFilename();
+  const currentDir =
+    (import.meta as { dir?: string }).dir || path.dirname(fileURLToPath(import.meta.url));
+  const napiCargoTarget = path.join(currentDir, '..', '..', 'raw-pipeline', 'target');
+  const napiLibName = napiCargoLibFilename();
+  const sourceBuilt = [
+    path.join(napiCargoTarget, 'release', napiLibName),
+    path.join(napiCargoTarget, 'aarch64-apple-darwin', 'release', napiLibName),
+    path.join(napiCargoTarget, 'x86_64-apple-darwin', 'release', napiLibName),
+    path.join(napiCargoTarget, 'x86_64-unknown-linux-gnu', 'release', napiLibName),
+    path.join(napiCargoTarget, 'aarch64-unknown-linux-gnu', 'release', napiLibName),
+    path.join(napiCargoTarget, 'x86_64-pc-windows-msvc', 'release', napiLibName),
+  ].find((candidate) => fs.existsSync(candidate));
+  if (sourceBuilt) return sourceBuilt;
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const resolved = require.resolve(`${pkgName}/${napiName}`);
     if (fs.existsSync(resolved)) return path.resolve(resolved);
   } catch {}
 
-  const currentDir =
-    (import.meta as { dir?: string }).dir || path.dirname(fileURLToPath(import.meta.url));
   const shortName = pkgName.replace('@justmaple/maple-', '');
-  const napiCargoTarget = path.join(currentDir, '..', '..', 'raw-pipeline', 'target');
-  const napiLibName = napiCargoLibFilename();
 
   const candidates = [
     path.join(currentDir, '..', '..', pkgName, napiName),
@@ -187,15 +197,6 @@ export function resolvePlatformNapiAddon(): string | null {
     path.join(process.cwd(), 'node_modules', pkgName, napiName),
     path.join(currentDir, '..', 'npm', shortName, napiName),
     path.join(process.cwd(), 'npm', shortName, napiName),
-    // Local dev: raw-napi's own cargo target dir, matching native.ts's
-    // findNativeLib's own "source-built binary takes priority inside the
-    // monorepo checkout" convention.
-    path.join(napiCargoTarget, 'release', napiLibName),
-    path.join(napiCargoTarget, 'aarch64-apple-darwin', 'release', napiLibName),
-    path.join(napiCargoTarget, 'x86_64-apple-darwin', 'release', napiLibName),
-    path.join(napiCargoTarget, 'x86_64-unknown-linux-gnu', 'release', napiLibName),
-    path.join(napiCargoTarget, 'aarch64-unknown-linux-gnu', 'release', napiLibName),
-    path.join(napiCargoTarget, 'x86_64-pc-windows-msvc', 'release', napiLibName),
   ];
   return candidates.find((c) => fs.existsSync(c)) ?? null;
 }
