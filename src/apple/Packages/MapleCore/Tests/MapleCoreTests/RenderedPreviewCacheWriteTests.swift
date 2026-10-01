@@ -4,6 +4,18 @@ import XCTest
 @testable import MapleCore
 
 final class RenderedPreviewCacheWriteTests: XCTestCase {
+  func testInvalidationClearsMemoryWithoutConfiguredDiskCache() async {
+    let cache = RenderedPreviewCache()
+    let original = FileManager.default.temporaryDirectory
+      .appendingPathComponent("unconfigured-\(UUID().uuidString).dng")
+    await cache.storePreview(image(), for: original, screenWidth: 64)
+    let before = await cache.preview(for: original, screenWidth: 64)
+    XCTAssertNotNil(before)
+    await cache.invalidate(assetURL: original)
+    let after = await cache.preview(for: original, screenWidth: 64)
+    XCTAssertNil(after, "Memory invalidation must not depend on optional disk storage (#3978)")
+  }
+
   func testQueuedWriteCannotAcquireNewerSidecarRevision() async throws {
     let (cache, original, root) = try await makeCache()
     let captured = await cache.captureWrite(for: original, screenWidth: 64)

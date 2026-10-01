@@ -207,9 +207,9 @@ public actor RenderedPreviewCache {
   /// Matches every screen-width variant by the `"{urlHash}_"` key prefix —
   /// see `cacheKey` for why the urlHash is a literal prefix.
   public func invalidate(assetURL: URL) {
-    guard let dir = cacheDir else { return }
     let prefix = "\(urlHash(assetURL.path))_"
     memCache = memCache.filter { !$0.key.hasPrefix(prefix) }
+    guard let dir = cacheDir else { return }
     let files = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
     for f in files where f.hasPrefix(prefix) {
       try? fm.removeItem(at: dir.appendingPathComponent(f))

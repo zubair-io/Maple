@@ -8,331 +8,357 @@
 //   - MapleDirEnumerator surfaces a single `thumbs/` child.
 //   - MapleThumbsEnumerator synthesises one thumb item per indexed
 //     image in the parent folder, with the server's
-//     `<sha256_prefix16(basename)>.avif` filename.
+//     `<sha256_prefix16(basename)>.v<current pipeline version>.avif` filename.
 //   - MapleThumbsEnumerator returns an empty list (no error) when the
 //     parent folder has no indexed images — i.e. a brand-new library
 //     with no thumbs cached yet still produces a valid view.
 
-import XCTest
 import FileProvider
+import XCTest
+
 @testable import MapleCore
 
 final class MapleEnumeratorMapleDirTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        StubURLProtocol.register()
-        StubURLProtocol.reset()
+  override func setUp() {
+    super.setUp()
+    StubURLProtocol.register()
+    StubURLProtocol.reset()
+  }
+  override func tearDown() {
+    StubURLProtocol.reset()
+    super.tearDown()
+  }
+
+  // MARK: - Helpers
+
+  private func makeCatalog() -> RemoteCatalog {
+    let session = TestURLSession.make()
+    let http = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!,
+      urlSession: session,
+      tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in },
+      onSignOut: {}
+    )
+    return RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
+  }
+
+  private func makeFolderJSON(images: [(name: String, assetID: String?)]) -> String {
+    let imgs: [String] = images.map { img in
+      let idField: String = img.assetID.map { ",\"id\":\"\($0)\"" } ?? ""
+      return
+        "{\"name\":\"\(img.name)\",\"path\":\"/lib/\(img.name)\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\"\(idField)}"
     }
-    override func tearDown() {
-        StubURLProtocol.reset()
-        super.tearDown()
+    return
+      "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[\(imgs.joined(separator: ","))],\"sidecars\":[]}"
+  }
+
+  // MARK: - Tests
+
+  func testLibraryRootEnumerationIncludesMapleDir() async throws {
+    // Server returns one indexed image. The enumerator must surface
+    // that image PLUS a synthesised `.maple/` directory item.
+    StubURLProtocol.handler = { _ in
+      let json = self.makeFolderJSON(images: [("IMG_0001.ARW", "abc1234567890123abcdef00")])
+      return (200, Data(json.utf8), [:])
     }
+    let containerID = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.folder(folderID: "f1", relativePath: "").rawValue
+    )
+    let enumerator = FolderEnumerator(
+      catalog: makeCatalog(),
+      folderID: "f1",
+      relativePath: "",
+      absolutePath: "/lib",
+      containerIdentifier: containerID,
+      pageSize: 100
+    )
+    let observer = TestEnumerationObserver()
+    enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+    let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    XCTAssertNil(observer.error)
+    let items = observer.batches.flatMap { $0 }
+    // Exactly one `.maple/` item.
+    let mapleItems = items.filter { $0.filename == ".maple" }
+    XCTAssertEqual(
+      mapleItems.count, 1, "expected exactly one .maple/ entry, got \(items.map(\.filename))")
+    // Its identifier round-trips to `.mapleDir(folderID: "f1", parentRelativePath: "")`.
+    let parsed = try FileProviderIdentifier(rawValue: mapleItems[0].itemIdentifier.rawValue)
+    XCTAssertEqual(parsed, .mapleDir(folderID: "f1", parentRelativePath: ""))
+  }
 
-    // MARK: - Helpers
-
-    private func makeCatalog() -> RemoteCatalog {
-        let session = TestURLSession.make()
-        let http = AuthenticatedHTTPClient(
-            server: URL(string: "https://x.test")!,
-            urlSession: session,
-            tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
-            onTokensRefreshed: { _ in },
-            onSignOut: {}
-        )
-        return RemoteCatalog(http: http,
-                             server: URL(string: "https://x.test")!,
-                             downloadURLSession: session)
+  func testNestedFolderEnumerationIncludesMapleDir() async throws {
+    // Per-folder layout: every folder gets its own `.maple/`, not
+    // just the library root.
+    StubURLProtocol.handler = { _ in
+      let json =
+        "{\"path\":\"/lib/sub\",\"parent\":\"/lib\",\"dirs\":[],\"images\":[],\"sidecars\":[]}"
+      return (200, Data(json.utf8), [:])
     }
+    let containerID = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.folder(folderID: "f1", relativePath: "sub").rawValue
+    )
+    let enumerator = FolderEnumerator(
+      catalog: makeCatalog(),
+      folderID: "f1",
+      relativePath: "sub",
+      absolutePath: "/lib/sub",
+      containerIdentifier: containerID,
+      pageSize: 100
+    )
+    let observer = TestEnumerationObserver()
+    enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+    let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    let items = observer.batches.flatMap { $0 }
+    let mapleItems = items.filter { $0.filename == ".maple" }
+    XCTAssertEqual(mapleItems.count, 1)
+    let parsed = try FileProviderIdentifier(rawValue: mapleItems[0].itemIdentifier.rawValue)
+    XCTAssertEqual(parsed, .mapleDir(folderID: "f1", parentRelativePath: "sub"))
+  }
 
-    private func makeFolderJSON(images: [(name: String, assetID: String?)]) -> String {
-        let imgs: [String] = images.map { img in
-            let idField: String = img.assetID.map { ",\"id\":\"\($0)\"" } ?? ""
-            return "{\"name\":\"\(img.name)\",\"path\":\"/lib/\(img.name)\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\"\(idField)}"
-        }
-        return "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[\(imgs.joined(separator: ","))],\"sidecars\":[]}"
+  func testMapleDirInjectedOnceAcrossPaginatedListing() async throws {
+    // Multi-page enumeration: the `.maple/` item must only appear
+    // on the first page, not once per page. #2550: each
+    // `enumerateItems` call now surfaces exactly one server page, so
+    // this test drives both calls explicitly — feeding page 1's
+    // returned page back in as page 2's `startingAt:` — the same
+    // way the real OS resumes a paginated enumeration.
+    StubURLProtocol.handler = { req in
+      let q = req.url?.query ?? ""
+      let isPage2 = q.contains("cursor=p2")
+      if isPage2 {
+        let json =
+          "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[{\"name\":\"B.dng\",\"path\":\"/lib/B.dng\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"b00000000000000000000000\"}],\"sidecars\":[]}"
+        return (200, Data(json.utf8), [:])
+      }
+      let json =
+        "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[{\"name\":\"A.dng\",\"path\":\"/lib/A.dng\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"a00000000000000000000000\"}],\"sidecars\":[],\"next_cursor\":\"p2\"}"
+      return (200, Data(json.utf8), [:])
     }
+    let containerID = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.folder(folderID: "f1", relativePath: "").rawValue
+    )
+    let enumerator = FolderEnumerator(
+      catalog: makeCatalog(),
+      folderID: "f1",
+      relativePath: "",
+      absolutePath: "/lib",
+      containerIdentifier: containerID,
+      pageSize: 1
+    )
+    let observer = TestEnumerationObserver()
+    enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+    var ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    let page1Items = observer.batches.flatMap { $0 }
+    let nextPage = try XCTUnwrap(observer.lastNextPage)
 
-    // MARK: - Tests
+    observer.resetForNextCall()
+    enumerator.enumerateItems(for: observer, startingAt: nextPage)
+    ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    let page2Items = observer.batches.flatMap { $0 }
 
-    func testLibraryRootEnumerationIncludesMapleDir() async throws {
-        // Server returns one indexed image. The enumerator must surface
-        // that image PLUS a synthesised `.maple/` directory item.
-        StubURLProtocol.handler = { _ in
-            let json = self.makeFolderJSON(images: [("IMG_0001.ARW", "abc1234567890123abcdef00")])
-            return (200, Data(json.utf8), [:])
-        }
-        let containerID = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.folder(folderID: "f1", relativePath: "").rawValue
-        )
-        let enumerator = FolderEnumerator(
-            catalog: makeCatalog(),
-            folderID: "f1",
-            relativePath: "",
-            absolutePath: "/lib",
-            containerIdentifier: containerID,
-            pageSize: 100
-        )
-        let observer = TestEnumerationObserver()
-        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
-        let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        XCTAssertNil(observer.error)
-        let items = observer.batches.flatMap { $0 }
-        // Exactly one `.maple/` item.
-        let mapleItems = items.filter { $0.filename == ".maple" }
-        XCTAssertEqual(mapleItems.count, 1, "expected exactly one .maple/ entry, got \(items.map(\.filename))")
-        // Its identifier round-trips to `.mapleDir(folderID: "f1", parentRelativePath: "")`.
-        let parsed = try FileProviderIdentifier(rawValue: mapleItems[0].itemIdentifier.rawValue)
-        XCTAssertEqual(parsed, .mapleDir(folderID: "f1", parentRelativePath: ""))
+    let mapleItems = (page1Items + page2Items).filter { $0.filename == ".maple" }
+    XCTAssertEqual(mapleItems.count, 1, "got \((page1Items + page2Items).map(\.filename))")
+  }
+
+  /// #2550: `MapleThumbsEnumerator` must honor the OS's page token the
+  /// same way `FolderEnumerator` does, instead of full-draining every
+  /// server page internally.
+  func testMapleThumbsEnumeratorResumesFromOSSuppliedPage() async throws {
+    var requestedCursors: [String?] = []
+    StubURLProtocol.handler = { req in
+      let q = req.url?.query ?? ""
+      requestedCursors.append(q.contains("cursor=p2") ? "p2" : nil)
+      let json = """
+        {"path":"/lib","parent":"/","dirs":[],"images":[
+          {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"}
+        ],"sidecars":[]}
+        """
+      return (200, Data(json.utf8), [:])
     }
+    let containerID = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue
+    )
+    let enumerator = MapleThumbsEnumerator(
+      catalog: makeCatalog(),
+      folderID: "f1",
+      parentAbsolutePath: "/lib",
+      containerIdentifier: containerID,
+      pageSize: 1
+    )
+    let observer = TestEnumerationObserver()
+    enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data("p2".utf8)))
+    let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    XCTAssertNil(observer.error)
+    XCTAssertEqual(
+      requestedCursors, ["p2"],
+      "must hit the server with the OS-supplied cursor, not restart from the top")
+    let items = observer.batches.flatMap { $0 }
+    XCTAssertEqual(
+      items.map(\.filename), [MapleThumbCacheKey.thumbFilename(forRawBasename: "B.dng")])
+  }
 
-    func testNestedFolderEnumerationIncludesMapleDir() async throws {
-        // Per-folder layout: every folder gets its own `.maple/`, not
-        // just the library root.
-        StubURLProtocol.handler = { _ in
-            let json = "{\"path\":\"/lib/sub\",\"parent\":\"/lib\",\"dirs\":[],\"images\":[],\"sidecars\":[]}"
-            return (200, Data(json.utf8), [:])
-        }
-        let containerID = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.folder(folderID: "f1", relativePath: "sub").rawValue
-        )
-        let enumerator = FolderEnumerator(
-            catalog: makeCatalog(),
-            folderID: "f1",
-            relativePath: "sub",
-            absolutePath: "/lib/sub",
-            containerIdentifier: containerID,
-            pageSize: 100
-        )
-        let observer = TestEnumerationObserver()
-        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
-        let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        let items = observer.batches.flatMap { $0 }
-        let mapleItems = items.filter { $0.filename == ".maple" }
-        XCTAssertEqual(mapleItems.count, 1)
-        let parsed = try FileProviderIdentifier(rawValue: mapleItems[0].itemIdentifier.rawValue)
-        XCTAssertEqual(parsed, .mapleDir(folderID: "f1", parentRelativePath: "sub"))
+  func testMapleDirEnumeratorReturnsThumbsChild() async {
+    let containerID = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.mapleDir(folderID: "f1", parentRelativePath: "").rawValue
+    )
+    let enumerator = MapleDirEnumerator(
+      folderID: "f1",
+      parentRelativePath: "",
+      containerIdentifier: containerID
+    )
+    let observer = TestEnumerationObserver()
+    enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+    let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    let items = observer.batches.flatMap { $0 }
+    // `thumbs/` and, since #3571, `previews/`.
+    XCTAssertEqual(items.map(\.filename), ["thumbs", "previews"])
+    let parsed = items.map { try? FileProviderIdentifier(rawValue: $0.itemIdentifier.rawValue) }
+    XCTAssertEqual(
+      parsed,
+      [
+        .mapleThumbsDir(folderID: "f1", parentRelativePath: ""),
+        .maplePreviewsDir(folderID: "f1", parentRelativePath: ""),
+      ])
+  }
+
+  /// #3571 — the previews listing names entries `<filename>.v<current pipeline version>.avif` (the
+  /// server's on-disk name) and versions each by its sidecar's mtime when
+  /// the folder listing carries one, else the RAW's mtime.
+  func testMaplePreviewsEnumeratorSurfacesPreviewPerIndexedImageWithSidecarSeed() async {
+    StubURLProtocol.handler = { _ in
+      let json = """
+        {"path":"/lib","parent":"/","dirs":[],"images":[
+          {"name":"A.dng","path":"/lib/A.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"a00000000000000000000000"},
+          {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"},
+          {"name":"C.dng","path":"/lib/C.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng"}
+        ],"sidecars":[
+          {"name":"A.xmp","path":"/lib/A.xmp","mtime":"2026-03-04T05:06:07Z","size":9,"asset_id":"a00000000000000000000000"}
+        ]}
+        """
+      return (200, Data(json.utf8), [:])
     }
+    let containerID = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.maplePreviewsDir(folderID: "f1", parentRelativePath: "").rawValue
+    )
+    let enumerator = MapleThumbsEnumerator(
+      catalog: makeCatalog(),
+      folderID: "f1",
+      parentAbsolutePath: "/lib",
+      containerIdentifier: containerID,
+      kind: .previews,
+      pageSize: 100
+    )
+    let observer = TestEnumerationObserver()
+    enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+    let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    XCTAssertNil(observer.error)
+    let items = observer.batches.flatMap { $0 }
+    XCTAssertEqual(
+      items.map(\.filename),
+      [
+        "A.dng.v\(AdjustmentModel.pipelineOutputVersion).avif",
+        "B.dng.v\(AdjustmentModel.pipelineOutputVersion).avif",
+      ], "C is unindexed and must be skipped")
+    let ids = items.map { try? FileProviderIdentifier(rawValue: $0.itemIdentifier.rawValue) }
+    XCTAssertEqual(
+      ids,
+      [
+        .preview(assetID: "a00000000000000000000000"),
+        .preview(assetID: "b00000000000000000000000"),
+      ])
+    XCTAssertEqual(items[0].parentItemIdentifier, containerID)
+    let iso = ISO8601DateFormatter()
+    XCTAssertEqual(
+      items[0].contentModificationDate, iso.date(from: "2026-03-04T05:06:07Z"),
+      "A has a sidecar: its mtime seeds the version")
+    XCTAssertEqual(
+      items[1].contentModificationDate, iso.date(from: "2026-01-01T00:00:00Z"),
+      "B has none: the RAW's mtime seeds the version")
+  }
 
-    func testMapleDirInjectedOnceAcrossPaginatedListing() async throws {
-        // Multi-page enumeration: the `.maple/` item must only appear
-        // on the first page, not once per page. #2550: each
-        // `enumerateItems` call now surfaces exactly one server page, so
-        // this test drives both calls explicitly — feeding page 1's
-        // returned page back in as page 2's `startingAt:` — the same
-        // way the real OS resumes a paginated enumeration.
-        StubURLProtocol.handler = { req in
-            let q = req.url?.query ?? ""
-            let isPage2 = q.contains("cursor=p2")
-            if isPage2 {
-                let json = "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[{\"name\":\"B.dng\",\"path\":\"/lib/B.dng\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"b00000000000000000000000\"}],\"sidecars\":[]}"
-                return (200, Data(json.utf8), [:])
-            }
-            let json = "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[{\"name\":\"A.dng\",\"path\":\"/lib/A.dng\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"a00000000000000000000000\"}],\"sidecars\":[],\"next_cursor\":\"p2\"}"
-            return (200, Data(json.utf8), [:])
-        }
-        let containerID = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.folder(folderID: "f1", relativePath: "").rawValue
-        )
-        let enumerator = FolderEnumerator(
-            catalog: makeCatalog(),
-            folderID: "f1",
-            relativePath: "",
-            absolutePath: "/lib",
-            containerIdentifier: containerID,
-            pageSize: 1
-        )
-        let observer = TestEnumerationObserver()
-        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
-        var ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        let page1Items = observer.batches.flatMap { $0 }
-        let nextPage = try XCTUnwrap(observer.lastNextPage)
-
-        observer.resetForNextCall()
-        enumerator.enumerateItems(for: observer, startingAt: nextPage)
-        ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        let page2Items = observer.batches.flatMap { $0 }
-
-        let mapleItems = (page1Items + page2Items).filter { $0.filename == ".maple" }
-        XCTAssertEqual(mapleItems.count, 1, "got \((page1Items + page2Items).map(\.filename))")
+  func testMapleThumbsEnumeratorSurfacesThumbPerIndexedImage() async {
+    // Parent folder has two indexed images and one unindexed image
+    // (no assetID). Only the two indexed ones should produce thumb
+    // items.
+    StubURLProtocol.handler = { _ in
+      let json = """
+        {"path":"/lib","parent":"/","dirs":[],"images":[
+          {"name":"A.dng","path":"/lib/A.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"a00000000000000000000000"},
+          {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"},
+          {"name":"C.dng","path":"/lib/C.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng"}
+        ],"sidecars":[]}
+        """
+      return (200, Data(json.utf8), [:])
     }
-
-    /// #2550: `MapleThumbsEnumerator` must honor the OS's page token the
-    /// same way `FolderEnumerator` does, instead of full-draining every
-    /// server page internally.
-    func testMapleThumbsEnumeratorResumesFromOSSuppliedPage() async throws {
-        var requestedCursors: [String?] = []
-        StubURLProtocol.handler = { req in
-            let q = req.url?.query ?? ""
-            requestedCursors.append(q.contains("cursor=p2") ? "p2" : nil)
-            let json = """
-            {"path":"/lib","parent":"/","dirs":[],"images":[
-              {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"}
-            ],"sidecars":[]}
-            """
-            return (200, Data(json.utf8), [:])
-        }
-        let containerID = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue
-        )
-        let enumerator = MapleThumbsEnumerator(
-            catalog: makeCatalog(),
-            folderID: "f1",
-            parentAbsolutePath: "/lib",
-            containerIdentifier: containerID,
-            pageSize: 1
-        )
-        let observer = TestEnumerationObserver()
-        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data("p2".utf8)))
-        let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        XCTAssertNil(observer.error)
-        XCTAssertEqual(requestedCursors, ["p2"], "must hit the server with the OS-supplied cursor, not restart from the top")
-        let items = observer.batches.flatMap { $0 }
-        XCTAssertEqual(items.map(\.filename), [MapleThumbCacheKey.thumbFilename(forRawBasename: "B.dng")])
+    let containerID = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue
+    )
+    let enumerator = MapleThumbsEnumerator(
+      catalog: makeCatalog(),
+      folderID: "f1",
+      parentAbsolutePath: "/lib",
+      containerIdentifier: containerID,
+      pageSize: 100
+    )
+    let observer = TestEnumerationObserver()
+    enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+    let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    XCTAssertNil(observer.error)
+    let items = observer.batches.flatMap { $0 }
+    XCTAssertEqual(items.count, 2, "expected 2 thumbs (A,B); C is unindexed and must be skipped")
+    // Each item's filename must be the server's
+    // sha256_prefix16(basename).avif.
+    let names = Set(items.map { $0.filename })
+    let expectedA = MapleThumbCacheKey.thumbFilename(forRawBasename: "A.dng")
+    let expectedB = MapleThumbCacheKey.thumbFilename(forRawBasename: "B.dng")
+    XCTAssertEqual(names, Set([expectedA, expectedB]))
+    // Identifiers must round-trip to `.thumb(assetID:)`.
+    for item in items {
+      let parsed = try? FileProviderIdentifier(rawValue: item.itemIdentifier.rawValue)
+      switch parsed {
+      case .thumb(let id):
+        XCTAssertTrue(id == "a00000000000000000000000" || id == "b00000000000000000000000")
+      default:
+        XCTFail("expected .thumb identifier, got \(String(describing: parsed))")
+      }
     }
+  }
 
-    func testMapleDirEnumeratorReturnsThumbsChild() async {
-        let containerID = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.mapleDir(folderID: "f1", parentRelativePath: "").rawValue
-        )
-        let enumerator = MapleDirEnumerator(
-            folderID: "f1",
-            parentRelativePath: "",
-            containerIdentifier: containerID
-        )
-        let observer = TestEnumerationObserver()
-        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
-        let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        let items = observer.batches.flatMap { $0 }
-        // `thumbs/` and, since #3571, `previews/`.
-        XCTAssertEqual(items.map(\.filename), ["thumbs", "previews"])
-        let parsed = items.map { try? FileProviderIdentifier(rawValue: $0.itemIdentifier.rawValue) }
-        XCTAssertEqual(parsed, [.mapleThumbsDir(folderID: "f1", parentRelativePath: ""),
-                                .maplePreviewsDir(folderID: "f1", parentRelativePath: "")])
+  func testMapleThumbsEnumeratorEmptyWhenParentHasNoIndexedImages() async {
+    // Brand-new library: parent folder has no images at all. Must
+    // produce an empty enumeration WITHOUT an error.
+    StubURLProtocol.handler = { _ in
+      let json = "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[],\"sidecars\":[]}"
+      return (200, Data(json.utf8), [:])
     }
-
-    /// #3571 — the previews listing names entries `<filename>.avif` (the
-    /// server's on-disk name) and versions each by its sidecar's mtime when
-    /// the folder listing carries one, else the RAW's mtime.
-    func testMaplePreviewsEnumeratorSurfacesPreviewPerIndexedImageWithSidecarSeed() async {
-        StubURLProtocol.handler = { _ in
-            let json = """
-            {"path":"/lib","parent":"/","dirs":[],"images":[
-              {"name":"A.dng","path":"/lib/A.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"a00000000000000000000000"},
-              {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"},
-              {"name":"C.dng","path":"/lib/C.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng"}
-            ],"sidecars":[
-              {"name":"A.xmp","path":"/lib/A.xmp","mtime":"2026-03-04T05:06:07Z","size":9,"asset_id":"a00000000000000000000000"}
-            ]}
-            """
-            return (200, Data(json.utf8), [:])
-        }
-        let containerID = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.maplePreviewsDir(folderID: "f1", parentRelativePath: "").rawValue
-        )
-        let enumerator = MapleThumbsEnumerator(
-            catalog: makeCatalog(),
-            folderID: "f1",
-            parentAbsolutePath: "/lib",
-            containerIdentifier: containerID,
-            kind: .previews,
-            pageSize: 100
-        )
-        let observer = TestEnumerationObserver()
-        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
-        let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        XCTAssertNil(observer.error)
-        let items = observer.batches.flatMap { $0 }
-        XCTAssertEqual(items.map(\.filename), ["A.dng.avif", "B.dng.avif"], "C is unindexed and must be skipped")
-        let ids = items.map { try? FileProviderIdentifier(rawValue: $0.itemIdentifier.rawValue) }
-        XCTAssertEqual(ids, [.preview(assetID: "a00000000000000000000000"),
-                             .preview(assetID: "b00000000000000000000000")])
-        XCTAssertEqual(items[0].parentItemIdentifier, containerID)
-        let iso = ISO8601DateFormatter()
-        XCTAssertEqual(items[0].contentModificationDate, iso.date(from: "2026-03-04T05:06:07Z"),
-                       "A has a sidecar: its mtime seeds the version")
-        XCTAssertEqual(items[1].contentModificationDate, iso.date(from: "2026-01-01T00:00:00Z"),
-                       "B has none: the RAW's mtime seeds the version")
-    }
-
-    func testMapleThumbsEnumeratorSurfacesThumbPerIndexedImage() async {
-        // Parent folder has two indexed images and one unindexed image
-        // (no assetID). Only the two indexed ones should produce thumb
-        // items.
-        StubURLProtocol.handler = { _ in
-            let json = """
-            {"path":"/lib","parent":"/","dirs":[],"images":[
-              {"name":"A.dng","path":"/lib/A.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"a00000000000000000000000"},
-              {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"},
-              {"name":"C.dng","path":"/lib/C.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng"}
-            ],"sidecars":[]}
-            """
-            return (200, Data(json.utf8), [:])
-        }
-        let containerID = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue
-        )
-        let enumerator = MapleThumbsEnumerator(
-            catalog: makeCatalog(),
-            folderID: "f1",
-            parentAbsolutePath: "/lib",
-            containerIdentifier: containerID,
-            pageSize: 100
-        )
-        let observer = TestEnumerationObserver()
-        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
-        let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        XCTAssertNil(observer.error)
-        let items = observer.batches.flatMap { $0 }
-        XCTAssertEqual(items.count, 2, "expected 2 thumbs (A,B); C is unindexed and must be skipped")
-        // Each item's filename must be the server's
-        // sha256_prefix16(basename).avif.
-        let names = Set(items.map { $0.filename })
-        let expectedA = MapleThumbCacheKey.thumbFilename(forRawBasename: "A.dng")
-        let expectedB = MapleThumbCacheKey.thumbFilename(forRawBasename: "B.dng")
-        XCTAssertEqual(names, Set([expectedA, expectedB]))
-        // Identifiers must round-trip to `.thumb(assetID:)`.
-        for item in items {
-            let parsed = try? FileProviderIdentifier(rawValue: item.itemIdentifier.rawValue)
-            switch parsed {
-            case .thumb(let id):
-                XCTAssertTrue(id == "a00000000000000000000000" || id == "b00000000000000000000000")
-            default:
-                XCTFail("expected .thumb identifier, got \(String(describing: parsed))")
-            }
-        }
-    }
-
-    func testMapleThumbsEnumeratorEmptyWhenParentHasNoIndexedImages() async {
-        // Brand-new library: parent folder has no images at all. Must
-        // produce an empty enumeration WITHOUT an error.
-        StubURLProtocol.handler = { _ in
-            let json = "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[],\"sidecars\":[]}"
-            return (200, Data(json.utf8), [:])
-        }
-        let containerID = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue
-        )
-        let enumerator = MapleThumbsEnumerator(
-            catalog: makeCatalog(),
-            folderID: "f1",
-            parentAbsolutePath: "/lib",
-            containerIdentifier: containerID,
-            pageSize: 100
-        )
-        let observer = TestEnumerationObserver()
-        enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
-        let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
-        XCTAssertTrue(ok)
-        XCTAssertNil(observer.error, "empty parent must not produce an enumeration error")
-        let items = observer.batches.flatMap { $0 }
-        XCTAssertEqual(items.count, 0)
-    }
+    let containerID = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.mapleThumbsDir(folderID: "f1", parentRelativePath: "").rawValue
+    )
+    let enumerator = MapleThumbsEnumerator(
+      catalog: makeCatalog(),
+      folderID: "f1",
+      parentAbsolutePath: "/lib",
+      containerIdentifier: containerID,
+      pageSize: 100
+    )
+    let observer = TestEnumerationObserver()
+    enumerator.enumerateItems(for: observer, startingAt: NSFileProviderPage(Data()))
+    let ok = await observer.waitUntilFinished(timeoutSeconds: 5)
+    XCTAssertTrue(ok)
+    XCTAssertNil(observer.error, "empty parent must not produce an enumeration error")
+    let items = observer.batches.flatMap { $0 }
+    XCTAssertEqual(items.count, 0)
+  }
 }

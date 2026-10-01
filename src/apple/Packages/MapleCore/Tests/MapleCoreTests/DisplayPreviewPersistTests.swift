@@ -38,7 +38,8 @@ final class DisplayPreviewPersistTests: XCTestCase {
     // Creates the `.maple/previews/` dir on demand and writes atomically.
     await sink.write(payload)
 
-    XCTAssertEqual(previewURL.lastPathComponent, "IMG.CR2.avif")
+    XCTAssertEqual(
+      previewURL.lastPathComponent, "IMG.CR2.v\(AdjustmentModel.pipelineOutputVersion).avif")
     XCTAssertEqual(try Data(contentsOf: previewURL), payload)
   }
 

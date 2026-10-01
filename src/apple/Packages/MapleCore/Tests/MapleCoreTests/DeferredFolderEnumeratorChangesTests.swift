@@ -1,210 +1,227 @@
-import XCTest
 import FileProvider
+import XCTest
+
 @testable import MapleCore
 
 final class DeferredFolderEnumeratorChangesTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        StubURLProtocol.register()
-        StubURLProtocol.reset()
+  override func setUp() {
+    super.setUp()
+    StubURLProtocol.register()
+    StubURLProtocol.reset()
+  }
+
+  override func tearDown() {
+    StubURLProtocol.reset()
+    super.tearDown()
+  }
+
+  /// Collects observer callbacks so assertions can inspect them.
+  private final class ChangeObserver: NSObject, NSFileProviderChangeObserver {
+    var updated: [NSFileProviderItemProtocol] = []
+    var deleted: [NSFileProviderItemIdentifier] = []
+    var finishedAnchor: NSFileProviderSyncAnchor?
+    var moreComing: Bool?
+    var failure: Error?
+    let done = XCTestExpectation(description: "enumerateChanges finished")
+
+    func didUpdate(_ updatedItems: [NSFileProviderItemProtocol]) {
+      updated.append(contentsOf: updatedItems)
+    }
+    func didDeleteItems(withIdentifiers identifiers: [NSFileProviderItemIdentifier]) {
+      deleted.append(contentsOf: identifiers)
+    }
+    func finishEnumeratingChanges(upTo anchor: NSFileProviderSyncAnchor, moreComing: Bool) {
+      finishedAnchor = anchor
+      self.moreComing = moreComing
+      done.fulfill()
+    }
+    func finishEnumeratingWithError(_ error: Error) {
+      failure = error
+      done.fulfill()
+    }
+  }
+
+  /// Builds a `DeferredFolderEnumerator` wired to a `RemoteCatalog` over
+  /// `StubURLProtocol` (same shape as `FolderEnumeratorPagingTests`) and a
+  /// `ChangeCursorStore` rooted at a throwaway temp directory so runs
+  /// don't share state.
+  private func makeEnumerator(folderID: String, relativePath: String) -> DeferredFolderEnumerator {
+    let session = TestURLSession.make()
+    let http = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!,
+      urlSession: session,
+      tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in },
+      onSignOut: {}
+    )
+    let catalog = RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
+    let rootCache = LibraryRootCache(
+      domainID: "d",
+      defaults: UserDefaults(suiteName: "test-\(UUID().uuidString)")!,
+      fetcher: { [] }
+    )
+    let cursorDir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DeferredFolderEnumeratorChangesTests-\(UUID().uuidString)")
+    addTeardownBlock { try? FileManager.default.removeItem(at: cursorDir) }
+    let cursorStore = ChangeCursorStore(directory: cursorDir)
+    let containerIdentifier = NSFileProviderItemIdentifier(
+      FileProviderIdentifier.folder(folderID: folderID, relativePath: relativePath).rawValue
+    )
+    return DeferredFolderEnumerator(
+      catalog: catalog,
+      rootCache: rootCache,
+      folderID: folderID,
+      relativePath: relativePath,
+      containerIdentifier: containerIdentifier,
+      cursorStore: cursorStore,
+      domainID: "d")
+  }
+
+  func testDeliversOnlyThisFoldersChangesAndAdvancesTheAnchor() {
+    StubURLProtocol.handler = { _ in
+      let body = """
+        {"changes":[
+          {"cursor":11,"asset_id":"a1","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"d/one.dng","at":"2026-08-12T00:00:00.000Z"},
+          {"cursor":12,"asset_id":"a2","folder_id":"F1","kind":"delete","abs_path":null,"relative_path":"d/two.dng","at":"2026-08-12T00:00:00.000Z"},
+          {"cursor":13,"asset_id":"a3","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"elsewhere/three.dng","at":"2026-08-12T00:00:00.000Z"}
+        ],"next_cursor":13}
+        """
+      return (200, Data(body.utf8), [:])
     }
 
-    override func tearDown() {
-        StubURLProtocol.reset()
-        super.tearDown()
+    let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
+    let observer = ChangeObserver()
+    enumerator.enumerateChanges(for: observer, from: FolderChangeMatching.anchor(10))
+    wait(for: [observer.done], timeout: 5)
+
+    XCTAssertNil(observer.failure)
+    XCTAssertEqual(observer.updated.map(\.filename), ["one.dng"])
+    // A deleted RAW takes its canonical sidecar with it (#3563).
+    XCTAssertEqual(
+      observer.deleted.map(\.rawValue),
+      [
+        FileProviderIdentifier.asset("a2").rawValue,
+        MapleItem.sidecarIdentifier(assetID: "a2").rawValue,
+        FileProviderIdentifier.thumb(assetID: "a2").rawValue,
+        FileProviderIdentifier.preview(assetID: "a2").rawValue,
+      ])
+    // Anchor advances past the whole page even though one row was
+    // filtered out — otherwise we would re-scan it forever.
+    XCTAssertEqual(observer.finishedAnchor.map(FolderChangeMatching.parseAnchor), 13)
+    XCTAssertEqual(observer.moreComing, false)
+  }
+
+  /// Latent-trap regression (review finding on #2822): a page that
+  /// hits exactly `changesPageLimit` rows but carries no `next_cursor`
+  /// must NOT report `moreComing: true` — otherwise the OS re-asks
+  /// from the same (unchanged) anchor forever. Today's server always
+  /// attaches a cursor to a non-empty page (`src/api/.../changes.ts`),
+  /// so this exercises defense-in-depth against a server that doesn't.
+  /// #3563 — with `batch-meta` answering, an updated asset fans out to its
+  /// RAW item AND its sidecar item (the sidecar's own mtime seeding the
+  /// version), and an asset the server reports without a sidecar retires
+  /// the sidecar identifier instead.
+  func testResolvesSidecarItemsFromBatchMetadata() {
+    StubURLProtocol.handler = { req in
+      if req.url?.path == "/api/assets/batch-meta" {
+        let body = """
+          {"assets":[
+            {"id":"a1a1a1a1a1a1a1a1a1a1a1a1","folder_id":"F1","filename":"one.dng","abs_path":"/srv/lib/d/one.dng",
+             "size":10,"mtime":1700000000000,"rating":0,"xmp_mtime":1700000123,"xmp_size":512,"has_xmp":true},
+            {"id":"c3c3c3c3c3c3c3c3c3c3c3c3","folder_id":"F1","filename":"three.dng","abs_path":"/srv/lib/d/three.dng",
+             "size":10,"mtime":1700000000000,"rating":0,"xmp_mtime":null,"xmp_size":null,"has_xmp":false}
+          ]}
+          """
+        return (200, Data(body.utf8), [:])
+      }
+      let body = """
+        {"changes":[
+          {"cursor":11,"asset_id":"a1a1a1a1a1a1a1a1a1a1a1a1","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"d/one.dng","at":"2026-08-12T00:00:00.000Z"},
+          {"cursor":12,"asset_id":"c3c3c3c3c3c3c3c3c3c3c3c3","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"d/three.dng","at":"2026-08-12T00:00:00.000Z"}
+        ],"next_cursor":12}
+        """
+      return (200, Data(body.utf8), [:])
     }
 
-    /// Collects observer callbacks so assertions can inspect them.
-    private final class ChangeObserver: NSObject, NSFileProviderChangeObserver {
-        var updated: [NSFileProviderItemProtocol] = []
-        var deleted: [NSFileProviderItemIdentifier] = []
-        var finishedAnchor: NSFileProviderSyncAnchor?
-        var moreComing: Bool?
-        var failure: Error?
-        let done = XCTestExpectation(description: "enumerateChanges finished")
+    let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
+    let observer = ChangeObserver()
+    enumerator.enumerateChanges(for: observer, from: FolderChangeMatching.anchor(10))
+    wait(for: [observer.done], timeout: 5)
 
-        func didUpdate(_ updatedItems: [NSFileProviderItemProtocol]) {
-            updated.append(contentsOf: updatedItems)
-        }
-        func didDeleteItems(withIdentifiers identifiers: [NSFileProviderItemIdentifier]) {
-            deleted.append(contentsOf: identifiers)
-        }
-        func finishEnumeratingChanges(upTo anchor: NSFileProviderSyncAnchor, moreComing: Bool) {
-            finishedAnchor = anchor
-            self.moreComing = moreComing
-            done.fulfill()
-        }
-        func finishEnumeratingWithError(_ error: Error) {
-            failure = error
-            done.fulfill()
-        }
+    XCTAssertNil(observer.failure)
+    // RAW, sidecar, then its `.maple/thumbs/` and `.maple/previews/`
+    // entries (#3571) re-versioned by the sidecar mtime.
+    XCTAssertEqual(
+      observer.updated.map(\.filename),
+      [
+        "one.dng", "one.xmp",
+        MapleThumbCacheKey.thumbFilename(forRawBasename: "one.dng"),
+        "one.dng.v\(AdjustmentModel.pipelineOutputVersion).avif",
+        "three.dng",
+        MapleThumbCacheKey.thumbFilename(forRawBasename: "three.dng"),
+        "three.dng.v\(AdjustmentModel.pipelineOutputVersion).avif",
+      ])
+    let preview = observer.updated.first {
+      $0.filename == "one.dng.v\(AdjustmentModel.pipelineOutputVersion).avif"
+    }
+    XCTAssertEqual(
+      preview?.parentItemIdentifier.rawValue,
+      FileProviderIdentifier.maplePreviewsDir(folderID: "F1", parentRelativePath: "d").rawValue)
+    XCTAssertEqual(preview?.contentModificationDate, Date(timeIntervalSince1970: 1_700_000_123))
+    let sidecar = observer.updated.first { $0.filename == "one.xmp" } as? MapleItem
+    XCTAssertEqual(
+      sidecar?.itemIdentifier, MapleItem.sidecarIdentifier(assetID: "a1a1a1a1a1a1a1a1a1a1a1a1"))
+    XCTAssertEqual(
+      sidecar?.contentModificationDate,
+      Date(timeIntervalSince1970: 1_700_000_123),
+      "the sidecar item carries the sidecar's own mtime, not the RAW's")
+    XCTAssertEqual(sidecar?.documentSize, 512)
+    XCTAssertEqual(
+      observer.deleted.map(\.rawValue),
+      [MapleItem.sidecarIdentifier(assetID: "c3c3c3c3c3c3c3c3c3c3c3c3").rawValue])
+    XCTAssertEqual(observer.finishedAnchor.map(FolderChangeMatching.parseAnchor), 12)
+  }
+
+  func testFullPageWithoutNextCursorDoesNotLoopForever() {
+    let pageLimit = 500
+    StubURLProtocol.handler = { _ in
+      let rows = (0..<pageLimit).map { i in
+        "{\"cursor\":\(i + 1),\"asset_id\":\"a\(i)\",\"folder_id\":\"OTHER\",\"kind\":\"update\",\"abs_path\":null,\"relative_path\":\"other/\(i).dng\",\"at\":\"2026-08-12T00:00:00.000Z\"}"
+      }
+      let body = "{\"changes\":[\(rows.joined(separator: ","))]}"
+      return (200, Data(body.utf8), [:])
     }
 
-    /// Builds a `DeferredFolderEnumerator` wired to a `RemoteCatalog` over
-    /// `StubURLProtocol` (same shape as `FolderEnumeratorPagingTests`) and a
-    /// `ChangeCursorStore` rooted at a throwaway temp directory so runs
-    /// don't share state.
-    private func makeEnumerator(folderID: String, relativePath: String) -> DeferredFolderEnumerator {
-        let session = TestURLSession.make()
-        let http = AuthenticatedHTTPClient(
-            server: URL(string: "https://x.test")!,
-            urlSession: session,
-            tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
-            onTokensRefreshed: { _ in },
-            onSignOut: {}
-        )
-        let catalog = RemoteCatalog(http: http,
-                                    server: URL(string: "https://x.test")!,
-                                    downloadURLSession: session)
-        let rootCache = LibraryRootCache(
-            domainID: "d",
-            defaults: UserDefaults(suiteName: "test-\(UUID().uuidString)")!,
-            fetcher: { [] }
-        )
-        let cursorDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DeferredFolderEnumeratorChangesTests-\(UUID().uuidString)")
-        addTeardownBlock { try? FileManager.default.removeItem(at: cursorDir) }
-        let cursorStore = ChangeCursorStore(directory: cursorDir)
-        let containerIdentifier = NSFileProviderItemIdentifier(
-            FileProviderIdentifier.folder(folderID: folderID, relativePath: relativePath).rawValue
-        )
-        return DeferredFolderEnumerator(catalog: catalog,
-                                        rootCache: rootCache,
-                                        folderID: folderID,
-                                        relativePath: relativePath,
-                                        containerIdentifier: containerIdentifier,
-                                        cursorStore: cursorStore,
-                                        domainID: "d")
+    let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
+    let observer = ChangeObserver()
+    let startAnchor = FolderChangeMatching.anchor(10)
+    enumerator.enumerateChanges(for: observer, from: startAnchor)
+    wait(for: [observer.done], timeout: 5)
+
+    XCTAssertNil(observer.failure)
+    XCTAssertEqual(
+      observer.moreComing, false,
+      "a full page with no next_cursor must not claim more is coming — there is no cursor to advance to"
+    )
+    // No cursor to advance to: the anchor must not regress either.
+    XCTAssertEqual(observer.finishedAnchor, startAnchor)
+  }
+
+  func testStaleCursorRequestsFullReEnumeration() {
+    StubURLProtocol.handler = { _ in
+      (409, Data(#"{"error":"stale cursor","current":99}"#.utf8), [:])
     }
 
-    func testDeliversOnlyThisFoldersChangesAndAdvancesTheAnchor() {
-        StubURLProtocol.handler = { _ in
-            let body = """
-            {"changes":[
-              {"cursor":11,"asset_id":"a1","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"d/one.dng","at":"2026-08-12T00:00:00.000Z"},
-              {"cursor":12,"asset_id":"a2","folder_id":"F1","kind":"delete","abs_path":null,"relative_path":"d/two.dng","at":"2026-08-12T00:00:00.000Z"},
-              {"cursor":13,"asset_id":"a3","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"elsewhere/three.dng","at":"2026-08-12T00:00:00.000Z"}
-            ],"next_cursor":13}
-            """
-            return (200, Data(body.utf8), [:])
-        }
+    let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
+    let observer = ChangeObserver()
+    enumerator.enumerateChanges(for: observer, from: FolderChangeMatching.anchor(1))
+    wait(for: [observer.done], timeout: 5)
 
-        let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
-        let observer = ChangeObserver()
-        enumerator.enumerateChanges(for: observer, from: FolderChangeMatching.anchor(10))
-        wait(for: [observer.done], timeout: 5)
-
-        XCTAssertNil(observer.failure)
-        XCTAssertEqual(observer.updated.map(\.filename), ["one.dng"])
-        // A deleted RAW takes its canonical sidecar with it (#3563).
-        XCTAssertEqual(observer.deleted.map(\.rawValue),
-                       [FileProviderIdentifier.asset("a2").rawValue,
-                        MapleItem.sidecarIdentifier(assetID: "a2").rawValue,
-                        FileProviderIdentifier.thumb(assetID: "a2").rawValue,
-                        FileProviderIdentifier.preview(assetID: "a2").rawValue])
-        // Anchor advances past the whole page even though one row was
-        // filtered out — otherwise we would re-scan it forever.
-        XCTAssertEqual(observer.finishedAnchor.map(FolderChangeMatching.parseAnchor), 13)
-        XCTAssertEqual(observer.moreComing, false)
-    }
-
-    /// Latent-trap regression (review finding on #2822): a page that
-    /// hits exactly `changesPageLimit` rows but carries no `next_cursor`
-    /// must NOT report `moreComing: true` — otherwise the OS re-asks
-    /// from the same (unchanged) anchor forever. Today's server always
-    /// attaches a cursor to a non-empty page (`src/api/.../changes.ts`),
-    /// so this exercises defense-in-depth against a server that doesn't.
-    /// #3563 — with `batch-meta` answering, an updated asset fans out to its
-    /// RAW item AND its sidecar item (the sidecar's own mtime seeding the
-    /// version), and an asset the server reports without a sidecar retires
-    /// the sidecar identifier instead.
-    func testResolvesSidecarItemsFromBatchMetadata() {
-        StubURLProtocol.handler = { req in
-            if req.url?.path == "/api/assets/batch-meta" {
-                let body = """
-                {"assets":[
-                  {"id":"a1a1a1a1a1a1a1a1a1a1a1a1","folder_id":"F1","filename":"one.dng","abs_path":"/srv/lib/d/one.dng",
-                   "size":10,"mtime":1700000000000,"rating":0,"xmp_mtime":1700000123,"xmp_size":512,"has_xmp":true},
-                  {"id":"c3c3c3c3c3c3c3c3c3c3c3c3","folder_id":"F1","filename":"three.dng","abs_path":"/srv/lib/d/three.dng",
-                   "size":10,"mtime":1700000000000,"rating":0,"xmp_mtime":null,"xmp_size":null,"has_xmp":false}
-                ]}
-                """
-                return (200, Data(body.utf8), [:])
-            }
-            let body = """
-            {"changes":[
-              {"cursor":11,"asset_id":"a1a1a1a1a1a1a1a1a1a1a1a1","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"d/one.dng","at":"2026-08-12T00:00:00.000Z"},
-              {"cursor":12,"asset_id":"c3c3c3c3c3c3c3c3c3c3c3c3","folder_id":"F1","kind":"update","abs_path":null,"relative_path":"d/three.dng","at":"2026-08-12T00:00:00.000Z"}
-            ],"next_cursor":12}
-            """
-            return (200, Data(body.utf8), [:])
-        }
-
-        let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
-        let observer = ChangeObserver()
-        enumerator.enumerateChanges(for: observer, from: FolderChangeMatching.anchor(10))
-        wait(for: [observer.done], timeout: 5)
-
-        XCTAssertNil(observer.failure)
-        // RAW, sidecar, then its `.maple/thumbs/` and `.maple/previews/`
-        // entries (#3571) re-versioned by the sidecar mtime.
-        XCTAssertEqual(observer.updated.map(\.filename),
-                       ["one.dng", "one.xmp",
-                        MapleThumbCacheKey.thumbFilename(forRawBasename: "one.dng"), "one.dng.avif",
-                        "three.dng",
-                        MapleThumbCacheKey.thumbFilename(forRawBasename: "three.dng"), "three.dng.avif"])
-        let preview = observer.updated.first { $0.filename == "one.dng.avif" }
-        XCTAssertEqual(preview?.parentItemIdentifier.rawValue,
-                       FileProviderIdentifier.maplePreviewsDir(folderID: "F1", parentRelativePath: "d").rawValue)
-        XCTAssertEqual(preview?.contentModificationDate, Date(timeIntervalSince1970: 1_700_000_123))
-        let sidecar = observer.updated.first { $0.filename == "one.xmp" } as? MapleItem
-        XCTAssertEqual(sidecar?.itemIdentifier, MapleItem.sidecarIdentifier(assetID: "a1a1a1a1a1a1a1a1a1a1a1a1"))
-        XCTAssertEqual(sidecar?.contentModificationDate,
-                       Date(timeIntervalSince1970: 1_700_000_123),
-                       "the sidecar item carries the sidecar's own mtime, not the RAW's")
-        XCTAssertEqual(sidecar?.documentSize, 512)
-        XCTAssertEqual(observer.deleted.map(\.rawValue),
-                       [MapleItem.sidecarIdentifier(assetID: "c3c3c3c3c3c3c3c3c3c3c3c3").rawValue])
-        XCTAssertEqual(observer.finishedAnchor.map(FolderChangeMatching.parseAnchor), 12)
-    }
-
-    func testFullPageWithoutNextCursorDoesNotLoopForever() {
-        let pageLimit = 500
-        StubURLProtocol.handler = { _ in
-            let rows = (0..<pageLimit).map { i in
-                "{\"cursor\":\(i + 1),\"asset_id\":\"a\(i)\",\"folder_id\":\"OTHER\",\"kind\":\"update\",\"abs_path\":null,\"relative_path\":\"other/\(i).dng\",\"at\":\"2026-08-12T00:00:00.000Z\"}"
-            }
-            let body = "{\"changes\":[\(rows.joined(separator: ","))]}"
-            return (200, Data(body.utf8), [:])
-        }
-
-        let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
-        let observer = ChangeObserver()
-        let startAnchor = FolderChangeMatching.anchor(10)
-        enumerator.enumerateChanges(for: observer, from: startAnchor)
-        wait(for: [observer.done], timeout: 5)
-
-        XCTAssertNil(observer.failure)
-        XCTAssertEqual(
-            observer.moreComing, false,
-            "a full page with no next_cursor must not claim more is coming — there is no cursor to advance to"
-        )
-        // No cursor to advance to: the anchor must not regress either.
-        XCTAssertEqual(observer.finishedAnchor, startAnchor)
-    }
-
-    func testStaleCursorRequestsFullReEnumeration() {
-        StubURLProtocol.handler = { _ in
-            (409, Data(#"{"error":"stale cursor","current":99}"#.utf8), [:])
-        }
-
-        let enumerator = makeEnumerator(folderID: "F1", relativePath: "d")
-        let observer = ChangeObserver()
-        enumerator.enumerateChanges(for: observer, from: FolderChangeMatching.anchor(1))
-        wait(for: [observer.done], timeout: 5)
-
-        let ns = observer.failure as NSError?
-        XCTAssertEqual(ns?.domain, NSFileProviderErrorDomain)
-        XCTAssertEqual(ns?.code, NSFileProviderError.syncAnchorExpired.rawValue)
-    }
+    let ns = observer.failure as NSError?
+    XCTAssertEqual(ns?.domain, NSFileProviderErrorDomain)
+    XCTAssertEqual(ns?.code, NSFileProviderError.syncAnchorExpired.rawValue)
+  }
 }
