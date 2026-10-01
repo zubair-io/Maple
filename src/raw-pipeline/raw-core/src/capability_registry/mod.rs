@@ -443,10 +443,10 @@ impl EvidenceSource {
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
             EvidenceSource::SidecarContractApi => 3,
-            // 18 since #3633: textured highlight/OpcodeList3 preparation
-            // joins the end-to-end CPU/GPU parity corpus.
-            EvidenceSource::GpuChainParityLavapipe => 18,
-            EvidenceSource::GpuChainParityMetal => 18,
+            // 19 since #3434: cached camera-frame WB resolution joins the
+            // textured highlight/OpcodeList3 CPU/GPU parity corpus.
+            EvidenceSource::GpuChainParityLavapipe => 19,
+            EvidenceSource::GpuChainParityMetal => 19,
             EvidenceSource::AppleCanvasGolden => 1,
         }
     }
