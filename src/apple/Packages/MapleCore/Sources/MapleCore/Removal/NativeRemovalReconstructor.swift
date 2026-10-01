@@ -7,6 +7,8 @@ import RawPipeline
 public final class NativeRemovalReconstructor: @unchecked Sendable {
   fileprivate let pointer: UnsafeMutablePointer<MapleRemovalReconstructor>
   public let modelDigest: String
+  /// Shares the browser's exact artifact version without a hand-copied pin.
+  public let modelVersion = ExperimentalRemovalModels.lama.sha256
 
   private init(pointer: UnsafeMutablePointer<MapleRemovalReconstructor>, modelDigest: String) {
     self.pointer = pointer

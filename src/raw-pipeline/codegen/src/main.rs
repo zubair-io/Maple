@@ -213,8 +213,9 @@ fn main() {
                 + "\n"
         }
         (Schema::RemovalModels, Target::Ts) => removal_models::emit_ts(),
+        (Schema::RemovalModels, Target::Swift) => removal_models::emit_swift(),
         (Schema::RemovalModels, _) => {
-            eprintln!("codegen: --schema removal-models supports only json / ts targets");
+            eprintln!("codegen: --schema removal-models supports only json / ts / swift targets");
             std::process::exit(2);
         }
 
