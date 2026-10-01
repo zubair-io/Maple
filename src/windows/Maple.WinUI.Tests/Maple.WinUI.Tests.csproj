@@ -253,6 +253,7 @@
     <Compile Include="..\Maple.WinUI\Services\CancelFlagSlot.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Native\*.cs" LinkBase="Native" />
     <Compile Include="..\Maple.WinUI\Services\Export\*.cs" LinkBase="Services\Export" />
+    <Compile Include="..\Maple.WinUI\Generated\FilenameVocabulary.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\ExportRecipe.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Models\LocalAdjustment.cs" LinkBase="Models" />
     <!-- White-balance name + provenance (#2434): the generated vocabulary /

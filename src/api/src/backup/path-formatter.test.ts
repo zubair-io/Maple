@@ -240,3 +240,22 @@ describe('formatBackupPath — filename safety', () => {
     ).toBe('2024/Misc/IMG.heic');
   });
 });
+
+// #3990: compare the API's fast guard to the real shared native validator.
+// These names intentionally exercise Windows portability on a Unix host.
+describe('portable filename parity with raw-core', () => {
+  test('shared corpus filename cases agree with the native validator', async () => {
+    const { tryGetRawFfi } = await import('../ffi/raw_ffi.ts');
+    const ffi = tryGetRawFfi();
+    if (!ffi) throw new Error('portable filename parity requires the native raw-core library');
+    const corpus = await Bun.file(
+      new URL('../../../../test-fixtures/file-operations/cases.json', import.meta.url),
+    ).json();
+    for (const entry of corpus.cases) {
+      if (entry.kind !== 'name-validation') continue;
+      const name = entry.operation.name;
+      expect(isSafeFilename(name), entry.name).toBe(ffi.validateFilename(name).ok);
+      expect(isSafeFilename(name), entry.name).toBe(entry.expected.valid);
+    }
+  });
+});

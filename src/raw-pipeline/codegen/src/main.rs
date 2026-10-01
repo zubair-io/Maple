@@ -42,6 +42,7 @@ mod capability_summary;
 mod color_labels;
 mod color_matrices;
 mod export_recipe;
+mod filename;
 mod film_catalog;
 mod raster_recipe;
 mod support_tiers;
@@ -100,6 +101,8 @@ enum Target {
 enum Schema {
     /// Culling metadata XMP vocabulary, with no pixel-processing behavior.
     ColorLabels,
+    /// Portable filename vocabulary (#3990).
+    Filename,
     ExportRecipe,
     /// Raster operation and encoder wire types (#3553).
     RasterRecipe,
@@ -187,6 +190,7 @@ fn main() {
             eprintln!("pipeline-output-version supports swift / ts");
             std::process::exit(2);
         }
+        (Schema::Filename, target) => filename::emit(target),
         (Schema::ColorLabels, Target::Swift) => color_labels::emit_swift(),
         (Schema::ColorLabels, Target::Ts) => color_labels::emit_ts(),
         (Schema::ColorLabels, Target::Cs) => color_labels::emit_cs(),
