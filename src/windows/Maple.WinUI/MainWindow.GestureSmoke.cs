@@ -7,7 +7,11 @@ public sealed partial class MainWindow
 {
     private async Task VerifySliderGestureUndoAsync(Maple.UI.Atoms.MuiAdjustmentSlider slider)
     {
+        ViewModel.ResetToDefaults();
         var original = slider.Value;
+        var originalStatus = EditStatusText.Text;
+        if (originalStatus.Contains("Edited"))
+            throw new InvalidOperationException("Reset left the editor marked as edited.");
         var depth = ViewModel.UndoCount;
         OnSliderGestureStarted(slider, EventArgs.Empty);
         slider.Value = original + .05;
@@ -20,6 +24,12 @@ public sealed partial class MainWindow
         if (ViewModel.UndoCount != depth + 1)
             throw new InvalidOperationException("Bound slider release did not commit one edit.");
         ViewModel.Undo();
+        OnSliderGestureStarted(slider, EventArgs.Empty);
+        slider.Value = original + .05;
+        slider.Value = original;
+        OnSliderGestureCompleted(slider, EventArgs.Empty);
+        if (EditStatusText.Text != originalStatus || ViewModel.UndoCount != depth)
+            throw new InvalidOperationException("Returning a slider to its original value left stale edit status or history.");
         Content.UpdateLayout();
         if (ViewModel.Adjustments.Exposure != original || slider.Value != original)
             throw new InvalidOperationException("Slider Undo did not restore both model and visible control.");
@@ -27,6 +37,7 @@ public sealed partial class MainWindow
         Content.UpdateLayout();
         if (ViewModel.Adjustments.Exposure != original + .25 || slider.Value != original + .25)
             throw new InvalidOperationException("Slider Redo did not restore the final value.");
+        ViewModel.Undo();
         ViewModel.Undo();
     }
 

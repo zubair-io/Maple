@@ -171,6 +171,7 @@ namespace Maple.WinUI
             InitializeCloudMap();
             InitializeComparison();
             ViewModel.ModelSynced += OnEditorModelSynced;
+            ViewModel.AdjustmentSettled += UpdateEditStatus;
             ViewModel.AdjustmentEdited += () => EditStatusText.Text = $"{ViewModel.SelectedPhoto?.Format} · Edited";
             // Wire the grouped grid source only after the chrome exists —
             // setting Source synchronously raises the grid's first selection.

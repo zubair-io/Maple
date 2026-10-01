@@ -9,6 +9,7 @@ namespace Maple.WinUI.ViewModels
     {
         // --- Adjustment edits ---
         private object? _adjustmentGesture;
+        public event Action? AdjustmentSettled;
 
         public void BeginAdjustmentGesture(object owner)
         {
@@ -53,6 +54,7 @@ namespace Maple.WinUI.ViewModels
 
         private void CommitUndoBoundary()
         {
+            AdjustmentSettled?.Invoke();
             if (_undoBaseline == null || XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = _undoBaseline }) ==
                 XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }))
                 return;
