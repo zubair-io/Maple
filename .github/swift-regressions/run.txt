@@ -380,3 +380,18 @@ RestoreSafetyTests
 
 # SMB restore is copy-only: trashed files are marked, never deleted or renamed (#4139/#4173).
 SMBCopyOnlyRestoreTests
+# AI removal (#1472 / #3955): real committed RAW/XMP/companions and native FFI.
+LocalRelocationJournalTests
+LocalRemovalAssetStoreTests
+LocalRemovalRelocateTests
+NativeDetailRemovalTests
+NativeSavedRemovalSessionTests
+RemovalCalibrationContextTests
+RemovalExportSnapshotTests
+RemovalGenerationBridgeTests
+RemovalMaskCombineTests
+RemovalModelStateTests
+RemovalSceneHandoffTests
+RemovalSidecarNamespaceTests
+RemovalSmartBridgeTests
+RemovalXMPRecordsTests

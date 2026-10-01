@@ -105,15 +105,7 @@ pub(super) fn develop_with_gain(
         return Err(invalid("output cap must be positive"));
     }
     if !patches.is_empty() {
-        let anchor = anchor_model();
-        if model.hot_pixel_suppression != anchor.hot_pixel_suppression
-            || model.demosaic != anchor.demosaic
-            || model.auto_lateral_ca != anchor.auto_lateral_ca
-            || model.highlight_recovery != anchor.highlight_recovery
-            || !model.retouch_spots.is_empty()
-        {
-            return Err(invalid("upstream settings or clone/heal are not qualified"));
-        }
+        validate_upstream(model)?;
         for patch in patches {
             patch.validate().map_err(|reason| invalid(&reason))?;
         }
@@ -124,6 +116,19 @@ pub(super) fn develop_with_gain(
         ),
         None => develop::develop_with_calibration_patches(raw, model, quality, cancel, patches),
     }
+}
+
+pub(super) fn validate_upstream(model: &AdjustmentModel) -> Result<()> {
+    let anchor = anchor_model();
+    if model.hot_pixel_suppression != anchor.hot_pixel_suppression
+        || model.demosaic != anchor.demosaic
+        || model.auto_lateral_ca != anchor.auto_lateral_ca
+        || model.highlight_recovery != anchor.highlight_recovery
+        || !model.retouch_spots.is_empty()
+    {
+        return Err(invalid("upstream settings or clone/heal are not qualified"));
+    }
+    Ok(())
 }
 
 /// Restore native DefaultCrop placement in the sensor-sized pre-lens buffer.

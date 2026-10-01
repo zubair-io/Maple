@@ -205,7 +205,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
 /// [`develop_scene_linear_from_padded_mosaic`] — `1.0` (every wrapper below
 /// except the explicit `_and_ae_gain_` one) is a bit-identical no-op, exactly
 /// reproducing this chain's pre-#1167 output.
-fn develop_tile_oriented_f32(
+pub(in crate::pipeline) fn develop_tile_oriented_f32(
     raw: &RawImage,
     model: &AdjustmentModel,
     rect: TileRect,
