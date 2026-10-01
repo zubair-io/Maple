@@ -151,14 +151,38 @@ public sealed class ExportRecipeEditor : StackPanel
     private static ComboBox Choice(string title, params string[] values)
     {
         var combo = new ComboBox { Header = title, HorizontalAlignment = HorizontalAlignment.Stretch };
-        foreach (var value in values) combo.Items.Add(value);
+        foreach (var value in values) combo.Items.Add(new ComboBoxItem { Content = ChoiceLabel(value), Tag = value });
         return combo;
     }
 
-    private static string Selected(ComboBox combo) => combo.SelectedItem as string ?? "";
+    private static string ChoiceLabel(string value) => value switch
+    {
+        "jpeg" => "JPEG",
+        "tiff" => "TIFF",
+        "png" => "PNG",
+        "srgb" => "sRGB",
+        "display-p3" => "Display P3",
+        "maple-display" => "Maple display rendering",
+        "strip" => "Remove source metadata",
+        "error" => "Report an error",
+        "skip" => "Skip existing files",
+        "replace" => "Replace existing files",
+        _ => value,
+    };
+
+    private static string Selected(ComboBox combo) => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
     private static void Select(ComboBox combo, string value)
     {
-        if (!combo.Items.Contains(value)) combo.Items.Add(value);
-        combo.SelectedItem = value;
+        foreach (var item in combo.Items)
+        {
+            if (item is ComboBoxItem choice && choice.Tag is string key && key == value)
+            {
+                combo.SelectedItem = choice;
+                return;
+            }
+        }
+        var imported = new ComboBoxItem { Content = value, Tag = value };
+        combo.Items.Add(imported);
+        combo.SelectedItem = imported;
     }
 }
