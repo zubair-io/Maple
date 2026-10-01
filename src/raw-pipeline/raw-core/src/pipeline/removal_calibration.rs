@@ -13,7 +13,7 @@ use crate::{
     math::Matrix3,
     stages::inpaint_composite,
     types::InpaintPatch,
-    xmp::{AdjustmentModel, LensProfileEnable},
+    xmp::AdjustmentModel,
 };
 
 use super::{develop, removal_context::anchor_model, RenderQuality};
@@ -91,8 +91,7 @@ pub fn develop_removal_calibration_patches(
 ) -> Result<Image> {
     if !patches.is_empty() {
         let anchor = anchor_model();
-        if model.lens_profile_enable != LensProfileEnable::Off
-            || model.hot_pixel_suppression != anchor.hot_pixel_suppression
+        if model.hot_pixel_suppression != anchor.hot_pixel_suppression
             || model.demosaic != anchor.demosaic
             || model.auto_lateral_ca != anchor.auto_lateral_ca
             || model.highlight_recovery != anchor.highlight_recovery
@@ -108,12 +107,34 @@ pub fn develop_removal_calibration_patches(
         .map(|(scene, _gain)| scene)
 }
 
+/// Restore native DefaultCrop placement in the sensor-sized pre-lens buffer.
+/// Negative origins represent sensor borders outside the authoring plate; no
+/// replacement coverage exists there. Only native-resolution use is qualified.
+pub(super) fn sensor_window(raw: &RawImage) -> [f32; 4] {
+    let crop = raw
+        .crop_rect
+        .and_then(|c| crate::image::CropRect::clamped(c.x, c.y, c.w, c.h, raw.width, raw.height))
+        .unwrap_or(crate::image::CropRect {
+            x: 0,
+            y: 0,
+            w: raw.width,
+            h: raw.height,
+        });
+    [
+        -(crop.x as f32) / crop.w as f32,
+        -(crop.y as f32) / crop.h as f32,
+        raw.width as f32 / crop.w as f32,
+        raw.height as f32 / crop.h as f32,
+    ]
+}
+
 /// Preserve untouched camera samples; transform only coverage-supported patch
 /// RGB. Validation precedes every write, including a later invalid operation.
 pub(super) fn composite_camera(
     camera: &mut Image,
     patches: &[InpaintPatch],
     profile: &DcpProfile,
+    window: [f32; 4],
 ) -> Result<()> {
     let (_, to_camera) = matrices(profile)?;
     for patch in patches {
@@ -136,7 +157,7 @@ pub(super) fn composite_camera(
             }
         }
     }
-    inpaint_composite::apply_camera_patches(camera, patches, to_camera);
+    inpaint_composite::apply_camera_patches(camera, patches, to_camera, window);
     Ok(())
 }
 
@@ -151,3 +172,7 @@ mod context_tests;
 #[cfg(test)]
 #[path = "removal_calibration_format_tests.rs"]
 mod format_tests;
+
+#[cfg(test)]
+#[path = "removal_calibration_lens_tests.rs"]
+mod lens_tests;
