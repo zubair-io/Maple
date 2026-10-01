@@ -1,5 +1,6 @@
 //! #3875: apply one real Auto fit to already-developed NR diagnostic EXRs.
 //! Usage: view-preview-noise RAW INPUT_EXR_DIRECTORY OUTPUT_DIRECTORY
+//! [--full-fit] [--native-fit]
 //! Holds fit and working resolution fixed. This is not the export parity gate.
 //! Also writes the Windows CPU's composed 33-cube/trilinear tail, using the
 //! identical fit and display input, to isolate approximation from resize error.
@@ -47,7 +48,23 @@ fn write_display(mut image: Image, rgb: &[f32], path: &Path) {
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
-    assert_eq!(args.len(), 4, "RAW INPUT_EXR_DIRECTORY OUTPUT_DIRECTORY");
+    assert!(
+        args.len() >= 4
+            && args[4..]
+                .iter()
+                .all(|s| s == "--full-fit" || s == "--native-fit"),
+        "RAW INPUT_EXR_DIRECTORY OUTPUT_DIRECTORY [--full-fit] [--native-fit]"
+    );
+    let quality = if args[4..].iter().any(|s| s == "--full-fit") {
+        RenderQuality::Full
+    } else {
+        RenderQuality::Preview
+    };
+    let cap = if args[4..].iter().any(|s| s == "--native-fit") {
+        FitCap::Native
+    } else {
+        FitCap::Proxy
+    };
     let path = Path::new(&args[1]);
     let raw = raw_core::decode::decode_bytes(
         &std::fs::read(path).unwrap(),
@@ -55,14 +72,9 @@ fn main() {
     )
     .unwrap();
     let model = AdjustmentModel::default();
-    let (curve, residual) = fit_auto_profile_from_raw_at_cap(
-        &raw,
-        &model,
-        RenderQuality::Preview,
-        RawInput::Path(path),
-        FitCap::Proxy,
-    )
-    .expect("fixture must yield a real Auto fit");
+    let (curve, residual) =
+        fit_auto_profile_from_raw_at_cap(&raw, &model, quality, RawInput::Path(path), cap)
+            .expect("fixture must yield a real Auto fit");
     let curve = curve.expect("Auto curve");
     let residual = residual.expect("Auto residual LUT");
     let baked = bake_auto_profile_lut(&curve, &residual, 33);
@@ -106,7 +118,7 @@ fn main() {
         );
         write_display(image.clone(), &rgb, &output.join(format!("{name}.png")));
         println!(
-            "{name}: {}x{} fixed proxy Auto fit",
+            "{name}: {}x{} fixed Auto fit ({quality:?}, {cap:?})",
             image.width, image.height
         );
     }

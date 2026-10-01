@@ -1,0 +1,147 @@
+{
+  "issue": 3875,
+  "sourceBase": "80247663391b751182ab9c8b64a7cf837d8f18ed",
+  "kind": "Auto fit origin isolation",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "command": "view-preview-noise RAW maple276-noise OUTPUT [--full-fit] [--native-fit]",
+  "method": "Hold the six 1600x1067 scene buffers and direct display application fixed. Fit separately using Preview/Proxy, Full/Proxy and Full/Native. Compare output PNGs with the shared comparator.",
+  "proxyQualityComparison": {
+    "area-radius-one": {
+      "mean_deltaE": 0.0,
+      "p95_deltaE": 0.0,
+      "max_deltaE": 0.0,
+      "bias_r": 0.0,
+      "bias_g": 0.0,
+      "bias_b": 0.0,
+      "n_pixels": 1707200
+    },
+    "area": {
+      "mean_deltaE": 0.0,
+      "p95_deltaE": 0.0,
+      "max_deltaE": 0.0,
+      "bias_r": 0.0,
+      "bias_g": 0.0,
+      "bias_b": 0.0,
+      "n_pixels": 1707200
+    },
+    "linear": {
+      "mean_deltaE": 0.0,
+      "p95_deltaE": 0.0,
+      "max_deltaE": 0.0,
+      "bias_r": 0.0,
+      "bias_g": 0.0,
+      "bias_b": 0.0,
+      "n_pixels": 1707200
+    },
+    "radius-one": {
+      "mean_deltaE": 0.0,
+      "p95_deltaE": 0.0,
+      "max_deltaE": 0.0,
+      "bias_r": 0.0,
+      "bias_g": 0.0,
+      "bias_b": 0.0,
+      "n_pixels": 1707200
+    },
+    "reference": {
+      "mean_deltaE": 0.0,
+      "p95_deltaE": 0.0,
+      "max_deltaE": 0.0,
+      "bias_r": 0.0,
+      "bias_g": 0.0,
+      "bias_b": 0.0,
+      "n_pixels": 1707200
+    },
+    "unchanged": {
+      "mean_deltaE": 0.0,
+      "p95_deltaE": 0.0,
+      "max_deltaE": 0.0,
+      "bias_r": 0.0,
+      "bias_g": 0.0,
+      "bias_b": 0.0,
+      "n_pixels": 1707200
+    }
+  },
+  "proxyVersusNative": {
+    "area-radius-one": {
+      "mean_deltaE": 1.4098489378392907,
+      "p95_deltaE": 3.242915783279275,
+      "max_deltaE": 5.941669592006836,
+      "bias_r": -0.0034468418452888727,
+      "bias_g": -0.0017639369470998645,
+      "bias_b": -0.0013877489836886525,
+      "n_pixels": 1707200
+    },
+    "area": {
+      "mean_deltaE": 1.3788687232653591,
+      "p95_deltaE": 3.2257371186563604,
+      "max_deltaE": 6.0431925933904385,
+      "bias_r": -0.0034158576745539904,
+      "bias_g": -0.0017601229483261704,
+      "bias_b": -0.0013192378683015704,
+      "n_pixels": 1707200
+    },
+    "linear": {
+      "mean_deltaE": 1.3595909966269768,
+      "p95_deltaE": 3.217180226606854,
+      "max_deltaE": 6.130367115875763,
+      "bias_r": -0.0034324470907449722,
+      "bias_g": -0.0016978613566607237,
+      "bias_b": -0.0012193832080811262,
+      "n_pixels": 1707200
+    },
+    "radius-one": {
+      "mean_deltaE": 1.4040787559967338,
+      "p95_deltaE": 3.2403170303671365,
+      "max_deltaE": 5.865347610516289,
+      "bias_r": -0.0034548845142126083,
+      "bias_g": -0.0017363091465085745,
+      "bias_b": -0.0013424954377114773,
+      "n_pixels": 1707200
+    },
+    "reference": {
+      "mean_deltaE": 1.4072176549702085,
+      "p95_deltaE": 2.9155471746888857,
+      "max_deltaE": 6.182224634410443,
+      "bias_r": -0.0042991335503757,
+      "bias_g": -0.0025525055825710297,
+      "bias_b": -0.002226297976449132,
+      "n_pixels": 1707200
+    },
+    "unchanged": {
+      "mean_deltaE": 1.3588975409596629,
+      "p95_deltaE": 3.218492896500771,
+      "max_deltaE": 5.98362348133497,
+      "bias_r": -0.0034311185590922832,
+      "bias_g": -0.0016677281819283962,
+      "bias_b": -0.001199522172100842,
+      "n_pixels": 1707200
+    }
+  },
+  "productionExportVersusDiagnostic": {
+    "proxy": {
+      "mean_deltaE": 2.7412720701427946,
+      "p95_deltaE": 6.247074788776251,
+      "max_deltaE": 35.19368581665254,
+      "bias_r": 0.0024545197375118732,
+      "bias_g": 0.0013334034010767937,
+      "bias_b": 0.0021369513124227524,
+      "n_pixels": 1707200
+    },
+    "native": {
+      "mean_deltaE": 2.475638789092064,
+      "p95_deltaE": 6.321205139380687,
+      "max_deltaE": 35.93602828522929,
+      "bias_r": -0.0010096217738464475,
+      "bias_g": -0.00041528919246047735,
+      "bias_b": 0.0007957213674671948,
+      "n_pixels": 1707200
+    }
+  },
+  "conclusion": "Proxy Preview and Full fits yield identical pixels for this fixture. Native versus proxy fit yields mean Delta-E 1.36 to 1.41 on identical pixels. Against downsampled production export, the radius-one diagnostic changes from mean 2.741 to 2.476: still above 2.0. Fit differences are real but switching fits alone does not resolve parity; spatial processing and reduction order remain.",
+  "limitations": [
+    "Diagnostic scene buffers from windows-nr-support276, not production screenshot qualification.",
+    "Production export is Lanczos-reduced to diagnostic dimensions by the comparator; the reference direction is diagnostic PNG.",
+    "One real RAW, default model and fixed scene buffers only.",
+    "No production fit routing, default profile or budget changed."
+  ]
+}
