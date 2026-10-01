@@ -95,35 +95,35 @@ describe('findListItems', () => {
     );
   });
 
-  test('sorts an asset with no capture date behind every dated one (#3779)', async () => {
+  test('includes newly indexed undated assets in limited rated and edited working sets', async () => {
     using handle = await createTestDatabase();
     const { db } = handle;
     const sql = testSqliteDb(db);
     const libraryId = insertFolder(db);
-    const dated2020 = insertAsset(db, {
-      exif: JSON.stringify({ captured_at: '2020-01-01T00:00:00Z' }),
-    });
-    // A scan: EXIF with no DateTimeOriginal and no CreateDate, so
-    // `indexer/exif.ts` derives no `captured_at` at all.
-    const undated = insertAsset(db, { exif: JSON.stringify({ iso: 100 }) });
-    const dated2026 = insertAsset(db, {
-      exif: JSON.stringify({ captured_at: '2026-01-01T00:00:00Z' }),
-    });
-    for (const [i, assetId] of [dated2020, undated, dated2026].entries()) {
+    const dated = Array.from({ length: 12 }, () =>
+      insertAsset(db, {
+        exif: JSON.stringify({ captured_at: '2026-01-01T00:00:00.000Z' }),
+      }),
+    ).sort();
+    const undated = [insertAsset(db, { exif: JSON.stringify({ iso: 100 }) }), insertAsset(db)];
+    for (const [i, assetId] of [...dated, ...undated].entries()) {
       insertLocation(db, { assetId, libraryId, filename: `f${i}.dng` });
+      run(
+        db,
+        'UPDATE assets SET rating = 5, has_xmp = 1, indexed_at = ? WHERE id = ?',
+        '2027-01-01T00:00:00.000Z',
+        assetId,
+      );
     }
-
-    // SQLite sorts NULL lowest, so a DESC page reaches the undated row last.
-    expect((await findListItems({}, 10, sql)).map((i) => i.id)).toEqual([
-      dated2026,
-      dated2020,
-      undated,
-    ]);
-    // Which means a page smaller than the live set never returns it, where
-    // the Mongo repo's unsorted `find().limit()` gave it a chance. Pinned
-    // here so the gap is asserted rather than incidental; #3779 carries the
-    // generated column and index that close it.
-    expect((await findListItems({}, 2, sql)).map((i) => i.id)).toEqual([dated2026, dated2020]);
+    const expected = [...[...undated].sort(), ...dated.slice(0, 3)];
+    for (const filter of [{}, { hasXmp: true }, { ratingGte: 1 }]) {
+      expect((await findListItems(filter, 5, sql)).map((item) => item.id)).toEqual(expected);
+    }
+    expect(
+      (await findListItems({ capturedAfterIso: '2025-01-01T00:00:00Z' }, 5, sql)).map(
+        (item) => item.id,
+      ),
+    ).toEqual(dated.slice(0, 5));
   });
 
   test('applies the has_xmp, rating and captured_after residuals', async () => {

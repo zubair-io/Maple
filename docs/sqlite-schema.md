@@ -169,7 +169,7 @@ enough that a paraphrase loses the index. Repo modules must use this spelling.
 something narrower by "live", excluding only soft-deleted assets and so
 returning ones whose every location had been tagged `missing_since`. It now uses
 the predicate above, in line with every other live surface, which is also what
-makes `assets_live_captured` usable for it; `assets.list.test.ts` pins the exact
+makes `assets_live_sorted` usable for it; `assets.list.test.ts` pins the exact
 row the two definitions disagree about.
 
 One more term rides along with it on every browse, search and facet query:
@@ -199,15 +199,19 @@ query's `WHERE` will contain verbatim. Anything else belongs in a CHECK.
 
 ### What the list page's sort costs
 
-`findListItems` orders by `captured_at DESC, id`. That is what lets the ordered
-partial index serve the page, and it makes the endpoint pageable and stable
-across calls, which an unsorted limited read is not. It also means an asset with
-no EXIF capture date — the
-generated column is NULL, since `indexer/exif.ts` derives it from
-`DateTimeOriginal ?? CreateDate` with no fallback — sorts behind every dated
-row, so a page smaller than the live set never reaches one. #3779 carries the
-fix: a `COALESCE(captured_at, indexed_at)` generated column and a partial index
-over it, which is DDL rather than a repo change.
+`findListItems` orders by `sort_at DESC, id`, served by the
+`assets_live_sorted` partial index. Migration `0007-asset-working-set-sort`
+adds the virtual `sort_at = COALESCE(captured_at, indexed_at)` column and its
+index to both existing and new libraries. Undated scans, screenshots and
+videos use their indexing time rather than falling behind every dated asset.
+Capture dates retain precedence, and equal dates break ties by asset ID.
+
+A `captured_after` filter still tests `captured_at`, excluding undated assets.
+For that shape `sort_at` equals `captured_at` on every qualifying row, so the
+query keeps capture ordering and the `assets_live_captured` range index.
+Other working-set filters (`has_xmp`, `rating`) use `assets_live_sorted` and
+stop at the limit without a temporary sort. Search/grid capture sorting keeps
+its existing capture index.
 
 ## Every query pattern in `src/api/src/db/`, and the index that serves it
 
@@ -227,17 +231,17 @@ facet, search, people, worker and backup call sites they serve.
 
 ### Browse, search and the grid
 
-| Call site                      | SQLite                                                                 | Index                                                    |
-| ------------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------- |
-| `findListItems`                | live predicate + optional `rating`, `has_xmp`, `captured_at` residuals | `assets_live_captured`                                   |
-| default search sort            | ordered scan of `assets`, semi-join for the library                    | `assets_live_captured` + `asset_locations_primary_entry` |
-| `name` sort                    | `ORDER BY filename`                                                    | `asset_locations_filename`                               |
-| library scope                  | `EXISTS (… l.library_id = ?)`                                          | `asset_locations_library_live`                           |
-| free-text `q` on filename/path | `LIKE` over `asset_locations`                                          | `asset_locations_filename` (prefix only)                 |
-| timeline subtree scope         | `l.path = ?` or `substr(l.path, 1, length(?)) = ?`                     | `UNIQUE(asset_id, ordinal)`, `path` a residual           |
-| `scope=people`                 | `EXISTS (SELECT 1 FROM faces …)`                                       | `faces_person` / `faces_unassigned`                      |
-| person filter                  | `EXISTS (… f.person_id IN (…))`                                        | `faces_person`                                           |
-| excluded people                | `NOT EXISTS (…)`                                                       | `faces_person`                                           |
+| Call site                      | SQLite                                                                 | Index                                                             |
+| ------------------------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `findListItems`                | live predicate + optional `rating`, `has_xmp`, `captured_at` residuals | `assets_live_sorted`; `assets_live_captured` for `captured_after` |
+| default search sort            | ordered scan of `assets`, semi-join for the library                    | `assets_live_captured` + `asset_locations_primary_entry`          |
+| `name` sort                    | `ORDER BY filename`                                                    | `asset_locations_filename`                                        |
+| library scope                  | `EXISTS (… l.library_id = ?)`                                          | `asset_locations_library_live`                                    |
+| free-text `q` on filename/path | `LIKE` over `asset_locations`                                          | `asset_locations_filename` (prefix only)                          |
+| timeline subtree scope         | `l.path = ?` or `substr(l.path, 1, length(?)) = ?`                     | `UNIQUE(asset_id, ordinal)`, `path` a residual                    |
+| `scope=people`                 | `EXISTS (SELECT 1 FROM faces …)`                                       | `faces_person` / `faces_unassigned`                               |
+| person filter                  | `EXISTS (… f.person_id IN (…))`                                        | `faces_person`                                                    |
+| excluded people                | `NOT EXISTS (…)`                                                       | `faces_person`                                                    |
 
 The grid query is written as a semi-join rather than an inner join. What the
 shape guarantees is which table leads: `EXISTS` gives the planner nothing to
