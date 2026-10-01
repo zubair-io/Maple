@@ -42,6 +42,7 @@ public sealed partial class MainWindow
                 if (AppWindow.Size.Width != size.Width || AppWindow.Size.Height != size.Height)
                     throw new InvalidOperationException("Native window did not reach the requested qualification size");
                 VerifyEditorHeaderBounds();
+                await VerifyEditorPanelScrollingAsync();
                 if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(adjustments, ViewModel.Adjustments) ||
                     group != _activeGroup || EditPanel.Visibility != Visibility.Visible)
                     throw new InvalidOperationException("Native resize changed the selected document or active tool");

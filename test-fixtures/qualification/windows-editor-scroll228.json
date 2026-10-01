@@ -1,0 +1,132 @@
+{
+  "date": "2026-10-01",
+  "issues": [
+    3875,
+    3887,
+    3889
+  ],
+  "sourceBase": "5f1cfd393",
+  "build": "Maple.DesignAudit228",
+  "assemblySha256": "ff9c821ec5cfb5f25b8e15f7f1eb0fb95ed87d9092d93f0d1a660e3f4c6f6e38",
+  "buildErrors": 0,
+  "buildWarnings": 26,
+  "changes": [
+    "Record explicit native-detail, scopes, preset, gesture, retouch and transfer stage boundaries to localize future timeouts.",
+    "At both real native window sizes, exercise production ScrollViewer.ChangeView to the end and verify the final Light row and Crop control are wholly visible; restore original offsets."
+  ],
+  "validation": {
+    "runner": "src/windows/scripts/test-window-lifecycle.ps1 -AppPath src/windows/Maple.WinUI/bin/Release/full-audit228/Maple.DesignAudit228.exe",
+    "exitCode": 0,
+    "runs": {
+      "gpu": {
+        "passed": true,
+        "exportRecipeEditorRoundTrip": true,
+        "hwnd": 3217570,
+        "renderPath": "gpu",
+        "panelReleases": 1,
+        "rendererStopped": true,
+        "droppedClosingPresents": 1,
+        "viewerDesignNavigation": true,
+        "localSaveFailureRecovery": true,
+        "nativeDetailActualSize": true,
+        "presetUndoRedoAndReset": true,
+        "adjustmentGestureUndoRedo": true,
+        "repairControlsUndoRedo": true,
+        "scopesLifecycle": true,
+        "transferWatcherUndoRedo": true,
+        "comparisonPreservesDocument": true,
+        "cloudOpeningReadiness": true,
+        "cloudSearchPagination": true,
+        "cloudMapHost": true,
+        "responsiveDesign": true,
+        "browseSelectionAndSort": true,
+        "browseScrolling": true,
+        "immediateUndo": true
+      },
+      "cpu": {
+        "passed": true,
+        "exportRecipeEditorRoundTrip": true,
+        "hwnd": 26411626,
+        "renderPath": "cpu",
+        "panelReleases": 1,
+        "rendererStopped": true,
+        "droppedClosingPresents": 0,
+        "viewerDesignNavigation": true,
+        "localSaveFailureRecovery": true,
+        "nativeDetailActualSize": true,
+        "presetUndoRedoAndReset": true,
+        "adjustmentGestureUndoRedo": true,
+        "repairControlsUndoRedo": true,
+        "scopesLifecycle": true,
+        "transferWatcherUndoRedo": true,
+        "comparisonPreservesDocument": true,
+        "cloudOpeningReadiness": true,
+        "cloudSearchPagination": true,
+        "cloudMapHost": true,
+        "responsiveDesign": true,
+        "browseSelectionAndSort": true,
+        "browseScrolling": true,
+        "immediateUndo": true
+      },
+      "empty": {
+        "passed": true,
+        "exportRecipeEditorRoundTrip": true,
+        "hwnd": 88803780,
+        "renderPath": "empty",
+        "panelReleases": 1,
+        "rendererStopped": true,
+        "droppedClosingPresents": 0,
+        "viewerDesignNavigation": false,
+        "localSaveFailureRecovery": false,
+        "nativeDetailActualSize": false,
+        "presetUndoRedoAndReset": false,
+        "adjustmentGestureUndoRedo": false,
+        "repairControlsUndoRedo": false,
+        "scopesLifecycle": false,
+        "transferWatcherUndoRedo": false,
+        "comparisonPreservesDocument": false,
+        "cloudOpeningReadiness": false,
+        "cloudSearchPagination": false,
+        "cloudMapHost": false,
+        "responsiveDesign": false,
+        "browseSelectionAndSort": false,
+        "browseScrolling": false,
+        "immediateUndo": false
+      }
+    },
+    "nativeSizes": [
+      {
+        "requestedWidth": 1440,
+        "requestedHeight": 900,
+        "actualWidth": 1440,
+        "actualHeight": 900,
+        "logicalWidth": 945.3333129882812,
+        "logicalHeight": 592,
+        "rasterizationScale": 1.5
+      },
+      {
+        "requestedWidth": 1024,
+        "requestedHeight": 768,
+        "actualWidth": 1024,
+        "actualHeight": 768,
+        "logicalWidth": 668,
+        "logicalHeight": 504,
+        "rasterizationScale": 1.5
+      }
+    ]
+  },
+  "cpuTimeoutInvestigation": {
+    "previousBuild": "Maple.DesignAudit226",
+    "previousResult": "CPU timed out after 120 seconds; retained as an unexplained intermittent failure.",
+    "instrumentedFreshCpuPassed": true,
+    "instrumentedFullSequence227": "GPU, CPU and empty passed. Saved sidecar contents from the failure and fresh pass both contained only Auto profile settings.",
+    "resolved": false
+  },
+  "limitations": [
+    "Programmatic scrolling and transformed bounds do not prove mouse-wheel delivery, keyboard traversal or Narrator usability.",
+    "Native sizes were exercised at 150% only.",
+    "The prior CPU timeout has not reproduced; added logging does not constitute a root-cause fix.",
+    "No photographic color or physical 100MP performance qualification."
+  ],
+  "fullQualificationPassed": false
+}

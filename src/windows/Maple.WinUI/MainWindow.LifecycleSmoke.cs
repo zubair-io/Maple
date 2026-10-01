@@ -88,11 +88,17 @@ namespace Maple.WinUI
                 {
                     RecordSmokeStage(output, "thumbnail-fallback");
                     await VerifyThumbnailFallbackAsync(raw, output);
+                    RecordSmokeStage(output, "native-detail");
                     await VerifyNativeDetailAsync();
+                    RecordSmokeStage(output, "scopes");
                     await VerifyScopesAsync();
+                    RecordSmokeStage(output, "preset-undo");
                     await VerifyPresetUndoAsync();
+                    RecordSmokeStage(output, "adjustment-gesture");
                     await VerifyAdjustmentGestureUndoAsync();
+                    RecordSmokeStage(output, "retouch-undo");
                     await VerifyRetouchUndoAsync();
+                    RecordSmokeStage(output, "transfer-undo");
                     await VerifyTransferUndoAsync(output);
                     VerifyViewerDesignNavigation();
                     RecordSmokeStage(output, "filmstrip-metadata");
