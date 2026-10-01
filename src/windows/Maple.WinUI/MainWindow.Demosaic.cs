@@ -40,9 +40,9 @@ public sealed partial class MainWindow
         _demosaicPicker.IsEnabled = layout == "bayer";
         _demosaicStatus.Text = layout switch
         {
-            "bayer" => "Applies to full-resolution detail and export. The fast fit-view preview uses a fixed binned kernel.",
-            "xtrans" => "X-Trans uses its own demosaic; Bayer kernel selection does not apply.",
-            "linear_rgb" => "LinearRaw is already demosaiced; no Bayer kernel is used.",
+            "bayer" => "Applies to full-resolution detail and export. Fit-to-window previews are unchanged.",
+            "xtrans" => "X-Trans uses its own demosaic method; these choices do not apply.",
+            "linear_rgb" => "This image is already demosaiced; these choices do not apply.",
             _ => "Demosaic choices become available after a Bayer RAW is decoded.",
         };
         if (!known) _demosaicStatus.Text += $" Imported choice ‘{choice}’ is preserved. Choose a supported option to replace it.";
