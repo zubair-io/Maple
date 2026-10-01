@@ -1,0 +1,30 @@
+{
+  "issue": 3887,
+  "date": "2026-10-01",
+  "sourceBase": "1a1fcb9c874c52445b725b1d71819c7530d93b62",
+  "managedAppSha256": "57186AA5D7366E426E425F8BE4586E9D4CCA1FD2C0D3588BCDA8049B089111BC",
+  "change": "Native resize setup now edits the bound Exposure slider through existing gesture handlers and asserts visible value equals the model.",
+  "gpuPassed": true,
+  "cpuPassed": true,
+  "emptyPassed": true,
+  "earlierInteractiveAttempt": {
+    "build": "Maple.DesignAudit235",
+    "stableCheckpointReached": true,
+    "focusReported": "pane or tooltip pane, not the slider",
+    "actions": [
+      "UIA click Exposure",
+      "Pointer click Exposure thumb",
+      "Tab",
+      "Right"
+    ],
+    "exposureUnchanged": true,
+    "verdict": "INCONCLUSIVE",
+    "ended": "180-second visual checkpoint acknowledgement timeout",
+    "note": "Single-photo fixture cannot establish whether neighbor navigation was suppressed. No keyboard pass claimed."
+  },
+  "limitations": [
+    "Bound-control test setup is not native key input.",
+    "Keyboard focus, multi-photo routing and full Narrator coverage remain unverified.",
+    "Previous intermittent XAML crash remains unresolved."
+  ]
+}

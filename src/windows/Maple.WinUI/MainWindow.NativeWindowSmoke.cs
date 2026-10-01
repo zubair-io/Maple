@@ -21,11 +21,11 @@ public sealed partial class MainWindow
         var originalZoom = ViewerScroll.ZoomFactor;
         var originalX = ViewerScroll.HorizontalOffset;
         var originalY = ViewerScroll.VerticalOffset;
-        var gesture = new object();
-        ViewModel.BeginAdjustmentGesture(gesture);
-        adjustments.Exposure = originalExposure + .25;
-        ViewModel.NotifyAdjustmentEdited();
-        ViewModel.EndAdjustmentGesture(gesture);
+        var exposureSlider = FindDescendant<Maple.UI.Atoms.MuiAdjustmentSlider>(EditPanel)
+            ?? throw new InvalidOperationException("Resize qualification requires the visible Exposure slider");
+        OnSliderGestureStarted(exposureSlider, EventArgs.Empty);
+        exposureSlider.Value = originalExposure + .25;
+        OnSliderGestureCompleted(exposureSlider, EventArgs.Empty);
         var editedState = Services.Xmp.XmpWriter.Serialize(
             new Services.Xmp.XmpSidecarDocument { Adjustments = adjustments });
         try
@@ -34,7 +34,8 @@ public sealed partial class MainWindow
             var zoomDeadline = Environment.TickCount64 + 5000;
             while (Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 && Environment.TickCount64 < zoomDeadline)
                 await Task.Delay(50);
-            if (Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 || ViewModel.UndoCount != originalDepth + 1)
+            if (Math.Abs(ViewerScroll.ZoomFactor - 1.75) > .001 || ViewModel.UndoCount != originalDepth + 1 ||
+                ViewModel.Adjustments.Exposure != exposureSlider.Value || exposureSlider.Value != originalExposure + .25)
                 throw new InvalidOperationException("Resize qualification could not establish edited, zoomed state");
             foreach (var size in new[] { new SizeInt32(1440, 900), new SizeInt32(1024, 768) })
             {
