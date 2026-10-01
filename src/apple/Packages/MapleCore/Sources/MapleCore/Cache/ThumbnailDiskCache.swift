@@ -150,6 +150,20 @@ public actor ThumbnailDiskCache {
     return data
   }
 
+  /// Evict an unreadable URL-backed thumbnail so `ThumbnailLoader` can
+  /// rebuild the disposable derivative from the source image.
+  public func removeThumbnail(for assetURL: URL) {
+    let key = cacheKey(for: assetURL)
+    memCache.removeValue(forKey: key)
+    dataMemCache.removeValue(forKey: key)
+    syncPeekCache.removeObject(forKey: key as NSString)
+    if let dir = cacheDir {
+      try? fm.removeItem(
+        at: dir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: key)))
+    }
+    try? fm.removeItem(at: MapleSidecarPaths.thumbURL(for: assetURL))
+  }
+
   /// Return AVIF bytes for an opaque stable key (e.g. an `AssetRef.id` or a
   /// server-provided maple:id hex). Used by sourceless assets (PhotoKit,
   /// SelfHosted) where there is no filesystem URL to hash by basename.

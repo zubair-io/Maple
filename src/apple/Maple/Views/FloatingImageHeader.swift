@@ -24,26 +24,29 @@ struct FloatingImageHeader<Trailing: View>: View {
 
   var body: some View {
     HStack(spacing: 10) {
-      // Back chevron + filename are pinned outside the scroll region so
-      // they stay visible however wide the trailing controls grow.
+      // Keep the back affordance outside the scroll region. The filename is
+      // centered independently below, while trailing controls remain scrollable.
       Button(action: onBack) {
         MuiIcon(name: "chevron_left", size: .sm)
           .font(.system(size: 15, weight: .semibold))
           .foregroundStyle(ProTokens.text)
-          .frame(width: 30, height: 30)
+          .frame(minWidth: 44, minHeight: 44)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Back")
       .accessibilityIdentifier("\(identifierPrefix)-back")
+      .contentShape(Rectangle())
 
-      Text(displayName)
-        .font(MapleTokens.Typography.filename)
-        .foregroundStyle(ProTokens.text)
-        .lineLimit(1)
-        .truncationMode(.middle)
-        .frame(maxWidth: PreviewViewVM.filenameMaxWidth(isCompact: isCompact))
-        .layoutPriority(1)
-        .accessibilityIdentifier("\(identifierPrefix)-filename")
+      if !isCompact {
+        Text(displayName)
+          .font(MapleTokens.Typography.filename)
+          .foregroundStyle(ProTokens.text)
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .frame(maxWidth: PreviewViewVM.filenameMaxWidth(isCompact: false))
+          .layoutPriority(1)
+          .accessibilityIdentifier("\(identifierPrefix)-filename")
+      }
 
       if isCompact {
         // On a phone the pill spans the screen width; the trailing
@@ -58,6 +61,19 @@ struct FloatingImageHeader<Trailing: View>: View {
     }
     .padding(.horizontal, 10)
     .frame(height: 44)
+    .contentShape(Capsule())
+    .overlay {
+      if isCompact {
+        Text(displayName)
+          .font(MapleTokens.Typography.filename)
+          .foregroundStyle(ProTokens.text)
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .frame(maxWidth: PreviewViewVM.filenameMaxWidth(isCompact: true))
+          .allowsHitTesting(false)
+          .accessibilityIdentifier("\(identifierPrefix)-filename")
+      }
+    }
     // Compact: stretch to the offered width so the trailing ScrollView is
     // bounded (and can scroll). Regular: size to intrinsic content width.
     .frame(maxWidth: isCompact ? .infinity : nil)
