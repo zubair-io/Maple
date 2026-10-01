@@ -8,6 +8,24 @@ enum RemovalXMPRecords {
     try field(data)?.records
   }
 
+  /// Ordinary remote/PhotoKit saves cannot author or roll back a stack from
+  /// an incoming scalar snapshot. Keep only the current source document's
+  /// validated owned records, refusing ownership the writer cannot preserve.
+  static func ordinaryWriteRecords(_ data: Data?) throws -> RemovalRecords? {
+    guard let data else { return nil }
+    let owned = try field(data)
+    if let owned, !owned.primary {
+      throw RemovalError.invalid(
+        "Removal records outside the primary XMP description cannot be rewritten safely")
+    }
+    if XMPParser.parsePassthrough(data: data).unknownAttributes.contains(where: {
+      $0.name == "papp:InpaintRemovals"
+    }) {
+      throw RemovalError.invalid("Foreign removal attribute conflicts with Maple's XMP namespace")
+    }
+    return try owned.map { try RemovalRecords(json: $0.records) }
+  }
+
   /// Namespace-owned attribute identity for atomic local writes. Its original
   /// name lets the writer replace an alias exactly once with canonical papp.
   static func field(_ data: Data) throws

@@ -180,6 +180,7 @@ enum XMPKnownFields {
   /// model or authors itself.
   static let attributes: Set<String> =
     structural.union(develop).union(bands).union(culling).union(metadata)
+    .union(["papp:InpaintRemovals"])
 
   /// Namespace prefixes the canonical envelope declares itself — on
   /// `rdf:Description` (the three core plus the conditional metadata ones)

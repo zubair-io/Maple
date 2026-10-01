@@ -301,6 +301,11 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// (`XMPSerialization+Retouch.swift`).
   public var retouchSpots: [RetouchSpot]  // default []
 
+  /// Source-bound accepted AI edits (#3955). Kept in the decoded-model key
+  /// and immutable export/history snapshots; never copied through preset groups.
+  /// An absent field remains compatible with older Codable snapshots.
+  public var inpaintRemovals: RemovalRecords? = nil
+
   /// DNG-embedded lens corrections (#376) — the master switch plus the
   /// per-family strength of the distortion (`WarpRectilinear`), lateral-CA
   /// (each plane's deviation from the green reference plane) and vignetting

@@ -45,10 +45,11 @@ final class LocalRemovalAssetStoreTests: XCTestCase {
     let xml = try String(contentsOf: sidecar, encoding: .utf8)
     XCTAssertTrue(xml.contains("foreign:Keep=\"untouched\""))
     XCTAssertTrue(xml.contains("<foreign:History original=\"preserved\"/>"))
-    XCTAssertEqual(
-      XMPParser.parsePassthrough(xml).unknownAttributes.first {
+    XCTAssertEqual(try XMPParser.parse(xml).0.inpaintRemovals?.json, records)
+    XCTAssertFalse(
+      XMPParser.parsePassthrough(xml).unknownAttributes.contains {
         $0.name == "papp:InpaintRemovals"
-      }?.value, records)
+      }, "Modeled records must not be emitted a second time through passthrough")
     XCTAssertEqual(try Data(contentsOf: raw), original)
     let reopened = try await assets.readAssets(records: records)
     XCTAssertEqual(reopened, files)
