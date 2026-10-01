@@ -1,3 +1,4 @@
+import { takeRenderFrame } from './raw-pipeline.render-frame';
 /// <reference lib="webworker" />
 import { removal_content_digest, removal_selection } from './pkg/raw_wasm';
 import { ensureReady } from './raw-pipeline.worker-handlers';
@@ -39,6 +40,19 @@ export function runRemovalAuthoring(
     throw new Error('Removal RAW source changed; reopen the tool');
   }
   switch (command.kind) {
+    case 'render-saved': {
+      if (!session.render_saved_preview) throw new Error('Saved preview renderer unavailable');
+      return {
+        kind: 'rendered',
+        frame: takeRenderFrame(
+          session.render_saved_preview(
+            command.xmp,
+            command.cap,
+            command.film ? new Uint8Array(command.film) : new Uint8Array(),
+          ),
+        ),
+      };
+    }
     case 'source':
       return { kind: 'source', source };
     case 'map':
@@ -88,7 +102,8 @@ export function runRemovalAuthoring(
 export async function handleRemovalAuthoring(request: RemovalAuthoringRequest): Promise<void> {
   try {
     await ensureReady();
-    if (request.command.kind === 'map') await restoreLensProfile(request.command.xmp);
+    if (request.command.kind === 'map' || request.command.kind === 'render-saved')
+      await restoreLensProfile(request.command.xmp);
     const live = await withLiveRemovalSession((session) => runRemovalAuthoring(session, request));
     const value = live
       ? live.value
@@ -104,7 +119,13 @@ export async function handleRemovalAuthoring(request: RemovalAuthoringRequest): 
       value,
     };
     const transfer =
-      value.kind === 'context' ? [value.rgb] : value.kind === 'selection' ? [value.mask] : [];
+      value.kind === 'context'
+        ? [value.rgb]
+        : value.kind === 'selection'
+          ? [value.mask]
+          : value.kind === 'rendered'
+            ? [value.frame.rgb]
+            : [];
     self.postMessage(reply, transfer);
   } catch (error) {
     const reply: RemovalAuthoringResponse = {

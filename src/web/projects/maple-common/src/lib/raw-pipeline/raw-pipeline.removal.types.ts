@@ -1,3 +1,5 @@
+import type { DecodeSuccess } from './raw-pipeline.types';
+import type { MapleRender } from './pkg/raw_wasm';
 // Concrete retained-RAW authoring requests (#3934 / #3955). Inference stays
 // in its dedicated worker; these operations never run on slider ticks.
 export interface RemovalInput {
@@ -17,6 +19,7 @@ export type RemovalAuthoringCommand =
       manifest: string;
       companions: ArrayBuffer;
     }
+  | { kind: 'render-saved'; xmp: string; cap: number; film?: ArrayBuffer }
   | { kind: 'selection'; request: string }
   | { kind: 'prepare-saved'; xmp: string; manifest: string; companions: ArrayBuffer };
 
@@ -31,6 +34,7 @@ export interface RemovalAuthoringRequest {
 }
 
 export type RemovalAuthoringValue =
+  | { kind: 'rendered'; frame: Omit<DecodeSuccess, 'id' | 'type'> }
   | { kind: 'source'; source: string }
   | { kind: 'map'; mapping: string }
   | { kind: 'context'; rgb: ArrayBuffer }
@@ -42,6 +46,7 @@ export type RemovalAuthoringResponse =
   | { id: number; type: 'removal-authoring-error'; message: string };
 
 export interface RemovalRawSession {
+  render_saved_preview?(xmp: string, cap: number, film: Uint8Array): MapleRender;
   removal_calibration_source(): string;
   removal_map_points(xmp: string, request: string): string;
   removal_calibration_context(rect: Uint32Array): Float32Array;

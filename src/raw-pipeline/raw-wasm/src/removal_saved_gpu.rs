@@ -62,6 +62,26 @@ impl WebLiveSession {
         .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
+    /// Normal saved-preview pixels and actual RAW support metadata (#3955).
+    pub fn render_saved_preview(
+        &self,
+        xmp: &str,
+        cap: u32,
+        film: &[u8],
+    ) -> Result<crate::render::MapleRender, JsValue> {
+        crate::removal_saved::preview(
+            self.saved_removals.as_ref(),
+            &self.raw_img,
+            &self.original,
+            &self.raw,
+            &self.ext,
+            xmp,
+            cap,
+            film,
+        )
+        .map_err(|e| JsValue::from_str(&e))
+    }
+
     /// Export accepted pixels without installed inference models or a re-decode.
     pub fn export_saved_removals(
         &self,

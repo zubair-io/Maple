@@ -33,6 +33,9 @@ import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service
 import type { LibraryStateService } from '../../state/library-state.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { probeGpuPresent } from './image-canvas.gpu-probe';
+import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
+import { savedRemovalRecords } from '../../removal/saved-removal-records';
 import type { AssetId } from '../../models/asset';
 import { type AdjustmentModel, isDefaultAdjustment } from '../../models/adjustment-model';
 import type {
@@ -56,6 +59,7 @@ export interface GpuPresentHost {
   readonly state: LibraryStateService;
   readonly canvasSvc: ImageCanvasService;
   readonly xmpSerializer: XmpSerializerService;
+  readonly savedRemovals: SavedRemovalRenderService;
   /** Where a fallback to the 2D path is reported (#2415) so the UI can
    *  surface a notice instead of only the console warning below. */
   readonly gpuFallback: GpuFallbackNoticeService;
@@ -158,97 +162,8 @@ export class ImageCanvasGpuPresent {
     return null;
   }
 
-  /**
-   * Run a one-time probe on a temporary canvas to verify if WebGL2 / WebGPU
-   * presentation to a 2D context via drawImage works in this browser.
-   * Returns true if working, false if broken/black canvas readback is produced.
-   */
-  static async testGpuPresent(): Promise<boolean> {
-    if (typeof (globalThis as any).vitest !== 'undefined') return true;
-    if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
-    if (typeof OffscreenCanvas === 'undefined') return false;
-
-    // 1. Probe WebGL2 composition
-    try {
-      const canvas = new OffscreenCanvas(4, 4);
-      const gl = canvas.getContext('webgl2');
-      if (!gl) return false;
-      gl.clearColor(0.5, 0.75, 1.0, 1.0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-
-      const temp2d = new OffscreenCanvas(4, 4);
-      const ctx = temp2d.getContext('2d');
-      if (!ctx) return false;
-      ctx.drawImage(canvas, 0, 0);
-      const imgData = ctx.getImageData(0, 0, 4, 4);
-      const pixel = imgData.data;
-      if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) {
-        return false; // Broken presentation
-      }
-    } catch {
-      return false;
-    }
-
-    // 2. Probe WebGPU composition if supported
-    const nav = navigator as any;
-    if (nav.gpu) {
-      try {
-        const adapter = await nav.gpu.requestAdapter();
-        if (!adapter) return false;
-        const device = await adapter.requestDevice();
-        if (!device) return false;
-
-        const canvas = new OffscreenCanvas(4, 4);
-        const context = (canvas as any).getContext('webgpu');
-        if (!context) {
-          device.destroy();
-          return false;
-        }
-
-        const format = nav.gpu.getPreferredCanvasFormat();
-        context.configure({
-          device,
-          format,
-          usage: 16 | 1, // GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
-        });
-
-        const encoder = device.createCommandEncoder();
-        const renderPass = encoder.beginRenderPass({
-          colorAttachments: [
-            {
-              view: context.getCurrentTexture().createView(),
-              clearValue: { r: 0.5, g: 0.75, b: 1.0, a: 1.0 },
-              loadOp: 'clear',
-              storeOp: 'store',
-            },
-          ],
-        });
-        renderPass.end();
-        device.queue.submit([encoder.finish()]);
-
-        await device.queue.onSubmittedWorkDone();
-
-        const temp2d = new OffscreenCanvas(4, 4);
-        const ctx = temp2d.getContext('2d');
-        if (!ctx) {
-          device.destroy();
-          return false;
-        }
-        ctx.drawImage(canvas, 0, 0);
-        const imgData = ctx.getImageData(0, 0, 4, 4);
-        const pixel = imgData.data;
-
-        device.destroy();
-
-        if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) {
-          return false; // Broken WebGPU presentation
-        }
-      } catch {
-        return false;
-      }
-    }
-
-    return true;
+  static testGpuPresent(): Promise<boolean> {
+    return probeGpuPresent();
   }
 
   constructor(private readonly host: GpuPresentHost) {}
@@ -314,9 +229,10 @@ export class ImageCanvasGpuPresent {
       // contract: the Rust side treats `None` as the As-Shot sentinel, and passing
       // a serialized default instead could perturb that WB path.
       const openModel = this.host.state.adjustmentFor(assetId)();
-      const openXmp = isDefaultAdjustment(openModel)
-        ? undefined
-        : this.host.serializeForRender(openModel);
+      const xml = this.host.serializeForRender(openModel);
+      const openXmp = isDefaultAdjustment(openModel) && !savedRemovalRecords(xml) ? undefined : xml;
+      const saved = await this.host.savedRemovals.load(assetId, xml);
+      if (assetId !== this.host.currentAssetId || this.canvasEl !== canvasEl) return true;
       // Develop fit to the viewport (#1080): pass the wrap's long edge in real
       // pixels so the session never develops (or sizes a surface at) full sensor
       // res. The session pins this target for its lifetime; CSS scales the
@@ -327,6 +243,7 @@ export class ImageCanvasGpuPresent {
         ext,
         openXmp,
         this.host.viewportTargetLongEdge(),
+        saved,
       );
 
       // Stale guard: a fast asset switch may have moved on (or torn this down)

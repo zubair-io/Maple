@@ -1,10 +1,9 @@
+import { SavedRemovalPreviewClient } from './raw-pipeline.saved-preview';
 import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 // RawPipelineService — Angular wrapper around the raw-decode Web Worker.
 // Lazy-creates the worker on first call, reuses for subsequent calls,
 // terminates on app destroy. All decodes run off the main thread.
 //
-// The worker's thread-pool status protocol outlived the public observables
-// #3048 removed; the subjects below still receive those messages.
 
 import { Injectable, Injector, OnDestroy, inject, signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
@@ -72,9 +71,7 @@ import { handleWorkerMessage } from './raw-pipeline.worker-dispatch';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
-  // Routes the legacy `decode()` through the GPU live chain when true (#1029);
-  // the worker still falls back to `render_bytes` on a gpu-off bundle. Read
-  // at REQUEST time (#1062) so an operator flip lands on the next open.
+  // Operator changes apply at the next open (#1029 / #1062).
   private readonly gate = inject(GpuLiveRenderGate);
 
   // #3191: the requested GPU-live canvas colour space, read per session-open
@@ -98,13 +95,15 @@ export class RawPipelineService implements OnDestroy {
     this.pending,
   );
 
-  // T10: threaded-state, reported by the worker once WASM init completes.
-  // `isThreaded$`/`threadCount$`, the observables that used to surface this
-  // to a UI, were deleted as dead (#3048 — no production caller remained).
-  // The subjects themselves stay: `raw-pipeline.worker-dispatch.ts`'s shared
-  // `WorkerDispatchContext` still populates them from the worker's `status`
-  // message, and retiring that protocol end-to-end is a separate follow-up
-  // (see the module doc above).
+  readonly savedPreview = new SavedRemovalPreviewClient(
+    new RemovalAuthoringClient(
+      () => this.ensureWorker(),
+      () => this.nextId++,
+      this.pending,
+    ),
+    (run) => this.sampleQueue(() => run()),
+  );
+
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
 
@@ -176,6 +175,7 @@ export class RawPipelineService implements OnDestroy {
     this.deepDenoiseProgress.set(null);
     this.detailClient.workerFailed();
     this.removal.close();
+    this.savedPreview.close();
     this.pending.forEach(({ reject }) => reject(new Error(message)));
     this.pending.clear();
     this.worker = null;
@@ -205,6 +205,7 @@ export class RawPipelineService implements OnDestroy {
   }
 
   closeNativeDetail(): void {
+    this.savedPreview.close();
     this.detailClient.close();
   }
 
@@ -559,6 +560,7 @@ export class RawPipelineService implements OnDestroy {
 
   ngOnDestroy(): void {
     this.removal.close();
+    this.savedPreview.close();
     this.worker?.terminate();
     this.worker = null;
     this.pending.forEach(({ reject }) => reject(new Error('RawPipelineService destroyed')));

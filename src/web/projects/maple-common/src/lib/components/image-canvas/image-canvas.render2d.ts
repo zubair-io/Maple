@@ -1,5 +1,6 @@
 import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
 import { hasCalibratedWhiteBalance } from '../../state/camera-support';
+import type { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
 // image-canvas.render2d.ts — the 2D-canvas decode/paint paths for
 // ImageCanvasComponent, extracted behind a host interface so the component
 // stays inside the file-size budget. Same precedent as image-canvas.gpu-present.ts
@@ -21,6 +22,7 @@ import { isDefaultAdjustment, type AdjustmentModel } from '../../models/adjustme
 import type { RenderSizing } from './image-canvas.two-phase';
 import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
 import type { ImageCanvasFilmSync } from './image-canvas.film';
+import { savedRemovalRecords } from '../../removal/saved-removal-records';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 
 /**
@@ -32,6 +34,7 @@ export interface Render2dHost {
   readonly state: LibraryStateService;
   readonly canvasSvc: ImageCanvasService;
   readonly pipeline: RawPipelineService;
+  readonly savedRemovals?: SavedRemovalRenderService;
   /** #3171 — `runRender2d` reads `cpuLutBytesForCurrent()` off this for the
    *  focused asset's currently-resolved film-look LUT bytes. */
   readonly filmSync: ImageCanvasFilmSync;
@@ -117,8 +120,15 @@ export async function coldOpen2d(
     // Viewport-sized cold open (#1101): decode at the fast-phase target so first
     // pixels land at viewport resolution; the refine pass sharpens past fit.
     const openModel = host.state.adjustmentFor(assetId)();
-    const openXmp = isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
-    const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
+    const serializedOpenXmp = host.serializeForRender(openModel);
+    const openXmp =
+      isDefaultAdjustment(openModel) && !savedRemovalRecords(serializedOpenXmp)
+        ? undefined
+        : serializedOpenXmp;
+    const decoded =
+      openXmp && savedRemovalRecords(openXmp) && host.savedRemovals
+        ? await host.savedRemovals.render(assetId, bytes, ext, openXmp, sizing.maxLongEdge, true)
+        : await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
     // Update dimensions on the asset — the NATIVE dims (the sized reply carries
@@ -213,14 +223,25 @@ export async function runRender2d(
 ): Promise<void> {
   try {
     const filmLut = host.filmSync.cpuLutBytesForCurrent();
-    const decoded = await host.pipeline.decode(
-      bytes,
-      ext,
-      xmp,
-      sizing.maxLongEdge,
-      sizing.qualityPreview,
-      filmLut,
-    );
+    const decoded =
+      host.currentAssetId && savedRemovalRecords(xmp) && host.savedRemovals
+        ? await host.savedRemovals.render(
+            host.currentAssetId,
+            bytes,
+            ext,
+            xmp,
+            sizing.maxLongEdge,
+            sizing.qualityPreview,
+            filmLut,
+          )
+        : await host.pipeline.decode(
+            bytes,
+            ext,
+            xmp,
+            sizing.maxLongEdge,
+            sizing.qualityPreview,
+            filmLut,
+          );
     // Stale guard: a newer edit (or asset switch) bumped the generation.
     if (generation !== host.renderGeneration) return;
 

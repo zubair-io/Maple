@@ -1,5 +1,4 @@
-import { cameraSupportFromJson } from '../state/camera-support';
-import { lensProfileFromJson } from '../lens/lens-profile.metadata';
+import { takeRenderFrame } from './raw-pipeline.render-frame';
 /// <reference lib="webworker" />
 
 import {
@@ -309,36 +308,9 @@ function decodeViaCpuRoute(bytes: Uint8Array, req: DecodeRequest): LegacyDecodeR
 // shape and the same `decode-success`/`decode-error` reply, differing only in which WASM entry
 // produced the result and which request fields they read to call it.
 function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult): void {
-  const width = result.width;
-  const height = result.height;
-  const nativeWidth = result.full_width;
-  const nativeHeight = result.full_height;
-  const asShotTemperature = result.as_shot_temperature;
-  const asShotTint = result.as_shot_tint;
-  const hasLensCorrections = result.has_lens_corrections; // #3182
-  const lensCorrectionCaInert = result.lens_correction_ca_inert;
-  const cameraSupport = cameraSupportFromJson(result.camera_support_json);
-  const lensProfile = lensProfileFromJson(result.lens_profile_json); // #3479
-  const rgb = result.take_rgb();
-  result.free();
-  // One owned transfer copy, including when the source backing store is shared (#3970).
-  const buffer = rgb.slice().buffer;
-  const response: WorkerResponse = {
-    id: req.id,
-    type: 'decode-success',
-    width,
-    height,
-    nativeWidth,
-    nativeHeight,
-    rgb: buffer,
-    asShotTemperature,
-    asShotTint,
-    hasLensCorrections,
-    lensCorrectionCaInert,
-    cameraSupport,
-    lensProfile,
-  };
-  (self as unknown as Worker).postMessage(response, [buffer]);
+  const frame = takeRenderFrame(result);
+  const response: WorkerResponse = { id: req.id, type: 'decode-success', ...frame };
+  (self as unknown as Worker).postMessage(response, [frame.rgb]);
 }
 
 // Surfaces the full stack (useful for a panic-hook trap) — `worker-log` forwarding carries it on.

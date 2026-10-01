@@ -127,6 +127,9 @@ function makeHost(
     state,
     canvasSvc,
     xmpSerializer,
+    savedRemovals: {
+      load: vi.fn(async () => undefined),
+    } as unknown as GpuPresentHost['savedRemovals'],
     gpuFallback,
     serializeForRender: () => '<x/>',
     loading,
@@ -323,6 +326,32 @@ describe('ImageCanvasGpuPresent — cold-open sidecar (#1915)', () => {
     expect(host.lastRenderedXmp).toBe('Neutral');
     expect(host.lastRenderedXmp).not.toBe(host.serializeForRender(model()));
     expect(host.markColdOpenDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes saved records and their verified bundle on the first frame even with default sliders', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const xml =
+      '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/"><rdf:Description papp:InpaintRemovals="[1]"/></rdf:RDF>';
+    host.serializeForRender = () => xml;
+    const bundle = { manifest: '[]', bytes: new Uint8Array() };
+    vi.mocked(host.savedRemovals.load).mockResolvedValue(bundle);
+    const present = new ImageCanvasGpuPresent(host);
+    vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
+    await present.open('asset-1', new Uint8Array([0x44]), 'dng');
+    expect(host.savedRemovals.load).toHaveBeenCalledWith('asset-1', xml);
+    const args = vi.mocked(host.pipeline.openLiveSession).mock.calls[0];
+    expect(args[3]).toBe(xml);
+    expect(args[5]).toBe(bundle);
+  });
+
+  it('does not open a GPU frame if companion verification fails', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    vi.mocked(host.savedRemovals.load).mockRejectedValue(new Error('Companion digest mismatch'));
+    const present = new ImageCanvasGpuPresent(host);
+    vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
+    expect(await present.open('asset-1', new Uint8Array([0x44]), 'dng')).toBe(false);
+    expect(host.pipeline.openLiveSession).not.toHaveBeenCalled();
+    expect(present.active()).toBe(false);
   });
 
   it('opens with undefined xmp for a fresh (default) model — preserves the #1892 As-Shot seeding path', async () => {

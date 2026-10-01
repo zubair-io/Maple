@@ -40,7 +40,7 @@ import {
   computeEffectivePx,
   computeRefineTargetLongEdge,
   computeViewportTargetLongEdge,
-  drawCanvas2d,
+  drawCanvasState,
   clearCanvas2d,
 } from './image-canvas.draw2d';
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
@@ -64,6 +64,7 @@ import { FilmLutService } from '../../film/film-lut.service';
 import { ImageCanvasZoomHost } from './image-canvas.zoom-host';
 import { canvasDisplayDims, createNativeDetail } from './image-canvas.native-detail-host';
 import { ImageCanvasNativeDetail } from './image-canvas.native-detail';
+import { SavedRemovalRenderService } from '../../removal/saved-removal-render.service';
 import { HOST_CLASS, beforeAfterBtnClass as beforeAfterBtnClassFn } from './image-canvas.classes';
 
 @Component({
@@ -99,6 +100,7 @@ export class ImageCanvasComponent
   pipeline = inject(RawPipelineService);
   // Public for `GpuPresentHost` (serializes the model; 2D-fallback reporting, #2415).
   readonly xmpSerializer = inject(XmpSerializerService);
+  readonly savedRemovals = inject(SavedRemovalRenderService);
   readonly gpuFallback = inject(GpuFallbackNoticeService);
   private readonly embeddedPreview = inject(EmbeddedPreviewService);
   private readonly injector = inject(Injector);
@@ -233,7 +235,10 @@ export class ImageCanvasComponent
 
   /** Crop-stripped render model, shared by GPU and CPU cold-open dedup. */
   serializeForRender(model: AdjustmentModel): string {
-    return this.xmpSerializer.serialize(renderModelForCrop(model, this.cropSession.active()));
+    return this.savedRemovals.serialize(
+      this.currentAssetId,
+      renderModelForCrop(model, this.cropSession.active()),
+    );
   }
 
   ngAfterViewInit(): void {
@@ -524,29 +529,8 @@ export class ImageCanvasComponent
     await runRender2d(this, xmp, generation, sizing, bytes, this.currentExt);
   }
 
-  /**
-   * Draw into the viewport-sized backing store (#1101) — the paint path lives
-   * in `image-canvas.draw2d.ts` (`drawCanvas2d`); this gathers the signal
-   * inputs. The signal reads stay inside the draw effect's synchronous call,
-   * so its dependency set is unchanged by the extraction.
-   */
   private draw(): void {
-    const canvas = this.canvasRef?.nativeElement;
-    if (!canvas) return;
-    const { canvasW, canvasH } = this.effectivePx();
-    drawCanvas2d(canvas, {
-      wrapW: this.wrapW(),
-      wrapH: this.wrapH(),
-      canvasW,
-      canvasH,
-      pan: this.canvasSvc.pan(),
-      bitmap: this.imageBitmap(),
-      before: this.comparison.bitmap(),
-      overlayOnly: this.gpuPresent.active(),
-      detail: this.nativeDetail.visibleOverlay(),
-      split: this.canvasSvc.beforeAfterSplitX(),
-      gradientUrl: this.state.focusedAsset()?.thumbnailGradient,
-    });
+    drawCanvasState(this.canvasRef?.nativeElement, this);
   }
 
   // ── Gestures (#1100, spec §5.0/§5.2) — routing lives in CanvasZoomGestures ─

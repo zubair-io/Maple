@@ -40,6 +40,7 @@ describe('ImageCanvasRawOpen', () => {
     decode: () => Promise<DecodedImage>,
     options: {
       gpuOpen?: boolean;
+      xmp?: string;
       extractPreview?: () => Promise<{ width: number; height: number; blob: Blob }>;
     } = {},
   ) {
@@ -67,7 +68,7 @@ describe('ImageCanvasRawOpen', () => {
       currentAssetId: 'a' as AssetId,
       renderGeneration: 1,
       lastRenderedXmp: null,
-      serializeForRender: () => '<xmp />',
+      serializeForRender: () => options.xmp ?? '<xmp />',
       fastTargetPx: () => 800,
       markColdOpenDone: () => (coldOpenDone = true),
       hasProvisionalPreview: (id: AssetId) => rawOpen.hasProvisionalPreview(id),
@@ -99,8 +100,27 @@ describe('ImageCanvasRawOpen', () => {
       setCurrentInput: vi.fn(),
       recordPaintedDims: vi.fn(),
     });
-    return { rawOpen, imageBitmap, loading, pixels };
+    return { rawOpen, host, imageBitmap, loading, pixels };
   }
+
+  it('keeps a saved removal sidecar in the default-slider CPU recipe and never paints the original JPEG', async () => {
+    const xml =
+      '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:papp="http://ns.justmaple.app/photo/1.0/"><rdf:Description papp:InpaintRemovals="[1]"/></rdf:RDF>';
+    const extractPreview = vi.fn(async () => ({
+      width: 640,
+      height: 400,
+      blob: new Blob(['preview']),
+    }));
+    const { rawOpen, host, imageBitmap } = harness(
+      () => Promise.reject(new Error('Missing saved companions')),
+      { xmp: xml, extractPreview },
+    );
+    await rawOpen.load('a', 'photo.dng', new Uint8Array([1]));
+    expect(extractPreview).not.toHaveBeenCalled();
+    expect(vi.mocked(host.pipeline.decode).mock.calls[0][2]).toBe(xml);
+    expect(imageBitmap()).toBeNull();
+    expect(rawOpen.hasProvisionalPreview('a')).toBe(false);
+  });
 
   it('shows the embedded JPEG while the full RAW decode is pending', async () => {
     let finishDecode!: (value: DecodedImage) => void;
