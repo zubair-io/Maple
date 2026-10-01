@@ -111,7 +111,7 @@ async function run(): Promise<void> {
       rulesFromFile = await loadRulesFromBase(octokit, owner, repo, rulesFilePath, baseSha);
     }
 
-    const { text: diffText, truncatedNote } = truncateDiff(diff, 80_000);
+    const { text: diffText, truncatedNote } = truncateDiff(diff, 200_000);
 
     const prompt = buildReviewPrompt({
       repoFullName: `${owner}/${repo}`,
