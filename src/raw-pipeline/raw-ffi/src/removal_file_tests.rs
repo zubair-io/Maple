@@ -161,3 +161,6 @@ fn file_render_resolves_companions_from_original_directory_with_temporary_parame
 
 #[path = "removal_export_file_tests.rs"]
 mod export;
+
+#[path = "removal_scene_file_tests.rs"]
+mod scene;

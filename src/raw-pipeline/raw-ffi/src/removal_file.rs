@@ -67,3 +67,48 @@ pub(crate) fn render_saved(
         })
     })
 }
+
+/// Cold file decode can use a cached mosaic, but accepted records still bind
+/// to the actual original bytes. Empty stacks incur no extra file read.
+pub(crate) fn render_saved_scene_from_path(
+    raw: &RawImage,
+    path: &Path,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cap: Option<u32>,
+    cancel: raw_core::CancelToken<'_>,
+) -> Option<raw_core::Result<(u32, u32, Vec<f32>, f32, f32, f32)>> {
+    if model.inpaint_removals.is_empty() {
+        return None;
+    }
+    Some(
+        std::fs::read(path)
+            .map_err(|source| raw_core::Error::Io {
+                path: path.to_owned(),
+                source,
+            })
+            .and_then(|bytes| {
+                render_saved_scene(raw, &bytes, model, path.parent(), quality, cap, cancel)
+                    .expect("nonempty stack requires verification")
+            }),
+    )
+}
+
+pub(crate) fn render_saved_scene(
+    raw: &RawImage,
+    bytes: &[u8],
+    model: &AdjustmentModel,
+    directory: Option<&Path>,
+    quality: RenderQuality,
+    cap: Option<u32>,
+    cancel: raw_core::CancelToken<'_>,
+) -> Option<raw_core::Result<(u32, u32, Vec<f32>, f32, f32, f32)>> {
+    if cancel.is_cancelled() {
+        return Some(Err(raw_core::Error::Cancelled));
+    }
+    prepare_saved(raw, bytes, model, directory).map(|prepared| {
+        prepared.and_then(|(saved, original)| {
+            saved.render_scene_linear_f32_with_anchors(raw, &original, model, quality, cap, cancel)
+        })
+    })
+}

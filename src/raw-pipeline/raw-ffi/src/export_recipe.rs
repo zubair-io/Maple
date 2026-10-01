@@ -1,6 +1,7 @@
 //! Recipe render binding. The job ledger owns final naming and atomic publication.
 use crate::error::{set_last_error, with_large_stack};
-use raw_core::export_recipe::{export_bytes_with_recipe, ExportRecipe};
+use raw_core::export_recipe::{export_bytes_with_recipe, export_with_recipe, ExportRecipe};
+use raw_core::pipeline::RawInput;
 use std::{
     ffi::{c_char, CStr},
     io::Write,
