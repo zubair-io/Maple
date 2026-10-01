@@ -4,11 +4,10 @@ import XCTest
 
 final class MaskGroupPassthroughTests: XCTestCase {
   private func fixture() throws -> String {
-    var root = URL(fileURLWithPath: #filePath)
-    for _ in 0..<7 { root.deleteLastPathComponent() }
+    let root = try MaskGroupFixture.root()
     return try String(
       contentsOf: root.appendingPathComponent(
-        "test-fixtures/local-adjustments/lightroom-group-subtract.xmp"), encoding: .utf8)
+        "lightroom-group-subtract.xmp"), encoding: .utf8)
   }
   private func save(_ model: AdjustmentModel, source: String) throws -> String {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(

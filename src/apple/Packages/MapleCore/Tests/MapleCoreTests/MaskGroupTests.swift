@@ -108,15 +108,14 @@ final class MaskGroupTests: XCTestCase {
   }
 
   func testActualLightroomGroupsRoundTripThroughTemporarySidecars() throws {
-    var root = URL(fileURLWithPath: #filePath)
-    for _ in 0..<7 { root.deleteLastPathComponent() }
+    let root = try MaskGroupFixture.root()
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
       "mask-group-\(UUID())")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
     for operation in ["add", "subtract", "intersect"] {
       let fixture = root.appendingPathComponent(
-        "test-fixtures/local-adjustments/lightroom-group-\(operation).xmp")
+        "lightroom-group-\(operation).xmp")
       let source = try String(contentsOf: fixture, encoding: .utf8)
       let (model, culling) = try XMPParser.parse(source)
       XCTAssertEqual(model.localAdjustments.count, 1)
@@ -169,5 +168,50 @@ final class MaskGroupTests: XCTestCase {
       inputBytes: input, width: 16, height: 16, params: params,
       localAdjustments: [LocalAdjustment(mask: full, adjustments: PartialAdjustments(exposure: 1))])
     XCTAssertEqual(composed, leaf)
+  }
+  func testFixtureLookupSupportsAnIsolatedCIPackageLayout() throws {
+    let stage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: stage) }
+    let fixtures = stage.appendingPathComponent("test-fixtures/local-adjustments")
+    try FileManager.default.createDirectory(at: fixtures, withIntermediateDirectories: true)
+    let committed = try MaskGroupFixture.root()
+    for operation in MaskGroupFixture.operations {
+      let name = "lightroom-group-\(operation).xmp"
+      try FileManager.default.copyItem(
+        at: committed.appendingPathComponent(name), to: fixtures.appendingPathComponent(name))
+    }
+    let source = stage.appendingPathComponent(
+      "Packages/MapleCore/Tests/MapleCoreTests/MaskGroupTests.swift")
+    XCTAssertEqual(try MaskGroupFixture.root(from: source).path, fixtures.path)
+    try FileManager.default.removeItem(
+      at: fixtures.appendingPathComponent("lightroom-group-add.xmp"))
+    XCTAssertThrowsError(try MaskGroupFixture.root(from: source))
+  }
+}
+
+enum MaskGroupFixture {
+  static let operations = ["add", "subtract", "intersect"]
+
+  /// Swift CI compiles Packages/MapleCore outside the checkout. Require all
+  /// committed Lightroom references in either layout; absence fails the gate.
+  static func root(from file: URL = URL(fileURLWithPath: #filePath)) throws -> URL {
+    let parents = sequence(first: file.standardizedFileURL.deletingLastPathComponent()) {
+      directory -> URL? in
+      let parent = directory.deletingLastPathComponent().standardizedFileURL
+      return parent.path == directory.path ? nil : parent
+    }
+    let root = parents.lazy.map { $0.appendingPathComponent("test-fixtures/local-adjustments") }
+      .first { candidate in
+        operations.allSatisfy { operation in
+          FileManager.default.fileExists(
+            atPath: candidate.appendingPathComponent("lightroom-group-\(operation).xmp").path)
+        }
+      }
+    guard let root else {
+      throw NSError(
+        domain: "MaskGroupFixture", code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Missing committed Lightroom mask group fixtures"])
+    }
+    return root
   }
 }
