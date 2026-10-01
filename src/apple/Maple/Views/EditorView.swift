@@ -165,6 +165,7 @@ struct EditorSurface: View {
           )
         }
       }
+      .disabled(state.session.isSavingRemoval)
       .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
         presetsPanel.frame(width: 340, height: 460)
       }

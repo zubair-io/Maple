@@ -75,12 +75,10 @@ extension EditorState {
   /// at the camera's As-Shot reading (falling back to the 6500 K / 0 default
   /// when no As-Shot value was captured), and restore the Auto profile.
   /// Crop / rotation is deliberately preserved — RESET clears develop
-  /// adjustments, never the user's framing. Applied as ONE undo entry
-  /// (`commit()` then a single `session.model` write, mirroring
-  /// `applyPreset`). (#1372)
+  /// adjustments, never the user's framing. Applied as ONE undo entry.
+  /// Clearing an accepted removal first confirms its XMP transition; ordinary
+  /// scalar resets retain the synchronous transaction path. (#1372 / #3984)
   public func resetToFactoryDefaults() {
-    commit(kind: .reset, description: "Reset all adjustments")
-    defer { session.endEdit() }
     var m = AdjustmentModel.default
     m.crop = session.model.crop  // preserve crop / rotation
     if let cct = session.asShotCCT, let tint = session.asShotTint {
@@ -88,7 +86,8 @@ extension EditorState {
       m.tint = tint
     }
     m.profile = .auto
-    session.model = m
+    cancelGesture()
+    session.commitModelSnapshot(m, kind: .reset, description: "Reset all adjustments")
   }
 
   // MARK: AUTO (#1379)

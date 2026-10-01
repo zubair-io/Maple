@@ -149,7 +149,7 @@ final class RemovalModelStateTests: XCTestCase {
     try await store.writeRemovalConfirmed(
       records: "[]", expectedRecords: records.json, model: incoming, culling: CullingState())
     let cleared = try await store.load().0.inpaintRemovals
-    XCTAssertTrue(try XCTUnwrap(cleared).isEmpty)
+    XCTAssertNil(cleared, "Explicit clearing restores the default absent representation")
     XCTAssertEqual(try Data(contentsOf: raw), try fixture("source", "dng"))
   }
 

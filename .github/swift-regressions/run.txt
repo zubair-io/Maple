@@ -368,3 +368,4 @@ RemovalSceneHandoffTests
 RemovalSidecarNamespaceTests
 RemovalSmartBridgeTests
 RemovalXMPRecordsTests
+RemovalHistoryTests
