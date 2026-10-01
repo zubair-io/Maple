@@ -61,6 +61,17 @@ namespace Maple.UI
             DependencyProperty.Register(nameof(Active), typeof(bool), typeof(MuiListRow),
                 new PropertyMetadata(false, (d, _) => ((MuiListRow)d).Rebuild()));
 
+        public static readonly DependencyProperty WrapLabelProperty =
+            DependencyProperty.Register(nameof(WrapLabel), typeof(bool), typeof(MuiListRow),
+                new PropertyMetadata(false, (d, _) => ((MuiListRow)d).Rebuild()));
+
+        /// <summary>Allow complete labels in narrow panels instead of a single-line ellipsis.</summary>
+        public bool WrapLabel
+        {
+            get => (bool)GetValue(WrapLabelProperty);
+            set => SetValue(WrapLabelProperty, value);
+        }
+
         public string? IconName
         {
             get => (string?)GetValue(IconNameProperty);
@@ -153,6 +164,7 @@ namespace Maple.UI
             _icon.IconColor = R("MapleTextMuted");
 
             _labelText.Text = Label;
+            _labelText.Truncate = !WrapLabel;
             _labelText.ColorRole = MuiTextColorRole.Main;
 
             _trailingHost.Content = TrailingContent;

@@ -1,0 +1,24 @@
+{
+  "date": "2026-10-01",
+  "issues": [3875, 3879, 3887],
+  "sourceBase": "757e2ca6f",
+  "build": "Maple.DesignAudit213",
+  "assemblySha256": "100CFC536A62B58B0291D39F772558BAD37B5C153827AA36C70058DE2F765294",
+  "buildErrors": 0,
+  "buildWarnings": 26,
+  "reproduction": "Build 211 displayed user preset names as Native pr..., Preset in... and Qualificat... because Apply/Delete occupied the label row.",
+  "change": "Preset names use a wrapping MuiListRow with action buttons on separate rows. Other list rows retain single-line truncation by default.",
+  "observations": [
+    "Launched build 213 and opened Editor > More > Presets.",
+    "Native preset audit 39 and Qualification 212 Flat displayed in full.",
+    "Preset input audit 107 consecutive typing stays within the centered dialog displayed in full across three lines.",
+    "Scrolled the panel to lower user presets; Apply/Delete and Export/Rename remained visible beneath their names.",
+    "Qualification 212 Flat loaded in the newly launched build, confirming persisted import from the preceding native picker check."
+  ],
+  "limitations": [
+    "Observed one desktop window size, not the complete DPI or accessibility matrix.",
+    "This layout check did not apply adjustments to the personal photo shown in the editor.",
+    "Color parity and performance qualification remain outstanding."
+  ],
+  "fullQualificationPassed": false
+}

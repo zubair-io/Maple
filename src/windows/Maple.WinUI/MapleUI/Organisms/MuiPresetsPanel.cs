@@ -13,8 +13,8 @@ namespace Maple.UI
     /// Maple.UI Presets Panel organism (unified-component-catalog.md
     /// §4.3, "Presets Panel" row: "Save, apply, delete presets", built
     /// from List Row, Button, Dialog) — a <see cref="MuiListRow"/> list of
-    /// saved presets (each row's trailing content is Apply/Delete
-    /// buttons), a "Save current as preset…" action above, and two
+    /// saved presets with wrapping names and separate action rows,
+    /// a "Save current as preset…" action above, and two
     /// <see cref="MuiDialog"/>s (Prompt for the new preset's name,
     /// Confirm for a destructive delete).
     /// </summary>
@@ -99,9 +99,10 @@ namespace Maple.UI
                 trailing.Children.Add(apply);
                 if (!preset.ReadOnly) trailing.Children.Add(delete);
 
-                var row = new MuiListRow { Label = preset.Name, IconName = "tool-presets", TrailingContent = trailing, IsTabStop = false };
+                var row = new MuiListRow { Label = preset.Name, IconName = "tool-presets", WrapLabel = true, IsTabStop = false };
                 ToolTipService.SetToolTip(row, preset.Name);
                 _rows.Children.Add(row);
+                _rows.Children.Add(trailing);
                 var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
                 var export = new MuiButton { Label = "Export", Variant = MuiButtonVariant.Ghost, ButtonSize = MuiButtonSize.Sm };
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(export, $"Export {preset.Name}");
