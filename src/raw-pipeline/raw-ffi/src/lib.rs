@@ -243,9 +243,10 @@ pub use removal_proposal::{
     MapleRemovalGeneration,
 };
 pub use removal_saved::{
-    maple_removal_saved_close, maple_removal_saved_context_f32, maple_removal_saved_export,
-    maple_removal_saved_free_buffer, maple_removal_saved_open, maple_removal_saved_preview,
-    maple_removal_saved_review_buf, MapleRemovalBuffer, MapleSavedRemovals,
+    maple_removal_saved_close, maple_removal_saved_context_f32, maple_removal_saved_detail,
+    maple_removal_saved_export, maple_removal_saved_free_buffer, maple_removal_saved_open,
+    maple_removal_saved_preview, maple_removal_saved_review_buf, MapleRemovalBuffer,
+    MapleSavedRemovals,
 };
 pub use removal_selection::{maple_removal_mask_decode_buf, maple_removal_selection_buf};
 #[cfg(any(feature = "removal", feature = "removal-ios"))]

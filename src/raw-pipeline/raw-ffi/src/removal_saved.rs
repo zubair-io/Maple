@@ -11,6 +11,10 @@ use raw_core::{
 };
 use std::ffi::{c_char, CStr};
 
+#[path = "removal_saved_detail.rs"]
+mod detail;
+pub use detail::maple_removal_saved_detail;
+
 /// Immutable prepared stack plus original bytes for RAW-pinned Auto fitting.
 /// Caller keeps the associated RAW handle alive and frees this exactly once.
 #[repr(C)]
@@ -23,6 +27,7 @@ struct SavedState {
     original: ContentDigest,
     source: Vec<u8>,
     ext: String,
+    detail: std::sync::Mutex<Option<detail::PreparedDetail>>,
 }
 
 /// Rust-owned removal output. Preview is packed RGB8; export is its encoded
@@ -228,6 +233,7 @@ pub unsafe extern "C" fn maple_removal_saved_open(
                 original: raw.original.clone(),
                 source: source.to_vec(),
                 ext: text(ext)?.to_owned(),
+                detail: std::sync::Mutex::new(None),
             })
         })();
         match result {

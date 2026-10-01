@@ -111,4 +111,50 @@ final class NativeSavedRemovalSessionTests: XCTestCase {
       XCTFail("Reset must invalidate the prepared stack")
     } catch { XCTAssertTrue(error is RemovalError) }
   }
+
+  func testNativeDetailMatchesFullSavedPixelsAcrossPansAndExposureChanges() async throws {
+    let (session, source, savedXMP, assets) = try fixture()
+    _ = try await session.prepare(source: source, ext: "dng", xmp: savedXMP, assets: assets)
+    for exposure in [-2, 1, 0] {
+      let xmp = savedXMP.replacingOccurrences(
+        of: "papp:InpaintRemovals=",
+        with:
+          "xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" crs:Exposure2012=\"\(exposure)\" papp:InpaintRemovals="
+      )
+      let full = try await session.preview(xmp: xmp, maxLongEdge: 64)
+      for x: UInt32 in [0, 4, 8, 0] {
+        let detail = try await session.detail(
+          xmp: xmp, x: x, y: 2, width: 8, height: 4, baseLongEdge: 64)
+        XCTAssertEqual(detail.width, 8)
+        XCTAssertEqual(detail.height, 4)
+        let expected = Data(
+          (2..<6).flatMap { y -> [UInt8] in
+            let start = (y * Int(full.width) + Int(x)) * 3
+            return Array(full.bytes[start..<(start + 8 * 3)])
+          })
+        XCTAssertEqual(detail.bytes, expected)
+      }
+    }
+    do {
+      _ = try await session.detail(
+        xmp: savedXMP, x: 4, y: 2, width: 8, height: 4, baseLongEdge: 64,
+        maxWorkingPixels: 1)
+      XCTFail("Filter overlap must count toward the memory budget")
+    } catch { XCTAssertTrue(error is RemovalError) }
+    do {
+      _ = try await session.detail(
+        xmp: "<rdf:Description xmlns:rdf=\"x\"/>", x: 4, y: 2,
+        width: 8, height: 4, baseLongEdge: 64)
+      XCTFail("Changed accepted records cannot reuse retained anchors")
+    } catch { XCTAssertTrue(error is RemovalError) }
+    let recovered = try await session.detail(
+      xmp: savedXMP, x: 4, y: 2, width: 8, height: 4, baseLongEdge: 64)
+    XCTAssertEqual(recovered.bytes.count, 8 * 4 * 3)
+    await session.reset()
+    do {
+      _ = try await session.detail(
+        xmp: savedXMP, x: 4, y: 2, width: 8, height: 4, baseLongEdge: 64)
+      XCTFail("Reset must retire native-detail anchors with their owner")
+    } catch { XCTAssertTrue(error is RemovalError) }
+  }
 }
