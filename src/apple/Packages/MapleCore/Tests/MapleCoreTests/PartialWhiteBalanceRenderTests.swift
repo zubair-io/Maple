@@ -81,7 +81,9 @@ final class PartialWhiteBalanceRenderTests: XCTestCase {
   }
 
   private func rgba(_ rgb: [UInt8]) -> [UInt8] {
-    stride(from: 0, to: rgb.count, by: 3).flatMap { [rgb[$0], rgb[$0 + 1], rgb[$0 + 2], 255] }
+    stride(from: 0, to: rgb.count, by: 3).flatMap { (offset: Int) -> [UInt8] in
+      [rgb[offset], rgb[offset + 1], rgb[offset + 2], 255]
+    }
   }
 
 }
