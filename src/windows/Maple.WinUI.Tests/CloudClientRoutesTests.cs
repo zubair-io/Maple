@@ -140,16 +140,17 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public async Task FetchImageAsync_SecondCallIsServedFromDiskCache_NoRequest()
+        public async Task FetchImageAsync_SecondCallRevalidatesAndReusesIdenticalPixels()
         {
-            var handler = new FakeHandler().Then(HttpStatusCode.OK, new byte[] { 4, 5 }, "image/avif");
+            var handler = new FakeHandler().Then(HttpStatusCode.OK, new byte[] { 4, 5 }, "image/avif")
+                .Then(HttpStatusCode.OK, new byte[] { 4, 5 }, "image/avif");
             using var client = Client(handler);
 
             var first = await client.FetchImageAsync("thumb", "lib:x.dng", CancellationToken.None);
             var second = await client.FetchImageAsync("thumb", "lib:x.dng", CancellationToken.None);
 
             Assert.Equal(first, second);
-            Assert.Single(handler.Requests);
+            Assert.Equal(2, handler.Requests.Count);
         }
 
         [Fact]

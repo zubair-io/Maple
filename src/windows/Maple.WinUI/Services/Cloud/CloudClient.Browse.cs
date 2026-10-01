@@ -1,10 +1,6 @@
 using System;
-using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -74,36 +70,6 @@ namespace Maple.WinUI.Services.Cloud
             string kind, string address, CancellationToken ct) =>
             FetchCachedImageAsync(
                 kind, $"{kind}|{address}", $"api/{kind}/{EncodeAddress(address)}", ct);
-
-        private async Task<string?> FetchCachedImageAsync(
-            string kind, string cacheKey, string route, CancellationToken ct)
-        {
-            if (kind == "preview") return await FetchRevalidatedPreviewAsync(cacheKey, route, ct);
-            var hash = Convert.ToHexString(
-                SHA256.HashData(Encoding.UTF8.GetBytes($"{ServerUrl}|{cacheKey}")))[..32];
-            var cachePath = Path.Combine(_cacheDir, $"{hash}-{kind}.avif");
-            if (File.Exists(cachePath))
-                return cachePath;
-
-            for (var attempt = 0; attempt < 2; attempt++)
-            {
-                using var response = await SendAsync(
-                    () => new HttpRequestMessage(HttpMethod.Get, route), ct);
-                if (response.StatusCode == HttpStatusCode.Accepted)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(2), ct);
-                    continue;
-                }
-                if (!response.IsSuccessStatusCode)
-                    return null;
-                var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-                var tempPath = cachePath + ".tmp";
-                await File.WriteAllBytesAsync(tempPath, bytes, ct);
-                File.Move(tempPath, cachePath, overwrite: true);
-                return cachePath;
-            }
-            return null;
-        }
 
         /// <summary>slug:relPath → enc(slug)/enc(seg1)/enc(seg2)… — the server
         /// decodes each segment individually.</summary>

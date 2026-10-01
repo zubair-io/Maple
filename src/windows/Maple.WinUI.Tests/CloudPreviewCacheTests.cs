@@ -17,29 +17,33 @@ public sealed class CloudPreviewCacheTests : IDisposable
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }
     private CloudClient Client(HttpMessageHandler handler) => new("https://maple.example.test", handler, _root);
 
-    [Fact]
-    public async Task ChangedServerPixelsHaveANewUriAndValidatorSurvivesRestart()
+    [Theory]
+    [InlineData("preview")]
+    [InlineData("thumb")]
+    public async Task ChangedServerPixelsHaveANewUriAndValidatorSurvivesRestart(string kind)
     {
         var firstHandler = new Handler((_, _) => Image(1, "v1"));
         string first;
-        using (var client = Client(firstHandler)) first = (await client.FetchImageAsync("preview", "lib:a.dng", default))!;
+        using (var client = Client(firstHandler)) first = (await client.FetchImageAsync(kind, "lib:a.dng", default))!;
         var nextHandler = new Handler((request, call) =>
         {
             Assert.Equal(call == 1 ? "\"v1\"" : "\"v2\"", request.Headers.IfNoneMatch.ToString());
             return call == 1 ? Image(2, "v2") : new(HttpStatusCode.NotModified);
         });
         using var reopened = Client(nextHandler);
-        var second = await reopened.FetchImageAsync("preview", "lib:a.dng", default);
+        var second = await reopened.FetchImageAsync(kind, "lib:a.dng", default);
         Assert.NotEqual(first, second);
         Assert.Equal(new byte[] { 1 }, await File.ReadAllBytesAsync(first));
         Assert.Equal(new byte[] { 2 }, await File.ReadAllBytesAsync(second!));
         var stamp = File.GetLastWriteTimeUtc(second!);
-        Assert.Equal(second, await reopened.FetchImageAsync("preview", "lib:a.dng", default));
+        Assert.Equal(second, await reopened.FetchImageAsync(kind, "lib:a.dng", default));
         Assert.Equal(stamp, File.GetLastWriteTimeUtc(second!));
     }
 
-    [Fact]
-    public async Task MissingPixelsDoNotSendAValidator()
+    [Theory]
+    [InlineData("preview")]
+    [InlineData("thumb")]
+    public async Task MissingPixelsDoNotSendAValidator(string kind)
     {
         var handler = new Handler((request, _) =>
         {
@@ -47,33 +51,62 @@ public sealed class CloudPreviewCacheTests : IDisposable
             return Image(1, "v1");
         });
         using var client = Client(handler);
-        var path = await client.FetchImageAsync("preview", "lib:a.dng", default);
+        var path = await client.FetchImageAsync(kind, "lib:a.dng", default);
         File.Delete(path!);
-        Assert.Equal(path, await client.FetchImageAsync("preview", "lib:a.dng", default));
+        Assert.Equal(path, await client.FetchImageAsync(kind, "lib:a.dng", default));
         Assert.True(File.Exists(path));
     }
 
-    [Fact]
-    public async Task NoValidatorStillFetchesChangedPixelsAndCancellationDoesNotServeCache()
+    [Theory]
+    [InlineData("preview")]
+    [InlineData("thumb")]
+    public async Task NoValidatorStillFetchesChangedPixelsAndCancellationDoesNotServeCache(string kind)
     {
         var handler = new Handler((_, call) => Image((byte)call, null));
         using var client = Client(handler);
-        var first = await client.FetchImageAsync("preview", "lib:a.dng", default);
-        Assert.NotEqual(first, await client.FetchImageAsync("preview", "lib:a.dng", default));
+        var first = await client.FetchImageAsync(kind, "lib:a.dng", default);
+        Assert.NotEqual(first, await client.FetchImageAsync(kind, "lib:a.dng", default));
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.FetchImageAsync("preview", "lib:a.dng", cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.FetchImageAsync(kind, "lib:a.dng", cancelled.Token));
         Assert.Equal(2, handler.Calls);
     }
 
-    [Fact]
-    public async Task ServerFailureDoesNotPresentOldPixelsAsCurrent()
+    [Theory]
+    [InlineData("preview")]
+    [InlineData("thumb")]
+    public async Task ServerFailureDoesNotPresentOldPixelsAsCurrent(string kind)
     {
         var handler = new Handler((_, call) => call == 1 ? Image(1, "v1") : new(HttpStatusCode.NotFound));
         using var client = Client(handler);
-        var path = await client.FetchImageAsync("preview", "lib:a.dng", default);
-        Assert.Null(await client.FetchImageAsync("preview", "lib:a.dng", default));
+        var path = await client.FetchImageAsync(kind, "lib:a.dng", default);
+        Assert.Null(await client.FetchImageAsync(kind, "lib:a.dng", default));
         Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task ThumbnailAndPreviewKeepIndependentValidatorsAndPixels()
+    {
+        var handler = new Handler((request, call) =>
+        {
+            var thumbnail = request.RequestUri!.AbsolutePath.StartsWith("/api/thumb/");
+            var tag = thumbnail ? "thumb-v1" : "preview-v1";
+            if (call <= 2)
+            {
+                Assert.Empty(request.Headers.IfNoneMatch);
+                return Image(thumbnail ? (byte)1 : (byte)2, tag);
+            }
+            Assert.Equal('"' + tag + '"', request.Headers.IfNoneMatch.ToString());
+            return new(HttpStatusCode.NotModified);
+        });
+        using var client = Client(handler);
+        var thumbnail = await client.FetchImageAsync("thumb", "lib:a.dng", default);
+        var preview = await client.FetchImageAsync("preview", "lib:a.dng", default);
+        Assert.NotEqual(thumbnail, preview);
+        Assert.Equal(new byte[] { 1 }, await File.ReadAllBytesAsync(thumbnail!));
+        Assert.Equal(new byte[] { 2 }, await File.ReadAllBytesAsync(preview!));
+        Assert.Equal(thumbnail, await client.FetchImageAsync("thumb", "lib:a.dng", default));
+        Assert.Equal(preview, await client.FetchImageAsync("preview", "lib:a.dng", default));
     }
 
     private static HttpResponseMessage Image(byte value, string? tag)

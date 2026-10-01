@@ -16,11 +16,13 @@ public sealed partial class CloudClient
 {
     private sealed record PreviewCacheEntry(string? ETag, string ContentHash);
 
-    private async Task<string?> FetchRevalidatedPreviewAsync(string key, string route, CancellationToken ct)
+    // Both tiers are mutable server derivatives. Revalidate their ETag and
+    // expose changed bytes under a new URI so XAML cannot retain old pixels.
+    private async Task<string?> FetchCachedImageAsync(string kind, string key, string route, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         var identity = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{ServerUrl}|{key}")))[..32];
-        var index = Path.Combine(_cacheDir, identity + "-preview.json");
+        var index = Path.Combine(_cacheDir, identity + $"-{kind}.json");
         PreviewCacheEntry? entry = null;
         try
         {
@@ -29,7 +31,7 @@ public sealed partial class CloudClient
         catch (Exception error) when (error is IOException or JsonException) { }
         // Cache metadata cannot supply arbitrary paths, even if damaged.
         if (entry?.ContentHash is not { Length: 64 } hash || !hash.All(Uri.IsHexDigit)) entry = null;
-        string ContentPath(string contentHash) => Path.Combine(_cacheDir, $"{identity}-{contentHash}-preview.avif");
+        string ContentPath(string contentHash) => Path.Combine(_cacheDir, $"{identity}-{contentHash}-{kind}.avif");
         var existing = entry == null ? null : ContentPath(entry.ContentHash);
         if (existing != null && !File.Exists(existing)) { existing = null; entry = null; }
         EntityTagHeaderValue? validator = null;
