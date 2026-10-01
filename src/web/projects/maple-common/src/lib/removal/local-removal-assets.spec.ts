@@ -106,6 +106,34 @@ describe('durable browser removal through actual WASM and filesystem files', () 
     ).toBe(records);
   });
 
+  it('confirms and reopens the explicit calibration plate without downgrading it', async () => {
+    const fixtureRequest: unknown = JSON.parse(text('request.txt'));
+    if (
+      typeof fixtureRequest !== 'object' ||
+      fixtureRequest === null ||
+      Array.isArray(fixtureRequest)
+    ) {
+      throw new Error('Invalid object-removal request fixture');
+    }
+    const request = JSON.stringify({ ...fixtureRequest, plate: 'linear-calibration-v1' });
+    const records = await assets.publish(request, '[]', fixture('mask.mimf'), fixture('patch.f16'));
+    expect(JSON.parse(records)).toMatchObject([
+      { schema: 4, accepted: { plate: 'linear-calibration-v1' } },
+    ]);
+    await commit(records);
+    const xml = await fs.readFile(join(root, 'photo.xmp'), 'utf8');
+    const reopened = TestBed.inject(XmpParserService).parseAdjustmentModel(xml);
+    expect(
+      reopened.passthrough.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value,
+    ).toBe(records);
+    expect((await assets.read(records)).size).toBe(2);
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(
+      fixture('source.dng'),
+    );
+    const downgraded = records.replace('"schema":4', '"schema":3');
+    await expect(assets.read(downgraded)).rejects.toThrow();
+  });
+
   it('refuses stale XMP and missing companions without replacing the sidecar', async () => {
     const records = await publish();
     const before = await fs.readFile(join(root, 'photo.xmp'));
