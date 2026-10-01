@@ -11,7 +11,14 @@ pub(crate) fn emit_cs() -> String {
         let member = field
             .name
             .split('_')
-            .map(|part| format!("{}{}", part[..1].to_uppercase(), &part[1..]))
+            .map(|part| {
+                let mut chars = part.chars();
+                let first = chars
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_default();
+                format!("{first}{}", chars.as_str())
+            })
             .collect::<String>();
         let kind = match field.kind {
             FieldKind::F32 => "Number",
