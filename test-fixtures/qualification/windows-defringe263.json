@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-01",
+  "issue": 3889,
+  "sourceBase": "7ec34c25e",
+  "fix": "Apply global defringe before local adjustments in native-detail tiles and include its single-pixel stencil in the tile overlap.",
+  "validation": {
+    "fullDevelopParity": {
+      "command": "cargo test -p raw-core --features test-support --lib tile::tests_full_parity -- --nocapture",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "purple": { "maxAbsoluteDifference": 0, "maximumCorrection": 0.2968 },
+      "green": { "maxAbsoluteDifference": 0, "maximumCorrection": 0.4491 },
+      "fixture": "Fixture-free synthetic camera chart; native Full quality; entire requested tile rectangle compared."
+    },
+    "tileSuite": {
+      "filter": "pipeline::tile::",
+      "passed": 19,
+      "failed": 0,
+      "ignored": 9,
+      "overlapCoverage": "Purple, green, and both bands add one developed pixel of halo, converted to two mosaic pixels for half-resolution development."
+    },
+    "precedingSizedPreviewFix": {
+      "commit": "7ec34c25e",
+      "cpuDefringeTestsPassed": 23,
+      "gpuDefringeTestsPassed": 3,
+      "gpuTestsIgnored": 0,
+      "gpuKernelParityTolerance": 0.0001
+    }
+  },
+  "limitations": [
+    "The nine ignored real-RAW tile tests were not executed in this run.",
+    "No new Windows binary or native UI qualification was produced for these Rust changes.",
+    "This restores an omitted stage; it does not resolve the separate default-model preview/export color discrepancy."
+  ]
+}

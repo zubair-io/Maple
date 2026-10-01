@@ -28,7 +28,7 @@ use super::TILE_OVERLAP_PX;
 use crate::pipeline::capture_sharpening_helper::capture_sharpening_params_from_model;
 use crate::stages::local_adjustments::spatial;
 use crate::stages::{
-    capture_sharpening, clarity, noise_reduction, scene_tone_controls, sharpen, texture,
+    capture_sharpening, clarity, defringe, noise_reduction, scene_tone_controls, sharpen, texture,
 };
 use crate::xmp::AdjustmentModel;
 
@@ -54,6 +54,9 @@ pub(super) fn tile_overlap_px(model: &AdjustmentModel, mask_long_edge: usize, di
         + scene_tone_controls::sh_mask_reach_px(mask_long_edge, model)
         + engaged(model.clarity, clarity::CLARITY_GUIDED_REACH_PX)
         + engaged(model.texture, texture::TEXTURE_GUIDED_REACH_PX)
+        + defringe::params_from_model(model)
+            .map(|_| defringe::DEFRINGE_REACH_PX)
+            .unwrap_or(0)
         + local_spatial_reach_px(model)
         + tail_reach_px(model);
     let mosaic_px = (sum as u32).saturating_mul(divisor);
@@ -165,6 +168,15 @@ mod tests {
             ..quiet.clone()
         };
         assert_eq!(tile_overlap_px(&capture, 6000, 1), 104);
+        for (purple, green) in [(20.0, 0.0), (0.0, 20.0), (20.0, 20.0)] {
+            let defringed = AdjustmentModel {
+                defringe_purple_amount: purple,
+                defringe_green_amount: green,
+                ..capture.clone()
+            };
+            assert_eq!(tile_overlap_px(&defringed, 6000, 1), 105);
+            assert_eq!(tile_overlap_px(&defringed, 3000, 2), 210);
+        }
 
         // Every spatial slider engaged on a 6000-px frame at 100%: pre 8 +
         // capture 96 + S/H (2 × 135) + clarity 40 + texture 4 + sharpen (⌈3·3⌉

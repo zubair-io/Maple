@@ -65,6 +65,26 @@ fn cases() -> Vec<Case> {
     };
     vec![
         Case {
+            name: "global purple defringe",
+            model: AdjustmentModel {
+                defringe_purple_amount: 20.0,
+                defringe_purple_hue_lo: 0.0,
+                defringe_purple_hue_hi: 100.0,
+                ..base.clone()
+            },
+            max_abs: 0.0,
+        },
+        Case {
+            name: "global green defringe",
+            model: AdjustmentModel {
+                defringe_green_amount: 20.0,
+                defringe_green_hue_lo: 0.0,
+                defringe_green_hue_hi: 100.0,
+                ..base.clone()
+            },
+            max_abs: 0.0,
+        },
+        Case {
             name: "vignette (windowed to the frame)",
             model: AdjustmentModel {
                 vignette_amount: -60.0,

@@ -26,7 +26,7 @@ use crate::{
     error::Result,
     image::RawImage,
     stages::{
-        chroma_prefilter, clarity, highlight_recovery, highlight_recovery_oklab, hsl,
+        chroma_prefilter, clarity, defringe, highlight_recovery, highlight_recovery_oklab, hsl,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
         wb_camera, white_balance,
     },
@@ -431,6 +431,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // resolution) and reproduce the whole-image field exactly. Same chain
     // positions as the full develop: after texture (where dehaze would sit),
     // before sharpen.
+    stage("tile_defringe", || defringe::apply_model(&mut scene, model));
     stage("tile_local_adjustments", || {
         local_adjustments::apply_windowed(
             &mut scene,
