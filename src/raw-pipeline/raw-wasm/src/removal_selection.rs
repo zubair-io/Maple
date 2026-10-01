@@ -1,6 +1,17 @@
 //! Thin WASM selection and durable-mask bridge (#3934), shared with C-FFI.
 use wasm_bindgen::prelude::*;
 
+/// Prepare two native f32 planes, binary hole then coverage, before inference.
+#[wasm_bindgen]
+pub fn removal_generation_masks(
+    request: &str,
+    intent: &[u8],
+    protected: &[u8],
+) -> Result<Vec<f32>, JsError> {
+    raw_core::stages::removal_generation::prepare_json(request, intent, protected)
+        .map_err(|e| JsError::new(&e))
+}
+
 #[wasm_bindgen]
 pub fn removal_smart_strokes(request: &str) -> Result<String, JsError> {
     raw_core::stages::removal_smart::prepare_strokes_json(request).map_err(|e| JsError::new(&e))

@@ -4,8 +4,16 @@ import { createReadStream, promises as fs } from "node:fs";
 import { resolve, sep } from "node:path";
 import { chromium } from "../../src/web/node_modules/playwright/index.mjs";
 
-const [gesturesArg, preparedArg, logitsArg, scoresArg, expectedArg, reportArg] =
-  process.argv.slice(2);
+const [
+  gesturesArg,
+  preparedArg,
+  logitsArg,
+  scoresArg,
+  expectedArg,
+  reportArg,
+  generationArg,
+  planesArg,
+] = process.argv.slice(2);
 if (!reportArg)
   throw new Error(
     "Usage: probe-shared-selection-browser.mjs GESTURES PREPARED LOGITS SCORES EXPECTED_MIMF REPORT",
@@ -18,13 +26,21 @@ const files = new Map([
   ["/scores.json", resolve(scoresArg)],
   ["/expected.mimf", resolve(expectedArg)],
 ]);
+if (Boolean(generationArg) !== Boolean(planesArg))
+  throw new Error(
+    "Generation request and expected planes must be supplied together",
+  );
+if (generationArg) {
+  files.set("/generation.json", resolve(generationArg));
+  files.set("/planes.f32", resolve(planesArg));
+}
 const html = `<!doctype html><meta charset="utf-8"><title>Maple shared selection probe</title><script type="module">
 import * as shared from '/shared/raw_wasm.js';
 window.probe=async function() {
   await shared.default({module_or_path:'/shared/raw_wasm_bg.wasm'});
   const gestures=await (await fetch('/gestures.json')).text();
   const expectedRequest=await (await fetch('/prepared.json')).json();
-  const prepared=shared.removal_smart_strokes(gestures);
+  const prepared=JSON.parse(gestures).prompts?.length?gestures:shared.removal_smart_strokes(gestures);
   if(JSON.stringify(JSON.parse(prepared))!==JSON.stringify(expectedRequest)) throw new Error('Native/WASM stroke preparation drift');
   const modelPrompts=JSON.parse(shared.removal_smart_prompts(prepared));
   const logits=new Float32Array(await (await fetch('/logits.f32')).arrayBuffer());
@@ -41,8 +57,18 @@ window.probe=async function() {
   let distortedProxyRejected=false;
   try{shared.removal_smart_prompts(JSON.stringify(tiny));}catch{distortedProxyRejected=true;}
   if(!distortedProxyRejected) throw new Error('Distorted proxy accepted');
+  let generation=null;
+  if(${Boolean(generationArg)}) {
+    const request=await (await fetch('/generation.json')).text(),planes=shared.removal_generation_masks(request,mask,new Uint8Array());
+    const expectedPlanes=new Uint8Array(await (await fetch('/planes.f32')).arrayBuffer()),actualBytes=new Uint8Array(planes.buffer,planes.byteOffset,planes.byteLength);
+    if(actualBytes.length!==expectedPlanes.length||!actualBytes.every((v,i)=>v===expectedPlanes[i])) throw new Error('Native/WASM generation masks differ');
+    let protectionOverlapRejected=false;
+    try{shared.removal_generation_masks(request,mask,mask);}catch{protectionOverlapRejected=true;}
+    if(!protectionOverlapRejected) throw new Error('Protected intent accepted');
+    generation={nativeWasmByteIdentical:true,planeElements:planes.length,protectionOverlapRejected};
+  }
   return {geometry:Array.from(geometry),selectedPixels:pixels.reduce((sum,v)=>sum+(v===255?1:0),0),modelPromptCount:modelPrompts.labels.length,
-    boundaryMs,maskBytes:mask.length,nativeWasmByteIdentical:true,nonfiniteRejected:errorRetainsSelection,distortedProxyRejected,crossOriginIsolated};
+    boundaryMs,maskBytes:mask.length,nativeWasmByteIdentical:true,nonfiniteRejected:errorRetainsSelection,distortedProxyRejected,generation,crossOriginIsolated};
 };
 </script>`;
 const server = createServer(async (request, response) => {

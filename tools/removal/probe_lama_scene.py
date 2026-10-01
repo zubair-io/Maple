@@ -24,7 +24,21 @@ def probe(source, checkpoint, config, artifact, context, output):
     if not np.isfinite(rgb).all() or rgb.min() < 0 or rgb.max() > 1:
         raise ValueError("Input lies outside the model's float domain")
     mask = np.zeros((1, 1, 1024, 1024), dtype=np.float32)
-    mask[:, :, 412:612, 412:612] = 1
+    mask_path = context / "masks.f32"
+    if mask_path.exists() or (context / "masks.json").exists():
+        planes = np.fromfile(mask_path, dtype="<f4").reshape(2, 1024, 1024)
+        if (
+            not np.isfinite(planes).all()
+            or not np.isin(planes[0], [0, 1]).all()
+            or planes[1].min() < 0
+            or planes[1].max() > 1
+            or (planes[1][planes[0] == 0] != 0).any()
+        ):
+            raise ValueError("Invalid shared hole/coverage planes")
+        json.loads((context / "masks.json").read_text())
+        mask[0, 0] = planes[0]
+    else:
+        mask[:, :, 412:612, 412:612] = 1
     inputs = np.concatenate([rgb * (1 - mask), mask], axis=1)
     model = load_generator(source, checkpoint, config)
     torch.set_num_threads(4)
@@ -57,6 +71,8 @@ def probe(source, checkpoint, config, artifact, context, output):
         "artifact_sha256": manifest["artifact_sha256"],
         "input_sha256": sha256(path),
         "result_sha256": sha256(result),
+        "generation_masks_sha256": sha256(mask_path) if mask_path.exists() else None,
+        "reconstructed_pixels": int(mask.sum()),
         "onnxruntime": ort.__version__,
         "elapsed_ms": elapsed,
         "input_min": float(rgb.min()),

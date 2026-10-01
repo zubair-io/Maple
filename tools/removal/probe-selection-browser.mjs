@@ -60,7 +60,9 @@ window.probe=async function(queries) {
     if(!query.points.length||query.points.length>64||query.points.length!==query.labels.length) throw new Error('Invalid prompt count');
     const coords=query.points.flat(),labels=[...query.labels];
     if(coords.length!==2*labels.length||!coords.every(v=>Number.isFinite(v)&&v>=0&&v<1024)||!labels.every(v=>[0,1,2,3].includes(v))) throw new Error('Invalid source prompt');
-    if(!labels.some(v=>v===1)&&!labels.every(v=>v===2||v===3)) throw new Error('Missing positive selection');
+    const hasBox=labels.filter(v=>v===2).length===1&&labels.filter(v=>v===3).length===1;
+    if(labels.some(v=>v===2||v===3)&&!hasBox) throw new Error('Box requires one corner pair');
+    if(!labels.some(v=>v===1)&&!hasBox) throw new Error('Missing positive selection');
     if(!labels.some(v=>v===2||v===3)){coords.push(0,0);labels.push(-1);}
     const feeds={image_embeddings:embedding,point_coords:new ort.Tensor('float32',Float32Array.from(coords),[1,labels.length,2]),
       point_labels:new ort.Tensor('float32',Float32Array.from(labels),[1,labels.length]),mask_input:new ort.Tensor('float32',new Float32Array(256*256),[1,1,256,256]),
@@ -71,8 +73,8 @@ window.probe=async function(queries) {
     if(!result.masks.data.every(Number.isFinite)||!result.iou_predictions.data.every(Number.isFinite)) throw new Error('Nonfinite decoder output');
     const values=result.masks.data,scores=Array.from(result.iou_predictions.data),checks=[],areas=[];
     for(let candidate=0;candidate<4;candidate++) {
-      checks.push(query.labels.flatMap((label,i)=>label>1?[]:[{label,selected:values[candidate*count+Math.floor(query.points[i][1])*1024+Math.floor(query.points[i][0])]>0,
-        satisfied:(values[candidate*count+Math.floor(query.points[i][1])*1024+Math.floor(query.points[i][0])]>0)===(label===1)}]));
+      checks.push(query.labels.flatMap((label,i)=>label>1?[]:[{label,selected:values[candidate*count+Math.min(1023,Math.floor(query.points[i][1]+.5))*1024+Math.min(1023,Math.floor(query.points[i][0]+.5))]>0,
+        satisfied:(values[candidate*count+Math.min(1023,Math.floor(query.points[i][1]+.5))*1024+Math.min(1023,Math.floor(query.points[i][0]+.5))]>0)===(label===1)}]));
       let area=0;for(let i=0;i<count;i++) if(values[candidate*count+i]>0) area++;areas.push(area);
     }
     const valid=[0,1,2,3].filter(i=>checks[i].every(c=>c.satisfied));

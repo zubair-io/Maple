@@ -6,7 +6,7 @@ use raw_core::color::dcp;
 use raw_core::pipeline::{
     apply_scene_linear_chain_f32, composite_window_into_f32, encode_display_srgb_f32,
     fit_auto_profile_from_raw, patch_from_bytes, patch_to_bytes, render_removal_context,
-    ChainOptions, RawInput, RemovalModelEncoding, RenderQuality,
+    ChainOptions, RawInput, RenderQuality,
 };
 use raw_core::stages::wb_camera::SliderFrameExport;
 use raw_core::types::accepted_removal::{ContentDigest, NativeWindow};
@@ -14,6 +14,11 @@ use raw_core::types::InpaintPatch;
 use raw_core::xmp::{AdjustmentModel, AutoExposureMode, Profile};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+
+#[path = "removal_scene/encoding.rs"]
+mod encoding;
+#[path = "removal_scene/masks.rs"]
+mod masks;
 
 type ProbeResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -30,6 +35,10 @@ enum Command {
         x: u32,
         y: u32,
         output: PathBuf,
+        /// Compare the fixed AgX/sRGB photographic input against signed-log.
+        /// Its approximate inverse is measured; it is not assumed lossless.
+        #[arg(long)]
+        fixed_sdr: bool,
     },
     Bake {
         raw: PathBuf,
@@ -37,6 +46,16 @@ enum Command {
         /// Native float32 NCHW model result, no quantization or resizing.
         model_result: PathBuf,
         output: PathBuf,
+    },
+    Masks {
+        context: PathBuf,
+        intent: PathBuf,
+        #[arg(long)]
+        protected: Option<PathBuf>,
+        #[arg(long)]
+        hole_radius: u32,
+        #[arg(long)]
+        fringe_radius: f32,
     },
 }
 
@@ -49,7 +68,7 @@ struct Context {
     source_height: u32,
     scene: ContentDigest,
     model_input: ContentDigest,
-    encoding: RemovalModelEncoding,
+    encoding: encoding::ProbeEncoding,
     release_qualified: bool,
 }
 
@@ -84,7 +103,7 @@ fn read_rgb(bytes: &[u8], side: u32, planar: bool) -> ProbeResult<Vec<[f32; 3]>>
         .collect())
 }
 
-fn encode(path: &Path, x: u32, y: u32, output: &Path) -> ProbeResult<()> {
+fn encode(path: &Path, x: u32, y: u32, output: &Path, fixed_sdr: bool) -> ProbeResult<()> {
     let (bytes, raw) = decode_raw(path)?;
     let window = NativeWindow {
         x,
@@ -93,7 +112,7 @@ fn encode(path: &Path, x: u32, y: u32, output: &Path) -> ProbeResult<()> {
         height: 1024,
     };
     let scene = render_removal_context(&raw, window)?;
-    let encoding = RemovalModelEncoding::fit(&scene.pixels)?;
+    let encoding = encoding::ProbeEncoding::fit(&scene.pixels, fixed_sdr)?;
     let model = encoding.encode(&scene.pixels)?;
     let scene_bytes = pack(scene.pixels.iter().flatten().copied());
     let model_bytes = pack((0..3).flat_map(|c| model.iter().map(move |p| p[c])));
@@ -165,15 +184,11 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
     let region = context
         .window
         .region(context.source_width, context.source_height);
-    let coverage: Vec<f32> = (0..1024 * 1024)
-        .map(|i| {
-            if (412..612).contains(&(i % 1024)) && (412..612).contains(&(i / 1024)) {
-                1.0
-            } else {
-                0.0
-            }
-        })
-        .collect();
+    let (coverage, generation_masks) = masks::coverage(
+        directory,
+        context.window,
+        [context.source_width, context.source_height],
+    )?;
     let patch_for = |pixels| InpaintPatch {
         width: 1024,
         height: 1024,
@@ -223,6 +238,13 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
         ..Default::default()
     };
     std::fs::create_dir_all(output)?;
+    let roi: Vec<u8> = coverage
+        .iter()
+        .map(|v| if *v > 0.0 { 255 } else { 0 })
+        .collect();
+    image::GrayImage::from_raw(1024, 1024, roi)
+        .ok_or("coverage geometry mismatch")?
+        .save(output.join("coverage.png"))?;
     std::fs::write(output.join("replacement.f16"), replacement_bytes)?;
     // The same RAW-pinned Auto artifacts used by production. They never
     // learn from a generated crop or a current creative grade.
@@ -311,6 +333,7 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
             "max_scene_float_error_identity":max_scene_error,"outside_mask_max_error":0,
         "as_shot_temperature":anchor.0,"as_shot_tint":anchor.1,"grades":grades,
         "auto_profile_engaged":auto.is_some(),
+            "generation_masks":generation_masks,
             "qualification":"Native spatial and colour probe; photographic removal quality, seam refinement and supported-device gates remain"
         }))?,
     )?;
@@ -319,12 +342,40 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
 
 fn main() -> ProbeResult<()> {
     match Args::parse().command {
-        Command::Encode { raw, x, y, output } => encode(&raw, x, y, &output),
+        Command::Encode {
+            raw,
+            x,
+            y,
+            output,
+            fixed_sdr,
+        } => encode(&raw, x, y, &output, fixed_sdr),
         Command::Bake {
             raw,
             context,
             model_result,
             output,
         } => bake(&raw, &context, &model_result, &output),
+        Command::Masks {
+            context,
+            intent,
+            protected,
+            hole_radius,
+            fringe_radius,
+        } => {
+            let recipe: Context =
+                serde_json::from_slice(&std::fs::read(context.join("context.json"))?)?;
+            masks::write(
+                &context,
+                &intent,
+                protected.as_deref(),
+                raw_core::stages::removal_generation::GenerationMaskRequest {
+                    schema: 1,
+                    window: recipe.window,
+                    hole_radius,
+                    fringe_radius,
+                },
+                [recipe.source_width, recipe.source_height],
+            )
+        }
     }
 }
