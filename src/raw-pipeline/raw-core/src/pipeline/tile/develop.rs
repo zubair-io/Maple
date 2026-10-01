@@ -57,6 +57,7 @@ pub(super) struct TileAnchors<'a> {
     /// Padded crop's top-left in full demosaiced coordinates (sensor / divisor).
     pub tile_origin: (u32, u32),
     pub highlight_frame: crate::stages::highlight_recovery::FrameAnchor<'a>,
+    pub patches: &'a [crate::types::InpaintPatch],
 }
 
 pub(super) struct DevelopedTile {
@@ -128,6 +129,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         active_area,
         tile_origin,
         highlight_frame,
+        patches,
     } = anchors;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -204,6 +206,21 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     });
     let (profile, profile_source) =
         stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    if !patches.is_empty() {
+        let footprint = [
+            window.origin.0 as f32 / window.full.0 as f32,
+            window.origin.1 as f32 / window.full.1 as f32,
+            camera_rgb.width as f32 / window.full.0 as f32,
+            camera_rgb.height as f32 / window.full.1 as f32,
+        ];
+        crate::pipeline::removal_calibration::composite_camera_sampled(
+            &mut camera_rgb,
+            patches,
+            &profile,
+            footprint,
+            effective_quality_divisor(quality, raw.cfa),
+        )?;
+    }
     // Camera-space user white balance (#1726) — mirrors the full-res
     // develop chain; see `pipeline::develop` and `stages::wb_camera` for
     // the design writeup. This function rejects LinearRaw at the top (see

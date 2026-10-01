@@ -2,7 +2,10 @@
 //! The patch consumes the base render's AE and Auto artifacts, never fits
 //! a tone curve or measures exposure from a viewport's histogram.
 
-use super::{display_prefix, finish, render_display_scene_with_context_cancellable, RawInput};
+use super::{
+    display_prefix, finish, render_display_scene_with_context_cancellable,
+    render_display_scene_with_removals, RawInput,
+};
 use crate::{
     error::{Error, Result},
     film::FilmLut,
@@ -36,6 +39,11 @@ pub fn render_detail_base(
     source: RawInput<'_>,
     options: DetailRenderOptions<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    if !model.inpaint_removals.is_empty() {
+        return Err(Error::Pipeline(
+            "native detail requires verified removal companions".into(),
+        ));
+    }
     render_detail_base_cancellable(raw, model, source, options, crate::CancelToken::never())
 }
 
@@ -48,6 +56,11 @@ pub fn render_detail_base_cancellable(
     options: DetailRenderOptions<'_>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    if !model.inpaint_removals.is_empty() {
+        return Err(Error::Pipeline(
+            "native detail requires verified removal companions".into(),
+        ));
+    }
     let (mut scene, context) = render_display_scene_with_context_cancellable(
         raw,
         model,
@@ -74,6 +87,68 @@ pub fn render_detail_base_cancellable(
         return Err(Error::Cancelled);
     }
     Ok((w, h, rgb, context))
+}
+
+impl crate::pipeline::ResolvedCalibrationRemovals {
+    /// Render a bounded native-detail base with the verified accepted stack.
+    pub fn render_detail_base(
+        &self,
+        raw: &RawImage,
+        original: &crate::types::accepted_removal::ContentDigest,
+        model: &AdjustmentModel,
+        source: RawInput<'_>,
+        options: DetailRenderOptions<'_>,
+    ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+        let (mut scene, context) = render_display_scene_with_removals(
+            raw,
+            model,
+            options.quality,
+            Some(source),
+            Some(options.max_long_edge),
+            encode::TargetPrimaries::Srgb,
+            options.film_lut,
+            crate::CancelToken::never(),
+            Some((self, original)),
+        )?;
+        let rgb = encode::dither_and_quantize(&mut scene);
+        let (w, h, rgb) = finish::apply_geometry(
+            rgb,
+            scene.width,
+            scene.height,
+            raw.orientation,
+            &crate::stages::perspective::Perspective::from_model(model),
+            &model.crop,
+        );
+        Ok((w, h, rgb, context))
+    }
+
+    /// Render one verified-removal tile with the base's native-detail anchors.
+    pub fn render_detail_tile(
+        &self,
+        raw: &RawImage,
+        original: &crate::types::accepted_removal::ContentDigest,
+        context: &DetailContext,
+        rect: TileRect,
+        film_lut: Option<&FilmLut>,
+        max_working_pixels: u64,
+    ) -> Result<(u32, u32, Vec<u8>)> {
+        let patches = self.detail_patches(raw, original, &context.active_model)?;
+        if raw.opcode_list3.is_none() && crate::lens_profile::applies(raw, &context.active_model) {
+            return Err(Error::Pipeline(
+                "saved native detail requires the full-image render when a lens profile is active"
+                    .into(),
+            ));
+        }
+        render_detail_tile_with_patches(
+            raw,
+            context,
+            rect,
+            film_lut,
+            max_working_pixels,
+            crate::CancelToken::never(),
+            Some(patches),
+        )
+    }
 }
 
 /// Retained-source counterpart for a native-detail session. The base keeps
@@ -146,6 +221,26 @@ pub fn render_detail_tile_cancellable(
     max_working_pixels: u64,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<u8>)> {
+    render_detail_tile_with_patches(
+        raw,
+        context,
+        rect,
+        film_lut,
+        max_working_pixels,
+        cancel,
+        None,
+    )
+}
+
+fn render_detail_tile_with_patches(
+    raw: &RawImage,
+    context: &DetailContext,
+    rect: TileRect,
+    film_lut: Option<&FilmLut>,
+    max_working_pixels: u64,
+    cancel: crate::CancelToken<'_>,
+    patches: Option<&[crate::types::InpaintPatch]>,
+) -> Result<(u32, u32, Vec<u8>)> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
@@ -215,31 +310,41 @@ pub fn render_detail_tile_cancellable(
             "native-detail patch exceeds the memory budget".into(),
         ));
     }
-    let (w, h, rgba) = match context.native_highlight.as_ref() {
-        Some(frame) => {
-            if !std::ptr::eq(raw, frame.raw()) {
-                return Err(Error::Pipeline(
-                    "native-detail source was replaced; prepare a new context".into(),
-                ));
-            }
-            super::super::tile::render_scene_linear_tile_from_frame_context_cancellable_f32(
-                frame,
-                &context.active_model,
-                absolute,
-                None,
-                context.ae_gain,
-                cancel,
-            )?
-        }
-        None => super::super::tile::render_scene_linear_tile_cancellable_f32(
+    let (w, h, rgba) = match patches {
+        Some(patches) => super::super::tile::render_saved_tile(
             raw,
             &context.active_model,
             absolute,
             quality,
-            None,
             context.ae_gain,
-            cancel,
+            patches,
         )?,
+        None => match context.native_highlight.as_ref() {
+            Some(frame) => {
+                if !std::ptr::eq(raw, frame.raw()) {
+                    return Err(Error::Pipeline(
+                        "native-detail source was replaced; prepare a new context".into(),
+                    ));
+                }
+                super::super::tile::render_scene_linear_tile_from_frame_context_cancellable_f32(
+                    frame,
+                    &context.active_model,
+                    absolute,
+                    None,
+                    context.ae_gain,
+                    cancel,
+                )?
+            }
+            None => super::super::tile::render_scene_linear_tile_cancellable_f32(
+                raw,
+                &context.active_model,
+                absolute,
+                quality,
+                None,
+                context.ae_gain,
+                cancel,
+            )?,
+        },
     };
     let rgb: Vec<f32> = rgba
         .chunks_exact(4)

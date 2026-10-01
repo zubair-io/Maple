@@ -25,6 +25,22 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
   try {
     await copyFile(fixture, join(root, 'photo.dng'));
     await installProductionFolderPicker(page, root);
+    await page.addInitScript(() => {
+      const replies: { width?: number; height?: number; message?: string }[] = [];
+      Object.defineProperty(window, '__mapleDetailReplies', { value: replies });
+      const Original = window.Worker;
+      window.Worker = new Proxy(Original, {
+        construct(target, args) {
+          const worker = Reflect.construct(target, args) as Worker;
+          worker.addEventListener('message', ({ data }) => {
+            if (data?.type === 'native-detail-success')
+              replies.push({ width: data.width, height: data.height });
+            else if (data?.type === 'native-detail-error') replies.push({ message: data.message });
+          });
+          return worker;
+        },
+      });
+    });
     await page.goto('/');
     await page.getByRole('button', { name: /open a folder/i }).click();
     await page.getByRole('button', { name: 'photo.dng', exact: true }).click();
@@ -91,6 +107,13 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath('reopened.png') });
     expect(await readFile(join(root, 'photo.xmp'), 'utf8')).toBe(accepted);
+    if (testInfo.project.name === 'removal-cpu') {
+      await page.keyboard.press('Control+1');
+      await expect
+        .poll(() => page.evaluate(() => Reflect.get(window, '__mapleDetailReplies')))
+        .toContainEqual({ width: 16, height: 8 });
+      await page.keyboard.press('Control+0');
+    }
     await panel.getByText('Local AI models', { exact: true }).click();
     await panel
       .getByRole('button', { name: 'Remove model lama-native-1024.onnx', exact: true })

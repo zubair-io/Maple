@@ -105,6 +105,11 @@ fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
     let render_src = include_str!("mod.rs");
     let export_src = include_str!("export.rs");
     let synthetic_src = include_str!("synthetic.rs");
+    // The geometry carrier keeps quantization in the shared leaf, so inspect
+    // that leaf after proving the public pixel-only wrapper delegates to it.
+    assert!(
+        slice_fn(render_src, "render_display_from_raw").contains("render_display_with_geometry(")
+    );
 
     // #4096 keeps the existing entry point as a wrapper around the terminal
     // that also reports achieved Auto fit. Check that delegation before
@@ -124,7 +129,7 @@ fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
     vec![
         (
             "render_display_from_raw (RAW develop path, 8-bit display terminal)",
-            terminal(render_src, "render_from_raw_with_auto_fit"),
+            terminal(render_src, "render_display_with_geometry"),
         ),
         (
             "export finish_eight (JPEG / PNG terminal)",

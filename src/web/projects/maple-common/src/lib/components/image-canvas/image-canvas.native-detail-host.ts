@@ -19,6 +19,7 @@ export function createNativeDetail(
 ): ImageCanvasNativeDetail {
   return new ImageCanvasNativeDetail({
     pipeline: host.pipeline,
+    loadRemovals: (assetId, xmp) => host.savedRemovals.load(assetId, xmp),
     currentInput: () => {
       const asset = host.state.focusedAsset();
       return asset && asset.id === host.currentAssetId && host.currentBytes

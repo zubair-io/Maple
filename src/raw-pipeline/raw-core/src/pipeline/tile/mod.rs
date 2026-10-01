@@ -212,6 +212,7 @@ fn develop_tile_oriented_f32(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
+    patches: &[crate::types::InpaintPatch],
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
     develop_tile_with_frame(
@@ -221,6 +222,7 @@ fn develop_tile_oriented_f32(
         quality,
         decoded_wb_anchor,
         ae_gain,
+        patches,
         None,
         cancel,
     )
@@ -234,6 +236,7 @@ fn develop_tile_with_frame(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
+    patches: &[crate::types::InpaintPatch],
     frame: Option<&HighlightFrameContext>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
@@ -338,6 +341,7 @@ fn develop_tile_with_frame(
             active_area,
             tile_origin: (rx / divisor, ry / divisor),
             highlight_frame,
+            patches,
         },
         cancel,
     )?;
@@ -418,6 +422,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
         quality,
         decoded_wb_anchor,
         1.0,
+        &[],
         crate::CancelToken::never(),
     )?;
     // Parallel (#1089 item 8), same rationale as the full-frame packs in
@@ -447,6 +452,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_f32(
         quality,
         None,
         1.0,
+        &[],
         crate::CancelToken::never(),
     )
 }
@@ -470,6 +476,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
         quality,
         decoded_wb_anchor,
         1.0,
+        &[],
         crate::CancelToken::never(),
     )
 }
@@ -500,6 +507,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_
         quality,
         decoded_wb_anchor,
         ae_gain,
+        &[],
         crate::CancelToken::never(),
     )
 }
@@ -522,7 +530,35 @@ pub fn render_scene_linear_tile_cancellable_f32(
         quality,
         decoded_wb_anchor,
         ae_gain,
+        &[],
         cancel,
+    )
+}
+
+/// Saved native detail uses the same bounded tile chain, with verified
+/// calibration replacements installed before user WB/DCP.
+pub(super) fn render_saved_tile(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    ae_gain: f32,
+    patches: &[crate::types::InpaintPatch],
+) -> Result<(u32, u32, Vec<f32>)> {
+    if model.inpaint_removals.len() != patches.len() {
+        return Err(crate::Error::Pipeline(
+            "native tile requires the complete verified removal stack".into(),
+        ));
+    }
+    develop_tile_oriented_f32(
+        raw,
+        model,
+        rect,
+        quality,
+        None,
+        ae_gain,
+        patches,
+        crate::CancelToken::never(),
     )
 }
 
