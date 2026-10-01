@@ -124,15 +124,25 @@ describe('POST /api/assets/:id/rename — fails closed when the engine is unavai
   test('returns 503, not a silently-passed rename, when tryGetRawFfi() is null', async () => {
     setRawFfiForTests(null);
     const res = await postRename(newObjectIdHex(), {
-      // Would PASS isSafeFilename (single segment, no leading dot) — proves
-      // this is rejected by the fail-closed engine-unavailable branch, not
-      // by the fast isSafeFilename check that runs regardless.
-      new_filename: 'CON.dng',
+      // A portable filename passes the fast guard but still needs the
+      // native validation engine before any catalogue or filesystem change.
+      new_filename: 'IMG_0002.dng',
       collision: 'auto-suffix',
     });
     expect(res.status).toBe(503);
     const body = await res.json();
     expect(body.error).toMatch(/engine unavailable/i);
+  });
+
+  test('portable-name violations are rejected even when the engine is unavailable', async () => {
+    setRawFfiForTests(null);
+    for (const name of ['CON.dng', 'COM1.tar.gz', 'photo.', 'photo.dng ']) {
+      const res = await postRename(newObjectIdHex(), {
+        new_filename: name,
+        collision: 'auto-suffix',
+      });
+      expect(res.status).toBe(400);
+    }
   });
 
   test('an isSafeFilename violation still 400s even with the engine unavailable', async () => {
