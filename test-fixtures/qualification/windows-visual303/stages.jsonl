@@ -1,0 +1,11 @@
+{"stage":"export-recipe-editor","time":"2026-10-01T23:19:45.5399755+00:00","threads":30,"workingSetBytes":182419456}
+{"stage":"thumbnail-fallback","time":"2026-10-01T23:19:49.2128199+00:00","threads":48,"workingSetBytes":366714880}
+{"stage":"native-detail","time":"2026-10-01T23:19:51.058195+00:00","threads":52,"workingSetBytes":399425536}
+{"stage":"scopes","time":"2026-10-01T23:19:51.3202546+00:00","threads":51,"workingSetBytes":399572992}
+{"stage":"preset-undo","time":"2026-10-01T23:19:56.3483684+00:00","threads":51,"workingSetBytes":423878656}
+{"stage":"adjustment-gesture","time":"2026-10-01T23:19:57.7693998+00:00","threads":51,"workingSetBytes":430829568}
+{"stage":"retouch-undo","time":"2026-10-01T23:20:01.0569524+00:00","threads":51,"workingSetBytes":443285504}
+{"stage":"retouch-cycle-1","time":"2026-10-01T23:20:01.0639521+00:00","threads":51,"workingSetBytes":443285504}
+{"stage":"retouch-open-panel","time":"2026-10-01T23:20:01.0717691+00:00","threads":51,"workingSetBytes":443322368}
+{"stage":"retouch-transforms","time":"2026-10-01T23:20:01.1346386+00:00","threads":52,"workingSetBytes":443260928}
+{"stage":"retouch-add-spot","time":"2026-10-01T23:20:01.2474491+00:00","threads":53,"workingSetBytes":445038592}

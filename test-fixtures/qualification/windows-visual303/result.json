@@ -1,0 +1,37 @@
+{
+  "issue": 3875,
+  "result": "FAIL",
+  "managedSourceRevision": "35c7c987a",
+  "nativeSourceRevision": "caab4ea736537a18a9fa27b2c04f71b9811a3284",
+  "processId": 53916,
+  "lastStage": "retouch-add-spot",
+  "lastStageUtc": "2026-10-01T23:20:01.2474491Z",
+  "windowsApplicationError": {
+    "eventId": 1000,
+    "timeLocal": "2026-10-01T19:20:02-04:00",
+    "processIdHex": "0xD29C",
+    "module": "Microsoft.UI.Xaml.dll",
+    "moduleVersion": "3.1.6.0",
+    "exceptionCode": "0xc000027b",
+    "faultOffset": "0x9125",
+    "reportId": "106e4df0-5348-47bf-9fd6-00d9f698dc6c"
+  },
+  "dump": {
+    "sha256": "361AE40F19FD29034F337B2CEEABD1570F6FA7AE954A4145228A7AE3FFF66A07",
+    "bytes": 38615498,
+    "stowedResult": "0x8000ffff",
+    "nestedExceptionType": "0x4c4d4158 (XAML)",
+    "stackFramesDeclared": 40,
+    "stackMemoryAvailable": false
+  },
+  "screenshot": {
+    "file": "gpu-repair-hang.png",
+    "sha256": "8D0FA6D4BC86486C33FF1D89C9E6781B679A2F1EF38374135CD0FCB9273F8383"
+  },
+  "limitations": [
+    "Screenshot initially appeared to show a hang. Windows Application Error and matching PID establish a XAML stowed-exception crash.",
+    "No managed crash message was present in the application log. The dump omits the stowed call-stack memory, so root cause is not established.",
+    "Neither requested visual checkpoint was reached; this is failure evidence, not completed screenshot qualification.",
+    "GPU backend was active. This does not establish that GPU processing caused the XAML crash."
+  ]
+}
