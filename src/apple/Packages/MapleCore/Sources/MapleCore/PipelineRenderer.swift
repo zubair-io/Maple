@@ -1949,7 +1949,7 @@ extension PipelineRenderer {
 public final class MapleRawHandle: @unchecked Sendable {
   /// Pointer to the C-side `MapleRawHandle` struct. Not introspected
   /// from Swift; use the FFI entries to operate on it.
-  fileprivate let pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>
+  let pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>
 
   fileprivate init(pointer: UnsafeMutablePointer<RawPipeline.MapleRawHandle>) {
     self.pointer = pointer

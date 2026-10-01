@@ -60,7 +60,7 @@ pub(crate) struct MapleRawHandleInner {
 pub struct MapleRawHandle {
     /// Opaque pointer to a heap-allocated `MapleRawHandleInner`. Not
     /// introspected by callers.
-    inner: *mut std::ffi::c_void,
+    pub(crate) inner: *mut std::ffi::c_void,
 }
 
 /// Open a RAW + optional XMP sidecar into an opaque handle suitable for
