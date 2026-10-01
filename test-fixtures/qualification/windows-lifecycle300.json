@@ -1,0 +1,263 @@
+{
+  "issue": 3875,
+  "sourceRevision": "35c7c987a",
+  "build": "full-audit300",
+  "nativeDllSha256": "94071936098A49BE1A1D4FB2D5B4D1E4190088FB2BAD906E7FA6403E088BFCEC",
+  "gpu": {
+    "passed": false,
+    "reason": "120-second lifecycle timeout; forced cleanup",
+    "lastStage": "retouch-add-spot",
+    "stageLog": [
+      {
+        "stage": "export-recipe-editor",
+        "time": "2026-10-01T18:55:37.1175062-04:00",
+        "threads": 29,
+        "workingSetBytes": 188186624
+      },
+      {
+        "stage": "thumbnail-fallback",
+        "time": "2026-10-01T18:55:44.7079395-04:00",
+        "threads": 47,
+        "workingSetBytes": 385929216
+      },
+      {
+        "stage": "native-detail",
+        "time": "2026-10-01T18:55:46.7955792-04:00",
+        "threads": 52,
+        "workingSetBytes": 413683712
+      },
+      {
+        "stage": "scopes",
+        "time": "2026-10-01T18:55:47.0582926-04:00",
+        "threads": 51,
+        "workingSetBytes": 414076928
+      },
+      {
+        "stage": "preset-undo",
+        "time": "2026-10-01T18:55:52.2053739-04:00",
+        "threads": 51,
+        "workingSetBytes": 435732480
+      },
+      {
+        "stage": "adjustment-gesture",
+        "time": "2026-10-01T18:55:53.6027612-04:00",
+        "threads": 52,
+        "workingSetBytes": 445874176
+      },
+      {
+        "stage": "retouch-undo",
+        "time": "2026-10-01T18:55:56.973011-04:00",
+        "threads": 52,
+        "workingSetBytes": 453828608
+      },
+      {
+        "stage": "retouch-cycle-1",
+        "time": "2026-10-01T18:55:56.9782051-04:00",
+        "threads": 52,
+        "workingSetBytes": 453828608
+      },
+      {
+        "stage": "retouch-open-panel",
+        "time": "2026-10-01T18:55:56.9850282-04:00",
+        "threads": 52,
+        "workingSetBytes": 453853184
+      },
+      {
+        "stage": "retouch-transforms",
+        "time": "2026-10-01T18:55:57.084294-04:00",
+        "threads": 52,
+        "workingSetBytes": 454348800
+      },
+      {
+        "stage": "retouch-add-spot",
+        "time": "2026-10-01T18:55:57.1285416-04:00",
+        "threads": 53,
+        "workingSetBytes": 455118848
+      },
+      {
+        "stage": "retouch-change-kind",
+        "time": "2026-10-01T18:56:01.327166-04:00",
+        "threads": 52,
+        "workingSetBytes": 457728000
+      },
+      {
+        "stage": "retouch-change-radius",
+        "time": "2026-10-01T18:56:02.3197391-04:00",
+        "threads": 52,
+        "workingSetBytes": 457846784
+      },
+      {
+        "stage": "retouch-undo-redo-radius",
+        "time": "2026-10-01T18:56:02.376968-04:00",
+        "threads": 53,
+        "workingSetBytes": 458559488
+      },
+      {
+        "stage": "retouch-delete-spot",
+        "time": "2026-10-01T18:56:02.5607775-04:00",
+        "threads": 53,
+        "workingSetBytes": 460054528
+      },
+      {
+        "stage": "retouch-restore-history",
+        "time": "2026-10-01T18:56:02.7454961-04:00",
+        "threads": 53,
+        "workingSetBytes": 460230656
+      },
+      {
+        "stage": "retouch-cycle-2",
+        "time": "2026-10-01T18:56:03.1438369-04:00",
+        "threads": 53,
+        "workingSetBytes": 462315520
+      },
+      {
+        "stage": "retouch-open-panel",
+        "time": "2026-10-01T18:56:03.1512803-04:00",
+        "threads": 53,
+        "workingSetBytes": 462315520
+      },
+      {
+        "stage": "retouch-transforms",
+        "time": "2026-10-01T18:56:03.1598223-04:00",
+        "threads": 53,
+        "workingSetBytes": 462315520
+      },
+      {
+        "stage": "retouch-add-spot",
+        "time": "2026-10-01T18:56:03.2080148-04:00",
+        "threads": 53,
+        "workingSetBytes": 462315520
+      },
+      {
+        "stage": "retouch-change-kind",
+        "time": "2026-10-01T18:56:07.5297036-04:00",
+        "threads": 52,
+        "workingSetBytes": 463212544
+      },
+      {
+        "stage": "retouch-change-radius",
+        "time": "2026-10-01T18:56:08.5096672-04:00",
+        "threads": 52,
+        "workingSetBytes": 464764928
+      },
+      {
+        "stage": "retouch-undo-redo-radius",
+        "time": "2026-10-01T18:56:08.6176099-04:00",
+        "threads": 52,
+        "workingSetBytes": 466661376
+      },
+      {
+        "stage": "retouch-delete-spot",
+        "time": "2026-10-01T18:56:08.7794501-04:00",
+        "threads": 52,
+        "workingSetBytes": 467075072
+      },
+      {
+        "stage": "retouch-restore-history",
+        "time": "2026-10-01T18:56:08.8575201-04:00",
+        "threads": 54,
+        "workingSetBytes": 468029440
+      },
+      {
+        "stage": "retouch-cycle-3",
+        "time": "2026-10-01T18:56:10.226152-04:00",
+        "threads": 53,
+        "workingSetBytes": 469274624
+      },
+      {
+        "stage": "retouch-open-panel",
+        "time": "2026-10-01T18:56:10.2334277-04:00",
+        "threads": 53,
+        "workingSetBytes": 469274624
+      },
+      {
+        "stage": "retouch-transforms",
+        "time": "2026-10-01T18:56:10.2414071-04:00",
+        "threads": 53,
+        "workingSetBytes": 469278720
+      },
+      {
+        "stage": "retouch-add-spot",
+        "time": "2026-10-01T18:56:10.3111811-04:00",
+        "threads": 54,
+        "workingSetBytes": 469319680
+      }
+    ]
+  },
+  "cpu": {
+    "passed": true,
+    "exportRecipeEditorRoundTrip": true,
+    "hwnd": 14224890,
+    "renderPath": "cpu",
+    "panelReleases": 1,
+    "rendererStopped": true,
+    "droppedClosingPresents": 0,
+    "viewerDesignNavigation": true,
+    "localSaveFailureRecovery": true,
+    "nativeDetailActualSize": true,
+    "presetUndoRedoAndReset": true,
+    "adjustmentGestureUndoRedo": true,
+    "repairControlsUndoRedo": true,
+    "scopesLifecycle": true,
+    "transferWatcherUndoRedo": true,
+    "comparisonPreservesDocument": true,
+    "cloudOpeningReadiness": true,
+    "cloudSearchPagination": true,
+    "cloudMapHost": true,
+    "responsiveDesign": true,
+    "browseSelectionAndSort": true,
+    "browseScrolling": true,
+    "immediateUndo": true
+  },
+  "empty": {
+    "passed": true,
+    "exportRecipeEditorRoundTrip": true,
+    "hwnd": 3017314,
+    "renderPath": "empty",
+    "panelReleases": 1,
+    "rendererStopped": true,
+    "droppedClosingPresents": 0,
+    "viewerDesignNavigation": false,
+    "localSaveFailureRecovery": false,
+    "nativeDetailActualSize": false,
+    "presetUndoRedoAndReset": false,
+    "adjustmentGestureUndoRedo": false,
+    "repairControlsUndoRedo": false,
+    "scopesLifecycle": false,
+    "transferWatcherUndoRedo": false,
+    "comparisonPreservesDocument": false,
+    "cloudOpeningReadiness": false,
+    "cloudSearchPagination": false,
+    "cloudMapHost": false,
+    "responsiveDesign": false,
+    "browseSelectionAndSort": false,
+    "browseScrolling": false,
+    "immediateUndo": false
+  },
+  "cpuNativeLayout": [
+    {
+      "requestedWidth": 1440,
+      "requestedHeight": 960,
+      "actualWidth": 1440,
+      "actualHeight": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "rasterizationScale": 1.5
+    },
+    {
+      "requestedWidth": 1024,
+      "requestedHeight": 768,
+      "actualWidth": 1024,
+      "actualHeight": 768,
+      "logicalWidth": 668,
+      "logicalHeight": 504,
+      "rasterizationScale": 1.5
+    }
+  ],
+  "limitations": [
+    "Native release compilation overlapped functional testing; no timing qualification is claimed.",
+    "GPU run failed and did not complete required native-window layout coverage.",
+    "CPU layout assertions at 150 percent DPI are not screenshot or Narrator qualification.",
+    "This result prevents treating the earlier lifecycle298 pass as stability sign-off."
+  ]
+}
