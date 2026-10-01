@@ -19,7 +19,8 @@
 # The job runs on Apple- and raw-pipeline-scoped changes: every incident
 # class either edits src/apple/** directly (committed generated Swift,
 # hand-written Swift) or changes the raw-ffi surface the header is
-# generated from (src/raw-pipeline/**).
+# generated from (src/raw-pipeline/**). API changes also run the live native
+# change-feed restart gate against actual Bun sockets and SQLite (#3770).
 
 name: apple
 
@@ -33,6 +34,7 @@ on:
     branches: [main]
     paths:
       - 'src/apple/**'
+      - 'src/api/**'
       - 'src/raw-pipeline/**'
       - '.github/workflows/apple.yml'
       - '.github/swift-regressions/**'
@@ -40,6 +42,7 @@ on:
   pull_request:
     paths:
       - 'src/apple/**'
+      - 'src/api/**'
       - 'src/raw-pipeline/**'
       - '.github/workflows/apple.yml'
       - '.github/swift-regressions/**'
@@ -165,8 +168,15 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: '14.0'
       MAPLE_GPU_LIVE: '1'
+      MAPLE_FILEPROVIDER_TEST_API_ROOT: ${{ github.workspace }}/src/api
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install live change-feed fixture dependencies
+        working-directory: src/api
+        run: bun install --frozen-lockfile
       - name: Select newest Xcode
         id: xcode
         run: |

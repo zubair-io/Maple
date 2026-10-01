@@ -80,7 +80,8 @@ export class ChangeBus {
 
   /**
    * Persisted high-watermark — set by the API process at boot from
-   * `highestCursor()` over the `asset_changes` table. The bus uses this
+   * the larger of the journal's highest cursor and the persisted allocation
+   * counter (which survives journal pruning). The bus uses this
    * to refuse replay when the in-memory buffer is empty but the
    * persistent store has events the client never saw (post-restart
    * recovery). Updated by the tailer as it republishes persisted rows so

@@ -4,11 +4,9 @@
  * This is the journal the File Provider extension syncs against: one row per
  * asset mutation, ordered by a server-allocated `cursor`, plus the counter row
  * in `server_state` that mints those cursors. Every function the Mongo repo
- * exports has an equivalent here with the same name, the same parameters and
- * the same return type, so the cutover (#3752) changes an import path and
- * nothing else. MongoDB is still the live database; this module is wired to no
- * route yet and the Mongo repo is untouched, the same staged shape #3746 landed
- * the assets port in.
+ * exported has an equivalent here with the same name, parameters and return
+ * type. The compatibility entry point `db/changes.repo.ts` now re-exports this
+ * live SQLite repository; both polling and SSE routes use it (#3752, #3770).
  *
  * ## The gap this port closes
  *
