@@ -178,10 +178,10 @@ fn unchanged_uniforms_skip_uploads_and_changed_values_reach_the_gpu() {
 }
 
 #[test]
-fn two_recent_signatures_reuse_resources_and_eviction_rebinds_correct_output() {
+fn four_recent_signatures_reuse_resources_and_eviction_rebinds_correct_output() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let pipeline = trivial_pipeline(&ctx.device, "bounded-signatures");
-    let outputs = [0, 1, 2].map(|_| {
+    let outputs = [0, 1, 2, 3, 4].map(|_| {
         ctx.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("signature-output"),
             size: 16,
@@ -214,26 +214,28 @@ fn two_recent_signatures_reuse_resources_and_eviction_rebinds_correct_output() {
             "eviction must not reuse another image's bindings"
         );
         ctx.frame_pool.borrow_mut().end_frame();
-        assert!(ctx.frame_pool.borrow().buckets.len() <= 2);
+        assert!(ctx.frame_pool.borrow().buckets.len() <= 4);
     };
     for tick in 0..40 {
-        run(1 + tick % 2);
+        run(1 + tick % 4);
     }
     assert_eq!(
         ctx.frame_pool.borrow().alloc_count(),
-        4,
-        "A/B crossing stays warm"
+        8,
+        "both phases of A/B crossing stay warm"
     );
-    run(3);
+    run(2); // Refresh an older bucket; eviction must use recency, not insertion order.
+    run(5);
     assert!(!ctx.frame_pool.borrow().buckets.contains_key(&1));
     assert!(ctx.frame_pool.borrow().buckets.contains_key(&2));
     run(1);
     assert_eq!(
         ctx.frame_pool.borrow().alloc_count(),
-        8,
+        12,
         "evicted entries rebuild once"
     );
-    assert!(!ctx.frame_pool.borrow().buckets.contains_key(&2));
+    assert!(!ctx.frame_pool.borrow().buckets.contains_key(&3));
+    assert!(ctx.frame_pool.borrow().buckets.contains_key(&2));
 }
 
 #[test]

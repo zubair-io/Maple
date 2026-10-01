@@ -115,10 +115,11 @@ struct ScratchEntry {
 #[derive(Default)]
 pub struct FramePool {
     /// Per-signature buckets. The key is the chain signature
-    /// ([`crate::live_chain::chain_signature`]). Keep only the two most recently
-    /// used shapes: a slider can cross its no-op threshold without allocation,
-    /// while a succession of different edits cannot retain unlimited images.
+    /// ([`crate::live_chain::chain_signature`]). Four shapes retain neutral and
+    /// active edits for both fast and refined sessions. Further shapes evict
+    /// the least recently used bucket, keeping retained GPU resources bounded.
     buckets: HashMap<u64, Bucket>,
+    recent: [u64; 4],
     /// The active signature for the in-flight render (set by [`FramePool::begin_frame`]).
     current_sig: u64,
     /// Whether a frame is in flight (guards against a stray pooled alloc outside
@@ -143,18 +144,16 @@ impl FramePool {
     /// resources the last render of `sig` created. Must be paired with
     /// [`FramePool::end_frame`].
     pub fn begin_frame(&mut self, sig: u64) {
-        if !self.buckets.contains_key(&sig) && self.buckets.len() == 2 {
-            // current_sig is the most recently used bucket. With capacity two,
-            // the other key is the least recently used; no extra LRU allocation.
-            let retired = self
-                .buckets
-                .keys()
-                .copied()
-                .find(|key| *key != self.current_sig);
-            if let Some(retired) = retired {
-                self.buckets.remove(&retired);
+        let used = self.buckets.len();
+        let position = self.recent[..used].iter().position(|key| *key == sig);
+        let shift = position.unwrap_or_else(|| {
+            if used == self.recent.len() {
+                self.buckets.remove(&self.recent[used - 1]);
             }
-        }
+            used.min(self.recent.len() - 1)
+        });
+        self.recent.copy_within(0..shift, 1);
+        self.recent[0] = sig;
         self.current_sig = sig;
         self.frame_active = true;
         self.dispatch_cursor = 0;

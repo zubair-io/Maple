@@ -20,6 +20,56 @@ use crate::{CancelToken, GpuContext};
 use raw_core::types::WbMethod;
 use raw_core::xmp::AdjustmentModel;
 
+#[test]
+fn fast_and_refine_sessions_crossing_zero_stay_warm() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let cancel = CancelToken::new();
+    let fast = LiveSession::new(&ctx, &scene_linear_rgba(4, 4), 4, 4).unwrap();
+    let refine = LiveSession::new(&ctx, &scene_linear_rgba(8, 8), 8, 8).unwrap();
+    let neutral = neutral_case().gpu_inputs();
+    let mut active = neutral_case().gpu_inputs();
+    active.tone[0] = 0.25;
+    let states = [
+        (&fast, &neutral),
+        (&refine, &neutral),
+        (&fast, &active),
+        (&refine, &active),
+    ];
+    let expected: Vec<_> = states
+        .iter()
+        .map(|(session, inputs)| {
+            session
+                .render_to_buffer(&ctx, inputs, &cancel)
+                .unwrap()
+                .unwrap()
+        })
+        .collect();
+    assert_ne!(expected[0], expected[2], "exposure must change fast pixels");
+    assert_ne!(
+        expected[1], expected[3],
+        "exposure must change refined pixels"
+    );
+    let warmed = fast.pool_alloc_count(&ctx);
+    assert!(warmed > 0);
+    for _ in 0..3 {
+        for ((session, inputs), expected) in states.iter().zip(&expected) {
+            let actual = session
+                .render_to_buffer(&ctx, inputs, &cancel)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                &actual, expected,
+                "phase/shape bindings must remain isolated"
+            );
+            assert_eq!(
+                session.pool_alloc_count(&ctx),
+                warmed,
+                "crossing zero must retain both shapes for both rendering phases"
+            );
+        }
+    }
+}
+
 /// STEP 2b — THE ZERO-ALLOCATION GATE (CLAUDE.md: "allocation inside the render
 /// loop … does not ship"). A second render at the SAME dims + inputs (same chain
 /// signature) allocates ZERO new GPU buffers / bind groups, AND is bit-identical
