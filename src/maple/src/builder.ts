@@ -54,6 +54,7 @@ import {
   stateToOutput,
 } from './builder-state';
 import type { BuilderState } from './builder-state';
+import type { RecipeOp } from './recipe';
 import type {
   AvifOutputOptions,
   Colour,
@@ -119,14 +120,8 @@ export class MapleImageBuilder {
     // `false`. That divergence is documented in the README and the API
     // relies on it; do not "fix" it to match sharp.
     //
-    // Last-wins: sharp treats repeated `.resize()` calls as overriding the
-    // same pipeline stage (only one resample ever runs), not as stacking two
-    // resamples. Drop any earlier `resize` op and emit only this call's, at
-    // the position of this call — matching sharp's "the last call's params
-    // win" behaviour.
     const background = resolveColour(opts.background, [0, 0, 0, 255]);
-    this.s.ops = this.s.ops.filter((op) => op.op !== 'resize');
-    this.s.ops.push({
+    const resize: Extract<RecipeOp, { op: 'resize' }> = {
       op: 'resize',
       width: Math.max(0, opts.width ?? 0),
       height: Math.max(0, opts.height ?? 0),
@@ -136,7 +131,11 @@ export class MapleImageBuilder {
       withoutEnlargement: opts.withoutEnlargement ?? true,
       withoutReduction: opts.withoutReduction ?? false,
       background,
-    });
+    };
+    // Replace options in place so intervening crops retain their pre/post-resize position (#3554).
+    this.s.ops = this.s.ops.some((op) => op.op === 'resize')
+      ? this.s.ops.map((op) => (op.op === 'resize' ? resize : op))
+      : [...this.s.ops, resize];
     return this;
   }
 
