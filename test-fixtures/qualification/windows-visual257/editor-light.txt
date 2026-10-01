@@ -1,0 +1,85 @@
+Window: "Maple", App: Maple.DesignAudit255.exe.
+	0 window Maple Secondary Actions: Raise
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				71 group Filmstrip ID: FilmstripRail
+					72 text 01 / 01
+					73 button Collapse filmstrip
+					74 pane
+						75 group design-fixture.dng
+							76 group design-fixture.dng
+								77 image
+				80 pane ID: ViewerScroll
+					81 group GPU preview canvas ID: ViewportSwapChainPanel
+				82 text 67% · preview Description: Image zoom and detail status ID: ZoomReadout
+				93 button Back to preview
+				94 text design-fixture.dng
+				95 text DNG ID: EditStatusText
+				96 button Shadow clipping indicator ID: ShadowClipButton
+				97 button Highlight clipping indicator ID: HighlightClipButton
+				98 button Undo adjustment
+				99 button Compare before and after ID: CompareButton
+				100 button More editing actions ID: MoreEditActions
+					101 text …
+				102 button Export photo
+				103 pane
+					104 button Light tools
+						105 text Light
+					106 button Color tools
+						107 text Color
+					108 button Effects tools
+						109 text Effects
+					110 button Detail tools
+						111 text Detail
+					112 button Tone Curve tools
+						113 text Curve
+					114 button Mask tools
+						115 text Mask
+					116 button Crop tools
+						117 text Crop
+				118 text Light ID: EditPanelTitle
+				119 button Reset group ID: GroupResetButton
+					120 text Reset
+				121 pane
+					122 text Profile
+					123 combo box Render profile
+					124 text Exposure
+					125 button Exposure
+					126 slider (settable, float) Exposure Value: 0
+					127 text Contrast
+					128 button Contrast
+					129 slider (settable, float) Contrast Value: 0
+					130 text Highlights
+					131 button Highlights
+					132 slider (settable, float) Highlights Value: 0
+					133 text Shadows
+					134 button Shadows
+					135 slider (settable, float) Shadows Value: 0
+					136 text Whites
+					137 button Whites
+					138 slider (settable, float) Whites Value: 0
+					139 text Blacks
+					140 button Blacks
+					141 slider (settable, float) Blacks Value: 0
+		87 title bar (settable, string) Value: Maple
+			88 menu bar System ID: MenuBar
+				89 menu item System
+			90 button Minimize
+			91 button Maximize
+			92 button Close
+
+The focused UI element is 7 pane.

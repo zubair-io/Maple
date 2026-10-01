@@ -1,0 +1,42 @@
+Window: "Maple", App: Maple.DesignAudit255.exe.
+	0 window Maple Secondary Actions: Raise
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				71 group Filmstrip ID: FilmstripRail
+					72 text 01 / 01
+					73 button Collapse photo list
+					74 pane
+						75 group design-fixture.dng
+							76 group design-fixture.dng
+								77 image
+						78 text design-fixture.dng
+						79 text DNG · 13.4 MB
+				80 pane ID: ViewerScroll
+					81 group GPU preview canvas ID: ViewportSwapChainPanel
+				82 text Fit Description: Image zoom and detail status ID: ZoomReadout
+				83 button Back to browse
+				84 text design-fixture.dng
+				85 button Edit photo
+				86 button Photo info
+		87 title bar (settable, string) Value: Maple
+			88 menu bar System ID: MenuBar
+				89 menu item System
+			90 button Minimize
+			91 button Maximize
+			92 button Close
+
+The focused UI element is 7 pane.

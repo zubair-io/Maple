@@ -1,0 +1,116 @@
+Window: "Maple", App: Maple.DesignAudit255.exe.
+	0 window Maple Secondary Actions: Raise
+		211 pane PopupHost
+			212 pane
+				213 window Popup Secondary Actions: Raise
+					214 tool tip Tap to toggle; hold to peek (B or backslash). Before shows the state at open.
+						215 text Tap to toggle; hold to peek (B or backslash). Before shows the state at open.
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				71 group Filmstrip ID: FilmstripRail
+					72 text 01 / 01
+					73 button Collapse filmstrip
+					74 pane
+						75 group design-fixture.dng
+							76 group design-fixture.dng
+								77 image
+				80 pane ID: ViewerScroll
+					81 group GPU preview canvas ID: ViewportSwapChainPanel
+					210 image Opening-state comparison ID: ComparisonImage
+					170 group Crop overlay ID: CropOverlay
+						171 thumb Move crop region Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						172 thumb Crop top left handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						173 thumb Crop top handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						174 thumb Crop top right handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						175 thumb Crop right handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						176 thumb Crop bottom right handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						177 thumb Crop bottom handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						178 thumb Crop bottom left handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+						179 thumb Crop left handle Description: Use arrow keys to adjust the crop. Hold Shift for larger steps.
+				82 text 67% · preview Description: Image zoom and detail status ID: ZoomReadout
+				93 button Back to preview
+				94 text design-fixture.dng
+				95 text DNG ID: EditStatusText
+				96 button Shadow clipping indicator ID: ShadowClipButton
+				97 button Highlight clipping indicator ID: HighlightClipButton
+				98 button Undo adjustment
+				99 button Showing before; show edited photo ID: CompareButton
+				100 button More editing actions ID: MoreEditActions
+					101 text …
+				102 button Export photo
+				209 text Before · state at open ID: ComparisonStatus
+				103 pane
+					104 button Light tools
+						105 text Light
+					106 button Color tools
+						107 text Color
+					108 button Effects tools
+						109 text Effects
+					110 button Detail tools
+						111 text Detail
+					112 button Tone Curve tools
+						113 text Curve
+					114 button Mask tools
+						115 text Mask
+					116 button Crop tools
+						117 text Crop
+				118 text Crop ID: EditPanelTitle
+				119 button Reset group ID: GroupResetButton
+					120 text Reset
+				121 pane
+					180 group Crop toolbar ID: CropToolbar
+						181 pane
+							182 group 9 chips
+								183 button Free, selected
+									184 text Free
+								185 button Original
+									186 text Original
+								187 button 1:1
+									188 text 1:1
+								189 button 3:2
+									190 text 3:2
+								191 button 4:3
+									192 text 4:3
+								193 button 16:9
+									194 text 16:9
+								195 button 2:3
+									196 text 2:3
+								197 button 3:4
+									198 text 3:4
+								199 button 9:16
+									200 text 9:16
+							201 scroll bar (settable, float) Horizontal Value: 0 ID: HorizontalScrollBar
+						202 slider (settable, float) Straighten Value: 0
+							203 text Straighten
+							204 text 0
+						205 button Reset
+							206 text Reset
+					207 button Crop done
+						208 text Done
+		87 title bar (settable, string) Value: Maple
+			88 menu bar System ID: MenuBar
+				89 menu item System
+			90 button Minimize
+			91 button Maximize
+			92 button Close
+		211 pane PopupHost
+			212 pane
+				213 window Popup Secondary Actions: Raise
+					214 tool tip Tap to toggle; hold to peek (B or backslash). Before shows the state at open.
+						215 text Tap to toggle; hold to peek (B or backslash). Before shows the state at open.
+
+The focused UI element is 7 pane.

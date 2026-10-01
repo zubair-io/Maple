@@ -1,0 +1,94 @@
+Window: "Maple", App: Maple.DesignAudit255.exe.
+	0 window Maple Secondary Actions: Raise
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				37 text Info
+				38 button Close photo info
+				39 pane
+					40 text design-fixture.dng
+					41 text Rating
+					42 button Set rating 1
+					43 button Set rating 2
+					44 button Set rating 3
+					45 button Set rating 4
+					46 button Set rating 5
+					47 button Clear rating
+						48 text Clear
+					49 text Flag
+					50 button Unflagged ID: UnflaggedBtn
+						51 text Unflagged
+					52 button Flag as pick ID: PickBtn
+						53 text Pick
+					54 button Flag as reject ID: RejectBtn
+						55 text Reject
+					56 text CAMERA
+					57 text Camera
+					58 text —
+					59 text Dimensions
+					60 text 3200 × 2200
+					61 text Lens
+					62 text —
+					63 text ISO
+					64 text —
+					65 text Aperture
+					66 text —
+					67 text Shutter
+					68 text —
+					69 text Captured
+					70 text —
+					71 text FILE
+					72 text Name
+					73 text design-fixture.dng
+					74 text Format
+					75 text DNG
+					76 text Size
+					77 text 13.4 MB
+					78 text Modified
+					79 text 2026-09-30 04:37
+					80 text Pixels
+					81 text 3200 × 2200
+					82 text Path
+					83 text C:\Users\zubai\AppData\Local\Temp\maple-visual257-ca22142491714128a310cba3dd3716ab\design-fixture.dng
+					84 text Color label
+					85 text None
+					86 group Camera and lens support
+						87 text Camera and lens support
+					88 text No caption, keywords or location in the sidecar.
+					89 button Edit this photo’s metadata
+						90 text Edit this photo’s metadata…
+				17 group Filmstrip ID: FilmstripRail
+					18 text 01 / 01
+					19 button Expand photo list
+					20 pane
+						21 group design-fixture.dng
+							22 group design-fixture.dng
+								23 image
+				24 pane ID: ViewerScroll
+					25 group GPU preview canvas ID: ViewportSwapChainPanel
+				26 text Fit Description: Image zoom and detail status ID: ZoomReadout
+				27 button Back to browse
+				28 text design-fixture.dng
+				29 button Edit photo
+				30 button Photo info
+		31 title bar (settable, string) Value: Maple
+			32 menu bar System ID: MenuBar
+				33 menu item System
+			34 button Minimize
+			35 button Maximize
+			36 button Close
+
+The focused UI element is 58 text —.

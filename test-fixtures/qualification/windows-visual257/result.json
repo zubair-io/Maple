@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceRevision": "3947e5d1b",
+  "app": "Maple.DesignAudit255.exe",
+  "appSha256": "984CD7ABB710997A79BF77A1157039FEB5331422EEEC46E448B4B7DB05280F35",
+  "captureMethod": "Computer-use sky window capture and UI Automation tree",
+  "captureReportedSize": {
+    "height": 1019,
+    "width": 1908
+  },
+  "dpi": "Not freshly measured; no DPI matrix claim",
+  "fixture": {
+    "kind": "Synthetic patterned Bayer RAW, 3200x2200; not a photographic color reference",
+    "name": "design-fixture.dng",
+    "sha256": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8"
+  },
+  "observations": [
+    "Preview compact and expanded navigation with Info open/closed captured; same selected fixture retained.",
+    "Preview toolbar contains Back, filename, Edit and Info; no Select button.",
+    "Info presents rating, Clear and Unflagged/Pick/Reject above metadata.",
+    "Editor header is bounded and visually centered, with filename, histogram, Undo, Compare, More and Export.",
+    "Light has Auto profile and Exposure, Contrast, Highlights, Shadows, Whites and Blacks.",
+    "Seven primary labeled tools remain visible.",
+    "Color Basic shows white balance preset/picker, temperature, tint, vibrance and saturation; HSL and B&W tabs remain available.",
+    "Crop displays thirds grid, handles, ratio chips, straighten, reset and Done.",
+    "Compare reached Before state at open and exposed Opening-state comparison in accessibility tree."
+  ],
+  "concerns": [
+    "Crop top/bottom handles appear partially clipped at the viewport boundary; investigate geometry and pointer reachability."
+  ],
+  "limitations": [
+    "One current window size only; not the required 1440x960 and 1024x768 at 100/150/200 percent matrix.",
+    "Single fixture does not qualify multi-photo scrolling or navigation.",
+    "No pixel-level equivalence or photographic color signoff.",
+    "Color sub-tabs, additional tools and full keyboard/Narrator coverage are not qualified by these captures.",
+    "Some immediate accessibility captures include transient tooltip entries."
+  ],
+  "apiCI": {
+    "testedRevision": "3947e5d1b0b2c255f68bcfa7ce14b2a7cec68e6d",
+    "conclusion": "success",
+    "url": "https://github.com/zubair-io/Maple/actions/runs/36891884479"
+  },
+  "complete": false
+}

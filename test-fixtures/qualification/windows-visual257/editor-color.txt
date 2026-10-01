@@ -1,0 +1,93 @@
+Window: "Maple", App: Maple.DesignAudit255.exe.
+	0 window Maple Secondary Actions: Raise
+		142 pane PopupHost
+			143 pane
+				144 window Popup Secondary Actions: Raise
+					145 tool tip Export JPEG (Ctrl+Shift+E)
+						146 text Export JPEG (Ctrl+Shift+E)
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				71 group Filmstrip ID: FilmstripRail
+					72 text 01 / 01
+					73 button Collapse filmstrip
+					74 pane
+						75 group design-fixture.dng
+							76 group design-fixture.dng
+								77 image
+				80 pane ID: ViewerScroll
+					81 group GPU preview canvas ID: ViewportSwapChainPanel
+				82 text 67% · preview Description: Image zoom and detail status ID: ZoomReadout
+				93 button Back to preview
+				94 text design-fixture.dng
+				95 text DNG ID: EditStatusText
+				96 button Shadow clipping indicator ID: ShadowClipButton
+				97 button Highlight clipping indicator ID: HighlightClipButton
+				98 button Undo adjustment
+				99 button Compare before and after ID: CompareButton
+				100 button More editing actions ID: MoreEditActions
+					101 text …
+				102 button Export photo
+				103 pane
+					104 button Light tools
+						105 text Light
+					106 button Color tools
+						107 text Color
+					108 button Effects tools
+						109 text Effects
+					110 button Detail tools
+						111 text Detail
+					112 button Tone Curve tools
+						113 text Curve
+					114 button Mask tools
+						115 text Mask
+					116 button Crop tools
+						117 text Crop
+				118 text Color ID: EditPanelTitle
+				119 button Reset group ID: GroupResetButton
+					120 text Reset
+				147 button Color basic tab ID: ColorTabBasic
+					148 text Basic
+				149 button Color HSL tab ID: ColorTabHsl
+					150 text HSL
+				151 button Color B&W tab ID: ColorTabBw
+					152 text B&W
+				121 pane
+					153 text White balance
+					154 button Pick white balance
+						155 text Pick
+					156 combo box White balance preset
+					157 text White balance provenance
+					158 text Temp
+					159 button Temp
+					160 slider (settable, float) Temp Value: 6500
+					161 text Tint
+					162 button Tint
+					163 slider (settable, float) Tint Value: 0
+					164 text Vibrance
+					165 button Vibrance
+					166 slider (settable, float) Vibrance Value: 0
+					167 text Saturation
+					168 button Saturation
+					169 slider (settable, float) Saturation Value: 0
+		87 title bar (settable, string) Value: Maple
+			88 menu bar System ID: MenuBar
+				89 menu item System
+			90 button Minimize
+			91 button Maximize
+			92 button Close
+
+The focused UI element is 7 pane.
