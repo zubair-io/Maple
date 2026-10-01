@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceBase": "38b53d9d6",
+  "kind": "isolated-scene-linear-stage-diagnostic",
+  "fixtureSha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5",
+  "stageTrace": "windows-stage-trace261.json",
+  "command": "probe-preview-noise RAW sized/14_nr_luminance.exr OUTPUT 0.2604166666666667",
+  "baselineBitExact": true,
+  "noiseAmount": 25,
+  "iso": 200,
+  "noiseProfile": [
+    8.354687E-05,
+    2.8952401E-08
+  ],
+  "metrics": {
+    "unchanged": {
+      "mean_dE": 2.1092332467227393,
+      "p95_dE": 5.124664779623334,
+      "max_dE": 31.02564921868005,
+      "bias_r": -0.00032693298999220133,
+      "bias_g": -0.00020682117610704154,
+      "bias_b": -0.00045742819202132523,
+      "meanAbsoluteChannelError": 0.00869795959442854
+    },
+    "linear": {
+      "mean_dE": 1.9326221603060894,
+      "p95_dE": 4.523625599328688,
+      "max_dE": 21.434454184557392,
+      "bias_r": -0.0003418502165004611,
+      "bias_g": -0.00019930163398385048,
+      "bias_b": -0.000453941902378574,
+      "meanAbsoluteChannelError": 0.008416568860411644
+    },
+    "area": {
+      "mean_dE": 1.5276891568990265,
+      "p95_dE": 3.4601853432643033,
+      "max_dE": 18.810079257526535,
+      "bias_r": -0.0003862132434733212,
+      "bias_g": -0.00019106932450085878,
+      "bias_b": -0.00033575226552784443,
+      "meanAbsoluteChannelError": 0.007854921743273735
+    }
+  },
+  "interpretation": "Rescaling the sensor noise profile reduces the isolated final-stage discrepancy but leaves a substantial residual. The baseline reproduction is bit-exact. Earlier sharpening and DCP differences remain in the input.",
+  "limitations": [
+    "Scene-linear diagnostic using stage_diff, not display/export acceptance.",
+    "Linear and squared-linear factors bracket sensitivity; neither is calibrated Mitchell/demosaic noise propagation.",
+    "One fixture, one preview size; no production behavior or budget changed.",
+    "Does not supersede windows-mitchell-variance228.json, which shows variance scaling alone remains insufficient for production parity."
+  ]
+}

@@ -114,3 +114,7 @@ required-features = ["test-support"]
 [[example]]
 name = "trace-preview-resize"
 required-features = ["stage-dump"]
+
+[[example]]
+name = "probe-preview-noise"
+required-features = ["stage-dump"]
