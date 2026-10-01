@@ -52,6 +52,7 @@ import { isUndecodableFilename, isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
+import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('previewer');
@@ -94,7 +95,8 @@ let _cached = 0;
 let _failed = 0;
 
 /**
- * Generate (or refresh) the 1280-px unedited preview (AVIF) for an asset.
+ * Generate (or refresh) the 1280-px preview (AVIF) for an asset. RAWs with
+ * an authored XMP sidecar are developed with its adjustments (#3971).
  *
  * `previewPathOverride` lets the caller supply a path-keyed cache path (e.g.
  * `<lib>/<fileinfo[0].path>/.maple/previews/<filename>.avif`, via
@@ -191,20 +193,6 @@ export async function generatePreview(
 }
 
 /**
- * Resolve where this asset's 1280-px preview lives on disk. Pure path
- * math — does not stat or guarantee the file exists.
- *
- * @deprecated Legacy absPath-keyed resolver. Callers should prefer
- * `cachePathForAsset(asset, libraries, 'previews', PREVIEW_CACHE_SUFFIX)` from
- * `fs/xmp.ts`, which composes the path from `(library_root, fileinfo[0].path,
- * fileinfo[0].filename)`. This one remains only for the no-asset-row
- * fallback case (see `generatePreview`'s doc).
- */
-export function resolvePreviewPath(absPath: string): string {
-  return cachePathFor(absPath, 'previews', PREVIEW_CACHE_SUFFIX);
-}
-
-/**
  * True when the cached preview at `previewPath` is fresh relative to its
  * source (`absPath`): the file exists, is non-empty, and is at least as new
  * as the source. This is the exact rule `generatePreview` uses internally to
@@ -252,6 +240,13 @@ async function renderRawPreviewToFile(rawPath: string, outPath: string): Promise
     );
     return false;
   }
+  const sidecarRender = await renderRawSidecarDerivative(
+    rawPath,
+    outPath,
+    PREVIEW_LONG_EDGE_PX,
+    70,
+  );
+  if (sidecarRender !== null) return sidecarRender;
   // quality 70 — this tier is both the client-facing "swap in over the
   // thumbnail" preview and (after describe.ts's in-memory JPEG re-encode)
   // the VLM's input, so it needs materially more fidelity than the 256px

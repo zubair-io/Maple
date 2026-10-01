@@ -59,6 +59,7 @@ import {
   lowerExt,
 } from './fs-jail.ts';
 import { computeBodyETag } from '../runtime/http-etag.ts';
+import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
 
 // Unchanged from before #2258: one hour, revalidating. Not `immutable` — this
 // route serves a source-keyed URL (`?path=…`) with no revision token, so the
@@ -381,7 +382,15 @@ export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
       }
       let ok = false;
       try {
-        ok = await pool.renderThumbnailAvifToFile(real, thumbPath, sizePx, THUMB_AVIF_QUALITY);
+        const sidecarRender = await renderRawSidecarDerivative(
+          real,
+          thumbPath,
+          sizePx,
+          THUMB_AVIF_QUALITY,
+        );
+        ok =
+          sidecarRender ??
+          (await pool.renderThumbnailAvifToFile(real, thumbPath, sizePx, THUMB_AVIF_QUALITY));
       } catch (err) {
         set.status = 500;
         return {
