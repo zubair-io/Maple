@@ -4,6 +4,17 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 impl WebLiveSession {
+    pub fn removal_generation_context(&self, xmp: &str, rect: &[u32]) -> Result<Vec<f32>, JsValue> {
+        crate::removal_context::generation(
+            self.saved_removals.as_ref(),
+            &self.raw_img,
+            &self.original,
+            xmp,
+            rect,
+        )
+        .map_err(|e| JsValue::from_str(&e))
+    }
+
     /// Gesture batch in oriented post-perspective, pre-user-crop UV (#3934).
     /// Mapping is metadata-only; it does not invoke the render or model chain.
     pub fn removal_map_points(&self, xmp: &str, request: &str) -> Result<String, JsValue> {

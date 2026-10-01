@@ -9,6 +9,7 @@ import type {
   RemovalInferenceCommand,
   RemovalInferenceResult,
   RemovalInferenceStage,
+  RemovalProposal,
 } from './removal-inference.types';
 
 type RawModule = typeof import('../raw-pipeline/pkg/raw_wasm');
@@ -45,6 +46,7 @@ function output(
 
 export class RemovalInferenceEngine {
   private readonly sessions = new Map<RemovalModelId, ort.InferenceSession>();
+  private readonly modelDigests = new Map<RemovalModelId, string>();
   private rawReady?: Promise<RawModule>;
   private embedding?: { identity: string; values: Float32Array };
   private initialized = false;
@@ -81,6 +83,9 @@ export class RemovalInferenceEngine {
       case 'generate':
         progress('generating');
         return this.generate(command.rgb, command.hole);
+      case 'propose':
+        progress('generating');
+        return this.propose(command);
       case 'encode':
         progress('encoding');
         return this.encode(command.source, command.request, command.rgb);
@@ -103,11 +108,43 @@ export class RemovalInferenceEngine {
     ).join('');
     if (hash !== pin.sha256) throw new Error('Removal model checksum mismatch.');
     if (this.sessions.has(id)) return;
+    const digest = (await this.raw()).removal_content_digest(new Uint8Array(bytes));
     const session = await ort.InferenceSession.create(bytes, {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
     });
     this.sessions.set(id, session);
+    this.modelDigests.set(id, digest);
+  }
+  private async propose(
+    command: Extract<RemovalInferenceCommand, { kind: 'propose' }>,
+  ): Promise<RemovalProposal> {
+    const raw = await this.raw();
+    const model = this.modelDigests.get('lama');
+    if (!model) throw new Error('Verified reconstruction model is unavailable.');
+    const pin = EXPERIMENTAL_REMOVAL_MODELS.find((p) => p.id === 'lama')!;
+    const request = JSON.stringify({
+      ...JSON.parse(command.request),
+      model,
+      model_version: pin.sha256,
+    });
+    const generation = new raw.RemovalGeneration(
+      request,
+      command.prior,
+      command.scene,
+      command.intent,
+      command.protected,
+    );
+    try {
+      const generated = await this.generate(generation.rgb(), generation.hole());
+      return {
+        request: generation.request(),
+        mask: command.intent,
+        patch: generation.finish(generated),
+      };
+    } finally {
+      generation.free();
+    }
   }
   private session(id: RemovalModelId): ort.InferenceSession {
     const session = this.sessions.get(id);

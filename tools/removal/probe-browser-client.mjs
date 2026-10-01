@@ -31,6 +31,7 @@ const root = resolve(repo, "src/web/projects/maple-common/src/lib/removal");
 for (const [entry, name] of [
   ["removal-inference-client.ts", "client.mjs"],
   ["removal-inference.worker.ts", "removal-inference.worker"],
+  ["../raw-pipeline/pkg/raw_wasm.js", "raw-core.mjs"],
 ]) {
   await build({
     entryPoints: [resolve(root, entry)],
@@ -62,6 +63,27 @@ const routes = new Map([
   ["/intent.mimf", resolve(selection, "intent.mimf")],
   ["/detection.f32", resolve(detection, "input.f32")],
   ["/detection.json", resolve(detection, "input.json")],
+  ["/raw-core.mjs", resolve(out, "raw-core.mjs")],
+  [
+    "/proposal-source.dng",
+    resolve(repo, "test-fixtures/removal/calibration/source.dng"),
+  ],
+  [
+    "/proposal-saved.xmp",
+    resolve(repo, "test-fixtures/removal/calibration/saved.xmp"),
+  ],
+  [
+    "/proposal-records.json",
+    resolve(repo, "test-fixtures/removal/calibration/records.txt"),
+  ],
+  [
+    "/proposal-mask.mimf",
+    resolve(repo, "test-fixtures/removal/calibration/mask.mimf"),
+  ],
+  [
+    "/proposal-patch.f16",
+    resolve(repo, "test-fixtures/removal/calibration/patch.f16"),
+  ],
 ]);
 for (const pin of pins)
   routes.set(`/models/${pin.id}`, resolve(models, pin.probe_path));
@@ -146,8 +168,11 @@ try {
   await page.goto(origin);
   const result = await page.evaluate(async (pins) => {
     const { RemovalInferenceClient } = await import("/client.mjs");
-    const floats = async (path) =>
-      new Float32Array(await (await fetch(path)).arrayBuffer());
+    const floats = async (path) => {
+      const response = await fetch(path);
+      if (!response.ok) throw Error("Missing tensor fixture: " + path);
+      return new Float32Array(await response.arrayBuffer());
+    };
     const source = (await (await fetch("/source.json")).json()).source_anchor;
     const request = await (await fetch("/request.json")).text();
     const metadata = await (await fetch("/detection.json")).json();
@@ -224,15 +249,18 @@ try {
     const rgb = await floats("/input.f32");
     const masks = await floats("/masks.f32");
     const hole = masks.slice(0, 1024 * 1024);
+    const queuedDetectionInput = await floats("/detection.f32");
     cancelNext = true;
     const epoch = client.epoch;
     const generation = client.generate(rgb.slice(), hole.slice());
-    const queued = client.detect(await floats("/detection.f32"), metadata.size);
+    const queued = client.detect(queuedDetectionInput, metadata.size);
     let cancelled = false;
+    let generationError;
     try {
       await generation;
     } catch (error) {
       cancelled = error.name === "AbortError";
+      generationError = error.message;
     }
     const cancellationMs = performance.now() - cancelRequestedAt;
     let queuedCancelled = false;
@@ -242,7 +270,17 @@ try {
       queuedCancelled = error.name === "AbortError";
     }
     if (!cancelled || !queuedCancelled || client.epoch <= epoch)
-      throw new Error("Hard cancellation failed to discard pending work.");
+      throw new Error(
+        "Hard cancellation failed to discard pending work: " +
+          JSON.stringify({
+            cancelled,
+            queuedCancelled,
+            epoch: client.epoch,
+            priorEpoch: epoch,
+            generationError,
+            cancelRequestedAt,
+          }),
+      );
     const retryStarted = performance.now();
     const generated = await client.generate(rgb, hole);
     const retryMs = performance.now() - retryStarted;
@@ -256,6 +294,143 @@ try {
       body: generated.buffer,
     });
     if (!saved.ok) throw new Error("Could not save bounded diagnostic pixels.");
+    const wasm = await import("/raw-core.mjs");
+    await wasm.default({ module_or_path: "/raw_wasm_bg.wasm" });
+    const read = async (path) =>
+      new Uint8Array(await (await fetch(path)).arrayBuffer());
+    const original = await read("/proposal-source.dng");
+    const session = new wasm.NativeDetailSession(original, "dng");
+    let proposalReport;
+    try {
+      const prior = await (await fetch("/proposal-records.json")).text();
+      const xmp = await (await fetch("/proposal-saved.xmp")).text();
+      const priorMask = await read("/proposal-mask.mimf"),
+        priorPatch = await read("/proposal-patch.f16");
+      const assets = new Map([
+        [wasm.removal_content_digest(priorMask).slice(7) + ".mask", priorMask],
+        [wasm.removal_content_digest(priorPatch).slice(7) + ".f16", priorPatch],
+      ]);
+      function install(xmp) {
+        const entries = [...assets].map(([name, bytes]) => ({
+          name,
+          length: bytes.length,
+        }));
+        const bundle = new Uint8Array(
+          entries.reduce((n, v) => n + v.length, 0),
+        );
+        let offset = 0;
+        for (const bytes of assets.values()) {
+          bundle.set(bytes, offset);
+          offset += bytes.length;
+        }
+        session.prepare_saved_removals(xmp, JSON.stringify(entries), bundle);
+      }
+      install(xmp);
+      const source = JSON.parse(session.removal_calibration_source());
+      const mask = wasm.removal_selection(
+        source.width,
+        source.height,
+        JSON.stringify({
+          schema: 1,
+          strokes: [{ subtract: false, radius: 0.06, points: [[0.5, 0.5]] }],
+        }),
+      );
+      const maskBefore = mask.slice();
+      const masks = JSON.parse(
+        wasm.removal_generation_plan(JSON.stringify(source), mask, 1, 1),
+      );
+      const w = masks.window;
+      const scene = session.removal_generation_context(
+        xmp,
+        Uint32Array.of(w.x, w.y, w.width, w.height),
+      );
+      const proposal = await client.propose(
+        JSON.stringify({ schema: 1, source, masks }),
+        prior,
+        scene,
+        mask,
+      );
+      if (!mask.every((v, i) => v === maskBefore[i]))
+        throw Error("Proposal transferred current editor intent");
+      const metadata = JSON.parse(proposal.request);
+      const model = wasm.removal_content_digest(
+        new Uint8Array(await models.get("lama").arrayBuffer()),
+      );
+      if (metadata.model !== model)
+        throw Error("Proposal does not name the verified graph");
+      const records = wasm.removal_prepare(
+        proposal.request,
+        prior,
+        proposal.mask,
+        proposal.patch,
+      );
+      const accepted = JSON.parse(records);
+      if (
+        accepted.length !== 2 ||
+        accepted[1].schema !== 4 ||
+        accepted[1].accepted.dependencies.length !== 1
+      )
+        throw Error("Actual generated proposal lost preceding saved context");
+      assets.set(
+        wasm.removal_content_digest(proposal.mask).slice(7) + ".mask",
+        proposal.mask,
+      );
+      assets.set(
+        wasm.removal_content_digest(proposal.patch).slice(7) + ".f16",
+        proposal.patch,
+      );
+      const savedXmp =
+        '<rdf:Description xmlns:rdf="x" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:InpaintRemovals="' +
+        records.replaceAll('"', "&quot;") +
+        '"/>';
+      install(savedXmp);
+      const preview = session.render_saved_removals(
+        savedXmp,
+        16,
+        new Uint8Array(),
+      );
+      const pixels = preview.take_rgb(),
+        width = preview.width,
+        height = preview.height;
+      preview.free();
+      const exported = session.export_saved_removals(
+        savedXmp,
+        JSON.stringify({
+          format: "png",
+          quality: 100,
+          color_space: "srgb",
+          max_long_edge: 16,
+        }),
+        new Uint8Array(),
+      );
+      const png = exported.chunk(0, exported.byteLength);
+      exported.free();
+      const bitmap = await createImageBitmap(
+        new Blob([png], { type: "image/png" }),
+      );
+      const canvas = new OffscreenCanvas(width, height),
+        ctx = canvas.getContext("2d", { colorSpace: "srgb" });
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const rgba = ctx.getImageData(0, 0, width, height).data;
+      if (pixels.some((v, i) => v !== rgba[Math.floor(i / 3) * 4 + (i % 3)]))
+        throw Error("Generated saved preview differs from PNG export");
+      if (wasm.removal_content_digest(original) !== source.original)
+        throw Error("Generation changed original");
+      proposalReport = {
+        nativeWindow: w,
+        model,
+        records: accepted.length,
+        dependencies: 1,
+        patchBytes: proposal.patch.length,
+        previewPixels: pixels.length,
+        exportIdentical: true,
+        originalUnchanged: true,
+        selectionRetained: true,
+      };
+    } finally {
+      session.free();
+    }
     let lostEmbeddingRejected = false;
     try {
       await client.refine(JSON.stringify(source), request);
@@ -278,6 +453,7 @@ try {
       queuedCancelled,
       lostEmbeddingRejected,
       intentIdentical: true,
+      proposal: proposalReport,
     };
   }, pins);
   const report = result;

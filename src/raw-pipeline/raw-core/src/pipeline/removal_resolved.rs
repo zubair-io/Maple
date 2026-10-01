@@ -68,6 +68,48 @@ impl ResolvedCalibrationRemovals {
         &self.needs_review
     }
 
+    /// Native authoring input includes the entire ordered accepted stack. Its
+    /// frozen dependencies must describe pixels the generator actually saw.
+    /// Asset I/O and inference are outside this bounded source operation.
+    pub fn generation_context(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+        window: crate::types::accepted_removal::NativeWindow,
+        cancel: CancelToken<'_>,
+    ) -> crate::Result<Image> {
+        self.verify_current(raw, original, model)?;
+        let mut image = super::render_removal_calibration_context(raw, window, cancel)?;
+        if cancel.is_cancelled() {
+            return Err(crate::Error::Cancelled);
+        }
+        crate::stages::inpaint_composite::apply_window(
+            &mut image,
+            &self.patches,
+            window.region(self.source.width, self.source.height),
+        )
+        .map_err(crate::Error::Pipeline)?;
+        Ok(image)
+    }
+
+    fn verify_current(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+    ) -> crate::Result<()> {
+        let source = super::removal_calibration_source_anchor(raw, original)?;
+        let encoded = crate::types::inpaint::encode_removals(&model.inpaint_removals)
+            .map_err(crate::Error::Pipeline)?;
+        if self.source != source || self.records != ContentDigest::for_bytes(encoded.as_bytes()) {
+            return Err(crate::Error::Pipeline(
+                "saved removal source or stack changed".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Verify all companions before making any portion of a stack renderable.
     /// Asset keys are the shared digest basenames, never arbitrary sidecar paths.
     /// The host reads assets before calling; this entry performs no file I/O.
@@ -146,14 +188,7 @@ impl ResolvedCalibrationRemovals {
         if cancel.is_cancelled() {
             return Err(crate::Error::Cancelled);
         }
-        let source = super::removal_calibration_source_anchor(raw, original)?;
-        let encoded = crate::types::inpaint::encode_removals(&model.inpaint_removals)
-            .map_err(crate::Error::Pipeline)?;
-        if self.source != source || self.records != ContentDigest::for_bytes(encoded.as_bytes()) {
-            return Err(crate::Error::Pipeline(
-                "saved removal source or stack changed".into(),
-            ));
-        }
+        self.verify_current(raw, original, model)?;
         super::removal_calibration::develop_with_gain(
             raw,
             model,

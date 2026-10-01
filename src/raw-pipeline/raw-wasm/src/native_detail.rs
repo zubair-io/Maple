@@ -81,6 +81,17 @@ impl NativeDetailSession {
         crate::removal_context::prepare(&self.raw, rect).map_err(js_error)
     }
 
+    pub fn removal_generation_context(&self, xmp: &str, rect: &[u32]) -> Result<Vec<f32>, JsError> {
+        crate::removal_context::generation(
+            self.saved_removals.as_ref(),
+            &self.raw,
+            &self.original,
+            xmp,
+            rect,
+        )
+        .map_err(js_error)
+    }
+
     /// Fixed calibration recipe and original-byte identity. Read when opening
     /// removal authoring, never per stroke or slider tick.
     pub fn removal_calibration_source(&self) -> Result<String, JsError> {

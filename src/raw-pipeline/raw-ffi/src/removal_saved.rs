@@ -67,6 +67,97 @@ unsafe fn saved<'a>(owner: *const MapleSavedRemovals) -> Result<&'a SavedState, 
         .as_ref()
         .ok_or_else(|| "closed saved-removal owner".into())
 }
+
+/// Bounded native calibration RGB including the complete accepted stack.
+/// cap/length count f32 elements. Failure never changes output. 0 success,
+/// 1 null length, 5 invalid source/stack/geometry, 20 cancelled, 100 probe.
+/// # Safety
+/// raw/owner/cancel remain live until return; xmp NUL-terminated UTF-8. length
+/// writable; non-null output aligned/writable for cap f32s, disjoint from owners.
+#[no_mangle]
+pub unsafe extern "C" fn maple_removal_saved_context_f32(
+    raw: *const MapleRawHandle,
+    owner: *const MapleSavedRemovals,
+    xmp: *const c_char,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    cancel: *const crate::cancel::MapleCancelFlag,
+    output: *mut f32,
+    cap: usize,
+    length: *mut usize,
+) -> i32 {
+    if length.is_null() {
+        return 1;
+    }
+    *length = 0;
+    if cap > isize::MAX as usize / std::mem::size_of::<f32>() {
+        return failed("saved context capacity exceeds allocation".into());
+    }
+    let args = (
+        raw as usize,
+        owner as usize,
+        xmp as usize,
+        cancel as usize,
+        output as usize,
+        length as usize,
+    );
+    with_large_stack(move || {
+        let raw = match inner(args.0 as *const MapleRawHandle) {
+            Ok(raw) => raw,
+            Err(e) => return failed(e),
+        };
+        let owner = match saved(args.1 as *const MapleSavedRemovals) {
+            Ok(owner) => owner,
+            Err(e) => return failed(e),
+        };
+        if owner.original != raw.original {
+            return failed("saved context RAW owner changed".into());
+        }
+        let xmp = match text(args.2 as *const c_char) {
+            Ok(xmp) => xmp,
+            Err(e) => return failed(e),
+        };
+        let model = match load_xmp_model_from_doc(Some(xmp)) {
+            LoadModel::Ok(model) => model,
+            LoadModel::Err(code) => return code,
+        };
+        let flag = crate::cancel::token_from_ptr(args.3 as *const crate::cancel::MapleCancelFlag);
+        let token = flag
+            .as_ref()
+            .map_or_else(raw_core::cancel::CancelToken::never, |flag| {
+                raw_core::cancel::CancelToken::new(flag.as_ref())
+            });
+        let image = match owner.stack.generation_context(
+            &raw.raw,
+            &raw.original,
+            &model,
+            raw_core::types::accepted_removal::NativeWindow {
+                x,
+                y,
+                width,
+                height,
+            },
+            token,
+        ) {
+            Ok(image) => image,
+            Err(raw_core::Error::Cancelled) => return 20,
+            Err(e) => return failed(e.to_string()),
+        };
+        let count = image.pixels.len() * 3;
+        *(args.5 as *mut usize) = count;
+        if args.4 == 0 || cap < count {
+            return 100;
+        }
+        std::ptr::copy_nonoverlapping(
+            image.pixels.as_ptr().cast::<f32>(),
+            args.4 as *mut f32,
+            count,
+        );
+        0
+    })
+}
 unsafe fn text<'a>(value: *const c_char) -> Result<&'a str, String> {
     if value.is_null() {
         return Err("null saved-render string".into());

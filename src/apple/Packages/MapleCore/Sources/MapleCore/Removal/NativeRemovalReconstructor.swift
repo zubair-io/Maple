@@ -6,8 +6,12 @@ import RawPipeline
 /// calls on this session. Inputs are prepared by the shared RAW encoding path.
 public final class NativeRemovalReconstructor: @unchecked Sendable {
   fileprivate let pointer: UnsafeMutablePointer<MapleRemovalReconstructor>
+  public let modelDigest: String
 
-  private init(pointer: UnsafeMutablePointer<MapleRemovalReconstructor>) { self.pointer = pointer }
+  private init(pointer: UnsafeMutablePointer<MapleRemovalReconstructor>, modelDigest: String) {
+    self.pointer = pointer
+    self.modelDigest = modelDigest
+  }
 
   public static func open(directory: URL, runtime: URL? = nil) throws
     -> NativeRemovalReconstructor
@@ -31,7 +35,16 @@ public final class NativeRemovalReconstructor: @unchecked Sendable {
     }
     try check(rc)
     guard let pointer else { throw RemovalError.invalid("Missing removal model handle") }
-    return NativeRemovalReconstructor(pointer: pointer)
+    do {
+      let digest = try RemovalBridge.buffer { output, capacity, length in
+        maple_removal_reconstructor_digest_buf(pointer, output, capacity, length)
+      }
+      return NativeRemovalReconstructor(
+        pointer: pointer, modelDigest: String(decoding: digest, as: UTF8.self))
+    } catch {
+      maple_removal_reconstructor_close(pointer)
+      throw error
+    }
   }
 
   deinit { maple_removal_reconstructor_close(pointer) }

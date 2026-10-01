@@ -226,18 +226,26 @@ pub use removal_context::{
     maple_removal_calibration_context_f32, maple_removal_calibration_source_buf,
 };
 pub use removal_generation::maple_removal_generation_masks_f32;
+mod removal_proposal;
 pub use removal_geometry::maple_removal_map_points_buf;
 #[cfg(any(feature = "removal", feature = "removal-ios"))]
 pub use removal_inference::{
     maple_removal_inference_cancel, maple_removal_inference_free, maple_removal_inference_new,
     maple_removal_reconstruct_f32, maple_removal_reconstructor_close,
-    maple_removal_reconstructor_open, MapleRemovalInference, MapleRemovalReconstructor,
+    maple_removal_reconstructor_digest_buf, maple_removal_reconstructor_open,
+    MapleRemovalInference, MapleRemovalReconstructor,
 };
 pub use removal_prepare::{maple_removal_content_digest, maple_removal_prepare_buf};
+pub use removal_proposal::{
+    maple_removal_generation_close, maple_removal_generation_finish_buf,
+    maple_removal_generation_inputs_f32, maple_removal_generation_open,
+    maple_removal_generation_plan_buf, maple_removal_generation_request_buf,
+    MapleRemovalGeneration,
+};
 pub use removal_saved::{
-    maple_removal_saved_close, maple_removal_saved_export, maple_removal_saved_free_buffer,
-    maple_removal_saved_open, maple_removal_saved_preview, maple_removal_saved_review_buf,
-    MapleRemovalBuffer, MapleSavedRemovals,
+    maple_removal_saved_close, maple_removal_saved_context_f32, maple_removal_saved_export,
+    maple_removal_saved_free_buffer, maple_removal_saved_open, maple_removal_saved_preview,
+    maple_removal_saved_review_buf, MapleRemovalBuffer, MapleSavedRemovals,
 };
 pub use removal_selection::{maple_removal_mask_decode_buf, maple_removal_selection_buf};
 #[cfg(any(feature = "removal", feature = "removal-ios"))]

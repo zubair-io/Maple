@@ -15,7 +15,9 @@ addEventListener('message', (event: MessageEvent<RemovalInferenceMessage>) => {
         (result instanceof Float32Array || result instanceof Uint8Array) &&
         result.buffer instanceof ArrayBuffer
           ? [result.buffer]
-          : [];
+          : result && typeof result === 'object' && 'patch' in result
+            ? [result.mask.buffer, result.patch.buffer]
+            : [];
       postMessage({ id: message.id, result } satisfies RemovalInferenceReply, transfer);
     } catch (error) {
       postMessage({

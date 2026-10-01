@@ -49,8 +49,17 @@ fn verified_bytes(path: &Path, size: u64, expected: &str) -> Result<Vec<u8>> {
 }
 
 pub(crate) fn load(model: Model, directory: &Path, _runtime: &OrtRuntime) -> Result<Session> {
+    load_verified(model, directory, _runtime).map(|(session, _)| session)
+}
+
+pub(crate) fn load_verified(
+    model: Model,
+    directory: &Path,
+    _runtime: &OrtRuntime,
+) -> Result<(Session, raw_core::types::accepted_removal::ContentDigest)> {
     let pin = model.pin();
     let bytes = verified_bytes(&directory.join(pin.file), pin.size, pin.sha256)?;
+    let digest = raw_core::types::accepted_removal::ContentDigest::for_bytes(&bytes);
     let session = Session::builder()?
         .with_intra_threads(4)?
         .with_inter_threads(1)?
@@ -109,7 +118,7 @@ pub(crate) fn load(model: Model, directory: &Path, _runtime: &OrtRuntime) -> Res
             return Err(model_error(format!("model interface mismatch: {name}")));
         }
     }
-    Ok(session)
+    Ok((session, digest))
 }
 
 pub(crate) fn output_f32(

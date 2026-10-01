@@ -43,13 +43,24 @@ export function runRemovalAuthoring(
       return { kind: 'source', source };
     case 'map':
       return { kind: 'map', mapping: session.removal_map_points(command.xmp, command.request) };
-    case 'context': {
+    case 'context':
+    case 'generation-context': {
       if (
         !command.rect.every((value) => Number.isInteger(value) && value >= 0 && value <= 0xffffffff)
       ) {
         throw new Error('Invalid native removal context rectangle');
       }
-      const rgb = session.removal_calibration_context(new Uint32Array(command.rect));
+      if (command.kind === 'generation-context') {
+        session.prepare_saved_removals(
+          command.xmp,
+          command.manifest,
+          new Uint8Array(command.companions),
+        );
+      }
+      const rgb =
+        command.kind === 'context'
+          ? session.removal_calibration_context(new Uint32Array(command.rect))
+          : session.removal_generation_context(command.xmp, new Uint32Array(command.rect));
       return {
         kind: 'context',
         rgb: rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength) as ArrayBuffer,

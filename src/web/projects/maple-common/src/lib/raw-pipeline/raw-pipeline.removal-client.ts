@@ -1,4 +1,5 @@
 import type { PendingHandler } from './raw-pipeline.service-internals';
+import type { RemovalCompanionBundle } from '../removal/removal-companion-bundle';
 import type {
   RemovalAuthoringCommand,
   RemovalAuthoringRequest,
@@ -57,6 +58,23 @@ export class RemovalAuthoringClient {
   async context(rect: readonly [number, number, number, number]): Promise<Float32Array> {
     const result = await this.operation({ kind: 'context', rect });
     if (result.kind !== 'context') throw new Error('Invalid removal context reply');
+    return new Float32Array(result.rgb);
+  }
+
+  async generationContext(
+    xmp: string,
+    rect: readonly [number, number, number, number],
+    bundle: RemovalCompanionBundle,
+  ): Promise<Float32Array> {
+    if (!this.input) throw new Error('Removal RAW session is not open');
+    const companions = bundle.bytes.slice().buffer as ArrayBuffer;
+    const result = await this.send(
+      this.input,
+      { kind: 'generation-context', xmp, rect, manifest: bundle.manifest, companions },
+      this.epoch,
+      [companions],
+    );
+    if (result.kind !== 'context') throw new Error('Invalid removal generation context reply');
     return new Float32Array(result.rgb);
   }
 
