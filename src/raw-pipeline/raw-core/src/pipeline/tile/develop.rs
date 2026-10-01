@@ -42,7 +42,7 @@ use crate::stages::{capture_sharpening, local_adjustments, retouch, vignette};
 /// The per-render values the tile entry threads into the chain besides the
 /// mosaic and the model: the host-measured anchors (WB delta anchor, #1725;
 /// auto-exposure gain, #1167) and the tile's window in the frame (#1157).
-pub(super) struct TileAnchors {
+pub(super) struct TileAnchors<'a> {
     /// See [`develop_scene_linear_from_padded_mosaic`].
     pub decoded_wb_anchor: Option<(f32, f32)>,
     /// See [`develop_scene_linear_from_padded_mosaic`].
@@ -54,6 +54,7 @@ pub(super) struct TileAnchors {
     pub inner: (u32, u32, u32, u32),
     /// Physical sensor ActiveArea translated into the padded demosaic buffer.
     pub active_area: Option<crate::image::CropRect>,
+    pub patches: &'a [crate::types::InpaintPatch],
 }
 
 pub(super) struct DevelopedTile {
@@ -114,7 +115,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
-    anchors: TileAnchors,
+    anchors: TileAnchors<'_>,
 ) -> Result<DevelopedTile> {
     let TileAnchors {
         decoded_wb_anchor,
@@ -122,10 +123,26 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         window,
         mut inner,
         active_area,
+        patches,
     } = anchors;
     let mut camera_rgb = super::camera::prepare(mosaic, raw, model, quality, active_area)?;
     let (profile, profile_source) =
         stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    if !patches.is_empty() {
+        let footprint = [
+            window.origin.0 as f32 / window.full.0 as f32,
+            window.origin.1 as f32 / window.full.1 as f32,
+            camera_rgb.width as f32 / window.full.0 as f32,
+            camera_rgb.height as f32 / window.full.1 as f32,
+        ];
+        crate::pipeline::removal_calibration::composite_camera_sampled(
+            &mut camera_rgb,
+            patches,
+            &profile,
+            footprint,
+            effective_quality_divisor(quality, raw.cfa),
+        )?;
+    }
     // Camera-space user white balance (#1726) — mirrors the full-res
     // develop chain; see `pipeline::develop` and `stages::wb_camera` for
     // the design writeup. This function rejects LinearRaw at the top (see

@@ -2,7 +2,7 @@
 //! The patch consumes the base render's AE and Auto artifacts, never fits
 //! a tone curve or measures exposure from a viewport's histogram.
 
-use super::{display_prefix, finish, render_display_scene_with_context, RawInput};
+use super::{display_prefix, finish, RawInput};
 use crate::{
     error::{Error, Result},
     film::FilmLut,
@@ -35,7 +35,25 @@ pub fn render_detail_base(
     source: RawInput<'_>,
     options: DetailRenderOptions<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-    let (mut scene, context) = render_display_scene_with_context(
+    if !model.inpaint_removals.is_empty() {
+        return Err(Error::Pipeline(
+            "native detail requires verified removal companions".into(),
+        ));
+    }
+    render_base(raw, model, source, options, None)
+}
+
+fn render_base(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    source: RawInput<'_>,
+    options: DetailRenderOptions<'_>,
+    removals: Option<(
+        &crate::pipeline::ResolvedCalibrationRemovals,
+        &crate::types::accepted_removal::ContentDigest,
+    )>,
+) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    let (mut scene, context) = super::render_display_scene_with_removals(
         raw,
         model,
         options.quality,
@@ -43,6 +61,7 @@ pub fn render_detail_base(
         Some(options.max_long_edge),
         encode::TargetPrimaries::Srgb,
         options.film_lut,
+        removals,
     )?;
     let rgb = encode::dither_and_quantize(&mut scene);
     let (w, h, rgb) = finish::apply_geometry(
@@ -65,6 +84,22 @@ pub fn render_detail_tile(
     rect: TileRect,
     film_lut: Option<&FilmLut>,
     max_working_pixels: u64,
+) -> Result<(u32, u32, Vec<u8>)> {
+    if !context.active_model.inpaint_removals.is_empty() {
+        return Err(Error::Pipeline(
+            "native detail requires verified removal companions".into(),
+        ));
+    }
+    render_tile(raw, context, rect, film_lut, max_working_pixels, None)
+}
+
+fn render_tile(
+    raw: &RawImage,
+    context: &DetailContext,
+    rect: TileRect,
+    film_lut: Option<&FilmLut>,
+    max_working_pixels: u64,
+    patches: Option<&[crate::types::InpaintPatch]>,
 ) -> Result<(u32, u32, Vec<u8>)> {
     let (native_w, native_h) = super::native_render_dims(raw);
     if !context.model.crop.is_identity() {
@@ -123,9 +158,14 @@ pub fn render_detail_tile(
             "native-detail patch exceeds the memory budget".into(),
         ));
     }
-    let (w, h, rgba) = super::super::tile::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
-        raw, &context.active_model, absolute, quality, None, context.ae_gain,
-    )?;
+    let (w, h, rgba) = match patches {
+        Some(patches) => super::super::tile::render_saved_tile(
+            raw, &context.active_model, absolute, quality, context.ae_gain, patches,
+        ),
+        None => super::super::tile::render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
+            raw, &context.active_model, absolute, quality, None, context.ae_gain,
+        ),
+    }?;
     let rgb: Vec<f32> = rgba
         .chunks_exact(4)
         .flat_map(|p| [p[0], p[1], p[2]])
@@ -169,6 +209,49 @@ pub fn render_detail_tile(
     }
     let rgb = encode::dither_and_quantize_windowed(&mut scene, origin);
     Ok(apply_orientation(&rgb, sw, sh, raw.orientation))
+}
+
+impl crate::pipeline::ResolvedCalibrationRemovals {
+    /// Prepare full-frame AE/Whites/Auto anchors from the accepted stack, not
+    /// the viewport histogram. The RAW owner and companions remain retained.
+    pub fn render_detail_base(
+        &self,
+        raw: &RawImage,
+        original: &crate::types::accepted_removal::ContentDigest,
+        model: &AdjustmentModel,
+        source: RawInput<'_>,
+        options: DetailRenderOptions<'_>,
+    ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+        render_base(raw, model, source, options, Some((self, original)))
+    }
+
+    /// Native DefaultCrop-relative tile using the exact accepted base anchors.
+    /// Unsupported formats/stages and oversized padded regions still refuse.
+    pub fn render_detail_tile(
+        &self,
+        raw: &RawImage,
+        original: &crate::types::accepted_removal::ContentDigest,
+        context: &DetailContext,
+        rect: TileRect,
+        film_lut: Option<&FilmLut>,
+        max_working_pixels: u64,
+    ) -> Result<(u32, u32, Vec<u8>)> {
+        let patches = self.detail_patches(raw, original, &context.active_model)?;
+        if raw.opcode_list3.is_none() && crate::lens_profile::applies(raw, &context.active_model) {
+            return Err(Error::Pipeline(
+                "saved native detail requires the full-image render when a lens profile is active"
+                    .into(),
+            ));
+        }
+        render_tile(
+            raw,
+            context,
+            rect,
+            film_lut,
+            max_working_pixels,
+            Some(patches),
+        )
+    }
 }
 
 fn inverse_orientation(orientation: ExifOrientation) -> ExifOrientation {

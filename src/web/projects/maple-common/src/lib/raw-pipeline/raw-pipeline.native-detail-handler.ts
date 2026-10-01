@@ -10,6 +10,7 @@ interface Patch {
   free(): void;
 }
 interface Session {
+  prepare_saved_removals?(xmp: string, manifest: string, bytes: Uint8Array): string;
   render_tile(
     xmp: string | undefined,
     rect: Uint32Array,
@@ -28,7 +29,12 @@ interface DetailWorkerDependencies {
 
 /** One retained mosaic. Dependencies keep worker lifetime tests browser-free. */
 export class NativeDetailWorker {
-  private current: { sourceId: string; session: Session } | null = null;
+  private current: {
+    sourceId: string;
+    session: Session;
+    companions?: NonNullable<NativeDetailRequest['removals']>;
+    preparedXmp?: string;
+  } | null = null;
   private epoch = 0;
 
   constructor(private readonly deps: DetailWorkerDependencies) {}
@@ -57,6 +63,7 @@ export class NativeDetailWorker {
     }
     // Synchronous use stays inside the owner: another queued image open must
     // not free this WASM object between returning it and calling into it.
+    this.current.preparedXmp = undefined;
     return action(this.current.session);
   }
 
@@ -72,6 +79,24 @@ export class NativeDetailWorker {
           sourceId: req.sourceId,
           session: this.deps.open(new Uint8Array(req.bytes), req.ext),
         };
+      }
+      if (req.removals === null) {
+        this.current.companions = undefined;
+        this.current.preparedXmp = undefined;
+      } else if (req.removals) {
+        this.current.companions = req.removals;
+        this.current.preparedXmp = undefined;
+      }
+      if (req.xmp && this.current.companions && this.current.preparedXmp !== req.xmp) {
+        const prepare = this.current.session.prepare_saved_removals;
+        if (!prepare) throw new Error('Saved native-detail preparation is unavailable');
+        prepare.call(
+          this.current.session,
+          req.xmp,
+          this.current.companions.manifest,
+          new Uint8Array(this.current.companions.companions),
+        );
+        this.current.preparedXmp = req.xmp;
       }
       const r = req.rect;
       const patch = this.current.session.render_tile(

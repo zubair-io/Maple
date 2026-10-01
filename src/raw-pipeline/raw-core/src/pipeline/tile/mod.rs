@@ -183,7 +183,13 @@ fn develop_tile_oriented_f32(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
+    patches: &[crate::types::InpaintPatch],
 ) -> Result<(u32, u32, Vec<f32>)> {
+    if model.inpaint_removals.len() != patches.len() {
+        return Err(crate::Error::Pipeline(
+            "native tile requires the complete verified removal stack".into(),
+        ));
+    }
     let TileRect {
         src_x,
         src_y,
@@ -250,6 +256,7 @@ fn develop_tile_oriented_f32(
             window,
             inner,
             active_area,
+            patches,
         },
     )?;
 
@@ -323,7 +330,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor(
     decoded_wb_anchor: Option<(f32, f32)>,
 ) -> Result<(u32, u32, Vec<u16>)> {
     let (w, h, oriented_f32) =
-        develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0)?;
+        develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0, &[])?;
     // Parallel (#1089 item 8), same rationale as the full-frame packs in
     // `render::scene_linear`: scalar software convert, order-preserving
     // indexed collect, bit-identical output.
@@ -349,7 +356,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_f32(
     rect: TileRect,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(raw, model, rect, quality, None, 1.0)
+    develop_tile_oriented_f32(raw, model, rect, quality, None, 1.0, &[])
 }
 
 /// f32 (16 B/px) counterpart to
@@ -364,7 +371,7 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
     quality: RenderQuality,
     decoded_wb_anchor: Option<(f32, f32)>,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0)
+    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, 1.0, &[])
 }
 
 /// f32 (16 B/px) counterpart to
@@ -386,5 +393,18 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, ae_gain)
+    develop_tile_oriented_f32(raw, model, rect, quality, decoded_wb_anchor, ae_gain, &[])
+}
+
+/// Saved native detail uses the same bounded tile chain, with verified
+/// calibration replacements installed before user WB/DCP (#3955).
+pub(super) fn render_saved_tile(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    ae_gain: f32,
+    patches: &[crate::types::InpaintPatch],
+) -> Result<(u32, u32, Vec<f32>)> {
+    develop_tile_oriented_f32(raw, model, rect, quality, None, ae_gain, patches)
 }

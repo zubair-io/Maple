@@ -28,6 +28,7 @@ struct PreparedDetail {
     film_bytes: Vec<u8>,
     film: Option<raw_core::film::FilmLut>,
     context: DetailContext,
+    removals: bool,
 }
 
 #[wasm_bindgen]
@@ -112,6 +113,7 @@ impl NativeDetailSession {
         manifest: &str,
         bytes: &[u8],
     ) -> Result<String, JsError> {
+        self.prepared = None;
         self.saved_removals = None;
         let stack = crate::removal_saved::prepare(&self.raw, &self.original, xmp, manifest, bytes)
             .map_err(js_error)?;
@@ -221,29 +223,35 @@ impl NativeDetailSession {
             // Release prior artifacts before creating the new bounded reference.
             self.prepared = None;
             let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(js_error)?;
-            crate::removal_saved::require_no_unresolved_removals(&model).map_err(js_error)?;
             let film = if film_bytes.is_empty() {
                 None
             } else {
                 Some(raw_core::film::decode_mlut(film_bytes).map_err(js_error)?)
             };
-            let (_, _, _, context) = pipeline::render_detail_base(
-                &self.raw,
-                &model,
-                RawInput::Bytes {
-                    bytes: &self.bytes,
-                    ext: &self.ext,
+            let source = RawInput::Bytes {
+                bytes: &self.bytes,
+                ext: &self.ext,
+            };
+            let options = DetailRenderOptions {
+                quality: if preview {
+                    RenderQuality::Preview
+                } else {
+                    RenderQuality::Amaze
                 },
-                DetailRenderOptions {
-                    quality: if preview {
-                        RenderQuality::Preview
-                    } else {
-                        RenderQuality::Amaze
-                    },
-                    max_long_edge: cap,
-                    film_lut: film.as_ref(),
-                },
-            )
+                max_long_edge: cap,
+                film_lut: film.as_ref(),
+            };
+            let removals = !model.inpaint_removals.is_empty();
+            let (_, _, _, context) = if removals {
+                self.saved_removals
+                    .as_ref()
+                    .ok_or_else(|| {
+                        JsError::new("saved native detail requires verified companions")
+                    })?
+                    .render_detail_base(&self.raw, &self.original, &model, source, options)
+            } else {
+                pipeline::render_detail_base(&self.raw, &model, source, options)
+            }
             .map_err(js_error)?;
             self.prepared = Some(PreparedDetail {
                 xmp,
@@ -252,23 +260,39 @@ impl NativeDetailSession {
                 film_bytes: film_bytes.to_vec(),
                 film,
                 context,
+                removals,
             });
         }
         let prepared = self.prepared.as_ref().expect("prepared above");
-        let (width, height, rgb) = pipeline::render_detail_tile(
-            &self.raw,
-            &prepared.context,
-            TileRect {
-                src_x: rect[0],
-                src_y: rect[1],
-                src_w: rect[2],
-                src_h: rect[3],
-                out_w: rect[2],
-                out_h: rect[3],
-            },
-            prepared.film.as_ref(),
-            MAX_WORKING_PIXELS,
-        )
+        let rect = TileRect {
+            src_x: rect[0],
+            src_y: rect[1],
+            src_w: rect[2],
+            src_h: rect[3],
+            out_w: rect[2],
+            out_h: rect[3],
+        };
+        let (width, height, rgb) = if prepared.removals {
+            self.saved_removals
+                .as_ref()
+                .ok_or_else(|| JsError::new("saved native detail requires verified companions"))?
+                .render_detail_tile(
+                    &self.raw,
+                    &self.original,
+                    &prepared.context,
+                    rect,
+                    prepared.film.as_ref(),
+                    MAX_WORKING_PIXELS,
+                )
+        } else {
+            pipeline::render_detail_tile(
+                &self.raw,
+                &prepared.context,
+                rect,
+                prepared.film.as_ref(),
+                MAX_WORKING_PIXELS,
+            )
+        }
         .map_err(js_error)?;
         Ok(NativeDetailPatch { width, height, rgb })
     }

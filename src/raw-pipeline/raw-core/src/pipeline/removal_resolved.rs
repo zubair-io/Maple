@@ -114,6 +114,18 @@ impl ResolvedCalibrationRemovals {
         Ok(())
     }
 
+    pub(in crate::pipeline) fn detail_patches(
+        &self,
+        raw: &RawImage,
+        original: &ContentDigest,
+        model: &AdjustmentModel,
+    ) -> crate::Result<&[InpaintPatch]> {
+        self.verify_current(raw, original, model)?;
+        // A detail context comes from a saved base, whose development already
+        // qualified these same immutable upstream settings and companions.
+        Ok(&self.patches)
+    }
+
     /// Verify all companions before making any portion of a stack renderable.
     /// Asset keys are the shared digest basenames, never arbitrary sidecar paths.
     /// The host reads assets before calling; this entry performs no file I/O.
@@ -211,3 +223,7 @@ mod tests;
 #[cfg(test)]
 #[path = "removal_resolved_display_tests.rs"]
 mod display_tests;
+
+#[cfg(test)]
+#[path = "removal_resolved_detail_tests.rs"]
+mod detail_tests;

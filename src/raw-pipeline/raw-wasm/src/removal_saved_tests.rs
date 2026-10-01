@@ -63,6 +63,38 @@ fn fixture() -> (RawImage, ContentDigest, String, String, Vec<u8>) {
 }
 
 #[test]
+fn retained_saved_native_detail_matches_the_accepted_base_across_pans() {
+    let (_, _, xmp, manifest, bytes) = fixture();
+    let mut session = crate::native_detail::NativeDetailSession::new(RAW, "dng").unwrap();
+    let plain = session
+        .render_tile(None, &[2, 1, 6, 4], 64, false, &[])
+        .unwrap()
+        .take_rgb();
+    session
+        .prepare_saved_removals(&xmp, &manifest, &bytes)
+        .unwrap();
+    let mut base = session.render_saved_removals(&xmp, 64, &[]).unwrap();
+    let width = base.width();
+    let base = base.take_rgb();
+    for [x, y, w, h] in [[2, 1, 6, 4], [0, 0, 5, 4], [2, 1, 6, 4]] {
+        let tile = session
+            .render_tile(Some(xmp.clone()), &[x, y, w, h], 64, false, &[])
+            .unwrap()
+            .take_rgb();
+        let expected: Vec<u8> = (y..y + h)
+            .flat_map(|row| {
+                let start = ((row * width + x) * 3) as usize;
+                base[start..start + w as usize * 3].iter().copied()
+            })
+            .collect();
+        assert_eq!(tile, expected);
+        if x == 2 {
+            assert_ne!(tile, plain, "accepted pixels were omitted");
+        }
+    }
+}
+
+#[test]
 fn retained_saved_preview_and_lossless_exports_use_verified_companions_without_inference() {
     let (raw, original, xmp, manifest, bytes) = fixture();
     let mut session = crate::native_detail::NativeDetailSession::new(RAW, "dng").unwrap();
