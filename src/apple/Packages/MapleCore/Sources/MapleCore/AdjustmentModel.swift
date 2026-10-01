@@ -20,17 +20,19 @@ import Foundation
 public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// The canonical JSON key matches Web; older models without it decode as Custom.
   @WhiteBalancePresetValue public var whiteBalancePreset: WhiteBalancePreset = .custom
-  public var temperature: Double  // 2000..12000, default 6500
-  public var tint: Double  // -150..150 (ACR's crs:Tint span, #1870), default 0
+  public var temperature: Double { didSet { partialWhiteBalance = nil } }
+  public var tint: Double { didSet { partialWhiteBalance = nil } }
   /// WB slider-scale version of this model's temperature/tint
   /// (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
   /// 6500 K identity); `5` = the Robertson (DNG SDK `dng_temperature`)
   /// mapping ACR's own slider displays natively (current). Legacy `2`/
-  /// `3`/`4` scales never survive a parse — the loader normalizes them to
-  /// `5` via `WbDngTemperature.authoredPairToV5`. Parsed from
-  /// `papp:WbScaleVersion` (absent means `1` for Maple sidecars, `5`
-  /// otherwise), re-stamped on write as {1, 5}.
-  public var wbScaleVersion: Int  // 1 | 5, default 5
+  /// `3`/`4` pairs normalize jointly to `5` on parse. Partial imports retain
+  /// their original axis and scale in `partialWhiteBalance` for persistence;
+  /// cold hydration resolves the numerical live pair through raw-core.
+  /// Parsed from `papp:WbScaleVersion` (absent means `1` for Maple sidecars,
+  /// `5` otherwise). Ordinary authored pairs write {1, 5}.
+  public var wbScaleVersion: Int { didSet { partialWhiteBalance = nil } }
+  public internal(set) var partialWhiteBalance: PartialWhiteBalance? = nil
 
   /// User white-balance method (#431; wired into Swift by #2216). Mirrors
   /// `raw_core::types::adjustment::WbMethod`. `.cat16` (default) omits

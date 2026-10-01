@@ -1,3 +1,4 @@
+import type { PartialWhiteBalance } from './partial-white-balance';
 // AdjustmentModel — per-asset develop settings.
 //
 // The field shape and canonical defaults are GENERATED from
@@ -166,19 +167,18 @@ export interface AdjustmentModel extends GeneratedAdjustmentModel {
    * (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
    * 6500 K identity) — raw-core converts on use; `5` = the Robertson
    * isotherm mapping (`wb-dng-temperature.ts`) that reproduces exactly
-   * what ACR displays on its own sliders (current). `2`/`3`/`4` (earlier
-   * legacy/dev-window scales) never survive a parse: the loader jointly
-   * re-expresses the authored `(temperature, tint)` pair through the
-   * physical chromaticity it encoded (`authoredPairToV5`) and normalizes
-   * the model to `5`. Parsed from `papp:WbScaleVersion` (absent stamp on a
-   * Maple-authored sidecar means `1`; non-Maple sidecars are `5`),
-   * re-stamped as {1, 5} whenever an explicit Temperature/Tint is written
-   * so a V1 sidecar's stored values keep their meaning across saves. Fresh
-   * models author in the current scale. Internal parse-state (like
+   * what ACR displays on its own sliders (current). Complete V2–V4 pairs
+   * normalize jointly to V5 on parse. Partial imports keep their original
+   * coordinates and scale in partialWhiteBalance until camera hydration;
+   * unrelated saves preserve those original fields and scale. V1 values
+   * retain their scale and resolve in raw-core. Fresh models author in V5.
+   * Internal parse-state (like
    * raw-core's `wb_scale_version`) — not part of the generated codegen
    * schema.
    */
   wbScaleVersion: number;
+  /** Partial imported axis intent; internal state, never a new XMP attribute (#3434). */
+  partialWhiteBalance: PartialWhiteBalance | null;
 }
 
 export function defaultAdjustmentModel(): AdjustmentModel {
@@ -189,6 +189,7 @@ export function defaultAdjustmentModel(): AdjustmentModel {
     localAdjustments: [],
     retouchSpots: [],
     wbScaleVersion: 5,
+    partialWhiteBalance: null,
   };
 }
 

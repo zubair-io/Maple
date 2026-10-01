@@ -1,3 +1,7 @@
+import {
+  hydratePartialWhiteBalance,
+  whiteBalanceAuthoredPatch,
+} from '../models/partial-white-balance';
 // Library store — data and adjustment models. Persisted UI prefs live in
 // `BrowsePreferencesService`; ephemeral UI flags are moving out screen-by-
 // screen (ticket #191).
@@ -15,29 +19,6 @@
 // every component from `inject(LibraryStateService)` to selectors). Park that
 // migration for a follow-up greenfield ticket.
 //
-// **#191 inventory of former store fields and their new homes:**
-//   - thumbSize, sort, filter, sidebarVisible, inspectorVisible, activeTab,
-//     viewMode, sectionOpen, folderOpen
-//       → extracted into BrowsePreferencesService (slice 1, PR #216)
-//         (`browse-preferences.service.ts`). Callers read them via the
-//         LibraryStateService facade, which re-exports each signal.
-//   - searchQuery
-//       → extracted into LibrarySelection (`library-selection.service.ts`,
-//         slice 2, PR #289). The toolbar search input is conceptually part
-//         of the selection-state group (`selectedAssetIds`, `focusedAssetId`,
-//         `selectedSourceId` already live there). Re-exported via the facade
-//         so consumers keep working unchanged.
-//   - backendLoading, backendError, backendEmpty, rescanStatus, rescanError
-//       → extracted in this PR into LibraryStatusService
-//         (`library-status.service.ts`, slice 3). Async-lifecycle signals
-//         for Self-Hosted bootstrap + rescan flows. `LibraryFetch` (the
-//         only writer) now injects the status service directly; the
-//         facade re-exports each signal so component consumers are
-//         unchanged.
-//   - pickerVisible, adminVisible
-//       → still on this store; pure UI visibility flags, planned to move
-//         to shell-component signals in a follow-up PR.
-
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
 import { SidebarEntry, GridFolderItem } from '../models/folder';
@@ -55,6 +36,11 @@ import { AssetDimensionBatcher } from './library-store-dimensions';
 import { LensCorrectionCapabilities } from './library-store-lens-corrections';
 import { parseAddress } from '../addressing/maple-address';
 import type { XmpCulling } from '../xmp/xmp.types';
+import {
+  cameraWhiteBalanceReading,
+  seedWhiteBalanceModel,
+  type CameraWhiteBalanceReading,
+} from './library-store-white-balance';
 
 // ─── Location helpers (content-addressing migration) ───────────────────────
 //
@@ -193,7 +179,7 @@ export class LibraryStore {
    * after the user has edited the WB sliders. Session-scoped — not persisted
    * to XMP (the camera reading is re-derived from the RAW on every decode).
    */
-  private readonly asShotWb = new Map<AssetId, { temperature: number; tint: number }>();
+  private readonly asShotWb = new Map<AssetId, CameraWhiteBalanceReading>();
 
   /** Per-asset decode-derived lens-correction capability (#3182). */
   readonly lensCorrections = new LensCorrectionCapabilities();
@@ -240,25 +226,13 @@ export class LibraryStore {
    * WB sliders reflect the camera's own white-balance reading on first open.
    * No-op if the user has already edited those fields.
    */
-  seedAsShotWhiteBalance(id: AssetId, temperature: number, tint: number): void {
-    // Snap to the Temperature slider's 50 K step so the numeric field
-    // doesn't render a 12-digit float in the UI.
-    const snapped = Math.round(temperature / 50) * 50;
-    const roundedTint = Math.round(tint);
-
-    // Record the camera reading durably, independent of the "still default"
-    // guard below, so the editor's RESET can restore WB → As-Shot at any
-    // time — even after the user has already moved the WB sliders.
-    this.asShotWb.set(id, { temperature: snapped, tint: roundedTint });
-
+  seedAsShotWhiteBalance(id: AssetId, temperature: number, tint: number, calibrated = false): void {
+    const reading = cameraWhiteBalanceReading(temperature, tint, calibrated);
+    this.asShotWb.set(id, reading);
     this.adjustmentModels.update((map) => {
       const current = map.get(id) ?? defaultAdjustmentModel();
-      const isStillDefault =
-        Math.abs(current.temperature - 6500) < 0.5 && Math.abs(current.tint) < 0.5;
-      if (!isStillDefault) return map;
-      const next = new Map(map);
-      next.set(id, { ...current, temperature: snapped, tint: roundedTint });
-      return next;
+      const hydrated = seedWhiteBalanceModel(current, reading);
+      return hydrated === current ? map : new Map(map).set(id, hydrated);
     });
   }
 
@@ -268,7 +242,8 @@ export class LibraryStore {
    * by the editor's RESET to point WB at the camera reading.
    */
   asShotWbFor(id: AssetId): { temperature: number; tint: number } | undefined {
-    return this.asShotWb.get(id);
+    const reading = this.asShotWb.get(id);
+    return reading ? { temperature: reading.temperature, tint: reading.tint } : undefined;
   }
 
   // ── Adjustment models ──────────────────────────────────────────────────────
@@ -291,9 +266,9 @@ export class LibraryStore {
     const wbEdited =
       (patch.temperature !== undefined || patch.tint !== undefined) &&
       patch.whiteBalancePreset === undefined;
-    const effective: Partial<AdjustmentModel> = wbEdited
-      ? { ...patch, whiteBalancePreset: 'Custom' }
-      : patch;
+    const effective = whiteBalanceAuthoredPatch(
+      wbEdited ? { ...patch, whiteBalancePreset: 'Custom' } : patch,
+    );
     this.adjustmentModels.update((map) => {
       const next = new Map(map);
       const current = next.get(id) ?? defaultAdjustmentModel();
@@ -356,7 +331,12 @@ export class LibraryStore {
       const current = map.get(id);
       const wbSeed = current ? { temperature: current.temperature, tint: current.tint } : {};
       const next = new Map(map);
-      next.set(id, { ...defaultAdjustmentModel(), ...wbSeed, ...parsed });
+      const restored = { ...defaultAdjustmentModel(), ...wbSeed, ...parsed };
+      const frame = this.asShotWb.get(id)?.frame;
+      next.set(
+        id,
+        hydratePartialWhiteBalance(restored, frame?.temperature ?? 6500, frame?.tint ?? 0, !!frame),
+      );
       return next;
     });
     return true;
@@ -369,7 +349,13 @@ export class LibraryStore {
     authored: Partial<AdjustmentModel>,
   ): AdjustmentModel {
     const current = this.adjustmentModels().get(id) ?? defaultAdjustmentModel();
-    const merged = { ...current, ...persisted, ...authored };
+    const frame = this.asShotWb.get(id)?.frame;
+    const merged = hydratePartialWhiteBalance(
+      { ...current, ...persisted, ...authored },
+      frame?.temperature ?? 6500,
+      frame?.tint ?? 0,
+      !!frame,
+    );
     this.adjustmentModels.update((models) => new Map(models).set(id, merged));
     return merged;
   }

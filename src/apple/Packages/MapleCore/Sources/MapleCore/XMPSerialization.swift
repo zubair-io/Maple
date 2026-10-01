@@ -64,22 +64,14 @@ public struct XMPParser {
     // (nothing to convert) — is 5. Mirrors raw-core's `xmp::parse`.
     let unstampedIsV1 = delegate.sawPappNamespace && delegate.sawExplicitWb
     let version = delegate.wbScaleStamp ?? (unstampedIsV1 ? 1 : 5)
-    // V2/V3/V4 → V5 load-normalization (#1894 Robertson mapping): the
-    // legacy scales (Hernández-Andrés daylight locus, at either the
-    // legacy 1e-4 uv-per-unit magnitude for V1/V2/V3 or ACR's kTintScale
-    // magnitude for V4) evaluate a different locus than V5's Robertson
-    // isotherms — so re-expressing an authored pair means converting
-    // the PAIR jointly through physical chromaticity
-    // (`WbDngTemperature.authoredPairToV5`), not a tint-only magnitude
-    // rescale. Even a temperature-only authored value moves slightly in
-    // both components (the two loci diverge), so this is gated on
-    // `sawExplicitWb` (temperature OR tint authored), not tint alone.
-    // Converting at load keeps the in-memory model (slider display, FFI
-    // live params, autosave) uniformly V5 while preserving the
-    // authored look. V1 deliberately does NOT load-normalize: its
-    // conversion needs the image's calibration frame, so raw-core
-    // converts it at develop and the sidecar round-trips as V1.
-    if version == 2 || version == 3 || version == 4 {
+    let partial = delegate.temperatureSeen != delegate.tintSeen
+    if partial {
+      // Preserve raw legacy coordinates until the actual camera can fill the missing axis.
+      m.wbScaleVersion = version
+      m.partialWhiteBalance = PartialWhiteBalance(
+        temperature: delegate.temperatureSeen ? m.temperature : nil,
+        tint: delegate.tintSeen ? m.tint : nil, version: version)
+    } else if version == 2 || version == 3 || version == 4 {
       if delegate.sawExplicitWb {
         let (t, ti) = WbDngTemperature.authoredPairToV5(
           temperature: m.temperature, tint: m.tint, version: version)
@@ -144,6 +136,8 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   /// `XMPParser.parse` after the walk; mirrors raw-core's `xmp::parse`.
   var sawPappNamespace: Bool = false
   var sawExplicitWb: Bool = false
+  var temperatureSeen = false
+  var tintSeen = false
   var wbScaleStamp: Int? = nil
   /// Namespace aliases identify Maple provenance without changing the
   /// historical prefix-based WB-scale migration above.
@@ -445,8 +439,8 @@ public struct XMPSerializer {
     let children = [
       keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, retouchBlock, passthroughBlock,
     ]
-      .filter { !$0.isEmpty }
-      .joined(separator: "\n")
+    .filter { !$0.isEmpty }
+    .joined(separator: "\n")
 
     return XMPCanonical.document(
       extraNamespaces: culling.keywords.isEmpty ? [] : [dcNamespace],

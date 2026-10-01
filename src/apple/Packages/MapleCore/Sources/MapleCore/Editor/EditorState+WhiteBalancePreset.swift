@@ -20,6 +20,7 @@ extension EditorState {
       model.tint = pair.tint
       model.wbScaleVersion = AdjustmentModel.default.wbScaleVersion
     }
+    model.partialWhiteBalance = nil
     model.whiteBalancePreset = preset
     model.wbSource = preset == .custom ? .manual : .preset
     model.wbSampleX = 0

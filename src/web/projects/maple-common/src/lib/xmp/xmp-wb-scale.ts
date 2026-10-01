@@ -13,22 +13,10 @@
 // displayed pair from exactly the Robertson isotherm table `wb-dng-
 // temperature.ts` ports) or no authored WB (nothing to convert) — is 5.
 //
-// V2/V3/V4 → V5 load-normalization (#1894): each legacy scale's tint axis
-// and/or magnitude differs from V5's Robertson-native convention, AND the
-// legacy scales evaluate on a different locus (Hernández-Andrés daylight/
-// blackbody, not Robertson) — so the authored pair converts JOINTLY
-// (temperature AND tint both move) via `authoredPairToV5`, not a scalar
-// tint multiply. Even a temperature-only authored value moves slightly in
-// both components: the two loci agree on direction but not exactly on
-// magnitude, so re-expressing the same physical chromaticity in V5's
-// coordinates nudges the temperature too (e.g. legacy (6500, 0) reads back
-// ≈ (6454, +10.6) — the same physical point, named in ACR's coordinates).
-// The caller applies `authoredPairToV5` to the parsed
-// `crs:Temperature`/`crs:Tint` pair (after the attribute walk) and stores
-// the model as version 5, so the in-memory model and every re-serialize
-// are uniformly V5. V1 deliberately does NOT load-normalize — its
-// conversion needs the image's calibration frame, so raw-core converts it
-// at develop and the sidecar round-trips as V1.
+// Complete V2–V4 pairs normalize jointly through their physical chromaticity
+// into V5. A partial import retains its original axis and version for writing;
+// display hydration supplies the missing camera axis before joint conversion.
+// V1 stays in its original scale on Web and resolves in raw-core at develop.
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { xyToTempTint } from './wb-dng-temperature';
@@ -248,11 +236,19 @@ function inferredWbPresetForAuthoredPair(
   return parsedPreset === undefined && authoredPair ? 'Custom' : undefined;
 }
 
+/** Value-domain legacy tint conversion used by the existing post-DCP resolver. */
+export function authoredTintToV4(tint: number, version: number): number {
+  if (version === 2) return -tint * TINT_SCALE_V3_TO_V4;
+  return version === 1 || version === 3 ? tint * TINT_SCALE_V3_TO_V4 : tint;
+}
+
 /** The slice of the parser's Partial model that WB normalization touches. */
 interface ParsedWbFields {
   temperature?: number;
   tint?: number;
   whiteBalancePreset?: string;
+  partialWhiteBalance?: AdjustmentModel['partialWhiteBalance'];
+  wbScaleVersion?: number;
 }
 
 /**
@@ -277,8 +273,22 @@ export function normalizeParsedWb(
   appliedModelKeys: ReadonlySet<string>,
   wbScale: WbScaleResolution,
 ): void {
-  const wbAuthored = appliedModelKeys.has('temperature') || appliedModelKeys.has('tint');
-  if (wbScale.sourceVersion !== 1 && wbAuthored) {
+  const temperatureSeen = appliedModelKeys.has('temperature');
+  const tintSeen = appliedModelKeys.has('tint');
+  const partial = temperatureSeen !== tintSeen;
+  model.partialWhiteBalance = partial
+    ? {
+        ...(temperatureSeen ? { temperature: model.temperature } : {}),
+        ...(tintSeen ? { tint: model.tint } : {}),
+        version: wbScale.sourceVersion,
+      }
+    : null;
+  if (partial) {
+    // Joint legacy conversion must wait for the real missing camera axis.
+    model.wbScaleVersion = wbScale.sourceVersion;
+    model.temperature = temperatureSeen ? model.temperature : 6500;
+    model.tint = tintSeen ? model.tint : 0;
+  } else if (wbScale.sourceVersion !== 1 && temperatureSeen && tintSeen) {
     const [temperature, tint] = authoredPairToV5(
       model.temperature ?? 6500.0,
       model.tint ?? 0.0,

@@ -61,6 +61,7 @@ const FAST_PATH_OR_SPECIAL_KEYS = new Set<keyof AdjustmentModel>([
   'localAdjustments',
   'retouchSpots',
   'wbScaleVersion',
+  'partialWhiteBalance',
   'wbSource',
   'wbSampleX',
   'wbSampleY',
@@ -98,6 +99,11 @@ const NON_FAST_PATH_KEYS = SCHEMA_KEYS.filter(
  * rather than being silently dropped, so this class of bug can't recur.
  */
 export function canUseLiveFastPath(model: AdjustmentModel): boolean {
+  // The existing XMP path lets raw-core resolve axis presence and legacy scales.
+  if (model.partialWhiteBalance || model.wbScaleVersion !== 5) return false;
+  // The scalar ABI authors both axes. As-Shot must retain absent axes through XMP;
+  // its old 6500/0 sentinel would instead become an explicit Custom pair (#3434).
+  if (!model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot') return false;
   // The two prefix-zeroed chain sliders whose defaults are non-zero — the fast path
   // renders them at 0 regardless, so it's only faithful when the model wants 0.
   if (model.sharpenAmount !== 0 || model.nrColor !== 0) return false;
@@ -136,12 +142,10 @@ export function canUseLiveFastPath(model: AdjustmentModel): boolean {
  * consumes (the field order is the wasm ABI contract — keep it in lockstep with
  * `render_with_params`). Only called once `canUseLiveFastPath(model)` is true.
  *
- * An As-Shot white balance is the camera display seed, not an edit: the live chain's
- * WB matrix is absolute (identity at 6500/0 over the as-shot-balanced buffer), so
- * send the identity pair, mirroring the serializer's As-Shot omission (#1892).
+ * Both white-balance axes are authored by this ABI. The fast-path gate routes
+ * As-Shot, partial imports and legacy scales through XMP instead (#3434).
  */
 export function buildLiveParams(model: AdjustmentModel): Float32Array {
-  const wbIsAsShot = !model.whiteBalancePreset || model.whiteBalancePreset === 'As Shot';
   const params = new Float32Array(19);
   params[0] = model.exposure;
   params[1] = model.brightness;
@@ -152,8 +156,8 @@ export function buildLiveParams(model: AdjustmentModel): Float32Array {
   params[6] = model.blacks;
   params[7] = model.vibrance;
   params[8] = model.saturation;
-  params[9] = wbIsAsShot ? 6500 : model.temperature;
-  params[10] = wbIsAsShot ? 0 : model.tint;
+  params[9] = model.temperature;
+  params[10] = model.tint;
   params[11] = model.clarity;
   params[12] = model.texture;
   params[13] = model.dehaze;

@@ -63,6 +63,10 @@ extension EditSession {
   }
 
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
+    if let error = partialWhiteBalanceImportError, model.partialWhiteBalance != nil {
+      renderError = error
+      return
+    }
     guard !Task.isCancelled else { return }
     let activityID = beginRenderActivity()
     defer { endRenderActivity(activityID) }
