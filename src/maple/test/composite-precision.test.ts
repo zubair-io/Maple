@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import type { Blend, OverlayOptions } from 'sharp';
 import { maple } from '../src/index.ts';
-import { loadSharpOracle } from './support/sharp-oracle.ts';
+import { loadSharpOracle, type SharpCompositeFactory } from './support/sharp-oracle.ts';
 
-const sharp = loadSharpOracle() as typeof import('sharp') | null;
+const sharp = loadSharpOracle() as SharpCompositeFactory | null;
 const pixel = (values: number[]) => ({
   data: Buffer.from(values),
   width: 1,
@@ -92,10 +91,10 @@ describe('Composite layer precision', () => {
           .composite(inputs.map((input, i) => ({ input, blend, ...positions[i] })))
           .png()
           .toBuffer();
-        const overlays: OverlayOptions[] = inputs.map((raw, i) => ({
+        const overlays: Record<string, unknown>[] = inputs.map((raw, i) => ({
           input: raw.data,
           raw,
-          blend: blend as Blend,
+          blend,
           ...positions[i],
         }));
         const theirs = await sharp!(base.data, { raw: base }).composite(overlays).raw().toBuffer();

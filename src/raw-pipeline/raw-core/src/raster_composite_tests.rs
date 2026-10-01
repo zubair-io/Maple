@@ -343,3 +343,40 @@ fn wide_composites_keep_precision_across_scratch_chunk_boundaries() {
         );
     }
 }
+
+#[test]
+fn centred_patterned_tiles_crop_the_replicated_extent() {
+    let base = solid_rgba(8, 6, [0, 0, 0, 255]);
+    let image = RasterImage::new_rgb(
+        2,
+        3,
+        vec![10, 0, 0, 20, 0, 0, 30, 0, 0, 40, 0, 0, 50, 0, 0, 60, 0, 0],
+    );
+    let placed = CompositeLayer {
+        left: None,
+        top: None,
+        tile: true,
+        ..layer(&image, BlendMode::Over)
+    };
+    let output = composite(&base, &[placed]).unwrap();
+    assert_eq!(
+        &output.data[..16],
+        &[60, 0, 0, 255, 50, 0, 0, 255, 60, 0, 0, 255, 50, 0, 0, 255]
+    );
+    assert_eq!(&output.data[32..40], &[20, 0, 0, 255, 10, 0, 0, 255]);
+}
+
+#[test]
+fn tiled_crop_offsets_reject_negative_and_out_of_range_values() {
+    let base = solid_rgba(5, 5, [0, 0, 0, 255]);
+    let image = solid_rgba(2, 2, [255, 0, 0, 255]);
+    for offset in [-1, i64::MIN, i64::MAX, i64::from(i32::MAX) + 1] {
+        let placed = CompositeLayer {
+            left: Some(offset),
+            top: Some(0),
+            tile: true,
+            ..layer(&image, BlendMode::Over)
+        };
+        assert!(composite(&base, &[placed]).is_err());
+    }
+}
