@@ -93,22 +93,37 @@ public static class ExifReader
 
     // ---------------------------------------------------------------- JPEG ----
 
-    /// <summary>Scans JPEG segments for the APP1 "Exif" payload and parses the embedded TIFF.</summary>
+    /// <summary>Reads capture metadata from APP1 and dimensions from the JPEG frame header.</summary>
     private static ExifData? ReadJpeg(FileStream stream)
     {
         long pos = 2;
+        ExifData? metadata = null;
+        int? width = null, height = null;
         for (var i = 0; i < MaxJpegSegments && pos + 4 <= stream.Length; i++)
         {
             var hdr = ReadExact(stream, pos, 4);
-            if (hdr is null || hdr[0] != 0xFF) return null;
+            if (hdr is null || hdr[0] != 0xFF) break;
 
             var marker = hdr[1];
             if (marker == 0xFF) { pos += 1; continue; }                 // fill byte
             if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8)) { pos += 2; continue; } // no payload
-            if (marker == 0xD9 || marker == 0xDA) return null;          // EOI / SOS: no Exif ahead
+            if (marker == 0xD9 || marker == 0xDA) break;               // never scan compressed pixels
 
             var segLen = (hdr[2] << 8) | hdr[3];                        // includes the 2 length bytes
-            if (segLen < 2 || pos + 2 + segLen > stream.Length) return null;
+            if (segLen < 2 || pos + 2 + segLen > stream.Length) break;
+
+            // SOF markers exclude DHT, JPG and DAC. Baseline, progressive,
+            // lossless and arithmetic frames all share these dimension fields.
+            if (marker is >= 0xC0 and <= 0xCF && marker is not (0xC4 or 0xC8 or 0xCC) && segLen >= 8)
+            {
+                var frame = ReadExact(stream, pos + 4, 6);
+                if (frame != null && frame[5] > 0 && segLen >= 8 + 3 * frame[5])
+                {
+                    var h = (frame[1] << 8) | frame[2];
+                    var w = (frame[3] << 8) | frame[4];
+                    if (w > 0 && h > 0) { width = w; height = h; }
+                }
+            }
 
             if (marker == 0xE1 && segLen >= 2 + 6 + 8)
             {
@@ -120,12 +135,14 @@ public static class ExifReader
                 {
                     var tiffBase = pos + 4 + 6;
                     var tiffLen = segLen - 2 - 6;
-                    return ReadTiff(stream, tiffBase, tiffLen);
+                    metadata ??= ReadTiff(stream, tiffBase, tiffLen);
                 }
             }
             pos += 2 + segLen;
         }
-        return null;
+        if (width == null || height == null) return metadata;
+        metadata ??= new ExifData(null, null, null, null, null, null, null, null, null, null, null, null);
+        return metadata with { PixelWidth = width, PixelHeight = height };
     }
 
     // ---------------------------------------------------------------- TIFF ----
