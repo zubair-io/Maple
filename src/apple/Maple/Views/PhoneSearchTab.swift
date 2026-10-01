@@ -74,7 +74,6 @@
     /// time, replaced by the containing folder's listing (with `ref` spliced
     /// in at its own position) once `loadSiblingAssets` returns (#3551).
     @State private var previewAssets: [AssetRef] = []
-    @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
       NavigationStack(path: $path) {
@@ -128,16 +127,6 @@
       // The native search field for the `Tab(role: .search)` this view
       // lives in — its text drives the same `query` the content reads.
       .searchable(text: $query, prompt: "Search your library")
-      .searchFocused($searchFieldFocused)
-      // Focus the search field the moment the Search tab is entered (Apple
-      // Photos drops you straight into typing). Deferred one runloop so the
-      // searchable field is in the hierarchy before focus moves to it; only
-      // when nothing is pushed on top.
-      .onAppear {
-        if path.isEmpty {
-          Task { @MainActor in searchFieldFocused = true }
-        }
-      }
       // Build the account-wide session once per resolved account. Guard on
       // the existing session's own server so a tab re-appearance KEEPS the
       // current view model — and its results — instead of rebuilding an

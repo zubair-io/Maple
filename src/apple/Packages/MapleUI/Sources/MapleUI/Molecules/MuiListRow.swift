@@ -75,6 +75,9 @@ public struct MuiListRow<Trailing: View>: View {
       .padding(.vertical, MuiTokens.spacingSm)
       .frame(minHeight: 44)
       .frame(maxWidth: .infinity, alignment: .leading)
+      // A plain Button inside SwiftUI List otherwise exposes only its
+      // intrinsic label bounds to hit testing on iPhone.
+      .contentShape(Rectangle())
       .background(backgroundColor)
       .overlay(alignment: .leading) {
         if active {

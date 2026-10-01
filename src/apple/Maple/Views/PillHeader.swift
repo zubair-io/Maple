@@ -90,7 +90,7 @@ struct PillHeader: View {
         MuiIcon(name: "info", size: .xs)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ProTokens.text)
-          .frame(width: 30, height: 30)
+          .frame(minWidth: 44, minHeight: 44)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Info")
@@ -101,7 +101,7 @@ struct PillHeader: View {
         MuiIcon(name: "ios_share", size: .xs)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(ProTokens.text)
-          .frame(width: 30, height: 30)
+          .frame(minWidth: 44, minHeight: 44)
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Share")
@@ -115,7 +115,7 @@ struct PillHeader: View {
         MuiIcon(name: "filter_vintage", size: .xs)
           .font(.system(size: 14, weight: .regular))
           .foregroundStyle(showsScope ? ProTokens.accent : ProTokens.text)
-          .frame(width: 30, height: 30)
+          .frame(minWidth: 44, minHeight: 44)
       }
       .buttonStyle(.plain)
       .accessibilityLabel(showsScope ? "Hide vectorscope" : "Show vectorscope")
@@ -130,7 +130,7 @@ struct PillHeader: View {
           MuiIcon(name: "monitoring", size: .xs)
             .font(.system(size: 14, weight: .regular))
             .foregroundStyle(showsScopesPanel ? ProTokens.accent : ProTokens.text)
-            .frame(width: 30, height: 30)
+            .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(showsScopesPanel ? "Hide scopes" : "Show scopes")

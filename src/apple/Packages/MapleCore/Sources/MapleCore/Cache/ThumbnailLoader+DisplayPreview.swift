@@ -208,7 +208,12 @@ extension ThumbnailLoader {
       } ?? false
     guard !supersededByEdit else { return nil }
 
-    return try? Data(contentsOf: previewURL)
+    guard let data = try? Data(contentsOf: previewURL) else { return nil }
+    guard ThumbnailLoader.isUsableImageData(data) else {
+      try? fm.removeItem(at: previewURL)
+      return nil
+    }
+    return data
   }
 
   /// True when a sidecar exists next to `assetURL` and parses to a model

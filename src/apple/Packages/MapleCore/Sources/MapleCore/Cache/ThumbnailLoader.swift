@@ -115,7 +115,11 @@ public actor ThumbnailLoader {
   public func load(for assetURL: URL, scopeParentURL: URL?) async -> Data? {
     // 1. Fast path: cached AVIF bytes.
     if let cached = await ThumbnailDiskCache.shared.thumbnailData(for: assetURL) {
-      return cached
+      if Self.isUsableImageData(cached) { return cached }
+      logger.warning(
+        "discarding unreadable cached thumbnail for \(assetURL.lastPathComponent, privacy: .public)"
+      )
+      await ThumbnailDiskCache.shared.removeThumbnail(for: assetURL)
     }
 
     // 2. Coalesce duplicate requests. If a prior call for the same URL
@@ -159,6 +163,21 @@ public actor ThumbnailLoader {
     return result
   }
 
+  /// Check the cached image container and dimensions without decoding its
+  /// pixels; grid bitmap decoding remains in `ThumbnailDecoder` off-main.
+  nonisolated static func isUsableImageData(_ data: Data) -> Bool {
+    guard
+      let source = CGImageSourceCreateWithData(data as CFData, nil),
+      CGImageSourceGetCount(source) > 0,
+      CGImageSourceGetStatusAtIndex(source, 0) == .statusComplete,
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+        as? [CFString: Any],
+      let width = properties[kCGImagePropertyPixelWidth] as? Int,
+      let height = properties[kCGImagePropertyPixelHeight] as? Int
+    else { return false }
+    return width > 0 && height > 0
+  }
+
   /// The produce path behind the URL-keyed `load`: asset-relative
   /// `.maple/thumbs`, video poster, stub/audio bail, embedded-preview fast
   /// path, Rust-develop slow path. Runs on a detached task under the
@@ -173,11 +192,13 @@ public actor ThumbnailLoader {
     // (#1365.) The disk-cache hit at step 1 short-circuits before this,
     // so RAWs in their own folder never pay for it.
     let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
-    if FileManager.default.fileExists(atPath: relThumb.path),
-      let data = try? Data(contentsOf: relThumb)
-    {
-      await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-      return data
+    if FileManager.default.fileExists(atPath: relThumb.path) {
+      if let data = try? Data(contentsOf: relThumb), Self.isUsableImageData(data) {
+        await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+        return data
+      }
+      // A broken shared derivative should trigger source-based regeneration.
+      try? FileManager.default.removeItem(at: relThumb)
     }
 
     // VIDEO PATH — extract a poster frame via AVFoundation (#1642).
