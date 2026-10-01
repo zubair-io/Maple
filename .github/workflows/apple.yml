@@ -244,6 +244,8 @@ jobs:
           cp "$HEADERS/RawPipeline.h" "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore/Sources/MapleCore/include/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures"
           cp -R src/apple/MapleUITests/Fixtures/synthetic "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures/"
+          mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer"
+          cp test-fixtures/batch-transfer/source.dng "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer/"
       - name: Cache SwiftPM regression build
         uses: actions/cache@v4
         with:
