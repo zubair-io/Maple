@@ -56,20 +56,12 @@ namespace Maple.WinUI
 
         private async void OnOpenDirectory(object sender, RoutedEventArgs e)
         {
-            var picker = new Windows.Storage.Pickers.FolderPicker
-            {
-                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary,
-            };
-            picker.FileTypeFilter.Add("*");
-            WinRT.Interop.InitializeWithWindow.Initialize(
-                picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-
             try
             {
-                var folder = await picker.PickSingleFolderAsync();
+                var folder = DesktopFolderPicker.Pick(WinRT.Interop.WindowNative.GetWindowHandle(this));
                 if (folder != null)
                 {
-                    ViewModel.AddLibraryFolder(folder.Path);
+                    ViewModel.AddLibraryFolder(folder);
                     SetMode(ShellMode.Browse);
                 }
             }

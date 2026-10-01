@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-01",
+  "issue": 3889,
+  "sourceBase": "2778a1d9c",
+  "build": "Maple.DesignAudit211",
+  "assemblySha256": "8DB3F6812AD4531159898673A21DF2BB585FED435BE0AEC7BF3F0C52E6B898C2",
+  "buildErrors": 0,
+  "buildWarnings": 26,
+  "reproduction": "Build 210: Ctrl+O, enter an existing synthetic fixture folder, accept selection. WinRT PickSingleFolderAsync throws COMException 0x80004005 and displays Folder picker failed.",
+  "change": "Desktop common dialog returns filesystem paths directly for Open Folder and export destination. Cancel returns null; other HRESULT failures remain errors.",
+  "fixtureSha256Before": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8",
+  "fixtureSha256After": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8",
+  "observations": [
+    "Native folder selection loaded fixture.dng in Browse.",
+    "Reopened Open Folder and pressed Escape: retained fixture folder without error.",
+    "Opened fixture in Preview, invoked Ctrl+E, scrolled export recipe and selected destination using native picker. Destination field received chosen path.",
+    "Add to queue then Run/resume completed with 1 exported, 0 skipped, 0 failed, 0 remaining."
+  ],
+  "export": {
+    "name": "fixture-1.jpg",
+    "bytes": 7272900,
+    "sha256": "6FAD5CEEC37FAA041A1DF06EB0ABDACE65CEFE20ADC9E324B257BF7EC653EEDB"
+  },
+  "limitations": [
+    "Synthetic fixture validates picker/export interaction, not photographic color parity.",
+    "No full DPI, Narrator, cloud, screenshot alignment or performance sign-off.",
+    "File import/save pickers remain WinRT and require separate live qualification."
+  ],
+  "fullQualificationPassed": false
+}

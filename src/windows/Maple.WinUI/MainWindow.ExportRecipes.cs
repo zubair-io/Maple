@@ -68,15 +68,12 @@ public sealed partial class MainWindow
             preparing?.Cancel();
             editor.Message.Text = "Cancelling export preparation…";
         };
-        editor.FolderButton.Click += async (_, _) =>
+        editor.FolderButton.Click += (_, _) =>
         {
             try
             {
-                var picker = new Windows.Storage.Pickers.FolderPicker();
-                picker.FileTypeFilter.Add("*");
-                WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
-                var folder = await picker.PickSingleFolderAsync();
-                if (folder != null) editor.SetDirectory(folder.Path);
+                var folder = Services.DesktopFolderPicker.Pick(WinRT.Interop.WindowNative.GetWindowHandle(this));
+                if (folder != null) editor.SetDirectory(folder);
             }
             catch (Exception error) { editor.Message.Text = error.Message; }
         };
