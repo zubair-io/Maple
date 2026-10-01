@@ -1,0 +1,116 @@
+{
+  "date": "2026-10-01",
+  "issue": 3875,
+  "sourceBase": "fbc5c3a1e",
+  "app": "Maple.DesignAudit255.exe",
+  "appSha256": "984CD7ABB710997A79BF77A1157039FEB5331422EEEC46E448B4B7DB05280F35",
+  "cycles": {
+    "gpu": {
+      "started": 4,
+      "restored": 4
+    },
+    "cpu": {
+      "started": 4,
+      "restored": 4
+    },
+    "empty": {
+      "started": 0,
+      "restored": 0
+    }
+  },
+  "reports": {
+    "gpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 4786310,
+      "renderPath": "gpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 1,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    },
+    "cpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 2691906,
+      "renderPath": "cpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    },
+    "empty": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 18617486,
+      "renderPath": "empty",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": false,
+      "localSaveFailureRecovery": false,
+      "nativeDetailActualSize": false,
+      "presetUndoRedoAndReset": false,
+      "adjustmentGestureUndoRedo": false,
+      "repairControlsUndoRedo": false,
+      "scopesLifecycle": false,
+      "transferWatcherUndoRedo": false,
+      "comparisonPreservesDocument": false,
+      "cloudOpeningReadiness": false,
+      "cloudSearchPagination": false,
+      "cloudMapHost": false,
+      "responsiveDesign": false,
+      "browseSelectionAndSort": false,
+      "browseScrolling": false,
+      "immediateUndo": false
+    }
+  },
+  "assertions": [
+    "Four full repair workflows per GPU/CPU application lifetime.",
+    "Framework-owned Invoke peer adds and deletes a repair.",
+    "Kind and radius each create one undo entry.",
+    "Numeric radius control receives keyboard focus before Undo; Undo and Redo restore exact radius.",
+    "Final Undo restores original repair XML and original history depth every cycle.",
+    "List selection and numeric edits preserve the ItemsSource identity.",
+    "Repair actions remain at least 44 DIP and Delete is reachable at two physical sizes."
+  ],
+  "crashReproduced": false,
+  "crashResolved": false,
+  "conclusion": "Eight repair workflows completed across GPU and CPU with focused numeric history operations. No production root cause established; retain earlier crash records and these regression checks.",
+  "limitations": [
+    "A bounded passing repetition is not proof that an intermittent crash is fixed.",
+    "Does not reproduce the earlier manually constructed automation peer.",
+    "Synthetic RAW and programmatic focus/invoke; no Narrator or pointer-drag stress claim.",
+    "Color, DPI matrix, real cloud and hardware performance qualification remain open."
+  ]
+}

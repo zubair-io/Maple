@@ -97,7 +97,13 @@ namespace Maple.WinUI
                     RecordSmokeStage(output, "adjustment-gesture");
                     await VerifyAdjustmentGestureUndoAsync();
                     RecordSmokeStage(output, "retouch-undo");
-                    await VerifyRetouchUndoAsync(output);
+                    // Repeat within one XAML lifetime: the intermittent repair
+                    // failure was not covered by a single successful invocation.
+                    for (var cycle = 0; cycle < 4; cycle++)
+                    {
+                        RecordSmokeStage(output, $"retouch-cycle-{cycle + 1}");
+                        await VerifyRetouchUndoAsync(output);
+                    }
                     RecordSmokeStage(output, "transfer-undo");
                     await VerifyTransferUndoAsync(output);
                     VerifyViewerDesignNavigation();

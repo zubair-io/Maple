@@ -47,6 +47,8 @@ public sealed partial class MainWindow
         if (!ReferenceEquals(repairItems, _repairList.ItemsSource))
             throw new InvalidOperationException("Repair size edit unnecessarily rebuilt the spot list");
         RecordSmokeStage(output, "retouch-undo-redo-radius");
+        if (!_repairValues[0].Focus(Microsoft.UI.Xaml.FocusState.Programmatic))
+            throw new InvalidOperationException("Repair radius could not receive keyboard focus before Undo");
         ViewModel.Undo();
         await ReadyAsync();
         if (SelectedRepair?.Radius != .02) throw new InvalidOperationException("Repair size Undo failed");
