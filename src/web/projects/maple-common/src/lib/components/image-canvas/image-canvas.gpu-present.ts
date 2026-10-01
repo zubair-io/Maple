@@ -101,6 +101,7 @@ export interface GpuPresentHost {
    * `width`/`height` are no longer the native dims.
    */
   recordNativeDims(w: number, h: number): void;
+  recordPaintedDims(w: number, h: number): void;
 }
 
 /**
@@ -313,6 +314,8 @@ export class ImageCanvasGpuPresent {
     const nativeH = info.nativeHeight ?? info.height;
     this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
     this.host.recordNativeDims(nativeW, nativeH);
+    this.host.recordPaintedDims(info.width, info.height);
+    this.applyView();
     this.host.state.seedAsShotWhiteBalance(
       assetId,
       info.asShotTemperature,
@@ -333,6 +336,7 @@ export class ImageCanvasGpuPresent {
     // Release queued edits only after recording the frame's actual intent (#4101).
     if (this.host.lastRenderedXmp === null) {
       this.host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, info));
+    }
     }
     this.host.markColdOpenDone();
   }
@@ -369,6 +373,8 @@ export class ImageCanvasGpuPresent {
       // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
       this.publishRenderedStatus(rendered, fastParams, params, fitAsset, fitRevision);
+      this.host.recordPaintedDims(rendered.width, rendered.height);
+      this.applyView();
       // Scopes are no longer fed from this reply (#3397): the readback now
       // arrives as a `scope-sample` broadcast, mirrored into `currentPixels`
       // by the component's scope effect.

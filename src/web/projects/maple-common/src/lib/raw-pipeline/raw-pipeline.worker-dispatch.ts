@@ -128,6 +128,8 @@ const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
       colorSpace: msg.colorSpace,
       lensProfile: msg.lensProfile,
       autoFit: msg.autoFit,
+      width: msg.width,
+      height: msg.height,
     });
     return true;
   }

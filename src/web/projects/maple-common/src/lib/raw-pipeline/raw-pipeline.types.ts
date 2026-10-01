@@ -249,6 +249,8 @@ export interface OpenSessionSuccess {
 export interface RenderSessionSuccess {
   id: number;
   type: 'render-session-success';
+  width: number;
+  height: number;
   colorSpace: string;
   /** See `DecodeSuccess.lensProfile` (#3479) — refreshed when the prefix
    *  re-developed for a new selection; absent on a scalar-params tick. */

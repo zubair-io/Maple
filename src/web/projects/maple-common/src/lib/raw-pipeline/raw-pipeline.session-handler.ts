@@ -271,6 +271,8 @@ function postRenderSessionSuccess(
   const response: WorkerResponse = {
     id: req.id,
     type: 'render-session-success',
+    width: session.width,
+    height: session.height,
     colorSpace,
     // #3479: a scalar-params tick never re-develops, so only an XMP render
     // can have changed which imported profile the prefix consumed.

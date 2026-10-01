@@ -127,11 +127,48 @@ window.probe=async()=>{
       liveCases.push({cap,width:canvas.width,height:canvas.height,cases,xmlRejected,paramsRejected,maxClearError});
     }finally{live.free();reference.free();element.remove();}
   }
+  // Append an IFD containing EXIF orientation without rewriting any original
+  // payload offsets. Every variant has its own verified RAW source identity.
+  const orientedRaw=(value)=>{
+    const original=new DataView(raw.buffer,raw.byteOffset,raw.byteLength);
+    const little=raw[0]===73, offset=original.getUint32(4,little), count=original.getUint16(offset,little);
+    const entries=Array.from({length:count},(_,i)=>raw.slice(offset+2+i*12,offset+14+i*12));
+    const tag=new Uint8Array(12), view=new DataView(tag.buffer);
+    view.setUint16(0,274,little);view.setUint16(2,3,little);view.setUint32(4,1,little);view.setUint16(8,value,little);
+    entries.push(tag);entries.sort((a,b)=>new DataView(a.buffer).getUint16(0,little)-new DataView(b.buffer).getUint16(0,little));
+    const bytes=new Uint8Array(raw.length+2+entries.length*12+4);bytes.set(raw);
+    const result=new DataView(bytes.buffer);result.setUint32(4,raw.length,little);result.setUint16(raw.length,entries.length,little);
+    entries.forEach((entry,i)=>bytes.set(entry,raw.length+2+i*12));return bytes;
+  };
+  const geometryCases=[];
+  for(let exif=1;exif<=8;exif++){
+    const variant=orientedRaw(exif), reference=new wasm.NativeDetailSession(variant,'dng');
+    const records=wasm.removal_prepare(JSON.stringify({...request,plate:'linear-calibration-v1',source:JSON.parse(reference.removal_calibration_source())}),'[]',mask,patch);
+    const savedXmp=xmpFor(records);reference.prepare_saved_removals(savedXmp,manifest,bundle);
+    const element=document.createElement('canvas');document.body.append(element);const canvas=element.transferControlToOffscreen();
+    const live=await wasm.WebLiveSession.open_with_saved_removals(variant,'dng',savedXmp,canvas,9,'srgb',manifest,bundle);
+    try{
+      for(const perspective of [0,23])for(const angle of [0,90,7]){
+        const grade=savedXmp.replace('/>',' xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:HasCrop="True" crs:CropTop="0.1" crs:CropLeft="0.13" crs:CropBottom="0.9" crs:CropRight="0.87" crs:CropAngle="'+angle+'" crs:PerspectiveVertical="'+perspective+'" crs:GrainAmount="20"/>');
+        await live.render(grade);
+        await canvas.getContext('webgpu').getConfiguration().device.queue.onSubmittedWorkDone();await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);
+        const result=reference.render_saved_removals(grade,9,new Uint8Array());
+        try{
+          if(result.width!==canvas.width||result.height!==canvas.height||live.width!==canvas.width||live.height!==canvas.height)throw Error('EXIF/crop surface dimensions differ at '+exif+'/'+angle);
+          const c=new OffscreenCanvas(canvas.width,canvas.height),ctx=c.getContext('2d',{colorSpace:'srgb'});ctx.drawImage(element,0,0);
+          const actual=ctx.getImageData(0,0,c.width,c.height).data, expected=result.take_rgb();let maximum=0;
+          for(let i=0;i<expected.length;i++)maximum=Math.max(maximum,Math.abs(expected[i]-actual[Math.floor(i/3)*4+i%3]));
+          if(maximum>2)throw Error('EXIF '+exif+' crop '+angle+' perspective '+perspective+' saved preview differs by '+maximum+' LSB');
+          geometryCases.push({exif,angle,perspective,width:canvas.width,height:canvas.height,maxError:maximum});
+        }finally{result.free();}
+      }
+    }finally{live.free();reference.free();element.remove();}
+  }
   const ordinaryEntries=[()=>wasm.render_bytes(raw,'dng',xmp),()=>wasm.render_bytes_sized(raw,'dng',xmp,false,64),()=>wasm.render_bytes_scene_linear(raw,'dng',xmp,false),()=>wasm.render_bytes_scene_linear_sized(raw,'dng',xmp,false,64)];
   const unresolvedRejected=ordinaryEntries.map(run=>{try{const result=run();result.free();return false;}catch{return true;}});
   if(unresolvedRejected.some(v=>!v))throw Error('CPU fallback silently ignored saved removals');
-  if(window.gpuErrors.length)throw Error(window.gpuErrors.join('\n'));
-  return {cpu:cpuResult,gpu:gpuResult,retainedHostsByteIdentical:true,live:{missingRejected,corruptOpenRejected,liveCases,unresolvedRejected,gpuValidationErrors:window.gpuErrors},crossOriginIsolated};
+  if(window.gpuErrors.length)throw Error(window.gpuErrors.join('\\n'));
+  return {cpu:cpuResult,gpu:gpuResult,retainedHostsByteIdentical:true,live:{missingRejected,corruptOpenRejected,liveCases,geometryCases,unresolvedRejected,gpuValidationErrors:window.gpuErrors},crossOriginIsolated};
 };
 </script>`;
 const server = createServer(async (request, response) => {
@@ -187,7 +224,10 @@ try {
     if (["error", "warn"].includes(msg.type()))
       console.log(msg.type(), msg.text());
   });
-  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("pageerror", (error) => {
+    errors.push(error.message);
+    console.error(error.message);
+  });
   await page.route("**/*", (route) =>
     new URL(route.request().url()).hostname === "127.0.0.1"
       ? route.continue()

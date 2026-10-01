@@ -66,8 +66,8 @@ use crate::live_session::LiveSession;
 // the bind-group layout are single-sourced across Apple `CAMetalLayer` + web
 // `OffscreenCanvas` + the host offscreen parity gate.
 use crate::present_chain_pipeline::{
-    build_present_dispatch, build_present_pipeline, encode_present_pass, pick_surface_format,
-    PresentDispatchCache, PresentGeometry,
+    build_present_pipeline, encode_present_pass, pick_surface_format, PresentDispatchCache,
+    PresentGeometry,
 };
 use std::ffi::c_void;
 
@@ -412,7 +412,8 @@ pub fn present_chain_to_offscreen(
     final_idx: usize,
     geometry: PresentGeometry,
 ) -> Result<Vec<u8>, String> {
-    let (width, height) = session.dims();
+    let source_dims = session.dims();
+    let (width, height) = geometry.surface_dimensions(source_dims);
     let max_dim = ctx.device.limits().max_texture_dimension_2d;
     if width == 0 || height == 0 || width > max_dim || height > max_dim {
         return Err(format!(
@@ -442,7 +443,14 @@ pub fn present_chain_to_offscreen(
     // One-shot host oracle call, not a render-loop tick — build fresh directly
     // (no cache needed; #1930's zero-alloc invariant is about the PER-TICK
     // present path, which this parity harness isn't).
-    let dispatch = build_present_dispatch(ctx, &bgl, chain_buf, (width, height), geometry);
+    let dispatch = crate::present_chain_pipeline::build_present_dispatch_scaled(
+        ctx,
+        &bgl,
+        chain_buf,
+        (width, height),
+        source_dims,
+        geometry,
+    );
 
     let mut encoder = ctx
         .device
@@ -543,3 +551,7 @@ mod airlight_tests;
 #[cfg(all(test, target_vendor = "apple"))]
 #[path = "present_chain/reservation_tests.rs"]
 mod reservation_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "present_chain/geometry_tests.rs"]
+mod geometry_tests;

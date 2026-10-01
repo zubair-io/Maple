@@ -494,6 +494,32 @@ fn stripped_prefix_invariant_to_gpu_chain_sliders() {
     );
 }
 
+#[test]
+fn stripped_prefix_is_invariant_to_present_geometry() {
+    let base = AdjustmentModel::default();
+    let geometry = AdjustmentModel {
+        crop: raw_core::types::Crop {
+            top: 0.1,
+            left: 0.2,
+            bottom: 0.9,
+            right: 0.8,
+            angle: 7.0,
+        },
+        perspective_vertical: 23.0,
+        perspective_horizontal: -17.0,
+        perspective_rotate: 3.0,
+        perspective_scale: 120.0,
+        perspective_aspect: 11.0,
+        perspective_x: 4.0,
+        perspective_y: -3.0,
+        ..base.clone()
+    };
+    assert_eq!(
+        super::stripped_prefix_model(&base, AutoExposureMode::Off),
+        super::stripped_prefix_model(&geometry, AutoExposureMode::Off)
+    );
+}
+
 /// The complement: each GENUINE prefix field (the decode-upstream stages the GPU
 /// chain does NOT re-run, plus the AE mode) DOES change the prefix model — so a
 /// real prefix edit correctly re-develops. Guards against an over-aggressive

@@ -58,7 +58,6 @@ use crate::gpu_render::{
     chain_inputs_with_status, develop_prefix_rgba_saved, effective_target_long_edge,
     prefix_model_for, require_prepared_removals, resolve_target_color_space, GpuWhiteBalance,
 };
-use raw_core::stages::perspective;
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
@@ -105,12 +104,10 @@ pub struct WebLiveSession {
     /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
     /// normalized + clamped to the device texture cap in `open`. Fixed for the
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
-    /// the canvas surface never needs resizing.
+    /// the sensor upload stays stable; an authored crop resizes only the surface.
     target_long_edge: u32,
-    /// Developed (viewport-sized, sensor-framing) image dims — also the canvas +
-    /// surface dims. ≤ `target_long_edge` on the long edge (#1080). The present
-    /// asserts canvas dims == session dims; dims never change across ticks (same
-    /// image, same target), so the canvas is sized once on open.
+    /// Actual post-orientation, post-crop canvas dimensions. The uploaded
+    /// sensor dimensions remain on `session`; crop changes only this surface.
     width: u32,
     height: u32,
     /// NATIVE oriented dims (`native_render_dims`) — what a full-res render of
@@ -193,7 +190,7 @@ impl WebLiveSession {
             // Dims are stable across ticks (same image, same session-pinned
             // target), but assert so a future quality/target switch can't
             // silently desync the canvas surface.
-            if (w, h) != (self.width, self.height) {
+            if (w, h) != self.session.dims() {
                 return Err(JsError::new(&format!(
                     "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
                     self.width, self.height
@@ -324,14 +321,14 @@ impl WebLiveSession {
             .map_err(|error| JsValue::from_str(&error))
     }
 
-    /// The developed (viewport-sized) image width (== canvas width). ≤ the
+    /// Post-geometry viewport image width (== canvas width). ≤ the
     /// session's effective `max_long_edge` target on the long edge (#1080).
     #[wasm_bindgen(getter)]
     pub fn width(&self) -> u32 {
         self.width
     }
 
-    /// The developed (viewport-sized) image height (== canvas height). ≤ the
+    /// Post-geometry viewport image height (== canvas height). ≤ the
     /// session's effective `max_long_edge` target on the long edge (#1080).
     #[wasm_bindgen(getter)]
     pub fn height(&self) -> u32 {
@@ -397,29 +394,16 @@ impl WebLiveSession {
 }
 
 impl WebLiveSession {
-    /// Build the chain inputs for `model`, run the resident chain to its f32
-    /// buffer, and present to the held canvas surface. The shared tail of `open` +
-    /// `render`. Returns the achieved colour-space tag (from the one-time retag).
-    /// The manual-geometry homography for the present shader (#3410).
-    ///
-    /// Note the framing caveat this inherits: `develop_prefix_rgba` hands the
-    /// live chain a SENSOR-framed buffer (the web canvas has never applied EXIF
-    /// orientation — the one-shot readback path orients on the CPU afterwards),
-    /// so on a rotated RAW this warps in sensor framing while the export tail
-    /// warps in display framing. That divergence predates this stage and covers
-    /// the whole canvas, not just geometry; it is tracked separately rather
-    /// than papered over here.
-    fn present_geometry(&self, model: &AdjustmentModel) -> raw_gpu::PresentGeometry {
-        let geometry = perspective::Perspective::from_model(model);
-        if geometry.is_identity() {
-            return raw_gpu::PresentGeometry::IDENTITY;
-        }
-        let inverse = geometry.inverse_matrix(perspective::aspect_ratio(self.width, self.height));
-        raw_gpu::PresentGeometry::from_inverse(inverse.0)
-    }
-
-    async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {
+    /// Run the resident chain and the shared quantized geometry tail, with no readback.
+    async fn present_for_model(&mut self, model: &AdjustmentModel) -> Result<String, String> {
         require_prepared_removals(self.saved_removals.as_ref(), model)?;
+        let geometry = crate::gpu_render::display_geometry(
+            self.raw_img.orientation,
+            self.session.dims(),
+            model,
+        );
+        let (width, height) = geometry.surface_dimensions(self.session.dims());
+        self.present.resize(&self.ctx, width, height)?;
         let (mut inputs, auto_fit) = chain_inputs_with_status(
             &self.raw_img,
             &self.raw,
@@ -453,12 +437,10 @@ impl WebLiveSession {
         // The present recompiles nothing (the pipeline + surface are session-owned);
         // it only fetches the next surface texture, encodes the dither/quantize pass,
         // and presents — zero readback.
-        self.present.present(
-            &self.ctx,
-            &self.session,
-            final_idx,
-            self.present_geometry(model),
-        )?;
+        self.present
+            .present(&self.ctx, &self.session, final_idx, geometry)?;
+        self.width = width;
+        self.height = height;
         self.auto_fit.set(auto_fit);
         Ok(self.present.color_space().to_string())
     }

@@ -158,16 +158,7 @@ impl RemovalGeometry {
         {
             return None;
         }
-        let [u, v] = match self.orientation {
-            ExifOrientation::Normal => [u, v],
-            ExifOrientation::HorizontalFlip => [1.0 - u, v],
-            ExifOrientation::Rotate180 => [1.0 - u, 1.0 - v],
-            ExifOrientation::VerticalFlip => [u, 1.0 - v],
-            ExifOrientation::Transpose => [v, u],
-            ExifOrientation::Rotate90 => [v, 1.0 - u],
-            ExifOrientation::Transverse => [1.0 - v, 1.0 - u],
-            ExifOrientation::Rotate270 => [1.0 - v, u],
-        };
+        let [u, v] = self.orientation.display_uv_to_sensor([u, v]);
         let point = [
             u as f64 * self.crop.w as f64 + self.crop.x as f64 - 0.5,
             v as f64 * self.crop.h as f64 + self.crop.y as f64 - 0.5,

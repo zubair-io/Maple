@@ -65,6 +65,8 @@ export interface OpenedLiveSession {
  * colour-space tag. The scope readback left this reply in #3397 — see below.
  */
 export interface RenderedLiveSession {
+  width: number;
+  height: number;
   colorSpace: string;
   /** See `RenderSessionSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
