@@ -14,7 +14,6 @@ The server also serves an OpenAPI description of itself: Scalar UI at `/docs`, s
 | owner       | Bearer plus `role: owner`                                                                     |
 | +step-up    | Additionally requires a fresh `X-Step-Up` token from `POST /api/auth/step-up/verify`          |
 | ?token      | Access token in the `token` query parameter (media elements and WebSockets can't set headers) |
-| capability  | Bearer, or a path-bound image-capability token in `?token=`                                   |
 | service key | A `maple_sk_…` service API key, not a user token                                              |
 
 Anything marked bearer or stricter returns the standard error envelope on failure: `{ error, code, requestId, details? }`.
@@ -105,15 +104,15 @@ A library is a registered root folder with a slug. `:id` is the folder's 24-char
 
 The four routes clients should prefer. Each resolves the slug through an in-memory cache and jails the relative path with a realpath check.
 
-| Method | Path                   | Auth       | Purpose                                                                                                                                                                                                                            |
-| ------ | ---------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/folder/:slug`    | +file      | Library-root listing. Registered separately because Elysia's `*` doesn't match an empty tail                                                                                                                                       |
-| GET    | `/api/folder/:slug/*`  | +file      | Sub-folder listing: indexed assets from the catalog merged with on-disk files not yet catalogued (`indexed: false`), enqueuing a discover scan for the strays                                                                      |
-| GET    | `/api/image/:slug/*`   | bearer     | Stream the original file bytes; Content-Type from the extension                                                                                                                                                                    |
-| GET    | `/api/thumb/:slug/*`   | capability | Thumbnail AVIF. `ETag: "<maple_id>"`, immutable caching, 304 on `If-None-Match`. Generates on a cache miss; `202` with `Retry-After: 2` when the file exists but isn't indexed yet. This is the route the Cloudflare Worker fronts |
-| GET    | `/api/preview/:slug/*` | capability | 1280 px preview AVIF, generated on a cold miss. ETag is the preview file's own mtime and size with `must-revalidate`, so an editor overwriting it busts client caches                                                              |
-| GET    | `/api/video/:slug/*`   | ?token     | Ranged video streaming                                                                                                                                                                                                             |
-| GET    | `/api/video/fs`        | ?token     | Ranged video streaming by absolute path                                                                                                                                                                                            |
+| Method | Path                   | Auth   | Purpose                                                                                                                                                                                                                            |
+| ------ | ---------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/folder/:slug`    | +file  | Library-root listing. Registered separately because Elysia's `*` doesn't match an empty tail                                                                                                                                       |
+| GET    | `/api/folder/:slug/*`  | +file  | Sub-folder listing: indexed assets from the catalog merged with on-disk files not yet catalogued (`indexed: false`), enqueuing a discover scan for the strays                                                                      |
+| GET    | `/api/image/:slug/*`   | bearer | Stream the original file bytes; Content-Type from the extension                                                                                                                                                                    |
+| GET    | `/api/thumb/:slug/*`   | bearer | Thumbnail AVIF. `ETag: "<maple_id>"`, immutable caching, 304 on `If-None-Match`. Generates on a cache miss; `202` with `Retry-After: 2` when the file exists but isn't indexed yet. This is the route the Cloudflare Worker fronts |
+| GET    | `/api/preview/:slug/*` | bearer | 1280 px preview AVIF, generated on a cold miss. ETag is the preview file's own mtime and size with `must-revalidate`, so an editor overwriting it busts client caches                                                              |
+| GET    | `/api/video/:slug/*`   | ?token | Ranged video streaming                                                                                                                                                                                                             |
+| GET    | `/api/video/fs`        | ?token | Ranged video streaming by absolute path                                                                                                                                                                                            |
 
 ## Path-addressed filesystem
 

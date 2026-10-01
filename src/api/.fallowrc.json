@@ -29,6 +29,8 @@
     "src/runtime/__fixtures__/stderr-crash-child.ts",
     "src/runtime/__fixtures__/stderr-crash-harness.ts",
     "src/__fixtures__/otel-crash-child.ts",
+    // The auth-expiry regression launches a real API process with this preload.
+    "tests/coverage.child.preload.ts",
 
     // #3797 — the reader-pool sizing and degradation benchmark. Same shape as
     // the block above: an entry point run by hand, so nothing imports it. On

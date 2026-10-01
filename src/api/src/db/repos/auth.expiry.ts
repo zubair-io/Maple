@@ -1,7 +1,7 @@
 /**
  * The expiry sweep that replaces MongoDB's TTL monitor (#3751).
  *
- * Seven tables used to have their old rows removed for them: six auth tables
+ * Six tables have their old rows removed: five auth tables
  * with a TTL index on `expires_at`, plus `upload_sessions`. SQLite has no such
  * background collector, so the deletion becomes an explicit periodic pass and
  * this is it. Each of those tables carries an index on `expires_at` —
@@ -15,15 +15,13 @@
  * already had to treat expiry as a read-time condition, because Mongo's TTL
  * monitor only wakes once a minute and an expired document is fully readable
  * until it fires. So each repository's own predicate — `expires_at > ?` in the
- * redeem, the rotate and the capability lookup — is what actually refuses an
+ * redeem and the rotate — is what actually refuses an
  * expired row, and it keeps refusing it whether or not the sweeper ever runs.
  * What the sweep buys is that the tables stay small.
  *
  * Which is also why one table's failure does not abort the pass: a locked or
  * missing table is a reason to report and carry on, not a reason to leave the
- * other six growing.
- *
- * The cutover (#3752) schedules this; nothing calls it yet.
+ * other tables growing.
  */
 
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
@@ -42,7 +40,6 @@ const EXPIRING_TABLES = [
   'challenges',
   'native_auth_codes',
   'lan_handoff_codes',
-  'image_access_tokens',
   'invites',
   'upload_sessions',
   'refresh_tokens',

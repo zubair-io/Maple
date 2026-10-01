@@ -13,14 +13,6 @@ function decodeBase64(value: string): Uint8Array {
 	return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
 }
 
-function capabilityToken(): string {
-	const bytes = crypto.getRandomValues(new Uint8Array(32));
-	return btoa(String.fromCharCode(...bytes))
-		.replaceAll('+', '-')
-		.replaceAll('/', '_')
-		.replace(/=+$/, '');
-}
-
 async function bearerToken(): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 	return new SignJWT({ email: 'a@b.c', role: 'owner' })
@@ -41,7 +33,7 @@ afterEach(() => fetchMock.assertNoPendingInterceptors());
 describe('thumbnail-cache Worker', () => {
 	it('does not proxy protocol-relative paths carrying capability-shaped tokens', async () => {
 		const request = new IncomingRequest(
-			`https://example.com//evil.example/collect?token=${capabilityToken()}`,
+			`https://example.com//evil.example/collect?token=${'T'.repeat(43)}`,
 		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
@@ -50,84 +42,39 @@ describe('thumbnail-cache Worker', () => {
 		expect(response.headers.get('cache-control')).toBe('no-store');
 	});
 
-	it('proxies URL capabilities to the origin without reading or populating R2', async () => {
-		const capability = capabilityToken();
-		const bytes = new Uint8Array([7, 8, 9]);
-		await env.THUMBS_BUCKET.put('thumbs/main/capability.jpg', new Uint8Array([1, 2, 3]));
-		fetchMock
-			.get('https://origin.test')
-			.intercept({
-				path: `/api/thumb/main/capability.jpg?token=${capability}`,
-				method: 'GET',
-			})
-			.reply(200, bytes, {
-				headers: { 'content-type': 'image/avif', 'cache-control': 'public, max-age=31536000' },
-			});
+	it.each(['/api/thumb/main/legacy.jpg', '/api/preview/main/legacy.jpg'])(
+		'rejects URL tokens without a bearer on %s',
+		async (path) => {
+			const request = new IncomingRequest(`https://example.com${path}?token=${'T'.repeat(43)}`);
+			const ctx = createExecutionContext();
+			const response = await worker.fetch(request, env, ctx);
+			await waitOnExecutionContext(ctx);
+			expect(response.status).toBe(401);
+			expect(response.headers.get('cache-control')).toBe('no-store');
+			expect(response.headers.get('www-authenticate')).toBe('Bearer');
+		},
+	);
 
+	it('uses bearer authentication with an opaque URL token and converts an R2 hit to JPEG', async () => {
+		const token = await bearerToken();
+		await env.THUMBS_BUCKET.put('thumbs/main/legacy.avif', decodeBase64(ONE_PIXEL_AVIF), {
+			httpMetadata: { contentType: 'image/avif' },
+		});
 		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/capability.jpg?token=${capability}`,
-		);
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
-		expect(response.status).toBe(200);
-		expect(response.headers.get('cache-control')).toBe('private, no-store');
-		expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
-		await waitOnExecutionContext(ctx);
-		const existing = await env.THUMBS_BUCKET.get('thumbs/main/capability.jpg');
-		expect(new Uint8Array(await existing!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
-	});
-
-	it('converts an AVIF capability response to JPEG when format=jpg', async () => {
-		const capability = capabilityToken();
-		fetchMock
-			.get('https://origin.test')
-			.intercept({
-				path: `/api/thumb/main/claude.avif?format=jpg&token=${capability}`,
-				method: 'GET',
-			})
-			.reply(200, decodeBase64(ONE_PIXEL_AVIF), {
-				headers: {
-					'content-type': 'image/avif',
-					'content-length': '412',
-					etag: '"avif-etag"',
-				},
-			});
-
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/claude.avif?format=jpg&token=${capability}`,
+			`https://example.com/api/thumb/main/legacy.avif?format=jpg&token=${'T'.repeat(43)}`,
+			{ headers: { authorization: `Bearer ${token}` } },
 		);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		const jpeg = new Uint8Array(await response.arrayBuffer());
 		await waitOnExecutionContext(ctx);
-
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-type')).toBe('image/jpeg');
-		expect(response.headers.get('cache-control')).toBe('private, no-store');
 		expect(response.headers.get('content-length')).toBeNull();
 		expect(response.headers.get('etag')).toBeNull();
 		expect([...jpeg.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
-	});
-
-	it('passes an origin capability rejection through without caching it', async () => {
-		const capability = capabilityToken();
-		fetchMock
-			.get('https://origin.test')
-			.intercept({ path: `/api/thumb/main/expired.jpg?token=${capability}`, method: 'GET' })
-			.reply(401, JSON.stringify({ error: 'unauthorized' }), {
-				headers: { 'content-type': 'application/json' },
-			});
-
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/expired.jpg?token=${capability}`,
-		);
-		const ctx = createExecutionContext();
-		const response = await worker.fetch(request, env, ctx);
-		expect(response.status).toBe(401);
-		expect(response.headers.get('cache-control')).toBe('private, no-store');
-		await response.arrayBuffer();
-		await waitOnExecutionContext(ctx);
-		expect(await env.THUMBS_BUCKET.get('thumbs/main/expired.jpg')).toBeNull();
+		const cached = await env.THUMBS_BUCKET.get('thumbs/main/legacy.avif');
+		expect(new Uint8Array(await cached!.arrayBuffer())).toEqual(decodeBase64(ONE_PIXEL_AVIF));
 	});
 
 	it('rejects a request with no Authorization header, without touching R2 or origin', async () => {

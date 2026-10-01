@@ -65,7 +65,11 @@ test('an existing file backfills Unicode keys without changing values or account
   reopened.exec('PRAGMA foreign_keys = ON');
   const result = await runMigrations(fromBunSqlite(reopened), ALL_MIGRATIONS);
   const again = await runMigrations(fromBunSqlite(reopened), ALL_MIGRATIONS);
-  expect(result.applied).toEqual([unicodePresetEmailKeysMigration.id]);
+  expect(result.applied).toEqual(
+    ALL_MIGRATIONS.filter((migration) => migration.id >= unicodePresetEmailKeysMigration.id).map(
+      (migration) => migration.id,
+    ),
+  );
   expect(again.applied).toEqual([]);
   expect(
     reopened
