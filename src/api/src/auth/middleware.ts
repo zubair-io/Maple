@@ -2,7 +2,6 @@
 import { Elysia } from 'elysia';
 import { child as childLogger } from '../log.ts';
 import { verifyAccessToken, verifyStepUpToken, type AccessClaims } from './tokens.ts';
-import { verifyImageCapability } from './image-capability.ts';
 
 const log = childLogger('auth');
 
@@ -27,25 +26,6 @@ export const requireAuth = new Elysia({ name: 'requireAuth' }).derive(
     const h = headers['authorization'] ?? '';
     const m = /^Bearer (.+)$/.exec(h);
     if (!m) {
-      if (await verifyImageCapability(request)) {
-        const now = Math.floor(Date.now() / 1000);
-        return {
-          auth: {
-            user: {
-              sub: 'image-capability',
-              email: '',
-              role: 'member' as const,
-              // Capability tokens only ever reach /api/thumb|preview (see
-              // verifyImageCapability), none of which are file-access-gated —
-              // but the synthesized identity carries the least privilege
-              // anyway.
-              file_access: false,
-              iat: now,
-              exp: now + 60,
-            },
-          },
-        };
-      }
       set.status = 401;
       // Log WHY a request was rejected (#1296): no Authorization bearer at all
       // — usually a not-signed-in client or a dropped header.

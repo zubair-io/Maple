@@ -1,8 +1,8 @@
 /**
- * Invites, WebAuthn challenges, service API keys, image capabilities, and the
+ * Invites, WebAuthn challenges, service API keys, and the
  * sweep that replaces MongoDB's TTL monitor.
  *
- * The through-line is expiry: five of these tables used to have their old rows
+ * The through-line is expiry: these tables used to have their old rows
  * removed for them, and the port has to keep two separate promises — that an
  * expired row is refused at read time whether or not anything swept it, and
  * that the sweep eventually removes it.
@@ -27,7 +27,6 @@ import {
   markServiceApiKeyUsed,
   revokeServiceApiKey,
 } from './auth.service-api-keys.repo.ts';
-import { imageCapabilityIsValid, issueImageCapability } from './auth.image-capability.repo.ts';
 import { sweepExpiredAuthRows } from './auth.expiry.ts';
 import type { SqliteDb } from './db-handle.ts';
 
@@ -286,33 +285,6 @@ describe('service API keys', () => {
   });
 });
 
-describe('image capabilities', () => {
-  const token = 'T'.repeat(43);
-
-  test('a live grant authorises its own path and no other', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    await issueImageCapability(token, '/api/thumb/abc', new Date(Date.now() + 60_000), db);
-    expect(await imageCapabilityIsValid(token, '/api/thumb/abc', db)).toBe(true);
-    expect(await imageCapabilityIsValid(token, '/api/thumb/other', db)).toBe(false);
-  });
-
-  test('an expired grant is refused even before anything sweeps it', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    await issueImageCapability(token, '/api/preview/abc', new Date(Date.now() - 1000), db);
-    expect(await imageCapabilityIsValid(token, '/api/preview/abc', db)).toBe(false);
-  });
-
-  test('the token itself is never stored', async () => {
-    using handle = await createTestDatabase();
-    const db = testSqliteDb(handle.db);
-    await issueImageCapability(token, '/api/thumb/abc', new Date(Date.now() + 60_000), db);
-    const rows = await db.read<Record<string, unknown>>(`SELECT * FROM image_access_tokens`);
-    expect(JSON.stringify(rows)).not.toContain(token);
-  });
-});
-
 describe('the expiry sweep', () => {
   test('removes expired rows from every table and leaves live ones', async () => {
     using handle = await createTestDatabase();
@@ -324,14 +296,7 @@ describe('the expiry sweep', () => {
       { challenge: 'live', purpose: 'register', user_id: null, email: null, invite_code: null },
       db,
     );
-    await issueImageCapability(
-      'L'.repeat(43),
-      '/api/thumb/live',
-      new Date(Date.now() + 60_000),
-      db,
-    );
-
-    // One expired row in each of three tables, written past the repositories
+    // One expired row in each of two tables, written past the repositories
     // because they all refuse to mint something already dead.
     await db.write(
       `INSERT INTO challenges (id, challenge, purpose, expires_at)
@@ -343,21 +308,14 @@ describe('the expiry sweep', () => {
        VALUES ('000000000000000000000002', 'STALECODE', ?, ?)`,
       [owner.toHexString(), PAST],
     );
-    await db.write(
-      `INSERT INTO image_access_tokens (id, path, purpose, created_at, expires_at)
-       VALUES (?, '/api/thumb/stale', 'image-read', ?, ?)`,
-      ['0'.repeat(64), NOW, PAST],
-    );
-
     const result = await sweepExpiredAuthRows(undefined, db);
     expect(result.failures).toEqual([]);
     expect(result.removed.challenges).toBe(1);
     expect(result.removed.invites).toBe(1);
-    expect(result.removed.image_access_tokens).toBe(1);
-    expect(result.total).toBe(3);
+    expect(result.total).toBe(2);
 
     expect(await db.read(`SELECT id FROM challenges`)).toHaveLength(1);
-    expect(await imageCapabilityIsValid('L'.repeat(43), '/api/thumb/live', db)).toBe(true);
+    expect(await db.read(`SELECT id FROM invites`)).toHaveLength(1);
   });
 
   test('a clean database sweeps to zero without failing', async () => {

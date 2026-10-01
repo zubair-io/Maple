@@ -32,6 +32,8 @@ import { assetWorkingSetSortMigration } from './0007-asset-working-set-sort.ts';
 import { removeUnusedIndexerQueueMigration } from './0008-remove-unused-indexer-queue.ts';
 import { unicodePresetEmailKeysMigration } from './0009-unicode-preset-email-keys.ts';
 
+import { removeUnusedImageCapabilitiesMigration } from './0010-remove-unused-image-capabilities.ts';
+
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
   stageStateMediaKindMigration,
@@ -42,4 +44,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   assetWorkingSetSortMigration,
   removeUnusedIndexerQueueMigration,
   unicodePresetEmailKeysMigration,
+  removeUnusedImageCapabilitiesMigration,
 ];

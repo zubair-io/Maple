@@ -13,6 +13,40 @@ const app = new Elysia()
   .use(requireOwner)
   .post('/owner-only', () => ({ ok: true }));
 
+const imageApp = new Elysia()
+  .use(requireAuth)
+  .get('/api/thumb/demo/photo.jpg', ({ auth }) => ({ sub: auth.user.sub }))
+  .get('/api/preview/demo/photo.jpg', ({ auth }) => ({ sub: auth.user.sub }));
+
+describe('image routes require bearer authentication (#3764)', () => {
+  it.each(['thumb', 'preview'])(
+    'rejects URL tokens on %s without querying storage',
+    async (route) => {
+      const response = await imageApp.handle(
+        new Request(`http://localhost/api/${route}/demo/photo.jpg?token=${'T'.repeat(43)}`),
+      );
+      expect(response.status).toBe(401);
+    },
+  );
+
+  it.each(['thumb', 'preview'])(
+    'keeps a valid bearer identity on %s with a URL token',
+    async (route) => {
+      const token = await signAccessToken(
+        { sub: 'u1', email: 'a@b.c', role: 'member', file_access: true },
+        SECRET,
+      );
+      const response = await imageApp.handle(
+        new Request(`http://localhost/api/${route}/demo/photo.jpg?token=${'T'.repeat(43)}`, {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ sub: 'u1' });
+    },
+  );
+});
+
 describe('middleware', () => {
   it('rejects /me without bearer', async () => {
     const r = await app.handle(new Request('http://localhost/me'));

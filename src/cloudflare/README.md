@@ -8,14 +8,7 @@ re-implemented here to match `src/api/src/cloudflare/thumb-key.ts` and
 `src/api/src/auth/tokens.ts` — keep the two in sync by hand if either
 changes.
 
-Sugar Maple image URLs use opaque, short-lived capabilities stored by the
-Maple API. The Worker recognizes their 32-byte base64url shape but does not
-treat that shape as authorization: capability requests bypass R2 and are
-streamed to the origin with the full query string for exact-path and expiry
-validation. Responses are forced to `private, no-store`. This prevents an
-expired or path-mismatched capability from receiving an already-cached R2
-object. Preview URLs are outside this Worker's `/api/thumb/*` route and go
-directly to the same origin validation.
+Thumbnail requests require a valid bearer JWT before reading R2 or contacting the origin. The Worker forwards the same bearer on a cache miss. A URL `token` parameter supplies no authentication; callers must send `Authorization: Bearer ...`. Preview URLs are outside this Worker's `/api/thumb/*` route and use the API's bearer authentication.
 
 Add `format=jpg` to a thumbnail URL to decode the cached/origin AVIF with
 `@jsquash/avif` and encode an `image/jpeg` response with `@jsquash/jpeg`. The

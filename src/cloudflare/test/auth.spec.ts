@@ -1,17 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { SignJWT } from 'jose';
-import { hasImageCapability, verifyBearer } from '../src/auth';
+import { verifyBearer } from '../src/auth';
 
 const SECRET = 'test-secret-not-for-production-only';
 const secretKey = new TextEncoder().encode(SECRET);
-
-function capabilityToken(): string {
-	const bytes = crypto.getRandomValues(new Uint8Array(32));
-	return btoa(String.fromCharCode(...bytes))
-		.replaceAll('+', '-')
-		.replaceAll('/', '_')
-		.replace(/=+$/, '');
-}
 
 async function sign(claims: Record<string, unknown>, expiresInSeconds: number): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
@@ -58,37 +50,5 @@ describe('verifyBearer', () => {
 		);
 		const forged = `${header}.${payload}.`;
 		expect(await verifyBearer(`Bearer ${forged}`, SECRET)).toBe(false);
-	});
-});
-
-describe('hasImageCapability', () => {
-	it('recognizes the 32-byte base64url capability format', () => {
-		const url = new URL('https://maple.test/api/thumb/photos/a.jpg');
-		url.searchParams.set('token', capabilityToken());
-		expect(hasImageCapability(url)).toBe(true);
-	});
-
-	it('rejects capability-shaped tokens outside image route families', () => {
-		const protocolRelativePath = new URL('https://maple.test//evil.example/collect');
-		protocolRelativePath.searchParams.set('token', capabilityToken());
-		expect(hasImageCapability(protocolRelativePath)).toBe(false);
-
-		const unrelatedPath = new URL('https://maple.test/api/assets');
-		unrelatedPath.searchParams.set('token', capabilityToken());
-		expect(hasImageCapability(unrelatedPath)).toBe(false);
-	});
-
-	it('rejects missing, short, and non-base64url query values', () => {
-		expect(hasImageCapability(new URL('https://maple.test/api/thumb/photos/a.jpg'))).toBe(false);
-		expect(
-			hasImageCapability(new URL('https://maple.test/api/thumb/photos/a.jpg?token=short')),
-		).toBe(false);
-		expect(
-			hasImageCapability(
-				new URL(
-					'https://maple.test/api/thumb/photos/a.jpg?token=abcdefghijklmnopqrstuvwxyzABCDEFGH+12345678',
-				),
-			),
-		).toBe(false);
 	});
 });
