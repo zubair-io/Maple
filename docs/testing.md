@@ -461,6 +461,8 @@ The isolation is per _test_, not per suite, so two tests can insert the same pri
 
 The WinUI test project is substantial and mostly logic-level: reducers, math helpers, and file-operation logic extracted from the views so they can be tested without a UI host — including a large `Mui*` set mirroring the shared design system's components.
 
+For interactive native-window screenshot qualification, invoke the built app directly with `--lifecycle-smoke <isolated-RAW> <fresh-output-directory> gpu --visual-checkpoints`. After measuring each 1440×900 and 1024×768 physical window, the harness writes `visual-<width>x<height>.ready` and holds that size until the operator creates the corresponding `.continue` file. Capture and inspect the real window before acknowledging it. Each checkpoint fails after three minutes without acknowledgement; the regular lifecycle runner remains noninteractive and retains its existing timeout. These checkpoints neither change desktop DPI nor establish screenshot comparison, accessibility, or color parity automatically. Record actual display scale and screenshot evidence separately.
+
 ---
 
 ## Cloudflare Worker

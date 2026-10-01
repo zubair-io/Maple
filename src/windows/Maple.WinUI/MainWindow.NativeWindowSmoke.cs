@@ -45,6 +45,7 @@ public sealed partial class MainWindow
                 if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(adjustments, ViewModel.Adjustments) ||
                     group != _activeGroup || EditPanel.Visibility != Visibility.Visible)
                     throw new InvalidOperationException("Native resize changed the selected document or active tool");
+                await WaitForNativeVisualCheckpointAsync(output, size);
             }
         }
         finally
@@ -52,6 +53,25 @@ public sealed partial class MainWindow
             AppWindow.Resize(originalSize);
             await Task.Delay(200);
             root.UpdateLayout();
+        }
+    }
+
+    private static async Task WaitForNativeVisualCheckpointAsync(string output, SizeInt32 size)
+    {
+        if (Array.IndexOf(Environment.GetCommandLineArgs(), "--visual-checkpoints") < 0) return;
+        // The explicit interactive harness holds the real HWND at each measured
+        // size for an external screenshot. A missing acknowledgement fails;
+        // holding a window alone never counts as visual qualification.
+        var checkpoint = Path.Combine(output, $"visual-{size.Width}x{size.Height}");
+        if (File.Exists(checkpoint + ".continue"))
+            throw new InvalidOperationException("Visual qualification requires a fresh output directory");
+        await File.WriteAllTextAsync(checkpoint + ".ready", DateTimeOffset.UtcNow.ToString("O"));
+        var deadline = Environment.TickCount64 + 180000;
+        while (!File.Exists(checkpoint + ".continue"))
+        {
+            if (Environment.TickCount64 >= deadline)
+                throw new TimeoutException($"Visual checkpoint not acknowledged: {checkpoint}");
+            await Task.Delay(100);
         }
     }
 }

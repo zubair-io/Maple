@@ -21,7 +21,9 @@ namespace Maple.WinUI
             var args = Environment.GetCommandLineArgs();
             var index = Array.IndexOf(args, "--lifecycle-smoke");
             if (index < 0) return;
-            if (args.Length != index + 4) throw new ArgumentException("--lifecycle-smoke RAW OUT gpu|cpu|empty");
+            if (args.Length != index + 4 &&
+                !(args.Length == index + 5 && args[^1] == "--visual-checkpoints"))
+                throw new ArgumentException("--lifecycle-smoke RAW OUT gpu|cpu|empty [--visual-checkpoints]");
             _ = RunLifecycleSmokeAsync(args[index + 1], args[index + 2], args[index + 3]);
         }
 
