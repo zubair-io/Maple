@@ -237,6 +237,13 @@ stack against the original, so an empty target cannot bypass source identity.
 Closing the editor joins any in-flight removal commit before flushing scalar
 writes.
 
+Apple authoring also captures a digest of the complete flushed XMP, including
+culling and foreign XML. Keep compares it under the writer lock as well as the
+ordered removal stack. A rejected save queues no older scalar snapshot, and a
+retry cannot pair externally changed XML with the old in-memory model: close
+and reopen the photo to hydrate those external edits. Rewriting identical bytes
+does not invalidate the proposal.
+
 Apple writers use a persistent advisory `.photo.xmp.lock` file, synchronize new
 assets and the accepted sidecar, and publish through atomic filesystem operations.
 The shared core and Apple resolve owned removal attributes and direct scalar

@@ -7,13 +7,16 @@ extension EditSession {
   /// inference runs, even when the current model equals its original snapshot.
   /// Once started, the session owns the commit; leaving the editor joins it.
   public func acceptRemoval(
-    _ proposal: NativeRemovalProposal, expectedModel: AdjustmentModel, expectedRevision: UInt64
+    _ proposal: NativeRemovalProposal, snapshot: RemovalAuthoringSnapshot
   ) async throws {
     try Task.checkCancellation()
-    guard model == expectedModel, editRevision == expectedRevision else {
+    let expectedModel = snapshot.model
+    guard model == expectedModel, editRevision == snapshot.editRevision else {
       throw RemovalError.saveConflict
     }
-    let task = try confirmedRemovalTask(transition: .new(.repair, "Remove object")) { raw in
+    let task = try confirmedRemovalTask(
+      transition: .new(.repair, "Remove object"), sidecarRevision: snapshot.sidecarRevision
+    ) { raw in
       let records = try await LocalRemovalAssetStore(rawURL: raw).publish(
         request: proposal.request, prior: expectedModel.inpaintRemovals?.json ?? "[]",
         mask: proposal.mask, patch: proposal.patch)
@@ -67,7 +70,7 @@ extension EditSession {
   }
 
   private func confirmedRemovalTask(
-    transition: RemovalHistoryTransition,
+    transition: RemovalHistoryTransition, sidecarRevision: RemovalSidecarRevision? = nil,
     prepare: @escaping @MainActor (URL) async throws -> AdjustmentModel
   ) throws -> Task<Void, Error> {
     guard !isSavingRemoval else { throw RemovalError.invalid("A removal save is already running") }
@@ -79,11 +82,14 @@ extension EditSession {
     let previous = sidecarUpdateTask
     isSavingRemoval = true
     let task = Task {
+      var committed = false
       defer {
         isSavingRemoval = false
         // Culling can change during the cold save. Persist its latest value
         // with the confirmed model, never an old scalar snapshot after CAS.
-        scheduleSidecarUpdate(model: model, culling: culling)
+        // A rejected CAS leaves external XML untouched. Queuing our stale
+        // scalar model here would immediately overwrite the conflicting edit.
+        if committed { scheduleSidecarUpdate(model: model, culling: culling) }
       }
       let scope = asset.scopeParentURL ?? raw
       let accessing = scope.startAccessingSecurityScopedResource()
@@ -95,7 +101,8 @@ extension EditSession {
         if target.inpaintRemovals?.isEmpty == true { target.inpaintRemovals = nil }
         try await store.writeRemovalConfirmed(
           records: target.inpaintRemovals?.json ?? "[]",
-          expectedRecords: before.inpaintRemovals?.json ?? "[]", model: target, culling: culling)
+          expectedRecords: before.inpaintRemovals?.json ?? "[]", model: target, culling: culling,
+          expectedSidecarRevision: sidecarRevision)
         // The write is durable now. Adopt it even if the initiating UI went
         // away; reporting cancellation here would leave disk and history split.
         isApplyingRemovalCommit = true
@@ -103,6 +110,7 @@ extension EditSession {
         isApplyingRemovalCommit = false
         finishRemovalHistory(transition, before: before, after: target)
         sidecarError = nil
+        committed = true
       } catch {
         sidecarError = error
         throw error

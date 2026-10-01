@@ -163,6 +163,10 @@ struct IPhoneControlBar: View {
       RetouchPanel(state: state)
         .padding(.horizontal, 24)
         .padding(.vertical, 7)
+    } else if state.armedTool == .remove {
+      RemovalPanel(state: state)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 7)
     } else {
       DragBar(state: state)
         .padding(.vertical, 7)

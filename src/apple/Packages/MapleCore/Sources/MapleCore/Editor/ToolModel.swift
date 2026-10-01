@@ -10,19 +10,19 @@ import Foundation
 // MARK: - Tool model
 
 public enum ToolGroup: String, CaseIterable, Sendable, Hashable {
-    case light
-    case color
-    case effects
-    case detail
+  case light
+  case color
+  case effects
+  case detail
 
-    public var displayName: String {
-        switch self {
-        case .light:   return "Light"
-        case .color:   return "Color"
-        case .effects: return "Effects"
-        case .detail:  return "Detail"
-        }
+  public var displayName: String {
+    switch self {
+    case .light: return "Light"
+    case .color: return "Color"
+    case .effects: return "Effects"
+    case .detail: return "Detail"
     }
+  }
 }
 
 /// 27 tools grouped per spec §2 "Groups & tools". Capture-sharpening
@@ -46,143 +46,144 @@ public enum ToolGroup: String, CaseIterable, Sendable, Hashable {
 /// only route to the curve here. See `tool-model.ts`'s header for the
 /// mirror of this note.
 public enum Tool: String, CaseIterable, Sendable, Hashable {
-    // Light
-    case exposure, brightness, contrast, highlights, shadows, whites, blacks, toneCurve
-    // Color
-    case temp, tint, vibrance, saturation, hsl, bwMix
-    // Effects
-    case clarity, texture, dehaze, vignette, grain, filmLook, colorGrade
-    // Detail
-    case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections
-    // Manual geometry (#3410) — seven `crs:Perspective*` sliders, no primary
-    // field; see `isWired` and `ToolSubParam`. Defringe (#3411) is the
-    // profile-free, per-tick sibling of Lens, with six of its own.
-    case geometry, defringe, crop, presets
-    // Mask (#3274) and Heal (#3409) — full-surface swaps, not primary-field
-    // drag bars; see `isWired` below.
-    case mask, heal
+  // Light
+  case exposure, brightness, contrast, highlights, shadows, whites, blacks, toneCurve
+  // Color
+  case temp, tint, vibrance, saturation, hsl, bwMix
+  // Effects
+  case clarity, texture, dehaze, vignette, grain, filmLook, colorGrade
+  // Detail
+  case sharpen, noise, colorNR, captureSharpen, captureSigma, lensCorrections
+  // Manual geometry (#3410) — seven `crs:Perspective*` sliders, no primary
+  // field; see `isWired` and `ToolSubParam`. Defringe (#3411) is the
+  // profile-free, per-tick sibling of Lens, with six of its own.
+  case geometry, defringe, crop, presets
+  // Mask (#3274) and Heal (#3409) — full-surface swaps, not primary-field
+  // drag bars; see `isWired` below.
+  case mask, heal, remove
 
-    public var group: ToolGroup {
-        switch self {
-        case .exposure, .brightness, .contrast, .highlights, .shadows, .whites, .blacks,
-             .toneCurve:
-            return .light
-        case .temp, .tint, .vibrance, .saturation, .hsl, .bwMix:
-            return .color
-        case .clarity, .texture, .dehaze, .vignette, .grain, .filmLook, .colorGrade:
-            return .effects
-        case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .lensCorrections,
-             .defringe, .crop, .geometry, .presets, .mask, .heal:
-            return .detail
-        }
+  public var group: ToolGroup {
+    switch self {
+    case .exposure, .brightness, .contrast, .highlights, .shadows, .whites, .blacks,
+      .toneCurve:
+      return .light
+    case .temp, .tint, .vibrance, .saturation, .hsl, .bwMix:
+      return .color
+    case .clarity, .texture, .dehaze, .vignette, .grain, .filmLook, .colorGrade:
+      return .effects
+    case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .lensCorrections,
+      .defringe, .crop, .geometry, .presets, .mask, .heal, .remove:
+      return .detail
     }
+  }
 
-    public var displayName: String {
-        switch self {
-        case .exposure:   return "Exposure"
-        case .brightness: return "Brightness"
-        case .contrast:   return "Contrast"
-        case .highlights: return "Highlights"
-        case .shadows:    return "Shadows"
-        case .whites:     return "Whites"
-        case .blacks:     return "Blacks"
-        case .toneCurve:  return "Tone Curve"
-        case .temp:       return "Temp"
-        case .tint:       return "Tint"
-        case .vibrance:   return "Vibrance"
-        case .saturation: return "Saturation"
-        case .hsl:        return "HSL"
-        case .bwMix:      return "B&W"
-        case .clarity:    return "Clarity"
-        case .texture:    return "Texture"
-        case .dehaze:     return "Dehaze"
-        case .vignette:   return "Vignette"
-        case .grain:      return "Grain"
-        case .filmLook:   return "Film"
-        case .colorGrade: return "Color Grading"
-        case .sharpen:        return "Sharpen"
-        case .noise:          return "Noise"
-        case .colorNR:        return "Color NR"
-        case .captureSharpen: return "Deconv"
-        case .captureSigma:   return "Deconv σ"
-        case .lensCorrections: return "Lens"
-        case .defringe:       return "Defringe"
-        case .crop:           return "Crop"
-        case .geometry:       return "Geometry"
-        case .presets:        return "Presets"
-        case .mask:           return "Mask"
-        case .heal:           return "Heal"
-        }
+  public var displayName: String {
+    switch self {
+    case .exposure: return "Exposure"
+    case .brightness: return "Brightness"
+    case .contrast: return "Contrast"
+    case .highlights: return "Highlights"
+    case .shadows: return "Shadows"
+    case .whites: return "Whites"
+    case .blacks: return "Blacks"
+    case .toneCurve: return "Tone Curve"
+    case .temp: return "Temp"
+    case .tint: return "Tint"
+    case .vibrance: return "Vibrance"
+    case .saturation: return "Saturation"
+    case .hsl: return "HSL"
+    case .bwMix: return "B&W"
+    case .clarity: return "Clarity"
+    case .texture: return "Texture"
+    case .dehaze: return "Dehaze"
+    case .vignette: return "Vignette"
+    case .grain: return "Grain"
+    case .filmLook: return "Film"
+    case .colorGrade: return "Color Grading"
+    case .sharpen: return "Sharpen"
+    case .noise: return "Noise"
+    case .colorNR: return "Color NR"
+    case .captureSharpen: return "Deconv"
+    case .captureSigma: return "Deconv σ"
+    case .lensCorrections: return "Lens"
+    case .defringe: return "Defringe"
+    case .crop: return "Crop"
+    case .geometry: return "Geometry"
+    case .presets: return "Presets"
+    case .mask: return "Mask"
+    case .heal: return "Heal"
+    case .remove: return "Remove"
     }
+  }
 
-    /// True when this tool is wired to a *pipeline-applied*
-    /// `AdjustmentModel` field. Stub tools render in the pill row but
-    /// reject writes (the scrub guards in `setArmedDisplayValue` /
-    /// `resetArmedTool` short-circuit on `!isWired`) — follow-up tickets
-    /// track the missing work.
-    ///
-    /// The S5 effects pills are all real pipeline stages now — vignette
-    /// (#1109), grain (#1110), colour grading (#1111, extended to four
-    /// wheels at #275) left the #952 stub list as their stages landed.
-    /// HSL left it at #274: the 8-band Oklab
-    /// stage is live in raw-core and the pill drives its 24 sub-params
-    /// through `HSLSection` (it has no single primary drag-bar field, so
-    /// `displayRange` stays nil and the sub-param path carries every
-    /// edit). B&W Mix left it at #276, the same shape: no primary, eight
-    /// sub-params driving the `grayMixer*` fields through the same 8-band
-    /// stage in its monochrome mode. Crop (#638) remains a stub — its
-    /// model field and pipeline math exist, but it is edited through the
-    /// canvas overlay rather than the drag bar.
-    ///
-    /// Presets left the stub list at #1115: the pill opens the presets
-    /// sheet/popover (see EditorView) instead of carrying a drag-bar
-    /// value — `displayRange` stays nil, so the value pipe is inert for
-    /// it (the scrub/reset guards also check `displayRange`).
-    ///
-    /// Tone Curve (#367) is wired and takes the HSL shape: four
-    /// parametric region sub-params plus four per-channel point curves
-    /// and no single primary field, so `displayRange` stays nil and
-    /// `ToneCurveSection` is its whole control surface.
-    ///
-    /// Film (#2683) is wired and takes the same no-primary-field shape:
-    /// `filmLook` is a catalog-id string picked from `FilmSection`'s list
-    /// (not a drag-bar value), and its one scalar field, `filmStrength`,
-    /// is declared as this tool's single sub-param so its slider rides
-    /// the ordinary sub-param value pipe (HUD, undo). `displayRange`
-    /// stays nil and `FilmSection` is the whole control surface.
-    ///
-    /// Geometry (#3410) takes that same no-primary-field shape once more:
-    /// seven `crs:Perspective*` sliders that compose into ONE homography, no
-    /// single "main" one among them, so `displayRange` stays nil and
-    /// `GeometrySection` is the whole control surface.
-    ///
-    /// Lens Corrections (#2231) is wired and takes the same no-primary-
-    /// field shape: it has no single "main" scale, and the panel needs a
-    /// master on/off toggle (`lensProfileEnable`) ABOVE its three sliders
-    /// — a layout the generic sub-param grid has no room for — so
-    /// `displayRange` stays nil and `LensCorrectionsSection` is the whole
-    /// control surface, same as HSL / Tone Curve / Film.
-    ///
-    /// Defringe (#3411) is wired and takes that same shape for the same
-    /// reason: six sub-params (two amounts and two hue bands) and no single
-    /// "main" one, so `displayRange` stays nil and `DefringeSection` is the
-    /// whole control surface.
-    public var isWired: Bool {
-        switch self {
-        case .crop:
-            return false
-        // Mask (#3274) writes `model.localAdjustments` and Heal (#3409)
-        // writes `model.retouchSpots` — nested lists, not single scalar
-        // fields, so each tool's own panel (not this pipe) is its value
-        // surface and the drag bar must refuse value edits for both.
-        case .mask, .heal:
-            return false
-        default:
-            return true
-        }
+  /// True when this tool is wired to a *pipeline-applied*
+  /// `AdjustmentModel` field. Stub tools render in the pill row but
+  /// reject writes (the scrub guards in `setArmedDisplayValue` /
+  /// `resetArmedTool` short-circuit on `!isWired`) — follow-up tickets
+  /// track the missing work.
+  ///
+  /// The S5 effects pills are all real pipeline stages now — vignette
+  /// (#1109), grain (#1110), colour grading (#1111, extended to four
+  /// wheels at #275) left the #952 stub list as their stages landed.
+  /// HSL left it at #274: the 8-band Oklab
+  /// stage is live in raw-core and the pill drives its 24 sub-params
+  /// through `HSLSection` (it has no single primary drag-bar field, so
+  /// `displayRange` stays nil and the sub-param path carries every
+  /// edit). B&W Mix left it at #276, the same shape: no primary, eight
+  /// sub-params driving the `grayMixer*` fields through the same 8-band
+  /// stage in its monochrome mode. Crop (#638) remains a stub — its
+  /// model field and pipeline math exist, but it is edited through the
+  /// canvas overlay rather than the drag bar.
+  ///
+  /// Presets left the stub list at #1115: the pill opens the presets
+  /// sheet/popover (see EditorView) instead of carrying a drag-bar
+  /// value — `displayRange` stays nil, so the value pipe is inert for
+  /// it (the scrub/reset guards also check `displayRange`).
+  ///
+  /// Tone Curve (#367) is wired and takes the HSL shape: four
+  /// parametric region sub-params plus four per-channel point curves
+  /// and no single primary field, so `displayRange` stays nil and
+  /// `ToneCurveSection` is its whole control surface.
+  ///
+  /// Film (#2683) is wired and takes the same no-primary-field shape:
+  /// `filmLook` is a catalog-id string picked from `FilmSection`'s list
+  /// (not a drag-bar value), and its one scalar field, `filmStrength`,
+  /// is declared as this tool's single sub-param so its slider rides
+  /// the ordinary sub-param value pipe (HUD, undo). `displayRange`
+  /// stays nil and `FilmSection` is the whole control surface.
+  ///
+  /// Geometry (#3410) takes that same no-primary-field shape once more:
+  /// seven `crs:Perspective*` sliders that compose into ONE homography, no
+  /// single "main" one among them, so `displayRange` stays nil and
+  /// `GeometrySection` is the whole control surface.
+  ///
+  /// Lens Corrections (#2231) is wired and takes the same no-primary-
+  /// field shape: it has no single "main" scale, and the panel needs a
+  /// master on/off toggle (`lensProfileEnable`) ABOVE its three sliders
+  /// — a layout the generic sub-param grid has no room for — so
+  /// `displayRange` stays nil and `LensCorrectionsSection` is the whole
+  /// control surface, same as HSL / Tone Curve / Film.
+  ///
+  /// Defringe (#3411) is wired and takes that same shape for the same
+  /// reason: six sub-params (two amounts and two hue bands) and no single
+  /// "main" one, so `displayRange` stays nil and `DefringeSection` is the
+  /// whole control surface.
+  public var isWired: Bool {
+    switch self {
+    case .crop:
+      return false
+    // Mask (#3274) writes `model.localAdjustments` and Heal (#3409)
+    // writes `model.retouchSpots` — nested lists, not single scalar
+    // fields, so each tool's own panel (not this pipe) is its value
+    // surface and the drag bar must refuse value edits for both.
+    case .mask, .heal, .remove:
+      return false
+    default:
+      return true
     }
+  }
 
-    public static func tools(in group: ToolGroup) -> [Tool] {
-        Self.allCases.filter { $0.group == group }
-    }
+  public static func tools(in group: ToolGroup) -> [Tool] {
+    Self.allCases.filter { $0.group == group }
+  }
 }

@@ -50,3 +50,8 @@ export const EXPERIMENTAL_REMOVAL_MODELS = [
   },
 ] as const;
 export type RemovalModelId = (typeof EXPERIMENTAL_REMOVAL_MODELS)[number]['id'];
+export const REMOVAL_AUTHORING_DEFAULTS = {
+  personMinScore: 0.5,
+  holeRadius: 1,
+  fringeRadius: 1,
+} as const;

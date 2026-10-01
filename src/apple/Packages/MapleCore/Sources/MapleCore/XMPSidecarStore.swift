@@ -31,6 +31,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private let variantId: String
 
   private var cached: (AdjustmentModel, CullingState)?
+  private var removalObservedRevision: RemovalSidecarRevision?
   private var pendingTask: Task<Void, Never>?
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
@@ -88,6 +89,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     if let cached { return cached }
     guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
       try requirePrimaryAbsence()
+      removalObservedRevision = .missing
       return nil
     }
     let result = try readFromDisk()
@@ -252,8 +254,20 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   /// Confirm an accepted stack only after its companions were published.
   /// Comparing the loaded stack under the same lock as every local write
   /// prevents an older Maple writer from replacing a newer removal (#3940).
+  public func removalRevision() throws -> RemovalSidecarRevision {
+    let current = try RemovalSidecarRevision(xml: existingSidecarXML(at: sidecarURL))
+    if let removalObservedRevision, current != removalObservedRevision {
+      // A retry cannot bless changed external XML while retaining the old
+      // in-memory adjustment model. Reopen the photo to hydrate a new session.
+      throw RemovalError.saveConflict
+    }
+    removalObservedRevision = current
+    return current
+  }
+
   public func writeRemovalConfirmed(
-    records: String, expectedRecords: String, model: AdjustmentModel, culling: CullingState
+    records: String, expectedRecords: String, model: AdjustmentModel, culling: CullingState,
+    expectedSidecarRevision: RemovalSidecarRevision? = nil
   ) throws {
     _ = try RemovalBridge.assetNames(records: records)
     pendingTask?.cancel()
@@ -261,7 +275,8 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     pendingModel = nil
     pendingCulling = nil
     let saved = try writeAtomically(
-      model: model, culling: culling, removalChange: (expectedRecords, records))
+      model: model, culling: culling, removalChange: (expectedRecords, records),
+      expectedSidecarRevision: expectedSidecarRevision)
     cached = (saved, culling)
   }
 
@@ -304,11 +319,13 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
     guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
       try requirePrimaryAbsence()
+      removalObservedRevision = .missing
       return (.default, CullingState())
     }
     let data = try Data(contentsOf: sidecarURL)
     _ = try WorkflowSidecarCore.variantWorkflow(
       xmp: String(decoding: data, as: UTF8.self), variantId: variantId)
+    removalObservedRevision = try RemovalSidecarRevision(xml: String(decoding: data, as: UTF8.self))
     return try XMPParser.parse(data: data)
   }
 
@@ -328,9 +345,15 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   private func writeAtomically(
     model: AdjustmentModel, culling: CullingState,
-    removalChange: (expected: String, records: String)? = nil
+    removalChange: (expected: String, records: String)? = nil,
+    expectedSidecarRevision: RemovalSidecarRevision? = nil
   ) throws -> AdjustmentModel {
     try coordinateSidecarWrite { destination, existing in
+      if let expectedSidecarRevision {
+        guard try RemovalSidecarRevision(xml: existing) == expectedSidecarRevision else {
+          throw RemovalError.saveConflict
+        }
+      }
       try self.writeSidecar(
         model: model, culling: culling, existingXML: existing, at: destination,
         removalChange: removalChange)
@@ -512,6 +535,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       }
     }
     pendingMetadata = nil
+    removalObservedRevision = try RemovalSidecarRevision(xml: xml)
     return savedModel
   }
 }

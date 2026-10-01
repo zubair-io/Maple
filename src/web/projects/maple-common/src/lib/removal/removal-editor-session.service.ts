@@ -24,6 +24,7 @@ import { savedRemovalRecords } from './saved-removal-records';
 import { bundleRemovalCompanions } from './removal-companion-bundle';
 import { withRemovalRecords } from './removal-editor-recipe';
 import { selectionTensors } from './removal-proxy-tensors';
+import { REMOVAL_AUTHORING_DEFAULTS } from '../generated/removal-models.generated';
 
 export type RemovalMode = 'paint' | 'smart' | 'people';
 export interface RemovalStroke {
@@ -274,7 +275,7 @@ export class RemovalEditorSession {
       this.check(token);
       this.people.set(
         found
-          .filter((d) => d.class === 0 && d.score >= 0.5)
+          .filter((d) => d.class === 0 && d.score >= REMOVAL_AUTHORING_DEFAULTS.personMinScore)
           .sort((a, b) => b.score - a.score)
           .map((detection) => ({ detection, keep: false })),
       );

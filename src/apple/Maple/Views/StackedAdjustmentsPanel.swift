@@ -106,6 +106,8 @@ struct StackedAdjustmentsPanel: View {
         // none of Detail's other sliders apply to a repair spot, so showing
         // them alongside the brush would be noise, not signal.
         RetouchPanel(state: state).id(Tool.heal.rawValue)
+      } else if group == .detail && state.armedTool == .remove {
+        RemovalPanel(state: state).id(Tool.remove.rawValue)
       } else {
         // Temp's scroll target includes the WB actions and provenance above
         // its scalar row. That row uses a secondary ID to avoid duplicate IDs.
@@ -157,7 +159,7 @@ struct StackedAdjustmentsPanel: View {
 
   private func sectionTitle(for group: ToolGroup) -> String {
     switch state.armedTool {
-    case .toneCurve, .filmLook, .geometry, .mask, .heal:
+    case .toneCurve, .filmLook, .geometry, .mask, .heal, .remove:
       return state.armedTool.displayName
     default:
       return group.displayName

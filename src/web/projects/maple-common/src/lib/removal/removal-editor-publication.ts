@@ -8,6 +8,7 @@ import {
 import { bundleRemovalCompanions } from './removal-companion-bundle';
 import type { RemovalProposal } from './removal-inference.types';
 import type { RemovalEditorSession } from './removal-editor-session.service';
+import { REMOVAL_AUTHORING_DEFAULTS } from '../generated/removal-models.generated';
 
 export async function remove(session: RemovalEditorSession): Promise<void> {
   const photo = session.photo;
@@ -22,7 +23,14 @@ export async function remove(session: RemovalEditorSession): Promise<void> {
     const masks = session.mode() === 'people' ? session.masks : [session.selection()];
     for (const mask of masks) {
       session.check(token);
-      const plan = JSON.parse(removal_generation_plan(photo.source, mask, 1, 1)) as {
+      const plan = JSON.parse(
+        removal_generation_plan(
+          photo.source,
+          mask,
+          REMOVAL_AUTHORING_DEFAULTS.holeRadius,
+          REMOVAL_AUTHORING_DEFAULTS.fringeRadius,
+        ),
+      ) as {
         window: { x: number; y: number; width: number; height: number };
       };
       const { x, y, width, height } = plan.window;
