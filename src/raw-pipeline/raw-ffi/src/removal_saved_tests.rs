@@ -2,6 +2,9 @@ use super::*;
 use crate::handle::{maple_close_raw_handle, maple_open_raw_handle_bytes};
 use std::ffi::CString;
 
+#[path = "removal_saved_detail_tests.rs"]
+mod detail;
+
 const RAW: &[u8] = include_bytes!("../../../../test-fixtures/removal/calibration/source.dng");
 const XMP: &str = include_str!("../../../../test-fixtures/removal/calibration/saved.xmp");
 const MASK: &[u8] = include_bytes!("../../../../test-fixtures/removal/calibration/mask.mimf");

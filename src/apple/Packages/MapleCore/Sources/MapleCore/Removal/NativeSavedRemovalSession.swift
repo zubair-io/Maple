@@ -18,7 +18,8 @@ private final class SavedRemovalOwner: @unchecked Sendable {
 /// Serializes the lifetime of an immutable accepted stack on an already decoded
 /// RAW. Asset I/O belongs to the store; this session verifies a complete bundle
 /// once and retains original bytes for Auto fitting. Cold calls run off main.
-/// Live GPU slider/tile integration is tracked separately under #3955.
+/// Native detail retains full-frame anchors between pans. Normal editor/GPU
+/// integration is tracked separately under #3955 / #3984.
 public actor NativeSavedRemovalSession {
   private let handle: MapleRawHandle
   private var owner: SavedRemovalOwner?
@@ -114,6 +115,25 @@ public actor NativeSavedRemovalSession {
       maple_removal_saved_preview(
         handle.pointer, owner.pointer, xmp, maxLongEdge,
         filmBytes.bindMemory(to: UInt8.self).baseAddress, UInt(filmBytes.count), output)
+    }
+  }
+
+  /// Packed sRGB native pixels in oriented DefaultCrop-relative coordinates.
+  /// The bounded base supplies shared full-frame AE/Whites/Auto anchors; pans
+  /// reuse them until XMP, base cap/quality or film changes. Filter overlap is
+  /// included in the working-pixel limit (at most 8 Mi pixels). Unsupported
+  /// stages or geometry throw; retain a verified sized preview on failure.
+  /// Cancellation discards output, without interrupting a completed C render.
+  public func detail(
+    xmp: String, x: UInt32, y: UInt32, width: UInt32, height: UInt32,
+    baseLongEdge: UInt32, previewBase: Bool = false, film: Data = Data(),
+    maxWorkingPixels: UInt64 = 8 * 1024 * 1024
+  ) throws -> NativeRemovalRender {
+    try render(xmp: xmp, film: film) { owner, xmp, filmBytes, output in
+      maple_removal_saved_detail(
+        handle.pointer, owner.pointer, xmp, x, y, width, height, baseLongEdge,
+        previewBase ? 1 : 0, filmBytes.bindMemory(to: UInt8.self).baseAddress,
+        UInt(filmBytes.count), maxWorkingPixels, output)
     }
   }
 
