@@ -348,7 +348,12 @@ namespace Maple.WinUI.ViewModels
             _cloudPreviewPending = photo;
             var client = _cloud;
             var snapshot = doc.Adjustments.Clone();
-            TrackCloudMetadataWrite(() => client.UpdateDevelopSidecarAsync(photo.FilePath, snapshot));
+            var version = _photoOpenVersion;
+            TrackCloudMetadataWrite(async () =>
+            {
+                await client.UpdateDevelopSidecarAsync(photo.FilePath, snapshot);
+                OnUi(() => RequestSavedCloudPreview(photo, snapshot, client, version));
+            });
         }
 
         /// <summary>Develop + publish the edited asset's preview when leaving

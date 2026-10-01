@@ -47,6 +47,7 @@ public sealed partial class MainWindow
         VerifyBrowseDetailImageReuse(display, output);
         await VerifyAdjustedBrowsePreviewAsync(fixture, thumbnails);
         await ViewModels.EditSessionViewModel.VerifyLocalPreviewAsync(fixture);
+        await ViewModels.EditSessionViewModel.VerifySavedCloudPreviewAsync(fixture, output);
     }
 
     private static async Task VerifyAdjustedBrowsePreviewAsync(string fixture, ThumbnailService thumbnails)
