@@ -48,6 +48,12 @@ public final class EditSession {
       }
       if model.profile != oldValue.profile { resetAutoFitStatus() }
       guard !isHydratingInitialState else { return }
+      guard permitsModelChange(from: oldValue) else {
+        isHydratingInitialState = true
+        model = oldValue
+        isHydratingInitialState = false
+        return
+      }
       // Slider → render wire. If this log doesn't fire on a slider
       // drag, the @Bindable write never landed on `session.model` (the
       // binding path is broken). If it fires but the image doesn't
@@ -335,6 +341,9 @@ public final class EditSession {
   /// `undo`, `redo`, `resetToOriginal`, `undoStackCap`) lives in
   /// `EditSession+UndoRedo.swift`. Internal rather than private so that
   /// sibling file can reach them.
+  public internal(set) var isSavingRemoval = false
+  @ObservationIgnored var removalCommitTask: Task<Void, Error>?
+  @ObservationIgnored var isApplyingRemovalCommit = false
   @ObservationIgnored var transactions = EditTransactionRing()
   /// The most recently recorded, undone, or redone transaction.
   public internal(set) var lastCommittedTransaction: EditTransaction?

@@ -228,6 +228,15 @@ prior companion, replaced original, or stale stack refuses the save. Publication
 may leave unreferenced immutable blobs after cancellation or a failed commit;
 those bytes must not be treated as a saved edit or deleted as cache entries.
 
+Apple local removal Keep, undo/redo and whole-model reset (#3984) adopt the new
+model and move history only after this confirmed boundary succeeds. A failed save
+retains the current model and both history stacks for retry. Explicit clearing
+omits the attribute, restoring the default absent representation; ordinary saves
+continue to preserve existing empty arrays. Clearing also verifies the current
+stack against the original, so an empty target cannot bypass source identity.
+Closing the editor joins any in-flight removal commit before flushing scalar
+writes.
+
 Apple writers use a persistent advisory `.photo.xmp.lock` file, synchronize new
 assets and the accepted sidecar, and publish through atomic filesystem operations.
 The shared core and Apple resolve owned removal attributes and direct scalar

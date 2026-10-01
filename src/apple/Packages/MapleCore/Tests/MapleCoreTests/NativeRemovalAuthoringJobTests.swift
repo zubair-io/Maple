@@ -4,6 +4,7 @@ import XCTest
 @testable import MapleCore
 
 final class NativeRemovalAuthoringJobTests: XCTestCase {
+  @MainActor
   func testActualGenerationReviewKeepReopenAndCancellationDoNotModifyOriginal() async throws {
     #if os(macOS)
       let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
@@ -43,10 +44,12 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
       XCTAssertFalse(
         FileManager.default.fileExists(atPath: folder.appendingPathComponent(".maple").path))
       let assets = LocalRemovalAssetStore(rawURL: raw)
-      let records = try await assets.publish(
-        request: proposal.request, prior: "[]", mask: proposal.mask, patch: proposal.patch)
-      try await XMPSidecarStore(rawURL: raw).writeRemovalConfirmed(
-        records: records, expectedRecords: "[]", model: .default, culling: CullingState())
+      let session = EditSession(asset: AssetRef(url: raw))
+      try await session.acceptRemoval(
+        proposal, expectedModel: session.model, expectedRevision: session.editRevision)
+      await session.flushPendingSidecarWrite()
+      let records = try XCTUnwrap(session.model.inpaintRemovals).json
+      XCTAssertEqual(session.undoHistory.count, 1)
       let sidecar = try Data(contentsOf: SidecarPath.sidecarURL(for: raw))
       let xmp = String(decoding: sidecar, as: UTF8.self)
       XCTAssertEqual(try RemovalXMPRecords.read(sidecar), records)
@@ -65,6 +68,27 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
       XCTAssertEqual(decoded.count, 2)
       let accepted = try XCTUnwrap(decoded[1]["accepted"] as? [String: Any])
       XCTAssertEqual((accepted["dependencies"] as? [Any])?.count, 1)
+      try await session.acceptRemoval(
+        second, expectedModel: session.model, expectedRevision: session.editRevision)
+      await session.flushPendingSidecarWrite()
+      XCTAssertEqual(session.model.inpaintRemovals?.json, appended)
+      XCTAssertEqual(session.undoHistory.count, 2)
+      session.undo()
+      await session.flushPendingSidecarWrite()
+      XCTAssertEqual(session.model.inpaintRemovals?.json, records)
+      XCTAssertEqual(
+        try RemovalXMPRecords.read(Data(contentsOf: SidecarPath.sidecarURL(for: raw))), records)
+      session.redo()
+      await session.flushPendingSidecarWrite()
+      XCTAssertEqual(session.model.inpaintRemovals?.json, appended)
+      let committed = try Data(contentsOf: SidecarPath.sidecarURL(for: raw))
+      let secondOwner = NativeSavedRemovalSession(handle: handle)
+      _ = try await secondOwner.prepare(
+        source: source, ext: "dng", xmp: String(decoding: committed, as: UTF8.self),
+        assets: assets.readAssets(records: appended))
+      let secondPreview = try await secondOwner.preview(
+        xmp: String(decoding: committed, as: UTF8.self), maxLongEdge: 16)
+      XCTAssertEqual(secondPreview.bytes.count, 384)
       let cancelled = try NativeRemovalAuthoringJob(model: model)
       cancelled.cancel()
       do {
@@ -79,8 +103,9 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
           handle: handle, saved: reopened, xmp: xmp, intent: mask, holeRadius: 1, fringeRadius: 1)
         XCTFail("Each generation must have its own cancellation owner")
       } catch { XCTAssertTrue(error is RemovalError) }
-      XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: raw)), sidecar)
+      XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: raw)), committed)
       XCTAssertEqual(try Data(contentsOf: raw), source)
+      await session.releaseTransientMemory()
     #else
       throw XCTSkip("Physical iOS inference qualification is tracked by #3941")
     #endif

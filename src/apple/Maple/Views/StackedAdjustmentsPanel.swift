@@ -15,6 +15,7 @@ struct StackedAdjustmentsPanel: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      EditorSidecarStatus(session: state.session)
       if showsHeader {
         panelHeader
         Divider()

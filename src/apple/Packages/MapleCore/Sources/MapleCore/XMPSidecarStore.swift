@@ -446,6 +446,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       guard let rawURL else { throw RemovalError.invalid("Removal requires a local RAW") }
       let current = existingRemoval?.records ?? "[]"
       guard current == removalChange.expected else { throw RemovalError.saveConflict }
+      // Clearing the stack must still refer to the same original. Verifying
+      // only the empty target would lose this binding during undo/reset.
+      try RemovalBridge.verifySource(records: current, rawURL: rawURL)
       try RemovalBridge.verifySource(records: removalChange.records, rawURL: rawURL)
       // Companion publication is checked again at the visibility boundary.
       // A missing prior asset cannot turn into a successful partial save.
@@ -465,6 +468,11 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     var savedModel = model
     savedModel.inpaintRemovals = try (removalChange?.records ?? existingRemoval?.records).map {
       try RemovalRecords(json: $0)
+    }
+    // Explicit clearing uses the default (absent) representation so an undo
+    // snapshot and a newly reopened model are equal, not nil versus empty.
+    if removalChange != nil, savedModel.inpaintRemovals?.isEmpty == true {
+      savedModel.inpaintRemovals = nil
     }
     let xml: String
     if let metadata, !metadata.isEmpty {

@@ -88,6 +88,7 @@ struct EditorCanvasView: View {
       // Render-path badge and zoom % have moved to PillHeader — the
       // bottom-trailing GPU/CPU overlay is no longer rendered here.
     }
+    .allowsHitTesting(!state.session.isSavingRemoval)
   }
 
 }

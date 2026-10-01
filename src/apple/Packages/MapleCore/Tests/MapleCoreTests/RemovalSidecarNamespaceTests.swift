@@ -109,7 +109,7 @@ final class RemovalSidecarNamespaceTests: XCTestCase {
         try input.write(to: sidecar)
         try await store.writeRemovalConfirmed(
           records: "[]", expectedRecords: records, model: .default, culling: CullingState())
-        XCTAssertEqual(try RemovalXMPRecords.read(Data(contentsOf: sidecar)), "[]")
+        XCTAssertNil(try RemovalXMPRecords.read(Data(contentsOf: sidecar)))
         XCTAssertTrue(
           String(decoding: try Data(contentsOf: sidecar), as: UTF8.self).contains(foreign))
       }
