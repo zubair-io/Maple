@@ -60,31 +60,49 @@ per-process randomness and a 3-byte counter, rendered as hex — so ids stay
 sortable by creation time. `INTEGER PRIMARY KEY` rowid aliases are used freely
 for the internal tables whose ids never reach a client:
 `asset_locations`, `faces`, `asset_phasset_links`, `import_files`,
-`indexer_queue`, `discover_frontier` and `mirror_queue`.
+`discover_frontier` and `mirror_queue`.
 
 ## Tables
 
-| Table                                                                                                                                                                  | Notes                                                                                                                                  |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `assets`                                                                                                                                                               | Narrow. Scalars plus `exif` / `place` JSON and 14 generated columns.                                                                   |
-| `asset_locations`                                                                                                                                                      | One row per on-disk copy. `ordinal` keeps the order; `ordinal = 0` is the canonical entry.                                             |
-| `asset_detail`                                                                                                                                                         | 1:1 side table for the bulky describe-stage payloads — vision, caption, OCR, transcript. A rowid table, deliberately — see the facets. |
-| `asset_search` + `assets_fts`                                                                                                                                          | The synthesised search text and the FTS5 index over it, in external-content mode.                                                      |
-| `asset_phasset_links`                                                                                                                                                  | Apple Photos links, indexed on `(device_id, phasset_local_id)`.                                                                        |
-| `faces`                                                                                                                                                                | One row per detection. `face_index` keeps the position, which is on the wire.                                                          |
-| `stage_state`                                                                                                                                                          | `(asset_id, stage)`, `WITHOUT ROWID`, one row per asset per stage.                                                                     |
-| `enrichment_state`                                                                                                                                                     | The older lease-based claim for `geocode` / `face` / `describe`.                                                                       |
-| `people`, `person_merge_dismissals`                                                                                                                                    | `cover_bbox` and the merge-suggestion head flattened to columns.                                                                       |
-| `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                                                                 |                                                                                                                                        |
-| `jobs`, `imports`, `import_files`, `indexer_queue`, `discover_frontier`, `worker_config`, `stage_handlers`, `backup_sessions`, `upload_sessions`, `apns_device_tokens` | Queues and configuration.                                                                                                              |
-| `app_settings`                                                                                                                                                         | One JSON document per settings domain, keyed by name.                                                                                  |
-| `worker_status`, `managed_certificates`, `meilisearch_backfill_state`, `meilisearch_backfill_leases`                                                                   | Single-row singletons; the id is pinned by a CHECK.                                                                                    |
-| `indexer_checkpoints`, `generated_searches`, `video_geo_backfill_audit`, `meilisearch_backfill_failures`                                                               | Worker bookkeeping. See `ddl/settings.ts`.                                                                                             |
-| `users`, `credentials`, `invites`, `refresh_tokens`, `service_api_keys`, `challenges`, `native_auth_codes`, `lan_handoff_codes`, `image_access_tokens`                 |                                                                                                                                        |
-| `schema_migrations`                                                                                                                                                    | The migration runner's sentinel.                                                                                                       |
+| Table                                                                                                                                                  | Notes                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `assets`                                                                                                                                               | Narrow. Scalars plus `exif` / `place` JSON and 14 generated columns.                                                                   |
+| `asset_locations`                                                                                                                                      | One row per on-disk copy. `ordinal` keeps the order; `ordinal = 0` is the canonical entry.                                             |
+| `asset_detail`                                                                                                                                         | 1:1 side table for the bulky describe-stage payloads — vision, caption, OCR, transcript. A rowid table, deliberately — see the facets. |
+| `asset_search` + `assets_fts`                                                                                                                          | The synthesised search text and the FTS5 index over it, in external-content mode.                                                      |
+| `asset_phasset_links`                                                                                                                                  | Apple Photos links, indexed on `(device_id, phasset_local_id)`.                                                                        |
+| `faces`                                                                                                                                                | One row per detection. `face_index` keeps the position, which is on the wire.                                                          |
+| `stage_state`                                                                                                                                          | `(asset_id, stage)`, `WITHOUT ROWID`, one row per asset per stage.                                                                     |
+| `enrichment_state`                                                                                                                                     | The older lease-based claim for `geocode` / `face` / `describe`.                                                                       |
+| `people`, `person_merge_dismissals`                                                                                                                    | `cover_bbox` and the merge-suggestion head flattened to columns.                                                                       |
+| `folders`, `asset_changes`, `server_state`, `mirror_queue`, `geocode_cache`, `presets`                                                                 |                                                                                                                                        |
+| `jobs`, `imports`, `import_files`, `discover_frontier`, `worker_config`, `stage_handlers`, `backup_sessions`, `upload_sessions`, `apns_device_tokens`  | Queues and configuration.                                                                                                              |
+| `app_settings`                                                                                                                                         | One JSON document per settings domain, keyed by name.                                                                                  |
+| `worker_status`, `managed_certificates`, `meilisearch_backfill_state`, `meilisearch_backfill_leases`                                                   | Single-row singletons; the id is pinned by a CHECK.                                                                                    |
+| `indexer_checkpoints`, `generated_searches`, `video_geo_backfill_audit`, `meilisearch_backfill_failures`                                               | Worker bookkeeping. See `ddl/settings.ts`.                                                                                             |
+| `users`, `credentials`, `invites`, `refresh_tokens`, `service_api_keys`, `challenges`, `native_auth_codes`, `lan_handoff_codes`, `image_access_tokens` |                                                                                                                                        |
+| `schema_migrations`                                                                                                                                    | The migration runner's sentinel.                                                                                                       |
 
 Every table the API opens is declared here, and
 `src/api/src/db/sqlite/schema.indexes.test.ts` fails if that stops being true.
+
+### Jobs and the unused indexer queue (#3762)
+
+The JobRunner uses `jobs` for creation, claims, leases, progress, cancellation,
+terminal transitions and resumable batch ledgers. Batch library exclusivity is
+intentionally enforced by the atomic `INSERT … SELECT … WHERE NOT EXISTS` and
+resume `UPDATE` in `db/repos/jobs.sql.ts`. Overlapping queued/running settings
+batches conflict on any shared root. These statements are the only creation and
+reactivation paths; a new writer must preserve their fence, since there is no
+unique multikey index enforcing it independently. Concurrent creation and resume
+are tested against separate worker pools sharing a real SQLite file.
+
+`indexer_queue` had no reader, writer or live typed accessor. Per-asset processing
+uses `stage_state`, and directory discovery uses `discover_frontier`. Migration
+`0008-remove-unused-indexer-queue` drops the unused table and its index on both
+existing and fresh installs. Its definitions remain only in the frozen initial
+DDL, so the shipped `0001` migration keeps its original meaning. Jobs and their
+recovery ledgers are retained.
 
 ### `app_settings` is the one table that is a document, and why
 

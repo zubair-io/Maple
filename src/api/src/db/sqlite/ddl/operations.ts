@@ -12,6 +12,7 @@
  * polling endpoints, so they keep the 24-character hex shape.
  */
 
+// Batch scope exclusivity lives in jobs.sql.ts's atomic insert/resume statements; new writers must preserve that fence (#3762).
 export const JOBS_TABLE_DDL = `
 CREATE TABLE jobs (
   id TEXT NOT NULL PRIMARY KEY CHECK (length(id) = 24),
@@ -107,6 +108,7 @@ CREATE TABLE import_files (
 );
 `;
 
+// Frozen 0001 DDL; the unused queue is removed by 0008 rather than changing shipped installs (#3762).
 export const INDEXER_QUEUE_TABLE_DDL = `
 CREATE TABLE indexer_queue (
   id INTEGER PRIMARY KEY,
