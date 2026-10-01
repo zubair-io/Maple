@@ -11,6 +11,7 @@ import init, {
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { withRemovalWriteLock } from './removal-write-lock';
+import { bundleRemovalCompanions, type RemovalCompanionBundle } from './removal-companion-bundle';
 
 export class LocalRemovalAssets {
   constructor(
@@ -56,6 +57,13 @@ export class LocalRemovalAssets {
       }),
     );
     return new Map(entries);
+  }
+
+  /** Read and verify all assets before one transfer to retained RAW preparation. */
+  async readBundle(records: string): Promise<RemovalCompanionBundle> {
+    const companions = await this.read(records);
+    await this.verifySource(records);
+    return bundleRemovalCompanions(companions);
   }
 
   async verifySource(records: string): Promise<void> {
