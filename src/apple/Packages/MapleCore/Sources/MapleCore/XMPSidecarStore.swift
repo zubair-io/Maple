@@ -145,10 +145,10 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     pendingTask = nil
     task?.cancel()
     _ = await task?.result
-    try writeAtomically(model: model, culling: culling)
+    let saved = try writeAtomically(model: model, culling: culling)
     pendingModel = nil
     pendingCulling = nil
-    cached = (model, culling)
+    cached = (saved, culling)
   }
 
   /// Record a real editor boundary, never an individual preview tick. Failed
@@ -243,10 +243,10 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     pendingTask?.cancel()
     pendingTask = nil
     guard let model = pendingModel, let culling = pendingCulling else { return }
-    try writeAtomically(model: model, culling: culling)
+    let saved = try writeAtomically(model: model, culling: culling)
     pendingModel = nil
     pendingCulling = nil
-    cached = (model, culling)
+    cached = (saved, culling)
   }
 
   /// Confirm an accepted stack only after its companions were published.
@@ -260,9 +260,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     pendingTask = nil
     pendingModel = nil
     pendingCulling = nil
-    try writeAtomically(
+    let saved = try writeAtomically(
       model: model, culling: culling, removalChange: (expectedRecords, records))
-    cached = (model, culling)
+    cached = (saved, culling)
   }
 
   /// Returns an async stream of errors encountered during background writes.
@@ -315,7 +315,8 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private func writePending() async {
     guard let model = pendingModel, let culling = pendingCulling else { return }
     do {
-      try writeAtomically(model: model, culling: culling)
+      let saved = try writeAtomically(model: model, culling: culling)
+      cached = (saved, culling)
       pendingModel = nil
       pendingCulling = nil
     } catch {
@@ -328,23 +329,27 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private func writeAtomically(
     model: AdjustmentModel, culling: CullingState,
     removalChange: (expected: String, records: String)? = nil
-  ) throws {
+  ) throws -> AdjustmentModel {
     try coordinateSidecarWrite { destination, existing in
-      try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination, removalChange: removalChange)
+      try self.writeSidecar(
+        model: model, culling: culling, existingXML: existing, at: destination,
+        removalChange: removalChange)
     }
   }
 
   private func writeSidecar(
     model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL,
     removalChange: (expected: String, records: String)? = nil
-  ) throws {
+  ) throws -> AdjustmentModel {
     if let existingXML { try requireVariantWorkflow(in: existingXML) }
     let xml = try appendingSemanticHistory(
       to: serializedSidecar(
         model: model, culling: culling, existingXML: existingXML, removalChange: removalChange))
+    let saved = try XMPParser.parse(xml).0
     try publishSidecarXML(xml, at: destination, durable: removalChange != nil)
     pendingSemanticEdits.removeAll()
     pendingMetadata = nil
+    return saved
   }
 
   private func appendingSemanticHistory(to xml: String) throws -> String {
@@ -455,29 +460,19 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
         try RemovalBridge.verifyAsset(name: name, data: Data(contentsOf: assetURL))
       }
     }
-    let passthrough: XMPPassthrough
-    if let records = removalChange?.records ?? existingRemoval?.records {
-      let attributes = passthroughOnDisk.unknownAttributes.filter {
-        $0.name != canonicalRemovalName && $0.name != existingRemoval?.name
-      }
-      passthrough = XMPPassthrough(
-        unknownAttributes: attributes + [
-          .init(name: canonicalRemovalName, value: records)
-        ],
-        unknownNodes: try passthroughOnDisk.unknownNodes.filter { node in
-          guard let namespaces = existingRemoval?.propertyNamespaces else { return true }
-          return !(try RemovalXMPRecords.isOwnedProperty(node, namespaces: namespaces))
-        })
-    } else {
-      passthrough = passthroughOnDisk
+    // Ordinary saves preserve the disk stack even when their incoming model
+    // is stale. Only the verified CAS route above can change accepted pixels.
+    var savedModel = model
+    savedModel.inpaintRemovals = try (removalChange?.records ?? existingRemoval?.records).map {
+      try RemovalRecords(json: $0)
     }
     let xml: String
     if let metadata, !metadata.isEmpty {
       xml = XMPSerializer.serialize(
-        model: model, culling: culling, metadata: metadata, passthrough: passthrough)
+        model: savedModel, culling: culling, metadata: metadata, passthrough: passthroughOnDisk)
     } else {
       xml = XMPSerializer.serialize(
-        model: model, culling: culling, passthrough: passthrough)
+        model: savedModel, culling: culling, passthrough: passthroughOnDisk)
     }
     return xml
   }
@@ -509,6 +504,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       }
     }
     pendingMetadata = nil
+    return savedModel
   }
 }
 

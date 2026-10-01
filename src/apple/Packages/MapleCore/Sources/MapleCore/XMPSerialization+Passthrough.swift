@@ -26,6 +26,14 @@ extension XMPParser {
     parser.delegate = delegate
     guard parser.parse() else { return .empty }
 
+    // Only namespace-owned primary records are modeled. Foreign attributes
+    // and locally rebound child bytes must remain opaque (#3955).
+    let removal = try? RemovalXMPRecords.field(Data(xml.utf8))
+    let modeledRemoval = removal?.primary == true ? removal : nil
+    let attributes = delegate.unknownAttributes.filter {
+      modeledRemoval?.propertyNamespaces != nil || $0.name != modeledRemoval?.name
+    }
+
     let groups = XMPMaskGroupSources.collect(xml)
     let nodes = XMPChildElementScanner.descriptionChildren(in: xml)
       .filter {
@@ -37,9 +45,14 @@ extension XMPParser {
         }
         return !XMPKnownFields.isManagedChild($0.qName)
       }
+      .filter { child in
+        guard let namespaces = modeledRemoval?.propertyNamespaces else { return true }
+        return (try? RemovalXMPRecords.isOwnedProperty(child.source, namespaces: namespaces))
+          != true
+      }
       .map { groups.unownedGroupSources[$0.source] ?? $0.source }
     return XMPPassthrough(
-      unknownAttributes: delegate.unknownAttributes, unknownNodes: nodes,
+      unknownAttributes: attributes, unknownNodes: nodes,
       maskGroups: groups.templates,
       authoredRating: delegate.authoredRating, authoredLabel: delegate.authoredLabel,
       authoredColorLabel: (try? parse(xml))?.1.colorLabel)
@@ -145,7 +158,11 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     // deterministic run to run, which keeps tests and diffs stable.
     unknownAttributes =
       attributeDict
-      .filter { !XMPKnownFields.isKnownAttribute($0.key) }
+      .filter {
+        // Ownership is resolved separately at document scope. A
+        // foreign papp binding must not disappear from this bucket.
+        $0.key.hasSuffix(":InpaintRemovals") || !XMPKnownFields.isKnownAttribute($0.key)
+      }
       .map { XMPPassthrough.Attribute(name: $0.key, value: $0.value) }
       .sorted { $0.name < $1.name }
   }

@@ -520,15 +520,8 @@ extension SMBSource: ImageSource {
   }
 
   public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
-    guard let client else { throw SMBError.notConnected }
-    let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
-    guard let data = xml.data(using: .utf8) else {
-      throw XMPStoreError.encodingError
-    }
-    let sidecarPath = (path(for: ref) as NSString)
-      .deletingPathExtension
-      .appending(".xmp")
-    try await writeWithRetry(data: data, to: sidecarPath, client: client)
+    try await SMBSidecarStore(source: self, ref: ref)
+      .writeConfirmed(model: sidecar.model, culling: sidecar.culling)
   }
 
   private func recordRelocation(_ ref: ImageRef, from oldPath: String, to newPath: String) {

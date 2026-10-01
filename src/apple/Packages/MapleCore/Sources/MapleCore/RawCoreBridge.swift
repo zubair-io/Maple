@@ -357,9 +357,9 @@ public enum RawCoreBridge {
     guard original != nil || profileOverride != nil || autoExposureOverride != nil else {
       return try body(nil)
     }
-    // Accepted edits remain opaque to the scalar model, but decode must carry
-    // the namespace-owned stack into its stripped XMP (#3955). Malformed owned
-    // metadata fails instead of becoming a successful original-only preview.
+    // Decode must carry the namespace-owned stack into its stripped XMP
+    // (#3955). Malformed owned metadata fails instead of becoming a
+    // successful original-only preview.
     let originalXML = original.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
     let removalRecords: String?
     if let originalXML {
@@ -392,7 +392,7 @@ public enum RawCoreBridge {
     applyOverrides(
       profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
     return try withTemporaryXMP(
-      model: stripped, culling: culling, removalRecords: removalRecords, body: body)
+      model: stripped, culling: culling, body: body)
   }
 
   /// Variant of `withStrippedXMP` for renderers that must use the live
@@ -455,7 +455,6 @@ public enum RawCoreBridge {
   private static func withTemporaryXMP<T>(
     model: AdjustmentModel,
     culling: CullingState,
-    removalRecords: String? = nil,
     body: (URL?) throws -> T
   ) throws -> T {
     // `omitWhiteBalance` (#1883): the decode contract is "WB no-ops at
@@ -471,11 +470,8 @@ public enum RawCoreBridge {
     // `withStrippedXMP` and the live-model `withStrippedModelXMP` (the
     // native-detail tile path re-applies WB live through the decoded
     // temperature/tint anchors, exactly like the whole-image chain).
-    let passthrough = XMPPassthrough(
-      unknownAttributes: removalRecords.map { [.init(name: "papp:InpaintRemovals", value: $0)] }
-        ?? [])
     let xml = XMPSerializer.serialize(
-      model: model, culling: culling, omitWhiteBalance: true, passthrough: passthrough)
+      model: model, culling: culling, omitWhiteBalance: true)
     // Unique temp file name — UUID avoids collision across concurrent
     // renders, and the .xmp suffix keeps the extension intact so any
     // downstream extension-based dispatching still sees an XMP.
@@ -487,7 +483,7 @@ public enum RawCoreBridge {
       bridgeLog.error(
         "withStrippedXMP: failed to write temp XMP \(tmp.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
       )
-      if removalRecords != nil { throw error }
+      if model.inpaintRemovals != nil { throw error }
       // Fall back to nil — FFI uses AdjustmentModel::default,
       // which is the same defaults the strip would produce.
       return try body(nil)
