@@ -3,6 +3,8 @@
 //! Writes NR-before-resize, NR-after-resize, and no-NR controls. This is
 //! deliberately not a production pipeline or a qualification replacement:
 //! all paths share one developed scene and one Neutral display transform.
+//! Add `--sweep` after the long edge to measure intermediate NR resolutions
+//! without changing the amount, noise model, or production render path.
 use raw_core::{
     image::Image,
     pipeline::{
@@ -60,6 +62,25 @@ fn main() {
     noise_reduction::apply_color(&mut resized, amount, raw.noise_profile.as_deref(), raw.iso);
     println!("NR after resize: {:?}", started.elapsed());
     write_frame(out, "nr-after-resize", resized, &model);
+    if args.iter().any(|arg| arg == "--sweep") {
+        for intermediate in [2400, 3200, 4800] {
+            if intermediate <= edge || intermediate >= scene.width.max(scene.height) {
+                continue;
+            }
+            let mut candidate = scene.clone();
+            downsample_image_area(&mut candidate, intermediate);
+            let started = Instant::now();
+            noise_reduction::apply_color(
+                &mut candidate,
+                amount,
+                raw.noise_profile.as_deref(),
+                raw.iso,
+            );
+            println!("NR at {intermediate}px: {:?}", started.elapsed());
+            downsample_image_area(&mut candidate, edge);
+            write_frame(out, &format!("nr-at-{intermediate}"), candidate, &model);
+        }
+    }
     let mut native = scene;
     let started = Instant::now();
     noise_reduction::apply_color(&mut native, amount, raw.noise_profile.as_deref(), raw.iso);
