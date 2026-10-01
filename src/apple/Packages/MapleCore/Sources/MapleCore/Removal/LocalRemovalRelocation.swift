@@ -7,6 +7,8 @@ public struct LocalRelocationSnapshot: Sendable, Equatable {
   public let sidecar: Data?
   public let originalDigest: String
   public let backups: [String: String]
+  public let journalID: String?
+  let lease: LocalRelocationLease?
 }
 
 final class LocalRemovalRelocation: Sendable {
@@ -15,7 +17,7 @@ final class LocalRemovalRelocation: Sendable {
   let snapshot: Data?
   let originalDigest: String
   private let descriptor: Int32
-  private let sourceRaw: URL
+  let sourceRaw: URL
 
   private init(
     records: String?, sourceSidecar: URL, snapshot: Data?,
@@ -50,6 +52,12 @@ final class LocalRemovalRelocation: Sendable {
       if descriptor >= 0 {
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw RemovalError.saveConflict }
       }
+      if descriptor < 0,
+        FileManager.default.fileExists(atPath: LocalRelocationJournal.url(for: rawURL).path)
+      {
+        throw RemovalError.invalid("Cannot lock this photo for relocation recovery")
+      }
+      try LocalRelocationJournal.recoverIfAbandoned(target: rawURL)
       // Snapshot all sidecars, including absence. Copying a live sidecar after
       // discovering no removals could otherwise publish a new edit without assets.
       let snapshot = try sidecarBytes(sidecar)
@@ -96,7 +104,12 @@ final class LocalRemovalRelocation: Sendable {
     if let records { try RemovalBridge.verifySource(records: records, rawURL: rawURL) }
   }
 
-  func proof(backups: [String: String]) -> LocalRelocationSnapshot {
-    LocalRelocationSnapshot(sidecar: snapshot, originalDigest: originalDigest, backups: backups)
+  func proof(
+    backups: [String: String], journalID: String? = nil,
+    lease: LocalRelocationLease? = nil
+  ) -> LocalRelocationSnapshot {
+    LocalRelocationSnapshot(
+      sidecar: snapshot, originalDigest: originalDigest, backups: backups,
+      journalID: journalID, lease: lease)
   }
 }

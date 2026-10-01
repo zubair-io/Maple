@@ -227,7 +227,7 @@ final class RelocateParityTests: XCTestCase {
       // (#3944), separate from the primary/sidecar relocation contract.
       // Never unlink them in production: another writer may hold the inode.
       let name = url.lastPathComponent
-      if name.hasPrefix("."), name.hasSuffix(".xmp.lock"),
+      if name.hasPrefix("."), name.hasSuffix(".xmp.lock") || name.hasSuffix(".relocation.lock"),
         try Data(contentsOf: url).isEmpty
       {
         continue

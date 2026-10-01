@@ -13,7 +13,18 @@ extension LocalFileOperations {
     let sidecar = SidecarPath.sidecarURL(for: target)
     let descriptor = try lockRelocationDestination(target, sourceSidecar: source.sourceSidecar)
     defer { unlockRelocationDestination(descriptor) }
+    try LocalRelocationJournal.recoverIfAbandoned(target: target)
     let backups = try replacementBackups([target, sidecar])
+    let lease: LocalRelocationLease
+    do {
+      lease = try LocalRelocationJournal.create(
+        source: source, target: target, backups: backups)
+    } catch {
+      if !fm.fileExists(atPath: LocalRelocationJournal.url(for: target).path) {
+        for backup in backups.values { try? fm.removeItem(atPath: backup) }
+      }
+      throw error
+    }
     do {
       try await source.copyCompanions(to: target)
       try source.verifySnapshot()
@@ -40,11 +51,12 @@ extension LocalFileOperations {
         finalSidecarPath: source.snapshot == nil ? nil : sidecar.path,
         renamedDueToCollision: renamed,
         createdPaths: source.snapshot == nil ? [target.path] : [target.path, sidecar.path],
-        localSnapshot: source.proof(backups: backups))
+        localSnapshot: source.proof(backups: backups, journalID: lease.id, lease: lease))
     } catch {
       // The previous occupant survives a failure after primary publication.
       // Keep backups if restoration itself fails, allowing manual recovery.
       try restoreReplacementBackups(backups, targets: [target.path, sidecar.path])
+      try LocalRelocationJournal.remove(lease.id, target: target)
       throw error
     }
   }
@@ -92,9 +104,11 @@ extension LocalFileOperations {
     _ plan: RelocatePlan,
     snapshot: LocalRelocationSnapshot
   ) throws {
+    defer { snapshot.lease?.release() }
     let target = URL(fileURLWithPath: plan.finalPrimaryPath)
     let descriptor = try lockRelocationDestination(target)
     defer { unlockRelocationDestination(descriptor) }
+    try LocalRelocationJournal.verifyOwner(snapshot.journalID, target: target)
     guard
       try RemovalBridge.digest(Data(contentsOf: target, options: .mappedIfSafe))
         == snapshot.originalDigest,
@@ -104,6 +118,7 @@ extension LocalFileOperations {
     try restoreReplacementBackups(
       snapshot.backups,
       targets: [target.path, SidecarPath.sidecarURL(for: target).path])
+    try LocalRelocationJournal.remove(snapshot.journalID, target: target)
   }
 
   static func lockRelocationDestination(_ target: URL, sourceSidecar: URL? = nil) throws -> Int32 {
@@ -129,6 +144,40 @@ extension LocalFileOperations {
       flock(descriptor, LOCK_UN)
       close(descriptor)
     }
+  }
+
+  /// Reconcile an interrupted copy/replacement without deleting its source.
+  /// An active plan or a later edit leaves recovery evidence untouched.
+  public static func recoverLocalRelocation(at target: URL) throws {
+    guard FileManager.default.fileExists(atPath: LocalRelocationJournal.url(for: target).path)
+    else { return }
+    let descriptor = try lockRelocationDestination(target)
+    defer { unlockRelocationDestination(descriptor) }
+    try LocalRelocationJournal.recoverIfAbandoned(target: target)
+  }
+
+  static func sealCopiedSnapshot(
+    _ plan: RelocatePlan,
+    snapshot: LocalRelocationSnapshot
+  ) throws {
+    let target = URL(fileURLWithPath: plan.finalPrimaryPath)
+    let descriptor = try lockRelocationDestination(target)
+    defer { unlockRelocationDestination(descriptor) }
+    try LocalRelocationJournal.verifyOwner(snapshot.journalID, target: target)
+    guard try LocalRelocationJournal.digestIfPresent(target) == snapshot.originalDigest,
+      try LocalRemovalRelocation.sidecarBytes(SidecarPath.sidecarURL(for: target))
+        == snapshot.sidecar
+    else {
+      throw RemovalError.saveConflict
+    }
+    if let data = snapshot.sidecar, let records = try RemovalXMPRecords.read(data) {
+      try RemovalBridge.verifySource(records: records, rawURL: target)
+      _ = try LocalRemovalAssetStore.readAssets(
+        records: records,
+        directory: target.deletingLastPathComponent().appendingPathComponent(".maple/inpaint"))
+    }
+    discardReplacementBackups(snapshot)
+    try LocalRelocationJournal.remove(snapshot.journalID, target: target)
   }
 
   static func synchronizeLocalDirectory(_ directory: URL) throws {

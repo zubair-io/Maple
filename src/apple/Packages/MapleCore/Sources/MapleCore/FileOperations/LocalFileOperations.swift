@@ -80,6 +80,12 @@ public enum LocalFileOperations {
 
     let basename = newBasename ?? sourcePrimaryURL.lastPathComponent
     let targetURL = destinationDir.appendingPathComponent(basename)
+    guard sourcePrimaryURL.pathExtension.lowercased() != "xmp",
+      targetURL.pathExtension.lowercased() != "xmp"
+    else {
+      throw FileOperationError.invalidName(
+        "An XMP sidecar cannot be relocated as the primary photo")
+    }
 
     switch classifySameFile(source: sourcePrimaryURL, target: targetURL) {
     case .identical:
@@ -126,6 +132,7 @@ public enum LocalFileOperations {
     )
     guard !plan.isNoop else { return outcome }
     if let snapshot = plan.localSnapshot {
+      defer { snapshot.lease?.release() }
       do {
         let source = try LocalRemovalRelocation.open(
           rawURL: URL(fileURLWithPath: plan.sourcePrimaryPath))
@@ -135,6 +142,8 @@ public enum LocalFileOperations {
         let destinationLock = try lockRelocationDestination(
           URL(fileURLWithPath: plan.finalPrimaryPath), sourceSidecar: source.sourceSidecar)
         defer { unlockRelocationDestination(destinationLock) }
+        try LocalRelocationJournal.verifyOwner(
+          snapshot.journalID, target: URL(fileURLWithPath: plan.finalPrimaryPath))
         try source.verifyDestination(rawURL: URL(fileURLWithPath: plan.finalPrimaryPath))
         if plan.mode == .move {
           try removeSnapshotSources(plan)
@@ -142,9 +151,12 @@ public enum LocalFileOperations {
           await refreshLibraryIndexAfterMove(plan)
         }
         discardReplacementBackups(snapshot)
+        try LocalRelocationJournal.remove(
+          snapshot.journalID, target: URL(fileURLWithPath: plan.finalPrimaryPath))
       } catch {
+        try? sealCopiedSnapshot(plan, snapshot: snapshot)
         fileOpsLog.error(
-          "finalizeRelocate: snapshot changed or delete failed; source/backup retained: \(error.localizedDescription, privacy: .public)"
+          "finalizeRelocate: snapshot changed or delete failed; source or recovery evidence retained: \(error.localizedDescription, privacy: .public)"
         )
       }
       return outcome

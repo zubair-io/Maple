@@ -43,7 +43,16 @@ extension LocalFileOperations {
       guard fsync(descriptor) == 0 else {
         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
       }
-      return plan
+      try LocalRelocationJournal.remove(plan.localSnapshot?.journalID, target: target)
+      plan.localSnapshot?.lease?.release()
+      // The complete recovery folder is now its own immutable copy. It can
+      // move through OS Trash without leaving a live relocation journal.
+      return RelocatePlan(
+        mode: plan.mode, sourcePrimaryPath: plan.sourcePrimaryPath,
+        sourceSidecarPath: plan.sourceSidecarPath,
+        finalPrimaryPath: plan.finalPrimaryPath, finalSidecarPath: plan.finalSidecarPath,
+        renamedDueToCollision: plan.renamedDueToCollision,
+        createdPaths: plan.createdPaths, localSnapshot: source.proof(backups: [:]))
     } catch {
       revertPlan(plan)
       throw error
