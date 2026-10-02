@@ -76,11 +76,10 @@ fn box_sum_has_no_far_offset_cancellation_and_caps_weights_at_one() {
     // One direct shift through the private kernel: wsum == weight per pixel.
     // `process_shift` no longer takes an integral-image (or full-frame box-sum)
     // buffer — the horizontal sums are fused into the per-strip thread-local
-    // scratch (#1195), so only sqdiff + the three accumulators are passed.
+    // scratch (#1195/#1472), so only the three accumulators are passed.
     let h_param = 0.02f32;
     let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
     let _inv_norm = 1.0 / (h_param * h_param * patch_area);
-    let mut sqdiff = vec![0.0f32; n];
     let mut acc = vec![0.0f32; n];
     let mut wsum = vec![0.0f32; n];
     let mut max_w = vec![0.0f32; n];
@@ -97,21 +96,18 @@ fn box_sum_has_no_far_offset_cancellation_and_caps_weights_at_one() {
         dx,
         dy,
         test_params,
-        &[],
+        &LocalRadiusPlane::empty(),
         &[],
         false,
-        &mut sqdiff,
         &mut acc,
         &mut wsum,
         &mut max_w,
     );
 
     // (1) The box-sum patch SSD is ≥ 0 everywhere in the strip BEFORE the clamp.
-    // Recompute it the way `process_shift` does (separable: horizontal direct
-    // taps over `sqdiff`, then the vertical (2p+1)-tap sum) and assert
-    // non-negativity directly. `sqdiff` was just filled by `process_shift` for
-    // this exact shift, so reuse it. This is the structural #1195 win: the OLD
-    // rect query went negative on this fixture; the box-sum cannot.
+    // Sum squared differences directly from the two input patches, independent
+    // of the production row scratch. This is the structural #1195 win: the old
+    // rect query went negative on this fixture; the local box-sum cannot.
     let mut min_raw_ssd = f32::INFINITY;
     for y in (by + p)..(by + tall - p) {
         for x in (bx + p)..(bx + 2 * block - p) {
@@ -120,7 +116,10 @@ fn box_sum_has_no_far_offset_cancellation_and_caps_weights_at_one() {
                 for ox in -(p as isize)..=(p as isize) {
                     let xi = (x as isize + ox) as usize;
                     let yi = (y as isize + oy) as usize;
-                    ssd += sqdiff[yi * w + xi];
+                    let shifted_x = (xi as isize + dx) as usize;
+                    let shifted_y = (yi as isize + dy) as usize;
+                    let d = plane[yi * w + xi] - plane[shifted_y * w + shifted_x];
+                    ssd += d * d;
                 }
             }
             min_raw_ssd = min_raw_ssd.min(ssd);
