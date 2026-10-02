@@ -13,6 +13,9 @@ import {
 } from './test-sqlite.test-helpers.ts';
 
 const previous = ALL_MIGRATIONS.filter((m) => m.id < greekSigmaIdentityKeysMigration.id);
+const pending = ALL_MIGRATIONS.filter((m) => m.id >= greekSigmaIdentityKeysMigration.id).map(
+  (m) => m.id,
+);
 const tables = ['people', 'presets', 'users'] as const;
 type IdentityTable = (typeof tables)[number];
 const idFor = (table: IdentityTable) => String(tables.indexOf(table) + 1).repeat(24);
@@ -69,7 +72,7 @@ test('existing file upgrades sigma keys without changing display data, reference
   using reopened = new Database(file.path);
   reopened.exec('PRAGMA foreign_keys = ON');
   const result = await runMigrations(fromBunSqlite(reopened), ALL_MIGRATIONS);
-  expect(result.applied).toEqual([greekSigmaIdentityKeysMigration.id]);
+  expect(result.applied).toEqual(pending);
   for (const [index, table] of tables.entries()) {
     const key = table === 'users' ? 'email_key' : 'name_key';
     const after = reopened.query(`SELECT * FROM ${table} ORDER BY id`).all();
@@ -106,6 +109,11 @@ for (const table of tables) {
         .query('SELECT id FROM schema_migrations WHERE id = ?')
         .get(greekSigmaIdentityKeysMigration.id),
     ).toBeNull();
+    expect(
+      file.db
+        .query('SELECT id FROM schema_migrations WHERE id >= ?')
+        .all(greekSigmaIdentityKeysMigration.id),
+    ).toEqual([]);
     const source = table === 'users' ? 'email' : 'name';
     const key = table === 'users' ? 'email_key' : 'name_key';
     const distinct = table === 'users' ? 'distinct@example.com' : 'distinct';
@@ -114,9 +122,7 @@ for (const table of tables) {
       distinct,
       duplicate,
     ]);
-    expect((await runMigrations(file.migrationDb, ALL_MIGRATIONS)).applied).toEqual([
-      greekSigmaIdentityKeysMigration.id,
-    ]);
+    expect((await runMigrations(file.migrationDb, ALL_MIGRATIONS)).applied).toEqual(pending);
     expect(file.db.query(`SELECT id FROM ${table} WHERE id = ?`).get(duplicate)).not.toBeNull();
   });
 }
