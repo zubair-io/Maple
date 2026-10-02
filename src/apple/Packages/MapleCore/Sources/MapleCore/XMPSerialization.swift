@@ -146,6 +146,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   /// historical prefix-based WB-scale migration above.
   var sawMapleNamespaceURI: Bool = false
   private var workflowDepth = 0
+  private var namespaceScopes: [[String: String]] = []
 
   /// `dc:subject` is the only XMP element that isn't an attribute on
   /// `rdf:Description` — it's a nested bag of `rdf:li` children:
@@ -195,10 +196,28 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     attributes attributeDict: [String: String]
   ) {
     // #4043: scoped workflow namespaces/checkpoints cannot alter current WB.
-    if workflowDepth > 0 || (qName ?? elementName) == "papp:Workflow" {
+    if workflowDepth > 0 {
       workflowDepth += 1
       return
     }
+    // XMLParser keeps prefixed attribute keys for legacy sidecar compatibility.
+    // Resolve the element's namespace using its scoped declarations instead of
+    // assuming an arbitrary XML prefix always names Maple's owned resource.
+    let declarations = Dictionary(
+      uniqueKeysWithValues: attributeDict.compactMap { key, value in
+        key == "xmlns"
+          ? ("", value) : (key.hasPrefix("xmlns:") ? (String(key.dropFirst(6)), value) : nil)
+      })
+    let namespaces = (namespaceScopes.last ?? [:]).merging(declarations) { _, current in current }
+    let qualified = qName ?? elementName
+    let parts = qualified.split(separator: ":", maxSplits: 1).map(String.init)
+    let prefix = parts.count == 2 ? parts[0] : ""
+    let local = parts.last ?? qualified
+    if local == "Workflow", namespaces[prefix] == XMPCanonical.pappNamespaceURI {
+      workflowDepth = 1
+      return
+    }
+    namespaceScopes.append(namespaces)
     // dc:subject — nested keyword bag. Enter the subtree on the opening
     // `<dc:subject>` tag; track `<rdf:li>` children inside it. The XML
     // namespace *prefix* the sidecar binds to Dublin Core / RDF isn't
@@ -320,6 +339,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
       workflowDepth -= 1
       return
     }
+    _ = namespaceScopes.popLast()
     let qual = qName ?? elementName
     localAdjustments.end(qual)
     retouch.end(qual)

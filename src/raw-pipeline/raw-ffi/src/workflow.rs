@@ -46,6 +46,9 @@ unsafe fn output(
 /// # Safety
 /// Inputs must be readable for their lengths; out must be writable for cap
 /// bytes and out_len for one usize. Input/output regions must not overlap.
+/// Null inputs and inputs over the workflow byte bound are rejected before
+/// dereferencing. Non-null pointer validity and allocation sizes remain the
+/// caller's responsibility: they cannot be verified from a C address alone.
 #[no_mangle]
 pub unsafe extern "C" fn maple_workflow_validate_json(
     json: *const u8,

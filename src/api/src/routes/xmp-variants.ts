@@ -17,7 +17,7 @@ export const xmpVariantRoutes = new Elysia()
   })
   .resolve(async ({ query }) => {
     const authorized = await resolveAndAuthorizePath(query.path);
-    if (!authorized.ok) return status(authorized.status, { error: authorized.error });
+    if (!authorized.ok) throw new WorkflowVariantError(authorized.status, authorized.error);
     return { rawPath: authorized.data };
   })
   .get('/api/xmp/variants', ({ rawPath }) => listWorkflowVariants(rawPath), {
