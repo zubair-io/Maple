@@ -90,7 +90,11 @@ extension RemovalSession {
     _ strokes: [RemovalStroke], context: NativeRemovalEditorContext, token: UInt64
   ) async throws -> Data {
     let mask: Data
-    if strokes.isEmpty {
+    if replacingRemovalID != nil, !replacementBase.isEmpty {
+      mask = try RemovalBridge.refineSelection(
+        replacementBase, strokes: strokes,
+        protection: protection)
+    } else if strokes.isEmpty {
       mask = Data()
     } else if mode == .paint {
       mask = try await engine.paint(strokes, context: context)

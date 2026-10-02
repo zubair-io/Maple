@@ -1,5 +1,9 @@
 // Temporary gesture replay for the editor's single retained RAW owner (#3984).
-import { removal_combine_masks, removal_smart_strokes } from '../raw-pipeline/pkg/raw_wasm';
+import {
+  removal_combine_masks,
+  removal_smart_strokes,
+  removal_refine_selection,
+} from '../raw-pipeline/pkg/raw_wasm';
 import type { RemovalEditorSession, RemovalStroke } from './removal-editor-session.service';
 import { refinePeople, type PersonGesture } from './removal-person-refinement';
 
@@ -114,11 +118,18 @@ async function refreshSelection(
   strokes: readonly RemovalStroke[],
   token: number,
 ) {
-  const mask = !strokes.length
-    ? new Uint8Array()
-    : session.mode() === 'paint'
-      ? await session.pipeline.removal.selection(JSON.stringify({ schema: 1, strokes }))
-      : await smartMask(session, strokes, token);
+  const mask =
+    session.replacingRemoval() && session.replacementBase.length
+      ? removal_refine_selection(
+          session.replacementBase,
+          session.protection(),
+          JSON.stringify({ schema: 1, strokes }),
+        )
+      : !strokes.length
+        ? new Uint8Array()
+        : session.mode() === 'paint'
+          ? await session.pipeline.removal.selection(JSON.stringify({ schema: 1, strokes }))
+          : await smartMask(session, strokes, token);
   session.check(token);
   session.selection.set(removal_combine_masks(mask, session.protection(), true));
 }

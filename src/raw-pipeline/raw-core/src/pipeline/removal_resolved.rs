@@ -155,9 +155,10 @@ impl ResolvedCalibrationRemovals {
             let patch = assets
                 .get(&patch_name)
                 .ok_or_else(|| format!("removal {index}: missing companion {patch_name}"))?;
-            patches.push(super::resolve_accepted_removal(
-                removal, &source, mask, patch,
-            )?);
+            let patch = super::resolve_accepted_removal(removal, &source, mask, patch)?;
+            if removal.is_active() {
+                patches.push(patch);
+            }
             if super::removal_needs_review(removal, &records[..index])? {
                 needs_review.push(index);
             }

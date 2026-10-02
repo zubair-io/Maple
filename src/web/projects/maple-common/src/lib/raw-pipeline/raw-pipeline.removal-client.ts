@@ -25,6 +25,30 @@ export class RemovalAuthoringClient {
     this.input = null;
   }
 
+  get isOpen(): boolean {
+    return this.input !== null;
+  }
+
+  /** Cold cache work has its own temporary RAW; it cannot replace an editor owner. */
+  async renderDerivative(
+    input: RemovalInput,
+    xmp: string,
+    bundle: RemovalCompanionBundle,
+    cap: number,
+    film?: ArrayBuffer,
+  ): Promise<DecodedImage> {
+    const bytes = input.bytes.slice().buffer as ArrayBuffer;
+    const companions = bundle.bytes.slice().buffer as ArrayBuffer;
+    const value = await this.send(
+      { sourceId: input.sourceId, ext: input.ext },
+      { kind: 'derivative', bytes, xmp, manifest: bundle.manifest, companions, cap, film },
+      this.epoch,
+      [bytes, companions],
+    );
+    if (value.kind !== 'rendered') throw new Error('Invalid saved derivative reply');
+    return { ...value.frame, rgb: new Uint8Array(value.frame.rgb) };
+  }
+
   async open(input: RemovalInput): Promise<string> {
     this.close();
     const epoch = this.epoch;

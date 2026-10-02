@@ -78,6 +78,11 @@ export class NativeDetailClient {
   }
 
   workerFailed(): void {
+    this.detach();
+  }
+
+  /** Retire tile reuse without freeing the mosaic an active Remove tool owns. */
+  detach(): void {
     this.epoch++;
     this.sourceId = null;
     this.records = undefined;

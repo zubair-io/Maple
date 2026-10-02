@@ -137,7 +137,14 @@ extension RemovalSession {
       guard session.model == snapshot.model, session.editRevision == snapshot.editRevision else {
         throw RemovalError.saveConflict
       }
-      let image = try await engine.review(candidate)
+      let reviewed: NativeRemovalEditorContext
+      if let id = replacingRemovalID, let original = replacementOriginal {
+        reviewed = try await engine.replacementReview(
+          id: id, original: original, candidate: candidate)
+      } else {
+        reviewed = candidate
+      }
+      let image = try await engine.review(reviewed)
       guard current(token) else { return }
       guard session.model == snapshot.model, session.editRevision == snapshot.editRevision else {
         throw RemovalError.saveConflict
@@ -156,7 +163,7 @@ extension RemovalSession {
     let token = revision
     phase = .saving
     do {
-      try await session.acceptRemovals(proposals, snapshot: snapshot)
+      try await session.acceptRemovals(proposals, snapshot: snapshot, replacing: replacingRemovalID)
       // A closed editor still finishes its owned durable save.
       guard current(token) else { return }
       proposals = []

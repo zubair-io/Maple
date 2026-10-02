@@ -158,6 +158,7 @@ export interface RenderSessionRequest {
   type: 'render-session';
   xmp?: string;
   params?: Float32Array;
+  savedRemovals?: OpenSessionRequest['savedRemovals'];
 }
 
 /** Tear down the open session (asset switch / component destroy). */

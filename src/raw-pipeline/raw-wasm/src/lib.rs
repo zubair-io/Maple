@@ -82,6 +82,7 @@ pub mod native_detail;
 mod open_metadata;
 pub mod preview;
 mod removal_context;
+mod removal_edit;
 pub mod removal_proposal;
 mod removal_proxy;
 mod removal_saved;

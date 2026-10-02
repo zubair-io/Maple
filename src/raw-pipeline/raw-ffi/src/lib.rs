@@ -218,6 +218,10 @@ pub use removal_context::{
     maple_removal_calibration_context_f32, maple_removal_calibration_source_buf,
 };
 pub use removal_generation::maple_removal_generation_masks_f32;
+mod removal_edit;
+pub use removal_edit::{
+    maple_removal_saved_edit_buf, maple_removal_saved_list_buf, maple_removal_saved_prefix_buf,
+};
 mod removal_proposal;
 pub use removal_geometry::maple_removal_map_points_buf;
 #[cfg(any(feature = "removal", feature = "removal-ios"))]

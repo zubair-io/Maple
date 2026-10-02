@@ -48,6 +48,7 @@ pub fn prepare_accepted_removal(
         .patch_window
         .region(accepted.source.width, accepted.source.height);
     let removal = Removal {
+        operation: None,
         accepted: Some(accepted),
         region,
         patch_ref: ContentDigest::for_bytes(patch).as_str().into(),

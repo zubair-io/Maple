@@ -78,3 +78,31 @@ public struct RemovalPersonSuggestion: Decodable, Sendable {
   public let role: RemovalPersonRole
   public let keep: Bool
 }
+
+public let savedRemovalEditVersion = 1
+public struct SavedRemovalEntry: Decodable, Sendable, Identifiable {
+  public let id: String
+  public let index: Int
+  public let active: Bool
+  public let editable: Bool
+  public let needsReview: Bool
+  public let region: [Float]
+  public let modelVersion: String
+  public let mask: String?
+  private enum CodingKeys: String, CodingKey {
+    case id = "id"
+    case index = "index"
+    case active = "active"
+    case editable = "editable"
+    case needsReview = "needs_review"
+    case region = "region"
+    case modelVersion = "model_version"
+    case mask = "mask"
+  }
+}
+
+public enum SavedRemovalAction: String, Encodable, Sendable {
+  case setActive = "set-active"
+  case delete = "delete"
+  case replace = "replace"
+}

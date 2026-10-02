@@ -1,6 +1,7 @@
 import { takeRenderFrame } from './raw-pipeline.render-frame';
 /// <reference lib="webworker" />
 import {
+  NativeDetailSession,
   RemovalMask,
   removal_content_digest,
   removal_refine_selection,
@@ -15,7 +16,36 @@ import type {
   RemovalAuthoringResponse,
   RemovalAuthoringValue,
   RemovalRawSession,
+  RemovalAuthoringCommand,
 } from './raw-pipeline.removal.types';
+
+/** A cache render is one atomic cold operation on a temporary CPU RAW, not
+ * the live GPU or native-detail object carrying an unsaved editor review. */
+export function runRemovalDerivative(
+  ext: string,
+  command: Extract<RemovalAuthoringCommand, { kind: 'derivative' }>,
+): RemovalAuthoringValue {
+  const session = new NativeDetailSession(new Uint8Array(command.bytes), ext);
+  try {
+    session.prepare_saved_removals(
+      command.xmp,
+      command.manifest,
+      new Uint8Array(command.companions),
+    );
+    return {
+      kind: 'rendered',
+      frame: takeRenderFrame(
+        session.render_saved_preview(
+          command.xmp,
+          command.cap,
+          command.film ? new Uint8Array(command.film) : new Uint8Array(),
+        ),
+      ),
+    };
+  } finally {
+    session.free();
+  }
+}
 
 /** The same implementation is driven by real retained WASM tests. The source
  * binding is checked on every gesture/context request, not only at tool open. */
@@ -23,6 +53,8 @@ export function runRemovalAuthoring(
   session: RemovalRawSession,
   request: RemovalAuthoringRequest,
 ): RemovalAuthoringValue {
+  if (request.command.kind === 'derivative')
+    return runRemovalDerivative(request.ext, request.command);
   const source = session.removal_calibration_source();
   const anchor: unknown = JSON.parse(source);
   if (
@@ -138,17 +170,31 @@ export function runRemovalAuthoring(
 export async function handleRemovalAuthoring(request: RemovalAuthoringRequest): Promise<void> {
   try {
     await ensureReady();
-    if (request.command.kind === 'map' || request.command.kind === 'render-saved')
+    if (
+      request.command.kind === 'map' ||
+      request.command.kind === 'render-saved' ||
+      request.command.kind === 'derivative'
+    )
       await restoreLensProfile(request.command.xmp);
-    const live = await withLiveRemovalSession((session) => runRemovalAuthoring(session, request));
-    const value = live
-      ? live.value
-      : await withNativeRemovalSession(
-          request.sourceId,
-          request.ext,
-          request.command.kind === 'source' ? request.command.bytes : undefined,
-          (session) => runRemovalAuthoring(session as unknown as RemovalRawSession, request),
-        );
+    const live =
+      request.command.kind === 'derivative'
+        ? null
+        : await withLiveRemovalSession(
+            (session) => runRemovalAuthoring(session, request),
+            request.command.kind === 'prepare-saved' ||
+              request.command.kind === 'generation-context',
+          );
+    const value =
+      request.command.kind === 'derivative'
+        ? runRemovalDerivative(request.ext, request.command)
+        : live
+          ? live.value
+          : await withNativeRemovalSession(
+              request.sourceId,
+              request.ext,
+              request.command.kind === 'source' ? request.command.bytes : undefined,
+              (session) => runRemovalAuthoring(session as unknown as RemovalRawSession, request),
+            );
     const reply: RemovalAuthoringResponse = {
       id: request.id,
       type: 'removal-authoring-success',

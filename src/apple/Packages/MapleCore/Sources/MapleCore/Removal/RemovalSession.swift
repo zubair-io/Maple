@@ -43,6 +43,10 @@ public final class RemovalSession {
   public var compare = false
   public internal(set) var message = ""
   public internal(set) var people: [Person] = []
+  public internal(set) var savedRemovals: [SavedRemovalEntry] = []
+  public internal(set) var replacingRemovalID: String?
+  @ObservationIgnored var replacementBase = Data()
+  @ObservationIgnored var replacementOriginal: NativeRemovalEditorContext?
   public internal(set) var refiningPersonID: Int?
   public private(set) var modelFolderName: String?
   public var radius: Double = 0.02
@@ -105,6 +109,8 @@ public final class RemovalSession {
       }
       snapshot = captured
       context = prepared
+      savedRemovals = try RemovalBridge.savedList(
+        records: captured.model.inpaintRemovals?.json ?? "[]")
       phase = .ready
     } catch { fail(error, token: token, phase: .failed) }
   }
@@ -118,6 +124,10 @@ public final class RemovalSession {
     context = nil
     snapshot = nil
     proposals = []
+    savedRemovals = []
+    replacingRemovalID = nil
+    replacementBase = Data()
+    replacementOriginal = nil
     personMasks = []
     resetPersonRefinement()
     preview = nil
@@ -147,7 +157,7 @@ public final class RemovalSession {
   }
 
   public func setMode(_ next: Mode) {
-    guard phase == .ready, mode != next else { return }
+    guard phase == .ready, mode != next, replacingRemovalID == nil else { return }
     clearSelection()
     people = []
     mode = next
@@ -157,6 +167,7 @@ public final class RemovalSession {
     guard phase == .ready else { return }
     revision &+= 1
     selection = Data()
+    replacementBase = Data()
     strokes = []
     personMasks = []
     resetPersonRefinement()

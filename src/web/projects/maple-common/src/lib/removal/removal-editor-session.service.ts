@@ -1,5 +1,7 @@
 import * as publication from './removal-editor-publication';
 import * as painting from './removal-editor-painting';
+import * as saved from './removal-editor-saved';
+import type { SavedRemovalEntry } from '../generated/removal-models.generated';
 import type { PersonBase, PersonGesture } from './removal-person-refinement';
 import { rebindAfterExport } from './removal-editor-rebind';
 // Complete local authoring flow for the explicitly installed #3941 experiment.
@@ -83,6 +85,9 @@ export class RemovalEditorSession {
   readonly selection = signal<Uint8Array>(new Uint8Array());
   readonly protection = signal<Uint8Array>(new Uint8Array());
   readonly people = signal<readonly Person[]>([]);
+  readonly savedRemovals = signal<readonly SavedRemovalEntry[]>([]);
+  readonly replacingRemoval = signal<SavedRemovalEntry | null>(null);
+  replacementBase: Uint8Array = new Uint8Array();
   readonly refiningPerson = signal<number | null>(null);
   readonly personBases = signal<readonly PersonBase[]>([]);
   readonly canPaint = computed(() => this.mode() !== 'people' || this.refiningPerson() !== null);
@@ -156,7 +161,7 @@ export class RemovalEditorSession {
   }
 
   setMode(mode: RemovalMode): void {
-    if (this.busy() || this.phase() === 'review') return;
+    if (this.busy() || this.phase() === 'review' || this.replacingRemoval()) return;
     this.clearSelection();
     this.mode.set(mode);
   }
@@ -164,6 +169,7 @@ export class RemovalEditorSession {
     this.revision++;
     this.inference?.cancel();
     this.strokes = [];
+    this.replacementBase = new Uint8Array();
     this.gestureSizes = [];
     this.redoGestures = [];
     this.masks = [];
@@ -332,6 +338,15 @@ export class RemovalEditorSession {
   undoKeep(): Promise<void> {
     return publication.undoKeep(this);
   }
+  editSaved(id: string, active?: boolean): Promise<void> {
+    return saved.changeSaved(this, id, active);
+  }
+  replaceSaved(id: string): void {
+    saved.beginReplace(this, id);
+  }
+  cancelReplacement(): Promise<void> {
+    return saved.cancelReplacement(this);
+  }
 
   private async open(asset: Asset, xml: string): Promise<void> {
     const token = this.revision;
@@ -375,6 +390,7 @@ export class RemovalEditorSession {
         sidecarRevision,
       };
       this.photo = photo;
+      this.savedRemovals.set(saved.savedEntries(prior));
       this.inference = new RemovalInferenceClient(
         models,
         (stage) => this.photo === photo && this.active() && this.stage.set(stage),
@@ -466,7 +482,10 @@ export class RemovalEditorSession {
   }
   async restore(photo: OpenPhoto): Promise<void> {
     if (this.library.focusedAsset()?.id !== photo.asset.id) return;
-    await this.pipeline.removal.prepareSaved(photo.xml, bundleRemovalCompanions(photo.companions));
+    await this.pipeline.removal.prepareSaved(
+      photo.xml,
+      bundleRemovalCompanions(saved.companionsFor(photo.prior, photo.companions)),
+    );
   }
   check(token: number): void {
     if (token !== this.revision || !this.active())
@@ -492,6 +511,9 @@ export class RemovalEditorSession {
     this.inference?.dispose();
     this.pipeline.removal.close();
     this.photo = undefined;
+    this.savedRemovals.set([]);
+    this.replacingRemoval.set(null);
+    this.replacementBase = new Uint8Array();
     this.scopeFolder = undefined;
     this.draft = undefined;
     this.inference = undefined;

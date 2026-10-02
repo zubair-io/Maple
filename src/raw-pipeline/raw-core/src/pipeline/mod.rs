@@ -54,6 +54,11 @@ mod removal_resolved;
 pub use removal_resolved::ResolvedCalibrationRemovals;
 mod removal_prepare;
 pub use removal_prepare::prepare_accepted_removal;
+mod removal_edit;
+pub use removal_edit::{
+    edit_saved_removal, saved_removal_list, saved_removal_prefix, SavedRemovalAction,
+    SAVED_REMOVAL_EDIT_VERSION, SAVED_REMOVAL_ENTRY_FIELDS,
+};
 mod removal_proposal;
 pub use removal_proposal::PreparedRemovalGeneration;
 mod removal_proposal_plan;

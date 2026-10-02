@@ -63,7 +63,9 @@ test('Background people automatically keeps the portrait subject and permits rev
     await panel.getByText('Local AI models', { exact: true }).click();
     await panel.getByLabel('Import local removal models').setInputFiles(models);
     await expect(panel.getByText('rtdetrv2-r18.onnx · Installed', { exact: false })).toBeVisible();
-    await panel.getByRole('radio', { name: 'Background people', exact: true }).click();
+    await panel
+      .getByRole('combobox', { name: 'Object selection mode', exact: true })
+      .selectOption('people');
     const suggest = panel.getByRole('button', { name: 'Suggest background people', exact: true });
     await expect(suggest).toBeEnabled();
     await suggest.click();

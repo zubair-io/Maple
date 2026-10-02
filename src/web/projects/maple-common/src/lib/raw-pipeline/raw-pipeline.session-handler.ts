@@ -42,6 +42,9 @@ function liveSessionCtor(): WebLiveSessionCtor | null {
 
 /** The single open session, or null. Only one image is live at a time. */
 let liveSession: WebLiveSessionInstance | null = null;
+let normalSavedBundle: OpenSessionRequest['savedRemovals'];
+let normalSavedDirty = false;
+const emptyCompanions = new Uint8Array();
 
 // Re-entrancy gate (the wasm-bindgen `&mut self` borrow hazard): `render` holds the
 // session's mutable borrow for its whole Promise (across awaits), so a second
@@ -56,17 +59,18 @@ let sessionChain: Promise<unknown> = Promise.resolve();
  * borrow while a render/open/close owns it. No extra decoded mosaic on WebGPU. */
 export function withLiveRemovalSession<T>(
   action: (session: import('./raw-pipeline.removal.types').RemovalRawSession) => T,
+  mutatesSaved = false,
 ): Promise<{ value: T } | null> {
-  return enqueueSessionOp(async () =>
-    liveSession
-      ? {
-          value: action(
-            liveSession as WebLiveSessionInstance &
-              import('./raw-pipeline.removal.types').RemovalRawSession,
-          ),
-        }
-      : null,
-  );
+  return enqueueSessionOp(async () => {
+    if (!liveSession) return null;
+    if (mutatesSaved) normalSavedDirty = true;
+    return {
+      value: action(
+        liveSession as WebLiveSessionInstance &
+          import('./raw-pipeline.removal.types').RemovalRawSession,
+      ),
+    };
+  });
 }
 function enqueueSessionOp<T>(op: () => Promise<T>): Promise<T> {
   const next = sessionChain.then(op, op);
@@ -188,6 +192,8 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
     // Tear down any prior session before opening a new one (asset switch).
     liveSession?.free();
     liveSession = null;
+    normalSavedBundle = undefined;
+    normalSavedDirty = false;
     setLiveCanvas(null);
 
     const bytes = new Uint8Array(req.bytes);
@@ -221,6 +227,7 @@ async function openSessionOp(req: OpenSessionRequest): Promise<void> {
         );
     markEnd(sessionOpenStartMark, `maple:session-open:${req.id}:end`, 'maple:session-open');
     liveSession = session;
+    normalSavedBundle = saved;
     // Retain the canvas (the readback source) — `open()` did not neuter the JS ref.
     // `open` already presented the first frame, so a snapshot here reflects it.
     setLiveCanvas(req.canvas);
@@ -292,6 +299,19 @@ async function renderSessionOp(req: RenderSessionRequest): Promise<void> {
     return;
   }
   try {
+    if (req.savedRemovals || normalSavedDirty) {
+      if (!req.xmp) throw new Error('Saved canvas preparation requires the current sidecar');
+      const bundle = req.savedRemovals ?? normalSavedBundle;
+      const session = liveSession as WebLiveSessionInstance &
+        import('./raw-pipeline.removal.types').RemovalRawSession;
+      session.prepare_saved_removals(
+        req.xmp,
+        bundle?.manifest ?? '[]',
+        bundle ? new Uint8Array(bundle.bytes) : emptyCompanions,
+      );
+      normalSavedBundle = bundle;
+      normalSavedDirty = false;
+    }
     // #1123: markStart/markEnd — see openSessionOp; a throw here must never
     // fall through to the outer `catch` and report a successful render as a
     // `session-error` (the frame is already presented to the canvas by then).
@@ -359,6 +379,8 @@ export function handleCloseSession(): void {
   void enqueueSessionOp(async () => {
     liveSession?.free();
     liveSession = null;
+    normalSavedBundle = undefined;
+    normalSavedDirty = false;
     // Drop the readback source too (its control was transferred to the worker; the
     // element is owned by the now-closed session). A re-open installs a fresh one.
     setLiveCanvas(null);

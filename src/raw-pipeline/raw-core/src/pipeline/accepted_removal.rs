@@ -6,7 +6,14 @@ use crate::types::accepted_removal::{
 use crate::types::{InpaintPatch, Removal};
 
 pub fn removal_record_digest(removal: &Removal) -> Result<ContentDigest, String> {
-    let canonical = crate::types::inpaint::encode_removals(std::slice::from_ref(removal))?;
+    // UI identity/enable state does not change the baked pixel recipe. This
+    // preserves schema-3/4 dependency fingerprints across explicit upgrades.
+    crate::types::inpaint::validate_removal(removal)?;
+    let pixel_record = Removal {
+        operation: None,
+        ..removal.clone()
+    };
+    let canonical = crate::types::inpaint::encode_removals(std::slice::from_ref(&pixel_record))?;
     Ok(ContentDigest::for_bytes(canonical.as_bytes()))
 }
 
@@ -26,7 +33,7 @@ pub fn removal_context_dependencies(
         .region(accepted.source.width, accepted.source.height);
     prior
         .iter()
-        .filter(|r| intersects(r.region, context))
+        .filter(|r| r.is_active() && intersects(r.region, context))
         .map(|r| {
             Ok(RemovalDependency {
                 record: removal_record_digest(r)?,
@@ -44,12 +51,13 @@ pub fn removal_needs_review(removal: &Removal, prior: &[Removal]) -> Result<bool
     if prior
         .iter()
         .filter(|r| {
-            intersects(
-                r.region,
-                accepted
-                    .context_window
-                    .region(accepted.source.width, accepted.source.height),
-            )
+            r.is_active()
+                && intersects(
+                    r.region,
+                    accepted
+                        .context_window
+                        .region(accepted.source.width, accepted.source.height),
+                )
         })
         .any(|r| {
             r.accepted

@@ -37,6 +37,7 @@ fn fixture() -> (Removal, Vec<u8>, Vec<u8>) {
     };
     let patch_bytes = super::super::patch_to_bytes(&patch).unwrap();
     let removal = Removal {
+        operation: None,
         accepted: Some(AcceptedRemoval {
             plate: RemovalPlate::PostDcpV1,
             source,

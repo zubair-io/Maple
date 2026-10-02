@@ -208,7 +208,10 @@ export class RawPipelineService implements OnDestroy {
 
   closeNativeDetail(): void {
     this.savedPreview.close();
-    this.detailClient.close(this.worker);
+    // Canvas resets retire tile reuse. Remove shares this mosaic and owns its
+    // lifetime while open; a delayed canvas reset must not discard its draft.
+    if (this.removal.isOpen) this.detailClient.detach();
+    else this.detailClient.close(this.worker);
   }
 
   /**
@@ -345,19 +348,18 @@ export class RawPipelineService implements OnDestroy {
   }
 
   // fallow-ignore-next-line unused-class-member
-  renderLiveSession(xmp?: string, params?: Float32Array): Promise<RenderedLiveSession> {
-    let worker: Worker;
-    try {
-      worker = this.ensureWorker();
-    } catch {
-      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
-    }
+  async renderLiveSession(
+    xmp?: string,
+    params?: Float32Array,
+    savedRemovals?: RemovalCompanionBundle,
+  ): Promise<RenderedLiveSession> {
     return renderLiveSessionRequest(
-      worker,
+      this.ensureWorker(),
       this.nextId++,
       this.pending.set.bind(this.pending),
       xmp,
       params,
+      savedRemovals,
     );
   }
 
@@ -529,7 +531,8 @@ export class RawPipelineService implements OnDestroy {
       // Export owns a cold decode. Retire the detail/CPU saved-preview owner
       // and its main-thread reuse key before allocating that second mosaic.
       this.savedPreview.close();
-      this.closeNativeDetail();
+      // Export deliberately retires the shared owner even while Remove is open.
+      this.detailClient.close(this.worker);
       const worker = this.ensureWorker();
       const register = (id: number, handler: PendingHandler) => this.pending.set(id, handler);
       return dispatchExport(

@@ -21,7 +21,8 @@ struct RemovalPanel: View {
           get: { removal.mode.rawValue },
           set: {
             if let mode = RemovalSession.Mode(rawValue: $0) { removal.setMode(mode) }
-          }), disabled: removal.phase != .ready)
+          }), disabled: removal.phase != .ready || removal.replacingRemovalID != nil)
+      savedControls
       if removal.phase == .review {
         reviewControls
       } else if removal.phase == .ready || removal.phase == .selecting {
@@ -102,6 +103,56 @@ struct RemovalPanel: View {
           "If another application changed the XMP, close and reopen this photo to load those edits."
         )
         .font(.caption).foregroundStyle(ProTokens.textMuted)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var savedControls: some View {
+    if !removal.savedRemovals.isEmpty {
+      DisclosureGroup("Saved removals") {
+        ForEach(removal.savedRemovals) { entry in
+          VStack(alignment: .leading, spacing: 6) {
+            Text("Removal \(entry.index + 1) · \(entry.active ? "Enabled" : "Disabled")")
+              .font(.caption.weight(.semibold))
+            if entry.needsReview {
+              Text("Needs review: an earlier removal changed. Accepted pixels stay unchanged.")
+                .font(.caption).accessibilityIdentifier("removal-needs-review")
+            }
+            HStack {
+              MuiButton(
+                label: "\(entry.active ? "Disable" : "Enable") removal \(entry.index + 1)",
+                size: .sm,
+                disabled: !entry.editable || removal.phase != .ready
+                  || removal.replacingRemovalID != nil
+              ) {
+                Task { await removal.setSavedRemoval(entry.id, active: !entry.active) }
+              }
+              MuiButton(
+                label: "Delete removal \(entry.index + 1)", size: .sm,
+                disabled: removal.phase != .ready || removal.replacingRemovalID != nil
+              ) {
+                Task { await removal.setSavedRemoval(entry.id, active: nil) }
+              }
+            }
+            MuiButton(
+              label: "Replace removal \(entry.index + 1)", size: .sm,
+              disabled: !entry.editable || removal.phase != .ready
+                || removal.replacingRemovalID != nil
+            ) {
+              Task { await removal.replaceSavedRemoval(entry.id) }
+            }
+          }
+        }
+      }
+    }
+    if let id = removal.replacingRemovalID,
+      let entry = removal.savedRemovals.first(where: { $0.id == id })
+    {
+      Text("Replacing removal \(entry.index + 1). Refine its selection, then Remove and Keep.")
+        .font(.caption)
+      MuiButton(label: "Cancel replacement", size: .sm, disabled: removal.busy) {
+        Task { await removal.cancelSavedReplacement() }
       }
     }
   }
