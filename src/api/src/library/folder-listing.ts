@@ -68,6 +68,7 @@ interface Entry {
   mtime: string;
   size: number;
   ext: string;
+  realPath?: string;
 }
 interface ImageEntry extends Entry {
   mapleId: string | null;
@@ -93,6 +94,7 @@ interface Scanned {
     isDirectory(): boolean;
   } | null;
   catalog?: DirectoryAsset;
+  realPath: string;
 }
 
 /** A request shares one resolved root and each child's checked realpath.
@@ -142,6 +144,7 @@ async function scanEntry(
     },
     stat,
     catalog,
+    realPath: real,
   };
 }
 function imageEntry(scanned: Scanned): ImageEntry {
@@ -224,7 +227,7 @@ interface FolderEntries {
 async function appendEntry(child: Scanned | null, entries: FolderEntries, state: FolderState) {
   if (!child) return;
   if (child.stat?.isDirectory()) {
-    entries.folders.push(child.entry);
+    entries.folders.push({ ...child.entry, realPath: child.realPath });
     return;
   }
   if (isMedia(child.entry.name) || child.catalog) {
@@ -285,6 +288,8 @@ export async function listUnifiedFolder(
     address: addressOf(slug, relPath),
     parent: relPath === '' ? null : addressOf(slug, parentRel === '.' ? '' : parentRel),
     path: resolved.absPath,
+    // Recursive consumers use physical identity to stop in-library symlink cycles.
+    realPath: await fs.realpath(resolved.absPath).catch(() => null),
     parentPath: relPath === '' ? null : path.dirname(resolved.absPath),
     ...entries,
     ...(paged && offset + limit < state.allNames.length

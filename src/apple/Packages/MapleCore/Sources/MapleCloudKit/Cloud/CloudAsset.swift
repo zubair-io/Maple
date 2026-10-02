@@ -9,6 +9,8 @@ public struct FsDirEntry: Decodable, Equatable, Sendable {
   public let name: String
   public let path: String
   public let mtime: String
+  /// Physical directory identity for cycle-safe destination trees (#4017).
+  public let realPath: String?
 }
 
 /// EXIF subset returned by `/api/folder/:slug/*` per image. Optional throughout —
@@ -45,12 +47,13 @@ public struct FsImageEntry: Decodable, Equatable, Sendable {
 /// Full response shape of `/api/folder/:slug/*`.
 public struct FsDirListing: Decodable, Sendable {
   public let path: String
+  public let realPath: String?
   public let parent: String?
   public let dirs: [FsDirEntry]
   public let images: [FsImageEntry]
 
   private enum CodingKeys: String, CodingKey {
-    case path, images
+    case path, images, realPath
     case parent = "parentPath"
     case dirs = "folders"
   }

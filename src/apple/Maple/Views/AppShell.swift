@@ -122,6 +122,7 @@ struct AppShell: View {
   /// via `SourceSelection.cloudLibrary` so cold-start restores the
   /// deep path the user left off at.
   @State var cloudCurrentPath: String? = nil
+  @State var cloudFolderMove = CloudFolderMoveVM()
 
   // Sheet state.
   @State var showSMBSheet = false
@@ -1229,6 +1230,9 @@ struct AppShell: View {
         trashCloudFolder(
           server: server, libraryFolderID: libraryFolderID,
           libraryRootPath: libraryRootPath, absPath: absPath)
+      },
+      onMoveCloudFolder: { server, libraryID, rootPath, path in
+        beginCloudFolderMove(server: server, libraryID: libraryID, rootPath: rootPath, path: path)
       },
       // macOS Filesystem sources use the real OS Trash and have no
       // in-app Trash node — see `AppShell+Trash.swift`'s file header.
