@@ -1,0 +1,1075 @@
+{
+  "issue": 3875,
+  "managedBaseRevision": "fe559a5ee",
+  "managedChange": "MainWindow.RetouchSmoke.cs: distinguish invocation, model commit, decode readiness, resize, scroll and restore checkpoints",
+  "nativeSourceRevision": "caab4ea736537a18a9fa27b2c04f71b9811a3284",
+  "nativeSha256": "D7D3D38FE55BA8E2ACA5AE3D99F04C1ECFB54CC499A8885B696765D6709F341D",
+  "results": [
+    {
+      "mode": "gpu",
+      "report": {
+        "passed": true,
+        "exportRecipeEditorRoundTrip": true,
+        "hwnd": 14356614,
+        "renderPath": "gpu",
+        "panelReleases": 1,
+        "rendererStopped": true,
+        "droppedClosingPresents": 1,
+        "viewerDesignNavigation": true,
+        "localSaveFailureRecovery": true,
+        "nativeDetailActualSize": true,
+        "presetUndoRedoAndReset": true,
+        "adjustmentGestureUndoRedo": true,
+        "repairControlsUndoRedo": true,
+        "scopesLifecycle": true,
+        "transferWatcherUndoRedo": true,
+        "comparisonPreservesDocument": true,
+        "cloudOpeningReadiness": true,
+        "cloudSearchPagination": true,
+        "cloudMapHost": true,
+        "responsiveDesign": true,
+        "browseSelectionAndSort": true,
+        "browseScrolling": true,
+        "immediateUndo": true
+      },
+      "repairCheckpoints": [
+        {
+          "stage": "retouch-undo",
+          "time": "2026-10-01T20:23:24.7367333-04:00",
+          "threads": 53,
+          "workingSetBytes": 456663040
+        },
+        {
+          "stage": "retouch-cycle-1",
+          "time": "2026-10-01T20:23:24.7416617-04:00",
+          "threads": 53,
+          "workingSetBytes": 456663040
+        },
+        {
+          "stage": "retouch-open-panel",
+          "time": "2026-10-01T20:23:24.7503528-04:00",
+          "threads": 53,
+          "workingSetBytes": 456687616
+        },
+        {
+          "stage": "retouch-transforms",
+          "time": "2026-10-01T20:23:24.8349412-04:00",
+          "threads": 53,
+          "workingSetBytes": 458006528
+        },
+        {
+          "stage": "retouch-add-spot",
+          "time": "2026-10-01T20:23:24.8880147-04:00",
+          "threads": 54,
+          "workingSetBytes": 458747904
+        },
+        {
+          "stage": "retouch-add-invoked",
+          "time": "2026-10-01T20:23:24.9276735-04:00",
+          "threads": 55,
+          "workingSetBytes": 459984896
+        },
+        {
+          "stage": "retouch-add-model-committed",
+          "time": "2026-10-01T20:23:24.9337278-04:00",
+          "threads": 54,
+          "workingSetBytes": 460165120
+        },
+        {
+          "stage": "retouch-add-decode-ready",
+          "time": "2026-10-01T20:23:25.7778475-04:00",
+          "threads": 54,
+          "workingSetBytes": 462987264
+        },
+        {
+          "stage": "retouch-layout-resize-1440x960",
+          "time": "2026-10-01T20:23:25.7846724-04:00",
+          "threads": 54,
+          "workingSetBytes": 463040512
+        },
+        {
+          "stage": "retouch-layout-scroll-1440x960",
+          "time": "2026-10-01T20:23:26.7723559-04:00",
+          "threads": 54,
+          "workingSetBytes": 460570624
+        },
+        {
+          "stage": "retouch-layout-verified-1440x960",
+          "time": "2026-10-01T20:23:27.534457-04:00",
+          "threads": 53,
+          "workingSetBytes": 460709888
+        },
+        {
+          "stage": "retouch-layout-resize-1024x768",
+          "time": "2026-10-01T20:23:27.5418171-04:00",
+          "threads": 53,
+          "workingSetBytes": 460709888
+        },
+        {
+          "stage": "retouch-layout-scroll-1024x768",
+          "time": "2026-10-01T20:23:27.8619939-04:00",
+          "threads": 53,
+          "workingSetBytes": 460263424
+        },
+        {
+          "stage": "retouch-layout-verified-1024x768",
+          "time": "2026-10-01T20:23:28.6104198-04:00",
+          "threads": 53,
+          "workingSetBytes": 460271616
+        },
+        {
+          "stage": "retouch-layout-restore-window",
+          "time": "2026-10-01T20:23:28.6175155-04:00",
+          "threads": 53,
+          "workingSetBytes": 460218368
+        },
+        {
+          "stage": "retouch-layout-restored-window",
+          "time": "2026-10-01T20:23:28.8746002-04:00",
+          "threads": 53,
+          "workingSetBytes": 460304384
+        },
+        {
+          "stage": "retouch-change-kind",
+          "time": "2026-10-01T20:23:28.8823334-04:00",
+          "threads": 53,
+          "workingSetBytes": 460304384
+        },
+        {
+          "stage": "retouch-change-radius",
+          "time": "2026-10-01T20:23:28.9842249-04:00",
+          "threads": 53,
+          "workingSetBytes": 461824000
+        },
+        {
+          "stage": "retouch-undo-redo-radius",
+          "time": "2026-10-01T20:23:29.8484479-04:00",
+          "threads": 53,
+          "workingSetBytes": 463556608
+        },
+        {
+          "stage": "retouch-delete-spot",
+          "time": "2026-10-01T20:23:29.9778331-04:00",
+          "threads": 54,
+          "workingSetBytes": 465190912
+        },
+        {
+          "stage": "retouch-restore-history",
+          "time": "2026-10-01T20:23:30.0729215-04:00",
+          "threads": 54,
+          "workingSetBytes": 465371136
+        },
+        {
+          "stage": "retouch-cycle-2",
+          "time": "2026-10-01T20:23:30.2779412-04:00",
+          "threads": 54,
+          "workingSetBytes": 466550784
+        },
+        {
+          "stage": "retouch-open-panel",
+          "time": "2026-10-01T20:23:30.2838238-04:00",
+          "threads": 54,
+          "workingSetBytes": 466550784
+        },
+        {
+          "stage": "retouch-transforms",
+          "time": "2026-10-01T20:23:30.2901694-04:00",
+          "threads": 54,
+          "workingSetBytes": 466550784
+        },
+        {
+          "stage": "retouch-add-spot",
+          "time": "2026-10-01T20:23:30.3358297-04:00",
+          "threads": 54,
+          "workingSetBytes": 466513920
+        },
+        {
+          "stage": "retouch-add-invoked",
+          "time": "2026-10-01T20:23:30.3571807-04:00",
+          "threads": 55,
+          "workingSetBytes": 466653184
+        },
+        {
+          "stage": "retouch-add-model-committed",
+          "time": "2026-10-01T20:23:30.3634874-04:00",
+          "threads": 55,
+          "workingSetBytes": 467050496
+        },
+        {
+          "stage": "retouch-add-decode-ready",
+          "time": "2026-10-01T20:23:31.3369977-04:00",
+          "threads": 54,
+          "workingSetBytes": 467111936
+        },
+        {
+          "stage": "retouch-layout-resize-1440x960",
+          "time": "2026-10-01T20:23:31.3428937-04:00",
+          "threads": 54,
+          "workingSetBytes": 467120128
+        },
+        {
+          "stage": "retouch-layout-scroll-1440x960",
+          "time": "2026-10-01T20:23:32.3621927-04:00",
+          "threads": 55,
+          "workingSetBytes": 466227200
+        },
+        {
+          "stage": "retouch-layout-verified-1440x960",
+          "time": "2026-10-01T20:23:33.1223761-04:00",
+          "threads": 54,
+          "workingSetBytes": 466116608
+        },
+        {
+          "stage": "retouch-layout-resize-1024x768",
+          "time": "2026-10-01T20:23:33.1290309-04:00",
+          "threads": 54,
+          "workingSetBytes": 466116608
+        },
+        {
+          "stage": "retouch-layout-scroll-1024x768",
+          "time": "2026-10-01T20:23:33.4644083-04:00",
+          "threads": 54,
+          "workingSetBytes": 466128896
+        },
+        {
+          "stage": "retouch-layout-verified-1024x768",
+          "time": "2026-10-01T20:23:34.2177717-04:00",
+          "threads": 54,
+          "workingSetBytes": 466132992
+        },
+        {
+          "stage": "retouch-layout-restore-window",
+          "time": "2026-10-01T20:23:34.2250997-04:00",
+          "threads": 54,
+          "workingSetBytes": 466132992
+        },
+        {
+          "stage": "retouch-layout-restored-window",
+          "time": "2026-10-01T20:23:34.4673181-04:00",
+          "threads": 54,
+          "workingSetBytes": 466132992
+        },
+        {
+          "stage": "retouch-change-kind",
+          "time": "2026-10-01T20:23:34.476052-04:00",
+          "threads": 54,
+          "workingSetBytes": 466132992
+        },
+        {
+          "stage": "retouch-change-radius",
+          "time": "2026-10-01T20:23:35.6946411-04:00",
+          "threads": 54,
+          "workingSetBytes": 466632704
+        },
+        {
+          "stage": "retouch-undo-redo-radius",
+          "time": "2026-10-01T20:23:35.7448074-04:00",
+          "threads": 54,
+          "workingSetBytes": 467165184
+        },
+        {
+          "stage": "retouch-delete-spot",
+          "time": "2026-10-01T20:23:35.8536229-04:00",
+          "threads": 54,
+          "workingSetBytes": 467275776
+        },
+        {
+          "stage": "retouch-restore-history",
+          "time": "2026-10-01T20:23:35.9189469-04:00",
+          "threads": 54,
+          "workingSetBytes": 467296256
+        },
+        {
+          "stage": "retouch-cycle-3",
+          "time": "2026-10-01T20:23:36.1196514-04:00",
+          "threads": 55,
+          "workingSetBytes": 467415040
+        },
+        {
+          "stage": "retouch-open-panel",
+          "time": "2026-10-01T20:23:36.1258765-04:00",
+          "threads": 55,
+          "workingSetBytes": 467419136
+        },
+        {
+          "stage": "retouch-transforms",
+          "time": "2026-10-01T20:23:36.1331532-04:00",
+          "threads": 55,
+          "workingSetBytes": 467419136
+        },
+        {
+          "stage": "retouch-add-spot",
+          "time": "2026-10-01T20:23:36.1771717-04:00",
+          "threads": 55,
+          "workingSetBytes": 467443712
+        },
+        {
+          "stage": "retouch-add-invoked",
+          "time": "2026-10-01T20:23:36.2018445-04:00",
+          "threads": 56,
+          "workingSetBytes": 467537920
+        },
+        {
+          "stage": "retouch-add-model-committed",
+          "time": "2026-10-01T20:23:36.2075669-04:00",
+          "threads": 56,
+          "workingSetBytes": 467542016
+        },
+        {
+          "stage": "retouch-add-decode-ready",
+          "time": "2026-10-01T20:23:37.1256249-04:00",
+          "threads": 54,
+          "workingSetBytes": 467374080
+        },
+        {
+          "stage": "retouch-layout-resize-1440x960",
+          "time": "2026-10-01T20:23:37.1348869-04:00",
+          "threads": 54,
+          "workingSetBytes": 467374080
+        },
+        {
+          "stage": "retouch-layout-scroll-1440x960",
+          "time": "2026-10-01T20:23:38.3897498-04:00",
+          "threads": 54,
+          "workingSetBytes": 467591168
+        },
+        {
+          "stage": "retouch-layout-verified-1440x960",
+          "time": "2026-10-01T20:23:39.1405349-04:00",
+          "threads": 54,
+          "workingSetBytes": 464719872
+        },
+        {
+          "stage": "retouch-layout-resize-1024x768",
+          "time": "2026-10-01T20:23:39.1481511-04:00",
+          "threads": 54,
+          "workingSetBytes": 464728064
+        },
+        {
+          "stage": "retouch-layout-scroll-1024x768",
+          "time": "2026-10-01T20:23:39.4876705-04:00",
+          "threads": 54,
+          "workingSetBytes": 464728064
+        },
+        {
+          "stage": "retouch-layout-verified-1024x768",
+          "time": "2026-10-01T20:23:40.2447477-04:00",
+          "threads": 54,
+          "workingSetBytes": 464723968
+        },
+        {
+          "stage": "retouch-layout-restore-window",
+          "time": "2026-10-01T20:23:40.2506203-04:00",
+          "threads": 54,
+          "workingSetBytes": 464723968
+        },
+        {
+          "stage": "retouch-layout-restored-window",
+          "time": "2026-10-01T20:23:40.4777952-04:00",
+          "threads": 54,
+          "workingSetBytes": 464723968
+        },
+        {
+          "stage": "retouch-change-kind",
+          "time": "2026-10-01T20:23:40.4839658-04:00",
+          "threads": 54,
+          "workingSetBytes": 464723968
+        },
+        {
+          "stage": "retouch-change-radius",
+          "time": "2026-10-01T20:23:41.4140121-04:00",
+          "threads": 54,
+          "workingSetBytes": 464920576
+        },
+        {
+          "stage": "retouch-undo-redo-radius",
+          "time": "2026-10-01T20:23:41.4637556-04:00",
+          "threads": 54,
+          "workingSetBytes": 464982016
+        },
+        {
+          "stage": "retouch-delete-spot",
+          "time": "2026-10-01T20:23:41.5751134-04:00",
+          "threads": 54,
+          "workingSetBytes": 465047552
+        },
+        {
+          "stage": "retouch-restore-history",
+          "time": "2026-10-01T20:23:41.6434561-04:00",
+          "threads": 55,
+          "workingSetBytes": 465002496
+        },
+        {
+          "stage": "retouch-cycle-4",
+          "time": "2026-10-01T20:23:41.8751052-04:00",
+          "threads": 55,
+          "workingSetBytes": 465182720
+        },
+        {
+          "stage": "retouch-open-panel",
+          "time": "2026-10-01T20:23:41.8813686-04:00",
+          "threads": 55,
+          "workingSetBytes": 465182720
+        },
+        {
+          "stage": "retouch-transforms",
+          "time": "2026-10-01T20:23:41.8872149-04:00",
+          "threads": 55,
+          "workingSetBytes": 465182720
+        },
+        {
+          "stage": "retouch-add-spot",
+          "time": "2026-10-01T20:23:41.9303964-04:00",
+          "threads": 55,
+          "workingSetBytes": 465203200
+        },
+        {
+          "stage": "retouch-add-invoked",
+          "time": "2026-10-01T20:23:41.9503184-04:00",
+          "threads": 56,
+          "workingSetBytes": 465346560
+        },
+        {
+          "stage": "retouch-add-model-committed",
+          "time": "2026-10-01T20:23:41.955748-04:00",
+          "threads": 55,
+          "workingSetBytes": 465207296
+        },
+        {
+          "stage": "retouch-add-decode-ready",
+          "time": "2026-10-01T20:23:41.9913527-04:00",
+          "threads": 55,
+          "workingSetBytes": 465207296
+        },
+        {
+          "stage": "retouch-layout-resize-1440x960",
+          "time": "2026-10-01T20:23:41.9962841-04:00",
+          "threads": 55,
+          "workingSetBytes": 465207296
+        },
+        {
+          "stage": "retouch-layout-scroll-1440x960",
+          "time": "2026-10-01T20:23:43.965488-04:00",
+          "threads": 54,
+          "workingSetBytes": 465133568
+        },
+        {
+          "stage": "retouch-layout-verified-1440x960",
+          "time": "2026-10-01T20:23:44.729466-04:00",
+          "threads": 54,
+          "workingSetBytes": 465158144
+        },
+        {
+          "stage": "retouch-layout-resize-1024x768",
+          "time": "2026-10-01T20:23:44.7353361-04:00",
+          "threads": 54,
+          "workingSetBytes": 465158144
+        },
+        {
+          "stage": "retouch-layout-scroll-1024x768",
+          "time": "2026-10-01T20:23:45.0553695-04:00",
+          "threads": 54,
+          "workingSetBytes": 464924672
+        },
+        {
+          "stage": "retouch-layout-verified-1024x768",
+          "time": "2026-10-01T20:23:45.8089612-04:00",
+          "threads": 54,
+          "workingSetBytes": 464924672
+        },
+        {
+          "stage": "retouch-layout-restore-window",
+          "time": "2026-10-01T20:23:45.8147341-04:00",
+          "threads": 54,
+          "workingSetBytes": 464924672
+        },
+        {
+          "stage": "retouch-layout-restored-window",
+          "time": "2026-10-01T20:23:46.0456856-04:00",
+          "threads": 54,
+          "workingSetBytes": 464928768
+        },
+        {
+          "stage": "retouch-change-kind",
+          "time": "2026-10-01T20:23:46.0537565-04:00",
+          "threads": 54,
+          "workingSetBytes": 464928768
+        },
+        {
+          "stage": "retouch-change-radius",
+          "time": "2026-10-01T20:23:46.9403989-04:00",
+          "threads": 54,
+          "workingSetBytes": 464945152
+        },
+        {
+          "stage": "retouch-undo-redo-radius",
+          "time": "2026-10-01T20:23:46.9766544-04:00",
+          "threads": 55,
+          "workingSetBytes": 465088512
+        },
+        {
+          "stage": "retouch-delete-spot",
+          "time": "2026-10-01T20:23:47.0701124-04:00",
+          "threads": 54,
+          "workingSetBytes": 464957440
+        },
+        {
+          "stage": "retouch-restore-history",
+          "time": "2026-10-01T20:23:47.1515828-04:00",
+          "threads": 54,
+          "workingSetBytes": 464961536
+        }
+      ]
+    },
+    {
+      "mode": "cpu",
+      "report": {
+        "passed": true,
+        "exportRecipeEditorRoundTrip": true,
+        "hwnd": 6362822,
+        "renderPath": "cpu",
+        "panelReleases": 1,
+        "rendererStopped": true,
+        "droppedClosingPresents": 0,
+        "viewerDesignNavigation": true,
+        "localSaveFailureRecovery": true,
+        "nativeDetailActualSize": true,
+        "presetUndoRedoAndReset": true,
+        "adjustmentGestureUndoRedo": true,
+        "repairControlsUndoRedo": true,
+        "scopesLifecycle": true,
+        "transferWatcherUndoRedo": true,
+        "comparisonPreservesDocument": true,
+        "cloudOpeningReadiness": true,
+        "cloudSearchPagination": true,
+        "cloudMapHost": true,
+        "responsiveDesign": true,
+        "browseSelectionAndSort": true,
+        "browseScrolling": true,
+        "immediateUndo": true
+      },
+      "repairCheckpoints": [
+        {
+          "stage": "retouch-undo",
+          "time": "2026-10-01T20:24:27.6789549-04:00",
+          "threads": 51,
+          "workingSetBytes": 310726656
+        },
+        {
+          "stage": "retouch-cycle-1",
+          "time": "2026-10-01T20:24:27.6851233-04:00",
+          "threads": 51,
+          "workingSetBytes": 310730752
+        },
+        {
+          "stage": "retouch-open-panel",
+          "time": "2026-10-01T20:24:27.7007023-04:00",
+          "threads": 51,
+          "workingSetBytes": 310755328
+        },
+        {
+          "stage": "retouch-transforms",
+          "time": "2026-10-01T20:24:27.8731443-04:00",
+          "threads": 51,
+          "workingSetBytes": 311177216
+        },
+        {
+          "stage": "retouch-add-spot",
+          "time": "2026-10-01T20:24:27.9160639-04:00",
+          "threads": 52,
+          "workingSetBytes": 312020992
+        },
+        {
+          "stage": "retouch-add-invoked",
+          "time": "2026-10-01T20:24:27.9531584-04:00",
+          "threads": 53,
+          "workingSetBytes": 312815616
+        },
+        {
+          "stage": "retouch-add-model-committed",
+          "time": "2026-10-01T20:24:27.9587781-04:00",
+          "threads": 53,
+          "workingSetBytes": 312823808
+        },
+        {
+          "stage": "retouch-add-decode-ready",
+          "time": "2026-10-01T20:24:27.990599-04:00",
+          "threads": 52,
+          "workingSetBytes": 313786368
+        },
+        {
+          "stage": "retouch-layout-resize-1440x960",
+          "time": "2026-10-01T20:24:27.9992864-04:00",
+          "threads": 52,
+          "workingSetBytes": 313815040
+        },
+        {
+          "stage": "retouch-layout-scroll-1440x960",
+          "time": "2026-10-01T20:24:28.3471496-04:00",
+          "threads": 52,
+          "workingSetBytes": 311959552
+        },
+        {
+          "stage": "retouch-layout-verified-1440x960",
+          "time": "2026-10-01T20:24:29.1171459-04:00",
+          "threads": 52,
+          "workingSetBytes": 312397824
+        },
+        {
+          "stage": "retouch-layout-resize-1024x768",
+          "time": "2026-10-01T20:24:29.1259842-04:00",
+          "threads": 52,
+          "workingSetBytes": 312397824
+        },
+        {
+          "stage": "retouch-layout-scroll-1024x768",
+          "time": "2026-10-01T20:24:29.4644711-04:00",
+          "threads": 52,
+          "workingSetBytes": 312803328
+        },
+        {
+          "stage": "retouch-layout-verified-1024x768",
+          "time": "2026-10-01T20:24:30.2196979-04:00",
+          "threads": 51,
+          "workingSetBytes": 312778752
+        },
+        {
+          "stage": "retouch-layout-restore-window",
+          "time": "2026-10-01T20:24:30.2288199-04:00",
+          "threads": 51,
+          "workingSetBytes": 312778752
+        },
+        {
+          "stage": "retouch-layout-restored-window",
+          "time": "2026-10-01T20:24:30.4550288-04:00",
+          "threads": 51,
+          "workingSetBytes": 312786944
+        },
+        {
+          "stage": "retouch-change-kind",
+          "time": "2026-10-01T20:24:30.4613718-04:00",
+          "threads": 51,
+          "workingSetBytes": 312786944
+        },
+        {
+          "stage": "retouch-change-radius",
+          "time": "2026-10-01T20:24:30.5291578-04:00",
+          "threads": 51,
+          "workingSetBytes": 313950208
+        },
+        {
+          "stage": "retouch-undo-redo-radius",
+          "time": "2026-10-01T20:24:30.5794765-04:00",
+          "threads": 51,
+          "workingSetBytes": 314306560
+        },
+        {
+          "stage": "retouch-delete-spot",
+          "time": "2026-10-01T20:24:30.66151-04:00",
+          "threads": 51,
+          "workingSetBytes": 315998208
+        },
+        {
+          "stage": "retouch-restore-history",
+          "time": "2026-10-01T20:24:30.7196218-04:00",
+          "threads": 51,
+          "workingSetBytes": 316141568
+        },
+        {
+          "stage": "retouch-cycle-2",
+          "time": "2026-10-01T20:24:30.8599659-04:00",
+          "threads": 51,
+          "workingSetBytes": 316686336
+        },
+        {
+          "stage": "retouch-open-panel",
+          "time": "2026-10-01T20:24:30.8665209-04:00",
+          "threads": 51,
+          "workingSetBytes": 316686336
+        },
+        {
+          "stage": "retouch-transforms",
+          "time": "2026-10-01T20:24:30.8735779-04:00",
+          "threads": 51,
+          "workingSetBytes": 316686336
+        },
+        {
+          "stage": "retouch-add-spot",
+          "time": "2026-10-01T20:24:30.9085505-04:00",
+          "threads": 51,
+          "workingSetBytes": 316686336
+        },
+        {
+          "stage": "retouch-add-invoked",
+          "time": "2026-10-01T20:24:30.9340992-04:00",
+          "threads": 52,
+          "workingSetBytes": 316825600
+        },
+        {
+          "stage": "retouch-add-model-committed",
+          "time": "2026-10-01T20:24:30.9437059-04:00",
+          "threads": 52,
+          "workingSetBytes": 317038592
+        },
+        {
+          "stage": "retouch-add-decode-ready",
+          "time": "2026-10-01T20:24:30.9773298-04:00",
+          "threads": 51,
+          "workingSetBytes": 317014016
+        },
+        {
+          "stage": "retouch-layout-resize-1440x960",
+          "time": "2026-10-01T20:24:30.9828945-04:00",
+          "threads": 51,
+          "workingSetBytes": 317014016
+        },
+        {
+          "stage": "retouch-layout-scroll-1440x960",
+          "time": "2026-10-01T20:24:31.3121884-04:00",
+          "threads": 51,
+          "workingSetBytes": 317845504
+        },
+        {
+          "stage": "retouch-layout-verified-1440x960",
+          "time": "2026-10-01T20:24:32.0681591-04:00",
+          "threads": 52,
+          "workingSetBytes": 318820352
+        },
+        {
+          "stage": "retouch-layout-resize-1024x768",
+          "time": "2026-10-01T20:24:32.0736174-04:00",
+          "threads": 52,
+          "workingSetBytes": 318820352
+        },
+        {
+          "stage": "retouch-layout-scroll-1024x768",
+          "time": "2026-10-01T20:24:32.4141767-04:00",
+          "threads": 52,
+          "workingSetBytes": 318836736
+        },
+        {
+          "stage": "retouch-layout-verified-1024x768",
+          "time": "2026-10-01T20:24:33.1826774-04:00",
+          "threads": 51,
+          "workingSetBytes": 318574592
+        },
+        {
+          "stage": "retouch-layout-restore-window",
+          "time": "2026-10-01T20:24:33.1899333-04:00",
+          "threads": 51,
+          "workingSetBytes": 318574592
+        },
+        {
+          "stage": "retouch-layout-restored-window",
+          "time": "2026-10-01T20:24:33.4342399-04:00",
+          "threads": 51,
+          "workingSetBytes": 318595072
+        },
+        {
+          "stage": "retouch-change-kind",
+          "time": "2026-10-01T20:24:33.4419124-04:00",
+          "threads": 51,
+          "workingSetBytes": 318595072
+        },
+        {
+          "stage": "retouch-change-radius",
+          "time": "2026-10-01T20:24:33.5236507-04:00",
+          "threads": 51,
+          "workingSetBytes": 319041536
+        },
+        {
+          "stage": "retouch-undo-redo-radius",
+          "time": "2026-10-01T20:24:33.5664055-04:00",
+          "threads": 51,
+          "workingSetBytes": 319512576
+        },
+        {
+          "stage": "retouch-delete-spot",
+          "time": "2026-10-01T20:24:33.6844123-04:00",
+          "threads": 51,
+          "workingSetBytes": 320229376
+        },
+        {
+          "stage": "retouch-restore-history",
+          "time": "2026-10-01T20:24:33.7453902-04:00",
+          "threads": 51,
+          "workingSetBytes": 320262144
+        },
+        {
+          "stage": "retouch-cycle-3",
+          "time": "2026-10-01T20:24:33.8866875-04:00",
+          "threads": 51,
+          "workingSetBytes": 320294912
+        },
+        {
+          "stage": "retouch-open-panel",
+          "time": "2026-10-01T20:24:33.8922214-04:00",
+          "threads": 51,
+          "workingSetBytes": 320294912
+        },
+        {
+          "stage": "retouch-transforms",
+          "time": "2026-10-01T20:24:33.897753-04:00",
+          "threads": 51,
+          "workingSetBytes": 320294912
+        },
+        {
+          "stage": "retouch-add-spot",
+          "time": "2026-10-01T20:24:33.9364333-04:00",
+          "threads": 51,
+          "workingSetBytes": 320294912
+        },
+        {
+          "stage": "retouch-add-invoked",
+          "time": "2026-10-01T20:24:33.9632725-04:00",
+          "threads": 52,
+          "workingSetBytes": 320479232
+        },
+        {
+          "stage": "retouch-add-model-committed",
+          "time": "2026-10-01T20:24:33.9690122-04:00",
+          "threads": 52,
+          "workingSetBytes": 320479232
+        },
+        {
+          "stage": "retouch-add-decode-ready",
+          "time": "2026-10-01T20:24:34.0111568-04:00",
+          "threads": 51,
+          "workingSetBytes": 320475136
+        },
+        {
+          "stage": "retouch-layout-resize-1440x960",
+          "time": "2026-10-01T20:24:34.0185494-04:00",
+          "threads": 51,
+          "workingSetBytes": 320475136
+        },
+        {
+          "stage": "retouch-layout-scroll-1440x960",
+          "time": "2026-10-01T20:24:34.3380156-04:00",
+          "threads": 51,
+          "workingSetBytes": 320339968
+        },
+        {
+          "stage": "retouch-layout-verified-1440x960",
+          "time": "2026-10-01T20:24:35.0883319-04:00",
+          "threads": 52,
+          "workingSetBytes": 320417792
+        },
+        {
+          "stage": "retouch-layout-resize-1024x768",
+          "time": "2026-10-01T20:24:35.0941971-04:00",
+          "threads": 52,
+          "workingSetBytes": 320417792
+        },
+        {
+          "stage": "retouch-layout-scroll-1024x768",
+          "time": "2026-10-01T20:24:35.4147781-04:00",
+          "threads": 52,
+          "workingSetBytes": 320573440
+        },
+        {
+          "stage": "retouch-layout-verified-1024x768",
+          "time": "2026-10-01T20:24:36.1654607-04:00",
+          "threads": 51,
+          "workingSetBytes": 320434176
+        },
+        {
+          "stage": "retouch-layout-restore-window",
+          "time": "2026-10-01T20:24:36.1740871-04:00",
+          "threads": 51,
+          "workingSetBytes": 320434176
+        },
+        {
+          "stage": "retouch-layout-restored-window",
+          "time": "2026-10-01T20:24:36.4251385-04:00",
+          "threads": 51,
+          "workingSetBytes": 320438272
+        },
+        {
+          "stage": "retouch-change-kind",
+          "time": "2026-10-01T20:24:36.4331654-04:00",
+          "threads": 51,
+          "workingSetBytes": 320450560
+        },
+        {
+          "stage": "retouch-change-radius",
+          "time": "2026-10-01T20:24:36.5065003-04:00",
+          "threads": 51,
+          "workingSetBytes": 320729088
+        },
+        {
+          "stage": "retouch-undo-redo-radius",
+          "time": "2026-10-01T20:24:36.5656169-04:00",
+          "threads": 51,
+          "workingSetBytes": 321167360
+        },
+        {
+          "stage": "retouch-delete-spot",
+          "time": "2026-10-01T20:24:36.6416584-04:00",
+          "threads": 51,
+          "workingSetBytes": 321294336
+        },
+        {
+          "stage": "retouch-restore-history",
+          "time": "2026-10-01T20:24:36.7040319-04:00",
+          "threads": 51,
+          "workingSetBytes": 321388544
+        },
+        {
+          "stage": "retouch-cycle-4",
+          "time": "2026-10-01T20:24:36.8438381-04:00",
+          "threads": 51,
+          "workingSetBytes": 321470464
+        },
+        {
+          "stage": "retouch-open-panel",
+          "time": "2026-10-01T20:24:36.8510282-04:00",
+          "threads": 51,
+          "workingSetBytes": 321470464
+        },
+        {
+          "stage": "retouch-transforms",
+          "time": "2026-10-01T20:24:36.8575554-04:00",
+          "threads": 51,
+          "workingSetBytes": 321470464
+        },
+        {
+          "stage": "retouch-add-spot",
+          "time": "2026-10-01T20:24:36.891174-04:00",
+          "threads": 51,
+          "workingSetBytes": 321474560
+        },
+        {
+          "stage": "retouch-add-invoked",
+          "time": "2026-10-01T20:24:36.9106049-04:00",
+          "threads": 52,
+          "workingSetBytes": 321622016
+        },
+        {
+          "stage": "retouch-add-model-committed",
+          "time": "2026-10-01T20:24:36.917551-04:00",
+          "threads": 52,
+          "workingSetBytes": 321499136
+        },
+        {
+          "stage": "retouch-add-decode-ready",
+          "time": "2026-10-01T20:24:36.9582438-04:00",
+          "threads": 51,
+          "workingSetBytes": 321515520
+        },
+        {
+          "stage": "retouch-layout-resize-1440x960",
+          "time": "2026-10-01T20:24:36.9636441-04:00",
+          "threads": 51,
+          "workingSetBytes": 321548288
+        },
+        {
+          "stage": "retouch-layout-scroll-1440x960",
+          "time": "2026-10-01T20:24:37.2950302-04:00",
+          "threads": 51,
+          "workingSetBytes": 321404928
+        },
+        {
+          "stage": "retouch-layout-verified-1440x960",
+          "time": "2026-10-01T20:24:38.0481116-04:00",
+          "threads": 52,
+          "workingSetBytes": 321683456
+        },
+        {
+          "stage": "retouch-layout-resize-1024x768",
+          "time": "2026-10-01T20:24:38.0554033-04:00",
+          "threads": 52,
+          "workingSetBytes": 321683456
+        },
+        {
+          "stage": "retouch-layout-scroll-1024x768",
+          "time": "2026-10-01T20:24:38.3918852-04:00",
+          "threads": 52,
+          "workingSetBytes": 321871872
+        },
+        {
+          "stage": "retouch-layout-verified-1024x768",
+          "time": "2026-10-01T20:24:39.1449122-04:00",
+          "threads": 51,
+          "workingSetBytes": 321855488
+        },
+        {
+          "stage": "retouch-layout-restore-window",
+          "time": "2026-10-01T20:24:39.1502943-04:00",
+          "threads": 51,
+          "workingSetBytes": 321855488
+        },
+        {
+          "stage": "retouch-layout-restored-window",
+          "time": "2026-10-01T20:24:39.3778773-04:00",
+          "threads": 51,
+          "workingSetBytes": 321859584
+        },
+        {
+          "stage": "retouch-change-kind",
+          "time": "2026-10-01T20:24:39.3834721-04:00",
+          "threads": 51,
+          "workingSetBytes": 321859584
+        },
+        {
+          "stage": "retouch-change-radius",
+          "time": "2026-10-01T20:24:39.4454621-04:00",
+          "threads": 51,
+          "workingSetBytes": 321859584
+        },
+        {
+          "stage": "retouch-undo-redo-radius",
+          "time": "2026-10-01T20:24:39.4831186-04:00",
+          "threads": 51,
+          "workingSetBytes": 321929216
+        },
+        {
+          "stage": "retouch-delete-spot",
+          "time": "2026-10-01T20:24:39.5530825-04:00",
+          "threads": 51,
+          "workingSetBytes": 321961984
+        },
+        {
+          "stage": "retouch-restore-history",
+          "time": "2026-10-01T20:24:39.6099936-04:00",
+          "threads": 51,
+          "workingSetBytes": 321970176
+        }
+      ]
+    },
+    {
+      "mode": "empty",
+      "report": {
+        "passed": true,
+        "exportRecipeEditorRoundTrip": true,
+        "hwnd": 34278498,
+        "renderPath": "empty",
+        "panelReleases": 1,
+        "rendererStopped": true,
+        "droppedClosingPresents": 0,
+        "viewerDesignNavigation": false,
+        "localSaveFailureRecovery": false,
+        "nativeDetailActualSize": false,
+        "presetUndoRedoAndReset": false,
+        "adjustmentGestureUndoRedo": false,
+        "repairControlsUndoRedo": false,
+        "scopesLifecycle": false,
+        "transferWatcherUndoRedo": false,
+        "comparisonPreservesDocument": false,
+        "cloudOpeningReadiness": false,
+        "cloudSearchPagination": false,
+        "cloudMapHost": false,
+        "responsiveDesign": false,
+        "browseSelectionAndSort": false,
+        "browseScrolling": false,
+        "immediateUndo": false
+      },
+      "repairCheckpoints": []
+    }
+  ],
+  "conclusion": "GPU, CPU and empty lifecycle runs passed with normal exit. Earlier visual303 native XAML crash remains unresolved. The old retouch-add-spot marker also covered window resize and scroll checks, so it did not isolate the failing operation.",
+  "limitations": [
+    "Diagnostic instrumentation only; no production crash fix claimed.",
+    "Synthetic grey RAW at current display scale; not photographic parity or full UI qualification."
+  ]
+}

@@ -22,13 +22,16 @@ public sealed partial class MainWindow
         var invoke = FrameworkElementAutomationPeer.CreatePeerForElement(_repairAdd)?.GetPattern(PatternInterface.Invoke) as IInvokeProvider
             ?? throw new InvalidOperationException("Add repair does not expose the Invoke pattern");
         invoke.Invoke();
+        RecordSmokeStage(output, "retouch-add-invoked");
         if (ViewModel.Renderer.DetailSource == null)
             throw new InvalidOperationException("Repair decode cleared the base needed for ordinary slider rendering");
         await WaitAsync(() => ViewModel.Adjustments.Retouch.Spots.Count == before.Spots.Count + 1);
+        RecordSmokeStage(output, "retouch-add-model-committed");
         await ReadyAsync();
+        RecordSmokeStage(output, "retouch-add-decode-ready");
         if (ViewModel.UndoCount != depth + 1) throw new InvalidOperationException("Repair placement was not one undo entry");
         if (_repairCanvas.Children.Count < 3) throw new InvalidOperationException("Repair source, destination and connector were not drawn");
-        await VerifyRepairActionsLayoutAsync();
+        await VerifyRepairActionsLayoutAsync(output);
         RecordSmokeStage(output, "retouch-change-kind");
         _repairKind.SelectedItem = "Clone";
         await ReadyAsync();
@@ -80,7 +83,7 @@ public sealed partial class MainWindow
         }
     }
 
-    private async Task VerifyRepairActionsLayoutAsync()
+    private async Task VerifyRepairActionsLayoutAsync(string output)
     {
         var originalSize = AppWindow.Size;
         var root = (Microsoft.UI.Xaml.FrameworkElement)Content;
@@ -88,6 +91,7 @@ public sealed partial class MainWindow
         {
             foreach (var size in new[] { new Windows.Graphics.SizeInt32(1440, 960), new Windows.Graphics.SizeInt32(1024, 768) })
             {
+                RecordSmokeStage(output, $"retouch-layout-resize-{size.Width}x{size.Height}");
                 AppWindow.Resize(size);
                 // Native resize and XAML measure complete on separate dispatcher
                 // turns. Await the requested size, as the main resize smoke does.
@@ -107,14 +111,18 @@ public sealed partial class MainWindow
                         + $"presenter={AppWindow.Presenter.Kind}");
                 if (_repairAdd.ActualHeight < 44 || _repairDelete.ActualHeight < 44)
                     throw new InvalidOperationException($"Repair actions do not meet the 44 DIP target height: add={_repairAdd.ActualHeight}, delete={_repairDelete.ActualHeight}");
+                RecordSmokeStage(output, $"retouch-layout-scroll-{size.Width}x{size.Height}");
                 await VerifyPanelControlReachableAsync(EditPanel, _repairDelete, "Delete selected repair");
+                RecordSmokeStage(output, $"retouch-layout-verified-{size.Width}x{size.Height}");
             }
         }
         finally
         {
+            RecordSmokeStage(output, "retouch-layout-restore-window");
             AppWindow.Resize(originalSize);
             await Task.Delay(200);
             root.UpdateLayout();
+            RecordSmokeStage(output, "retouch-layout-restored-window");
         }
     }
 }
