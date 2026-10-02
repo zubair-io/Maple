@@ -118,7 +118,7 @@ fn chroma_params(amount: f32) -> NlmParams {
 ///
 /// The Rec.2020 ↔ Oklab pixel-local maps run through rayon's
 /// `par_iter`; the NLM kernel itself is internally parallel across
-/// its row-update / sqdiff sweeps (see [`crate::stages::nlm`]).
+/// its fused row strips (see [`crate::stages::nlm`]).
 #[inline]
 pub fn apply_luminance(img: &mut Image, amount: f32, noise_profile: Option<&[f32]>, iso: u32) {
     apply_luminance_cancellable(img, amount, CancelToken::never(), noise_profile, iso);
