@@ -191,6 +191,8 @@ Normal Web CPU and GPU previews reopen saved removals from verified companions w
 
 Self Hosted Web runs the same local inference workers and publishes accepted masks and patches through authenticated HTTP. It does not require a browser folder handle. Keep, saved-row controls and global removal history confirm the complete XMP revision before adopting the accepted model. Pending metadata writes settle before a removal commit; later ordinary saves retain the confirmed stack. Offline publication retains the inspectable draft and shows a connection error for retry. Cold preview and export read and verify durable server companions without inference.
 
+Actual CPU/WebGPU browser tests also cover stale saves and a lost HTTP response after the real server publishes the edit. Review remains inspectable on failure. An identical retry confirms the existing operation without rewriting XMP or duplicating history; a later external edit refuses the retry. After reopening, its exposure, foreign metadata and accepted records survive export's existing canonical sidecar refresh, and the PNG matches the independent native renderer. These are workflow and transport checks, not photographic reconstruction qualification.
+
 ### Clone / heal brush
 
 The repair tool is patch-based and needs no model: a spot is a circular destination disc plus the circular source disc its pixels come from. **Clone** copies the source patch; **Heal** copies only the source's high-frequency detail onto the destination's own low-frequency colour, via a Gaussian split, so a repair over a gradient does not paste a visible tonal edge. `feather` softens the rim, `opacity` scales the composite, and spots apply in list order, so a later spot may source from an earlier spot's result.
