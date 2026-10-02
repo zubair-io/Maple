@@ -78,8 +78,15 @@ export async function installProductionFolderPicker(
     },
   );
   await page.exposeBinding('__mapleE2eFileMetadata', async (_source, requested: string) => {
-    const metadata = await stat(fixturePath(root, requested));
-    return { size: metadata.size, lastModified: metadata.mtimeMs };
+    try {
+      const metadata = await stat(fixturePath(root, requested));
+      return { size: metadata.size, lastModified: metadata.mtimeMs };
+    } catch (error) {
+      // #4027: native handles reject absent files with a browser DOMException.
+      // Return absence across the binding; reconstruct it in the page realm.
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
+      throw error;
+    }
   });
   await page.exposeBinding(
     '__mapleE2eWriteFile',
@@ -106,7 +113,9 @@ export async function installProductionFolderPicker(
       const bindings = window as typeof window & {
         __mapleE2eListDirectory(path: string): Promise<DirectoryEntry[]>;
         __mapleE2eReadFileChunk(path: string, offset: number, length: number): Promise<string>;
-        __mapleE2eFileMetadata(path: string): Promise<{ size: number; lastModified: number }>;
+        __mapleE2eFileMetadata(
+          path: string,
+        ): Promise<{ size: number; lastModified: number } | null>;
         __mapleE2eWriteFile(path: string, base64: string): Promise<void>;
         __mapleE2eEnsureDirectory(path: string): Promise<void>;
         __mapleE2eWritePermission(): Promise<PermissionState>;
@@ -133,6 +142,7 @@ export async function installProductionFolderPicker(
         name,
         async getFile() {
           const metadata = await bindings.__mapleE2eFileMetadata(path);
+          if (metadata === null) throw new DOMException(`File not found: ${path}`, 'NotFoundError');
           // File System Access exposes size/mtime without consuming the file's
           // bytes. Keep this test double lazy too: source-identity validation
           // must not turn a warm preview lookup into a full RAW transfer.
@@ -201,8 +211,12 @@ export async function installProductionFolderPicker(
           if (options?.create) await bindings.__mapleE2eEnsureDirectory(childPath);
           return directoryHandle(childPath, child);
         },
-        async getFileHandle(child: string) {
-          return fileHandle(joinPath(path, child), child);
+        async getFileHandle(child: string, options?: { create?: boolean }) {
+          const childPath = joinPath(path, child);
+          if (!options?.create && (await bindings.__mapleE2eFileMetadata(childPath)) === null) {
+            throw new DOMException(`File not found: ${childPath}`, 'NotFoundError');
+          }
+          return fileHandle(childPath, child);
         },
       });
 
