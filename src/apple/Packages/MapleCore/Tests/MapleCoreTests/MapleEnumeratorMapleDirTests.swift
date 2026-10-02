@@ -5,7 +5,7 @@
 // Surface under test:
 //   - FolderEnumerator injects exactly one `.maple/` item per folder
 //     enumeration regardless of depth.
-//   - MapleDirEnumerator surfaces a single `thumbs/` child.
+//   - MapleDirEnumerator surfaces `thumbs/` and `previews/` children.
 //   - MapleThumbsEnumerator synthesises one thumb item per indexed
 //     image in the parent folder, with the server's
 //     `<sha256_prefix16(basename)>.v<current pipeline version>.avif` filename.
@@ -53,7 +53,7 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
         "{\"name\":\"\(img.name)\",\"path\":\"/lib/\(img.name)\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\"\(idField)}"
     }
     return
-      "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[\(imgs.joined(separator: ","))],\"sidecars\":[]}"
+      "{\"path\":\"/lib\",\"parentPath\":\"/\",\"folders\":[],\"images\":[\(imgs.joined(separator: ","))],\"sidecars\":[]}"
   }
 
   // MARK: - Tests
@@ -61,7 +61,9 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
   func testLibraryRootEnumerationIncludesMapleDir() async throws {
     // Server returns one indexed image. The enumerator must surface
     // that image PLUS a synthesised `.maple/` directory item.
-    StubURLProtocol.handler = { _ in
+    StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib")
       let json = self.makeFolderJSON(images: [("IMG_0001.ARW", "abc1234567890123abcdef00")])
       return (200, Data(json.utf8), [:])
     }
@@ -87,16 +89,19 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
     XCTAssertEqual(
       mapleItems.count, 1, "expected exactly one .maple/ entry, got \(items.map(\.filename))")
     // Its identifier round-trips to `.mapleDir(folderID: "f1", parentRelativePath: "")`.
-    let parsed = try FileProviderIdentifier(rawValue: mapleItems[0].itemIdentifier.rawValue)
+    let mapleItem = try XCTUnwrap(mapleItems.first)
+    let parsed = try FileProviderIdentifier(rawValue: mapleItem.itemIdentifier.rawValue)
     XCTAssertEqual(parsed, .mapleDir(folderID: "f1", parentRelativePath: ""))
   }
 
   func testNestedFolderEnumerationIncludesMapleDir() async throws {
     // Per-folder layout: every folder gets its own `.maple/`, not
     // just the library root.
-    StubURLProtocol.handler = { _ in
+    StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib/sub")
       let json =
-        "{\"path\":\"/lib/sub\",\"parent\":\"/lib\",\"dirs\":[],\"images\":[],\"sidecars\":[]}"
+        "{\"path\":\"/lib/sub\",\"parentPath\":\"/lib\",\"folders\":[],\"images\":[],\"sidecars\":[]}"
       return (200, Data(json.utf8), [:])
     }
     let containerID = NSFileProviderItemIdentifier(
@@ -117,7 +122,8 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
     let items = observer.batches.flatMap { $0 }
     let mapleItems = items.filter { $0.filename == ".maple" }
     XCTAssertEqual(mapleItems.count, 1)
-    let parsed = try FileProviderIdentifier(rawValue: mapleItems[0].itemIdentifier.rawValue)
+    let mapleItem = try XCTUnwrap(mapleItems.first)
+    let parsed = try FileProviderIdentifier(rawValue: mapleItem.itemIdentifier.rawValue)
     XCTAssertEqual(parsed, .mapleDir(folderID: "f1", parentRelativePath: "sub"))
   }
 
@@ -129,15 +135,17 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
     // returned page back in as page 2's `startingAt:` — the same
     // way the real OS resumes a paginated enumeration.
     StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib")
       let q = req.url?.query ?? ""
       let isPage2 = q.contains("cursor=p2")
       if isPage2 {
         let json =
-          "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[{\"name\":\"B.dng\",\"path\":\"/lib/B.dng\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"b00000000000000000000000\"}],\"sidecars\":[]}"
+          "{\"path\":\"/lib\",\"parentPath\":\"/\",\"folders\":[],\"images\":[{\"name\":\"B.dng\",\"path\":\"/lib/B.dng\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"b00000000000000000000000\"}],\"sidecars\":[]}"
         return (200, Data(json.utf8), [:])
       }
       let json =
-        "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[{\"name\":\"A.dng\",\"path\":\"/lib/A.dng\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"a00000000000000000000000\"}],\"sidecars\":[],\"next_cursor\":\"p2\"}"
+        "{\"path\":\"/lib\",\"parentPath\":\"/\",\"folders\":[],\"images\":[{\"name\":\"A.dng\",\"path\":\"/lib/A.dng\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"a00000000000000000000000\"}],\"sidecars\":[],\"next_cursor\":\"p2\"}"
       return (200, Data(json.utf8), [:])
     }
     let containerID = NSFileProviderItemIdentifier(
@@ -174,10 +182,12 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
   func testMapleThumbsEnumeratorResumesFromOSSuppliedPage() async throws {
     var requestedCursors: [String?] = []
     StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib")
       let q = req.url?.query ?? ""
       requestedCursors.append(q.contains("cursor=p2") ? "p2" : nil)
       let json = """
-        {"path":"/lib","parent":"/","dirs":[],"images":[
+        {"path":"/lib","parentPath":"/","folders":[],"images":[
           {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"}
         ],"sidecars":[]}
         """
@@ -234,10 +244,12 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
   /// #3571 — the previews listing names entries `<filename>.v<current pipeline version>.avif` (the
   /// server's on-disk name) and versions each by its sidecar's mtime when
   /// the folder listing carries one, else the RAW's mtime.
-  func testMaplePreviewsEnumeratorSurfacesPreviewPerIndexedImageWithSidecarSeed() async {
-    StubURLProtocol.handler = { _ in
+  func testMaplePreviewsEnumeratorSurfacesPreviewPerIndexedImageWithSidecarSeed() async throws {
+    StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib")
       let json = """
-        {"path":"/lib","parent":"/","dirs":[],"images":[
+        {"path":"/lib","parentPath":"/","folders":[],"images":[
           {"name":"A.dng","path":"/lib/A.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"a00000000000000000000000"},
           {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"},
           {"name":"C.dng","path":"/lib/C.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng"}
@@ -277,13 +289,15 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
         .preview(assetID: "a00000000000000000000000"),
         .preview(assetID: "b00000000000000000000000"),
       ])
-    XCTAssertEqual(items[0].parentItemIdentifier, containerID)
+    let first = try XCTUnwrap(items.first)
+    let second = try XCTUnwrap(items.dropFirst().first)
+    XCTAssertEqual(first.parentItemIdentifier, containerID)
     let iso = ISO8601DateFormatter()
     XCTAssertEqual(
-      items[0].contentModificationDate, iso.date(from: "2026-03-04T05:06:07Z"),
+      first.contentModificationDate, iso.date(from: "2026-03-04T05:06:07Z"),
       "A has a sidecar: its mtime seeds the version")
     XCTAssertEqual(
-      items[1].contentModificationDate, iso.date(from: "2026-01-01T00:00:00Z"),
+      second.contentModificationDate, iso.date(from: "2026-01-01T00:00:00Z"),
       "B has none: the RAW's mtime seeds the version")
   }
 
@@ -291,9 +305,11 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
     // Parent folder has two indexed images and one unindexed image
     // (no assetID). Only the two indexed ones should produce thumb
     // items.
-    StubURLProtocol.handler = { _ in
+    StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib")
       let json = """
-        {"path":"/lib","parent":"/","dirs":[],"images":[
+        {"path":"/lib","parentPath":"/","folders":[],"images":[
           {"name":"A.dng","path":"/lib/A.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"a00000000000000000000000"},
           {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b00000000000000000000000"},
           {"name":"C.dng","path":"/lib/C.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng"}
@@ -339,8 +355,11 @@ final class MapleEnumeratorMapleDirTests: XCTestCase {
   func testMapleThumbsEnumeratorEmptyWhenParentHasNoIndexedImages() async {
     // Brand-new library: parent folder has no images at all. Must
     // produce an empty enumeration WITHOUT an error.
-    StubURLProtocol.handler = { _ in
-      let json = "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[],\"sidecars\":[]}"
+    StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib")
+      let json =
+        "{\"path\":\"/lib\",\"parentPath\":\"/\",\"folders\":[],\"images\":[],\"sidecars\":[]}"
       return (200, Data(json.utf8), [:])
     }
     let containerID = NSFileProviderItemIdentifier(
