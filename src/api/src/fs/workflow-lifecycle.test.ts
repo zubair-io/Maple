@@ -5,11 +5,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { callNative } from 'maple';
 import { canonicalBaseFromSidecarFilename } from './browse';
+import { commitWorkflowVariant } from './workflow-variants';
+import { writeXmpAtomic } from './xmp';
 import { listPairedSidecarsStrict } from './xmp-conflict';
 import { relocateFile, sidecarRenameTarget } from './relocate';
 import { moveToTrash, moveOutOfTrash } from './trash';
 import { moveToDuplicates } from './duplicates';
 import { clearMirrorRoots, setMirrorRoots } from './mirror-registry';
+import { registerRoot, unregisterRoot } from './root';
 
 const ID = '00000000-0000-0000-0000-000000000064';
 const OTHER = '00000000-0000-0000-0000-000000000065';
@@ -17,11 +20,13 @@ const XML =
   '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Temperature="5200"><crs:MaskGroup><rdf:Seq><rdf:li>foreign mask &amp; history</rdf:li></rdf:Seq></crs:MaskGroup></rdf:Description></rdf:RDF></x:xmpmeta>';
 let root: string;
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-workflow-lifecycle-'));
+  root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'maple-workflow-lifecycle-')));
+  registerRoot(root);
 });
 afterEach(async () => {
   await fs.flushPendingMirrorOps();
   clearMirrorRoots();
+  unregisterRoot(root);
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -57,6 +62,88 @@ async function expectVariant(file: string, xml: string, id = ID) {
 }
 
 describe('portable variant asset lifecycle', () => {
+  test('mixed concurrent ordinary and semantic writers retain the admitted action', async () => {
+    const source = await stage('mixed-writers', 'photo.dng');
+    const initial = await callNative('workflowEmbedXmp', [
+      JSON.stringify({
+        schemaVersion: 1,
+        variantId: 'primary',
+        variantName: 'Primary',
+        snapshots: [],
+        history: [],
+      }),
+      XML,
+    ]);
+    if (!initial.ok) throw Error(initial.error);
+    const checkpoint = await callNative('workflowCheckpointXmp', [initial.value]);
+    if (!checkpoint.ok) throw Error(checkpoint.error);
+    await fs.writeFile(source.sidecar, initial.value);
+    const entries = Array.from({ length: 8 }, (_, index) => ({
+      id: crypto.randomUUID(),
+      createdAtMs: index + 1,
+      action: 'preset',
+      label: `Preset ${index + 1}`,
+      adjustmentXmp: checkpoint.value,
+    }));
+    const semantic = entries.map((entry) =>
+      commitWorkflowVariant(source.primary, 'primary', initial.value, initial.value, entry),
+    );
+    const ordinary = Array.from({ length: 8 }, () => writeXmpAtomic(source.primary, initial.value));
+    const [results, ordinaryResults] = await Promise.all([
+      Promise.allSettled(semantic),
+      Promise.all(ordinary),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(ordinaryResults.every((result) => result.ok)).toBe(true);
+    const saved = await fs.readFile(source.sidecar, 'utf8');
+    const record = await callNative('workflowReadXmp', [saved]);
+    if (!record.ok) throw Error(record.error);
+    const history = JSON.parse(record.value).history;
+    const winner = results.findIndex((result) => result.status === 'fulfilled');
+    expect(history).toEqual([entries[winner]]);
+    expect(await fs.readFile(source.primary, 'utf8')).toBe(source.original);
+  });
+
+  test('an ordinary cached Workflow payload cannot replace newer semantic history', async () => {
+    const source = await stage('cached-history', 'photo.dng');
+    const embedded = await callNative('workflowEmbedXmp', [
+      JSON.stringify({
+        schemaVersion: 1,
+        variantId: 'primary',
+        variantName: 'Primary',
+        snapshots: [],
+        history: [],
+      }),
+      XML,
+    ]);
+    if (!embedded.ok) throw Error(embedded.error);
+    const older = embedded.value;
+    await fs.writeFile(source.sidecar, older);
+    const captured = await callNative('workflowCheckpointXmp', [older]);
+    if (!captured.ok) throw Error(captured.error);
+    const entry = {
+      id: crypto.randomUUID(),
+      createdAtMs: 1,
+      action: 'adjustment',
+      label: 'Exposure',
+      adjustmentXmp: captured.value,
+    };
+    await commitWorkflowVariant(source.primary, 'primary', older, older, entry);
+    const ordinary = older.replace(
+      'crs:Temperature="5200"',
+      'crs:Temperature="5200" crs:Exposure2012="1.25"',
+    );
+    expect((await writeXmpAtomic(source.primary, ordinary)).ok).toBe(true);
+    const saved = await fs.readFile(source.sidecar, 'utf8');
+    const record = await callNative('workflowReadXmp', [saved]);
+    if (!record.ok) throw Error(record.error);
+    expect(JSON.parse(record.value).history).toEqual([entry]);
+    expect(saved).toContain('crs:Exposure2012="1.25"');
+    expect(saved).toContain('<crs:MaskGroup>');
+    expect(await fs.readFile(source.primary, 'utf8')).toBe(source.original);
+    await expectVariant(source.variant, source.xml);
+  });
+
   test('pairing and trash preserve a UUID sidecar belonging to a differently cased stem', async () => {
     const source = await stage('case', 'IMG_1.dng');
     const foreign = path.join(path.dirname(source.primary), 'img_1.v' + OTHER + '.xmp');

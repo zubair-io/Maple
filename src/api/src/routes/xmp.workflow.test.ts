@@ -55,14 +55,14 @@ const post = (body: string) =>
   );
 
 test('API uses real Rust and atomic sidecar files while preserving authored WB/checkpoints', async () => {
-  const response = await patch(corpus[1]);
+  const response = await patch(corpus[0]);
   expect(response.status).toBe(200);
   const output = await readFile(join(directory, 'photo.xmp'), 'utf8');
   expect(output).toBe(await response.text());
   const read = await callNative('workflowReadXmp', [output]);
   expect(read.ok).toBe(true);
   if (!read.ok) throw Error(read.error);
-  expect(JSON.parse(read.value)).toEqual(corpus[1]);
+  expect(JSON.parse(read.value)).toEqual(corpus[0]);
   expect(output).toContain('<crs:MaskGroupBasedCorrections>');
   expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
   // A client with an older model must not erase newly persisted workflow data.

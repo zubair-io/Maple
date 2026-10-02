@@ -15,7 +15,7 @@ impl SidecarWorkflow {
             return Err("restore actions must select a persisted checkpoint".into());
         }
         let current = Self::checkpoint_xmp(xmp)?;
-        if entry.adjustment_xmp != current {
+        if !Self::matches_checkpoint(&entry.adjustment_xmp, &current)? {
             return Err("committed checkpoint does not match current XMP".into());
         }
         let record = Self::from_xmp(xmp)?.unwrap_or_else(Self::primary);
@@ -28,7 +28,7 @@ impl SidecarWorkflow {
         validation::size(snapshot_json)?;
         let snapshot: WorkflowSnapshot =
             serde_json::from_str(snapshot_json).map_err(|e| e.to_string())?;
-        if snapshot.adjustment_xmp != Self::checkpoint_xmp(xmp)? {
+        if !Self::matches_checkpoint(&snapshot.adjustment_xmp, &Self::checkpoint_xmp(xmp)?)? {
             return Err("snapshot checkpoint does not match current XMP".into());
         }
         let record = Self::from_xmp(xmp)?.unwrap_or_else(Self::primary);
@@ -59,6 +59,19 @@ impl SidecarWorkflow {
         }
         let checkpoint = entry.adjustment_xmp.clone();
         record.committed(entry)?.embed_compacted(&checkpoint)
+    }
+
+    fn matches_checkpoint(captured: &str, current: &str) -> Result<bool, String> {
+        if captured == current {
+            return Ok(true);
+        }
+        validation::checkpoint(captured)?;
+        // A host may attach the retained record before committing (#4052).
+        // Only our own necessary self-closing Description expansion is allowed;
+        // no adjustment, foreign byte, or whitespace normalization is performed.
+        // The captured checkpoint remains exact in history and snapshots.
+        let embedded = Self::primary().embed_in_xmp(captured)?;
+        Ok(Self::checkpoint_xmp(&embedded)? == current)
     }
 
     fn embed_compacted(&self, xmp: &str) -> Result<String, String> {

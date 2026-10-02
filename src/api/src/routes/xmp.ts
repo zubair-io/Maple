@@ -34,63 +34,18 @@
 
 import { Elysia, status, t } from 'elysia';
 import { callNative } from 'maple';
-import { parseSidecarWorkflow } from '../generated/workflow.generated.ts';
+import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import * as fs from 'node:fs/promises';
-import { ObjectId } from '../db/object-id.ts';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
-import { mostSpecificRoot } from '../fs/root-match.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { findDetailByAddress, recordSidecarEdit, setHasXmp } from '../db/assets.repo.ts';
-import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
-import { child as childLogger } from '../log.ts';
+import { publishSidecarChange } from './xmp-change';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order';
+import { safeWriteAllowed } from '../fs/root';
+import { writeSidecarAtomic } from '../fs/sidecar-io';
 import { xmpVariantRoutes } from './xmp-variants';
 import { isMissingSidecar } from '../fs/sidecar-io';
 
-const log = childLogger('xmp-routes');
-
-/**
- * Mirror what the id-keyed `PUT/DELETE /api/assets/:id/xmp` does after the
- * bytes land: flag the asset (`has_xmp` / `sidecar_ver`) and record + publish
- * an `update` on the change feed. The web editor writes through THIS
- * path-keyed route, and without a change row the File Provider extensions
- * never learn that a sidecar changed on the server — a mounted folder kept
- * serving the stale `.xmp` until it was re-mounted (#3563).
- *
- * Best-effort: the write itself has already succeeded, so a lookup or feed
- * failure is logged, never surfaced as an error to the editor. An unindexed
- * path (no asset row yet) simply has nothing to notify.
- */
-async function publishSidecarChange(rawAbsPath: string, edited: boolean): Promise<void> {
-  try {
-    const hit = mostSpecificRoot(rawAbsPath, await loadLibraryRoots());
-    // `MAPLE_ROOTS` env roots (and test-registered roots) carry synthetic
-    // keys, not Mongo ids; only registered libraries have indexed assets.
-    if (!hit || hit.relPath === '' || !ObjectId.isValid(hit.key)) return;
-    const libraryId = new ObjectId(hit.key);
-    const dto = await findDetailByAddress(libraryId, hit.relPath);
-    if (!dto) return;
-    const id = new ObjectId(dto.id);
-    if (edited) {
-      await recordSidecarEdit(id);
-    } else {
-      await setHasXmp(id, false);
-    }
-    await recordAndPublishAssetChange({
-      kind: 'update',
-      asset_id: id,
-      folder_id: libraryId,
-      abs_path: rawAbsPath,
-    });
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    log.warn(
-      { err, path: rawAbsPath },
-      `publishSidecarChange failed (best-effort, ignoring): ${detail}`,
-    );
-  }
-}
 // Note: we deliberately bypass `readXmp` from `../fs/xmp.ts` and call
 // `fs.readFile` directly so we can distinguish "no sidecar" (404) from
 // "filesystem error" (500). The id-keyed route conflates those by
@@ -114,27 +69,38 @@ export const xmpPathRoutes = new Elysia()
         set.status = 422;
         const workflow = parseSidecarWorkflow(body);
         set.status = 500;
-        const existing = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
-          if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
-          throw error;
+        if (workflow.variantId !== PRIMARY_VARIANT_ID)
+          return status(422, { error: 'Variant identity does not match the primary sidecar.' });
+        const allowed = await safeWriteAllowed(sidecar);
+        if (!allowed.ok) return status(403, { error: allowed.error ?? 'Sidecar path not allowed' });
+        const destination = allowed.data ?? sidecar;
+        return await serializeSidecarWrite(destination, async () => {
+          const existing = await fs.readFile(destination, 'utf8').catch((error: unknown) => {
+            if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
+            throw error;
+          });
+          const conversion = await callNative('workflowEmbedXmp', [
+            JSON.stringify(workflow),
+            existing,
+          ]);
+          if (!conversion.ok) {
+            set.status = 422;
+            return { error: conversion.error };
+          }
+          const outcome = await writeSidecarAtomic(
+            destination,
+            conversion.value,
+            'Workflow write failed',
+          );
+          if (!outcome.ok) {
+            set.status = 500;
+            return { error: outcome.error };
+          }
+          await publishSidecarChange(rawPath, true);
+          set.headers['Content-Type'] = 'application/xml';
+          set.status = 200;
+          return conversion.value;
         });
-        const conversion = await callNative('workflowEmbedXmp', [
-          JSON.stringify(workflow),
-          existing,
-        ]);
-        if (!conversion.ok) {
-          set.status = 422;
-          return { error: conversion.error };
-        }
-        const outcome = await writeXmpAtomic(rawPath, conversion.value);
-        if (!outcome.ok) {
-          set.status = 500;
-          return { error: outcome.error };
-        }
-        await publishSidecarChange(rawPath, true);
-        set.headers['Content-Type'] = 'application/xml';
-        set.status = 200;
-        return conversion.value;
       } catch (error) {
         return { error: error instanceof Error ? error.message : String(error) };
       }
@@ -198,7 +164,7 @@ export const xmpPathRoutes = new Elysia()
       }
       await publishSidecarChange(rawPath, true);
       set.headers['Content-Type'] = 'application/xml';
-      return xmlContent;
+      return outcome.data;
     },
     {
       // Force the text parser regardless of the client's Content-Type (the
@@ -212,7 +178,8 @@ export const xmpPathRoutes = new Elysia()
       // live editor write (#2406).
       parse: 'text',
       body: t.String({
-        description: 'Full XMP document. No merging — the file is overwritten byte-for-byte.',
+        description:
+          'Complete adjustment/metadata XML; retains current Workflow authoring records. Use confirmed variant operations to change history or snapshots.',
       }),
       query: t.Object({
         path: t.String(),

@@ -81,6 +81,43 @@ final class WorkflowSidecarTests: XCTestCase {
     XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), next)
     XCTAssertEqual(try Data(contentsOf: original), Data([1, 0, 255, 42]))
   }
+  func testSelfClosingCheckpointsCommitAndSnapshotWithoutRewritingCapturedBytes() async throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let raw = dir.appendingPathComponent("photo.dng")
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    let bytes = Data([1, 0, 255, 42])
+    try bytes.write(to: raw)
+    let source =
+      #"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:vendor="urn:vendor" vendor:Opaque="keep &amp; exact" crs:Temperature="5100" /></rdf:RDF></x:xmpmeta>"#
+    func entry(_ xml: String, _ action: String = "adjustment") -> WorkflowHistoryEntry {
+      WorkflowHistoryEntry(
+        id: UUID().uuidString.lowercased(), createdAtMs: 1, action: action,
+        label: "Temperature", adjustmentXmp: xml)
+    }
+    let store = WorkflowVariantStore(rawURL: raw)
+    let first = try await store.commit(
+      variantId: "primary", expectedXmp: nil, xmp: source, entry: entry(source))
+    let edited = source.replacingOccurrences(of: "5100", with: "7000")
+    let second = try await store.commit(
+      variantId: "primary", expectedXmp: first, xmp: edited, entry: entry(edited))
+    let snapshot = WorkflowSnapshot(
+      id: UUID().uuidString.lowercased(), name: "Warm", createdAtMs: 2, adjustmentXmp: edited)
+    let saved = try await store.saveSnapshot(
+      variantId: "primary", expectedXmp: second, snapshot: snapshot)
+    let restored = try await WorkflowVariantStore(rawURL: raw).restore(
+      variantId: "primary", expectedXmp: saved, entry: entry(source, "history-restore"))
+    let record = try XCTUnwrap(WorkflowSidecarCore.read(xmp: restored))
+    XCTAssertEqual(record.history.map(\.adjustmentXmp), [source, edited, source])
+    XCTAssertEqual(record.snapshots, [snapshot])
+    XCTAssertEqual(try XMPParser.parse(restored).0, try XMPParser.parse(source).0)
+    let forged = source.replacingOccurrences(of: "keep &amp; exact", with: "changed")
+    XCTAssertThrowsError(try WorkflowSidecarCore.commit(entry(forged), in: restored))
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), restored)
+    XCTAssertEqual(try Data(contentsOf: raw), bytes)
+  }
+
   func testConfirmedVariantActionsPersistAndRejectStaleOrForgedCheckpoints() async throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

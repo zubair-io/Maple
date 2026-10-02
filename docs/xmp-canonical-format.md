@@ -634,8 +634,10 @@ outside rendering, using the shared Rust filename and XML validators.
 
 The shared semantic operations (#4042) accept generated `WorkflowHistoryEntry`
 and `WorkflowSnapshot` records. Commit and snapshot creation require their
-checkpoint to equal the current complete XMP after validated Workflow removal;
-stale or forged input fails. Restore requires an exact checkpoint already stored
+checkpoint to equal the current complete XMP after validated Workflow removal,
+allowing only the exact self-closing Description expansion produced by the shared
+embedding implementation (#4052); stale or forged input fails. Adjustment fields,
+foreign bytes and surrounding whitespace are never normalized. Restore requires an exact checkpoint already stored
 in the selected variant's snapshots or retained history and a corresponding
 `snapshot-restore` or `history-restore` action. It keeps the current variant
 identity and named snapshots while appending one committed restore entry.
@@ -664,8 +666,13 @@ history publication share the selected-variant Web Lock and read current source 
 inside it. Failed captured actions remain queued for flush or subsequent preview
 save; changing folders cannot redirect a previous gesture's sidecar. Named records
 in a primary sidecar and unsupported Workflow records fail without publication.
-SMB/API native and Self Hosted Web editor transaction/indexing wiring still follows
-under #2437.
+Server primary ordinary and selected semantic saves share one canonical-path
+sequencing barrier (#4051). Ordinary saves retain the latest persisted Workflow
+record even if incoming XML carries an older copy. Successful selected-primary
+write, commit, snapshot and restore operations publish the library sidecar state
+and change feed; named-variant operations leave the primary index unchanged.
+SMB/API native and Self Hosted Web editor transaction hooks still follow under
+#2437.
 
 Cache-aware switching, snapshots/history UI, one-step
 Undo for restore, and deletion/recovery remain acceptance requirements under
