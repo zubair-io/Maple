@@ -54,6 +54,7 @@ extension RemovalSession {
     let token = revision &+ 1
     revision = token
     phase = .selecting
+    message = ""
     do {
       let mask = try await selectedMask(proposed, context: context, token: token)
       guard current(token) else { return }
@@ -75,6 +76,7 @@ extension RemovalSession {
     let token = revision &+ 1
     revision = token
     phase = .selecting
+    message = ""
     do {
       let mask = try await selectedMask(proposed, context: context, token: token)
       guard current(token) else { return }

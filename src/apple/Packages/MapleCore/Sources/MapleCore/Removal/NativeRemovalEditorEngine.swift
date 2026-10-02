@@ -292,6 +292,9 @@ actor NativeRemovalEditorEngine {
   }
 
   private func json(_ value: [String: Any]) throws -> String {
-    String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self)
+    guard JSONSerialization.isValidJSONObject(value) else {
+      throw RemovalError.invalid("Removal selection contains invalid coordinates.")
+    }
+    return String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self)
   }
 }

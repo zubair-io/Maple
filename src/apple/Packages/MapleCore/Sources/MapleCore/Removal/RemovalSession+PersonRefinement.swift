@@ -62,6 +62,7 @@ extension RemovalSession {
     let token = revision &+ 1
     revision = token
     phase = .selecting
+    message = ""
     do {
       let proposed = Array(personGestures.dropLast())
       let result = try await engine.refinePeople(
@@ -80,6 +81,7 @@ extension RemovalSession {
     let token = revision &+ 1
     revision = token
     phase = .selecting
+    message = ""
     do {
       let proposed = personGestures + [gesture]
       let result = try await engine.refinePeople(
