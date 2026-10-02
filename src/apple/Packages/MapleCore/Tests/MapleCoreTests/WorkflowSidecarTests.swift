@@ -4,18 +4,16 @@ import XCTest
 @testable import MapleCore
 
 final class WorkflowSidecarTests: XCTestCase {
-  private var root: URL {
-    URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-      .appendingPathComponent("../../../../../../test-fixtures").standardized
-  }
   private func record() throws -> SidecarWorkflow {
     try JSONDecoder().decode(
       [SidecarWorkflow].self,
-      from: Data(contentsOf: root.appendingPathComponent("workflow/contract-v1.json")))[1]
+      from: Data(
+        contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract-v1.json")))[1]
   }
   private func xml() throws -> String {
     try String(
-      contentsOf: root.appendingPathComponent("local-adjustments/lightroom-group-add.xmp"),
+      contentsOf: WorkflowFixture.root().appendingPathComponent(
+        "local-adjustments/lightroom-group-add.xmp"),
       encoding: .utf8)
   }
   func testRustValidationAndEmbeddingPreserveCompleteAuthoredCheckpoints() throws {

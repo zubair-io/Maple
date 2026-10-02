@@ -5,10 +5,7 @@ import XCTest
 
 final class WorkflowContractTests: XCTestCase {
   private func corpusData() throws -> Data {
-    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-      .appendingPathComponent("../../../../../../test-fixtures/workflow/contract-v1.json")
-      .standardized
-    return try Data(contentsOf: root)
+    try Data(contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract-v1.json"))
   }
   func testCompleteCheckpointBytesSurviveActualFilesAndReopen() throws {
     let values = try JSONDecoder().decode([SidecarWorkflow].self, from: corpusData())
@@ -28,6 +25,25 @@ final class WorkflowContractTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sidecar), Data(xml.utf8))
       }
     }
+  }
+  func testFixturesResolveFromStagedCIStructureAndFailWhenMissing() throws {
+    let stage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: stage) }
+    let root = stage.appendingPathComponent("test-fixtures")
+    let committed = try WorkflowFixture.root()
+    for relative in WorkflowFixture.required {
+      let destination = root.appendingPathComponent(relative)
+      try FileManager.default.createDirectory(
+        at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try FileManager.default.copyItem(
+        at: committed.appendingPathComponent(relative), to: destination)
+    }
+    let source = stage.appendingPathComponent(
+      "Packages/MapleCore/Tests/MapleCoreTests/source.swift")
+    XCTAssertEqual(try WorkflowFixture.root(from: source).path, root.path)
+    try FileManager.default.removeItem(at: root)
+    XCTAssertThrowsError(try WorkflowFixture.root(from: source))
   }
   func testWireDecoderRejectsMalformedRecordsWithoutChangingInput() throws {
     let rows = try XCTUnwrap(JSONSerialization.jsonObject(with: corpusData()) as? [[String: Any]])
@@ -64,5 +80,32 @@ final class WorkflowContractTests: XCTestCase {
           SidecarWorkflow.self, from: JSONSerialization.data(withJSONObject: value)))
     }
     XCTAssertEqual(try JSONDecoder().decode([SidecarWorkflow].self, from: corpusData()).count, 2)
+  }
+}
+
+/// Both the checkout and CI's isolated package must include the committed corpus.
+enum WorkflowFixture {
+  static let required = ["workflow/contract-v1.json", "local-adjustments/lightroom-group-add.xmp"]
+  static func root(from file: URL = URL(fileURLWithPath: #filePath)) throws -> URL {
+    let parents = sequence(first: file.standardizedFileURL.deletingLastPathComponent()) {
+      directory -> URL? in
+      let parent = directory.deletingLastPathComponent().standardizedFileURL
+      return parent.path == directory.path ? nil : parent
+    }
+    guard
+      let root = parents.lazy.map({ $0.appendingPathComponent("test-fixtures") }).first(where: {
+        directory in
+        required.allSatisfy {
+          FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
+        }
+      })
+    else {
+      throw NSError(
+        domain: "WorkflowFixture", code: 1,
+        userInfo: [
+          NSLocalizedDescriptionKey: "Missing committed workflow fixtures above \(file.path)"
+        ])
+    }
+    return root
   }
 }

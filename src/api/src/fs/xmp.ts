@@ -60,13 +60,13 @@ export function xmpSidecarPath(rawAbsPath: string): string {
  */
 export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
   const sidecar = xmpSidecarPath(rawAbsPath);
-  try {
-    const content = await readFileWithFailover(sidecar);
-    return { ok: true, data: content };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `No XMP sidecar at "${sidecar}": ${msg}` };
-  }
+  return readFileWithFailover(sidecar).then(
+    (content) => ({ ok: true, data: content }),
+    (error: unknown) => ({
+      ok: false,
+      error: `No XMP sidecar at "${sidecar}": ${error instanceof Error ? error.message : String(error)}`,
+    }),
+  );
 }
 
 /** Validate existing authoring records before an edit can replace the sidecar. */

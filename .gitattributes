@@ -8,3 +8,7 @@
 *.bash text eol=lf
 Makefile text eol=lf
 *.mk text eol=lf
+
+# #4035: the shared JSON corpus embeds this exact committed XMP checkpoint.
+# Keep its source bytes stable on Windows as well as Apple/Linux checkouts.
+test-fixtures/local-adjustments/lightroom-group-add.xmp text eol=lf
