@@ -218,15 +218,23 @@ struct PreviewView: View {
     }
     .overlay(alignment: .top) {
       FloatingImageHeader(
-        displayName: asset.displayName,
         identifierPrefix: "preview",
         onBack: onDismiss
       ) {
+        Text(asset.displayName)
+          .font(.system(size: 16, weight: .medium))
+          .lineLimit(1)
+          .truncationMode(.middle)
+          .padding(.horizontal, 12)
+          .accessibilityIdentifier("preview-filename")
+      } trailing: {
         Button {
           onEdit(asset)
         } label: {
-          MuiIcon(name: "edit", size: .sm)
+          Image(systemName: "pencil")
+            .font(.system(size: 22))
             .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(ProTokens.text)
@@ -236,8 +244,10 @@ struct PreviewView: View {
         Button {
           infoPresented(hasInspector: hasInspector).wrappedValue.toggle()
         } label: {
-          MuiIcon(name: "info", size: .sm)
+          Image(systemName: "info.circle")
+            .font(.system(size: 22))
             .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(ProTokens.text)

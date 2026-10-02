@@ -29,10 +29,9 @@ import XCTest
 
       undo.click()
       let reverted = XCTNSPredicateExpectation(
-        predicate: NSPredicate(format: "exists == false"),
-        object: app.buttons["editor-before-after"])
-      // The header keeps Undo enabled when redo is available, so inspect
-      // its accessible before/after control to verify the clean model.
+        predicate: NSPredicate(format: "enabled == false"),
+        object: undo)
+      // Redo lives in More; Undo disables again when the original model is restored.
       XCTAssertEqual(XCTWaiter.wait(for: [reverted], timeout: 10), .completed)
     }
   }

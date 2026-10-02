@@ -1664,6 +1664,84 @@
         "line": 138,
         "source": "Image(systemName: \"person\").resizable().symbolRenderingMode(.monochrome))",
         "reason": "Canvas Image legend for the skin-angle cone, retained as a data-rendering glyph rather than chrome."
+      },
+      {
+        "file": "src/apple/Maple/Views/FloatingImageHeader.swift",
+        "line": 31,
+        "source": "Image(systemName: \"chevron.left\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 31,
+        "source": "Image(systemName: \"arrow.uturn.backward\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 56,
+        "source": "systemImage: \"circle.lefthalf.filled\"",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 66,
+        "source": "Label(\"Redo\", systemImage: \"arrow.uturn.forward\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 74,
+        "source": "Label(\"Photo Info\", systemImage: \"info.circle\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 79,
+        "source": "Label(\"Share / Export\u2026\", systemImage: \"square.and.arrow.up\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 84,
+        "source": "Label(\"Show Vectorscope\", systemImage: \"circle.hexagongrid\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 90,
+        "source": "Label(\"Show Scopes\", systemImage: \"waveform.path.ecg.rectangle\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 100,
+        "source": "Label(\"Zoom to Fit\", systemImage: \"arrow.up.left.and.arrow.down.right\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PillHeader.swift",
+        "line": 109,
+        "source": "Image(systemName: \"ellipsis\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/EditorAutoButton.swift",
+        "line": 15,
+        "source": "Image(systemName: \"wand.and.rays\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PreviewView.swift",
+        "line": 234,
+        "source": "Image(systemName: \"pencil\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
+      },
+      {
+        "file": "src/apple/Maple/Views/PreviewView.swift",
+        "line": 246,
+        "source": "Image(systemName: \"info.circle\")",
+        "reason": "Approved native Photos-style header and system overflow menu (#4003): use SF Symbols with native Liquid Glass controls."
       }
     ]
   }

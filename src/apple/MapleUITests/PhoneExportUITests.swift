@@ -58,16 +58,11 @@ import XCTest
         .firstMatch
       XCTAssertTrue(canvas.waitForExistence(timeout: 90), "editor canvas never became ready")
 
-      // The pill's trailing controls scroll horizontally on compact width;
-      // drag the pill row left until Share is on screen.
-      let share = app.buttons["editor-share"]
-      XCTAssertTrue(share.waitForExistence(timeout: 10), "editor Share button missing")
-      if !share.isHittable {
-        let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.08))
-        let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.08))
-        from.press(forDuration: 0.05, thenDragTo: to)
-      }
-      XCTAssertTrue(share.isHittable, "editor Share button never scrolled into view")
+      let more = app.buttons["editor-more"]
+      XCTAssertTrue(more.waitForExistence(timeout: 10))
+      more.tap()
+      let share = app.buttons["Share / Export…"]
+      XCTAssertTrue(share.waitForExistence(timeout: 5), "editor Share menu item missing")
       share.tap()
 
       let export = app.buttons["export-confirm"]

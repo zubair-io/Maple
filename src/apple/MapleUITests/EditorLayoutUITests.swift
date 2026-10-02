@@ -36,7 +36,7 @@ import XCTest
       let edited = try XCTUnwrap(blackWhite.value as? String)
       XCTAssertNotEqual(edited, initial)
       app.typeKey("1", modifierFlags: .command)
-      let zoom = app.buttons["editor-pill-zoom"]
+      let zoom = app.buttons["canvas-zoom-indicator"]
       let zoomValue = try XCTUnwrap(zoom.value as? String)
 
       for width: CGFloat in [800, 700, 1100] {

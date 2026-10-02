@@ -38,7 +38,8 @@ import XCTest
       let app = driver.app
 
       // 1. Show the scope.
-      app.buttons["editor-pill-scope"].click()
+      app.descendants(matching: .any).matching(identifier: "editor-more").firstMatch.click()
+      app.menuItems["Show Vectorscope"].click()
       let hud = app.otherElements["editor-vectorscope-hud"]
       XCTAssertTrue(hud.waitForExistence(timeout: 5), "vectorscope HUD didn't appear")
 
