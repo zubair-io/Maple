@@ -81,12 +81,13 @@ public struct CloudAssetOwner: Codable, Equatable, Sendable {
   }
 }
 
+/// Owners without an account email still participate in library facets.
 public struct AssetOwnerFacet: Codable, Equatable, Sendable, Identifiable {
   public let id: String
-  public let email: String
+  public let email: String?
   public let count: Int
 
-  public init(id: String, email: String, count: Int) {
+  public init(id: String, email: String?, count: Int) {
     self.id = id
     self.email = email
     self.count = count

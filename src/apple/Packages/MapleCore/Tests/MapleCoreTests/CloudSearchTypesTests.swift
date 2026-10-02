@@ -50,6 +50,19 @@ final class CloudSearchTypesTests: XCTestCase {
       modern.owners, [AssetOwnerFacet(id: "member", email: "studio@example.com", count: 3)])
   }
 
+  func test_ownerFacetsRoundTripNullAndAbsentEmail() throws {
+    for field in [",\"email\":null", ""] {
+      let data = Data("{\"id\":\"device\",\"count\":2\(field)}".utf8)
+      let owner = try JSONDecoder().decode(AssetOwnerFacet.self, from: data)
+      XCTAssertEqual(owner.id, "device")
+      XCTAssertEqual(owner.count, 2)
+      XCTAssertNil(owner.email)
+      let restored = try JSONDecoder().decode(
+        AssetOwnerFacet.self, from: JSONEncoder().encode(owner))
+      XCTAssertEqual(restored, owner)
+    }
+  }
+
   func test_decode_fullPlaceObjectAndHasXmpTrue() throws {
     let json = """
       {"id":"a1","folder_id":"lib-1","abs_path":"/p/a.dng","filename":"a.dng",

@@ -61,7 +61,7 @@ public final class AssetOwnerFilterModel {
       guard g == generation, !Task.isCancelled else { return }
       owners = facets.owners
       for owner in owners {
-        let email = owner.email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let email = owner.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         knownLabels[owner.id] = email.isEmpty ? owner.id : email
       }
     } catch {
