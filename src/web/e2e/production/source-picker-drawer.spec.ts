@@ -87,3 +87,159 @@ test('drawer close button retains its native pointer click', async ({ page }) =>
   await page.getByRole('button', { name: 'Close library', exact: true }).click();
   await expect(drawer).not.toBeVisible();
 });
+
+test('drawer swipes can begin on a control without activating it', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const { drawer, box } = await openDrawer(page);
+  const button = page.getByRole('button', { name: 'Close library', exact: true });
+  const buttonBox = await button.boundingBox();
+  if (!buttonBox) throw new Error('Close button has no bounding box');
+  const x = buttonBox.x + buttonBox.width / 2;
+  const y = buttonBox.y + buttonBox.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - box.width * 0.29, y, { steps: 8 });
+  await page.mouse.up();
+  await expect(drawer).toBeVisible();
+  await expect.poll(() => drawer.evaluate((el) => el.getBoundingClientRect().x)).toBe(0);
+
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - box.width * 0.31, y, { steps: 8 });
+  await page.mouse.up();
+  await expect(drawer).not.toBeVisible();
+});
+
+test('a small pointer movement still activates the drawer control', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const { drawer } = await openDrawer(page);
+  const button = page.getByRole('button', { name: 'Close library', exact: true });
+  const box = await button.boundingBox();
+  if (!box) throw new Error('Close button has no bounding box');
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 2, y);
+  await page.mouse.up();
+  await expect(drawer).not.toBeVisible();
+});
+
+test('an uncaptured release outside the drawer does not strand its next gesture', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const { drawer, box } = await openDrawer(page);
+  const x = box.x + box.width - 1;
+  const y = box.y + box.height * 0.75;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 3, y);
+  await page.mouse.up();
+  await expect(drawer).toBeVisible();
+
+  const next = await startDrag(page, box);
+  await page.mouse.move(next.x - box.width * 0.31, next.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(drawer).not.toBeVisible();
+});
+
+test('cancelled touch drags restore the drawer instead of dismissing it', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const { drawer, box } = await openDrawer(page);
+  await page.evaluate(() => {
+    const events: object[] = [];
+    (window as unknown as { drawerPointerEvents: object[] }).drawerPointerEvents = events;
+    for (const name of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+      document.addEventListener(
+        name,
+        (event) => {
+          const pointer = event as PointerEvent;
+          events.push({
+            type: pointer.type,
+            button: pointer.button,
+            primary: pointer.isPrimary,
+            pointerType: pointer.pointerType,
+            x: pointer.clientX,
+            y: pointer.clientY,
+            target: (pointer.target as Element)?.tagName,
+          });
+        },
+        { capture: true },
+      );
+    }
+  });
+  await testInfo.attach('drawer-touch-policy.json', {
+    body: Buffer.from(
+      JSON.stringify(
+        await drawer.evaluate((el) => ({
+          drawer: getComputedStyle(el).touchAction,
+          navigation: getComputedStyle(el.querySelector('nav')!).touchAction,
+          navigationOverflow: getComputedStyle(el.querySelector('nav')!).overflowX,
+        })),
+      ),
+    ),
+    contentType: 'application/json',
+  });
+  await expect
+    .poll(() => drawer.locator('nav').evaluate((el) => getComputedStyle(el).touchAction))
+    .toBe('pan-y');
+  const cdp = await page.context().newCDPSession(page);
+  const x = box.x + box.width * 0.75;
+  const y = box.y + box.height * 0.75;
+  try {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    for (const fraction of [0.1, 0.2, 0.31]) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: x - box.width * fraction, y }],
+      });
+    }
+    await expect
+      .poll(() => drawer.evaluate((el) => el.getBoundingClientRect().x))
+      .toBeLessThan(-box.width * 0.3);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await expect(drawer).toBeVisible();
+    await expect.poll(() => drawer.evaluate((el) => el.getBoundingClientRect().x)).toBe(0);
+    await page.getByRole('button', { name: 'Close library', exact: true }).click();
+    await expect(drawer).not.toBeVisible();
+  } finally {
+    await testInfo.attach('drawer-pointer-events.json', {
+      body: Buffer.from(
+        JSON.stringify(
+          await page.evaluate(
+            () => (window as unknown as { drawerPointerEvents: object[] }).drawerPointerEvents,
+          ),
+        ),
+      ),
+      contentType: 'application/json',
+    });
+    await cdp.detach();
+  }
+});
+
+test('a touch swipe in the scrollable source tree dismisses the drawer', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const { drawer, box } = await openDrawer(page);
+  const cdp = await page.context().newCDPSession(page);
+  const x = box.x + box.width * 0.75;
+  const y = box.y + box.height * 0.75;
+  try {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    for (const fraction of [0.1, 0.2, 0.31]) {
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: x - box.width * fraction, y }],
+      });
+    }
+    await expect
+      .poll(() => drawer.evaluate((el) => el.getBoundingClientRect().x))
+      .toBeLessThan(-box.width * 0.3);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect(drawer).not.toBeVisible();
+  } finally {
+    await cdp.detach();
+  }
+});

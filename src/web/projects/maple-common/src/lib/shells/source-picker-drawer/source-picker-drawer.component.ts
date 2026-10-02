@@ -140,32 +140,38 @@ export class SourcePickerDrawerComponent {
   protected onPointerDown(e: PointerEvent): void {
     // Only respond to the primary pointer; secondary touches (multi-touch
     // pinch) should not start a drag.
-    // Capturing a button's press retargets its click to the drawer, which
-    // swallows Close, Search and source selection. Keep controls native;
-    // the non-interactive drawer surface owns the pan gesture (#4028).
-    const pressedControl = e.target instanceof Element && e.target.closest('button');
-    if (this.pointerId !== null || pressedControl) return;
+    if (this.pointerId !== null || !e.isPrimary || e.button !== 0) return;
     this.pointerId = e.pointerId;
     this.pointerStartX = e.clientX;
-    this.dragDx.set(0);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    // Wait for movement before capturing: a captured pointerup retargets
+    // the subsequent click to the drawer and swallows native controls.
+    // Control-origin swipes still become drawer drags once they move (#4028).
   }
 
   protected onPointerMove(e: PointerEvent): void {
     if (this.pointerId !== e.pointerId) return;
     const dx = e.clientX - this.pointerStartX;
+    // A small amount of pointer jitter must remain a native control tap.
+    if (this.dragDx() === null && Math.abs(dx) < 6) return;
+    const drawer = this.drawer()?.nativeElement;
+    if (!drawer) return;
+    if (!drawer.hasPointerCapture(e.pointerId)) drawer.setPointerCapture(e.pointerId);
     // Clamp the displayed drag to leftward motion only — rightward motion
     // while the drawer is at rest is a no-op visually.
     this.dragDx.set(dx);
   }
 
+  // Before the movement threshold there is no drawer capture, so release
+  // outside the drawer must still clear the pending press.
+  @HostListener('document:pointerup', ['$event'])
+  @HostListener('document:pointercancel', ['$event'])
   protected onPointerUp(e: PointerEvent): void {
     if (this.pointerId !== e.pointerId) return;
     const dx = this.dragDx() ?? 0;
     this.pointerId = null;
     this.dragDx.set(null);
     try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      this.drawer()?.nativeElement.releasePointerCapture(e.pointerId);
     } catch {
       /* Pointer may already be released; safe to swallow. */
     }
@@ -173,7 +179,7 @@ export class SourcePickerDrawerComponent {
     // the rendered DOM rather than re-deriving from the viewport keeps the
     // threshold honest if the responsive `min(326px, 81vw)` rule clamps it.
     const w = this.drawer()?.nativeElement.clientWidth ?? 326;
-    if (dx <= -w * 0.3) {
+    if (e.type !== 'pointercancel' && dx <= -w * 0.3) {
       this.isOpen.set(false);
     }
   }
