@@ -41,6 +41,7 @@
 import { nativeLibAvailable } from './raw_ffi.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
 import type { LensProfileInventory } from '../lens-profiles/types.ts';
+import type { VerifiedRemovalAssets } from './raw_ffi-removal-assets.ts';
 import { defaultChildWorkerFactory } from './ffi-child-worker.ts';
 import { WorkerSlotPool } from './ffi-pool-slots.ts';
 import type { PendingRequest, PoolWorker, WorkerFactory } from './ffi-pool-slots.ts';
@@ -323,6 +324,23 @@ class FfiWorkerPool {
         onError: reject,
       });
     });
+  }
+
+  async verifyRemovalAssets(rawPath: string, records: string): Promise<VerifiedRemovalAssets> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) =>
+      this.enqueue({
+        id,
+        post: (w) => w.postMessage({ type: 'removalAssets', id, rawPath, records }),
+        onResponse: (msg) => {
+          if (msg.type !== 'removalAssets') return false;
+          if (msg.ok && msg.assets) resolve(msg.assets);
+          else reject(new Error(msg.error ?? 'Removal asset validation failed'));
+          return true;
+        },
+        onError: reject,
+      }),
+    );
   }
 
   /** True once `shutdown()` has run — `ffiPool()` uses this (#3524). Either

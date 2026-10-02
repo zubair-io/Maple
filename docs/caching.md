@@ -292,6 +292,19 @@ The derivative audit imports the same thumb and preview targets used by the stag
 
 On the server, `src/api/src/library/relocate-asset.ts` resets `stages.thumb` and `stages.preview` to version 0 (clearing attempts, last error, and the dead flag) inside the same atomic update that repoints the `fileinfo` document, so the workers regenerate at the new location. `src/api/src/workers/discover/rename-reconcile.ts` does the same when the discovery sweep matches a vanished file to a new one by fingerprint — file size plus EXIF `DateTimeOriginal` plus camera serial, with a structural guard that yields a pairing only when both fingerprint buckets hold exactly one member. `src/api/src/fs/relocate.ts` itself never touches cache files at all — that is the caller's job inside its `onVerified` hook.
 
+Accepted removal assets are durable content, so the API's relocation path copies
+the sidecar-referenced `.maple/inpaint/` masks and patches into the destination
+folder before repointing or deleting the source (#1472). The actual native child
+validates record schemas, original digests and asset codecs/checksums; XMP bytes
+are copied unchanged, including paired conflict sidecars. Files and destination
+directory entries are synced before source deletion. Immutable assets publish
+create-only, existing corrupt assets fail, and source-folder assets remain because
+other photos can share their digests. Failed identity repoints restore replacement
+RAW/XMP occupants. Sidecar changes detected after a successful repoint retain both
+complete copies; an unreadable source sidecar stops before publishing the RAW.
+Trash and restore use this same path. These file-operation reads do not run during
+rendering or slider ticks, and do not create a new cache.
+
 Only those two cheap raster stages reset. `describe`, `geocode`, `face-detect`, and `face-embed` keep their versions and timestamps, and `src/api/src/library/cache-invalidation-on-move.test.ts` asserts that explicitly: a move doesn't change pixels, so a caption, a reverse-geocode, or a face embedding computed before it is still valid, and re-running them would turn an O(1) filesystem operation into an O(inference) one. The same test also pins that re-running the thumb stage handler for that single asset — never a folder-wide rescan — is enough to produce a correct thumbnail at the new path, and that the old thumb is never served for it, because the two are different filesystem paths by construction rather than one cache slot being repointed.
 
 On Apple, `LocalFileOperations.invalidateDerivedCaches` (and its SMB twin) removes the old `.maple/thumbs/` and `.maple/previews/` files **and** awaits `RenderedPreviewCache.invalidate(assetURL:)`. That second call is load-bearing: the rendered-preview cache is an Apple-local cold-open cache with its own `<urlHash>_<variantHash>.jpg` naming in the same folder plus a 20-entry memory front, and a bare file removal never touches it. Nothing ever revisits a moved asset's old URL, so without the explicit call the old entry leaks in memory and on disk indefinitely — not a bounded wait for eviction. `refreshLibraryIndexAfterMove` separately carries the old `.maple/index.json` row's stars and flag across so a moved photo doesn't transiently read as unflagged.

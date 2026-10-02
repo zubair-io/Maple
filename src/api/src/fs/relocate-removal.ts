@@ -1,0 +1,262 @@
+/** #1472: a RAW relocation carries its immutable edit assets before repoint/delete. */
+import * as fs from './mirrored.ts';
+import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { ffiPool } from '../ffi/ffi-pool.ts';
+import { filesIdentical } from '../backup/fs-util.ts';
+import { listPairedSidecars } from './xmp-conflict.ts';
+import { removalRecords } from './removal-records.ts';
+import { sidecarRenameTarget } from './sidecar-rename.ts';
+import { child as childLogger } from '../log.ts';
+import type { RelocateOutcome, RelocateRequest } from './relocate.ts';
+
+const log = childLogger('fs/removal-relocate');
+interface Snapshot {
+  path: string;
+  bytes: Buffer<ArrayBuffer>;
+  records: string | null;
+}
+
+async function snapshots(raw: string): Promise<Snapshot[]> {
+  return Promise.all(
+    (await listPairedSidecars(raw)).sort().map(async (path) => {
+      const bytes = await fs.readFile(path);
+      return { path, bytes, records: removalRecords(bytes.toString('utf8')) };
+    }),
+  );
+}
+
+async function assertSidecars(raw: string, expected: readonly Snapshot[]) {
+  const current = await snapshots(raw);
+  const byPath = new Map(expected.map((entry) => [entry.path, entry.bytes]));
+  if (
+    current.length !== expected.length ||
+    current.some((entry) => !entry.bytes.equals(byPath.get(entry.path) ?? Buffer.alloc(0)))
+  )
+    throw new Error('Photo sidecars changed during removal relocation; source retained');
+}
+
+async function verify(raw: string, sidecars: readonly Snapshot[], digest?: string) {
+  const values = await Promise.all(
+    sidecars
+      .filter((value) => value.records !== null)
+      .map((value) => ffiPool().verifyRemovalAssets(raw, value.records!)),
+  );
+  const originalDigest = values[0].originalDigest;
+  if (
+    values.some((value) => value.originalDigest !== originalDigest) ||
+    (digest && digest !== originalDigest)
+  )
+    throw new Error('Original changed during removal relocation; source retained');
+  return { originalDigest, names: [...new Set(values.flatMap((value) => value.names))] };
+}
+
+async function existing(path: string) {
+  return fs.lstat(path).catch((error: unknown) => {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+      return null;
+    throw error;
+  });
+}
+
+async function syncDirectory(path: string) {
+  const directory = await fs.open(path, 'r');
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+}
+
+async function ensureAssetsDirectory(raw: string) {
+  const maple = join(dirname(raw), '.maple');
+  const assets = join(maple, 'inpaint');
+  for (const path of [maple, assets]) {
+    const info = await existing(path);
+    if (info && (!info.isDirectory() || info.isSymbolicLink()))
+      throw new Error('Removal companion directory must not be a link or file');
+    await fs.mkdir(path, { recursive: true });
+    await syncDirectory(dirname(path));
+  }
+  return assets;
+}
+
+async function syncCopy(source: string, temp: string) {
+  await fs.copyFile(source, temp);
+  if (!(await filesIdentical(source, temp)))
+    throw new Error(`Removal copy verification failed: ${source}`);
+  const file = await fs.open(temp, 'r+');
+  try {
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+}
+
+async function copyAsset(source: string, target: string) {
+  const info = await existing(target);
+  if (info) {
+    if (!info.isFile() || info.isSymbolicLink() || !(await filesIdentical(source, target)))
+      throw new Error(`Existing removal companion is corrupt or unsafe: ${target}`);
+    return;
+  }
+  const temp = `${target}.tmp.${randomUUID()}`;
+  try {
+    await syncCopy(source, temp);
+    // Create-only publication: accepted bytes cannot overwrite another edit.
+    await fs.link(temp, target).catch(async (error) => {
+      if (error?.code !== 'EEXIST') throw error;
+      const current = await existing(target);
+      if (!current?.isFile() || current.isSymbolicLink() || !(await filesIdentical(source, target)))
+        throw new Error('Removal companion changed during publication');
+    });
+    await syncDirectory(dirname(target));
+  } finally {
+    await fs.rm(temp, { force: true });
+  }
+}
+
+/** Null retains the existing ordinary-file path. Accepted edits are strict:
+ * source assets are never deleted (other photos may share them), and a failed
+ * destination/identity step restores previous occupants rather than losing edits. */
+export async function relocateRemoval(
+  req: RelocateRequest,
+  target: string,
+): Promise<RelocateOutcome | null> {
+  const source = await snapshots(req.sourceAbsPath);
+  if (!source.some((value) => value.records !== null)) return null;
+  const proof = await verify(req.sourceAbsPath, source);
+  const pairs = source.map((value) => ({
+    ...value,
+    target: sidecarRenameTarget(req.sourceAbsPath, target, value.path)!,
+  }));
+  const backups = new Map<string, string | null>();
+  let repointed = false;
+  let cleanupBackups = false;
+  const remember = async (path: string) => {
+    if (backups.has(path)) return;
+    const info = await existing(path);
+    if (!info) {
+      backups.set(path, null);
+      return;
+    }
+    if (!info.isFile() || info.isSymbolicLink())
+      throw new Error(`Replacement is not a regular file: ${path}`);
+    const backup = `${path}.tmp.${randomUUID()}.rollback`;
+    await syncCopy(path, backup);
+    await syncDirectory(dirname(backup));
+    backups.set(path, backup);
+  };
+  const publish = async (path: string, bytes: Buffer<ArrayBuffer> | null, from?: string) => {
+    await remember(path);
+    const temp = `${path}.tmp.${randomUUID()}`;
+    try {
+      if (bytes) {
+        const file = await fs.open(temp, 'wx');
+        try {
+          await file.writeFile(bytes);
+          await file.sync();
+        } finally {
+          await file.close();
+        }
+      } else await syncCopy(from!, temp);
+      await fs.rename(temp, path);
+      await syncDirectory(dirname(path));
+    } finally {
+      await fs.rm(temp, { force: true });
+    }
+  };
+  try {
+    const assets = await ensureAssetsDirectory(target);
+    for (const name of proof.names)
+      await copyAsset(join(dirname(req.sourceAbsPath), '.maple/inpaint', name), join(assets, name));
+    await assertSidecars(req.sourceAbsPath, source);
+    await publish(target, null, req.sourceAbsPath);
+    for (const pair of pairs) await publish(pair.target, pair.bytes);
+    // Remove a replaced occupant's unmatched sidecars with rollback evidence.
+    for (const stale of await listPairedSidecars(target)) {
+      if (pairs.some((pair) => pair.target === stale)) continue;
+      await remember(stale);
+      await fs.unlink(stale);
+      await syncDirectory(dirname(stale));
+    }
+    const destination = pairs.map((pair) => ({ ...pair, path: pair.target }));
+    await assertSidecars(
+      target,
+      destination.sort((a, b) => a.path.localeCompare(b.path)),
+    );
+    await verify(target, destination, proof.originalDigest);
+    await assertSidecars(req.sourceAbsPath, source);
+    await verify(req.sourceAbsPath, source, proof.originalDigest);
+    const companionPaths: string[] = [];
+    const companionSources: string[] = [];
+    for (const path of req.extraCompanionAbsPaths ?? []) {
+      const candidate =
+        sidecarRenameTarget(req.sourceAbsPath, target, path) ??
+        join(dirname(target), path.split('/').at(-1)!);
+      const { pickFreePath } = await import('./relocate.ts');
+      const companionTarget = await pickFreePath(candidate, 'relocate:companion');
+      await publish(companionTarget, null, path);
+      companionPaths.push(companionTarget);
+      companionSources.push(path);
+    }
+    await req.onVerified?.({
+      newAbsPath: target,
+      sidecarPaths: pairs.map((value) => value.target),
+      companionPaths,
+    });
+    repointed = true;
+    // A later save must never be unlinked under the old snapshot. Once the
+    // identity hook succeeds, keep both copies on conflict because a catalogue
+    // can already refer to the verified destination.
+    await assertSidecars(req.sourceAbsPath, source);
+    await verify(req.sourceAbsPath, source, proof.originalDigest);
+    await assertSidecars(target, destination);
+    await verify(target, destination, proof.originalDigest);
+    if (req.mode === 'move') {
+      const deleted = await fs.unlink(req.sourceAbsPath).then(
+        () => true,
+        (error) => {
+          log.warn(
+            { error, path: req.sourceAbsPath },
+            'verified destination retained; source delete failed',
+          );
+          return false;
+        },
+      );
+      if (deleted)
+        for (const path of [...source.map((value) => value.path), ...companionSources])
+          if (!pairs.some((pair) => pair.target === path))
+            await fs
+              .unlink(path)
+              .catch((error) =>
+                log.warn(
+                  { error, path },
+                  'source sidecar/companion delete failed after verified copy',
+                ),
+              );
+    }
+    cleanupBackups = true;
+    return {
+      kind: 'relocated',
+      newAbsPath: target,
+      sidecarPaths: pairs.map((value) => value.target),
+      companionPaths,
+      renamedOnCollision: target !== req.destAbsPath,
+    };
+  } catch (error) {
+    if (!repointed) {
+      for (const [path, backup] of [...backups].reverse()) {
+        if (backup) await fs.rename(backup, path);
+        else await fs.rm(path, { force: true });
+      }
+    }
+    cleanupBackups = true;
+    return { kind: 'error', error: String(error) };
+  } finally {
+    // If restoration throws, retained backups are the previous occupant's
+    // recovery evidence (#1472); never delete them in a failure cleanup.
+    if (cleanupBackups)
+      for (const backup of backups.values()) if (backup) await fs.rm(backup, { force: true });
+  }
+}

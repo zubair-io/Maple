@@ -16,6 +16,7 @@ import { clearLensProfiles, registerLensProfile } from '../lens-profiles/native.
 import { restoreLensProfile } from '../lens-profiles/restore.ts';
 import { renderImageThumbToFile } from '../thumbs/render.ts';
 import { checkAvifOutput } from '../thumbs/avif-checks.ts';
+import { verifyRemovalFileAssets } from './raw_ffi-removal-assets.ts';
 
 /**
  * Dispatch one IPC request against the loaded native binding. One arm per
@@ -58,6 +59,14 @@ export async function handleFfiRequest(
       id: req.id,
       ok: !error,
       error: error ?? undefined,
+    };
+  }
+  if (req.type === 'removalAssets') {
+    return {
+      type: req.type,
+      id: req.id,
+      ok: true,
+      assets: await verifyRemovalFileAssets(req.rawPath, req.records),
     };
   }
   if (req.type === 'asShot') {
