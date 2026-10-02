@@ -1,9 +1,11 @@
 // Frame publication and decode progress invalidate this leaf, not editor chrome.
 import MapleCore
+import MapleUI
 import SwiftUI
 
 struct EditorRenderStatus: View {
-  let session: EditSession
+  let state: EditorState
+  private var session: EditSession { state.session }
 
   var body: some View {
     ZStack {
@@ -20,9 +22,32 @@ struct EditorRenderStatus: View {
         }
         .padding(20)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .allowsHitTesting(false)
+      }
+      if let error = session.renderError {
+        VStack(spacing: 10) {
+          Text(error is RemovalError ? "Saved removal incomplete" : "Photo could not be rendered")
+            .font(.headline)
+          Text(error.localizedDescription)
+            .font(.caption)
+            .textSelection(.enabled)
+            .accessibilityIdentifier("editor-render-error")
+          if error is RemovalError {
+            Text("Check that this photo and its removal files are complete, then retry.")
+              .font(.caption)
+          }
+          MuiButton(label: "Retry rendering photo", size: .sm, disabled: session.isRendering) {
+            Task { await state.retryRendering() }
+          }
+          .accessibilityIdentifier("editor-render-retry")
+        }
+        .multilineTextAlignment(.center)
+        .foregroundStyle(MapleTokens.textMain)
+        .padding(20)
+        .frame(maxWidth: 360)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
       }
     }
-    .allowsHitTesting(false)
   }
 }
 

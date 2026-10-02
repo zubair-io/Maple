@@ -200,7 +200,7 @@ struct EditorSurface: View {
       .frame(maxWidth: .infinity)
       .ignoresSafeArea(edges: .bottom)
       // Keep per-frame rendering observations inside the status leaf.
-      EditorRenderStatus(session: state.session)
+      EditorRenderStatus(state: state)
 
     }
     .disabled(state.session.workflow.isBusy)
