@@ -33,6 +33,9 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { callNative } from 'maple';
+import { parseSidecarWorkflow } from '../generated/workflow.generated.ts';
+import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import * as fs from 'node:fs/promises';
 import { ObjectId } from '../db/object-id.ts';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
@@ -92,6 +95,53 @@ async function publishSidecarChange(rawAbsPath: string, edited: boolean): Promis
 // returning an empty XMP stub on ENOENT.
 
 export const xmpPathRoutes = new Elysia()
+  // Workflow authoring records share the authorized primary sidecar path.
+  .patch(
+    '/api/xmp/workflow',
+    async ({ query, body, set }) => {
+      const authorized = await resolveAndAuthorizePath(query.path);
+      if (!authorized.ok) {
+        set.status = authorized.status;
+        return { error: authorized.error };
+      }
+      try {
+        set.status = 422;
+        const workflow = parseSidecarWorkflow(body);
+        set.status = 500;
+        const existing = await fs
+          .readFile(xmpSidecarPath(authorized.data), 'utf8')
+          .catch((error: unknown) => {
+            if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+              return mergeMetadataIntoXmp('', {});
+            throw error;
+          });
+        const conversion = await callNative('workflowEmbedXmp', [
+          JSON.stringify(workflow),
+          existing,
+        ]);
+        if (!conversion.ok) {
+          set.status = 422;
+          return { error: conversion.error };
+        }
+        const outcome = await writeXmpAtomic(authorized.data, conversion.value);
+        if (!outcome.ok) {
+          set.status = 500;
+          return { error: outcome.error };
+        }
+        await publishSidecarChange(authorized.data, true);
+        set.headers['Content-Type'] = 'application/xml';
+        set.status = 200;
+        return conversion.value;
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    {
+      query: t.Object({ path: t.String() }),
+      body: t.Any(),
+      detail: { summary: 'Commit shared workflow metadata to a primary sidecar', tags: ['xmp'] },
+    },
+  )
   // -- Read --------------------------------------------------------------
   .get(
     '/api/xmp',
@@ -154,8 +204,8 @@ export const xmpPathRoutes = new Elysia()
             : String(body);
       const outcome = await writeXmpAtomic(r.data, xmlContent);
       if (!outcome.ok) {
-        // `writeXmpAtomic` only reports `ok:false` for filesystem-level
-        // errors here (we already gated the root check above).
+        // Includes failed durable writes and unsupported workflow metadata;
+        // either failure leaves the existing sidecar untouched.
         set.status = 500;
         return { error: outcome.error };
       }

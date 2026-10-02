@@ -5,6 +5,7 @@ export const WORKFLOW_HISTORY_LIMIT = 32;
 export const WORKFLOW_MAX_BYTES = 262144;
 export const PRIMARY_VARIANT_ID = 'primary';
 export const WORKFLOW_MAX_TIMESTAMP_MS = 9007199254740991;
+export const WORKFLOW_MARKUP_PATTERN = '<(?:[^<\\s:]+:)?Workflow(?=[\\s/>])';
 export const WORKFLOW_ACTIONS = [
   'adjustment',
   'preset',

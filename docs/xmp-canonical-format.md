@@ -530,7 +530,7 @@ New fields are added by extending `ADJUSTMENT_SCHEMA`, regenerating with `tools/
 
 Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse_ adjustment model living in its own `presets` table (`src/api/src/routes/presets.ts`, `src/api/src/presets/preset-validation.ts`); applying one writes the resolved field values into the sidecar like any other slider move. Preset validation follows the same philosophy as passthrough: unknown fields from a newer schema version are accepted and preserved verbatim rather than rejected. Film looks likewise store only the catalog id in `papp:FilmLook` — the `.mlut` payloads ship with the app (`raw-core/src/film_catalog.rs`).
 
-### Workflow storage contract (#4035, integration tracked by #2437)
+### Workflow storage and XMP bindings (#4035, #4036; workflow UI under #2437)
 
 `raw-core::workflow` declares the versioned variant identity/name, named checkpoint,
 and committed semantic history wire records. `tools/codegen.sh` generates the
@@ -546,9 +546,24 @@ entries earlier when needed to fit the byte bound. Named snapshots are never
 silently removed; an oversized new checkpoint/snapshot fails without changing
 the existing record. Renderer and cache events are not semantic actions.
 
-This is a storage-contract stage: these records are not yet embedded in a
-sidecar, discovered as sibling variants, or exposed by editing UI. Those host
-integrations remain under #2437; existing primary sidecar paths stay in use.
+The shared `from_xmp` / `embed_in_xmp` converter stores the record as a
+`papp:Workflow` resource with named scalar fields and RDF sequences for snapshots
+and history. Complete checkpoint XMP is escaped text, so the normal development
+reader never mistakes checkpoint adjustments for the current photo. Replacement
+preserves surrounding bytes; unsupported versions, unknown owned content,
+duplicate records and recursive checkpoints fail before publication. The final
+sidecar also has the 256 KiB bound, including XML escaping and the outer document.
+
+Apple's actor and Web's per-asset write chain publish through their existing
+atomic sidecar contracts. The API exposes authorized `PATCH /api/xmp/workflow`
+and protects workflow records through ordinary primary-sidecar writes. Apple C,
+browser WASM, and Bun/N-API call the same Rust converter; host wire parsers remain
+additional boundary checks. These operations run at confirmed save, never during
+slider rendering. Existing primary sidecar paths stay in use.
+
+This completes storage and binding integration, not the product workflow. Sibling
+variant discovery/switching, snapshots/history UI, restore, cache identities and
+deletion/recovery remain acceptance requirements under #2437.
 `tools/qualification/workflow-roundtrip.sh` runs the committed XMP corpus through
 Rust → generated Swift → generated Web/API TypeScript → Rust and checks identical
 final serialization. It writes only its own temporary files.

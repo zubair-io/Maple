@@ -2,11 +2,12 @@
  * Native bindings loader for Maple via bun:ffi.
  */
 export { findNativeLib, nativeLibFilename } from './native-library';
+import { type WorkflowBinding } from './native-workflow';
 import type { RasterAnalyzeBinding } from './native-raster-analyze';
 import type { RasterPipelineBinding } from './native-raster-pipeline';
 import type { RasterV2Binding } from './native-raster-v2';
 import type { FilenameResult, FilenameTemplateArgs } from './types';
-export interface NativeBinding extends RasterV2Binding, RasterPipelineBinding, RasterAnalyzeBinding {
+export interface NativeBinding extends RasterV2Binding, RasterPipelineBinding, RasterAnalyzeBinding, WorkflowBinding {
     exportDevelopedToFile(rawPath: string, xmpPath: string | null, format: string, quality: number, colorSpace: string, maxLongEdge: number, outPath: string): {
         ok: boolean;
         error?: string;

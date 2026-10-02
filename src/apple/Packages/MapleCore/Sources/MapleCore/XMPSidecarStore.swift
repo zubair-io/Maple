@@ -120,6 +120,33 @@ public actor XMPSidecarStore {
     cached = (model, culling)
   }
 
+  /// Workflow operations share the actor and primary path with adjustment writes.
+  public func readWorkflow() throws -> SidecarWorkflow? {
+    guard let xml = try existingSidecarXML() else { return nil }
+    return try WorkflowSidecarCore.read(xmp: xml)
+  }
+
+  /// Publish pending authored adjustments and workflow in one atomic replacement.
+  /// Validation finishes before the prior sidecar or pending state is changed.
+  public func writeWorkflowConfirmed(_ workflow: SidecarWorkflow) throws {
+    let existing = try existingSidecarXML()
+    let xml: String
+    if let model = pendingModel, let culling = pendingCulling {
+      xml = serializedSidecar(model: model, culling: culling, existingXML: existing)
+    } else {
+      xml = existing ?? XMPSerializer.serialize(model: .default, culling: CullingState())
+    }
+    // Validate the on-disk record even if a serializer would omit it.
+    if let existing { _ = try WorkflowSidecarCore.read(xmp: existing) }
+    let output = try WorkflowSidecarCore.embed(workflow, in: xml)
+    try publishSidecarXML(output)
+    pendingTask?.cancel()
+    pendingTask = nil
+    pendingModel = nil
+    pendingCulling = nil
+    pendingMetadata = nil
+  }
+
   /// Returns an async stream of errors encountered during background writes.
   public func errors() -> AsyncStream<Error> {
     let id = nextSubscriberID
@@ -179,6 +206,19 @@ public actor XMPSidecarStore {
 
   private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
     let existingXML = try existingSidecarXML()
+    if let existingXML,
+      existingXML.range(of: WorkflowContract.markupPattern, options: .regularExpression) != nil
+    {
+      _ = try WorkflowSidecarCore.read(xmp: existingXML)
+    }
+    let xml = serializedSidecar(model: model, culling: culling, existingXML: existingXML)
+    try publishSidecarXML(xml)
+    pendingMetadata = nil
+  }
+
+  private func serializedSidecar(
+    model: AdjustmentModel, culling: CullingState, existingXML: String?
+  ) -> String {
     // Non-destructive: a model/culling-only write must NOT drop an existing
     // IPTC/EXIF metadata block (e.g. one authored by the batch editor). Use
     // the pending metadata if this write carries one, otherwise preserve
@@ -189,7 +229,6 @@ public actor XMPSidecarStore {
       .map(XMPParser.parseMetadata)
       .flatMap { $0.isEmpty ? nil : $0 }
     let metadata = pendingMetadata ?? metadataOnDisk
-    pendingMetadata = nil
     // Likewise for every field Maple does not model at all (#2233) — the
     // Lightroom masks, history, snapshots and display-referred curves that
     // this writer used to delete on the first slider nudge.
@@ -202,6 +241,10 @@ public actor XMPSidecarStore {
       xml = XMPSerializer.serialize(
         model: model, culling: culling, passthrough: passthrough)
     }
+    return xml
+  }
+
+  private func publishSidecarXML(_ xml: String) throws {
     guard let data = xml.data(using: .utf8) else {
       throw XMPStoreError.encodingError
     }

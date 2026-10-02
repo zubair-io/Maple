@@ -8,6 +8,7 @@ public enum WorkflowContract {
   public static let maxTimestampMS: UInt64 = 9_007_199_254_740_991
   public static let maxBytes = 262144
   public static let primaryVariantID = "primary"
+  public static let markupPattern = "<(?:[^<\\s:]+:)?Workflow(?=[\\s/>])"
   public static let actions = [
     "adjustment",
     "preset",
