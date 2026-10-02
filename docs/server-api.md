@@ -208,8 +208,10 @@ Mutation requires a POSIX lease on macOS/Linux; other server hosts return 503.
 Ordinary `/api/xmp` full-document writes hold the same sidecar mutation lease
 and reject changes to the owned removal list with 409. They can preserve that
 list while saving metadata or develop settings; introducing, replacing or
-clearing accepted removals requires the confirmed commit above. Browser
-authoring integration and qualification remain under #3984.
+clearing accepted removals requires the confirmed commit above. Self Hosted Web
+uses these endpoints for authoring, confirmed history, and saved-preview/export
+companion reads without a browser filesystem handle. Broader photographic,
+device and transport qualification remains under #3984 / #1472.
 
 ## Search
 

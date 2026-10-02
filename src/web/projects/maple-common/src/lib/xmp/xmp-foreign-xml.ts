@@ -33,5 +33,10 @@ const addExplicitNamespaces = (element: Element, namespaces: ReadonlyMap<string,
 export const selfContainedXml = (source: Element): string => {
   const clone = source.cloneNode(true) as Element;
   addExplicitNamespaces(clone, inScopeNamespaces(source));
-  return clone.outerHTML;
+  // A browser's XML serializer can emit a newly added namespace after an
+  // ordinary attribute, then move it before that attribute on the next parse.
+  // Normalize the self-contained root now so repeated confirmed saves are a
+  // fixed point instead of rewriting foreign content on undo/redo.
+  return new DOMParser().parseFromString(clone.outerHTML, 'application/xml').documentElement
+    .outerHTML;
 };

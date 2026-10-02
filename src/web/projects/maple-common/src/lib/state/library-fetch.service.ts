@@ -1355,6 +1355,19 @@ export class LibraryFetch {
   }
 
   /** Await only the selected asset, retaining per-asset batch failures. */
+  async settleSidecarWrites(id: AssetId): Promise<void> {
+    if (this.store.backend !== 'self-hosted')
+      throw new Error('Server sidecar settling requires Self Hosted.');
+    if (this._apiXmpPending.has(id) || this._apiXmpInFlight.has(id))
+      await this.flushSidecarWrite(id);
+  }
+
+  /** The confirmed full model is the base for subsequent ordinary patches. */
+  confirmRemovalModel(id: AssetId, model: AdjustmentModel): void {
+    if (this.store.backend === 'self-hosted') this._apiAdjustmentPatches.set(id, { ...model });
+  }
+
+  /** Await only the selected asset, retaining per-asset batch failures. */
   flushSidecarWrite(id: AssetId): Promise<void> {
     if (this.store.backend !== 'self-hosted') return this.xmpStore.flushAsset(id);
     const timer = this._apiXmpTimers.get(id);

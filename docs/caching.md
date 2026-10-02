@@ -189,6 +189,19 @@ Hosted cold and idle developed-preview writes load the exact sidecar-referenced 
 
 Companions cross the worker boundary once per source/record change. Pan requests perform no companion file read or transfer. They reuse full-frame anchors rather than measuring a viewport histogram. Missing or invalid companions never become a partial tile; unsupported format, crop, optics, stage or padded allocation keeps the verified sized preview. WebGPU and normal Apple editor native-detail removal consumers remain under #3955.
 
+Self Hosted Web authoring and cold saved-preview/export preparation read verified
+companions over authenticated `/api/removal/companion` requests. The same retained
+worker owners reuse them after preparation; scalar ticks add no companion HTTP
+request. Keep and removal history settle pending ordinary sidecar writes, commit
+against the complete server XMP revision, and verify the returned document and
+SHA-256 before adopting the model or moving history. Confirmation refreshes the
+sidecar memory/IndexedDB cache, the restore service's read-before-write base, and
+the library's accumulated develop patch. Subsequent full-document metadata saves
+preserve the confirmed stack and use its known revision; a changed server
+document fails rather than silently restoring old accepted pixels. Ordinary
+cache writes keep their existing optimistic rollback behavior. The authoritative
+mask/patch bytes stay in the server's durable `.maple/inpaint/` directory.
+
 `NativeSavedRemovalSession.detail` provides the Apple cold inspection boundary on a retained, verified RAW owner. Its C owner retains at most one full-frame AE/Whites/Auto context and decoded film LUT, keyed by exact XMP, bounded base long edge/quality and film bytes. Pans reuse that context; a recipe change drops it before attempting preparation. Reset, failed companion preparation and owner destruction release it with the accepted stack. A poisoned owner fails closed. Native tile scratch is bounded to at most 8 Mi pixels including filter overlap; a caller may request a smaller limit. This bridge does not yet replace the normal Apple `NativeDetailRenderer` or qualify device memory/performance (#3955 / #3984).
 
 The tile path's per-render overlap pad and its frame window (`raw-core/src/pipeline/tile/overlap.rs`, `region::TileWindow`, #1157) are computed from the model and the rect on every call and hold no state: they add no cache, and they do not change what `TileKey` or the `NativeDetailRenderer` handle key on — a tile for the same `(asset, sidecar mtime, zoom bucket, tile)` still renders from the same inputs, just with a pad sized to the model's engaged stages.

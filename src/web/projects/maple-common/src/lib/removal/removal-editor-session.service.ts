@@ -6,9 +6,10 @@ import type { PersonBase, PersonGesture } from './removal-person-refinement';
 import { rebindAfterExport } from './removal-editor-rebind';
 // Complete local authoring flow for the explicitly installed #3941 experiment.
 // Release remains gated on #1472 photo quality, hardware and consumer parity.
-import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Injectable, Injector, computed, effect, inject, signal, untracked } from '@angular/core';
 import init, { removal_combine_masks } from '../raw-pipeline/pkg/raw_wasm';
 import { EditorStateService } from '../editor/editor-state.service';
+import { stableStringify } from '../editor/edit-transaction';
 import { LibraryStateService } from '../state/library-state.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
@@ -20,10 +21,10 @@ import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import type { Asset } from '../models/asset';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import type { RemovalProposal } from './removal-inference.types';
 import { RemovalInferenceClient } from './removal-inference-client';
 import { RemovalModelStore } from './removal-model-store.service';
-import { LocalRemovalAssets } from './local-removal-assets';
+import type { OpenRemovalPhoto as OpenPhoto, RemovalDraft as Draft } from './removal-editor-types';
+import { removalEditorStorage } from './removal-editor-storage';
 import { savedRemovalRecords } from './saved-removal-records';
 import { bundleRemovalCompanions } from './removal-companion-bundle';
 import { withRemovalRecords } from './removal-editor-recipe';
@@ -41,31 +42,13 @@ export interface RemovalStroke {
   radius: number;
   subtract: boolean;
 }
-interface OpenPhoto {
-  asset: Asset;
-  folder: MapleFolderHandle;
-  model: AdjustmentModel;
-  xml: string;
-  source: string;
-  width: number;
-  height: number;
-  prior: string;
-  companions: Map<string, Uint8Array>;
-  assets: LocalRemovalAssets;
-  sidecarRevision: string;
-}
-interface Draft {
-  records: string;
-  xml: string;
-  proposals: RemovalProposal[];
-  companions: Map<string, Uint8Array>;
-}
 
 @Injectable({ providedIn: 'root' })
 export class RemovalEditorSession {
   readonly editor = inject(EditorStateService);
   private readonly library = inject(LibraryStateService);
   private readonly files = inject(FolderAccessService);
+  private readonly injector = inject(Injector);
   readonly pipeline = inject(RawPipelineService);
   readonly sidecars = inject(XmpStoreService);
   private readonly serializer = inject(XmpSerializerService);
@@ -137,30 +120,47 @@ export class RemovalEditorSession {
     effect(() => {
       const active = this.active();
       const asset = active ? this.library.focusedAsset() : null;
-      const folder = active ? this.library.currentFolder() : undefined;
+      const folder = active ? (this.library.currentFolder() ?? undefined) : undefined;
       const exportRevision = active ? this.pipeline.exportRevision() : 0;
       const phase = this.phase();
-      const xml =
-        active && asset ? this.serialize(asset.id, this.library.adjustmentFor(asset.id)()) : '';
+      const model = active && asset ? this.library.adjustmentFor(asset.id)() : undefined;
+      const xml = asset && model ? this.serialize(asset.id, model) : '';
       untracked(() => {
         const key = active && asset ? this.keyFor(asset, xml) : '';
+        const records = this.committingXml ? savedRemovalRecords(this.committingXml) : undefined;
+        // As-Shot UI seeds can arrive after decode without changing the
+        // serialized RAW recipe. Keep that current model as the save base.
+        if (
+          this.photo &&
+          model &&
+          key === this.key &&
+          phase !== 'saving' &&
+          this.photo.model !== model
+        )
+          this.photo = { ...this.photo, model };
         if (
           (this.key === key &&
             this.scopeFolder === folder &&
             this.exportRevision === exportRevision) ||
           (phase === 'saving' &&
-            this.committingXml === xml &&
+            this.committingXml !== undefined &&
             this.photo?.asset.id === asset?.id &&
             this.photo?.asset.filename === asset?.filename &&
-            this.photo?.folder === folder)
+            this.photo?.folder === folder &&
+            // Fresh passthrough XML can change before the confirmed model is
+            // adopted. Retain this save only for its before/after models.
+            (stableStringify(model) === stableStringify(this.photo?.model) ||
+              stableStringify(model) ===
+                stableStringify({
+                  ...this.photo?.model,
+                  inpaintRemovals: records,
+                })))
         )
           return;
         if (this.key === key && this.scopeFolder === folder && this.photo) {
           if (phase === 'saving') return;
           this.exportRevision = exportRevision;
-          void rebindAfterExport(this, () =>
-            this.files.readFile(this.photo!.folder, asset!.filename),
-          );
+          void rebindAfterExport(this, this.photo.readOriginal);
           return;
         }
         this.exportRevision = exportRevision;
@@ -364,22 +364,22 @@ export class RemovalEditorSession {
     const token = this.revision;
     this.phase.set('loading');
     try {
-      const folder = this.library.currentFolder();
       const ext = asset.filename.split('.').at(-1)?.toLowerCase() ?? '';
-      if (!folder?.native || !folder.write || isNonRawExtension(ext) || asset.isVideo)
-        throw new Error(
-          'AI removal requires a RAW photo in a folder opened with filesystem write access.',
-        );
+      if (isNonRawExtension(ext) || asset.isVideo)
+        throw new Error('AI removal requires a RAW photo.');
       await init();
-      const sidecarRevision = await this.sidecars.captureRemovalRevision(
-        asset.id,
-        folder,
-        asset.filename,
+      const storage = await removalEditorStorage(
+        this.library,
+        this.files,
+        this.sidecars,
+        this.injector,
+        asset,
+        xml,
       );
-      const assets = new LocalRemovalAssets(this.files, folder, asset.filename);
+      const { assets } = storage;
       const prior = savedRemovalRecords(xml) ?? '[]';
       const companions = new Map(await assets.read(prior));
-      const bytes = await this.files.readFile(folder, asset.filename);
+      const bytes = await storage.readOriginal();
       this.check(token);
       const source = await this.pipeline.removal.open({ sourceId: asset.id, bytes, ext });
       this.check(token);
@@ -390,7 +390,7 @@ export class RemovalEditorSession {
       this.check(token);
       const photo = {
         asset,
-        folder,
+        ...storage,
         model: this.library.adjustmentFor(asset.id)(),
         xml,
         source,
@@ -398,14 +398,16 @@ export class RemovalEditorSession {
         height: anchor.height,
         prior,
         companions,
-        assets,
-        sidecarRevision,
       };
       this.photo = photo;
       this.savedRemovals.set(saved.savedEntries(prior));
       this.inference = new RemovalInferenceClient(
         models,
-        (stage) => this.photo === photo && this.active() && this.stage.set(stage),
+        (stage) =>
+          this.photo?.source === photo.source &&
+          this.photo?.asset.id === photo.asset.id &&
+          this.active() &&
+          this.stage.set(stage),
       );
       this.check(token);
       this.phase.set('ready');
@@ -478,7 +480,8 @@ export class RemovalEditorSession {
       !asset ||
       asset.id !== photo.asset.id ||
       asset.filename !== photo.asset.filename ||
-      this.library.currentFolder() !== photo.folder
+      (this.library.currentFolder() ?? undefined) !== photo.folder ||
+      (photo.path !== undefined && this.library.absPathFor(asset.id) !== photo.path)
     )
       throw new Error('The photo moved before this removal could be saved.');
     return asset;

@@ -111,8 +111,7 @@ export async function changeSaved(
         active,
       }),
     );
-    const xml = session.recipe(photo, records);
-    session.committingXml = xml;
+    session.committingXml = session.recipe(photo, records);
     session.cullingFor(photo);
     const revision = await session.editor.acceptRemoval(
       records,
@@ -121,6 +120,7 @@ export async function changeSaved(
       photo.sidecarRevision,
     );
     if (token !== session.revision) return;
+    const xml = session.recipe(photo, records);
     // The authoritative model has committed. Any restoration failure must now
     // recover this new stack, rather than pretending the previous save won.
     session.photo = {
