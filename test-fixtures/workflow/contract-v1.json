@@ -1,0 +1,53 @@
+[
+  {
+    "schemaVersion": 1,
+    "variantId": "primary",
+    "variantName": "Original",
+    "snapshots": [
+      {
+        "id": "00000000-0000-0000-0000-000000000064",
+        "name": "Foreign mask reference",
+        "createdAtMs": 1790900000000,
+        "adjustmentXmp": "<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\" xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" crs:Version=\"18.7\" crs:ProcessVersion=\"15.4\">\n   <crs:MaskGroupBasedCorrections>\n    <rdf:Seq>\n     <rdf:li>\n      <rdf:Description\n       crs:What=\"Correction\"\n       crs:CorrectionAmount=\"1\"\n       crs:CorrectionActive=\"true\"\n       crs:CorrectionName=\"Composition reference\"\n       crs:CorrectionSyncID=\"34080000000000000000000000000001\"\n       crs:LocalExposure2012=\"1\"\n       crs:LocalCurveRefineSaturation=\"100\">\n      <crs:CorrectionMasks>\n       <rdf:Seq>\n        <rdf:li\n         crs:What=\"Mask/CircularGradient\"\n         crs:MaskActive=\"true\"\n         crs:MaskName=\"Radial reference\"\n         crs:MaskBlendMode=\"0\"\n         crs:MaskInverted=\"false\"\n         crs:MaskSyncID=\"34080000000000000000000000000002\"\n         crs:MaskValue=\"1\"\n         crs:Top=\"0.2\"\n         crs:Left=\"0.2\"\n         crs:Bottom=\"0.8\"\n         crs:Right=\"0.8\"\n         crs:Angle=\"0\"\n         crs:Midpoint=\"50\"\n         crs:Roundness=\"0\"\n         crs:Feather=\"25\"\n         crs:Flipped=\"true\"\n         crs:Version=\"2\"/>\n        <rdf:li\n         crs:What=\"Mask/Gradient\"\n         crs:MaskActive=\"true\"\n         crs:MaskName=\"Linear reference\"\n         crs:MaskBlendMode=\"0\"\n         crs:MaskInverted=\"false\"\n         crs:MaskSyncID=\"34080000000000000000000000000003\"\n         crs:MaskValue=\"1\"\n         crs:ZeroX=\"0.2\"\n         crs:ZeroY=\"0.5\"\n         crs:FullX=\"0.8\"\n         crs:FullY=\"0.5\"/>\n       </rdf:Seq>\n      </crs:CorrectionMasks>\n      </rdf:Description>\n     </rdf:li>\n    </rdf:Seq>\n   </crs:MaskGroupBasedCorrections>\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n"
+      }
+    ],
+    "history": [
+      {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "createdAtMs": 1790900000001,
+        "action": "adjustment",
+        "label": "Exposure +1",
+        "adjustmentXmp": "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Maple ACR reference 1.0\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"\n   crs:Exposure2012=\"+1.00\"\n   crs:ProcessVersion=\"11.0\"\n   crs:WhiteBalance=\"As Shot\"\n   crs:Sharpness=\"40\"\n   crs:SharpenRadius=\"1.0\"\n   crs:SharpenDetail=\"25\"\n   crs:SharpenEdgeMasking=\"0\"\n   crs:LuminanceSmoothing=\"0\"\n   crs:ColorNoiseReduction=\"25\">\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n"
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000002",
+        "createdAtMs": 1790900000002,
+        "action": "paste",
+        "label": "Temperature only — V2",
+        "adjustmentXmp": "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Maple ACR reference 1.0\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"\n   crs:Exposure2012=\"+1.00\"\n   crs:ProcessVersion=\"11.0\"\n   crs:WhiteBalance=\"Custom\"\n   crs:Temperature=\"8500\"\n   xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"\n   papp:WbScaleVersion=\"2\"\n   crs:Sharpness=\"40\"\n   crs:SharpenRadius=\"1.0\"\n   crs:SharpenDetail=\"25\"\n   crs:SharpenEdgeMasking=\"0\"\n   crs:LuminanceSmoothing=\"0\"\n   crs:ColorNoiseReduction=\"25\">\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n"
+      }
+    ]
+  },
+  {
+    "schemaVersion": 1,
+    "variantId": "00000000-0000-0000-0000-0000000000c8",
+    "variantName": "Photographer's \"warm\" study 🌅",
+    "snapshots": [
+      {
+        "id": "00000000-0000-0000-0000-000000000065",
+        "name": "Custom WB \\ proof",
+        "createdAtMs": 1790900000001,
+        "adjustmentXmp": "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Maple ACR reference 1.0\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"\n   crs:Exposure2012=\"+1.00\"\n   crs:ProcessVersion=\"11.0\"\n   crs:WhiteBalance=\"Custom\"\n   crs:Temperature=\"5100\"\n   crs:Tint=\"-7\"\n   xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"\n   papp:WbScaleVersion=\"5\"\n   papp:WbSource=\"Manual\"\n   crs:Sharpness=\"40\"\n   crs:SharpenRadius=\"1.0\"\n   crs:SharpenDetail=\"25\"\n   crs:SharpenEdgeMasking=\"0\"\n   crs:LuminanceSmoothing=\"0\"\n   crs:ColorNoiseReduction=\"25\">\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n"
+      }
+    ],
+    "history": [
+      {
+        "id": "00000000-0000-0000-0000-000000000003",
+        "createdAtMs": 1790900000003,
+        "action": "snapshot-restore",
+        "label": "Restore warm study",
+        "adjustmentXmp": "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"Maple ACR reference 1.0\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n  <rdf:Description rdf:about=\"\"\n    xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"\n   crs:Exposure2012=\"+1.00\"\n   crs:ProcessVersion=\"11.0\"\n   crs:WhiteBalance=\"Custom\"\n   crs:Temperature=\"5100\"\n   crs:Tint=\"-7\"\n   xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"\n   papp:WbScaleVersion=\"5\"\n   papp:WbSource=\"Manual\"\n   crs:Sharpness=\"40\"\n   crs:SharpenRadius=\"1.0\"\n   crs:SharpenDetail=\"25\"\n   crs:SharpenEdgeMasking=\"0\"\n   crs:LuminanceSmoothing=\"0\"\n   crs:ColorNoiseReduction=\"25\">\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n"
+      }
+    ]
+  }
+]

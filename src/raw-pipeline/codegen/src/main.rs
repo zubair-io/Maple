@@ -52,6 +52,7 @@ mod support_tiers_summary;
 mod ui_tokens;
 mod ui_tokens_xaml;
 mod white_balance_presets;
+mod workflow;
 
 use std::fs;
 use std::path::PathBuf;
@@ -107,6 +108,7 @@ enum Schema {
     /// Portable filename vocabulary (#3990).
     Filename,
     ExportRecipe,
+    Workflow,
     /// Raster operation and encoder wire types (#3553).
     RasterRecipe,
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
@@ -200,6 +202,12 @@ fn main() {
         (Schema::ColorLabels, Target::Cs) => color_labels::emit_cs(),
         (Schema::ColorLabels, _) => {
             eprintln!("color-labels supports swift / ts / cs");
+            std::process::exit(2);
+        }
+        (Schema::Workflow, Target::Ts) => workflow::emit_ts(),
+        (Schema::Workflow, Target::Swift) => workflow::emit_swift(),
+        (Schema::Workflow, _) => {
+            eprintln!("workflow supports ts / swift");
             std::process::exit(2);
         }
         (Schema::ExportRecipe, Target::Ts) => export_recipe::emit_ts(),

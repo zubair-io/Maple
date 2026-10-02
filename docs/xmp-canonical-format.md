@@ -530,6 +530,29 @@ New fields are added by extending `ADJUSTMENT_SCHEMA`, regenerating with `tools/
 
 Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse_ adjustment model living in its own `presets` table (`src/api/src/routes/presets.ts`, `src/api/src/presets/preset-validation.ts`); applying one writes the resolved field values into the sidecar like any other slider move. Preset validation follows the same philosophy as passthrough: unknown fields from a newer schema version are accepted and preserved verbatim rather than rejected. Film looks likewise store only the catalog id in `papp:FilmLook` — the `.mlut` payloads ship with the app (`raw-core/src/film_catalog.rs`).
 
+### Workflow storage contract (#4035, integration tracked by #2437)
+
+`raw-core::workflow` declares the versioned variant identity/name, named checkpoint,
+and committed semantic history wire records. `tools/codegen.sh` generates the
+Apple, Web and API records and bounds from that declaration. Each checkpoint
+carries the complete adjustment XMP string, preserving foreign children and
+partial white-balance intent instead of copying a second adjustment schema.
+
+Rust validates the complete checkpoint XML and rejects recursive `papp:Workflow`
+elements. The generated host parsers guard wire fields, versions, identities,
+semantic actions and bounds; they do not replace the Rust checkpoint validator.
+History retains at most 32 independent complete checkpoints, retiring oldest
+entries earlier when needed to fit the byte bound. Named snapshots are never
+silently removed; an oversized new checkpoint/snapshot fails without changing
+the existing record. Renderer and cache events are not semantic actions.
+
+This is a storage-contract stage: these records are not yet embedded in a
+sidecar, discovered as sibling variants, or exposed by editing UI. Those host
+integrations remain under #2437; existing primary sidecar paths stay in use.
+`tools/qualification/workflow-roundtrip.sh` runs the committed XMP corpus through
+Rust → generated Swift → generated Web/API TypeScript → Rust and checks identical
+final serialization. It writes only its own temporary files.
+
 ## Test contract
 
 Six claims, tested per platform:
