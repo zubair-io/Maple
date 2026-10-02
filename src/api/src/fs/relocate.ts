@@ -24,7 +24,9 @@
  *      `moveSidecarsAlongside` (`fs/trash.ts`) uses — reused here via
  *      `sidecarRenameTarget`. Best-effort: a sidecar that fails to copy is
  *      logged and left at its original location; it never blocks or
- *      reverts the primary relocate.
+ *      reverts the primary relocate for ordinary readable metadata. Accepted
+ *      removal sidecars and companions use the strict verified path (#1472);
+ *      unreadable metadata cannot prove the absence of edits and stops first.
  *   5. Identity repoint: the optional `onVerified` hook runs here, between
  *      the verified copy and the delete-of-original — asset-aware callers
  *      (`library/relocate-asset.ts`) use it to repoint the asset's `fileinfo`
@@ -52,6 +54,7 @@ import { filesIdentical } from '../backup/fs-util.ts';
 import { child as childLogger } from '../log.ts';
 import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts';
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
+import { relocateRemoval } from './relocate-removal.ts';
 
 export { sidecarRenameTarget };
 
@@ -427,6 +430,13 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
   const { finalDest } = resolution;
 
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
+
+  try {
+    const removal = await relocateRemoval(req, finalDest);
+    if (removal) return removal;
+  } catch (error) {
+    return { kind: 'error', error: String(error) };
+  }
 
   const createdPaths: string[] = [];
   try {

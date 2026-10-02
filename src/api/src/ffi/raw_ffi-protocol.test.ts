@@ -28,6 +28,7 @@ describe('coerceFfiRequest', () => {
         'exportRecipe',
         'histogram',
         'registerLensProfile',
+        'removalAssets',
         'renderBitmap',
         'renderDevelop',
         'renderThumb',

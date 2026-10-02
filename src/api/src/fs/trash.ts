@@ -7,6 +7,8 @@
  * primitive; restore publishes the verified primary and every paired XMP
  * exclusively, retrying collisions. Both copy and verify before deleting
  * originals. Restore requires the complete pair to preserve edits (#3998).
+ * Accepted removal assets publish first and are verified with their sidecar
+ * before the original unlinks (#1472); unreadable sidecars block publication.
  *
  * `pickFreePath` now lives in `fs/relocate.ts` (the collision-resolution
  * half of the generic primitive) and is re-exported here so existing
