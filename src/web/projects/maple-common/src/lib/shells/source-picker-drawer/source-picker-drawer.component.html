@@ -10,10 +10,11 @@
   ></div>
 
   <!-- Drawer. Pointer handlers live on the drawer itself so the pan-left
-       gesture follows the user's finger. -->
+       gesture follows the user's finger. Navigation chrome is not selectable:
+       native text selection competes with repeated presses and swipe gestures. -->
   <aside
     #drawer
-    class="fixed top-0 bottom-0 left-0 z-[91] flex w-[min(326px,81vw)] flex-col overflow-hidden rounded-tr-[18px] rounded-br-[18px] bg-sidebar text-text-main shadow-[12px_0_40px_rgba(0,0,0,0.5)] motion-reduce:transition-none motion-reduce:duration-0 [touch-action:pan-y]"
+    class="fixed top-0 bottom-0 left-0 z-[91] flex w-[min(326px,81vw)] flex-col overflow-hidden rounded-tr-[18px] rounded-br-[18px] bg-sidebar text-text-main shadow-[12px_0_40px_rgba(0,0,0,0.5)] select-none motion-reduce:transition-none motion-reduce:duration-0 [touch-action:pan-y]"
     [class]="drawerTransitionClass()"
     cdkTrapFocus
     [cdkTrapFocusAutoCapture]="true"
