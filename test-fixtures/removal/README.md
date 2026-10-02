@@ -52,3 +52,29 @@ The Rust test is ignored unless explicitly invoked with that corpus; the Swift
 test visibly skips when it is absent. Neither an ignore nor a skip constitutes
 model, photographic, or physical-device qualification. Committed model pins are
 the authority for accepted artifact checksums.
+
+The 100MP editor benchmark uses the exact `dji-mavic3pro-100mp.dng`, with
+controlled 0/1/10 accepted stacks. Each patch is a 512-square, constant
+scene-linear replacement with full coverage. This measures saved-edit render
+cost and decode reuse; it does not qualify inference or photographic quality.
+The fixture generator reads the original, refuses a smaller image, and requires
+a new output directory. Generated companions remain gitignored.
+
+```sh
+cargo run --release --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --example removal-perf-fixture -- test-fixtures/raws/dji-mavic3pro-100mp.dng test-fixtures/raws/removal-perf
+swift build -c release --build-tests -Xswiftc -enable-testing --package-path src/apple/Packages/MapleCore
+MAPLE_PERF=1 swift test -c release --skip-build -Xswiftc -enable-testing --package-path src/apple/Packages/MapleCore --filter EditorWorkflowPerfTests.test100MPAcceptedRemovalStacksAt60Hz
+```
+
+The benchmark clones each library, loads its real XMP/companions through the
+normal editor, checks changed GPU pixels, and measures Exposure/Contrast at
+60Hz using the existing workflow harness. It reports hardware, thermal state,
+source/frame digests, coalesced publications, the 16ms target and 50ms hard limit.
+The hard limit is asserted. Timing ends at observed GPU submission; it excludes
+gesture dispatch, scanout and allocation tracing. Missing fixtures visibly skip
+and provide no qualification evidence. Record on a quiet reference device;
+concurrent build activity makes a run diagnostic, not release qualification.
+The canonical byte count and SHA-256 are checked against the committed browser
+fixture identity before measurement. The first macOS 0/1/10 measurements and
+their limitations are recorded in
+[`removal-100mp-editor-1472.md`](../qualification/removal-100mp-editor-1472.md).
