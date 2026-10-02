@@ -18,7 +18,7 @@ public protocol SidecarStoreProtocol: Actor {
   /// Cloud impl: distinguishes a real 200 response from a 404.
   func loadIfPresent() async throws -> (AdjustmentModel, CullingState)?
 
-  func update(model: AdjustmentModel, culling: CullingState)
+  func update(model: AdjustmentModel, culling: CullingState) async
   func flush() async
 
   /// Cancel pending debounce and durably write this exact snapshot. Batch
@@ -26,7 +26,15 @@ public protocol SidecarStoreProtocol: Actor {
   func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws
 
   /// Returns an async stream of errors encountered during background writes.
-  func errors() -> AsyncStream<Error>
+  func errors() async -> AsyncStream<Error>
 }
 
-extension XMPSidecarStore: SidecarStoreProtocol {}
+/// Concrete capability of stores whose actual editor boundary persists
+/// portable semantic history. SMB/API hosts follow under #2437 (#4047).
+public protocol SemanticSidecarStoreProtocol: SidecarStoreProtocol {
+  func commitSemantic(
+    model: AdjustmentModel, culling: CullingState, action: String, label: String
+  ) async throws
+}
+
+extension XMPSidecarStore: SemanticSidecarStoreProtocol {}

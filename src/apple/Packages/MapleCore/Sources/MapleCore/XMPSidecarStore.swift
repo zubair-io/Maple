@@ -24,7 +24,6 @@ import Foundation
 /// await store.flush()   // Force immediate write before close.
 /// ```
 public actor XMPSidecarStore {
-  private let rawURL: URL
   private let sidecarURL: URL
 
   private var cached: (AdjustmentModel, CullingState)?
@@ -43,9 +42,11 @@ public actor XMPSidecarStore {
   static let debounceInterval: Duration = .milliseconds(750)
 
   public init(rawURL: URL) {
-    self.rawURL = rawURL
     self.sidecarURL = SidecarPath.sidecarURL(for: rawURL)
   }
+
+  /// PhotoKit's canonical App Support file shares the same writer (#4047).
+  init(sidecarURL: URL) { self.sidecarURL = sidecarURL }
 
   /// Load current model+culling from disk (or return cached).
   /// Returns defaults if no sidecar exists.

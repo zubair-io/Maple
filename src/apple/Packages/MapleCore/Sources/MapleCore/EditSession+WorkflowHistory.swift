@@ -1,4 +1,4 @@
-// Native filesystem transaction integration (#4046). Source-backed editors,
+// Native filesystem and PhotoKit transaction integration (#4046/#4047). SMB/API editors,
 // variant switching and snapshot/history controls remain staged under #2437.
 import Foundation
 
@@ -7,9 +7,9 @@ extension EditSession {
   func scheduleSemanticSidecarCommit(
     model: AdjustmentModel, culling: CullingState, action: String, label: String
   ) {
-    // This stage owns local filesystem XMP only. Existing source-backed stores
-    // retain their real ordinary save path until their #2437 integration lands.
-    guard let local = sidecarStore as? XMPSidecarStore else {
+    // Filesystem and PhotoKit expose the real semantic-commit capability.
+    // SMB/API retain their ordinary saves until their #2437 integration lands.
+    guard let semantic = sidecarStore as? any SemanticSidecarStoreProtocol else {
       scheduleSidecarUpdate(model: model, culling: culling)
       return
     }
@@ -17,7 +17,8 @@ extension EditSession {
     sidecarUpdateTask = Task {
       await previous?.value
       do {
-        try await local.commitSemantic(model: model, culling: culling, action: action, label: label)
+        try await semantic.commitSemantic(
+          model: model, culling: culling, action: action, label: label)
         self.sidecarError = nil
       } catch {
         self.sidecarError = error
