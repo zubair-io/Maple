@@ -121,7 +121,8 @@ public final class GpuLiveDriver {
   private var lastPresentedKey: (generation: UInt64, width: Int, height: Int)?
 
   /// The RAW path + decode quality for the Auto Profile fit (set on open).
-  private var autoProfileFitDone = false
+  var autoProfileFitDone = false
+  var nativeAutoProfileID: UUID?
 
   /// The current film-look lattice (epic #2683, Task 10), if any — pushed by
   /// `EditSession` via `setFilmLut`/`clearFilmLut` whenever
@@ -295,6 +296,7 @@ public final class GpuLiveDriver {
     self.sessionDims = (width, height)
     self.uploadedIdentity = identity
     self.autoProfileFitDone = false
+    self.nativeAutoProfileID = nil
     self.inputShape = inputShape
     if let filmLut {
       await s.setFilmLut(data: filmLut.data, size: filmLut.size, key: filmLut.key)
@@ -317,6 +319,7 @@ public final class GpuLiveDriver {
     sessionDims = nil
     uploadedIdentity = nil
     autoProfileFitDone = false
+    nativeAutoProfileID = nil
     let previous = sessionTeardown
     sessionTeardown = Task {
       if let previous { await previous.value }
@@ -324,19 +327,6 @@ public final class GpuLiveDriver {
       if let preparation, let prepared = try? await preparation.value {
         await prepared.close()
       }
-    }
-  }
-
-  /// Fit the Auto Profile curve + residual LUT for `rawPath` once per open (the
-  /// A2 artifacts the chain's curve/LUT passes reapply every tick). No-op after
-  /// the first call per open, or when `model.profile != .auto`.
-  public func fitAutoProfileIfNeeded(
-    rawPath: String, model: AdjustmentModel, quality: PipelineRenderer.Quality
-  ) async {
-    guard let s = session else { return }
-    if model.profile == .auto && !autoProfileFitDone {
-      autoProfileFitDone = true
-      await s.fitAutoProfile(rawPath: rawPath, quality: quality)
     }
   }
 

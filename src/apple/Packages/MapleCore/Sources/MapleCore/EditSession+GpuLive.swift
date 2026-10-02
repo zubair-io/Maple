@@ -252,8 +252,16 @@ extension EditSession {
       let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-      await driver.fitAutoProfileIfNeeded(
-        rawPath: url.path, model: m, quality: quality)
+      if let prepared = preparedNativeAutoProfile(decodeGeneration: decodeGeneration) {
+        await driver.installNativeAutoProfile(prepared)
+      } else {
+        await driver.fitAutoProfileIfNeeded(rawPath: url.path, model: m, quality: quality)
+        if let prepared = nativeAutoProfile.readyFor(
+          decodeGeneration: decodeGeneration, quality: AmazeFlag.isEnabled ? .amaze : .full)
+        {
+          await driver.installNativeAutoProfile(prepared)
+        }
+      }
     }
 
     // Film look (epic #2683, Task 10): resolve + push BEFORE this present,

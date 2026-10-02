@@ -47,7 +47,7 @@ The counter reaches every shared derivative reader and writer through generated 
 
 The cache sweep retires legacy and older-version derivatives, including their markers, while preserving current and newer versions for live originals. Keeping newer files prevents an older app from destroying a newer client's cache. Exact-source cleanup on removal reclaims all recognized versions without matching another filename that shares a prefix.
 
-Apple additionally keeps two hand-maintained local counters for _host-side_ render-semantics fixes that raw-core's output doesn't cover — `RenderedPreviewCache.viewTransformVersion` (8) and `TileManager.viewTransformVersion` (5) — bumping those churns only Apple's caches, leaving correct web artifacts alone.
+Apple additionally keeps two hand-maintained local counters for _host-side_ render-semantics fixes that raw-core's output doesn't cover — `RenderedPreviewCache.viewTransformVersion` (9) and `TileManager.viewTransformVersion` (6) — bumping those churns only Apple's caches, leaving correct web artifacts alone.
 
 ## Apple
 
@@ -109,7 +109,7 @@ The stripped model deliberately KEEPS every decode-product field, because those 
 
 White-balance names and provenance are excluded from the decoded-model key alongside the live temperature/tint pair. Apple normalizes the live WB scale and metadata in `stripAppleGPUStages`; Web normalizes source, sample point and algorithm version in its stripped GPU prefix. Selecting a named preset, applying AUTO, or switching to a manual adjustment must not cause a new decode solely because its provenance changed. The full live model and saved sidecar retain that provenance.
 
-After a changed timestamp validates the same baked model, the cache accepts the timestamp captured before parsing. Subsequent ticks return to the stat-only fast path; a later write still changes that timestamp and triggers validation. Pending decode ownership is checked after native completion and after normalization, so a late result cannot clear or replace a newer profile/quality request for the same asset. Single-flight joins await normalization and cache publication before returning. The snapshot retains the actual demosaic quality with the pixels, and both Metal Auto fitting and the CPU fallback use that quality. An equal-size Full/AMaZE decode replaces Preview; a later Preview may retain an already covering higher-quality buffer and returns that retained image with its metadata. Preview seeds and invalidation clear the quality.
+After a changed timestamp validates the same baked model, the cache accepts the timestamp captured before parsing. Subsequent ticks return to the stat-only fast path; a later write still changes that timestamp and triggers validation. Pending decode ownership is checked after native completion and after normalization, so a late result cannot clear or replace a newer profile/quality request for the same asset. Single-flight joins await normalization and cache publication before returning. The snapshot retains the actual demosaic quality with the pixels, and provisional Auto fitting uses that quality. The settled Mac tail uses full-export quality, as described under Mac native Auto preparation below. An equal-size Full/AMaZE decode replaces Preview; a later Preview may retain an already covering higher-quality buffer and returns that retained image with its metadata. Preview seeds and invalidation clear the quality.
 
 Named variant switching (#4063) also compares the selected sidecar path before accepting the decoded-cache timestamp fast path. Equal timestamps on two siblings do not establish equal baked models. Switching to an equal stripped model shares the existing decoded pixels; a different stripped model invalidates them. In-flight decodes are bound to their selected sidecar path. `RenderedPreviewCache` includes a named sibling's path and modification time, while preserving existing primary keys. Queued preview writes retain that selected path and revision; invalidating the RAW clears all its branch previews.
 
@@ -371,3 +371,37 @@ Five things the old document stated that the code does not support:
 5. **The five-cache framing.** The old "five caches at a glance" table describes an Apple-only world. It omits the layers that carry most of today's behavior: versioned shared filenames and per-platform memory keys, the R2 and Cloudflare Worker edge tier, the File Provider and Quick Look caches, the ten web IndexedDB stores and the byte-bounded in-memory tiers, the API's per-stage `targetVersion` regeneration and its `cache-gc` sweep, and the server-side TTL caches for search counts and reverse-geocodes.
 
 Two things the old doc got right and this one preserves: the `RenderedPreviewCache` key composition, including sidecar mtime as the adjustment-version proxy, and the Hosted preview cache's descriptor-based validation. Separately, the `<sha16>_1600.jpg` naming that sometimes gets attributed to the preview cache is a retired scheme on both sides — `cache-gc`'s `LEGACY_PANO_PREVIEW_RE` recognizes it for reclamation and nothing writes it, and Apple's reader never consults the equivalent old path.
+
+### Mac native Auto preparation (#1472)
+
+The settled Mac canvas, CPU fallback and 1:1 detail use the full-export Auto
+curve/residual pair. Its pinned default-model develop ignores edits and accepted
+removal patches. The native fit uses the existing Rust `Render(None)` origin and
+Full/AMaZE quality key; the standalone 1536-pixel proxy cache remains separate.
+Until preparation completes, the existing proxy frame remains provisional and
+is not persisted as a completed preview. Editor exit joins preparation and
+ensures the resulting frame actually owns the ready tail before persisting;
+failed preparation retains the provisional frame and does not write it as settled.
+
+`NativeAutoProfilePreparation` has one active fit and one completed result
+(including a valid absent tail), keyed by canonical URL, original modification
+and creation times, file size and inode, and native demosaic quality. Metadata
+I/O runs off the main actor. Same-key callers join with individual cancellation
+leases; the last cancelled waiter requests cooperative Rust cancellation. A
+replacement waits for actual worker return. Source metadata is checked before
+and after delivery; the underlying Rust mosaic and fit caches retain their
+existing canonical-path/mtime identity contract. Native preparation and full
+Mac export share `NativeAutoProfileWorker`, so their expensive develops are
+serialized and each can reuse the other's native core fit without altering
+export arithmetic.
+
+Each `EditSession` retains one immutable result and revalidates on a new decode
+generation or native-quality change. Crop/grade changes reuse that result while
+the source/decode generation is unchanged. GPU session resizing only rebinds the
+arrays; CPU renders borrow the same curve/residual inside the existing fused
+Rust chain and encode, before host quantization. They allocate no additional
+full-image buffer for the tail and cannot publish a cube-less fallback as settled.
+Session teardown cancels its lease; explicit transient-memory release cancels
+and joins its preparation and clears the completed global slot. No preparation
+runs on the GPU submission actor. iOS retains the existing proxy/memory policy;
+ports remain deferred under #1472.

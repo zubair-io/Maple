@@ -18,8 +18,14 @@ extension RenderActor {
     try xml.write(to: snapshot, atomically: true, encoding: .utf8)
     defer { try? FileManager.default.removeItem(at: snapshot) }
     try Task.checkCancellation()
-    let image = try PipelineRenderer.renderFullDisplay(
-      rawPath: raw, xmpPath: snapshot, quality: quality, target: target, filmLut: filmLut)
+    let image: CIImage
+    #if os(macOS)
+      image = try await NativeAutoProfileWorker.shared.renderFullDisplay(
+        raw: raw, xmp: snapshot, quality: quality, target: target, filmLut: filmLut)
+    #else
+      image = try PipelineRenderer.renderFullDisplay(
+        rawPath: raw, xmpPath: snapshot, quality: quality, target: target, filmLut: filmLut)
+    #endif
     try Task.checkCancellation()
     return image
   }

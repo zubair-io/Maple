@@ -129,16 +129,10 @@ extension EditSession {
         return true
       }
 
-      // Use the same preview-quality Auto Profile tail as the base
-      // canvas; only demosaic/source sampling is native-resolution.
-      let profileLUT: CIFilter? = await {
-        guard m.profile == .auto, let url = asset.primaryURL else { return nil }
-        return await AutoProfileLUT.shared.filter(
-          forRawAt: url,
-          profile: m.profile,
-          quality: .preview
-        )
-      }()
+      let autoTail = await autoProfileLUTForCPURender(
+        asset: asset, model: m, quality: snapshot.quality ?? .preview,
+        decodeGeneration: snapshot.decodeGeneration)
+      let profileLUT = autoTail.filter
       guard requestID == nativeDetailRequestID, !Task.isCancelled else { return true }
       let localDetailRect = NativeDetailLOD.localCoreImageRect(
         detailRect: publishedPatchRect,
@@ -152,16 +146,17 @@ extension EditSession {
       // `profileLUT != nil ? .srgb : ...` immediately below.
       let filmActive = filmLattice != nil && m.filmStrength > 0
       let targetPrimaries: CanvasColorSpace =
-        (profileLUT != nil || filmActive) ? .srgb : CanvasColorSpace.current
-      let materialised = await Task.detached(priority: .userInitiated) {
-        () -> CIImage? in
-        let processed = pipeline.processSceneLinear(
+        (autoTail.native?.artifacts != nil || profileLUT != nil || filmActive)
+        ? .srgb : CanvasColorSpace.current
+      let materialised = try await Task.detached(priority: .userInitiated) {
+        () throws -> CIImage? in
+        let processed = try pipeline.processSceneLinearWithAuto(
           decoded: decoded,
           model: m,
           targetSize: nil,
           asShot: asShot,
           decodedAtModel: snapshot.decodedAtModel,
-          profileLUT: profileLUT,
+          profileLUT: profileLUT, nativeAutoProfile: autoTail.native,
           // A viewport patch must not use the whole-image chain
           // cache: its key has dimensions but no source origin.
           assetID: nil,

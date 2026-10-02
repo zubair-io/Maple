@@ -48,18 +48,6 @@ public struct GpuLiveError: Error, Sendable {
   public let message: String
 }
 
-/// The fitted Auto Profile artifacts for one image (the A2 un-composed
-/// curve + residual LUT), held on the session so the chain's curve/LUT passes
-/// reapply them every tick without re-fitting. `nil` curve ⇒ identity (the
-/// residual alone); `nil` residual ⇒ no LUT pass.
-private struct AutoProfileArtifacts {
-  /// `PROFILE_CURVE_FLAT_LEN` floats, or `nil` if the fit produced no curve.
-  let curveFlat: [Float]?
-  /// The residual LUT edge + `size³·3` flat grid, or `nil` if no residual.
-  let lutSize: Int
-  let lutData: [Float]?
-}
-
 /// A serialized wgpu live-render session bound to one uploaded image at one set of
 /// dims. An `actor` so every FFI call (which touches the `!Send`/`!Sync` Rust
 /// context) is serialized onto one executor — the single-render-in-flight invariant.
@@ -192,6 +180,11 @@ public actor GpuLiveSession {
       maple_gpu_live_close(&h)
       handle = nil
     }
+  }
+
+  /// Rebind an immutable native tail prepared outside the GPU submission actor.
+  func setNativeAutoProfile(_ prepared: NativeAutoProfile) {
+    autoProfile = prepared.artifacts
   }
 
   /// Fit (and cache on this session) the Auto Profile curve + residual LUT for

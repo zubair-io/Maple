@@ -27,10 +27,12 @@ use crate::{
 /// keep this file under the size budget; re-exported so `pipeline::{…}` and the
 /// FFI keep resolving `fit_profile_curve_from_raw` / `fit_auto_profile_from_raw`.
 mod auto_fit;
+mod auto_fit_native;
 pub use auto_fit::{
     cached_auto_profile_fit, fit_auto_profile_from_raw, fit_auto_profile_from_raw_at_cap,
     fit_profile_curve_from_raw, FitCap,
 };
+pub use auto_fit_native::fit_native_auto_profile_cancellable;
 
 // Sized display render + `native_render_dims` (#1101) — size-budget split.
 mod sized;

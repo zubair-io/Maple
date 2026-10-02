@@ -38,31 +38,6 @@ import Foundation
 extension EditSession {
   // MARK: - Unified decode + render
 
-  /// Auto Profile (#812) — resolve (and cache) the per-image display-space
-  /// CIColorCube for a CPU-path render. In `decodeAndRender`, call only from
-  /// the CPU-fallback branches (after `presentViaGpuLive` has declined the
-  /// frame): the fit is a cold JPEG-extract + develop the first time per
-  /// image (seconds + a multi-GB develop transient on a 100MP RAW), and
-  /// when the GPU live present handles the frame it does its own fit —
-  /// computing this before attempting the present burns that cost on a
-  /// result the GPU path never uses (#2034). `AutoProfileLUT` caches the
-  /// baked cube keyed on URL+mtime+quality so slider ticks reuse it. Nil
-  /// for non-RAW, `Profile::Neutral`, or fit failure. Use the quality of
-  /// the cached pixels: refine can escalate beyond Preview, and a fast
-  /// render can retain that higher-quality buffer (#1472).
-  func autoProfileLUTForCPURender(
-    asset: AssetRef, model m: AdjustmentModel, quality: PipelineRenderer.Quality
-  ) async
-    -> CIFilter?
-  {
-    guard asset.isRaw, m.profile == .auto else { return nil }
-    guard let url = try? await renderActor.rawRenderSource.url(for: asset) else { return nil }
-    let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-    let accessing = scope.startAccessingSecurityScopedResource()
-    defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-    return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: quality)
-  }
-
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
     if let error = partialWhiteBalanceImportError, model.partialWhiteBalance != nil {
       renderError = error
@@ -223,6 +198,7 @@ extension EditSession {
 
     do {
       let image: CIImage
+      let nativeAutoID: UUID?
       let isRaw = asset.isRaw
       let assetID = asset.id
       if let cached, cacheFresh {
@@ -283,8 +259,11 @@ extension EditSession {
         // for THIS (interactive canvas) path — `EditSession+
         // FilmExport.swift`'s non-RAW export path is untouched, still
         // tracked under #2713.
-        let profileLUT = await autoProfileLUTForCPURender(
-          asset: asset, model: m, quality: snapshot.quality ?? .preview)
+        let autoTail = await autoProfileLUTForCPURender(
+          asset: asset, model: m, quality: snapshot.quality ?? .preview,
+          decodeGeneration: snapshot.decodeGeneration)
+        let profileLUT = autoTail.filter
+        nativeAutoID = autoTail.native?.id
         MemoryProbe.sample(
           "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
         // The fit is a multi-second suspension on a cold image, and the
@@ -300,7 +279,7 @@ extension EditSession {
         // bytes it would misinterpret as sRGB-gamma.
         let filmActive = filmLattice != nil && m.filmStrength > 0
         image = try await renderActor.renderCPUPreview {
-          let processed = mapleStage(filterStageName) { () -> CIImage in
+          let processed = try mapleStage(filterStageName) { () throws -> CIImage in
             if !isRaw {
               return pipeline.processSceneLinearNonRaw(
                 decoded: cached, model: m, targetSize: processTarget,
@@ -308,10 +287,10 @@ extension EditSession {
                 targetPrimariesOverride: filmActive ? .srgb : nil
               )
             }
-            return pipeline.processSceneLinear(
+            return try pipeline.processSceneLinearWithAuto(
               decoded: cached, model: m, targetSize: processTarget,
               asShot: asShot, decodedAtModel: cachedDecodedAtModel,
-              profileLUT: profileLUT,
+              profileLUT: profileLUT, nativeAutoProfile: autoTail.native,
               assetID: assetID,
               noiseProfile: cachedNoiseProfile,
               iso: cachedISO,
@@ -418,8 +397,11 @@ extension EditSession {
         // FFI chain's display-encoded output rather than inside the
         // FFI struct itself, closing the gap for this (interactive
         // canvas) path.
-        let profileLUT = await autoProfileLUTForCPURender(
-          asset: asset, model: m, quality: freshSnapshot.quality ?? .preview)
+        let autoTail = await autoProfileLUTForCPURender(
+          asset: asset, model: m, quality: freshSnapshot.quality ?? .preview,
+          decodeGeneration: freshSnapshot.decodeGeneration)
+        let profileLUT = autoTail.filter
+        nativeAutoID = autoTail.native?.id
         MemoryProbe.sample(
           "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
         // Same bail as the cached branch: the fit suspension may have
@@ -432,7 +414,7 @@ extension EditSession {
         // above — `FilmLookCube` assumes sRGB-encoded input.
         let filmActive = filmLattice != nil && m.filmStrength > 0
         let processed = try await renderActor.renderCPUPreview {
-          let developed = mapleStage(filterStageName) { () -> CIImage in
+          let developed = try mapleStage(filterStageName) { () throws -> CIImage in
             if !isRaw {
               return pipeline.processSceneLinearNonRaw(
                 decoded: decoded, model: m, targetSize: processTarget,
@@ -440,10 +422,10 @@ extension EditSession {
                 targetPrimariesOverride: filmActive ? .srgb : nil
               )
             }
-            return pipeline.processSceneLinear(
+            return try pipeline.processSceneLinearWithAuto(
               decoded: decoded, model: m, targetSize: processTarget,
               asShot: freshAsShot, decodedAtModel: freshDecodedAtModel,
-              profileLUT: profileLUT,
+              profileLUT: profileLUT, nativeAutoProfile: autoTail.native,
               assetID: assetID,
               noiseProfile: freshNoiseProfile,
               iso: freshISO,
@@ -480,6 +462,15 @@ extension EditSession {
           return
         }
       }
+      // Never overwrite a newer native-colored CPU frame with an older proxy
+      // completion. The first provisional frame may still be shown, but its
+      // artifact identity prevents it being persisted as settled.
+      if let ready = nativeAutoProfile.ready, nativeAutoFrameID == ready.id,
+        m.profile == .auto, nativeAutoID != ready.id
+      {
+        return
+      }
+      nativeAutoFrameID = nativeAutoID
       renderedPreview = displayImage
       lastPublishedRenderGeneration = gen
       previewIsFullRender = true
@@ -513,7 +504,7 @@ extension EditSession {
       // refine that ran off the seeded decode would push camera-JPEG-
       // derived pixels to the thumbnail; the decode's completion re-kicks
       // a render, so the thumbnail still refreshes from real pixels.
-      if phase == .refine, !isFullQualityDecoding {
+      if phase == .refine, !isFullQualityDecoding, hasSettledCPUAutoProfile {
         // Use the cropped `displayImage` so the browse thumbnail +
         // rendered-preview cache reflect what the user sees (#638).
         let thumbSource = displayImage

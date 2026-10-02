@@ -11,11 +11,11 @@ extension RenderActor {
     await Self.cpuPreviewSlot.queuedCount
   }
 
-  func renderCPUPreview(_ work: @escaping @Sendable () -> CIImage) async throws -> CIImage {
+  func renderCPUPreview(_ work: @escaping @Sendable () throws -> CIImage) async throws -> CIImage {
     try await Self.cpuPreviewSlot.acquire()
     do {
       try Task.checkCancellation()
-      let image = await Task.detached(priority: .userInitiated, operation: work).value
+      let image = try await Task.detached(priority: .userInitiated, operation: work).value
       try Task.checkCancellation()
       await Self.cpuPreviewSlot.release()
       return image

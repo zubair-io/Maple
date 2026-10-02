@@ -95,7 +95,7 @@ pub use develop_sized::{
 pub use downsample::downsample_image_area;
 pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 pub use render::{
-    cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
+    fit_native_auto_profile_cancellable, cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
     render_export_f32, render_display_with_geometry, render_detail_base, render_detail_tile, render_export_from_raw,
     render_export_from_raw_with_film, render_export_raster, render_from_raw,
