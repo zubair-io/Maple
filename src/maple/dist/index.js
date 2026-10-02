@@ -282,26 +282,6 @@ function getFfiSymbols(FFIType) {
       ],
       returns: FFIType.i32
     },
-    maple_workflow_validate_json: {
-      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
-      returns: FFIType.i32
-    },
-    maple_workflow_read_xmp: {
-      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
-      returns: FFIType.i32
-    },
-    maple_workflow_embed_xmp: {
-      args: [
-        FFIType.ptr,
-        FFIType.u64,
-        FFIType.ptr,
-        FFIType.u64,
-        FFIType.ptr,
-        FFIType.u64,
-        FFIType.ptr
-      ],
-      returns: FFIType.i32
-    },
     maple_validate_filename: {
       args: [FFIType.cstring],
       returns: FFIType.i32
@@ -461,8 +441,41 @@ function getFfiSymbols(FFIType) {
 var WORKFLOW_MAX_BYTES = 262144;
 
 // src/native-workflow.ts
-function createWorkflowBinding(lib, ptr, getLastError) {
+function getWorkflowFfiSymbols(FFIType) {
+  return {
+    maple_workflow_validate_json: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32
+    },
+    maple_workflow_read_xmp: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32
+    },
+    maple_workflow_embed_xmp: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr
+      ],
+      returns: FFIType.i32
+    }
+  };
+}
+function createWorkflowBinding(loadLibrary, ptr, getLastError) {
+  let library = null;
   const convert = (symbol, inputs) => {
+    try {
+      library ??= loadLibrary();
+    } catch (error) {
+      return {
+        ok: false,
+        error: `Workflow native bindings unavailable. Rebuild or update the native library: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
     const out = Buffer.alloc(WORKFLOW_MAX_BYTES);
     const outLen = Buffer.alloc(8);
     if (inputs.some((value) => Buffer.byteLength(value, "utf-8") > WORKFLOW_MAX_BYTES))
@@ -473,7 +486,7 @@ function createWorkflowBinding(lib, ptr, getLastError) {
       ptr(buffer.length ? buffer : empty),
       BigInt(buffer.byteLength)
     ]);
-    const rc = lib.symbols[symbol](...args, ptr(out), BigInt(out.byteLength), ptr(outLen));
+    const rc = library.symbols[symbol](...args, ptr(out), BigInt(out.byteLength), ptr(outLen));
     if (rc !== 0)
       return { ok: false, error: getLastError() ?? `Workflow conversion failed: ${rc}` };
     const length = Number(outLen.readBigUInt64LE());
@@ -728,13 +741,20 @@ function tryLoadNapiBinding() {
   }
   try {
     const addon = loadNapiModule(addonPath);
-    if (typeof addon.rasterAnalyzePath !== "function" || typeof addon.workflowEmbedXmp !== "function") {
-      throw new Error(`N-API addon ${addonPath} lacks the current analyze/workflow ABI; rebuild or update it`);
+    if (typeof addon.rasterAnalyzePath !== "function") {
+      throw new Error(`N-API addon ${addonPath} lacks rasterAnalyzePath; rebuild or update it`);
     }
+    const workflow = (method, args) => {
+      const fn = addon[method];
+      return typeof fn === "function" ? fn(...args) : {
+        ok: false,
+        error: "Workflow native bindings unavailable. Rebuild or update the N-API addon."
+      };
+    };
     const binding = {
-      workflowValidateJson: wrap((json) => addon.workflowValidateJson(json)),
-      workflowReadXmp: wrap((xmp) => addon.workflowReadXmp(xmp)),
-      workflowEmbedXmp: wrap((json, xmp) => addon.workflowEmbedXmp(json, xmp)),
+      workflowValidateJson: wrap((json) => workflow("workflowValidateJson", [json])),
+      workflowReadXmp: wrap((xmp) => workflow("workflowReadXmp", [xmp])),
+      workflowEmbedXmp: wrap((json, xmp) => workflow("workflowEmbedXmp", [json, xmp])),
       renderFilenameTemplate: wrap((args) => addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined })),
       validateFilename: wrap((name) => addon.validateFilename(name)),
       rasterProbeMetadata: wrap((inputPath) => addon.rasterProbeMetadata(inputPath)),
@@ -792,7 +812,7 @@ function loadNativeBinding() {
     return res ? String(res) : null;
   }
   const binding = {
-    ...createWorkflowBinding(lib, ptr, getLastError),
+    ...createWorkflowBinding(() => dlopen(libPath, getWorkflowFfiSymbols(FFIType)), ptr, getLastError),
     exportDevelopedToFile(rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath) {
       const rawBuf = Buffer.from(rawPath + "\x00", "utf-8");
       const xmpBuf = xmpPath ? Buffer.from(xmpPath + "\x00", "utf-8") : null;
