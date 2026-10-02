@@ -31,8 +31,9 @@ undoing one of those failures:
 2. Origin 404 + the request is an HTML navigation → re-fetch and serve
    `/index.html` with status 200 (the SPA fallback). A non-navigation 404
    (a missing JS chunk, a stale asset URL) passes through as a real 404.
-3. Force `Content-Type: application/wasm` on `.wasm` paths regardless of
-   what the origin reports.
+3. Correct successful WASM/WOFF2 responses to `application/wasm` /
+   `font/woff2` when Azure reports octet-stream. Origin error MIME types
+   and status codes pass through unchanged.
 4. Never invent a `Cache-Control` — pass the origin's own value through
    untouched. `index.html` requests routed through the fallback path get an
    explicit `no-cache`, matching the same rule the upload step in
@@ -59,7 +60,7 @@ npm run typecheck     # tsc --noEmit
 npm test              # vitest run, via @cloudflare/vitest-pool-workers
 npm run dev           # wrangler dev — local server at http://localhost:8787
 npm run deploy        # wrangler deploy
-npm run smoke -- https://mapleaperture.com   # post-deploy public-endpoint checks
+npm run smoke -- https://mapleaperture.com https://hornbeam.blob.core.windows.net/mapleaperture
 CF_API_TOKEN=... CF_ZONE_ID=... npm run purge  # evict stale edge cache after a deploy
 ```
 
@@ -77,11 +78,16 @@ and zone. `wrangler.jsonc.example` is the committed template.
    domain).
 3. `npm run deploy`.
 4. Run the smoke check against the live domain:
-   `npm run smoke -- https://mapleaperture.com`. It verifies the WASM
-   binary's MIME type, magic bytes and full byte length, a PNG and a WOFF2
-   asset's magic bytes, the required security headers on `/`, that an
-   unknown deep-link path falls back to the app shell, and that a genuinely
-   missing asset still 404s.
+   `npm run smoke -- https://mapleaperture.com`. It compares full SHA-256 hashes of WASM, PNG, WOFF2 and `ngsw.json`
+   against the Azure origin (the optional second URL argument defaults to
+   `hornbeam/mapleaperture`). It checks MIME/magic, security headers on
+   root/assets/deep links, rejects immutable stable assets, requires
+   `no-cache` on the service-worker manifest, validates SPA fallback, and
+   requires a real 404 for missing subresources. Each fetch has a 60-second
+   deadline. Run against a settled deployment: a build changing between
+   origin and edge fetches fails the comparison and must be checked again
+   after upload completes. `npm test` exercises the CLI against real local
+   HTTP servers, including same-length byte corruption, before Worker tests.
 5. Purge the edge cache so no client keeps being served a response cached
    under the old, broken Worker:
    `CF_API_TOKEN=... CF_ZONE_ID=... npm run purge`. Required once after the

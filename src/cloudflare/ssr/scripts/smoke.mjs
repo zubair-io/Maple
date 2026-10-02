@@ -6,7 +6,7 @@
 // deploy of the Worker or of a new `dist/maple-syrup/browser` build:
 //
 //   node scripts/smoke.mjs https://mapleaperture.com
-//   npm run smoke -- https://mapleaperture.com
+//   npm run smoke -- https://mapleaperture.com [origin-base-url]
 //
 // Exits non-zero (and prints every failure, not just the first) on any
 // check failure, so it is safe to wire into a deploy pipeline as a gate
@@ -18,7 +18,10 @@
 // script is a standalone dev tool with no import path into `src/web`
 // (same "keep in sync by hand" convention as `src/security-headers.ts`).
 
+import { createHash } from 'node:crypto';
+
 const baseUrl = process.argv[2] ?? 'https://mapleaperture.com';
+const originUrl = process.argv[3] ?? 'https://hornbeam.blob.core.windows.net/mapleaperture';
 
 const WASM_ASSET = '/raw_wasm_bg.wasm';
 const PNG_ASSET = '/assets/brand/icon-512.png';
@@ -52,30 +55,71 @@ function startsWithMagic(bytes, magic) {
 	return magic.every((byte, index) => bytes[index] === byte);
 }
 
-async function fetchBytes(path) {
-	const response = await fetch(new URL(path, baseUrl));
+function target(base, path) {
+	return `${base.replace(/\/$/, '')}${path}`;
+}
+
+function fetchResponse(base, path, options = {}) {
+	return fetch(target(base, path), { ...options, signal: AbortSignal.timeout(60_000) });
+}
+
+async function fetchBytes(base, path) {
+	const response = await fetchResponse(base, path);
 	const buffer = new Uint8Array(await response.arrayBuffer());
 	return { response, buffer };
 }
 
+function checkSecurityHeaders(response, path) {
+	for (const [name, expected] of Object.entries(REQUIRED_HEADERS)) {
+		const actual = response.headers.get(name);
+		if (actual !== expected)
+			fail('headers', `${path} is missing "${name}: ${expected}" (got "${actual}")`);
+	}
+}
+
+function checkStableCache(response, path) {
+	const cache = response.headers.get('cache-control') ?? '';
+	if (/\bimmutable\b/i.test(cache))
+		fail('cache', `${path} has an immutable cache policy on a stable asset name`);
+}
+
 async function checkBinaryAsset(path, expectedContentType, magic, label) {
-	const { response, buffer } = await fetchBytes(path);
+	const [edge, origin] = await Promise.all([
+		fetchBytes(baseUrl, path),
+		fetchBytes(originUrl, path),
+	]);
+	const { response, buffer } = edge;
 	if (response.status !== 200) return fail(label, `${path} returned ${response.status}`);
-	const contentType = response.headers.get('content-type');
-	if (contentType !== expectedContentType) {
+	if (origin.response.status !== 200)
+		return fail(label, `${path} origin returned ${origin.response.status}`);
+	checkSecurityHeaders(response, path);
+	checkStableCache(response, path);
+	const contentType = response.headers.get('content-type')?.split(';')[0].trim();
+	if (contentType !== expectedContentType)
 		fail(label, `${path} content-type is "${contentType}", expected "${expectedContentType}"`);
+	if (!startsWithMagic(buffer, magic) || !startsWithMagic(origin.buffer, magic)) {
+		fail(label, `${path} edge or origin does not start with the expected magic bytes`);
 	}
-	if (!startsWithMagic(buffer, magic)) {
-		fail(label, `${path} does not start with the expected magic bytes (got ${buffer.length} bytes)`);
-	}
+	// Fetch decodes gzip/brotli. Content-Length describes encoded wire bytes,
+	// so only compare it to the decoded body when no encoding was applied.
 	const declaredLength = response.headers.get('content-length');
-	if (declaredLength !== null && Number(declaredLength) !== buffer.length) {
+	if (
+		!response.headers.get('content-encoding') &&
+		declaredLength !== null &&
+		Number(declaredLength) !== buffer.length
+	) {
 		fail(
 			label,
-			`${path} body is ${buffer.length} bytes but Content-Length declared ${declaredLength} — truncated or re-encoded in transit`,
+			`${path} body is ${buffer.length} bytes but Content-Length declared ${declaredLength}`,
 		);
 	}
 	if (buffer.length === 0) fail(label, `${path} body is empty`);
+	const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+	const edgeHash = hash(buffer);
+	const originHash = hash(origin.buffer);
+	if (edgeHash !== originHash)
+		fail(label, `${path} SHA-256 differs from origin: edge=${edgeHash}, origin=${originHash}`);
+	else console.log(`${label}: ${buffer.length} bytes, sha256=${edgeHash} (matches origin)`);
 }
 
 async function checkWasm() {
@@ -92,22 +136,38 @@ async function checkWoff2() {
 }
 
 async function checkHeaders() {
-	const response = await fetch(new URL('/', baseUrl));
-	for (const [name, expected] of Object.entries(REQUIRED_HEADERS)) {
-		const actual = response.headers.get(name);
-		if (actual !== expected) {
-			fail('headers', `/ is missing "${name}: ${expected}" (got "${actual}")`);
-		}
+	const response = await fetchResponse(baseUrl, '/');
+	if (response.status !== 200) fail('headers', `/ returned ${response.status}, expected 200`);
+	checkSecurityHeaders(response, '/');
+	checkStableCache(response, '/');
+	await response.body?.cancel();
+}
+
+async function checkServiceWorkerManifest() {
+	await checkBinaryAsset('/ngsw.json', 'application/json', [], 'service-worker');
+	const response = await fetchResponse(baseUrl, '/ngsw.json');
+	const cache = response.headers.get('cache-control') ?? '';
+	if (!cache.split(',').some((directive) => directive.trim().toLowerCase() === 'no-cache')) {
+		fail('cache', `/ngsw.json must revalidate with no-cache (got "${cache}")`);
+	}
+	try {
+		const manifest = await response.json();
+		if (!manifest.hashTable || typeof manifest.hashTable !== 'object')
+			fail('service-worker', '/ngsw.json has no hashTable');
+	} catch {
+		fail('service-worker', '/ngsw.json is not valid JSON');
 	}
 }
 
 async function checkDeepLinkSpaFallback() {
-	const response = await fetch(new URL(DEEP_LINK_PATH, baseUrl), {
+	const response = await fetchResponse(baseUrl, DEEP_LINK_PATH, {
 		headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate' },
 	});
 	if (response.status !== 200) {
 		return fail('spa-fallback', `${DEEP_LINK_PATH} returned ${response.status}, expected 200`);
 	}
+	checkSecurityHeaders(response, DEEP_LINK_PATH);
+	checkStableCache(response, DEEP_LINK_PATH);
 	const contentType = response.headers.get('content-type') ?? '';
 	if (!contentType.includes('text/html')) {
 		fail('spa-fallback', `${DEEP_LINK_PATH} content-type is "${contentType}", expected text/html`);
@@ -119,7 +179,7 @@ async function checkDeepLinkSpaFallback() {
 }
 
 async function checkRealMissingAssetIsA404() {
-	const response = await fetch(new URL(MISSING_ASSET_PATH, baseUrl), {
+	const response = await fetchResponse(baseUrl, MISSING_ASSET_PATH, {
 		headers: { accept: '*/*' },
 	});
 	if (response.status !== 404) {
@@ -135,12 +195,13 @@ const CHECKS = [
 	['png', checkPng],
 	['woff2', checkWoff2],
 	['headers', checkHeaders],
+	['service-worker', checkServiceWorkerManifest],
 	['spa-fallback', checkDeepLinkSpaFallback],
 	['real-404', checkRealMissingAssetIsA404],
 ];
 
 async function main() {
-	console.log(`Hosted SSR smoke check against ${baseUrl}`);
+	console.log(`Hosted SSR smoke check against ${baseUrl}, origin ${originUrl}`);
 	// allSettled, not all: a thrown network error (DNS failure, connection
 	// refused, ...) from one check must not abort the rest — every check
 	// should get a chance to run and report, same as an ordinary assertion
@@ -149,7 +210,10 @@ async function main() {
 	results.forEach((result, index) => {
 		if (result.status === 'rejected') {
 			const [label] = CHECKS[index];
-			fail(label, `threw: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+			fail(
+				label,
+				`threw: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
+			);
 		}
 	});
 
