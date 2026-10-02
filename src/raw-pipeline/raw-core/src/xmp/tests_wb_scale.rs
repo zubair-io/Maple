@@ -161,3 +161,40 @@ fn tint_only_maple_doc_is_v1() {
     assert_eq!(m.wb_scale_version, WbScaleVersion::V1);
     assert!(!m.temperature_seen && m.tint_seen);
 }
+
+#[test]
+fn workflow_namespace_and_checkpoint_attributes_do_not_reclassify_current_wb() {
+    use crate::workflow::{SidecarWorkflow, WorkflowSnapshot};
+    for attrs in [
+        r#"crs:Temperature="5100""#,
+        r#"crs:Tint="-7""#,
+        r#"crs:Temperature="5100" crs:Tint="-7""#,
+    ] {
+        let source = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" {attrs}/></rdf:RDF></x:xmpmeta>"#
+        );
+        let before = parse(&source).unwrap();
+        assert_eq!(before.wb_scale_version, WbScaleVersion::V5);
+        let workflow = SidecarWorkflow::primary()
+            .with_snapshot(WorkflowSnapshot {
+                id: "00000000-0000-0000-0000-000000000001".into(),
+                name: "Foreign WB".into(),
+                created_at_ms: 1,
+                adjustment_xmp: source.clone(),
+            })
+            .unwrap();
+        let embedded = workflow.embed_in_xmp(&source).unwrap();
+        assert_eq!(parse(&embedded).unwrap(), before);
+        assert_eq!(
+            SidecarWorkflow::from_xmp(&embedded).unwrap(),
+            Some(workflow)
+        );
+    }
+    let source = maple_doc(r#"crs:Temperature="5100" crs:Tint="-7""#);
+    let embedded = SidecarWorkflow::primary().embed_in_xmp(&source).unwrap();
+    assert_eq!(parse(&embedded).unwrap(), parse(&source).unwrap());
+    assert_eq!(
+        parse(&embedded).unwrap().wb_scale_version,
+        WbScaleVersion::V1
+    );
+}

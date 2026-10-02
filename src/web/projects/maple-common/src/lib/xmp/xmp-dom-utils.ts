@@ -101,16 +101,25 @@ export function mergedXmpDescription(document: Document): Element | null {
  * inference in `resolveWbScaleVersion` (`xmp-wb-scale.ts`).
  */
 export function sawMapleAuthorshipMarker(document: Document): boolean {
-  return Array.from(document.getElementsByTagName('*')).some(
-    (el) =>
+  return Array.from(document.getElementsByTagName('*')).some((el) => {
+    // XML selectors match local names; check the namespace of the ancestor.
+    // #4043: a scoped authoring namespace does not describe current WB.
+    const workflow = el.closest('*|Workflow');
+    if (
+      workflow &&
+      PAPP_NAMESPACES.includes(workflow.namespaceURI as (typeof PAPP_NAMESPACES)[number])
+    )
+      return false;
+    return (
       PAPP_NAMESPACES.includes(el.namespaceURI as (typeof PAPP_NAMESPACES)[number]) ||
       Array.from(el.attributes).some(
         (attr) =>
           PAPP_NAMESPACES.includes(attr.namespaceURI as (typeof PAPP_NAMESPACES)[number]) ||
           (attr.namespaceURI === 'http://www.w3.org/2000/xmlns/' &&
             PAPP_NAMESPACES.includes(attr.value as (typeof PAPP_NAMESPACES)[number])),
-      ),
-  );
+      )
+    );
+  });
 }
 
 /** Try canonical namespaced and legacy unprefixed attribute variants. */

@@ -554,6 +554,13 @@ preserves surrounding bytes; unsupported versions, unknown owned content,
 duplicate records and recursive checkpoints fail before publication. The final
 sidecar also has the 256 KiB bound, including XML escaping and the outer document.
 
+Current adjustment readers treat the `papp:Workflow` subtree as opaque (#4043),
+including its scoped namespace declaration. Adding authoring metadata to a foreign
+unstamped ACR/Lightroom sidecar cannot mark its current WB as legacy Maple scale.
+Existing Maple-authorship markers and explicit scale stamps outside that subtree
+keep their previous behavior. Checkpoint/history attributes never affect current
+development parameters.
+
 Apple's actor and Web's per-asset write chain publish through their existing
 atomic sidecar contracts. The API exposes authorized `PATCH /api/xmp/workflow`
 and protects workflow records through ordinary primary-sidecar writes. Apple C,
