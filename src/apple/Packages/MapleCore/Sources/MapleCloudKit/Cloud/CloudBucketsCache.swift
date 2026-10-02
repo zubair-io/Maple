@@ -1,7 +1,7 @@
 // CloudBucketsCache.swift
 //
 // On-disk JSON cache for /api/search/buckets responses. Keyed on
-// (host, libraryID). Stale-while-revalidate: caller renders cached
+// (host, libraryID, pathPrefix, ownerID). Stale-while-revalidate: caller renders cached
 // counts immediately, kicks off a refetch in the background, swaps
 // in fresh data when it arrives.
 
@@ -11,26 +11,34 @@ public actor CloudBucketsCache {
   public let baseDir: URL
 
   public init(baseDir: URL? = nil) {
-    if let baseDir { self.baseDir = baseDir }
-    else {
+    if let baseDir {
+      self.baseDir = baseDir
+    } else {
       let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-      self.baseDir = caches
+      self.baseDir =
+        caches
         .appendingPathComponent("app.justmaple.aperture", isDirectory: true)
         .appendingPathComponent("cloud-buckets", isDirectory: true)
     }
   }
 
-  public func read(host: String, libraryID: String, pathPrefix: String? = nil) -> TimelineBuckets? {
-    let url = path(host: host, libraryID: libraryID, pathPrefix: pathPrefix)
+  public func read(
+    host: String, libraryID: String, pathPrefix: String? = nil,
+    ownerID: String? = nil
+  ) -> TimelineBuckets? {
+    let url = path(host: host, libraryID: libraryID, pathPrefix: pathPrefix, ownerID: ownerID)
     guard FileManager.default.fileExists(atPath: url.path),
-          let data = try? Data(contentsOf: url),
-          let buckets = try? JSONDecoder().decode(TimelineBuckets.self, from: data)
+      let data = try? Data(contentsOf: url),
+      let buckets = try? JSONDecoder().decode(TimelineBuckets.self, from: data)
     else { return nil }
     return buckets
   }
 
-  public func write(host: String, libraryID: String, pathPrefix: String? = nil, _ buckets: TimelineBuckets) {
-    let url = path(host: host, libraryID: libraryID, pathPrefix: pathPrefix)
+  public func write(
+    host: String, libraryID: String, pathPrefix: String? = nil,
+    ownerID: String? = nil, _ buckets: TimelineBuckets
+  ) {
+    let url = path(host: host, libraryID: libraryID, pathPrefix: pathPrefix, ownerID: ownerID)
     try? FileManager.default.createDirectory(
       at: url.deletingLastPathComponent(),
       withIntermediateDirectories: true)
@@ -39,8 +47,14 @@ public actor CloudBucketsCache {
     }
   }
 
-  public func clear(host: String, libraryID: String, pathPrefix: String? = nil) {
-    try? FileManager.default.removeItem(at: path(host: host, libraryID: libraryID, pathPrefix: pathPrefix))
+  public func clear(
+    host: String, libraryID: String, pathPrefix: String? = nil,
+    ownerID: String? = nil
+  ) {
+    try? FileManager.default.removeItem(
+      at: path(
+        host: host, libraryID: libraryID,
+        pathPrefix: pathPrefix, ownerID: ownerID))
   }
 
   /// Path layout:
@@ -49,13 +63,23 @@ public actor CloudBucketsCache {
   /// digest of the prefix string. We don't bake the raw prefix into
   /// the filename because absPaths can be long and contain characters
   /// that file systems mangle; the digest stays stable across launches.
-  private func path(host: String, libraryID: String, pathPrefix: String?) -> URL {
-    let scope = pathPrefix.flatMap(scopeDigest) ?? "_root"
-    return baseDir
+  /// Owner filters append their own digest to the scope, retaining the
+  /// shipped paths when no owner is selected.
+  private func path(host: String, libraryID: String, pathPrefix: String?, ownerID: String?) -> URL {
+    let scope = cloudOwnerScope(pathPrefix: pathPrefix, ownerID: ownerID)
+    return
+      baseDir
       .appendingPathComponent(host, isDirectory: true)
       .appendingPathComponent(libraryID, isDirectory: true)
       .appendingPathComponent("\(scope).json")
   }
+}
+
+/// Preserve shipped unfiltered paths; owner-specific scopes cannot read their rows.
+func cloudOwnerScope(pathPrefix: String?, ownerID: String?) -> String {
+  let prefix = pathPrefix.flatMap(scopeDigest) ?? "_root"
+  guard let ownerID, !ownerID.isEmpty else { return prefix }
+  return "\(prefix)-owner-\(scopeDigest(ownerID))"
 }
 
 /// 12-char DJB2 digest over UTF-8 bytes — collision-resistant enough

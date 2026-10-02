@@ -3,6 +3,7 @@
 // DTOs for /api/search/buckets and /api/search. Mirrors the server's wire
 // format from src/api/src/routes/search.ts. Keep field names exactly as
 // the server emits them — these are decoded from raw JSON.
+// Wire-named fields use scoped naming exemptions, matching AuthUser.file_access.
 
 import Foundation
 
@@ -12,17 +13,22 @@ public struct TimelineBucket: Codable, Equatable, Sendable {
   public let count: Int
 
   public init(year: Int, month: Int, count: Int) {
-    self.year = year; self.month = month; self.count = count
+    self.year = year
+    self.month = month
+    self.count = count
   }
 }
 
 public struct TimelineBuckets: Codable, Sendable {
   public let total: Int
   public let buckets: [TimelineBucket]
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let untimed_count: Int
 
   public init(total: Int, buckets: [TimelineBucket], untimed_count: Int) {
-    self.total = total; self.buckets = buckets; self.untimed_count = untimed_count
+    self.total = total
+    self.buckets = buckets
+    self.untimed_count = untimed_count
   }
 }
 
@@ -37,10 +43,13 @@ public struct SearchAssetCamera: Codable, Equatable, Sendable {
 public struct SearchAssetPlaceRollups: Codable, Equatable, Sendable {
   public let locality: String?
   public let region: String?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let country_code: String?
 
   public init(locality: String? = nil, region: String? = nil, country_code: String? = nil) {
-    self.locality = locality; self.region = region; self.country_code = country_code
+    self.locality = locality
+    self.region = region
+    self.country_code = country_code
   }
 }
 
@@ -51,11 +60,36 @@ public struct SearchAssetPlaceRollups: Codable, Equatable, Sendable {
 /// leaves the rest un-modeled. Synthesized `Codable` ignores unknown keys,
 /// so the many un-modeled `Place` fields decode without error.
 public struct SearchAssetPlace: Codable, Equatable, Sendable {
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let display_name: String?
   public let rollups: SearchAssetPlaceRollups?
 
   public init(display_name: String? = nil, rollups: SearchAssetPlaceRollups? = nil) {
-    self.display_name = display_name; self.rollups = rollups
+    self.display_name = display_name
+    self.rollups = rollups
+  }
+}
+
+/// Actual server attribution; email can be absent for device-only users.
+public struct CloudAssetOwner: Codable, Equatable, Sendable {
+  public let id: String
+  public let email: String?
+
+  public init(id: String, email: String?) {
+    self.id = id
+    self.email = email
+  }
+}
+
+public struct AssetOwnerFacet: Codable, Equatable, Sendable, Identifiable {
+  public let id: String
+  public let email: String
+  public let count: Int
+
+  public init(id: String, email: String, count: Int) {
+    self.id = id
+    self.email = email
+    self.count = count
   }
 }
 
@@ -66,7 +100,9 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   ]
 
   public let id: String
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let folder_id: String
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let abs_path: String
   /// `slug:relPath` unified address (`src/api/src/routes/search/project.ts`
   /// emits it as `address`). Optional/absent-tolerant: `null` when the asset
@@ -83,27 +119,35 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   /// as Double tolerates both shapes; integer milliseconds round-trip
   /// without loss. Truncate to Int64 if the caller needs that.
   public let mtime: Double?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let captured_at: String?
   public let camera: SearchAssetCamera?
   public let lens: String?
   public let iso: Int?
   public let aperture: Double?
   public let shutter: String?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let focal_length: Double?
   public let rating: Int?
   /// Pick flag: 1 = pick, 0 = none, -1 = reject. Number on the wire.
   public let flag: Int?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let color_label: String?
   public let hidden: Bool?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  public let owner_id: String?
+  public let owner: CloudAssetOwner?
   /// PhotoKit asset links. Populated by the backup engine when an asset
   /// was ingested via PhotoKit backup. The first entry's `phasset_local_id`
   /// identifies the matching PHAsset so the merged timeline can correlate
   /// cloud rows with local Photos library rows. Optional — nil for assets
   /// that weren't ingested via PhotoKit backup.
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let phasset_links: [SearchAssetPHLink]?
   /// Whether an XMP sidecar exists for this asset. Optional/absent-tolerant
   /// for backward compat with server responses predating this field (TV
   /// timeline caption's green "edited" dot, #2102).
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let has_xmp: Bool?
   /// Reverse-geocoded place, when the pipeline has resolved one for this
   /// asset's GPS. `nil` when un-geocoded, no GPS, or (backward compat) the
@@ -120,27 +164,31 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   /// caller to pass `phasset_links:` even when nil, which broke existing
   /// tests when PR #53 added the field. Keeping `phasset_links` defaulted
   /// to `nil` here lets pre-PhotoKit-merge test fixtures keep working.
-  public init(id: String,
-              folder_id: String,
-              abs_path: String,
-              address: String? = nil,
-              filename: String,
-              size: Int64? = nil,
-              mtime: Double? = nil,
-              captured_at: String? = nil,
-              camera: SearchAssetCamera? = nil,
-              lens: String? = nil,
-              iso: Int? = nil,
-              aperture: Double? = nil,
-              shutter: String? = nil,
-              focal_length: Double? = nil,
-              rating: Int? = nil,
-              flag: Int? = nil,
-              color_label: String? = nil,
-              hidden: Bool? = nil,
-              phasset_links: [SearchAssetPHLink]? = nil,
-              has_xmp: Bool? = nil,
-              place: SearchAssetPlace? = nil) {
+  public init(
+    id: String,
+    folder_id: String,
+    abs_path: String,
+    address: String? = nil,
+    filename: String,
+    size: Int64? = nil,
+    mtime: Double? = nil,
+    captured_at: String? = nil,
+    camera: SearchAssetCamera? = nil,
+    lens: String? = nil,
+    iso: Int? = nil,
+    aperture: Double? = nil,
+    shutter: String? = nil,
+    focal_length: Double? = nil,
+    rating: Int? = nil,
+    flag: Int? = nil,
+    color_label: String? = nil,
+    hidden: Bool? = nil,
+    phasset_links: [SearchAssetPHLink]? = nil,
+    has_xmp: Bool? = nil,
+    place: SearchAssetPlace? = nil,
+    owner_id: String? = nil,
+    owner: CloudAssetOwner? = nil
+  ) {
     self.id = id
     self.folder_id = folder_id
     self.abs_path = abs_path
@@ -162,6 +210,8 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     self.phasset_links = phasset_links
     self.has_xmp = has_xmp
     self.place = place
+    self.owner_id = owner_id
+    self.owner = owner
   }
 }
 
@@ -170,11 +220,13 @@ public struct SearchAssetPHLink: Codable, Equatable, Sendable {
   /// (each device has its own Photos DB) — keep matching against it for
   /// local-only-library callers, but prefer `phasset_cloud_id` when both
   /// sides have one.
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let phasset_local_id: String
   /// `PHCloudIdentifier.stringValue` — stable across every device on the
   /// same iCloud Photos account. Optional: nil when the uploading device
   /// didn't have iCloud Photos enabled. Drives the cross-device `.synced`
   /// badge in the merged timeline (see `MergedTimelineSource.merge`).
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let phasset_cloud_id: String?
 
   public init(phasset_local_id: String, phasset_cloud_id: String? = nil) {
@@ -234,13 +286,15 @@ public struct SearchResponse: Codable, Sendable {
   /// exact cost cursors exist to remove.
   public var seekExhausted: Bool { cursorPaging == true && nextCursor == nil }
 
-  public init(total: Int,
-              page: Int,
-              limit: Int,
-              results: [SearchAsset],
-              cursorPaging: Bool? = nil,
-              nextCursor: String? = nil,
-              dateFilter: AppliedDateFilter? = nil) {
+  public init(
+    total: Int,
+    page: Int,
+    limit: Int,
+    results: [SearchAsset],
+    cursorPaging: Bool? = nil,
+    nextCursor: String? = nil,
+    dateFilter: AppliedDateFilter? = nil
+  ) {
     self.total = total
     self.page = page
     self.limit = limit
@@ -271,7 +325,8 @@ public struct ValueFacet: Codable, Equatable, Sendable {
   public let count: Int
 
   public init(value: String?, count: Int) {
-    self.value = value; self.count = count
+    self.value = value
+    self.count = count
   }
 }
 
@@ -306,11 +361,15 @@ public struct SearchFacets: Codable, Sendable {
   public let cameras: [CameraFacet]
   public let lenses: [ValueFacet]
   public let extensions: [ValueFacet]
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let iso_range: RangeFacet?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let capture_range: CaptureRangeFacet?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let scene_types: [ValueFacet]
   public let activities: [ValueFacet]
   public let subjects: [ValueFacet]
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let is_screenshot: ScreenshotFacet
   /// Named, non-hidden persons with filter-aware counts, descending
   /// (#2866). `value` round-trips into `SearchParams.people`. Decoded
@@ -319,6 +378,8 @@ public struct SearchFacets: Codable, Sendable {
   /// Place labels with filter-aware counts, descending (#2866). `value`
   /// round-trips into `SearchParams.place`. Absent → empty, as above.
   public let places: [ValueFacet]
+  /// Absent on older servers; their existing search filters still decode.
+  public let owners: [AssetOwnerFacet]
 
   public init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -334,5 +395,6 @@ public struct SearchFacets: Codable, Sendable {
     is_screenshot = try c.decode(ScreenshotFacet.self, forKey: .is_screenshot)
     people = try c.decodeIfPresent([ValueFacet].self, forKey: .people) ?? []
     places = try c.decodeIfPresent([ValueFacet].self, forKey: .places) ?? []
+    owners = try c.decodeIfPresent([AssetOwnerFacet].self, forKey: .owners) ?? []
   }
 }

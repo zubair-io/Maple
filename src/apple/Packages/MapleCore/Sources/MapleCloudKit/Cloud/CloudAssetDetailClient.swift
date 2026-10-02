@@ -44,6 +44,8 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
   /// browse) so the pane can show the library-relative folder; absent on the
   /// plain `/:id` / `by-address` responses.
   public let address: String?
+  public let ownerID: String?
+  public let owner: CloudAssetOwner?
 
   private enum CodingKeys: String, CodingKey {
     case description
@@ -54,6 +56,8 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
     case visionMeta = "vision_meta"
     case faces
     case address
+    case ownerID = "owner_id"
+    case owner
   }
 
   public init(
@@ -66,7 +70,9 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
     vision: CloudVision? = nil,
     visionMeta: CloudVisionMeta? = nil,
     faces: [CloudFace] = [],
-    address: String? = nil
+    address: String? = nil,
+    ownerID: String? = nil,
+    owner: CloudAssetOwner? = nil
   ) {
     self.description = description
     self.ocrText = ocrText
@@ -78,6 +84,8 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
     self.visionMeta = visionMeta
     self.faces = faces
     self.address = address
+    self.ownerID = ownerID
+    self.owner = owner
   }
 
   public init(from decoder: Decoder) throws {
@@ -92,6 +100,8 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
     visionMeta = try c.decodeIfPresent(CloudVisionMeta.self, forKey: .visionMeta)
     faces = try c.decodeIfPresent([CloudFace].self, forKey: .faces) ?? []
     address = try c.decodeIfPresent(String.self, forKey: .address)
+    ownerID = try c.decodeIfPresent(String.self, forKey: .ownerID)
+    owner = try c.decodeIfPresent(CloudAssetOwner.self, forKey: .owner)
   }
 
   /// Presentation projection: trims/formats every field so the section views
@@ -119,7 +129,8 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
 
   /// `"en · whisper-base"`, dropping blank parts; `nil` when all blank.
   private static func footer(parts: [String?]) -> String? {
-    let kept = parts
+    let kept =
+      parts
       .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
     return kept.isEmpty ? nil : kept.joined(separator: " · ")
@@ -282,7 +293,8 @@ public actor CloudAssetDetailClient {
   /// Fetch the enrichment detail for `assetID` (Mongo ObjectId hex).
   /// Throws on any non-2xx response — the Info panel hides the block.
   public func detail(assetID: String) async throws -> CloudAssetDetail {
-    let url = server
+    let url =
+      server
       .appending(path: "/api/assets/")
       .appending(path: assetID)
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))

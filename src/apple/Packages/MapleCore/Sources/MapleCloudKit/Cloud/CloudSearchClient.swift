@@ -37,11 +37,17 @@ public actor CloudSearchClient {
   /// `libraryId` scopes to the library; `pathPrefix` narrows within it.
   /// Sending the same pathPrefix to `page()` keeps buckets and page result
   /// sets in agreement. Build it with `relativePathPrefix(absPath:libraryRoot:)`.
-  public func buckets(libraryID: String,
-                      pathPrefix: String? = nil) async throws -> TimelineBuckets {
+  public func buckets(
+    libraryID: String,
+    pathPrefix: String? = nil,
+    ownerID: String? = nil
+  ) async throws -> TimelineBuckets {
     var items: [URLQueryItem] = [URLQueryItem(name: "libraryId", value: libraryID)]
     if let p = Self.normalizePathPrefix(pathPrefix) {
       items.append(URLQueryItem(name: "pathPrefix", value: p))
+    }
+    if let ownerID, !ownerID.isEmpty {
+      items.append(URLQueryItem(name: "ownerId", value: ownerID))
     }
     let url = makeURL(path: "/api/search/buckets", query: items)
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
@@ -50,7 +56,9 @@ public actor CloudSearchClient {
       return try JSONDecoder().decode(TimelineBuckets.self, from: data)
     } catch {
       let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
-      cloudHTTPLogger.error("decode TimelineBuckets failed (library \(libraryID, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      cloudHTTPLogger.error(
+        "decode TimelineBuckets failed (library \(libraryID, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)"
+      )
       throw error
     }
   }
@@ -69,13 +77,16 @@ public actor CloudSearchClient {
   /// RELATIVE to the library root (the server anchors it against
   /// `fileinfo.path`). Sending it on `page()` AND `buckets()` for the same
   /// scope keeps counts and listings in agreement.
-  public func page(libraryID: String,
-                   year: Int,
-                   month: Int,
-                   page: Int = 0,
-                   limit: Int = 200,
-                   sort: String = "captured_desc",
-                   pathPrefix: String? = nil) async throws -> SearchResponse {
+  public func page(
+    libraryID: String,
+    year: Int,
+    month: Int,
+    page: Int = 0,
+    limit: Int = 200,
+    sort: String = "captured_desc",
+    pathPrefix: String? = nil,
+    ownerID: String? = nil
+  ) async throws -> SearchResponse {
     let from = String(format: "%04d-%02d-01", year, month)
     let to = Self.lastDay(year: year, month: month)
     // hasCapturedAt=true keeps the result set aligned with what
@@ -95,6 +106,9 @@ public actor CloudSearchClient {
     if let p = Self.normalizePathPrefix(pathPrefix) {
       items.append(URLQueryItem(name: "pathPrefix", value: p))
     }
+    if let ownerID, !ownerID.isEmpty {
+      items.append(URLQueryItem(name: "ownerId", value: ownerID))
+    }
     let url = makeURL(path: "/api/search", query: items)
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
@@ -102,7 +116,9 @@ public actor CloudSearchClient {
       return try JSONDecoder().decode(SearchResponse.self, from: data)
     } catch {
       let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
-      cloudHTTPLogger.error("decode SearchResponse failed (library \(libraryID, privacy: .public), \(year, privacy: .public)-\(month, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      cloudHTTPLogger.error(
+        "decode SearchResponse failed (library \(libraryID, privacy: .public), \(year, privacy: .public)-\(month, privacy: .public)): \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)"
+      )
       throw error
     }
   }
@@ -114,19 +130,24 @@ public actor CloudSearchClient {
   /// Pass `cursor` (from a previous response's `nextCursor`) to seek
   /// instead of skipping — see `SearchParams.listQueryItems`. `page` is
   /// ignored when a cursor is supplied.
-  public func search(_ params: SearchParams,
-                     page: Int,
-                     limit: Int,
-                     cursor: String? = nil) async throws -> SearchResponse {
-    let url = makeURL(path: "/api/search",
-                      query: params.listQueryItems(page: page, limit: limit, cursor: cursor))
+  public func search(
+    _ params: SearchParams,
+    page: Int,
+    limit: Int,
+    cursor: String? = nil
+  ) async throws -> SearchResponse {
+    let url = makeURL(
+      path: "/api/search",
+      query: params.listQueryItems(page: page, limit: limit, cursor: cursor))
     let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
     try Self.checkOK(resp, data: data)
     do {
       return try JSONDecoder().decode(SearchResponse.self, from: data)
     } catch {
       let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
-      cloudHTTPLogger.error("decode SearchResponse (search) failed: \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      cloudHTTPLogger.error(
+        "decode SearchResponse (search) failed: \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)"
+      )
       throw error
     }
   }
@@ -142,7 +163,9 @@ public actor CloudSearchClient {
       return try JSONDecoder().decode(SearchFacets.self, from: data)
     } catch {
       let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
-      cloudHTTPLogger.error("decode SearchFacets failed: \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      cloudHTTPLogger.error(
+        "decode SearchFacets failed: \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)"
+      )
       throw error
     }
   }
@@ -156,7 +179,8 @@ public actor CloudSearchClient {
   /// omit the query param in that case.
   private static func normalizePathPrefix(_ raw: String?) -> String? {
     guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !raw.isEmpty else { return nil }
+      !raw.isEmpty
+    else { return nil }
     return raw.hasSuffix("/") ? raw : raw + "/"
   }
 
@@ -191,10 +215,13 @@ public actor CloudSearchClient {
   }
 
   private static func lastDay(year: Int, month: Int) -> String {
-    var c = DateComponents(); c.year = year; c.month = month
+    var c = DateComponents()
+    c.year = year
+    c.month = month
     let cal = Calendar(identifier: .gregorian)
     guard let d = cal.date(from: c),
-          let range = cal.range(of: .day, in: .month, for: d) else {
+      let range = cal.range(of: .day, in: .month, for: d)
+    else {
       return String(format: "%04d-%02d-28", year, month)
     }
     let last = range.upperBound - 1
@@ -204,9 +231,10 @@ public actor CloudSearchClient {
   private static func checkOK(_ resp: URLResponse, data: Data) throws {
     guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
       let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-      throw NSError(domain: "CloudSearchClient",
-                    code: status,
-                    userInfo: [NSLocalizedDescriptionKey: cloudErrorMessage(status: status, data: data)])
+      throw NSError(
+        domain: "CloudSearchClient",
+        code: status,
+        userInfo: [NSLocalizedDescriptionKey: cloudErrorMessage(status: status, data: data)])
     }
   }
 }
@@ -229,4 +257,3 @@ func cloudErrorMessage(status: Int, data: Data) -> String {
   }
   return body
 }
-
