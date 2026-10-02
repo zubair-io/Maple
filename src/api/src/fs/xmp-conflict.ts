@@ -202,10 +202,7 @@ export async function listPairedSidecarsStrict(rawAbsPath: string): Promise<stri
     'i',
   );
   return entries
-    .filter(
-      (name) =>
-        pattern.test(name) || workflowSidecarBase(name)?.toLowerCase() === rawBase.toLowerCase(),
-    )
+    .filter((name) => pattern.test(name) || workflowSidecarBase(name) === rawBase)
     .map((name) => path.join(dir, name));
 }
 
