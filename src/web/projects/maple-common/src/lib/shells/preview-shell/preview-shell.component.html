@@ -3,44 +3,49 @@
     <div
       class="preview-top-bar absolute top-[14px] left-1/2 z-10 flex h-11 max-w-[calc(100vw-32px)] -translate-x-1/2 items-center gap-2 rounded-[var(--pro-glass-radius-bar)] border-[0.5px] border-[color:var(--pro-glass-border)] bg-[color:var(--pro-glass-bg)] px-2 [backdrop-filter:var(--pro-glass-blur)]"
     >
-      <button
-        class="flex shrink-0 items-center gap-1 rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-white/5 px-2 py-1 outline-none transition-colors duration-[120ms] ease-out appearance-none hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
+      <mui-button
+        class="shrink-0 [&_button]:h-11 [&_button]:w-11"
+        variant="ghost"
+        [iconOnly]="true"
+        iconLeading="back"
+        ariaLabel="Back"
         title="Back"
-        aria-label="Back"
-        (click)="goBack()"
-      >
-        <maple-icon name="back" [size]="14" color="var(--pro-text-muted)" />
-      </button>
+        (pressed)="goBack()"
+      />
       <span
         data-testid="preview-filename"
         class="max-w-[min(200px,40vw)] shrink overflow-hidden text-[12px] text-ellipsis whitespace-nowrap text-[color:var(--pro-text)]"
         >{{ assetName() }}</span
       >
       <div class="preview-top-actions ml-auto flex items-center gap-1">
-        <button
-          class="flex h-[30px] w-[30px] items-center justify-center rounded-md border-none bg-transparent text-[color:var(--pro-text-muted)] outline-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-[color:var(--pro-accent)]"
-          aria-label="Flag"
-          [attr.aria-expanded]="flagOpen()"
-          aria-controls="preview-flag-popover"
-          (click)="flagOpen.set(!flagOpen())"
-        >
-          <maple-icon name="flag" [size]="16" />
-        </button>
-        <button
-          class="preview-top-edit flex h-[30px] w-[30px] items-center justify-center rounded-md border-none bg-transparent text-[color:var(--pro-text-muted)] outline-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-[color:var(--pro-accent)]"
-          aria-label="Edit"
-          (click)="edit()"
-        >
-          <maple-icon name="edit" [size]="16" />
-        </button>
-        <button
-          class="preview-top-info flex h-[30px] w-[30px] items-center justify-center rounded-md border-none bg-transparent text-[color:var(--pro-text-muted)] outline-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-[color:var(--pro-accent)]"
-          aria-label="Info"
-          [attr.aria-pressed]="infoOpen()"
-          (click)="toggleInfo()"
-        >
-          <maple-icon name="info" [size]="16" />
-        </button>
+        <mui-button
+          class="[&_button]:h-11 [&_button]:w-11"
+          variant="ghost"
+          [iconOnly]="true"
+          iconLeading="flag"
+          ariaLabel="Flag"
+          [ariaExpanded]="flagOpen()"
+          ariaControls="preview-flag-popover"
+          (pressed)="flagOpen.set(!flagOpen())"
+        />
+        <mui-button
+          class="preview-top-edit [&_button]:h-11 [&_button]:w-11"
+          variant="ghost"
+          [iconOnly]="true"
+          iconLeading="edit"
+          ariaLabel="Edit"
+          (pressed)="edit()"
+        />
+        <mui-button
+          class="preview-top-info [&_button]:h-11 [&_button]:w-11"
+          variant="ghost"
+          [iconOnly]="true"
+          iconLeading="info"
+          ariaLabel="Info"
+          [ariaPressed]="infoOpen()"
+          [toggled]="infoOpen()"
+          (pressed)="toggleInfo()"
+        />
       </div>
     </div>
 
@@ -105,30 +110,32 @@
       role="toolbar"
       aria-label="Preview actions"
     >
-      <button
-        class="flex min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-[10px] border-none bg-transparent px-3 py-1.5 text-[11px] text-[color:var(--pro-text-muted)] outline-none transition-[background,color] duration-[120ms] ease-out appearance-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
-        aria-label="Flag"
-        [attr.aria-expanded]="flagOpen()"
-        aria-controls="preview-flag-popover"
-        (click)="flagOpen.set(!flagOpen())"
-      >
-        <maple-icon name="flag" [size]="18" /> <span>Flag</span>
-      </button>
-      <button
-        class="flex min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-[10px] border-none bg-transparent px-3 py-1.5 text-[11px] text-[color:var(--pro-accent)] outline-none transition-[background,color] duration-[120ms] ease-out appearance-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
-        aria-label="Edit"
-        (click)="edit()"
-      >
-        <maple-icon name="edit" [size]="18" /> <span>Edit</span>
-      </button>
-      <button
-        class="flex min-w-[56px] flex-col items-center justify-center gap-0.5 rounded-[10px] border-none bg-transparent px-3 py-1.5 text-[11px] text-[color:var(--pro-text-muted)] outline-none transition-[background,color] duration-[120ms] ease-out appearance-none hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--pro-accent)]"
-        aria-label="Info"
-        [attr.aria-pressed]="infoOpen()"
-        (click)="toggleInfo()"
-      >
-        <maple-icon name="info" [size]="18" /> <span>Info</span>
-      </button>
+      <mui-action-button
+        class="[&_button]:min-h-11 [&_button]:min-w-14"
+        icon="flag"
+        label="Flag"
+        orientation="stacked"
+        [selected]="null"
+        [ariaExpanded]="flagOpen()"
+        ariaControls="preview-flag-popover"
+        (pressed)="flagOpen.set(!flagOpen())"
+      />
+      <mui-action-button
+        class="[&_button]:min-h-11 [&_button]:min-w-14"
+        icon="edit"
+        label="Edit"
+        orientation="stacked"
+        [selected]="null"
+        (pressed)="edit()"
+      />
+      <mui-action-button
+        class="[&_button]:min-h-11 [&_button]:min-w-14"
+        icon="info"
+        label="Info"
+        orientation="stacked"
+        [selected]="infoOpen()"
+        (pressed)="toggleInfo()"
+      />
     </div>
 
     @if (flagOpen()) {

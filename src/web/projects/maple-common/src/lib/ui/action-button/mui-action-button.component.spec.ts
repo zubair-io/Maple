@@ -18,6 +18,30 @@ function button(fixture: ComponentFixture<MuiActionButtonComponent>): HTMLButton
 }
 
 describe('MuiActionButtonComponent', () => {
+  it('plain disclosure actions omit toggle state and expose their native region relationship', () => {
+    const fixture = render();
+    const btn = button(fixture);
+    expect(btn.hasAttribute('aria-controls')).toBe(false);
+    expect(btn.hasAttribute('aria-expanded')).toBe(false);
+    fixture.componentRef.setInput('selected', null);
+    fixture.componentRef.setInput('ariaControls', 'preview-flag-popover');
+    fixture.componentRef.setInput('ariaExpanded', false);
+    fixture.detectChanges();
+    expect(btn.hasAttribute('aria-pressed')).toBe(false);
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(btn.getAttribute('aria-controls')).toBe('preview-flag-popover');
+    expect(fixture.nativeElement.getAttribute('aria-controls')).toBeNull();
+    fixture.componentRef.setInput('ariaExpanded', true);
+    fixture.detectChanges();
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    fixture.componentRef.setInput('ariaControls', null);
+    fixture.componentRef.setInput('ariaExpanded', null);
+    fixture.componentRef.setInput('selected', false);
+    fixture.detectChanges();
+    expect(btn.hasAttribute('aria-controls')).toBe(false);
+    expect(btn.hasAttribute('aria-expanded')).toBe(false);
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+  });
   it('renders the icon and visible label', () => {
     const fixture = render();
     expect(fixture.nativeElement.querySelector('mui-icon')).toBeTruthy();

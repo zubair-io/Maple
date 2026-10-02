@@ -29,7 +29,11 @@ export class MuiActionButtonComponent {
   readonly label = input.required<string>();
   readonly size = input<MuiActionButtonSize>('md');
   readonly orientation = input<MuiActionButtonOrientation>('horizontal');
-  readonly selected = input<boolean>(false);
+  /** Null omits toggle semantics for Preview navigation/disclosure actions (#4034).
+   * Existing tool selectors retain their boolean pressed state. */
+  readonly selected = input<boolean | null>(false);
+  readonly ariaExpanded = input<boolean | null>(null);
+  readonly ariaControls = input<string | null>(null);
   readonly disabled = input<boolean>(false);
   /** Tooltip text — e.g. a label plus a "coming soon" note for a disabled
    * placeholder entry a caller still wants hoverable. Native `title`

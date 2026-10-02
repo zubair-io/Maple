@@ -47,7 +47,12 @@ instead:
 - `label`: string — the visible and accessible text.
 - `size`: `sm | md` (default `md`).
 - `orientation`: `horizontal | stacked` (default `horizontal`).
-- `selected`: boolean.
+- `selected`: boolean; Web also accepts `null` to omit toggle semantics for ordinary actions
+  such as Preview Edit and Flag disclosure (#4034). Existing boolean tool selectors retain their
+  pressed state.
+- Web `ariaExpanded`: optional boolean disclosure state, forwarded to the native button.
+- Web `ariaControls`: optional space-separated controlled-region IDs, forwarded to the native
+  button as `aria-controls`. Both attributes are omitted when unset.
 - `disabled`: boolean.
 
 ## Accessibility

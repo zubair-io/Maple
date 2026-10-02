@@ -16,6 +16,17 @@ function button(fixture: ComponentFixture<MuiButtonComponent>): HTMLButtonElemen
 }
 
 describe('MuiButtonComponent', () => {
+  it('forwards the controlled region to the native button and removes it when cleared', () => {
+    const fixture = render();
+    expect(button(fixture).hasAttribute('aria-controls')).toBe(false);
+    fixture.componentRef.setInput('ariaControls', 'preview-flag-popover');
+    fixture.detectChanges();
+    expect(button(fixture).getAttribute('aria-controls')).toBe('preview-flag-popover');
+    expect(fixture.nativeElement.getAttribute('aria-controls')).toBeNull();
+    fixture.componentRef.setInput('ariaControls', null);
+    fixture.detectChanges();
+    expect(button(fixture).hasAttribute('aria-controls')).toBe(false);
+  });
   it('forwards descriptions and tooltip to the native control and removes them when cleared', () => {
     const fixture = render();
     const btn = button(fixture);
