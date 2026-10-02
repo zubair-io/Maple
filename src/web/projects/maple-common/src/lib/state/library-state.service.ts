@@ -16,7 +16,7 @@ import type { LensProfileResolution } from '../lens/lens-profile.types';
 // not this facade. The facade keeps existing consumers working until they
 // are migrated component-by-component in follow-up tickets.
 
-import { Injectable, Signal, inject } from '@angular/core';
+import { Injectable, Signal, inject, signal } from '@angular/core';
 import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
 import { AdjustmentModel } from '../models/adjustment-model';
 import { ApiFolder } from '../api/bun-api-backend.service';
@@ -324,7 +324,21 @@ export class LibraryStateService {
     return this.store.adjustmentFor(id);
   }
 
+  /** Freeze callbacks for the asset whose accepted pixels are being saved. */
+  readonly removalSavingAsset = signal<AssetId | null>(null);
+
+  adoptConfirmedRemoval(id: AssetId, model: AdjustmentModel): void {
+    this.store.setAdjustment(id, model);
+    this.previewPersist.schedule(id);
+  }
+
   updateAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {
+    if (this.removalSavingAsset() === id) return;
+    if (
+      Object.hasOwn(patch, 'inpaintRemovals') &&
+      patch.inpaintRemovals !== this.store.adjustmentFor(id)().inpaintRemovals
+    )
+      throw new Error('Accepted removals require a confirmed save.');
     const authoredPatch = this.store.setAdjustment(id, patch);
     // Schedule debounced sidecar write.
     this.fetch_.scheduleSidecarWrite(id, authoredPatch);

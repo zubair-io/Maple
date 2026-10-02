@@ -134,9 +134,18 @@ export class XmpParserService {
       model.crop = crop;
     }
 
+    const passthrough = collectXmpPassthrough(sourceDescription ?? desc, model, document);
+    const records = passthrough.unknownAttributes.find(
+      (a) => a.name === 'papp:InpaintRemovals',
+    )?.value;
+    if (records !== undefined) {
+      const list: unknown = JSON.parse(records);
+      if (!Array.isArray(list)) throw new Error('Invalid saved removal record list.');
+      model.inpaintRemovals = list.length ? records : undefined;
+    }
     return {
       model,
-      passthrough: collectXmpPassthrough(sourceDescription ?? desc, model, document),
+      passthrough,
       metadata: parseMetadataBlock(desc),
     };
   }

@@ -47,7 +47,11 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
     const gpuCanvas = page.locator('canvas[data-gpu-live]');
     if (testInfo.project.name === 'removal-webgpu') await expect(gpuCanvas).toBeVisible();
-    else await expect(gpuCanvas).toHaveCount(0);
+    else {
+      await expect(gpuCanvas).toHaveCount(0);
+      // The persistent fallback toast can cover the normal header Undo button.
+      await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    }
     await page
       .getByRole('navigation', { name: 'Editor tools' })
       .getByRole('button', { name: 'Remove', exact: true })
@@ -99,6 +103,20 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
       .getByRole('navigation', { name: 'Editor tools' })
       .getByRole('button', { name: 'Light', exact: true })
       .click();
+    // Normal editor history survives closing Remove. Undo/redo must confirm
+    // the real XMP and restore the same baked assets without another model run.
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect
+      .poll(() => readFile(join(root, 'photo.xmp'), 'utf8'))
+      .toContain('papp:InpaintRemovals="[]"');
+    await page.screenshot({ path: testInfo.outputPath('global-removal-undone.png') });
+    await page.keyboard.press('ControlOrMeta+Shift+z');
+    await expect.poll(() => readFile(join(root, 'photo.xmp'), 'utf8')).toBe(accepted);
+    expect(await readdir(join(root, '.maple/inpaint'))).toHaveLength(2);
+    const announcement = page.locator('.cdk-live-announcer-element');
+    await expect(announcement).toHaveCSS('position', 'absolute');
+    await expect(announcement).toHaveCSS('width', '1px');
+    await page.screenshot({ path: testInfo.outputPath('global-removal-redone.png') });
     await page
       .getByRole('navigation', { name: 'Editor tools' })
       .getByRole('button', { name: 'Remove', exact: true })
@@ -123,8 +141,6 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     await expect(
       panel.getByText('lama-native-1024.onnx · Required', { exact: false }),
     ).toBeVisible();
-    if (testInfo.project.name === 'removal-cpu')
-      await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
     await page.getByTestId('editor-shell-export').click();
     const exportDialog = page.getByRole('dialog', { name: 'Export image', exact: true });
     await exportDialog.getByRole('radio', { name: 'PNG', exact: true }).click();

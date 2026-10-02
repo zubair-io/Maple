@@ -175,13 +175,18 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
     };
     TestBed.configureTestingModule({
       providers: [
-        { provide: EditorStateService, useValue: { armedTool: signal('remove') } },
         {
           provide: LibraryStateService,
           useValue: {
             focusedAsset: asset,
             currentFolder: () => folder,
             adjustmentFor: () => model,
+            assets: signal([asset()]),
+            removalSavingAsset: signal(null),
+            adoptConfirmedRemoval: (_id: string, target: ReturnType<typeof model>) =>
+              model.set(target),
+            updateAdjustment: (_id: string, patch: Partial<ReturnType<typeof model>>) =>
+              model.update((current) => ({ ...current, ...patch })),
           },
         },
         {
@@ -196,6 +201,9 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
       ],
     });
     sidecars = TestBed.inject(XmpStoreService);
+    const editor = TestBed.inject(EditorStateService);
+    editor.bind('photo');
+    editor.armTool('remove');
     sidecars.rememberPassthrough(
       'photo',
       TestBed.inject(XmpParserService).parseAdjustmentModel(prior).passthrough,
@@ -355,7 +363,8 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
     await session.undoKeep();
     TestBed.tick();
     expect(savedRemovalRecords(await fs.readFile(join(root, 'photo.xmp'), 'utf8'))).toBeUndefined();
-    expect(session.message()).toBe('Removal undone.');
+    expect(session.editor.canRedo()).toBe(true);
+    expect(session.editor.undoHistory()).toHaveLength(0);
   });
   it('rebinds after a cold export has released the retained CPU mosaic', async () => {
     await paint();

@@ -22,6 +22,7 @@ import { toneCurveBlocks } from './xmp-tone-curves';
 import { localAdjustmentBlocksWithPassthrough } from './xmp-mask-group-passthrough';
 import { passthroughForMetadataReplacement } from './xmp-metadata-passthrough';
 import { retouchAreasBlock } from './xmp-retouch';
+import { withRemovalRecords } from '../removal/removal-editor-recipe';
 import { DESCRIPTION_CHILD_INDENT, canonicalDocument } from './xmp-canonical';
 import {
   escapeXmpAttr,
@@ -104,6 +105,9 @@ export class XmpSerializerService {
     },
     metadata?: XmpMetadata,
   ): string {
+    if (model.inpaintRemovals !== undefined) {
+      passthrough = withRemovalRecords(passthrough, model.inpaintRemovals);
+    }
     passthrough = passthroughForMetadataReplacement(passthrough, metadata);
     const parts: string[] = [];
 
@@ -234,6 +238,8 @@ export class XmpSerializerService {
     // announce a change nobody could see.
     const retouch = retouchAreasBlock(model, '');
     if (retouch) out.set('retouchAreas', retouch);
+    if (model.inpaintRemovals && model.inpaintRemovals !== '[]')
+      out.set('papp:InpaintRemovals', model.inpaintRemovals);
     return out;
   }
 

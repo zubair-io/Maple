@@ -50,6 +50,7 @@ interface OpenPhoto {
   prior: string;
   companions: Map<string, Uint8Array>;
   assets: LocalRemovalAssets;
+  sidecarRevision: string;
 }
 interface Draft {
   records: string;
@@ -60,7 +61,7 @@ interface Draft {
 
 @Injectable({ providedIn: 'root' })
 export class RemovalEditorSession {
-  private readonly editor = inject(EditorStateService);
+  readonly editor = inject(EditorStateService);
   private readonly library = inject(LibraryStateService);
   private readonly files = inject(FolderAccessService);
   readonly pipeline = inject(RawPipelineService);
@@ -92,7 +93,14 @@ export class RemovalEditorSession {
   readonly stage = signal('');
   readonly canUndoSelection = signal(false);
   readonly canRedoSelection = signal(false);
-  readonly canUndoKeep = signal(false);
+  readonly canUndoKeep = computed(
+    () =>
+      this.editor.canUndo() &&
+      !!this.editor
+        .undoHistory()
+        .at(-1)
+        ?.diff.some((field) => field.key === 'papp:InpaintRemovals'),
+  );
   photo?: OpenPhoto;
   draft?: Draft;
   inference?: RemovalInferenceClient;
@@ -107,13 +115,12 @@ export class RemovalEditorSession {
   key = '';
   private exportRevision = 0;
   private scopeFolder?: MapleFolderHandle;
-  undoRecords?: { prior: string; accepted: string };
 
   constructor() {
     effect(() => {
-      const asset = this.library.focusedAsset();
-      const folder = this.library.currentFolder();
       const active = this.active();
+      const asset = active ? this.library.focusedAsset() : null;
+      const folder = active ? this.library.currentFolder() : undefined;
       const exportRevision = active ? this.pipeline.exportRevision() : 0;
       const phase = this.phase();
       const xml =
@@ -337,6 +344,11 @@ export class RemovalEditorSession {
           'AI removal requires a RAW photo in a folder opened with filesystem write access.',
         );
       await init();
+      const sidecarRevision = await this.sidecars.captureRemovalRevision(
+        asset.id,
+        folder,
+        asset.filename,
+      );
       const assets = new LocalRemovalAssets(this.files, folder, asset.filename);
       const prior = savedRemovalRecords(xml) ?? '[]';
       const companions = new Map(await assets.read(prior));
@@ -360,6 +372,7 @@ export class RemovalEditorSession {
         prior,
         companions,
         assets,
+        sidecarRevision,
       };
       this.photo = photo;
       this.inference = new RemovalInferenceClient(
@@ -447,7 +460,7 @@ export class RemovalEditorSession {
   }
   recipe(photo: OpenPhoto, records: string): string {
     return this.serializer.serialize(
-      photo.model,
+      { ...photo.model, inpaintRemovals: records },
       withRemovalRecords(this.sidecars.passthroughFor(photo.asset.id), records),
     );
   }
@@ -488,7 +501,6 @@ export class RemovalEditorSession {
     this.redoGestures = [];
     this.masks = [];
     this.resetPersonRefinement();
-    this.undoRecords = undefined;
     this.manualProtection = new Uint8Array();
     this.committingXml = undefined;
     this.selection.set(new Uint8Array());
@@ -497,7 +509,6 @@ export class RemovalEditorSession {
     this.preview.set(null);
     this.phase.set('closed');
     this.message.set('');
-    this.canUndoKeep.set(false);
     this.canUndoSelection.set(false);
     this.canRedoSelection.set(false);
   }

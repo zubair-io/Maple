@@ -145,6 +145,9 @@ export function isCropRectValid(c: Crop): boolean {
  * web-only `whiteBalancePreset` selector and the nested `crop` group.
  */
 export interface AdjustmentModel extends GeneratedAdjustmentModel {
+  /** Exact ordered, source-bound removal JSON. Rust validates companions and
+   * schema; editor snapshots retain these bytes without parsing on slider ticks. */
+  inpaintRemovals: string | undefined;
   whiteBalancePreset: WhiteBalancePreset;
   crop: Crop;
   /**
@@ -188,6 +191,7 @@ export interface AdjustmentModel extends GeneratedAdjustmentModel {
 export function defaultAdjustmentModel(): AdjustmentModel {
   return {
     ...defaultGeneratedAdjustmentModel(),
+    inpaintRemovals: undefined,
     whiteBalancePreset: 'As Shot',
     crop: defaultCrop(),
     localAdjustments: [],
