@@ -34,6 +34,8 @@ extension AdjustmentModel {
     hydrated.temperature = pair.temperature
     hydrated.tint = pair.tint
     hydrated.wbScaleVersion = 5
+    hydrated.temperatureSeen = temperatureSeen
+    hydrated.tintSeen = tintSeen
     hydrated.partialWhiteBalance = imported
     return hydrated
   }

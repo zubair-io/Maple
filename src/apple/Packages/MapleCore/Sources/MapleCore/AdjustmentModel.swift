@@ -20,8 +20,12 @@ import Foundation
 public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// The canonical JSON key matches Web; older models without it decode as Custom.
   @WhiteBalancePresetValue public var whiteBalancePreset: WhiteBalancePreset = .custom
-  public var temperature: Double { didSet { partialWhiteBalance = nil } }
-  public var tint: Double { didSet { partialWhiteBalance = nil } }
+  public var temperature: Double { didSet { temperatureSeen = true; partialWhiteBalance = nil } }  // default 6500
+  public var tint: Double { didSet { tintSeen = true; partialWhiteBalance = nil } }  // -150..150, default 0
+  /// Mirrors raw-core's per-component XMP authorship. Numerical slider writes
+  /// author that component; imported omissions must survive unrelated edits.
+  @WhiteBalancePresenceValue public var temperatureSeen: Bool = true
+  @WhiteBalancePresenceValue public var tintSeen: Bool = true
   /// WB slider-scale version of this model's temperature/tint
   /// (#1780/#1875/#1893/#1894). `1` = pre-#1756 scale (post-DCP CAT16,
   /// 6500 K identity); `5` = the Robertson (DNG SDK `dng_temperature`)

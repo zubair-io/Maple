@@ -88,6 +88,61 @@ final class WbSliderFrameTests: XCTestCase {
 
   // MARK: - Adoption (#1781 scope addition: the decode's number wins)
 
+  func testImportedPartialWBUsesCameraForMissingComponentInBothBindings() throws {
+    for (attrs, expectedTemperature, expectedTint) in [
+      ("", 5520.0, -12.0),
+      (#"crs:Temperature="6500""#, 6500.0, -12.0),
+      (#"crs:Tint="0""#, 5520.0, 0.0),
+      (#"crs:Temperature="6500" crs:Tint="0""#, 6500.0, 0.0),
+    ] {
+      let xml = """
+        <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" \(attrs)/></rdf:RDF></x:xmpmeta>
+        """
+      let parsed = try XMPParser.parse(xml).0
+      let seeded = EditSession.initialModel(loadedModel: parsed, asShotCCT: 4500, asShotTint: -40)
+      XCTAssertEqual(seeded.temperatureSeen, parsed.temperatureSeen)
+      XCTAssertEqual(seeded.tintSeen, parsed.tintSeen)
+      let session = rawSession()
+      session.model = seeded
+      session.originalModel = seeded
+      session.wbSeedTemperature = seeded.usesAsShotTemperature ? seeded.temperature : nil
+      session.wbSeedTint = seeded.usesAsShotTint ? seeded.tint : nil
+      session.adoptDecodedWbFrame(frame())
+      XCTAssertEqual(session.model.temperature, expectedTemperature)
+      XCTAssertEqual(session.model.tint, expectedTint)
+      XCTAssertEqual(session.model.temperatureSeen, parsed.temperatureSeen)
+      XCTAssertEqual(session.model.tintSeen, parsed.tintSeen)
+      XCTAssertEqual(session.model, session.originalModel)
+      // Also resolve an unhydrated parsed snapshot: every live caller honors
+      // authorship, independently of the UI's metadata-read completion.
+      let gpu = PipelineRenderer.makeGpuLiveParams(
+        from: parsed, asShotCCT: 4500, asShotTint: -40, wbFrame: frame())
+      let cpu = PipelineRenderer.makeParams(
+        from: parsed, decodedTemperature: 4500, decodedTint: -40, wbFrame: frame())
+      XCTAssertEqual(gpu.temperature, Float(expectedTemperature))
+      XCTAssertEqual(gpu.tint, Float(expectedTint))
+      XCTAssertEqual(cpu.temperature, gpu.temperature)
+      XCTAssertEqual(cpu.tint, gpu.tint)
+    }
+  }
+
+  func testSameValueManualEditIsNotReplacedByLateFrameAdoption() throws {
+    var absent = AdjustmentModel.default
+    absent.temperatureSeen = false
+    absent.tintSeen = false
+    let session = rawSession()
+    session.model = absent
+    session.originalModel = absent
+    session.wbSeedTemperature = absent.temperature
+    session.wbSeedTint = absent.tint
+    session.model.temperature = absent.temperature
+    session.adoptDecodedWbFrame(frame())
+    XCTAssertEqual(session.model.temperature, 6500)
+    XCTAssertTrue(session.model.temperatureSeen)
+    XCTAssertEqual(session.model.tint, -12)
+    XCTAssertFalse(session.model.tintSeen)
+  }
+
   func testAdoptReSeedsUntouchedPlaceholderModel() {
     let session = rawSession()
     // Pre-decode placeholder seed (the CIRAWFilter numbers).

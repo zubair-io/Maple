@@ -100,4 +100,31 @@ final class NativeFloatExportTests: XCTestCase {
     XCTAssertEqual([delivered.width, delivered.height], [reference.width, reference.height])
     XCTAssertEqual(try Data(contentsOf: raw), original)
   }
+
+  func testImportedWBAbsenceAndPartialPairsExportAgainstOriginalSidecar() async throws {
+    let (directory, raw, _, original) = try stage()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    for attrs in [
+      "", #"crs:Temperature="6500""#, #"crs:Tint="0""#,
+      #"crs:Temperature="6500" crs:Tint="0""#, #"crs:WhiteBalance="Daylight""#,
+    ] {
+      let xml = """
+        <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" \(attrs)/></rdf:RDF></x:xmpmeta>
+        """
+      try Data(xml.utf8).write(to: sidecar)
+      let model = try XMPParser.parse(xml).0
+      let reference = try PipelineRenderer.render(
+        rawPath: raw, xmpPath: sidecar, quality: AmazeFlag.isEnabled ? .amaze : .full)
+      let session = EditSession(asset: AssetRef(url: raw), model: model)
+      await session.loadSidecar()
+      XCTAssertEqual(session.model.temperatureSeen, model.temperatureSeen)
+      XCTAssertEqual(session.model.tintSeen, model.tintSeen)
+      let bytes = try await MapleExporter.exportData(session: session, options: .init(format: .png))
+      assertSharedPixels(try XCTUnwrap(CIImage(data: bytes)), reference: reference)
+      await session.releaseTransientMemory()
+      XCTAssertEqual(try Data(contentsOf: sidecar), Data(xml.utf8))
+    }
+    XCTAssertEqual(try Data(contentsOf: raw), original)
+  }
 }

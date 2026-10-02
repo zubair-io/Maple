@@ -37,6 +37,8 @@ public struct XMPParser {
 
   public static func parse(_ xml: String) throws -> (AdjustmentModel, CullingState) {
     var m = AdjustmentModel()
+    m.temperatureSeen = false
+    m.tintSeen = false
     var c = CullingState()
     let parser = XMLParser(data: Data(xml.utf8))
     let delegate = _XMPParserDelegate(model: m, culling: c)

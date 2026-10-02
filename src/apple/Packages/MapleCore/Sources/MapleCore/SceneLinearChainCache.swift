@@ -249,6 +249,9 @@ final class SceneLinearChainCache: @unchecked Sendable {
     h.combine(model.partialWhiteBalance)
     h.combine(model.temperature.bitPattern)
     h.combine(model.tint.bitPattern)
+    h.combine(model.temperatureSeen)
+    h.combine(model.tintSeen)
+    h.combine(model.whiteBalancePreset)
     // scene_tone_controls — exposure, brightness (#1102), contrast, and
     // the four tone regions.
     h.combine(model.exposure.bitPattern)
