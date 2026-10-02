@@ -7,6 +7,8 @@ import { ffiPool } from '../ffi/ffi-pool.ts';
 import { RAW_EXTENSIONS } from '../indexer/media-types.ts';
 import { safeWriteAllowed } from './root.ts';
 import { xmpSidecarPath } from './xmp.ts';
+import { serializeSidecarWrite } from './sidecar-write-order';
+import { prepareWorkflowWrite } from '../xmp/workflow-write';
 import { removalRecords } from './removal-records.ts';
 import { withSidecarMutationLease } from './sidecar-mutation-lease.ts';
 import { writeSidecarAtomic } from './sidecar-io.ts';
@@ -209,4 +211,34 @@ export async function commitRemovalSidecar(raw: string, request: RemovalSidecarC
       fail(409, 'Published removal XMP could not be confirmed');
     return result;
   });
+}
+
+/** Ordinary Web metadata saves cannot introduce, discard or replace accepted pixels. */
+export async function writeRemovalAwareXmp(raw: string, xml: string) {
+  try {
+    return await withSidecarMutationLease(raw, () =>
+      serializeSidecarWrite(xmpSidecarPath(raw), async () => {
+        const current = await fs.readFile(xmpSidecarPath(raw), 'utf8').catch((error: unknown) => {
+          if (missing(error)) return '';
+          throw error;
+        });
+        const before = current ? (removalRecords(current) ?? '[]') : '[]';
+        const after = removalRecords(xml) ?? '[]';
+        if (before !== after)
+          fail(
+            409,
+            'Removal history changed; use a confirmed removal commit before saving this document',
+          );
+        const output = await prepareWorkflowWrite(current || null, xml);
+        const result = await writeSidecarAtomic(xmpSidecarPath(raw), output, 'XMP write failed');
+        return result.ok ? { ...result, data: output } : result;
+      }),
+    );
+  } catch (error) {
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+      status: error instanceof RemovalAuthoringError ? error.status : 500,
+    };
+  }
 }
