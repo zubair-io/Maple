@@ -71,7 +71,9 @@ extension EditSession {
       width: fullTarget.width * inputScale, height: fullTarget.height * inputScale)
     let filmLattice = filmLutStore.lattice(for: model.filmLook)
     let profileLUT =
-      resolvedIsRaw ? await autoProfileLUTForCPURender(asset: asset, model: model) : nil
+      resolvedIsRaw
+      ? await autoProfileLUTForCPURender(
+        asset: asset, model: model, quality: snapshot.quality ?? .preview) : nil
     let capture = Task<(canvas: CIImage, weights: CIImage?), Error>.detached(
       priority: .userInitiated
     ) {

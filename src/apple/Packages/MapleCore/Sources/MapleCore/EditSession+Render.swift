@@ -47,11 +47,12 @@ extension EditSession {
   /// computing this before attempting the present burns that cost on a
   /// result the GPU path never uses (#2034). `AutoProfileLUT` caches the
   /// baked cube keyed on URL+mtime+quality so slider ticks reuse it. Nil
-  /// for non-RAW, `Profile::Neutral`, or fit failure. The editor decode
-  /// path develops at `.preview` (RenderActor's sharedDecode +
-  /// decodeSceneLinear* default to `.preview`), so the curve is fit at
-  /// `.preview` to match the displayed buffer (#844).
-  func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async
+  /// for non-RAW, `Profile::Neutral`, or fit failure. Use the quality of
+  /// the cached pixels: refine can escalate beyond Preview, and a fast
+  /// render can retain that higher-quality buffer (#1472).
+  func autoProfileLUTForCPURender(
+    asset: AssetRef, model m: AdjustmentModel, quality: PipelineRenderer.Quality
+  ) async
     -> CIFilter?
   {
     guard asset.isRaw, m.profile == .auto else { return nil }
@@ -59,7 +60,7 @@ extension EditSession {
     let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-    return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
+    return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: quality)
   }
 
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
@@ -260,7 +261,8 @@ extension EditSession {
           applyCrop ? CropImageStage.apply(crop, to: cached, nativeSize: cropNativeSize) : cached
         if await presentViaGpuLive(
           decoded: gpuCached, targetSize: gpuTarget, gen: gen,
-          decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
+          decodeGeneration: snapshot.decodeGeneration, quality: snapshot.quality ?? .preview,
+          appliedCrop: appliedCrop,
           noiseProfile: cachedNoiseProfile, iso: cachedISO, whitesAnchorEv: snapshot.whitesAnchorEv,
           nrSamplingScale: snapshot.nrSamplingScale
         ) {
@@ -281,7 +283,8 @@ extension EditSession {
         // for THIS (interactive canvas) path — `EditSession+
         // FilmExport.swift`'s non-RAW export path is untouched, still
         // tracked under #2713.
-        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
+        let profileLUT = await autoProfileLUTForCPURender(
+          asset: asset, model: m, quality: snapshot.quality ?? .preview)
         MemoryProbe.sample(
           "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
         // The fit is a multi-second suspension on a cold image, and the
@@ -395,7 +398,9 @@ extension EditSession {
         let (freshISO, freshWbFrame) = (freshSnapshot.iso, freshSnapshot.wbFrame)
         if await presentViaGpuLive(
           decoded: gpuDecoded, targetSize: gpuTarget, gen: gen,
-          decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
+          decodeGeneration: freshSnapshot.decodeGeneration,
+          quality: freshSnapshot.quality ?? .preview,
+          appliedCrop: appliedCrop,
           noiseProfile: freshNoiseProfile, iso: freshISO,
           whitesAnchorEv: freshSnapshot.whitesAnchorEv,
           nrSamplingScale: freshSnapshot.nrSamplingScale
@@ -413,7 +418,8 @@ extension EditSession {
         // FFI chain's display-encoded output rather than inside the
         // FFI struct itself, closing the gap for this (interactive
         // canvas) path.
-        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
+        let profileLUT = await autoProfileLUTForCPURender(
+          asset: asset, model: m, quality: freshSnapshot.quality ?? .preview)
         MemoryProbe.sample(
           "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
         // Same bail as the cached branch: the fit suspension may have

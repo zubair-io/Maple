@@ -107,6 +107,7 @@ extension EditSession {
     targetSize: CGSize?,
     gen: UInt64?,
     decodeGeneration: UInt64,
+    quality: PipelineRenderer.Quality,
     appliedCrop: Crop,
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
@@ -252,7 +253,7 @@ extension EditSession {
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
       await driver.fitAutoProfileIfNeeded(
-        rawPath: url.path, model: m, quality: .preview)
+        rawPath: url.path, model: m, quality: quality)
     }
 
     // Film look (epic #2683, Task 10): resolve + push BEFORE this present,
