@@ -1,0 +1,321 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baselineRevision": "b233a5ff01648125f7f28c2b1b163b9607000f8b",
+  "scope": "Mac-first 100MP RAW export memory reduction; full object-removal goal remains active, ports deferred",
+  "sourceHashes": {
+    "src/raw-pipeline/raw-core/src/stages/nlm.rs": "0e028087526f7afcecf04686a978a8b3318b28fb153512216ae304f0226e676c",
+    "src/raw-pipeline/raw-core/src/stages/noise_reduction.rs": "4073c7b9f3afc194cf6589e2ff0728b73b4d4e37bcf2a9468606987c52c70a5f",
+    "src/raw-pipeline/raw-core/src/stages/noise_reduction_storage_tests.rs": "c71a2808cf873ef4ae87a5ac0f010a5cb89102b2b0f119633e5544deb4e3df35"
+  },
+  "implementation": [
+    "Write Oklab L/a/b directly into separate planes instead of retaining an additional full interleaved Oklab image. Working RGB pixels retain their scene-linear Rec.2020 tag and values until final writeback.",
+    "Normalize the final NLM accumulator in place; return its owned vector instead of allocating a second output plane. Arithmetic, shift order, cancellation and GPU shader math are unchanged."
+  ],
+  "validation": {
+    "floatBeforeAfter": {
+      "cases": 60,
+      "components": 1673265,
+      "bitIdentical": true,
+      "dimensions": [
+        [
+          1,
+          1
+        ],
+        [
+          3,
+          10
+        ],
+        [
+          37,
+          29
+        ],
+        [
+          257,
+          193
+        ]
+      ],
+      "regimes": [
+        "NLM luma P2/S2 and chroma P2/S5",
+        "Chroma adapter amounts 25 and 100; luma adapter amount 50",
+        "Negative/HDR input; fixed filtering, six-component camera noise, fallback high-ISO profile"
+      ],
+      "beforeLog": "/tmp/maple-removal-nr-storage-before-20261002.log",
+      "afterLog": "/tmp/maple-removal-nr-storage-after-20261002.log",
+      "dumpSha256": {
+        "nlm-chroma-camera-1x1.f32": "b996e8f47b1f8cce3682f31c06134f9b3f0db74fd438f0e4c23540bf95b83e7b",
+        "nlm-chroma-camera-257x193.f32": "4207a05725d1c63877c07bb5096f5b865607ba8a342ff886b67e24be5df312e8",
+        "nlm-chroma-camera-37x29.f32": "2ae0eb5fe59e4e684ae9e231ee404f8792a24c1e2b6fd795fd933d61355c14c3",
+        "nlm-chroma-camera-3x10.f32": "d2cd03b9aa211e1054425cc3db4d4e39eb088db4732024b86026eb7ddf6909fa",
+        "nlm-chroma-fallback-1x1.f32": "b996e8f47b1f8cce3682f31c06134f9b3f0db74fd438f0e4c23540bf95b83e7b",
+        "nlm-chroma-fallback-257x193.f32": "405c5497a2cb9e98793d19c1ae4b964acf0620c1925e75fbf16578c60a736b6c",
+        "nlm-chroma-fallback-37x29.f32": "641dfec2fb52fb35b50814ac8e6ca338a1df167717a6dd3fe5b318c9ffbb36f0",
+        "nlm-chroma-fallback-3x10.f32": "d2cd03b9aa211e1054425cc3db4d4e39eb088db4732024b86026eb7ddf6909fa",
+        "nlm-chroma-fixed-1x1.f32": "b996e8f47b1f8cce3682f31c06134f9b3f0db74fd438f0e4c23540bf95b83e7b",
+        "nlm-chroma-fixed-257x193.f32": "75339eeb394c649b2a97d19fbab87cdb7dd7ed10f319b8e3b1762ba80b6498f7",
+        "nlm-chroma-fixed-37x29.f32": "0ee9edaa580a9b92ada848fde3d8e808ac62d575848b178076392eebe2aa7d84",
+        "nlm-chroma-fixed-3x10.f32": "d2cd03b9aa211e1054425cc3db4d4e39eb088db4732024b86026eb7ddf6909fa",
+        "nlm-luma-camera-1x1.f32": "b996e8f47b1f8cce3682f31c06134f9b3f0db74fd438f0e4c23540bf95b83e7b",
+        "nlm-luma-camera-257x193.f32": "85aa21c95e87da872bd798502866f4c9275f811723778277314a42fbc3ec4ced",
+        "nlm-luma-camera-37x29.f32": "dd55eab804ea502f3c736928f7a0789d503c76d28c944020cbf5c51f2512b7e3",
+        "nlm-luma-camera-3x10.f32": "d2cd03b9aa211e1054425cc3db4d4e39eb088db4732024b86026eb7ddf6909fa",
+        "nlm-luma-fallback-1x1.f32": "b996e8f47b1f8cce3682f31c06134f9b3f0db74fd438f0e4c23540bf95b83e7b",
+        "nlm-luma-fallback-257x193.f32": "3ce1c710bb4f025593cb8e21b77f4d158cbadbc96df8f7d2cbde9867208c019b",
+        "nlm-luma-fallback-37x29.f32": "4e0eb623759470cc7eb1540b740ff7c8a13c0630ce55bb5b8e545a93c8446d61",
+        "nlm-luma-fallback-3x10.f32": "d2cd03b9aa211e1054425cc3db4d4e39eb088db4732024b86026eb7ddf6909fa",
+        "nlm-luma-fixed-1x1.f32": "b996e8f47b1f8cce3682f31c06134f9b3f0db74fd438f0e4c23540bf95b83e7b",
+        "nlm-luma-fixed-257x193.f32": "d8fea01cb1a42f1c835bc679b8f5446ab3cfc685ff5ab65db286e6798865675f",
+        "nlm-luma-fixed-37x29.f32": "3628108732539ed2b124c742b7599a9d47db4bbb394a7c410945eca1894f36a5",
+        "nlm-luma-fixed-3x10.f32": "d2cd03b9aa211e1054425cc3db4d4e39eb088db4732024b86026eb7ddf6909fa",
+        "nr-color-camera-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-color-camera-257x193.f32": "0d2ff8c756e24364b0e889fcec864ddbb974003f6e1fc2a17052b2b4bc34fe66",
+        "nr-color-camera-37x29.f32": "328053699af0d7ffd3a41889acb40ed4dcb473690dda6c5dea02f92947bea32a",
+        "nr-color-camera-3x10.f32": "81a99245324673f8e9cfeeb1e4bb2dd6bd09980a14161652627245e07d6b279f",
+        "nr-color-fallback-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-color-fallback-257x193.f32": "7740aec7a1d57b8c7323c204cb6fa22c4ed6e673684984ee4f003d9a273c2bd2",
+        "nr-color-fallback-37x29.f32": "06a6d607c106e5a835752245c71505726ef664836996b21772c19032d72bb033",
+        "nr-color-fallback-3x10.f32": "81a99245324673f8e9cfeeb1e4bb2dd6bd09980a14161652627245e07d6b279f",
+        "nr-color-fixed-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-color-fixed-257x193.f32": "28664b72eb5368f77a03682450a14932d662e1a8a21870b911b29e0f046b6c98",
+        "nr-color-fixed-37x29.f32": "8c0e2800c5571af78812c454064025078c0374399ce5b8e098df90eea86ab094",
+        "nr-color-fixed-3x10.f32": "81a99245324673f8e9cfeeb1e4bb2dd6bd09980a14161652627245e07d6b279f",
+        "nr-color-full-camera-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-color-full-camera-257x193.f32": "157cd4910481c18eb8be383fc20d8caf231649e9632b77e39e7b90e31bdb4986",
+        "nr-color-full-camera-37x29.f32": "e2786afe1138d5b5876a2480232f84e7315441ba56a0e6f96d3419908bef5c37",
+        "nr-color-full-camera-3x10.f32": "81a99245324673f8e9cfeeb1e4bb2dd6bd09980a14161652627245e07d6b279f",
+        "nr-color-full-fallback-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-color-full-fallback-257x193.f32": "2c43c69b26df241cba39bfc6f8bdcdfd019a8169d79a1fbe8c53d1ae7ff71b52",
+        "nr-color-full-fallback-37x29.f32": "8e3e70bc55f6757e8f7717c8f327990d2fb6e69294fdc463095b6256e9d82f54",
+        "nr-color-full-fallback-3x10.f32": "81a99245324673f8e9cfeeb1e4bb2dd6bd09980a14161652627245e07d6b279f",
+        "nr-color-full-fixed-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-color-full-fixed-257x193.f32": "9565f73bf6ba0829519fb22ddc3924f8334088bcc2b78d6bdf6b361811ea385e",
+        "nr-color-full-fixed-37x29.f32": "59dc86f61b73f454f1fff6d1a2269137080588184e43480de742e9c71ef54b77",
+        "nr-color-full-fixed-3x10.f32": "81a99245324673f8e9cfeeb1e4bb2dd6bd09980a14161652627245e07d6b279f",
+        "nr-luma-camera-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-luma-camera-257x193.f32": "ded52f47f2e4da3d1d21a26df227a9df00471b858c6b07fe1291161b296d6341",
+        "nr-luma-camera-37x29.f32": "b88cbfff53970e3a7657dd569981b66d28ab925bb1220ec7df95ceb9882556ed",
+        "nr-luma-camera-3x10.f32": "34ea6102608ea864819980f97d7e87d020e05d8d4c56862b491a641c12f7d3af",
+        "nr-luma-fallback-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-luma-fallback-257x193.f32": "40c28d3755ca4624c16cbda6c5370285adf569ade8ca7cf06586a45937cf41fd",
+        "nr-luma-fallback-37x29.f32": "4a4824acb07d402489490fe1bb16eb2bbc5f20417305f81133610d101da0f62d",
+        "nr-luma-fallback-3x10.f32": "34ea6102608ea864819980f97d7e87d020e05d8d4c56862b491a641c12f7d3af",
+        "nr-luma-fixed-1x1.f32": "d08d3d50515f0ecd8c20ada1982cb9e9b3c87a8027c50edec74f73f865fcbc01",
+        "nr-luma-fixed-257x193.f32": "ec139409685954d6f349053ce24891e4835895f36897e0079b4a5bb4c714e4ff",
+        "nr-luma-fixed-37x29.f32": "e09c5d6d9a5f50f4efda302f083c87b6dbfbcafdf381a0383d62c22f879742d4",
+        "nr-luma-fixed-3x10.f32": "34ea6102608ea864819980f97d7e87d020e05d8d4c56862b491a641c12f7d3af"
+      }
+    },
+    "materializedReference": {
+      "combinations": 48,
+      "scope": "Exact float bits versus the prior materialized Oklab adapter; fixed/six/eight-component/fallback noise and preset cancellation"
+    },
+    "rawCore": {
+      "passed": 2600,
+      "failed": 0,
+      "ignored": 92,
+      "seconds": 33.86,
+      "log": "/tmp/maple-removal-nr-storage-core-20261002.log"
+    },
+    "metal": {
+      "passed": 255,
+      "failed": 0,
+      "ignored": 3,
+      "seconds": 25.01,
+      "command": "cargo test -p raw-gpu -- --test-threads=1",
+      "log": "/tmp/maple-removal-nr-storage-metal-20261002.log"
+    },
+    "ffi": {
+      "passed": 266,
+      "failed": 0,
+      "ignored": 1,
+      "seconds": 87.88,
+      "command": "cargo test -p raw-ffi --lib",
+      "log": "/tmp/maple-removal-nr-storage-ffi-20261002.log"
+    },
+    "nativeLibrary": {
+      "fresh": true,
+      "profile": "release",
+      "inputHash": "cf39d9d80232d5794aa99d45e66503ec885e8312",
+      "symbolsVerified": 159,
+      "appleSlices": 4,
+      "relinkedGeneratedXCTestExecutables": [
+        "Debug",
+        "Release"
+      ],
+      "log": "/tmp/maple-removal-nr-storage-xcframework-20261002.log"
+    },
+    "macBuild": {
+      "result": "BUILD SUCCEEDED",
+      "scheme": "Maple",
+      "log": "/tmp/maple-removal-nr-storage-mac-build-20261002.log"
+    },
+    "appleCIAllowlist": {
+      "classes": 247,
+      "passed": 2028,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 80.262,
+      "log": "/tmp/maple-removal-nr-storage-swift-ci-20261002.log"
+    },
+    "fullExports": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "dimensions": [
+        12288,
+        8192
+      ],
+      "profile": "auto",
+      "quality": "amaze",
+      "RGBChannelsComparedPerCase": 301989888,
+      "maximumChannelError": 1,
+      "channelsOver1": 0,
+      "allDecodedRGBADigestsEqualBaseline": true,
+      "reports": [
+        {
+          "patchCount": 0,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 12591.498083,
+          "baselineExportMs": 9684.857292,
+          "deliveryPeakRSSBytes": 12890734592,
+          "baselineDeliveryPeakRSSBytes": 14102560768,
+          "RSSReductionBytes": 1211826176,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:1a46b2300808083ef61a060ea30bcd4cf37d628fd5d4c60d2eeb2994e5aa3dfa",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 180860108,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-4FA2E383-83DB-4520-96BC-B9210BDE9F89",
+          "log": "/tmp/maple-removal-nr-storage-export-ZeroRemovalPNG-20261002.log"
+        },
+        {
+          "patchCount": 1,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 19116.10925,
+          "baselineExportMs": 18022.771,
+          "deliveryPeakRSSBytes": 14111391744,
+          "baselineDeliveryPeakRSSBytes": 15317532672,
+          "RSSReductionBytes": 1206140928,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:1aeb21b947f922775fe75cc8c77beba57c69a48bfba9d402daa7fe6c12385acc",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 180334047,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-314A261A-81FE-4A62-BB83-23D4B0D3A0F1",
+          "log": "/tmp/maple-removal-nr-storage-export-OneRemovalPNG-20261002.log"
+        },
+        {
+          "patchCount": 10,
+          "format": "png",
+          "bitsPerComponent": 8,
+          "exportMs": 21578.735709,
+          "baselineExportMs": 22932.141666,
+          "deliveryPeakRSSBytes": 14157758464,
+          "baselineDeliveryPeakRSSBytes": 15271690240,
+          "RSSReductionBytes": 1113931776,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:cfb4a621e57d160475fa0f06acea0868592846862d8dafa37abe4fb82f76e65b",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 176429974,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-05119669-0DB1-4DB4-A35E-C9FA25BD3284",
+          "log": "/tmp/maple-removal-nr-storage-export-TenRemovalPNG-20261002.log"
+        },
+        {
+          "patchCount": 0,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 8226.818583,
+          "baselineExportMs": 8834.625625,
+          "deliveryPeakRSSBytes": 13392216064,
+          "baselineDeliveryPeakRSSBytes": 14603763712,
+          "RSSReductionBytes": 1211547648,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:bbf3a2c7d158ccd6129e7724e5840b2b21b31cdddc7539e6a13faf5dfc255933",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 805372698,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-82237864-3DB8-4CDB-9749-3F2D12137BDC",
+          "log": "/tmp/maple-removal-nr-storage-export-ZeroRemovalTIFF-20261002.log"
+        },
+        {
+          "patchCount": 1,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 16859.294958,
+          "baselineExportMs": 19155.405042,
+          "deliveryPeakRSSBytes": 14629765120,
+          "baselineDeliveryPeakRSSBytes": 15832530944,
+          "RSSReductionBytes": 1202765824,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:feca77979ae8bb690cd9dec9daae18844e8c16e89f017468fa90199b57795210",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 805372698,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-BE0131B4-4DA3-4AD2-BBF9-D34C127A24BC",
+          "log": "/tmp/maple-removal-nr-storage-export-OneRemovalTIFF-20261002.log"
+        },
+        {
+          "patchCount": 10,
+          "format": "tiff_16",
+          "bitsPerComponent": 16,
+          "exportMs": 16977.15025,
+          "baselineExportMs": 20803.815708,
+          "deliveryPeakRSSBytes": 14683226112,
+          "baselineDeliveryPeakRSSBytes": 15722659840,
+          "RSSReductionBytes": 1039433728,
+          "thermalState": "fair",
+          "deliveredRGBADigest": "blake3:1ba646bd9bc5cad241d8d949d07978ea3c175b6f761b5b07061619d7306dcabb",
+          "maximumChannelError": 1,
+          "channelsOver1": 0,
+          "exportBytes": 805372698,
+          "artifactDirectory": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/100mp-export-1472-2AFE7884-EF7C-46F8-8E65-DE931E580620",
+          "log": "/tmp/maple-removal-nr-storage-export-TenRemovalTIFF-20261002.log"
+        }
+      ]
+    },
+    "colorBaseline": {
+      "command": "MANIFEST=/Users/riabuz/Projects/_Maple/test-fixtures/references/manifest.json FILTER=baseline bash src/scripts/test_color_pipeline.sh",
+      "exit": 1,
+      "executed": 40,
+      "failed": 1,
+      "skipped": 0,
+      "neutralPassed": 19,
+      "autoPassed": 20,
+      "failure": "Existing test_0011/baseline Neutral RGB bias; mean 5.64, p95 19.56, max 34.81; bias RGB +0.0378/+0.0315/+0.0312 versus ceilings +0.0113",
+      "allPrintedComparisonRowsEqualPriorRun": true,
+      "comparisonTableSHA256": "6b9ada0c5ae70e3efed74c32dfce250dd570f74d00111f3e3a691ba741e80fa6",
+      "log": "/tmp/maple-removal-nr-storage-color-baseline-20261002.log",
+      "priorLog": "/tmp/maple-removal-auto-quality-color-baseline-installed-20261002.log",
+      "releaseGate": "RED; unchanged failure is not waived. No PR, push or merge."
+    },
+    "integrity": {
+      "sourceSHA256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "controlledFixtureFilesPreserved": 24,
+      "fixtureManifest": "test-fixtures/qualification/removal-mac-100mp-export-1472.json: validation.ownedFixtures.manifest",
+      "after": "All six exports, actual Mac app build, Apple CI allowlist and color baseline comparisons",
+      "unqualifiedUIDiagnostic": "Preserved unchanged and excluded from this commit"
+    }
+  },
+  "measurement": {
+    "device": "Mac17,6 / Apple M5 Max / 128 GiB",
+    "os": "macOS 27.0 (26A428)",
+    "RSSScope": "Fresh process high-water RSS through exportData, before verification; includes fixture staging/test runtime; excludes subsequent ImageIO decode/reference render",
+    "timingScope": "Production full render plus encode, before file write; native caches cold, OS source pages warmed by identity check/copy; no live viewport or inference",
+    "minimumRSSReductionBytes": 1039433728,
+    "maximumRSSReductionBytes": 1211826176,
+    "peakRSSRangeBytes": [
+      12890734592,
+      14683226112
+    ],
+    "thermals": "All new samples fair; earlier baseline samples nominal/fair. No speedup or percentile claim."
+  },
+  "limitations": [
+    "These are six fresh-process point samples on a 128 GiB Mac. Lower-memory devices, the complete live editor with resident inference models and hardware-tier limits remain unqualified.",
+    "Controlled accepted 512px patches exercise delivery, not photographic inpainting quality, background-person selection or protected-subject recall.",
+    "TIFF16 containers are verified and compared after conversion to sRGB RGB8. Full-image RGB16 per-channel parity is not established here; the separate native float-export record covers small-fixture sub-byte precision.",
+    "Production Auto preview/export fit-size consistency and the full consented photographic-quality corpus remain open gates. No budget, model, schema or rendering policy was changed."
+  ]
+}
