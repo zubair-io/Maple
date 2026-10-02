@@ -1,19 +1,27 @@
-<div class="flex w-full max-w-[560px] flex-col gap-4 rounded-lg bg-surface p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+<div
+  class="flex w-full max-w-[560px] flex-col gap-4 rounded-lg bg-surface p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+>
   <header>
     <h2 class="m-0 mb-1 text-base font-semibold">Pick a library folder</h2>
     <p class="m-0 text-xs text-text-muted">
-      Browse the server filesystem and pick a folder to index. You can register
-      additional folders later from the sidebar.
+      Browse the server filesystem and pick a folder to index. You can register additional folders
+      later from the sidebar.
     </p>
   </header>
 
   <div class="flex items-center gap-2 text-xs">
-    <button class="px-2.5 py-1 text-xs" (click)="onUp()" [disabled]="!listing()?.parent">↑ Up</button>
-    <code class="flex-1 overflow-hidden rounded-sm bg-black/30 px-2 py-1 font-mono text-ellipsis whitespace-nowrap">{{ listing()?.path ?? 'Loading…' }}</code>
-    <label class="flex items-center gap-1.5 select-none">
-      <input type="checkbox" [checked]="showAll()" (change)="onToggleShowAll()" />
-      Show system folders
-    </label>
+    <mui-button variant="secondary" size="sm" (pressed)="onUp()" [disabled]="!listing()?.parent"
+      >↑ Up</mui-button
+    >
+    <code
+      class="min-w-0 flex-1 overflow-hidden rounded-sm bg-black/30 px-2 py-1 font-mono text-ellipsis whitespace-nowrap"
+      >{{ currentPath() }}</code
+    >
+    <mui-checkbox
+      label="Show system folders"
+      [checked]="showAll()"
+      (checkedChange)="onToggleShowAll()"
+    />
   </div>
 
   @if (loading()) {
@@ -25,20 +33,29 @@
   } @else {
     <ul class="m-0 max-h-80 list-none overflow-y-auto rounded-sm border border-white/[0.08] p-0">
       @for (e of listing()!.entries; track e.path) {
-        <li class="entry flex cursor-pointer items-center justify-between border-b border-white/[0.04] px-3 py-2 last:border-b-0 hover:bg-white/[0.06]" (click)="navigate(e.path)">
-          <span class="text-[13px]">{{ e.name }}</span>
-          @if (e.hasChildren) {
-            <span class="text-text-muted">›</span>
-          }
+        <li class="entry border-b border-border last:border-b-0">
+          <mui-button
+            variant="ghost"
+            [fullWidth]="true"
+            [ariaLabel]="'Open ' + e.name"
+            (pressed)="navigate(e.path)"
+          >
+            <span class="flex-1 text-left">{{ e.name }}</span>
+            @if (e.hasChildren) {
+              <span aria-hidden="true">›</span>
+            }
+          </mui-button>
         </li>
       }
     </ul>
   }
 
   <footer class="mt-2 flex justify-end gap-2">
-    <button class="px-3.5 py-1.5 text-[13px]" type="button" (click)="cancel.emit()">Cancel</button>
-    <button class="bg-primary px-3.5 py-1.5 text-[13px] text-white disabled:cursor-not-allowed disabled:opacity-40" type="button" (click)="onUseHere()" [disabled]="!listing()">
+    @if (showCancel()) {
+      <mui-button variant="secondary" (pressed)="cancel.emit()">Cancel</mui-button>
+    }
+    <mui-button variant="primary" (pressed)="onUseHere()" [disabled]="!canChoose()">
       Use this folder
-    </button>
+    </mui-button>
   </footer>
 </div>

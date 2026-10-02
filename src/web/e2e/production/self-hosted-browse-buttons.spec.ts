@@ -21,7 +21,7 @@ const RESPONSES = new Map<string, unknown>([
       },
     ],
   ],
-  ['/api/fs/list-dir', { path: '/', parent: null, entries: [] }],
+  ['/api/fs/list', { path: '/', parent: null, entries: [] }],
   [
     '/api/metadata/snapshots',
     {
@@ -62,6 +62,89 @@ async function respond(route: Route): Promise<void> {
   } else {
     await route.fulfill({ json: RESPONSES.get(path) ?? {} });
   }
+}
+
+for (const width of [1440, 768, 390]) {
+  test(`Self Hosted library picker keyboard and navigation at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chrome-self-hosted');
+    await page.setViewportSize({ width, height: 900 });
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text());
+    });
+    const picked: unknown[] = [];
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route('**/api/**', async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (url.pathname === '/api/folders') {
+        if (request.method() === 'GET') {
+          await route.fulfill({ json: picked.length ? RESPONSES.get('/api/folders') : [] });
+          return;
+        }
+        picked.push(request.postDataJSON());
+        await route.fulfill({ status: 201, json: (RESPONSES.get('/api/folders') as unknown[])[0] });
+        return;
+      }
+      if (url.pathname === '/api/fs/list') {
+        const path = url.searchParams.get('path');
+        if (path === '/photos' && !url.searchParams.has('showAll')) await pending;
+        if (request.failure()) return;
+        await route.fulfill({
+          json:
+            path === '/photos'
+              ? { path: '/photos', parent: '/', entries: [] }
+              : {
+                  path: '/',
+                  parent: null,
+                  entries: [{ name: 'photos', path: '/photos', hasChildren: false }],
+                },
+        });
+        return;
+      }
+      await respond(route);
+    });
+    try {
+      await page.goto('/browse');
+      const picker = page.locator('app-library-picker');
+      await expect(picker.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
+      const open = picker.getByRole('button', { name: 'Open photos', exact: true });
+      await open.focus();
+      await open.press('Enter');
+      const choose = picker.getByRole('button', { name: 'Use this folder', exact: true });
+      await expect(choose).toBeDisabled();
+      await expect(picker.locator('code')).toHaveText('/photos');
+      await picker.getByRole('checkbox', { name: 'Show system folders' }).press('Space');
+      await expect(choose).toBeEnabled();
+      release();
+      await expect(picker.locator('code')).toHaveText('/photos');
+      await picker.getByRole('button', { name: '↑ Up', exact: true }).press('Enter');
+      await expect(picker.locator('code')).toHaveText('/');
+      await expect(open).toBeVisible();
+      await open.press('Space');
+      await expect(picker.locator('code')).toHaveText('/photos');
+      await expect(choose).toBeEnabled();
+      const overflow = await picker.evaluate((element) =>
+        Array.from(element.querySelectorAll('button,input')).some((control) => {
+          const bounds = control.getBoundingClientRect();
+          return bounds.left < 0 || bounds.right > window.innerWidth;
+        }),
+      );
+      expect(overflow).toBe(false);
+      await page.screenshot({ path: testInfo.outputPath(`library-picker-${width}.png`) });
+      await choose.press('Enter');
+      await expect.poll(() => picked).toEqual([{ path: '/photos' }]);
+      expect(errors).toEqual([]);
+    } finally {
+      release();
+    }
+  });
 }
 
 for (const width of [1440, 768, 390]) {

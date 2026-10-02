@@ -3,6 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { LibraryPickerComponent } from './library-picker.component';
 import { API_BASE_URL } from '../../api/api-base-url.token';
+import { vi } from 'vitest';
 
 // DOM selectors mirror the template at library-picker.component.html.
 // The template uses Tailwind utility classes for styling — these helpers
@@ -11,7 +12,7 @@ import { API_BASE_URL } from '../../api/api-base-url.token';
 // `<input type="checkbox">`) so the spec doesn't depend on utility-class
 // churn.
 const entryNames = (el: HTMLElement): NodeListOf<HTMLElement> =>
-  el.querySelectorAll<HTMLElement>('.entry span:first-child');
+  el.querySelectorAll<HTMLElement>('.entry button');
 const pathStrip = (el: HTMLElement): HTMLElement | null => el.querySelector<HTMLElement>('code');
 const useButton = (el: HTMLElement): HTMLButtonElement | null => {
   const buttons = el.querySelectorAll<HTMLButtonElement>('button');
@@ -48,7 +49,14 @@ describe('LibraryPickerComponent', () => {
     fixture.detectChanges();
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    try {
+      http.verify();
+    } finally {
+      fixture.destroy();
+      TestBed.resetTestingModule();
+    }
+  });
 
   it("loads '/' on init and shows entries", () => {
     const req = http.expectOne((r) => r.url === '/api/fs/list' && r.params.get('path') === '/');
@@ -77,7 +85,7 @@ describe('LibraryPickerComponent', () => {
       });
     fixture.detectChanges();
 
-    const entry = fixture.nativeElement.querySelector('.entry') as HTMLElement;
+    const entry = fixture.nativeElement.querySelector('.entry button') as HTMLElement;
     entry.click();
     fixture.detectChanges();
 
@@ -123,7 +131,7 @@ describe('LibraryPickerComponent', () => {
       });
     fixture.detectChanges();
 
-    (fixture.nativeElement.querySelector('.entry') as HTMLElement).click();
+    (fixture.nativeElement.querySelector('.entry button') as HTMLElement).click();
     fixture.detectChanges();
 
     http
@@ -179,5 +187,48 @@ describe('LibraryPickerComponent', () => {
 
     const labels = entryNames(fixture.nativeElement);
     expect(labels[0].textContent).toContain('etc');
+  });
+
+  it('never chooses the previous directory during loading or after a navigation error', () => {
+    http
+      .expectOne((r) => r.params.get('path') === '/')
+      .flush({ path: '/', parent: null, entries: [] });
+    const picked = vi.fn();
+    fixture.componentInstance.pick.subscribe(picked);
+    fixture.componentInstance.navigate('/photos');
+    fixture.detectChanges();
+    expect(useButton(fixture.nativeElement)?.disabled).toBe(true);
+    fixture.componentInstance.onUseHere();
+    expect(picked).not.toHaveBeenCalled();
+    http
+      .expectOne((r) => r.params.get('path') === '/photos')
+      .flush({ error: 'Unavailable' }, { status: 503, statusText: 'Unavailable' });
+    fixture.detectChanges();
+    expect(useButton(fixture.nativeElement)?.disabled).toBe(true);
+    fixture.componentInstance.onUseHere();
+    expect(picked).not.toHaveBeenCalled();
+  });
+
+  it('cancels superseded directory loads and refetches the requested path when Show system folders changes', () => {
+    http
+      .expectOne((r) => r.params.get('path') === '/')
+      .flush({ path: '/', parent: null, entries: [] });
+    fixture.componentInstance.navigate('/photos');
+    const older = http.expectOne((r) => r.params.get('path') === '/photos');
+    fixture.componentInstance.onToggleShowAll();
+    const newer = http.expectOne(
+      (r) => r.params.get('path') === '/photos' && r.params.get('showAll') === '1',
+    );
+    expect(older.cancelled).toBe(true);
+    newer.flush({ path: '/photos', parent: '/', entries: [] });
+    fixture.detectChanges();
+    expect(pathStrip(fixture.nativeElement)?.textContent).toContain('/photos');
+    expect(useButton(fixture.nativeElement)?.disabled).toBe(false);
+  });
+
+  it('cancels the active directory request when the picker is dismissed', () => {
+    const request = http.expectOne((r) => r.params.get('path') === '/');
+    fixture.destroy();
+    expect(request.cancelled).toBe(true);
   });
 });

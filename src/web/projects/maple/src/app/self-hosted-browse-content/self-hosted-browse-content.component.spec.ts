@@ -16,9 +16,14 @@ class StubMuiBanner {
   readonly actionLabel = input<string | null>(null);
   readonly actionPressed = output<void>();
 }
-@Component({ selector: 'app-library-picker', template: '', standalone: true })
+@Component({
+  selector: 'app-library-picker',
+  template: '<span [attr.data-cancel-available]="showCancel()"></span>',
+  standalone: true,
+})
 class StubLibraryPicker {
   readonly pick = output<string>();
+  readonly showCancel = input(true);
 }
 @Component({ selector: 'app-timeline-view', template: '<p>timeline</p>', standalone: true })
 class StubTimelineView {}
@@ -135,5 +140,16 @@ describe('SelfHostedBrowseContentComponent', () => {
 
     expect(fixture.nativeElement.querySelector('app-asset-grid')).not.toBeNull();
     expect(fixture.nativeElement.querySelector('app-map-view')).toBeNull();
+  });
+
+  it('does not offer Cancel on the inline first-run picker', () => {
+    const fixture = configureRenderBranchTest('folder');
+    (TestBed.inject(LibraryStateService).backendEmpty as ReturnType<typeof signal>).set(true);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement
+        .querySelector('app-library-picker span')
+        .getAttribute('data-cancel-available'),
+    ).toBe('false');
   });
 });
