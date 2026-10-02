@@ -7,7 +7,7 @@ import XCTest
 
 extension ReportedExportParityTests {
   /// Photographic attribution for #1472, separate from the tiny fixture gate.
-  /// Reports differences, never treats an observed error as an allowed budget.
+  /// Full export arms gate at 1/255. Other controls remain attribution only.
   func testPhotographicSavedRemovalExportDiagnostic() async throws {
     let corpus = AutoProfileCanvasParityTests.fixtureDir(
       "test-fixtures/raws/removal-photographic")
@@ -55,13 +55,14 @@ extension ReportedExportParityTests {
       let delivered = try XCTUnwrap(CIImage(data: png))
       for (stage, image) in [("developed", actual), ("delivered", delivered)] {
         let stats = removalExportDifference(image, reference: reference)
+        XCTAssertLessThanOrEqual(stats.max, 1, "Native full export must match shared Auto/Neutral")
         let report: [String: Any] = [
           "case": "photographic-removal-export", "stage": stage,
           "profile": String(describing: profile), "accepted": accepted,
           "width": reference.width, "height": reference.height,
           "maximumChannelError": stats.max, "meanChannelError": stats.mean,
           "channelsOver1": stats.over1, "artifact": results.path,
-          "limit": "Attribution diagnostic; not a passing parity budget",
+          "limit": "Native full export parity gate: maximum channel error <=1/255",
         ]
         let data = try JSONSerialization.data(withJSONObject: report, options: .sortedKeys)
         print("MAPLE_REMOVAL_EXPORT_DIAGNOSTIC \(String(decoding: data, as: UTF8.self))")

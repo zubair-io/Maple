@@ -50,6 +50,8 @@ pub use detail::{
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
+mod float_export;
+pub use float_export::render_export_f32;
 pub(super) mod removal;
 mod removal_scene_linear;
 pub use export::{
