@@ -341,7 +341,7 @@ function truncateDiff(diff: string, maxChars: number): { text: string; truncated
   const text = diff.slice(0, maxChars);
   return {
     text,
-    truncatedNote: `The diff was truncated: original ${diff.length} chars, kept first ${maxChars}. Some changes are not visible in the diff above; your review of the visible portion should state this caveat.`,
+    truncatedNote: `The diff was truncated: original ${diff.length} chars, kept first ${maxChars}.`,
   };
 }
 
