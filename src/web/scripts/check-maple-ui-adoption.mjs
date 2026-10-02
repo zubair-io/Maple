@@ -101,6 +101,9 @@ const MIGRATED_DIRECTORIES = [
 // Individual files ratcheted on their own because a sibling in the same
 // directory is deliberately NOT migrated (see the module doc above).
 const MIGRATED_FILES = [
+  '../projects/maple/src/app/self-hosted-browse-actions/browse-action-button.component.html', // #4020
+  '../projects/maple/src/app/self-hosted-browse-actions/self-hosted-browse-actions.component.html', // #4020
+  '../projects/maple/src/app/self-hosted-sidebar-extension/self-hosted-sidebar-header.component.html', // #4020
   '../projects/maple-common/src/lib/network/lan-switch-banner.component.html', // #3664
   '../projects/maple-common/src/lib/batch-metadata/batch-metadata-confirm-dialog.component.html', // #3697
   '../projects/maple-common/src/lib/batch-metadata/batch-metadata-panel.component.html', // #3697

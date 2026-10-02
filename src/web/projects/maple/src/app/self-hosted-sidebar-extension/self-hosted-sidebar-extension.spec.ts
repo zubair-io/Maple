@@ -15,7 +15,10 @@ describe('Self Hosted sidebar extensions', () => {
 
     const fixture = TestBed.createComponent(SelfHostedSidebarHeaderComponent);
     fixture.detectChanges();
-    fixture.nativeElement.querySelector('[aria-label="Add folder"]').click();
+    const native: HTMLButtonElement = fixture.nativeElement.querySelector('mui-button button');
+    expect(native.getAttribute('aria-label')).toBe('Add folder');
+    expect(native.title).toBe('Add a folder to your library');
+    native.click();
 
     expect(openLibraryPicker).toHaveBeenCalledOnce();
   });
