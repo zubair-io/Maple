@@ -744,3 +744,13 @@
     (dismiss)="exportOpen.set(false)"
   />
 </div>
+
+@if (editorState.removalSaveError()) {
+  <p
+    role="alert"
+    class="fixed bottom-20 left-1/2 z-30 max-w-[80vw] -translate-x-1/2 rounded-lg bg-surface px-3 py-2 text-sm text-error-text"
+    data-testid="removal-history-error"
+  >
+    {{ editorState.removalSaveError() }}
+  </p>
+}

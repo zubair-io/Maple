@@ -112,9 +112,39 @@ export class EditTransactionRing {
     return tx;
   }
 
+  /** A durable edit is recorded only after its XMP write succeeds. */
+  recordConfirmed(
+    serializer: XmpSerializerService,
+    before: AdjustmentModel,
+    after: AdjustmentModel,
+    description: string,
+    kind: EditTransactionKind,
+  ): EditTransaction | null {
+    const tx = makeEditTransaction(serializer, {
+      id: this._nextId + 1,
+      kind,
+      description,
+      before: structuredClone(before),
+      after: structuredClone(after),
+    });
+    if (!tx) return null;
+    this._nextId += 1;
+    this._redo.set([]);
+    this._undo.update((stack) => pushCapped(stack, tx));
+    this.lastCommitted.set(tx);
+    return tx;
+  }
+
   peek(direction: 'undo' | 'redo'): EditTransaction | null {
     const stack = direction === 'undo' ? this._undo() : this._redo();
     return stack.at(-1) ?? null;
+  }
+
+  peekUndo(): EditTransaction | null {
+    return this._undo().at(-1) ?? null;
+  }
+  peekRedo(): EditTransaction | null {
+    return this._redo().at(-1) ?? null;
   }
 
   /** Move the newest undo entry to the redo side and return it. */

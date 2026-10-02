@@ -48,11 +48,11 @@ Number labels match accessible Person N buttons. Brush size exposes its
 label/value and adjustable actions. Every selection, review and model action
 has an accessible label. The Web operation status is a polite live region;
 Apple exposes a status element beside its progress control. Keyboard painting,
-broader announcements and Web global undo/history integration remain tracked by #1472.
+and broader announcements remain tracked by #1472. Accepted Web removal undo/redo uses the normal editor history and announces the action without shifting the canvas. Failed saves retain the current model and history and show an alert even after closing Remove.
 
 ## Persistence and scope
 
-Require a writable filesystem RAW folder and explicitly imported, checksum-verified model files. XMP stores ordered accepted records; `.maple/inpaint/` stores immutable masks and scene-linear patches. Reopening, compatible CPU native-detail tiles and local browser exports use verified assets without inference. Export retains selection, review, dedicated undo and viewport across CPU RAW-owner retirement. Missing/corrupt assets fail visibly. The original is immutable. Broader native selection qualification, native-detail tiles on WebGPU, remaining remote/server/Windows consumers, model photographic quality, model distribution and physical-device budgets remain unqualified under #1472.
+Require a writable filesystem RAW folder and explicitly imported, checksum-verified model files. XMP stores ordered accepted records; `.maple/inpaint/` stores immutable masks and scene-linear patches. Reopening, compatible CPU native-detail tiles and local browser exports use verified assets without inference. Keep creates one normal editor history entry for the reviewed group. Global undo/redo and whole-model reset confirm the XMP save before changing accepted pixels or moving history. Keep refuses a changed full-XMP revision and retains the candidate. Export retains selection, review, history and viewport across CPU RAW-owner retirement. Accepted-record list controls and dependency-review UI remain open under #3984. Missing/corrupt assets fail visibly. The original is immutable. Broader native selection qualification, native-detail tiles on WebGPU, remaining remote/server/Windows consumers, model photographic quality, model distribution and physical-device budgets remain unqualified under #1472.
 
 Apple owns temporary selection and review in `RemovalSession`. Its panel is
 available in the Mac/iPad inspector and iPhone controls; a local model folder

@@ -125,23 +125,21 @@ export async function keep(session: RemovalEditorSession): Promise<void> {
     );
     session.check(token);
     session.committingXml = draft.xml;
-    await session.sidecars.writeRemovalConfirmed(
-      photo.asset.id,
-      photo.folder,
-      photo.asset.filename,
-      photo.model,
-      session.cullingFor(photo),
-      photo.prior,
+    session.cullingFor(photo);
+    const sidecarRevision = await session.editor.acceptRemoval(
       draft.records,
+      photo.model,
+      draft.proposals.length === 1 ? 'Remove object' : `Remove ${draft.proposals.length} objects`,
+      photo.sidecarRevision,
     );
     if (token !== session.revision) return;
-    session.undoRecords = { prior: photo.prior, accepted: draft.records };
-    session.canUndoKeep.set(true);
     session.photo = {
       ...photo,
       prior: draft.records,
       xml: draft.xml,
       companions: draft.companions,
+      model: { ...photo.model, inpaintRemovals: draft.records },
+      sidecarRevision,
     };
     session.key = session.keyFor(photo.asset, draft.xml);
     session.resetProxy();
@@ -156,44 +154,11 @@ export async function keep(session: RemovalEditorSession): Promise<void> {
   }
 }
 export async function undoKeep(session: RemovalEditorSession): Promise<void> {
-  const photo = session.photo,
-    undo = session.undoRecords;
-  if (!photo || !undo || session.phase() !== 'ready') return;
-  const token = session.revision;
-  session.phase.set('saving');
+  if (session.phase() !== 'ready' || !session.canUndoKeep()) return;
+  session.editor.undo();
   try {
-    const companions = new Map(await photo.assets.read(undo.prior));
-    const xml = session.recipe(photo, undo.prior);
-    await session.pipeline.removal.prepareSaved(xml, bundleRemovalCompanions(companions));
-    session.check(token);
-    session.committingXml = xml;
-    await session.sidecars.writeRemovalConfirmed(
-      photo.asset.id,
-      photo.folder,
-      photo.asset.filename,
-      photo.model,
-      session.cullingFor(photo),
-      undo.accepted,
-      undo.prior,
-    );
-    if (token !== session.revision) return;
-    session.photo = { ...photo, prior: undo.prior, xml, companions };
-    session.key = session.keyFor(photo.asset, xml);
-    session.resetProxy();
-    session.undoRecords = undefined;
-    session.canUndoKeep.set(false);
-    session.phase.set('ready');
-    session.message.set('Removal undone.');
+    await session.editor.settleRemovalSave();
   } catch (error) {
-    if (token !== session.revision) return;
-    try {
-      await session.restore(photo);
-    } catch (restoreError) {
-      session.fail(restoreError, token);
-      session.phase.set('recovery');
-      return;
-    }
-    session.fail(error, token);
-    if (token === session.revision) session.phase.set('ready');
+    session.message.set(error instanceof Error ? error.message : String(error));
   }
 }

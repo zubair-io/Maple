@@ -411,6 +411,16 @@ export class XmpStoreService {
   }
 
   /** Commit after immutable companion publication; failure never reports Saved. */
+  async captureRemovalRevision(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+  ): Promise<string> {
+    if (this._pendingWrites.has(assetId) || this._inFlightWrites.has(assetId))
+      await this.flushAsset(assetId);
+    return this.removalRevision(folder, rawFilename);
+  }
+
   async writeRemovalConfirmed(
     assetId: AssetId,
     folder: MapleFolderHandle,
@@ -419,12 +429,14 @@ export class XmpStoreService {
     culling: XmpCulling,
     expectedRecords: string,
     records: string,
-  ): Promise<void> {
+    expectedRevision?: string,
+  ): Promise<string> {
     const pending = this._pendingWrites.get(assetId);
     if (pending) clearTimeout(pending.timeout);
     this._pendingWrites.delete(assetId);
     const revision = this.saveState.queued(assetId);
     const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
+    let confirmedRevision = '';
     const write = prior
       .catch(() => undefined)
       .then(async () => {
@@ -433,12 +445,20 @@ export class XmpStoreService {
           const { LocalRemovalAssets } = await import('../removal/local-removal-assets');
           const assets = new LocalRemovalAssets(this.folderAccess, folder, rawFilename);
           await withRemovalWriteLock(folder, rawFilename, async () => {
+            if (
+              expectedRevision !== undefined &&
+              (await this.removalRevision(folder, rawFilename)) !== expectedRevision
+            )
+              throw new Error(
+                'The photo changed before this removal could be saved. Reopen the photo to load its current edits.',
+              );
             const source = await this.sourcePassthrough(folder, rawFilename);
             const current =
               source?.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value ??
               '[]';
             if (current !== expectedRecords)
               throw new Error('The photo changed before this removal could be saved.');
+            await assets.verifySource(expectedRecords);
             await assets.verifySource(records);
             await assets.read(records);
             const passthrough: PassthroughBucket = {
@@ -452,7 +472,7 @@ export class XmpStoreService {
               unknownNodes: source?.unknownNodes ?? [],
             };
             const xml = this.serializer.serialize(
-              model,
+              { ...model, inpaintRemovals: records },
               passthrough,
               culling,
               source ? undefined : this._metadata.get(assetId),
@@ -462,6 +482,10 @@ export class XmpStoreService {
               this._sidecarFilename(rawFilename),
               new TextEncoder().encode(xml),
             );
+            const digest = await this.digestSidecar(new TextEncoder().encode(xml));
+            if ((await this.removalRevision(folder, rawFilename)) !== digest)
+              throw new Error('Removal sidecar verification failed.');
+            confirmedRevision = digest;
             const reopened = await this.sourcePassthrough(folder, rawFilename);
             if (
               reopened?.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value !==
@@ -481,7 +505,8 @@ export class XmpStoreService {
         if (this._inFlightWrites.get(assetId) === write) this._inFlightWrites.delete(assetId);
       });
     this._inFlightWrites.set(assetId, write);
-    return write;
+    await write;
+    return confirmedRevision;
   }
 
   // ── Flush all (beforeunload) ────────────────────────────────────────────────
@@ -638,7 +663,16 @@ export class XmpStoreService {
             ? await this.sourcePassthrough(folder, rawFilename)
             : currentPassthrough;
         const writeMetadata = preserved ? undefined : this._metadata.get(assetId);
-        const output = this.serializer.serialize(model, preserved, culling, writeMetadata);
+        // A queued scalar snapshot never rolls back a confirmed removal stack.
+        const records = preserved?.unknownAttributes.find(
+          (a) => a.name === 'papp:InpaintRemovals',
+        )?.value;
+        const output = this.serializer.serialize(
+          { ...model, inpaintRemovals: records },
+          preserved,
+          culling,
+          writeMetadata,
+        );
         if (new RegExp(WORKFLOW_MARKUP_PATTERN, 'u').test(output))
           await this.workflowCore.read(output);
         await this.folderAccess.writeFile(folder, sidecarName, new TextEncoder().encode(output));
@@ -656,6 +690,21 @@ export class XmpStoreService {
 
   private _sidecarFilename(rawFilename: string): string {
     return rawFilename.replace(/\.[^.]+$/, '.xmp');
+  }
+
+  private async removalRevision(folder: MapleFolderHandle, rawFilename: string): Promise<string> {
+    try {
+      const bytes = await this.folderAccess.readFile(folder, this._sidecarFilename(rawFilename));
+      return this.digestSidecar(bytes);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotFoundError') return 'missing';
+      throw error;
+    }
+  }
+
+  private async digestSidecar(bytes: Uint8Array): Promise<string> {
+    const hash = await crypto.subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer);
+    return [...new Uint8Array(hash)].map((v) => v.toString(16).padStart(2, '0')).join('');
   }
 
   private async sourcePassthrough(

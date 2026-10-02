@@ -18,7 +18,15 @@ import { manualAdjustmentPatch } from './editor-state.wb-sample';
 //
 // Spec: docs/design/responsive-program/s5-editor.md §4 + §6.
 
-import { Injectable, computed, inject, signal, untracked } from '@angular/core';
+import {
+  Injectable,
+  computed,
+  inject,
+  signal,
+  untracked,
+  runInInjectionContext,
+  Injector,
+} from '@angular/core';
 import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { LibraryStateService } from '../state/library-state.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
@@ -31,6 +39,7 @@ import {
   type RestoreCommand,
 } from './editor-workflow-commands.service';
 import { replayWorkflow, restoreWorkflow } from './editor-state.workflow';
+import { EditorRemovalHistory, undoEditor, redoEditor } from './editor-state.removal-history';
 import type { AssetId } from '../models/asset';
 import { applyAutoInto } from './editor-state.auto';
 import { applyWhiteBalancePresetInto } from './editor-state.wb-preset';
@@ -89,6 +98,11 @@ export class EditorStateService {
   readonly pipeline = inject(RawPipelineService);
   readonly serializer = inject(XmpSerializerService); // read via WbSampleHost
   readonly announcer = inject(LiveAnnouncer);
+  private readonly injector = inject(Injector);
+  private removalHistory?: EditorRemovalHistory;
+  readonly removalSaving = signal(false);
+  readonly removalSaveError = signal<string | null>(null);
+  bindingRevision = 0;
 
   // ── Identity / arming ────────────────────────────────────────────────────
   readonly imageId = signal<AssetId | null>(null);
@@ -129,8 +143,10 @@ export class EditorStateService {
   /** The most recently recorded, undone, or redone transaction. */
   readonly lastCommittedTransaction = this.ring.lastCommitted;
 
-  readonly canUndo = computed(() => this.ring.canUndo(this.currentAdjustment()));
-  readonly canRedo = this.ring.canRedo;
+  readonly canUndo = computed(
+    () => !this.workflowBusy() && !this.removalSaving() && this.ring.canUndo(this.currentAdjustment()),
+  );
+  readonly canRedo = computed(() => !this.workflowBusy() && !this.removalSaving() && this.ring.canRedo());
 
   /** The recorded transactions, oldest first. Test / diagnostics seam. */
   undoHistory(): readonly EditTransaction[] {
@@ -215,6 +231,8 @@ export class EditorStateService {
     untracked(() => this.endEdit());
     this.bindingGeneration += 1;
     this.workflowReplay = null;
+    this.bindingRevision++;
+    this.removalSaveError.set(null);
     this.imageId.set(id);
     this.autoResult.set(null);
     this.ring.reset();
@@ -232,7 +250,7 @@ export class EditorStateService {
    * consecutive gestures never merge. The default description names the
    * armed tool so the announcement says what moved. */
   commit(kind: EditTransactionKind = 'adjustment', description?: string): void {
-    if (this.workflowBusy()) return;
+    if (this.workflowBusy() || this.removalSaving()) return;
     const adj = this.currentAdjustment();
     if (!adj) return;
     this.endEdit();
@@ -272,12 +290,17 @@ export class EditorStateService {
   }
 
   undo(): void {
-    if (this.workflowBusy()) return;
+    if (this.workflowBusy() || this.removalSaving()) return;
     const id = this.imageId();
     if (id == null) return;
     this.endEdit();
     if (this.ring.peek('undo')?.checkpoint) {
       void replayWorkflow(this, 'undo');
+      return;
+    }
+    const pending = this.ring.peek('undo');
+    if (pending && pending.before.inpaintRemovals !== pending.after.inpaintRemovals) {
+      undoEditor(this);
       return;
     }
     this.workflowReplay = null;
@@ -290,12 +313,17 @@ export class EditorStateService {
   }
 
   redo(): void {
-    if (this.workflowBusy()) return;
+    if (this.workflowBusy() || this.removalSaving()) return;
     const id = this.imageId();
     if (id == null) return;
     this.endEdit();
     if (this.ring.peek('redo')?.checkpoint) {
       void replayWorkflow(this, 'redo');
+      return;
+    }
+    const pending = this.ring.peek('redo');
+    if (pending && pending.before.inpaintRemovals !== pending.after.inpaintRemovals) {
+      redoEditor(this);
       return;
     }
     this.workflowReplay = null;
@@ -305,6 +333,38 @@ export class EditorStateService {
     this.library.updateAdjustment(id, structuredClone(tx.after));
     if (edit) this.workflowHistory.record(edit, tx.after, 'redo', `Redo ${tx.description}`);
     void this.announcer.announce(`Redo ${tx.description}`);
+  }
+
+  acceptRemoval(
+    records: string,
+    expected: AdjustmentModel,
+    description: string,
+    sidecarRevision: string,
+  ): Promise<string> {
+    return this.acceptedHistory().accept(
+      { ...expected, inpaintRemovals: records === '[]' ? undefined : records },
+      expected,
+      description,
+      sidecarRevision,
+    );
+  }
+  recordConfirmedRemoval(
+    before: AdjustmentModel,
+    after: AdjustmentModel,
+    description: string,
+    kind: EditTransactionKind,
+  ): void {
+    const tx = this.ring.recordConfirmed(this.serializer, before, after, description, kind);
+    if (tx) void this.announcer.announce(description);
+  }
+  async settleRemovalSave(): Promise<void> {
+    await this.removalHistory?.settled();
+  }
+  acceptedHistory(): EditorRemovalHistory {
+    return (this.removalHistory ??= runInInjectionContext(
+      this.injector,
+      () => new EditorRemovalHistory(this),
+    ));
   }
 
   // ── Arming ──────────────────────────────────────────────────────────────
@@ -496,7 +556,7 @@ export class EditorStateService {
    * develop adjustments, never the user's framing.
    */
   resetAll(): boolean {
-    if (this.workflowBusy()) return false;
+    if (this.workflowBusy() || this.removalSaving()) return false;
     const id = this.imageId();
     if (id == null || this.currentAdjustment() == null) return false;
 
@@ -509,6 +569,13 @@ export class EditorStateService {
     patch.whiteBalancePreset = 'As Shot';
     patch.profile = 'Auto';
 
+    const current = this.currentAdjustment()!;
+    if (current.inpaintRemovals) {
+      void this.acceptedHistory()
+        .accept({ ...current, ...patch }, current, 'Reset all adjustments', undefined, 'reset')
+        .catch(() => undefined);
+      return true;
+    }
     this.commit('reset', 'Reset all adjustments');
     this.library.updateAdjustment(id, patch);
     this.endEdit();
