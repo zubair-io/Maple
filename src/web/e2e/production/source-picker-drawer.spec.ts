@@ -243,3 +243,69 @@ test('a touch swipe in the scrollable source tree dismisses the drawer', async (
     await cdp.detach();
   }
 });
+
+test('modal keyboard focus enters, wraps, and returns after Escape', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const { drawer } = await openDrawer(page);
+  const close = drawer.getByRole('button', { name: 'Close library', exact: true });
+  await expect(close).toBeFocused();
+  const buttons = drawer.getByRole('button');
+  const count = await buttons.count();
+  // An empty Hosted library exposes only Close; Search is intentionally
+  // hidden without the Self Hosted index. Containment must work there too.
+  expect(count).toBeGreaterThan(0);
+  await page.keyboard.press('Shift+Tab');
+  await expect(buttons.last()).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(close).toBeFocused();
+  for (let index = 1; index < count; index++) {
+    await page.keyboard.press('Tab');
+    await expect(buttons.nth(index)).toBeFocused();
+  }
+  await page.keyboard.press('Tab');
+  await expect(close).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(drawer).not.toBeVisible();
+  await expect(page.getByTestId('source-drawer-toggle').getByRole('button')).toBeFocused();
+});
+
+test('pointer dismissal restores drawer opener focus', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  for (const dismissal of ['close', 'scrim', 'swipe']) {
+    const { drawer, box } = await openDrawer(page);
+    await expect(drawer.getByRole('button', { name: 'Close library', exact: true })).toBeFocused();
+    if (dismissal === 'close') {
+      await drawer.getByRole('button', { name: 'Close library', exact: true }).click();
+    } else if (dismissal === 'scrim') {
+      await page.mouse.click(box.x + box.width + 20, box.y + box.height / 2);
+    } else {
+      const start = await startDrag(page, box);
+      await page.mouse.move(start.x - box.width * 0.31, start.y, { steps: 8 });
+      await page.mouse.up();
+    }
+    await expect(drawer).not.toBeVisible();
+    await expect(page.getByTestId('source-drawer-toggle').getByRole('button')).toBeFocused();
+  }
+});
+
+test('reduced motion disables drawer transitions and preserves gestures', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 375, height: 812 });
+  const { drawer, box } = await openDrawer(page);
+  const scrim = page.locator('app-source-picker-drawer .scrim');
+  await expect
+    .poll(() => drawer.evaluate((el) => getComputedStyle(el).transitionDuration))
+    .toBe('0s');
+  await expect
+    .poll(() => scrim.evaluate((el) => getComputedStyle(el).transitionDuration))
+    .toBe('0s');
+  const start = await startDrag(page, box);
+  await page.mouse.move(start.x - box.width * 0.29, start.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(drawer).toBeVisible();
+  await expect.poll(() => drawer.evaluate((el) => el.getBoundingClientRect().x)).toBe(0);
+  const next = await startDrag(page, box);
+  await page.mouse.move(next.x - box.width * 0.31, next.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(drawer).not.toBeVisible();
+});
