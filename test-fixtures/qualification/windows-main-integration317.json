@@ -1,0 +1,146 @@
+{
+  "issue": 3875,
+  "epic": 3889,
+  "sourceRevision": "1df161bc771b901702f06e7a29cc484754fe4dab",
+  "integratedMain": "da1106f0d",
+  "scope": "Rebase integration, functional regressions and fresh native lifecycle. Parser values split and Map checkpoints are working-tree additions to this revision.",
+  "nativeLibrarySha256": "E95C60674DBE274D3479DA8D4014773D1FA08EF5700CBE1A18973DA22B034014",
+  "managedBuild": {
+    "assembly": "Maple.DesignAudit317",
+    "errors": 0,
+    "warnings": 26
+  },
+  "windowsSuite": {
+    "passed": 1488,
+    "failed": 0,
+    "skipped": 0,
+    "trx": "%TEMP%/maple-rebase316-test-results/integration316.trx",
+    "trxSha256": "6438949C0757EAF2A289C93C34D8C37164A631151C775E743F559B75B1EA8E7D",
+    "fixture": "%TEMP%/maple-ui-qualification211/fixture.dng",
+    "fixtureSha256": "9A3171CBF8444149A35DCAF2A1E57375AE4B1E8971A6013EA3C5C55A7A3E2EB8"
+  },
+  "rustMasks": {
+    "command": "cargo test --release -p raw-core --lib local_adjustment",
+    "passed": 146,
+    "failed": 0,
+    "ignored": 0
+  },
+  "webMasks": {
+    "bundle": "fresh gpu,parallel WASM release build and nested-worker patch",
+    "tests": 8,
+    "files": 2,
+    "failed": 0
+  },
+  "lifecycle": {
+    "gpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 19730202,
+      "renderPath": "gpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 1,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    },
+    "cpu": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 6164680,
+      "renderPath": "cpu",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": true,
+      "localSaveFailureRecovery": true,
+      "nativeDetailActualSize": true,
+      "presetUndoRedoAndReset": true,
+      "adjustmentGestureUndoRedo": true,
+      "repairControlsUndoRedo": true,
+      "scopesLifecycle": true,
+      "transferWatcherUndoRedo": true,
+      "comparisonPreservesDocument": true,
+      "cloudOpeningReadiness": true,
+      "cloudSearchPagination": true,
+      "cloudMapHost": true,
+      "responsiveDesign": true,
+      "browseSelectionAndSort": true,
+      "browseScrolling": true,
+      "immediateUndo": true
+    },
+    "empty": {
+      "passed": true,
+      "exportRecipeEditorRoundTrip": true,
+      "hwnd": 7342690,
+      "renderPath": "empty",
+      "panelReleases": 1,
+      "rendererStopped": true,
+      "droppedClosingPresents": 0,
+      "viewerDesignNavigation": false,
+      "localSaveFailureRecovery": false,
+      "nativeDetailActualSize": false,
+      "presetUndoRedoAndReset": false,
+      "adjustmentGestureUndoRedo": false,
+      "repairControlsUndoRedo": false,
+      "scopesLifecycle": false,
+      "transferWatcherUndoRedo": false,
+      "comparisonPreservesDocument": false,
+      "cloudOpeningReadiness": false,
+      "cloudSearchPagination": false,
+      "cloudMapHost": false,
+      "responsiveDesign": false,
+      "browseSelectionAndSort": false,
+      "browseScrolling": false,
+      "immediateUndo": false
+    }
+  },
+  "lifecycleRoot": "%TEMP%/maple-rebase317-lifecycle-1a61369ebfa543789a55f970eb79fd66/maple-window-lifecycle",
+  "retainedFailedAttempts": [
+    {
+      "build": 316,
+      "kind": "GPU lifecycle timeout",
+      "stage": "cloud-map",
+      "forcedCleanup": true,
+      "root": "%TEMP%/maple-rebase316-lifecycle-a99fa5248b6343348f8813d6763e10bd/maple-window-lifecycle",
+      "cpuPassed": true,
+      "emptyPassed": true,
+      "interpretation": "No root cause established. Later build317 passes with added checkpoints; that does not erase the timeout."
+    },
+    {
+      "kind": "Windows native suite with 100MP OpcodeList3 DNG",
+      "passed": 1484,
+      "failed": 4,
+      "skipped": 0,
+      "log": "%TEMP%/maple-rebase316-tests.log",
+      "reason": "Four tile-detail tests require a tile-supported Bayer fixture. Shared core rejected OpcodeList3 as designed; designated fixture rerun is separate evidence."
+    },
+    {
+      "kind": "First Rust compile",
+      "reason": "New main mask-group test missed nr_sampling_scale. Fixed native-density initializer before test run."
+    },
+    {
+      "kind": "First focused Web build",
+      "reason": "Stale WASM package lacked solve_guided_geometry. Rebuilt and synced production WASM before passing run."
+    }
+  ],
+  "limitations": [
+    "No perceptual parity or physical performance claim from these functional checks. Prior preview comparison remains over budget.",
+    "Original XAML crash and this retained timeout are not explained by passing lifecycle runs.",
+    "No full UI/DPI/Narrator or real-account cloud signoff.",
+    "Metal 19-case record remains retained but stale for current corpus; Apple executable qualification required."
+  ]
+}

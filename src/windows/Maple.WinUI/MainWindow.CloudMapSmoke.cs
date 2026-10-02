@@ -26,15 +26,19 @@ public sealed partial class MainWindow
             BrowseGridContainer.Visibility = Visibility.Collapsed;
             CloudMapContainer.Children.Add(map);
             CloudMapContainer.Visibility = Visibility.Visible;
+            RecordSmokeStage(output, "map-host-loading");
             await WaitAsync(() => map.HostReady && map.AppliedCellCount == 1, "MapLibre host did not request and apply real viewport cells");
+            RecordSmokeStage(output, "map-host-ready");
             if (!handler.Query.Contains("bbox=") || !handler.Query.Contains("zoom="))
                 throw new InvalidOperationException("Map viewport request was not bounded");
+            RecordSmokeStage(output, "map-filter-refresh");
             map.SetQuery(new() { MinimumRating = 4 });
             await WaitAsync(() => handler.Query.Contains("rating=4") && map.AppliedCellCount == 1, "Map filters did not refresh viewport cells");
             var settledRequests = handler.RequestCount;
             await Task.Delay(1000);
             if (handler.RequestCount > settledRequests + 1 || map.AppliedCellCount != 1)
                 throw new InvalidOperationException("Map result layout repeatedly restarted viewport requests");
+            RecordSmokeStage(output, "map-server-failure");
             handler.Status = HttpStatusCode.ServiceUnavailable;
             map.SetQuery(new() { MinimumRating = 1 });
             await WaitAsync(() => map.CanRetry, "Map failure did not expose retry");
@@ -43,6 +47,7 @@ public sealed partial class MainWindow
             await WaitAsync(() => map.AppliedCellCount == 1 && !map.CanRetry, "Map retry did not recover the same viewport");
             if (!handler.Query.Contains("rating=1")) throw new InvalidOperationException("Map retry lost query filters");
 
+            RecordSmokeStage(output, "map-auth-failure");
             handler.Status = HttpStatusCode.Unauthorized;
             map.SetQuery(new() { MinimumRating = 2 });
             await WaitAsync(() => map.StatusText.Contains("Sign in"), "Map authentication failure was not distinct");
@@ -52,6 +57,7 @@ public sealed partial class MainWindow
             await WaitAsync(() => map.StatusText.Contains("No photos with a location"), "Empty locations were not distinct from loading");
             handler.Empty = false;
 
+            RecordSmokeStage(output, "map-stale-query");
             map.SetQuery(new() { MinimumRating = 5 });
             await handler.HeldEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             map.SetQuery(new() { MinimumRating = 4 });
@@ -64,7 +70,9 @@ public sealed partial class MainWindow
             await WaitAsync(() => map.AppliedCellCount > 0, "Current map results did not settle after delayed response");
             if (map.AppliedCellCount != 1) throw new InvalidOperationException("Late map response replaced current results");
 
+            RecordSmokeStage(output, "map-responsive-bounds");
             await VerifyMapBoundsAsync(map);
+            RecordSmokeStage(output, "map-navigation-state");
             var camera = map.Viewport;
             CloudMapContainer.Visibility = Visibility.Collapsed;
             CloudMapContainer.Visibility = Visibility.Visible;
@@ -75,6 +83,7 @@ public sealed partial class MainWindow
         }
         finally
         {
+            RecordSmokeStage(output, "map-dispose");
             CloudMapContainer.Children.Remove(map);
             SetMode(ShellMode.Browse);
             File.Delete(stylePath);

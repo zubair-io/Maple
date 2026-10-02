@@ -47,6 +47,7 @@ fn image() -> Image {
         pixels: vec![[0.18; 3]; 9],
         space: ColorSpace::SceneLinearRec2020,
         whites_anchor_ev: None,
+        nr_sampling_scale: 1.0,
     }
 }
 

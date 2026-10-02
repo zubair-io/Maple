@@ -254,7 +254,13 @@ fn serialize_geometric_mask(mask: &Mask, indent: &str, modern: bool) -> String {
             fmt2(value)
         }
     };
-    let coordinate = |value: f32| if modern { value.to_string() } else { fmt_mask_coord(value) };
+    let coordinate = |value: f32| {
+        if modern {
+            value.to_string()
+        } else {
+            fmt_mask_coord(value)
+        }
+    };
     match *mask {
         Mask::Bitmap { .. } | Mask::Everywhere | Mask::Group(_) => {
             unreachable!("serialize_mask routes Bitmap/Everywhere before calling this")
