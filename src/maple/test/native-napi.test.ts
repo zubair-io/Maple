@@ -49,6 +49,47 @@ describe('napi binding resolution', () => {
     }
   });
 
+  it('keeps existing operations available when an addon lacks workflow exports', () => {
+    delete process.env.MAPLE_NAPI;
+    _resetNapiBindingForTests();
+    if (!tryLoadNapiBinding())
+      throw Error('Build raw-napi for workflow compatibility qualification');
+    _resetNapiBindingForTests();
+    const original = process.dlopen;
+    let restoreExports: (() => void) | undefined;
+    process.dlopen = (...args: Parameters<typeof process.dlopen>) => {
+      original(...args);
+      const exports = args[0].exports;
+      const methods = ['workflowReadXmp', 'workflowValidateJson', 'workflowEmbedXmp'];
+      const saved = methods.map((method) => exports[method]);
+      restoreExports = () =>
+        methods.forEach((method, index) => {
+          exports[method] = saved[index];
+        });
+      methods.forEach((method) => {
+        delete exports[method];
+      });
+    };
+    try {
+      const binding = tryLoadNapiBinding();
+      expect(binding).not.toBeNull();
+      if (!binding) throw Error('Older addon was rejected globally');
+      expect(binding.validateFilename('photo.jpg').ok).toBe(true);
+      for (const result of [
+        binding.workflowReadXmp('<x/>'),
+        binding.workflowValidateJson('{}'),
+        binding.workflowEmbedXmp('{}', '<x/>'),
+      ]) {
+        expect(result.ok).toBe(false);
+        if (result.ok) throw Error('Unavailable workflow operation succeeded');
+        expect(result.error).toContain('Workflow native bindings unavailable');
+      }
+    } finally {
+      restoreExports?.();
+      process.dlopen = original;
+    }
+  });
+
   it('caches its result across calls (same reference, no re-resolution)', () => {
     const first = tryLoadNapiBinding();
     const second = tryLoadNapiBinding();

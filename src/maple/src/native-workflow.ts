@@ -9,12 +9,49 @@ export interface WorkflowBinding {
   workflowEmbedXmp(json: string, xmp: string): WorkflowResult;
 }
 
+type WorkflowLibrary = { symbols: Record<string, (...args: unknown[]) => unknown> };
+
+/** Load only at the first workflow operation; older libraries still support existing operations. */
+export function getWorkflowFfiSymbols(FFIType: Record<string, string | number>) {
+  return {
+    maple_workflow_validate_json: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    maple_workflow_read_xmp: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    maple_workflow_embed_xmp: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i32,
+    },
+  };
+}
+
 export function createWorkflowBinding(
-  lib: { symbols: Record<string, (...args: unknown[]) => unknown> },
+  loadLibrary: () => WorkflowLibrary,
   ptr: (buf: Uint8Array) => unknown,
   getLastError: () => string | null,
 ): WorkflowBinding {
+  let library: WorkflowLibrary | null = null;
   const convert = (symbol: string, inputs: readonly string[]): WorkflowResult => {
+    try {
+      library ??= loadLibrary();
+    } catch (error) {
+      return {
+        ok: false,
+        error: `Workflow native bindings unavailable. Rebuild or update the native library: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
     // Wire/XMP bounds come from Rust; output cannot exceed the sidecar bound.
     // Metadata conversion never runs inside a render loop.
     const out = Buffer.alloc(WORKFLOW_MAX_BYTES);
@@ -27,7 +64,7 @@ export function createWorkflowBinding(
       ptr(buffer.length ? buffer : empty),
       BigInt(buffer.byteLength),
     ]);
-    const rc = lib.symbols[symbol](...args, ptr(out), BigInt(out.byteLength), ptr(outLen));
+    const rc = library.symbols[symbol](...args, ptr(out), BigInt(out.byteLength), ptr(outLen));
     if (rc !== 0)
       return { ok: false, error: getLastError() ?? `Workflow conversion failed: ${rc}` };
     const length = Number(outLen.readBigUInt64LE());

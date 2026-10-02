@@ -150,20 +150,26 @@ export function tryLoadNapiBinding(): NativeBinding | null {
     // development. Reject the old ABI before caching a broken binding;
     // Bun can then use its freshly built FFI library, while Node reports
     // an actionable addon error through getNapiLoadError().
-    if (
-      typeof addon.rasterAnalyzePath !== 'function' ||
-      typeof addon.workflowEmbedXmp !== 'function'
-    ) {
-      throw new Error(
-        `N-API addon ${addonPath} lacks the current analyze/workflow ABI; rebuild or update it`,
-      );
+    if (typeof addon.rasterAnalyzePath !== 'function') {
+      throw new Error(`N-API addon ${addonPath} lacks rasterAnalyzePath; rebuild or update it`);
     }
+    const workflow = (method: string, args: readonly string[]) => {
+      const fn = addon[method];
+      return typeof fn === 'function'
+        ? fn(...args)
+        : {
+            ok: false,
+            error: 'Workflow native bindings unavailable. Rebuild or update the N-API addon.',
+          };
+    };
     const binding = {
       workflowValidateJson: wrap<'workflowValidateJson'>((json) =>
-        addon.workflowValidateJson(json),
+        workflow('workflowValidateJson', [json]),
       ),
-      workflowReadXmp: wrap<'workflowReadXmp'>((xmp) => addon.workflowReadXmp(xmp)),
-      workflowEmbedXmp: wrap<'workflowEmbedXmp'>((json, xmp) => addon.workflowEmbedXmp(json, xmp)),
+      workflowReadXmp: wrap<'workflowReadXmp'>((xmp) => workflow('workflowReadXmp', [xmp])),
+      workflowEmbedXmp: wrap<'workflowEmbedXmp'>((json, xmp) =>
+        workflow('workflowEmbedXmp', [json, xmp]),
+      ),
       // -- filename (synchronous, no I/O) --------------------------------
       renderFilenameTemplate: wrap<'renderFilenameTemplate'>((args) =>
         addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined }),
