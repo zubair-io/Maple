@@ -1,0 +1,194 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "acda93636f9b4e612865e74c7814508dcca7e99d",
+  "scope": "Mac-first actual photographic Metal versus shared full RAW with identical native Auto curve/residual; root-cause regression gate, no production fit-policy change",
+  "sourceHashes": {
+    "src/raw-pipeline/raw-core/examples/removal-auto-fit-attribution.rs": "2d250e0bdfbbb47c31460090dc0e95b7fa4d7086f5029bb4e775d9f358e95e86",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/ReportedExportParityTests+MatchedAuto.swift": "ed86f3e4db64cb66eb0b510f880d4b0d1509b7e84ac4289369dbc419e23dde1b"
+  },
+  "corpus": {
+    "source": "test-fixtures/raws/removal-photographic/portrait.dng",
+    "sourceSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+    "xmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+    "dimensions": [7216, 5412],
+    "acceptedRecords": 2,
+    "assets": [
+      {
+        "path": ".maple/inpaint/1d6aca14812faac0b00536844597eab605876a1f4fdd3d6d71224d160d509e4c.f16",
+        "bytes": 8388640,
+        "sha256": "611c3ee6822302971f2f8d68ac51e00996871c3bfdf0bec270bbcec8f9aaaab8"
+      },
+      {
+        "path": ".maple/inpaint/7fb1f2a498fad9d968b885a85cf0f3290e3d922a3ae17199e2afe14f8cb610fd.mask",
+        "bytes": 12466,
+        "sha256": "74db870cd3cec5c294eb09bd9f392e2aeca55094dde9b894b063313d604050ef"
+      },
+      {
+        "path": ".maple/inpaint/87511d6477bf8abc5207b285bd05a0cd2b2290db9251a6049462fbe2914e3499.mask",
+        "bytes": 13372,
+        "sha256": "45379926e18412e089f4cd9e993ab38edf51c3fcbe569b3355ab71fb94770bdf"
+      },
+      {
+        "path": ".maple/inpaint/df0240597788e7c61dec80f7862076fd6922ab34ce7595946200f9fa5e706394.f16",
+        "bytes": 8388640,
+        "sha256": "ab6eb02cbad921751fde29c7a37c2acc536083e1d20d42a39b30f344f6927f51"
+      }
+    ]
+  },
+  "controls": {
+    "manifest": {
+      "artifacts": [
+        {
+          "blake3": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+          "bytes": 880,
+          "edge": 0,
+          "fit": "proxy",
+          "kind": "curve",
+          "path": "proxy-curve.f32"
+        },
+        {
+          "blake3": "84588ddc9bc47523eebca8f7abb85233e372ec6510a45d3345e5e960c7d10f30",
+          "bytes": 431244,
+          "edge": 33,
+          "fit": "proxy",
+          "kind": "residual",
+          "path": "proxy-residual.f32"
+        },
+        {
+          "blake3": "36fe333ed9a0f35f60f700c055b19bf24ed4f6d80bb884d7c64cce7204bf85e7",
+          "bytes": 880,
+          "edge": 0,
+          "fit": "native",
+          "kind": "curve",
+          "path": "native-curve.f32"
+        },
+        {
+          "blake3": "91b35f4f7d5f84ff0c9d7d997d477596a858b005c22211d3f8b3adda2950ec9d",
+          "bytes": 431244,
+          "edge": 33,
+          "fit": "native",
+          "kind": "residual",
+          "path": "native-residual.f32"
+        }
+      ],
+      "cubes": [
+        {
+          "blake3": "ed646264ca4675cc7ac4f866bc0c090d7237ea29f2da611a03330f8a919ee8f3",
+          "bytes": 431244,
+          "dimension": 33,
+          "fit": "proxy",
+          "path": "proxy-33.f32"
+        },
+        {
+          "blake3": "5e11bd0d19eb1af5a4ad0a5feda05d6a25cc30b9b46c3babbe815a991cb63e4a",
+          "bytes": 1411788,
+          "dimension": 49,
+          "fit": "proxy",
+          "path": "proxy-49.f32"
+        },
+        {
+          "blake3": "1b7225e694e258abd8d302c40a4d3c7b676195199b8e4d456dd4474fe9e24649",
+          "bytes": 3295500,
+          "dimension": 65,
+          "fit": "proxy",
+          "path": "proxy-65.f32"
+        },
+        {
+          "blake3": "7828ccfb7716e3b1f0eb94ddca13ee8919f90f3207024dc96b1459f067337083",
+          "bytes": 431244,
+          "dimension": 33,
+          "fit": "native",
+          "path": "native-33.f32"
+        },
+        {
+          "blake3": "d831afa48b0d8d9fe909ead506ef215627b4fc6e1772fe102233549b2ca5b477",
+          "bytes": 1411788,
+          "dimension": 49,
+          "fit": "native",
+          "path": "native-49.f32"
+        },
+        {
+          "blake3": "04b8999c2c7a66bcb7355a4d5b3dca3269793f0f6719d4c394d02bf4bd5b8f33",
+          "bytes": 3295500,
+          "dimension": 65,
+          "fit": "native",
+          "path": "native-65.f32"
+        }
+      ],
+      "encoding": "little-endian f32 RGB, red fastest",
+      "issue": 1472,
+      "limit": "Native fit is an uncached diagnostic control; production policy unchanged",
+      "quality": "amaze",
+      "sensorHeight": 5412,
+      "sensorWidth": 7216,
+      "sourceDigest": "220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c"
+    },
+    "manifestSha256": "2a9e231406b4efa62b75e221c24c206cf6b6c318c293f47c201c30559021d98e",
+    "artifactSha256": {
+      "proxy-curve.f32": "2c66dfff947ba7e0922da3a3d34a7ddb1b14dba8f6c503f796feb65c7d050517",
+      "proxy-residual.f32": "adf42d035fad61b86e9363ffb4c99df4792c8f5267a2cffeb224a8058f7d4935",
+      "native-curve.f32": "2c66dfff947ba7e0922da3a3d34a7ddb1b14dba8f6c503f796feb65c7d050517",
+      "native-residual.f32": "a71b031b878d639dc4f0297416bbe14c9bb450ea0cb33ca99af909d40dc9467c"
+    },
+    "unchangedCubes": "All six original proxy/native AMaZE controls match the prior manifest byte digests. Curve bytes are identical across proxy/native; residual bytes differ."
+  },
+  "commands": [
+    "cargo run --release -p raw-core --example removal-auto-fit-attribution -- ../../test-fixtures/raws/removal-photographic/portrait.dng ../../test-fixtures/raws/removal-photographic/matched-auto",
+    "/usr/bin/time -l swift test --configuration release --filter ReportedExportParityTests/testPhotographicMatchedAutoGpuDiagnostic",
+    "xcrun swift-format lint --strict src/apple/Packages/MapleCore/Tests/MapleCoreTests/ReportedExportParityTests+MatchedAuto.swift",
+    "rustfmt --edition 2021 --check src/raw-pipeline/raw-core/examples/removal-auto-fit-attribution.rs",
+    "python3 tools/check-swift-regressions-coverage.py"
+  ],
+  "execution": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 12.792,
+    "assertedLimit": "maximum channel error <=1/255; zero channels over1",
+    "reports": [
+      {
+        "accepted": false,
+        "case": "photographic-removal-matched-native-auto-metal",
+        "channelsOver1": 0,
+        "height": 5412,
+        "limit": "Matched native-fit parity <=1/255; not live performance or production fit policy",
+        "maximumChannelError": 1,
+        "meanChannelError": 2.8619232725284317e-5,
+        "outputDigest": "blake3:c6fe9050a237aa170643bb16be999141f00532976a3db3bfdd6c3c6e0e54c7a0",
+        "width": 7216
+      },
+      {
+        "accepted": true,
+        "case": "photographic-removal-matched-native-auto-metal",
+        "channelsOver1": 0,
+        "height": 5412,
+        "limit": "Matched native-fit parity <=1/255; not live performance or production fit policy",
+        "maximumChannelError": 1,
+        "meanChannelError": 2.8576555670817745e-5,
+        "outputDigest": "blake3:3b3659e18eff4eb2035351ac02c9af73d7b836c0696eaa007c148d092333fa85",
+        "width": 7216
+      }
+    ],
+    "log": "/tmp/maple-removal-matched-auto-metal-final-20261002.log",
+    "logSha256": "daee932f1995be8bfdff4375c5616e15e956b133b0ca578c4e3084d233643306",
+    "controlGeneratorLog": "/tmp/maple-removal-matched-auto-controls-20261002.log",
+    "controlGeneratorLogSha256": "f79a1b31c354ac2159983f7259b523bae2cd80df10bb794135a338eafbf0af09",
+    "coverage": "Existing ReportedExportParityTests class is explicitly fixture-excluded from stock CI; 446 classes, 246 run, 200 excluded, none untriaged",
+    "memory": "Whole test command across two CPU references, scene handoffs and Metal readbacks; includes test controls and is not isolated production export/live memory qualification.",
+    "maximumResidentSetSizeBytes": 6831931392
+  },
+  "finding": [
+    "Actual AMaZE scene handoff, saved calibration composition and Metal downstream chain match the full shared CPU result within1/255 when fed the same native curve/residual; original and two accepted records both pass.",
+    "The previous production-style standalone GPU fit differs by max12/255 on this source. The matched native fit reduces it to max1, mean approximately0.0000286/255, no channels over1.",
+    "On this source the proxy/native ProfileCurve bytes are identical; their residual LUTs differ. The fit-size policy is the measured cause of this photographic difference, rather than accepted patch composition or shader arithmetic.",
+    "Issue3510 records 10\u201322s native embedded-preview fitting on smaller sensors and deliberately introduced a1536 proxy for cold-open performance. Do not replace the live proxy with a full-size fit without new performance evidence."
+  ],
+  "nextAction": "Evaluate a consistent shared Auto fit policy against the complete photographic/ACR corpus and cold-open budgets before changing live/export semantics. Preserve existing Auto default, signed scene pipeline, parity budgets and16ms slider budget.",
+  "limits": [
+    "The native fit is a diagnostic control; production GpuLiveSession, driver, shaders, Auto fit caches/defaults, export and model flags remain unchanged. This is not a claim that normal Mac live/export parity is fixed.",
+    "One39MP source at AMaZE, default grade/sRGB, no point curves/local layers/film. Does not qualify all cameras, crops, viewport/detail sizes, WB/exposure, film/P3 or background crowds.",
+    "No inference, crowd/background-role classification or photographic fill quality measured. No physical gesture/scanout,100MP float export memory/latency, hardware fleet, signed distribution or companion transport qualification.",
+    "Full removal goal remains active; other platform ports deferred. Existing unqualified RemovalHistoryUITests.swift diagnostic is preserved unstaged."
+  ]
+}
