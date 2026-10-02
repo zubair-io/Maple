@@ -26,6 +26,23 @@ import XCTest
 @testable import MapleCore
 
 final class WbScaleVersionTests: XCTestCase {
+  func testWorkflowNamespaceAliasesStayOpaqueWhileForeignWorkflowRemainsPassthrough() throws {
+    let header =
+      "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" crs:Temperature=\"5200\">"
+    let footer = "</rdf:Description></rdf:RDF></x:xmpmeta>"
+    for resource in [
+      "<alias:Workflow xmlns:alias=\"http://ns.justmaple.app/photo/1.0/\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\"><papp:WbScaleVersion>1</papp:WbScaleVersion></alias:Workflow>",
+      "<Workflow xmlns=\"http://ns.justmaple.app/photo/1.0/\" xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:WbScaleVersion=\"1\"/>",
+    ] {
+      let model = try XMPParser.parse(header + resource + footer).0
+      XCTAssertEqual(model.wbScaleVersion, 5)
+      XCTAssertEqual(model.partialWhiteBalance?.temperature, 5200)
+      XCTAssertNil(model.partialWhiteBalance?.tint)
+    }
+    let foreign = "<papp:Workflow xmlns:papp=\"urn:foreign\" papp:WbScaleVersion=\"1\"/>"
+    // A foreign element keeps the established prefixed-attribute interpretation.
+    XCTAssertEqual(try XMPParser.parse(header + foreign + footer).0.wbScaleVersion, 1)
+  }
 
   private func mapleSidecar(_ attrs: String) -> String {
     """

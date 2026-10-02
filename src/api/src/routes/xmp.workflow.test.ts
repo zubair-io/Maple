@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { callNative, shutdownMaplePool } from 'maple';
@@ -218,3 +218,45 @@ test('variant API requires committed source and authorized paths and rejects pri
   ).toBe(422);
   expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
 });
+
+for (const [route, method, body] of [
+  ['variants', 'GET', undefined],
+  ['variant', 'GET', undefined],
+  ['variants', 'POST', corpus[1]],
+  ['variant', 'PUT', xml],
+] as const) {
+  test(`${method} ${route} rejects malformed, outside-root and symlink-escape paths`, async () => {
+    const outside = await realpath(await mkdtemp(join(tmpdir(), 'maple-workflow-outside-')));
+    try {
+      const original = join(outside, 'photo.dng');
+      const primary = join(outside, 'photo.xmp');
+      const sibling = join(outside, `photo.v${corpus[1].variantId}.xmp`);
+      await writeFile(original, new Uint8Array([44, 55, 66]));
+      await writeFile(primary, xml);
+      await writeFile(sibling, xml);
+      await symlink(outside, join(directory, 'escape'), 'dir');
+      const cases = [
+        { path: original, status: 403 },
+        { path: join(directory, 'escape', 'photo.dng'), status: 403 },
+        { path: '../photo.dng', status: 400 },
+        { path: '/photo%00.dng', status: 400 },
+        { path: '/photo%FF.dng', status: 400 },
+      ];
+      for (const denied of cases) {
+        const response = await variantRequest(
+          route + '?path=' + encodeURIComponent(denied.path) + '&variantId=' + corpus[1].variantId,
+          method,
+          body,
+        );
+        expect(response.status).toBe(denied.status);
+        expect((await response.json()).error).toBeString();
+      }
+      expect(await readFile(original)).toEqual(Buffer.from([44, 55, 66]));
+      expect(await readFile(primary, 'utf8')).toBe(xml);
+      expect(await readFile(sibling, 'utf8')).toBe(xml);
+      expect(await readFile(join(directory, 'photo.xmp'), 'utf8')).toBe(xml);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+}
