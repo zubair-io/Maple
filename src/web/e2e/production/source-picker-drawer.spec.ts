@@ -144,6 +144,20 @@ test('an uncaptured release outside the drawer does not strand its next gesture'
   await expect(drawer).not.toBeVisible();
 });
 
+test('repeated presses on drawer chrome preserve its next swipe', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  const { drawer, box } = await openDrawer(page);
+  const heading = drawer.getByRole('heading', { name: 'Folders', exact: true });
+  // Repeated native presses must not select the navigation text: Chrome's
+  // text-selection gesture competes with the drawer's pointer sequence.
+  await heading.click({ clickCount: 3 });
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('');
+  const next = await startDrag(page, box);
+  await page.mouse.move(next.x - box.width * 0.31, next.y, { steps: 8 });
+  await page.mouse.up();
+  await expect(drawer).not.toBeVisible();
+});
+
 test('cancelled touch drags restore the drawer instead of dismissing it', async ({
   page,
 }, testInfo) => {
