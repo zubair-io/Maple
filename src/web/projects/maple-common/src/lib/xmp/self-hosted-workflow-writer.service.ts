@@ -36,13 +36,27 @@ export class SelfHostedWorkflowWriterService {
   private readonly serializer = inject(XmpSerializerService);
   private readonly core = inject(WorkflowXmpService);
   private readonly actions = new Map<string, readonly CapturedAction[]>();
-  private readonly models = new Map<string, AdjustmentModel>();
+  // Only the armed editor gesture needs a live preview model. Semantic actions
+  // already own immutable retry captures; browsing must not retain every path (#4058).
+  private activePath: string | null = null;
+  private activeModel: AdjustmentModel | undefined;
+
+  beginModel(path: string, model: AdjustmentModel): void {
+    this.activePath = path;
+    this.activeModel = model;
+  }
+
+  endModel(path: string): void {
+    if (this.activePath !== path) return;
+    this.activePath = null;
+    this.activeModel = undefined;
+  }
 
   noteModel(path: string, model: AdjustmentModel): void {
-    this.models.set(path, model);
+    if (this.activePath === path) this.activeModel = model;
   }
   latestModel(path: string): AdjustmentModel | undefined {
-    return this.models.get(path);
+    return this.activePath === path ? this.activeModel : undefined;
   }
   hasPending(path: string): boolean {
     return (this.actions.get(path)?.length ?? 0) > 0;

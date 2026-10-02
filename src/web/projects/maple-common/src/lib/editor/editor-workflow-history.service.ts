@@ -39,17 +39,9 @@ export class EditorWorkflowHistoryService {
   capture(id: AssetId, model: AdjustmentModel): WorkflowEdit | null {
     const asset = this.library.findAsset(id);
     if (!asset) return null;
-    const folder = this.library.currentFolder();
-    const path = this.library.absPathFor(id);
-    const source =
-      this.library.backend === 'self-hosted'
-        ? path
-          ? { backend: 'self-hosted' as const, path }
-          : null
-        : folder?.native && folder.write
-          ? { backend: 'hosted' as const, folder }
-          : null;
+    const source = this.source(id);
     if (!source) return null;
+    if (source.backend === 'self-hosted') this.serverWriter?.beginModel(source.path, model);
     // Copied single-file imports have no writable source and remain #2437.
     return {
       ...source,
@@ -64,6 +56,20 @@ export class EditorWorkflowHistoryService {
         keywords: [...(asset.keywords ?? [])],
       },
     };
+  }
+
+  private source(
+    id: AssetId,
+  ):
+    | Pick<HostedWorkflowEdit, 'backend' | 'folder'>
+    | Pick<SelfHostedWorkflowEdit, 'backend' | 'path'>
+    | null {
+    if (this.library.backend === 'self-hosted') {
+      const path = this.library.absPathFor(id);
+      return path ? { backend: 'self-hosted', path } : null;
+    }
+    const folder = this.library.currentFolder();
+    return folder?.native && folder.write ? { backend: 'hosted', folder } : null;
   }
 
   isCurrent(edit: WorkflowEdit): boolean {
@@ -84,6 +90,7 @@ export class EditorWorkflowHistoryService {
   }
 
   record(edit: WorkflowEdit, model: AdjustmentModel, action: string, label: string): void {
+    this.release(edit);
     const kind = ['preset', 'paste', 'reset', 'undo', 'redo'].includes(action)
       ? action
       : 'adjustment';
@@ -107,5 +114,9 @@ export class EditorWorkflowHistoryService {
     void this.writer
       .commitSemantic(edit.id, edit.folder, edit.filename, model, edit.culling, kind, label)
       .catch(() => undefined);
+  }
+
+  release(edit: WorkflowEdit | null): void {
+    if (edit?.backend === 'self-hosted') this.serverWriter?.endModel(edit.path);
   }
 }

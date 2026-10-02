@@ -19,6 +19,7 @@ import type { Asset } from '../../projects/maple-common/src/lib/models/asset';
 
 import { SidecarSaveStateService } from '../../projects/maple-common/src/lib/xmp/sidecar-save-state.service';
 import type { SidecarWorkflow } from '../../projects/maple-common/src/lib/generated/workflow.generated';
+import { SelfHostedWorkflowWriterService } from '../../projects/maple-common/src/lib/xmp/self-hosted-workflow-writer.service';
 
 interface Source {
   input: string | null;
@@ -196,27 +197,47 @@ async function compaction(f: Fixture) {
     await f.fetcher.flushPendingXmpWrites();
   }
 }
-async function runScenario(f: Fixture, input: string | null, scenario: string) {
-  switch (scenario) {
-    case 'rapid':
-      return rapid(f);
-    case 'preview':
-      return preview(f);
-    case 'retry':
-      return retry(f, false);
-    case 'retry-preview':
-      return retry(f, true);
-    case 'navigation':
-      return navigation(f, input, false);
-    case 'failed-navigation':
-      return navigation(f, input, true);
-    case 'delayed':
-      return delayed(f);
-    case 'compaction':
-      return compaction(f);
-    default:
-      throw Error('Unknown qualification scenario');
+async function modelLifetime(f: Fixture) {
+  const writer = f.app.injector.get(SelfHostedWorkflowWriterService);
+  for (let index = 0; index < 512; index++) {
+    const path = `/unopened/${index}/photo.dng`;
+    writer.noteModel(path, { ...defaultAdjustmentModel(), exposure: 9 });
+    if (writer.latestModel(path) !== undefined)
+      throw Error('An inactive preview model was retained indefinitely');
   }
+  f.editor.commit();
+  f.editor.setArmedDisplayValue(0.5);
+  writer.noteModel('/another-source/photo.dng', { ...defaultAdjustmentModel(), exposure: 9 });
+  if (writer.latestModel(f.source.path)?.exposure !== 0.5)
+    throw Error('An unrelated edit replaced the open gesture model');
+  f.editor.cancelEdit();
+  if (writer.latestModel(f.source.path) !== undefined)
+    throw Error('Cancelled gesture retained its preview model');
+  await f.fetcher.flushPendingXmpWrites();
+  f.editor.commit();
+  f.editor.endEdit();
+  if (writer.latestModel(f.source.path) !== undefined)
+    throw Error('No-op gesture retained its preview model');
+  f.gesture(1.25);
+  if (writer.latestModel(f.source.path) !== undefined)
+    throw Error('Closed gesture retained its preview model');
+  await f.fetcher.flushPendingXmpWrites();
+}
+async function runScenario(f: Fixture, input: string | null, scenario: string) {
+  const scenarios: Record<string, () => Promise<void>> = {
+    rapid: () => rapid(f),
+    preview: () => preview(f),
+    retry: () => retry(f, false),
+    'retry-preview': () => retry(f, true),
+    navigation: () => navigation(f, input, false),
+    'failed-navigation': () => navigation(f, input, true),
+    delayed: () => delayed(f),
+    compaction: () => compaction(f),
+    'model-lifetime': () => modelLifetime(f),
+  };
+  const run = scenarios[scenario];
+  if (!run) throw Error('Unknown qualification scenario');
+  return run();
 }
 interface PersistedSource {
   xml: string | null;
