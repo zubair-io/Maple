@@ -11,7 +11,7 @@ public final class RemovalSession {
       switch self {
       case .paint: return "Paint"
       case .smart: return "Smart paint"
-      case .people: return "People"
+      case .people: return "Background people"
       }
     }
   }
@@ -22,6 +22,16 @@ public final class RemovalSession {
     public let id: Int
     public let detection: NativeRemovalDetection
     public var keep: Bool
+    public let role: RemovalPersonRole
+    public init(
+      id: Int, detection: NativeRemovalDetection, keep: Bool,
+      role: RemovalPersonRole = .uncertain
+    ) {
+      self.id = id
+      self.detection = detection
+      self.keep = keep
+      self.role = role
+    }
   }
 
   public let session: EditSession
@@ -154,7 +164,7 @@ public final class RemovalSession {
     guard phase == .ready else { return }
     manualProtection = Data()
     protection = Data()
-    people = people.map { Person(id: $0.id, detection: $0.detection, keep: false) }
+    people = people.map { Person(id: $0.id, detection: $0.detection, keep: false, role: $0.role) }
     clearSelection()
   }
 

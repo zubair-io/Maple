@@ -10,6 +10,7 @@ import {
   NativeDetailSession,
   RemovalGeneration,
   removal_content_digest,
+  removal_selection,
 } from '../raw-pipeline/pkg/raw_wasm';
 import { NativeDetailWorker } from '../raw-pipeline/raw-pipeline.native-detail-handler';
 import { runRemovalAuthoring } from '../raw-pipeline/raw-pipeline.removal-handler';
@@ -209,11 +210,111 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
     } as unknown as RemovalInferenceClient;
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     worker.close();
     TestBed.resetTestingModule();
     await fs.rm(root, { recursive: true, force: true });
   });
   const paint = () => session.paint([[3.5 / 16, 2.5 / 8]], [16, 8]);
+
+  // Controlled selector outputs exercise lifecycle failure/cancellation with
+  // actual RAW ownership, shared binary masks and real sidecars. ONNX scene
+  // execution is covered separately by the browser photographic gate.
+  async function personSelection() {
+    // This fixed tensor cache is a controlled inference fixture, not a model benchmark.
+    Reflect.set(session, 'tensors', {
+      inputWidth: 16,
+      inputHeight: 8,
+      encoder: new Float32Array(3 * 1024 * 1024),
+      detector: new Float32Array(3 * 640 * 640),
+    });
+    const refine = vi.fn(async (_source: string, request: string) => {
+      const { prompts } = JSON.parse(request);
+      const position = [
+        (prompts[0].position[0] + prompts[1].position[0]) / 2,
+        (prompts[0].position[1] + prompts[1].position[1]) / 2,
+      ];
+      return removal_selection(
+        16,
+        8,
+        JSON.stringify({
+          schema: 1,
+          strokes: [{ points: [position], radius: 0.06, subtract: false }],
+        }),
+      );
+    });
+    session.inference = {
+      cancel: () => undefined,
+      dispose: () => undefined,
+      encode: async () => undefined,
+      refine,
+      detect: async () => [
+        { class: 0, bounds: [0, 0, 4, 8], score: 0.98 },
+        { class: 0, bounds: [10, 2, 11, 4], score: 0.92 },
+        { class: 0, bounds: [13, 2, 14, 4], score: 0.6 },
+      ],
+    } as unknown as RemovalInferenceClient;
+    session.setMode('people');
+    await session.detectPeople();
+    expect(session.phase()).toBe('ready');
+    expect(session.people().map((p) => p.keep)).toEqual([true, false, true]);
+    expect(session.selection().length).toBeGreaterThan(0);
+    expect(session.protection().length).toBeGreaterThan(0);
+    return refine;
+  }
+
+  it('no people found clears temporary suggestions without requiring segmentation or publishing edits', async () => {
+    const refine = await personSelection();
+    refine.mockClear();
+    vi.spyOn(session.ai(), 'detect').mockResolvedValue([]);
+    await session.detectPeople();
+    expect(session.phase()).toBe('ready');
+    expect(session.message()).toBe('No people found. Paint the object instead.');
+    expect(session.people()).toEqual([]);
+    expect(session.selection().length).toBe(0);
+    expect(session.protection().length).toBe(0);
+    expect(refine).not.toHaveBeenCalled();
+    expect(await fs.readFile(join(root, 'photo.xmp'), 'utf8')).toBe(prior);
+  });
+
+  it('automatic person suggestions publish masks together and retain the previous intent after a later segmentation fails', async () => {
+    const refine = await personSelection();
+    const selection = session.selection(),
+      protection = session.protection(),
+      people = session.people();
+    refine.mockResolvedValueOnce(selection).mockRejectedValueOnce(Error('Selection model failed'));
+    await session.detectPeople();
+    expect(session.message()).toBe('Selection model failed');
+    expect(session.selection()).toEqual(selection);
+    expect(session.protection()).toEqual(protection);
+    expect(session.people()).toEqual(people);
+    expect(await fs.readFile(join(root, 'photo.xmp'), 'utf8')).toBe(prior);
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
+  });
+
+  it('late person segmentation cannot overwrite intent after cancellation', async () => {
+    const refine = await personSelection();
+    const selection = session.selection(),
+      protection = session.protection(),
+      people = session.people();
+    let complete: ((mask: Uint8Array) => void) | undefined;
+    refine.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const pending = session.detectPeople();
+    await vi.waitFor(() => expect(complete).toBeDefined());
+    await session.cancel();
+    complete!(selection);
+    await pending;
+    expect(session.phase()).toBe('ready');
+    expect(session.selection()).toEqual(selection);
+    expect(session.protection()).toEqual(protection);
+    expect(session.people()).toEqual(people);
+    expect(await fs.readFile(join(root, 'photo.xmp'), 'utf8')).toBe(prior);
+  });
 
   it('selects, inspects, keeps and undoes a verified edit while preserving the original and unknown XML', async () => {
     await paint();

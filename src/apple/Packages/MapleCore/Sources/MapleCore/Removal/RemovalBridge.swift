@@ -18,6 +18,33 @@ public enum RemovalError: Error, LocalizedError {
 }
 
 public enum RemovalBridge {
+  /// Shared conservative subject/background/uncertain proposal policy. The
+  /// returned Keep defaults remain editable and never publish an accepted edit.
+  public static func peopleSuggestions(
+    _ detections: [NativeRemovalDetection], width: UInt32, height: UInt32
+  ) throws -> [RemovalPersonSuggestion] {
+    struct Request: Encodable {
+      let schema = 1
+      let sourceWidth: UInt32
+      let sourceHeight: UInt32
+      let detections: [NativeRemovalDetection]
+      enum CodingKeys: String, CodingKey {
+        case schema, detections
+        case sourceWidth = "source_width"
+        case sourceHeight = "source_height"
+      }
+    }
+    let json = String(
+      decoding: try JSONEncoder().encode(
+        Request(sourceWidth: width, sourceHeight: height, detections: detections)), as: UTF8.self)
+    let data = try json.withCString { request in
+      try buffer { output, capacity, length in
+        maple_removal_people_suggestions_buf(request, output, capacity, length)
+      }
+    }
+    return try JSONDecoder().decode([RemovalPersonSuggestion].self, from: data)
+  }
+
   /// Shared union/subtraction for person masks and protected regions. Empty
   /// Data means no selection. Invalid geometry or assets throw without editing
   /// the caller's previous mask. Execute outside the slider/render loop.

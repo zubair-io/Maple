@@ -1,6 +1,12 @@
 //! Thin WASM selection and durable-mask bridge (#3934), shared with C-FFI.
 use wasm_bindgen::prelude::*;
 
+/// Conservative role suggestions; uncertain/likely subjects default to Keep.
+#[wasm_bindgen]
+pub fn removal_people_suggestions(request: &str) -> Result<String, JsError> {
+    raw_core::stages::removal_people::suggest_json(request).map_err(|e| JsError::new(&e))
+}
+
 /// Prepare two native f32 planes, binary hole then coverage, before inference.
 #[wasm_bindgen]
 pub fn removal_generation_masks(

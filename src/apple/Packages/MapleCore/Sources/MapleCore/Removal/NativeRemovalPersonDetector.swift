@@ -2,7 +2,7 @@
 import Foundation
 import RawPipeline
 
-public struct NativeRemovalDetection: Decodable, Sendable {
+public struct NativeRemovalDetection: Codable, Sendable {
   public let `class`: UInt8
   /// x0,y0,x1,y1 in the supplied source's native pixel dimensions.
   public let bounds: [Float]

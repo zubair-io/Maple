@@ -59,3 +59,22 @@ public enum ExperimentalRemovalModels {
   )
   public static let all = [lama, encoder, decoder, detector]
 }
+
+public enum RemovalPersonRole: String, Decodable, Sendable {
+  case subject
+  case background
+  case uncertain
+  public var label: String {
+    switch self {
+    case .subject: return "Likely subject"
+    case .background: return "Suggested background"
+    case .uncertain: return "Uncertain"
+    }
+  }
+}
+
+public struct RemovalPersonSuggestion: Decodable, Sendable {
+  public let detection: NativeRemovalDetection
+  public let role: RemovalPersonRole
+  public let keep: Bool
+}

@@ -16,7 +16,7 @@ import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import type { Asset } from '../models/asset';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import type { AdjustmentModel } from '../models/adjustment-model';
-import type { RemovalProposal, RemovalDetection } from './removal-inference.types';
+import type { RemovalProposal } from './removal-inference.types';
 import { RemovalInferenceClient } from './removal-inference-client';
 import { RemovalModelStore } from './removal-model-store.service';
 import { LocalRemovalAssets } from './local-removal-assets';
@@ -24,17 +24,18 @@ import { savedRemovalRecords } from './saved-removal-records';
 import { bundleRemovalCompanions } from './removal-companion-bundle';
 import { withRemovalRecords } from './removal-editor-recipe';
 import { selectionTensors } from './removal-proxy-tensors';
-import { REMOVAL_AUTHORING_DEFAULTS } from '../generated/removal-models.generated';
+import {
+  suggestPeople,
+  collectPersonMasks,
+  peopleSelectionMessage,
+  type RemovalPerson as Person,
+} from './removal-person-proposals';
 
 export type RemovalMode = 'paint' | 'smart' | 'people';
 export interface RemovalStroke {
   points: readonly (readonly [number, number])[];
   radius: number;
   subtract: boolean;
-}
-interface Person {
-  detection: RemovalDetection;
-  keep: boolean;
 }
 interface OpenPhoto {
   asset: Asset;
@@ -273,15 +274,16 @@ export class RemovalEditorSession {
         this.photo.height,
       ]);
       this.check(token);
-      this.people.set(
-        found
-          .filter((d) => d.class === 0 && d.score >= REMOVAL_AUTHORING_DEFAULTS.personMinScore)
-          .sort((a, b) => b.score - a.score)
-          .map((detection) => ({ detection, keep: false })),
-      );
+      const suggestions = suggestPeople(found, this.photo.width, this.photo.height);
+      const masks = await this.masksForPeople(suggestions, token);
+      this.check(token);
+      this.people.set(suggestions);
+      this.masks = masks.people;
+      this.selection.set(masks.selection);
+      this.protection.set(masks.protection);
       this.message.set(
-        this.people().length
-          ? 'Choose who to keep, then select the other people.'
+        suggestions.length
+          ? peopleSelectionMessage(this.masks.length > 0)
           : 'No people found. Paint the object instead.',
       );
     } catch (error) {
@@ -303,44 +305,47 @@ export class RemovalEditorSession {
     this.phase.set('selecting');
     this.message.set('');
     try {
-      const tensors = await this.selectionInputs(token);
-      const context = this.smartRequest(tensors, []);
-      const selected: Uint8Array[] = [];
-      let protectedMask = this.manualProtection;
-      for (const { detection, keep } of this.people()) {
-        const [x1, y1, x2, y2] = detection.bounds;
-        const clamp = (value: number) => Math.max(0, Math.min(1, value));
-        const prompts = [
-          { position: [clamp(x1 / this.photo.width), clamp(y1 / this.photo.height)], label: 2 },
-          { position: [clamp(x2 / this.photo.width), clamp(y2 / this.photo.height)], label: 3 },
-        ];
-        if (
-          prompts[0].position[0] >= prompts[1].position[0] ||
-          prompts[0].position[1] >= prompts[1].position[1]
-        )
-          continue;
-        const request = JSON.stringify({ ...context, prompts });
-        await this.ai().encode(this.photo.source, request, tensors.encoder.slice());
-        const mask = await this.ai().refine(this.photo.source, request);
-        this.check(token);
-        if (keep) protectedMask = removal_combine_masks(protectedMask, mask, false);
-        else if (mask.length) selected.push(mask);
-      }
-      this.protection.set(protectedMask);
-      this.masks = selected
-        .map((mask) => removal_combine_masks(mask, protectedMask, true))
-        .filter((mask) => mask.length);
-      this.selection.set(this.union(this.masks));
-      this.message.set(
-        this.masks.length
-          ? 'Review the selection before removing.'
-          : 'No unprotected people are selected.',
-      );
+      const masks = await this.masksForPeople(this.people(), token);
+      this.check(token);
+      this.masks = masks.people;
+      this.selection.set(masks.selection);
+      this.protection.set(masks.protection);
+      this.message.set(peopleSelectionMessage(this.masks.length > 0));
     } catch (error) {
       this.fail(error, token);
     } finally {
       if (token === this.revision) this.phase.set('ready');
     }
+  }
+
+  private async masksForPeople(people: readonly Person[], token: number) {
+    if (!people.length)
+      return {
+        selection: new Uint8Array(),
+        protection: this.manualProtection,
+        people: [] as Uint8Array[],
+      };
+    const photo = this.photo!;
+    const tensors = await this.selectionInputs(token);
+    const context = this.smartRequest(tensors, []);
+    return collectPersonMasks(people, this.manualProtection, async (detection) => {
+      const [x1, y1, x2, y2] = detection.bounds;
+      const clamp = (value: number) => Math.max(0, Math.min(1, value));
+      const prompts = [
+        { position: [clamp(x1 / photo.width), clamp(y1 / photo.height)], label: 2 },
+        { position: [clamp(x2 / photo.width), clamp(y2 / photo.height)], label: 3 },
+      ];
+      if (
+        prompts[0].position[0] >= prompts[1].position[0] ||
+        prompts[0].position[1] >= prompts[1].position[1]
+      )
+        return new Uint8Array();
+      const request = JSON.stringify({ ...context, prompts });
+      await this.ai().encode(photo.source, request, tensors.encoder.slice());
+      const mask = await this.ai().refine(photo.source, request);
+      this.check(token);
+      return mask;
+    });
   }
 
   remove(): Promise<void> {
@@ -476,12 +481,6 @@ export class RemovalEditorSession {
   ai(): RemovalInferenceClient {
     if (!this.inference) throw new Error('Open the removal tool before running AI.');
     return this.inference;
-  }
-  private union(masks: readonly Uint8Array[]): Uint8Array {
-    return masks.reduce(
-      (union, mask) => removal_combine_masks(union, mask, false),
-      new Uint8Array(),
-    );
   }
   private serialize(id: string, model: AdjustmentModel): string {
     return this.serializer.serialize(model, this.sidecars.passthroughFor(id));

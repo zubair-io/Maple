@@ -1,4 +1,7 @@
-import type { RemovalModelId } from '../../generated/removal-models.generated';
+import {
+  REMOVAL_PERSON_ROLES,
+  type RemovalModelId,
+} from '../../generated/removal-models.generated';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
@@ -20,10 +23,11 @@ export class RemovalPanelComponent {
   protected readonly session = inject(RemovalEditorSession);
   protected readonly installing = signal(false);
   protected readonly installError = signal('');
+  protected readonly roles = REMOVAL_PERSON_ROLES;
   protected readonly modes = [
     { value: 'paint', label: 'Paint' },
     { value: 'smart', label: 'Smart paint' },
-    { value: 'people', label: 'People' },
+    { value: 'people', label: 'Background people' },
   ];
   protected setMode(mode: string): void {
     if (mode === 'paint' || mode === 'smart' || mode === 'people')

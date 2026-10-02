@@ -64,10 +64,10 @@
       size="sm"
       [disabled]="session.phase() !== 'ready'"
       (pressed)="session.detectPeople()"
-      >Find people</mui-button
+      >Suggest background people</mui-button
     >
     <p class="text-[11px] text-text-muted">
-      Choose the people to keep. All other people will be proposed for removal.
+      Likely subjects and uncertain people start kept. Review each suggestion.
     </p>
     <div class="people-list">
       @for (person of session.people(); track $index) {
@@ -75,10 +75,18 @@
           size="sm"
           [active]="person.keep"
           [disabled]="session.busy()"
-          [ariaLabel]="'Keep person ' + ($index + 1)"
+          [ariaLabel]="
+            'Person ' +
+            ($index + 1) +
+            ' · ' +
+            (person.keep ? 'Keep' : 'Remove') +
+            ' · ' +
+            roles[person.role]
+          "
           [ariaPressed]="person.keep"
           (pressed)="session.keepPerson($index)"
-          >Person {{ $index + 1 }} · {{ person.keep ? 'Keep' : 'Remove' }}</mui-button
+          >Person {{ $index + 1 }} · {{ person.keep ? 'Keep' : 'Remove' }} ·
+          {{ roles[person.role] }}</mui-button
         >
       }
     </div>
@@ -86,7 +94,7 @@
       size="sm"
       [disabled]="!session.people().length || session.busy()"
       (pressed)="session.selectBackgroundPeople()"
-      >Select background people</mui-button
+      >Apply person choices</mui-button
     >
   }
   @if (session.phase() === 'review' || session.phase() === 'recovery') {

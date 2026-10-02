@@ -23,6 +23,36 @@ unsafe fn write_result(
     0
 }
 
+/// Conservative person-role suggestions from schema-1 detector output.
+/// Output is length-delimited JSON. Same codes as the Smart paint boundary.
+///
+/// # Safety
+/// request is NUL-terminated UTF-8, out_len is writable; non-null out is
+/// writable for cap bytes. Input/output buffers must be disjoint.
+#[no_mangle]
+pub unsafe extern "C" fn maple_removal_people_suggestions_buf(
+    request: *const c_char,
+    out: *mut u8,
+    cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_removal_people_suggestions_buf", || {
+        if out_len.is_null() {
+            return 1;
+        }
+        *out_len = 0;
+        if request.is_null() {
+            return 1;
+        }
+        let result = CStr::from_ptr(request)
+            .to_str()
+            .map_err(|e| format!("person suggestions: invalid UTF-8: {e}"))
+            .and_then(raw_core::stages::removal_people::suggest_json)
+            .map(String::into_bytes);
+        write_result(result, out, cap, out_len)
+    })
+}
+
 /// Return JSON model-space points/labels for a source-space Smart paint request.
 /// Codes: 0 success, 1 null input, 5 invalid request, 99 panic, 100 size probe.
 /// Output is length-delimited UTF-8, not NUL-terminated.

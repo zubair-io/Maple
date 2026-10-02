@@ -8,7 +8,7 @@ Select an object in a RAW, inspect an AI reconstruction and save it non-destruct
 
 ## Interaction
 
-Paint records source-framed strokes; Smart paint expands them into an object mask. Add/Subtract, brush radius and whole-stroke undo/redo refine selection. Keep selected area creates protection; protected pixels are excluded from removal. People shows numbered candidates on the image and corresponding Keep/Remove buttons. The photographer marks keepers before selecting the others; detection does not establish background status.
+Paint records source-framed strokes; Smart paint expands them into an object mask. Add/Subtract, brush radius and whole-stroke undo/redo refine selection. Keep selected area creates protection; protected pixels are excluded from removal. People shows numbered candidates on the image and corresponding Keep/Remove buttons. Suggest background people runs the shared conservative prominence policy and prepares masks in one operation. Likely subjects and uncertain instances start kept; the list labels each role. Every Keep/Remove choice is editable through the list and numbered pins, and Apply person choices rebuilds selection/protection. Only Remove and then Keep can change the accepted image. Box prominence is a suggestion, not background ground truth; the policy remains experimental until labeled scene qualification.
 
 Remove starts local inference. The proposed pixels remain temporary until Keep. Compare shows the current confirmed photo. Cancel restores its verified saved stack and writes no proposal files. Keep verifies companion publication before confirming XMP. Navigation, model changes and late worker results cannot replace a newer photo's selection. A failed restoration preserves inspection state, disables Keep and offers Retry restoring photo.
 
@@ -73,10 +73,19 @@ RAW, verifying that the original remains byte-identical and Cancel creates no
 draft companions. Smart paint on the same RAW now runs actual segmentation,
 Remove, Compare, Cancel and Keep, preserving the exact accepted XMP and
 companion set on Cancel. Paint click/drag and selection undo/redo work after
-reopening saved removals. Native People detection and manual keeper selection
-produce a protected subject mask and disable Remove when no other person
-remains. On macOS a native pointer surface delivers brush samples; iOS retains
+reopening saved removals. Native background-person suggestions automatically protect the portrait
+subject and disable Remove when no other person remains. Deliberate
+Keep/Remove overrides rebuild the selection and protection without saving. On macOS a native pointer surface delivers brush samples; iOS retains
 the SwiftUI drag gesture. Both feed the same shared source-coordinate mapping.
-These are single-scene workflow checks. Automatic background-role selection,
+These are single-scene workflow checks. Conservative role suggestions are shared across Apple and Web; failed or cancelled detection/segmentation retains the prior selection and person choices. Corpus qualification of background-role suggestions,
 multiple-person photographic scenes, large-object reconstruction and broad
 photographic/hardware qualification remain under #1472.
+
+The actual native market detector test returns nine reviewable people: three
+likely subjects and six uncertain, all initially kept. The size/overlap policy
+therefore still requires corrections in this scene; it is not qualified crowd
+background selection. Actual browser CPU/WebGPU checks on the 39MP portrait
+exercise automatic subject protection, a deliberate Remove override, and
+restoring Keep without writing XMP or changing the original. The local
+photographic browser gate requires `test_0002.dng` and the pinned models; absent
+artifacts fail rather than qualifying the feature.

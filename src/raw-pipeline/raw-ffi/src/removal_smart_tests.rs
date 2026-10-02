@@ -143,3 +143,56 @@ fn ffi_null_request_clears_length_without_dereferencing_model_buffers() {
     }
     assert_eq!(len, 0);
 }
+
+#[test]
+fn ffi_person_suggestions_match_core_and_preserve_short_output() {
+    let json = r#"{"schema":1,"source_width":1000,"source_height":1000,"detections":[{"class":0,"bounds":[0,0,300,900],"score":0.98},{"class":0,"bounds":[600,200,650,400],"score":0.92}]}"#;
+    let request = CString::new(json).unwrap();
+    let mut len = 0;
+    let mut short = [0xab; 2];
+    unsafe {
+        assert_eq!(
+            maple_removal_people_suggestions_buf(request.as_ptr(), short.as_mut_ptr(), 2, &mut len),
+            100
+        );
+    }
+    assert_eq!(short, [0xab; 2]);
+    let mut bytes = vec![0; len];
+    unsafe {
+        assert_eq!(
+            maple_removal_people_suggestions_buf(
+                request.as_ptr(),
+                bytes.as_mut_ptr(),
+                bytes.len(),
+                &mut len
+            ),
+            0
+        );
+    }
+    assert_eq!(
+        String::from_utf8(bytes).unwrap(),
+        raw_core::stages::removal_people::suggest_json(json).unwrap()
+    );
+    let invalid = CString::new("{}").unwrap();
+    unsafe {
+        assert_eq!(
+            maple_removal_people_suggestions_buf(invalid.as_ptr(), short.as_mut_ptr(), 2, &mut len),
+            5
+        );
+        assert_eq!(len, 0);
+        assert_eq!(
+            maple_removal_people_suggestions_buf(std::ptr::null(), short.as_mut_ptr(), 2, &mut len),
+            1
+        );
+        assert_eq!(
+            maple_removal_people_suggestions_buf(
+                request.as_ptr(),
+                short.as_mut_ptr(),
+                2,
+                std::ptr::null_mut()
+            ),
+            1
+        );
+    }
+    assert_eq!(short, [0xab; 2]);
+}
