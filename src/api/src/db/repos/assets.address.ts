@@ -29,13 +29,13 @@
  */
 
 import type { ObjectId } from '../object-id.ts';
-import type { FileInfo } from '../schema.ts';
+import type { AssetExif, FileInfo } from '../schema.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
-import { toObjectId } from './values.ts';
+import { parseJson, toObjectId } from './values.ts';
 
 export type { SqliteDb } from './db-handle.ts';
 
@@ -155,6 +155,9 @@ export interface DirectoryAsset {
   captured_at: string | null;
   width: number | null;
   height: number | null;
+  size: number;
+  mtime: number;
+  exif: AssetExif | null;
 }
 
 /**
@@ -172,16 +175,35 @@ export async function listDirectoryAssets(
   relPath: string,
   dbOverride?: SqliteDb,
 ): Promise<DirectoryAsset[]> {
-  return sqliteDb(dbOverride).read<DirectoryAsset>(
+  const rows = await sqliteDb(dbOverride).read<
+    Omit<DirectoryAsset, 'exif'> & { exif: string | null }
+  >(
     `SELECT a.id AS id, l.filename AS filename, a.maple_id AS maple_id,
             a.captured_at AS captured_at,
             json_extract(a.exif, '$.width') AS width,
-            json_extract(a.exif, '$.height') AS height
+            json_extract(a.exif, '$.height') AS height,
+            a.size AS size, a.mtime AS mtime, a.exif AS exif
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ? AND l.path = ? AND ${LIVE_ENTRY} AND a.deleted_at IS NULL`,
     [libraryId.toHexString(), relPath],
   );
+  return rows.map((row) => ({ ...row, exif: parseJson<AssetExif | null>(row.exif, null) }));
+}
+
+/** Soft-deleted rows reserve their old names until relocation/discover has
+ * caught up. A remaining file must not return as a new, unindexed asset. */
+export async function listTrashedDirectoryFilenames(
+  libraryId: ObjectId,
+  relPath: string,
+): Promise<string[]> {
+  const rows = await sqliteDb().read<{ filename: string }>(
+    `SELECT l.filename AS filename FROM asset_locations l
+       JOIN assets a ON a.id = l.asset_id
+      WHERE l.library_id = ? AND l.path = ? AND a.deleted_at IS NOT NULL`,
+    [libraryId.toHexString(), relPath],
+  );
+  return rows.map((row) => row.filename);
 }
 
 /** What an upload knows about the file it has just written into place. */

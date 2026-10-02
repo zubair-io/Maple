@@ -165,6 +165,8 @@ export async function moveOutOfTrash(
     if ((await classifySameFile(trashAbsPath, targetAbsPath)) !== 'different') {
       throw new Error('restore: destination resolves to the same file as the source');
     }
+    // One original name, one unsuffixed .restored, and 1000 numbered
+    // candidates match pickFreeRestoredPath; publication races consume retries.
     for (let attempt = 0; attempt < 1002; attempt++) {
       const freeTarget = (await restoreDestinationOccupied(targetAbsPath))
         ? await pickFreeRestoredPath(targetAbsPath)
