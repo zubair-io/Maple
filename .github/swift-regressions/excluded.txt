@@ -24,7 +24,6 @@ AutoProfileCanvasParityTests fixture needs the gitignored RAW fixtures (skip-pas
 BackupSettingsTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 BatchAdjustmentPerformanceTests slow render or decode workload that costs minutes on the runner
 ChangeFeedClientServerMigrationTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-CloudAddressResolverTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudAssetDetailClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudCacheTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudDropEligibilityTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -37,7 +36,6 @@ CloudSearchClientTests host talks to a host service (keychain, FileProvider, net
 CloudSearchTypesTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudServerRegistryTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudSidecarStoreTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-CloudSourceTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudThumbClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudTimelineUnionTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudTimelineViewModelTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
