@@ -112,9 +112,9 @@ import XCTest
       }
       var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       while candidate.path != "/" {
-        let api = candidate.appendingPathComponent("src/api")
+        let api = candidate.appending(path: "src/api")
         if FileManager.default.fileExists(
-          atPath: api.appendingPathComponent("tests/browser/workflow-server.ts").path)
+          atPath: api.appending(path: "tests/browser/workflow-server.ts").path)
         {
           return api
         }

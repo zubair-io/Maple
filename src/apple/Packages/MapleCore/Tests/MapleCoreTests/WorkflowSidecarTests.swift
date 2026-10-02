@@ -292,7 +292,10 @@ final class WorkflowSidecarTests: XCTestCase {
     var model = try await store.load().0
     model.exposure = 1.25
     await store.update(model: model, culling: CullingState())
-    let workflow = try record()
+    let workflow = try JSONDecoder().decode(
+      [SidecarWorkflow].self,
+      from: Data(
+        contentsOf: WorkflowFixture.root().appendingPathComponent("workflow/contract-v1.json")))[0]
     try await store.writeWorkflowConfirmed(workflow)
     let reopened = XMPSidecarStore(rawURL: original)
     let loaded = try await reopened.readWorkflow()
