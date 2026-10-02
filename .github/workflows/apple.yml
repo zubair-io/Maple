@@ -281,9 +281,12 @@ jobs:
           done < .github/swift-regressions/run.txt
           FILTER="MapleCoreTests\.($(IFS='|'; echo "${classes[*]}"))/"
           test_status=0
-          swift test --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore" \
+          python3 tools/run-swift-regressions.py \
+            --log "$MAPLE_SWIFT_TEST_ROOT/tests.log" \
+            --diagnostics "$MAPLE_SWIFT_TEST_ROOT/hang-diagnostics" -- \
+            swift test --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore" \
             --configuration release -Xswiftc -enable-testing --no-parallel --filter "$FILTER" \
-            2>&1 | tee "$MAPLE_SWIFT_TEST_ROOT/tests.log" || test_status=$?
+            || test_status=$?
           # Serial SwiftPM does not emit XCTest xUnit (only Swift Testing).
           # Validate actual XCTest records, then derive the artifact from them.
           python3 - "$MAPLE_SWIFT_TEST_ROOT" "${classes[@]}" <<'PYCODE'
@@ -333,3 +336,4 @@ jobs:
           path: |
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/results.xml
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/tests.log
+            ${{ env.MAPLE_SWIFT_TEST_ROOT }}/hang-diagnostics/
