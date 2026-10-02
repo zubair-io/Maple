@@ -29,7 +29,7 @@ import { Elysia } from 'elysia';
 import { buildSearchWhere, searchPage } from '../../db/repos/search.repo.ts';
 import { personIdsToDrop } from '../../people/people.repo.ts';
 import { personIdsForNames } from '../../people/people-search-filter.repo.ts';
-import { projectAsset } from './project.ts';
+import { projectAssets } from './project.ts';
 import {
   clampInt,
   extractDatesFromQuery,
@@ -150,7 +150,7 @@ export const listRoute = new Elysia().get(
     ]);
 
     const { libs, idToSlug } = await libraryMaps();
-    const results = docs.map((d) => projectAsset(d, libs, idToSlug));
+    const results = await projectAssets(docs, libs, idToSlug);
     // A short page is the last page: no cursor, so the client stops. A full
     // page always mints one, even if the next fetch turns out empty — knowing
     // that would cost an extra row read per request.

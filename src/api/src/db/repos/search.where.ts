@@ -156,7 +156,7 @@ const VALIDATIONS: ReadonlyArray<(q: SearchQuery) => string | null> = [
       ? `Invalid sceneType: ${q.sceneType}`
       : null,
   (q) => {
-    const ownerId = q.ownerId ?? q.owner_id;
+    const ownerId = q.owner ?? q.ownerId ?? q.owner_id;
     return ownerId && !ObjectId.isValid(ownerId) ? 'Invalid ownerId' : null;
   },
 ];
@@ -279,7 +279,7 @@ function fileTerms(q: SearchQuery, extensions: readonly string[]): Term[] {
 
 /** Filter by asset owner ID. */
 function ownerFilter(q: SearchQuery): string | null {
-  const raw = text(q.ownerId ?? q.owner_id);
+  const raw = text(q.owner ?? q.ownerId ?? q.owner_id);
   return raw === undefined ? null : (normaliseObjectIdHex(raw) ?? raw.toLowerCase());
 }
 

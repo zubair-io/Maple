@@ -189,6 +189,7 @@ describe('the detail DTO returned by GET /api/assets/:id', () => {
       ocr_text: 'SEA',
       ocr_meta: OCR_META,
       owner_id: null,
+      owner: null,
       vision: VISION,
       vision_meta: VISION_META,
       // Tri-state: `true`/`false` once the classifier has looked at the asset,
@@ -275,6 +276,7 @@ describe('the working-set item returned by GET /api/assets', () => {
       // 1_700_000_000_123 ms — the same asset's detail DTO reports it in full.
       mtime: 1_700_000_000,
       owner_id: null,
+      owner: null,
       rating: 4,
       has_xmp: true,
       hidden: false,

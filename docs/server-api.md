@@ -137,6 +137,8 @@ The response emits a body-hash ETag and `Cache-Control: private, max-age=0, must
 
 `:id` is the asset's 24-character hex id.
 
+Asset detail, batch metadata, working-set, folder asset/Trash, and Search responses include `owner_id` plus a populated `owner: { id, email }` summary. `email` can be null for an email-free account; `owner` is null for an unassigned asset or an absent account. Account deletion clears `owner_id` through the foreign key. Owner lookups are batched and deduplicated per page.
+
 | Method | Path                                 | Auth   | Purpose                                                                                                                                                                                                                    |
 | ------ | ------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/assets`                        | +file  | Minimal list for the File Provider working set. Filters `has_xmp=1`, `rating_gte=N`, `captured_after=<ISO>`, `limit` (default 1000, max 20000)                                                                             |
@@ -176,6 +178,8 @@ The response emits a body-hash ETag and `Cache-Control: private, max-age=0, must
 ## Search
 
 Every filter parameter below is shared by `/api/search`, `/api/search/facets`, `/api/search/buckets`, and `/api/map/clusters`, declared once in `routes/search/query-schema.ts`.
+
+`owner=<24-character hex user id>` filters those endpoints and `/api/assets` by uploader. `ownerId` and `owner_id` remain accepted aliases; `owner` takes precedence when multiple aliases are supplied. Invalid IDs return 400. Search totals and Timeline bucket caches normalize all three aliases to the same owner key and keep different users isolated.
 
 | Method | Path                                 | Auth        | Purpose                                                                                                                                                                                                                                     |
 | ------ | ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

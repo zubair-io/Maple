@@ -52,6 +52,7 @@ import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
 import { classifyMediaType } from '../indexer/media-types.ts';
 import { safeObjectId } from '../db/object-id.ts';
 import type { FolderWithId } from '../db/schema.ts';
+import type { AssetOwnerSummary } from '../db/assets.transform.ts';
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
 // duplicate upload whose content is byte-identical to the file being
@@ -470,6 +471,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           // write/delete handlers (Phase 5b) have observed a sidecar
           // next to this asset.
           has_xmp: row.has_xmp === 1,
+          owner_id: row.owner_id,
+          owner: row.owner,
         })),
       };
     },
@@ -1128,6 +1131,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
          * 'reaped' — the missing-reaper soft-deleted it, no copy exists
          * (#2977). Additive field; older clients ignore it. */
         reason: 'user' | 'reaped';
+        owner_id: string | null;
+        owner: AssetOwnerSummary | null;
       }> = [];
       for (const doc of pageDocs) {
         const primary = doc.fileinfo.find((e) => !e.deleted_at) ?? doc.fileinfo[0];
@@ -1162,6 +1167,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           mtime: mtimeIso,
           deleted_at: doc.deleted_at,
           reason: isReaped ? 'reaped' : 'user',
+          owner_id: doc.owner_id,
+          owner: doc.owner,
         });
       }
       return {

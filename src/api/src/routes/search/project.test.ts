@@ -33,7 +33,7 @@ describe('projectAsset — address field', () => {
     const doc = fixtureDoc();
     const libs = new Map<string, string>();
     const idToSlug = new Map<string, string>([['507f1f77bcf86cd799439011', 'my-library']]);
-    const result = projectAsset(doc, libs, idToSlug);
+    const result = projectAsset(doc, libs, idToSlug, null);
     expect(result.address).toBe('my-library:vacation/2024/IMG_0001.dng');
   });
 
@@ -49,7 +49,7 @@ describe('projectAsset — address field', () => {
     });
     const libs = new Map<string, string>();
     const idToSlug = new Map<string, string>([['507f1f77bcf86cd799439011', 'my-library']]);
-    const result = projectAsset(doc, libs, idToSlug);
+    const result = projectAsset(doc, libs, idToSlug, null);
     expect(result.address).toBe('my-library:IMG_0002.dng');
   });
 
@@ -57,7 +57,7 @@ describe('projectAsset — address field', () => {
     const doc = fixtureDoc();
     const libs = new Map<string, string>();
     const idToSlug = new Map<string, string>(); // no slug registered
-    const result = projectAsset(doc, libs, idToSlug);
+    const result = projectAsset(doc, libs, idToSlug, null);
     expect(result.address).toBeNull();
   });
 
@@ -65,7 +65,7 @@ describe('projectAsset — address field', () => {
     const doc = fixtureDoc({ fileinfo: undefined });
     const libs = new Map<string, string>();
     const idToSlug = new Map<string, string>([['507f1f77bcf86cd799439011', 'my-library']]);
-    const result = projectAsset(doc, libs, idToSlug);
+    const result = projectAsset(doc, libs, idToSlug, null);
     expect(result.address).toBeNull();
   });
 });

@@ -31,6 +31,8 @@
 
 import type { ObjectId } from '../object-id.ts';
 import type { FileInfo } from '../schema.ts';
+import type { AssetOwnerSummary } from '../assets.transform.ts';
+import { ownerSummariesForIds } from './assets.owners.ts';
 import { toFileInfo, type LocationRow } from './assets.rows.ts';
 import { locationsByAssetIdsSql } from './assets.sql.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
@@ -49,6 +51,8 @@ export interface FolderAssetRow {
   color_label: string;
   indexed_at: string;
   has_xmp: number;
+  owner_id: string | null;
+  owner: AssetOwnerSummary | null;
 }
 
 /** A page of a library's assets, and how many there are in total. */
@@ -60,7 +64,7 @@ export interface FolderAssetPage {
 const FOLDER_ASSETS_SQL = `
   SELECT a.id AS id, MIN(l.filename) AS filename, a.size AS size, a.mtime AS mtime,
          a.rating AS rating, a.flag AS flag, a.color_label AS color_label,
-         a.indexed_at AS indexed_at, a.has_xmp AS has_xmp
+         a.indexed_at AS indexed_at, a.has_xmp AS has_xmp, a.owner_id AS owner_id
     FROM asset_locations l
     JOIN assets a ON a.id = l.asset_id
    WHERE l.library_id = ?
@@ -86,10 +90,17 @@ export async function listFolderAssets(
   const db = sqliteDb(dbOverride);
   const hex = libraryId.toHexString();
   const [items, counts] = await Promise.all([
-    db.read<FolderAssetRow>(FOLDER_ASSETS_SQL, [hex, page.limit, page.skip]),
+    db.read<Omit<FolderAssetRow, 'owner'>>(FOLDER_ASSETS_SQL, [hex, page.limit, page.skip]),
     db.read<{ n: number }>(FOLDER_ASSET_COUNT_SQL, [hex]),
   ]);
-  return { total: counts[0]?.n ?? 0, items };
+  const owners = await ownerSummariesForIds(
+    items.map((row) => row.owner_id),
+    db,
+  );
+  return {
+    total: counts[0]?.n ?? 0,
+    items: items.map((row) => ({ ...row, owner: owners.get(row.owner_id ?? '') ?? null })),
+  };
 }
 
 const FOLDER_STAGE_RESET_SQL = `
@@ -130,6 +141,8 @@ export interface FolderTrashRow {
   deleted_reason: string | null;
   original_path: string | null;
   fileinfo: FileInfo[];
+  owner_id: string | null;
+  owner: AssetOwnerSummary | null;
 }
 
 interface TrashAssetRow {
@@ -139,6 +152,7 @@ interface TrashAssetRow {
   deleted_at: string;
   deleted_reason: string | null;
   original_path: string | null;
+  owner_id: string | null;
 }
 
 /**
@@ -160,7 +174,7 @@ const TRASH_BASE_PREDICATE = `
       AND (a.original_path IS NOT NULL OR a.deleted_reason = 'reaped')
       AND EXISTS (SELECT 1 FROM asset_locations l WHERE l.asset_id = a.id AND l.library_id = ?)`;
 
-const TRASH_COLUMNS = `a.id, a.size, a.mtime, a.deleted_at, a.deleted_reason, a.original_path`;
+const TRASH_COLUMNS = `a.id, a.size, a.mtime, a.deleted_at, a.deleted_reason, a.original_path, a.owner_id`;
 
 /**
  * The keyset cursor, as a tuple comparison over the sort key.
@@ -230,7 +244,13 @@ export async function listFolderTrash(
   if (rows.length === 0) return [];
 
   const ids = rows.map((row) => row.id);
-  const locations = await db.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids);
+  const [locations, owners] = await Promise.all([
+    db.read<LocationRow>(locationsByAssetIdsSql(ids.length), ids),
+    ownerSummariesForIds(
+      rows.map((row) => row.owner_id),
+      db,
+    ),
+  ]);
   const byAsset = new Map<string, LocationRow[]>();
   for (const location of locations) {
     const list = byAsset.get(location.asset_id);
@@ -246,5 +266,7 @@ export async function listFolderTrash(
     deleted_reason: row.deleted_reason,
     original_path: row.original_path,
     fileinfo: toFileInfo(byAsset.get(row.id) ?? []),
+    owner_id: row.owner_id,
+    owner: owners.get(row.owner_id ?? '') ?? null,
   }));
 }

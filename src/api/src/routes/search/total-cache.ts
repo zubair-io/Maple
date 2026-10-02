@@ -33,9 +33,9 @@ interface CachedTotal {
 
 const totalCache = new Map<string, CachedTotal>();
 
-/** Canonical owner filter value: folds ownerId and owner_id aliases and normalises to lowercase hex. */
+/** Fold owner aliases into the same lowercase-hex cache key. */
 export function canonicalOwner(q: SearchQuery): string | null {
-  const raw = q.ownerId ?? q.owner_id;
+  const raw = q.owner ?? q.ownerId ?? q.owner_id;
   if (!raw) return null;
   return normaliseObjectIdHex(raw) ?? raw.trim().toLowerCase();
 }
@@ -75,6 +75,7 @@ const TOTAL_CACHE_KEY_FIELDS = [
   'hidden',
   'ownerId',
   'owner_id',
+  'owner',
 ] as const satisfies ReadonlyArray<keyof SearchQuery>;
 
 /** Stable JSON serialisation of a SearchQuery over `TOTAL_CACHE_KEY_FIELDS`.
@@ -83,7 +84,7 @@ const TOTAL_CACHE_KEY_FIELDS = [
 export function makeTotalCacheKey(q: SearchQuery): string {
   const normalized: Partial<Record<keyof SearchQuery, string | null>> = {};
   for (const field of TOTAL_CACHE_KEY_FIELDS) {
-    if (field === 'ownerId' || field === 'owner_id') {
+    if (field === 'owner' || field === 'ownerId' || field === 'owner_id') {
       normalized[field] = canonicalOwner(q);
     } else {
       normalized[field] = q[field] ?? null;

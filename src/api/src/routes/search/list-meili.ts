@@ -27,7 +27,7 @@
 import { searchByMapleIds, type SearchWhere } from '../../db/repos/search.repo.ts';
 import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
-import { projectAsset, type SearchResult } from './project.ts';
+import { projectAssets, type SearchResult } from './project.ts';
 import { libraryMaps } from './libraries.ts';
 import { peopleNames, widenFromDate, widenToDate, type SearchQuery } from './query.ts';
 
@@ -150,6 +150,7 @@ const DATABASE_ONLY_FILTERS = [
   'excludeHiddenPeople',
   'ownerId',
   'owner_id',
+  'owner',
 ] as const;
 
 /**
@@ -263,7 +264,7 @@ export async function meiliPage(input: MeiliPageInput): Promise<MeiliPage | null
     const { libs, idToSlug } = await libraryMaps();
     return {
       total: hit.estimatedTotal,
-      results: docs.map((d) => projectAsset(d, libs, idToSlug)),
+      results: await projectAssets(docs, libs, idToSlug),
     };
   } catch (err) {
     // Log and let the caller fall through to the database's own full-text

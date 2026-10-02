@@ -48,6 +48,7 @@ import type {
   AssetCoreInfo,
   AssetDetailDto,
   AssetListItemDto,
+  AssetOwnerSummary,
   DetailFaceDto,
   TranscriptDto,
 } from '../assets.transform.ts';
@@ -158,6 +159,7 @@ export function toDetailDto(
   row: AssetCoreRow,
   bundle: AssetBundle,
   libraries: ReadonlyMap<string, string>,
+  owner: AssetOwnerSummary | null,
 ): AssetDetailDto {
   const fileinfo = toFileInfoOrAbsent(bundle.locations);
   const primary = resolvePrimary(fileinfo, libraries);
@@ -183,6 +185,7 @@ export function toDetailDto(
     hidden_ack: bool(row.hidden_ack),
     enrichment: toEnrichment(bundle.enrichment),
     owner_id: row.owner_id ?? null,
+    owner,
     ...toDetailEnrichmentFields(bundle.detail),
   };
 }
@@ -200,6 +203,7 @@ export function toListItemDto(
   row: ListItemRow,
   locations: readonly LocationRow[],
   libraries: ReadonlyMap<string, string>,
+  owner: AssetOwnerSummary | null,
 ): AssetListItemDto {
   const fileinfo = toFileInfoOrAbsent(locations);
   const primary = resolvePrimary(fileinfo, libraries);
@@ -216,6 +220,7 @@ export function toListItemDto(
     hidden_reason: row.hidden_reason as AssetListItemDto['hidden_reason'],
     hidden_ack: bool(row.hidden_ack),
     owner_id: row.owner_id ?? null,
+    owner,
   };
 }
 
