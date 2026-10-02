@@ -10,6 +10,7 @@ import { of } from 'rxjs';
 import { vi } from 'vitest';
 
 import { PreviewShellComponent } from './preview-shell.component';
+import { PREVIEW_VIDEO_ACCESS, type PreviewVideoAccess } from './preview-video-access';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { BunApiBackendService } from '../../api/bun-api-backend.service';
@@ -39,7 +40,11 @@ export const STUB_ASSET: Asset = {
  * The returned `layout` signal is the one backing `LayoutService`, so a test
  * can drive a viewport resize by setting it and re-running change detection. */
 export function setupFixture(
-  opts: { navigate?: ReturnType<typeof vi.fn>; layout?: MapleLayout } = {},
+  opts: {
+    navigate?: ReturnType<typeof vi.fn>;
+    layout?: MapleLayout;
+    videoAccess?: PreviewVideoAccess;
+  } = {},
 ) {
   const navigate = opts.navigate ?? vi.fn();
   const state = {
@@ -94,6 +99,7 @@ export function setupFixture(
   TestBed.configureTestingModule({
     imports: [PreviewShellComponent],
     providers: [
+      ...(opts.videoAccess ? [{ provide: PREVIEW_VIDEO_ACCESS, useValue: opts.videoAccess }] : []),
       { provide: ActivatedRoute, useValue: route },
       { provide: Router, useValue: { navigate } },
       { provide: LibraryStateService, useValue: state },

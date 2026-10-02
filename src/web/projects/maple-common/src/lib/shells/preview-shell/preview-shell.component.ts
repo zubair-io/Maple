@@ -95,7 +95,8 @@ export class PreviewShellComponent implements OnDestroy {
 
   /** Pointer position at the last `pointerdown` on `.preview-image-wrap`,
    * used to classify the matching `pointerup` as a horizontal swipe. */
-  private swipeStart: { x: number; y: number } | null = null;
+  private swipeStart: { x: number; y: number; pointerId: number; target: HTMLElement } | null =
+    null;
 
   /** True at the tablet/desktop breakpoint — the shared `LayoutService`
    * signal every shell reads (see root-shell.component.ts). Below this,
@@ -177,6 +178,7 @@ export class PreviewShellComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.clearSwipe();
     this.unsubThumb?.();
     this.unsubPreview?.();
   }
@@ -302,13 +304,26 @@ export class PreviewShellComponent implements OnDestroy {
   // ── Touch swipe (prev/next) ──────────────────────────────────────────────
 
   onImagePointerDown(e: PointerEvent): void {
-    this.swipeStart = { x: e.clientX, y: e.clientY };
+    // A second finger ends photo paging rather than replacing its origin.
+    // Native vertical panning/pinch can also cancel the tracked pointer.
+    if (!e.isPrimary || e.button !== 0) {
+      this.clearSwipe();
+      return;
+    }
+    if (!(e.currentTarget instanceof HTMLElement)) return;
+    this.clearSwipe();
+    const target = e.currentTarget;
+    this.swipeStart = { x: e.clientX, y: e.clientY, pointerId: e.pointerId, target };
+    // The surface contains images only; video controls stop pointerdown.
+    // Capture keeps the release attached to this gesture over the filmstrip.
+    target.setPointerCapture?.(e.pointerId);
   }
 
+  @HostListener('document:pointerup', ['$event'])
   onImagePointerUp(e: PointerEvent): void {
     const start = this.swipeStart;
-    this.swipeStart = null;
-    if (!start) return;
+    if (!start || start.pointerId !== e.pointerId) return;
+    this.clearSwipe();
     const dx = e.clientX - start.x;
     const dy = e.clientY - start.y;
     if (Math.abs(dx) <= SWIPE_THRESHOLD_PX || Math.abs(dx) <= Math.abs(dy)) return;
@@ -319,6 +334,18 @@ export class PreviewShellComponent implements OnDestroy {
     }
   }
 
+  @HostListener('document:pointercancel', ['$event'])
+  onImagePointerCancel(e: PointerEvent): void {
+    if (this.swipeStart?.pointerId === e.pointerId) this.clearSwipe();
+  }
+
+  private clearSwipe(): void {
+    const start = this.swipeStart;
+    this.swipeStart = null;
+    if (start?.target.hasPointerCapture?.(start.pointerId))
+      start.target.releasePointerCapture(start.pointerId);
+  }
+
   // ── Route address resolution (copied verbatim from EditorShellComponent) ──
   // Complexity is pre-existing and unrelated to the MW3 info-panel migration
   // — this method's branching is unchanged (only its `openHydratedFsParent`
@@ -327,6 +354,7 @@ export class PreviewShellComponent implements OnDestroy {
   // suppression (#2293).
   // fallow-ignore-next-line complexity
   private applyRouteAddress(): void {
+    this.clearSwipe();
     const slug = this.route.snapshot.paramMap.get('slug');
     if (slug) {
       const segments = this.route.snapshot.url.map((s) => s.path);
