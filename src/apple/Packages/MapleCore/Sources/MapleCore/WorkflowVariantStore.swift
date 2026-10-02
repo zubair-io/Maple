@@ -36,7 +36,10 @@ public actor WorkflowVariantStore {
 
   /// A missing primary is explicit absence; a missing named variant is an error.
   public func read(variantId: String) throws -> String? {
-    let url = try SidecarPath.variantURL(for: rawURL, variantId: variantId)
+    try read(variantId: variantId, at: SidecarPath.variantURL(for: rawURL, variantId: variantId))
+  }
+
+  private func read(variantId: String, at url: URL) throws -> String? {
     let xml = try readOptional(url)
     if xml == nil, variantId != WorkflowContract.primaryVariantID {
       throw failure(
@@ -135,7 +138,7 @@ public actor WorkflowVariantStore {
     var result: Result<String, Error>?
     coordinator.coordinate(writingItemAt: destination, options: [], error: &error) { url in
       result = Result {
-        let current = try self.read(variantId: variantId)
+        let current = try self.read(variantId: variantId, at: url)
         let output = try convert(current)
         try self.requireIdentity(
           WorkflowSidecarCore.read(xmp: output), variantId, url.lastPathComponent)
