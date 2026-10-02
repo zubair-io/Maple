@@ -2,6 +2,7 @@
 // selection, dedicated undo, or the photographer's viewport (#3984).
 import type { RemovalEditorSession } from './removal-editor-session.service';
 import { bundleRemovalCompanions } from './removal-companion-bundle';
+import { companionsFor } from './removal-editor-saved';
 
 export async function rebindAfterExport(
   session: RemovalEditorSession,
@@ -27,7 +28,9 @@ export async function rebindAfterExport(
     const draft = session.draft;
     await session.pipeline.removal.prepareSaved(
       draft?.xml ?? photo.xml,
-      bundleRemovalCompanions(draft?.companions ?? photo.companions),
+      bundleRemovalCompanions(
+        companionsFor(draft?.records ?? photo.prior, draft?.companions ?? photo.companions),
+      ),
     );
     session.check(token);
     session.phase.set(draft ? 'review' : 'ready');

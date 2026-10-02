@@ -5,7 +5,12 @@ import * as workerThreads from 'node:worker_threads';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { initSync } from '../raw-pipeline/pkg/raw_wasm';
+import {
+  initSync,
+  removal_saved_edit,
+  removal_saved_list,
+  removal_saved_prefix,
+} from '../raw-pipeline/pkg/raw_wasm';
 import { DiskDirectory } from './copy-paste/testing/batch-test-files';
 import { fsAccessReadFile, fsAccessWriteFile } from '../folder-access/fs-access-backend';
 import { FolderAccessService } from '../folder-access/folder-access.service';
@@ -291,5 +296,98 @@ describe('confirmed Web removal history with real XMP and companions', () => {
     expect(await saved()).toBe(records);
     expect(editor.currentAdjustment()!.exposure).toBe(1);
     expect(await fs.readdir(join(root, '.maple/inpaint'))).toHaveLength(2);
+  });
+  it('enable, disable and delete confirm real schema-5 XMP as individual reversible actions', async () => {
+    await accept();
+    const rows = JSON.parse(removal_saved_list(records)) as { id: string; active: boolean }[];
+    const id = rows[0].id;
+    const change = async (action: string, active?: boolean) => {
+      const before = editor.currentAdjustment()!;
+      const next = removal_saved_edit(
+        before.inpaintRemovals!,
+        JSON.stringify({ schema: 1, id, action, active }),
+      );
+      const revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
+      await editor.acceptRemoval(next, before, action, revision);
+      expect(await saved()).toBe(next === '[]' ? undefined : next);
+      return next;
+    };
+    const disabled = await change('set-active', false);
+    expect(JSON.parse(disabled)[0]).toMatchObject({ schema: 5, id, active: false });
+    expect(JSON.parse(disabled)[0].patch).toBe(JSON.parse(records)[0].patch);
+    expect(editor.undoHistory()).toHaveLength(2);
+    const enabled = await change('set-active', true);
+    expect(JSON.parse(enabled)[0]).toMatchObject({ id, active: true });
+    await change('delete');
+    expect(editor.undoHistory()).toHaveLength(4);
+    expect(await fs.readdir(join(root, '.maple/inpaint'))).toHaveLength(2);
+    await undo();
+    expect(await saved()).toBe(enabled);
+    await undo();
+    expect(await saved()).toBe(disabled);
+    await redo();
+    expect(await saved()).toBe(enabled);
+    expect(await fs.readFile(join(root, 'photo.dng'))).toEqual(Buffer.from(bytes('source.dng')));
+  });
+
+  it('replacement preserves row identities and later baked patches, with reversible review state', async () => {
+    const assets = new LocalRemovalAssets(TestBed.inject(FolderAccessService), folder, 'photo.dng');
+    records = await assets.publish(
+      text('request.txt'),
+      records,
+      bytes('mask.mimf'),
+      bytes('patch.f16'),
+    );
+    await accept();
+    const before = editor.currentAdjustment()!;
+    const rows = JSON.parse(removal_saved_list(records)) as { id: string; needs_review: boolean }[];
+    const prefix = removal_saved_prefix(records, rows[0].id);
+    expect(prefix).toBe('[]');
+    const request = JSON.stringify({
+      ...JSON.parse(text('request.txt')),
+      model_version: 'replacement test recipe',
+    });
+    const proposed = await assets.publish(request, prefix, bytes('mask.mimf'), bytes('patch.f16'));
+    const replacement = removal_saved_edit(
+      records,
+      JSON.stringify({ schema: 1, id: rows[0].id, action: 'replace', replacement: proposed }),
+    );
+    const revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
+    await editor.acceptRemoval(replacement, before, 'Replace removal', revision);
+    const replaced = JSON.parse(removal_saved_list((await saved())!));
+    expect(replaced.map((row: { id: string }) => row.id)).toEqual(rows.map((row) => row.id));
+    expect(replaced.map((row: { needs_review: boolean }) => row.needs_review)).toEqual([
+      false,
+      true,
+    ]);
+    expect(JSON.parse(replacement)[1].accepted).toEqual(JSON.parse(records)[1].accepted);
+    expect(JSON.parse(replacement)[1].patch).toBe(JSON.parse(records)[1].patch);
+    expect(editor.undoHistory()).toHaveLength(2);
+    await undo();
+    expect(await saved()).toBe(records);
+    await redo();
+    expect(await saved()).toBe(replacement);
+  });
+
+  it('an external full-XMP change refuses a saved-row edit without adopting model or history', async () => {
+    await accept();
+    const before = editor.currentAdjustment()!;
+    const id = JSON.parse(removal_saved_list(records))[0].id;
+    const disabled = removal_saved_edit(
+      records,
+      JSON.stringify({ schema: 1, id, action: 'set-active', active: false }),
+    );
+    const revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
+    const external = (await fs.readFile(join(root, 'photo.xmp'), 'utf8')).replace(
+      'foreign:Keep="untouched"',
+      'foreign:Keep="external"',
+    );
+    await fs.writeFile(join(root, 'photo.xmp'), external);
+    await expect(
+      editor.acceptRemoval(disabled, before, 'Disable removal', revision),
+    ).rejects.toThrow();
+    expect(editor.currentAdjustment()).toEqual(before);
+    expect(editor.undoHistory()).toHaveLength(1);
+    expect(await fs.readFile(join(root, 'photo.xmp'), 'utf8')).toBe(external);
   });
 });

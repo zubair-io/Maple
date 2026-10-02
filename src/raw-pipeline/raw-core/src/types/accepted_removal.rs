@@ -120,6 +120,14 @@ pub struct RemovalDependency {
     pub patch: ContentDigest,
 }
 
+/// Schema-5 editor identity is independent of accepted pixel provenance.
+/// Only an explicit stack edit upgrades an existing calibration record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemovalOperation {
+    pub id: ContentDigest,
+    pub active: bool,
+}
+
 /// The composition seam is part of the saved contract. A pre-WB calibration
 /// patch cannot be interpreted as an older post-DCP scene patch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

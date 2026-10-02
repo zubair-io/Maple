@@ -97,12 +97,22 @@ export function renderLiveSessionRequest(
   register: RegisterPending,
   xmp: string | undefined,
   params: Float32Array | undefined,
+  savedRemovals?: RemovalCompanionBundle,
 ): Promise<RenderedLiveSession> {
-  const request: RenderSessionRequest = { id, type: 'render-session', xmp, params };
+  const companions = savedRemovals?.bytes.slice().buffer as ArrayBuffer | undefined;
+  const request: RenderSessionRequest = {
+    id,
+    type: 'render-session',
+    xmp,
+    params,
+    ...(savedRemovals && companions
+      ? { savedRemovals: { manifest: savedRemovals.manifest, bytes: companions } }
+      : {}),
+  };
   return dispatchWithMark<RenderedLiveSession>(
     worker,
     request,
-    params ? [params.buffer] : [],
+    [...(params ? [params.buffer] : []), ...(companions ? [companions] : [])],
     'maple:render-session',
     ({ resolve, reject }) => ({ kind: 'render-session', resolve, reject }),
     register,

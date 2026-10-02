@@ -240,14 +240,50 @@ actor NativeRemovalEditorEngine {
     }
     var model = context.model
     model.inpaintRemovals = try RemovalRecords(json: records)
+    return try await preparedContext(model: model, assets: assets, from: context)
+  }
+
+  func replacementInput(id: String, original: NativeRemovalEditorContext) async throws
+    -> NativeRemovalEditorContext
+  {
+    let records = try RemovalBridge.savedPrefix(
+      records: original.model.inpaintRemovals?.json ?? "[]", id: id)
+    var model = original.model
+    model.inpaintRemovals = try RemovalRecords(json: records)
+    return try await preparedContext(model: model, assets: original.assets, from: original)
+  }
+
+  func replacementReview(
+    id: String, original: NativeRemovalEditorContext,
+    candidate: NativeRemovalEditorContext
+  ) async throws -> NativeRemovalEditorContext {
+    let records = try RemovalBridge.savedEdit(
+      records: original.model.inpaintRemovals?.json ?? "[]", id: id, action: .replace,
+      replacement: candidate.model.inpaintRemovals?.json ?? "[]")
+    var model = original.model
+    model.inpaintRemovals = try RemovalRecords(json: records)
+    let assets = original.assets.merging(candidate.assets) { _, new in new }
+    return try await preparedContext(model: model, assets: assets, from: original)
+  }
+
+  private func preparedContext(
+    model: AdjustmentModel, assets: [String: Data],
+    from context: NativeRemovalEditorContext
+  ) async throws -> NativeRemovalEditorContext {
+    let names = try RemovalBridge.assetNames(records: model.inpaintRemovals?.json ?? "[]")
+    let selected = try Dictionary(
+      uniqueKeysWithValues: names.map { name in
+        guard let bytes = assets[name] else { throw RemovalError.missingCompanion(name) }
+        return (name, bytes)
+      })
     let xmp = XMPSerializer.serialize(model: model, culling: CullingState())
     let candidate = NativeSavedRemovalSession(handle: context.handle)
     _ = try await candidate.prepare(
-      source: context.sourceBytes, ext: context.raw.pathExtension, xmp: xmp, assets: assets)
+      source: context.sourceBytes, ext: context.raw.pathExtension, xmp: xmp, assets: selected)
     try Task.checkCancellation()
     return NativeRemovalEditorContext(
       raw: context.raw, handle: context.handle, saved: candidate,
-      sourceBytes: context.sourceBytes, assets: assets, source: context.source,
+      sourceBytes: context.sourceBytes, assets: selected, source: context.source,
       width: context.width, height: context.height, model: model, xmp: xmp)
   }
 

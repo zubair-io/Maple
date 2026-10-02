@@ -57,6 +57,22 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
       .getByRole('button', { name: 'Remove', exact: true })
       .click();
     const panel = page.getByTestId('removal-panel');
+    const exportSaved = async (name: string) => {
+      await page.getByTestId('editor-shell-export').click();
+      const dialog = page.getByRole('dialog', { name: 'Export image', exact: true });
+      await dialog.getByRole('radio', { name: 'PNG', exact: true }).click();
+      const downloading = page.waitForEvent('download');
+      await dialog.getByRole('button', { name: 'Export', exact: true }).click();
+      const download = await downloading;
+      expect(download.suggestedFilename()).toBe('photo.png');
+      const destination = testInfo.outputPath(name + '.png');
+      await download.saveAs(destination);
+      expect(new Uint8Array(await readFile(destination))).toEqual(
+        await savedPng(root, testInfo.outputPath(name + '-oracle.png')),
+      );
+      await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+      await expect(dialog).toBeHidden();
+    };
     await expect(panel.getByRole('button', { name: 'Remove', exact: true })).toBeDisabled();
     await panel.getByText('Local AI models', { exact: true }).click();
     await expect(panel.getByLabel('Import local removal models')).toBeEnabled();
@@ -98,6 +114,79 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     expect(await readdir(join(root, '.maple/inpaint'))).toHaveLength(2);
     expect(await readFile(join(root, 'photo.dng'))).toEqual(original);
     await page.screenshot({ path: testInfo.outputPath('kept.png') });
+    // Saved-row edits use the normal confirmed history and retain their assets.
+    const expandSaved = async () => {
+      const summary = panel.getByText('Saved removals', { exact: true });
+      const details = panel.locator('details').filter({ hasText: 'Saved removals' });
+      if ((await details.getAttribute('open')) === null) await summary.click();
+    };
+    await expandSaved();
+    const row = panel.locator('[data-removal-id]');
+    const id = await row.getAttribute('data-removal-id');
+    expect(id).toMatch(/^blake3:[a-f0-9]{64}$/);
+    const undoToAccepted = async () => {
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect.poll(() => readFile(join(root, 'photo.xmp'), 'utf8')).toBe(accepted);
+      await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
+    };
+    await panel.getByRole('button', { name: 'Disable removal 1', exact: true }).click();
+    await expect(row.getByText('Removal 1 · Disabled', { exact: true })).toBeVisible();
+    const disabled = await readFile(join(root, 'photo.xmp'), 'utf8');
+    expect(disabled).toContain('&quot;schema&quot;:5');
+    expect(disabled).toContain('&quot;active&quot;:false');
+    await exportSaved('disabled-removal');
+    await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
+    await panel.getByRole('button', { name: 'Enable removal 1', exact: true }).click();
+    await expect(row.getByText('Removal 1 · Enabled', { exact: true })).toBeVisible();
+    expect(await row.getAttribute('data-removal-id')).toBe(id);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect.poll(() => readFile(join(root, 'photo.xmp'), 'utf8')).toBe(disabled);
+    await undoToAccepted();
+    await expandSaved();
+    await panel.getByRole('button', { name: 'Delete removal 1', exact: true }).click();
+    await expect(row).toHaveCount(0);
+    expect(await readdir(join(root, '.maple/inpaint'))).toHaveLength(2);
+    await undoToAccepted();
+    await expandSaved();
+    await panel.getByRole('button', { name: 'Replace removal 1', exact: true }).click();
+    await expect(
+      panel.getByRole('button', { name: 'Cancel replacement', exact: true }),
+    ).toBeVisible();
+    await expect(remove).toBeEnabled();
+    await page.mouse.click(rect.x + rect.width / 2 + 4.5, rect.y + rect.height / 2 - 0.5);
+    await panel.getByRole('button', { name: 'Undo selection stroke', exact: true }).click();
+    await panel.getByRole('button', { name: 'Redo selection stroke', exact: true }).click();
+    await remove.click();
+    await expect(panel.getByRole('button', { name: 'Keep', exact: true })).toBeVisible({
+      timeout: 120_000,
+    });
+    await exportSaved('replacement-review-current-edit');
+    await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(await readFile(join(root, 'photo.xmp'), 'utf8')).toBe(accepted);
+    await remove.click();
+    await expect(panel.getByRole('button', { name: 'Keep', exact: true })).toBeVisible({
+      timeout: 120_000,
+    });
+    await panel.getByRole('button', { name: 'Keep', exact: true }).click();
+    await expect(panel.getByText('Removal saved.', { exact: true })).toBeVisible();
+    expect(await row.getAttribute('data-removal-id')).toBe(id);
+    expect(await readFile(join(root, 'photo.xmp'), 'utf8')).toContain('&quot;schema&quot;:5');
+    await page.screenshot({ path: testInfo.outputPath('saved-replacement.png') });
+    await panel
+      .getByRole('button', { name: 'Remove model lama-native-1024.onnx', exact: true })
+      .click();
+    await expect(
+      panel.getByText('lama-native-1024.onnx · Required', { exact: false }),
+    ).toBeVisible();
+    await exportSaved('schema5-replacement-without-model');
+    await panel.getByLabel('Import local removal models').setInputFiles(lama);
+    await expect(
+      panel.getByText('lama-native-1024.onnx · Installed', { exact: false }),
+    ).toBeVisible();
+    await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
+    await undoToAccepted();
+    // Replacement assets remain for redo; reopening only prepares referenced assets.
+    expect((await readdir(join(root, '.maple/inpaint'))).length).toBeGreaterThanOrEqual(2);
     // Unmount tool and reopen the same persisted recipe in the normal canvas.
     await page
       .getByRole('navigation', { name: 'Editor tools' })
@@ -112,7 +201,7 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     await page.screenshot({ path: testInfo.outputPath('global-removal-undone.png') });
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await expect.poll(() => readFile(join(root, 'photo.xmp'), 'utf8')).toBe(accepted);
-    expect(await readdir(join(root, '.maple/inpaint'))).toHaveLength(2);
+    expect((await readdir(join(root, '.maple/inpaint'))).length).toBeGreaterThanOrEqual(2);
     const announcement = page.locator('.cdk-live-announcer-element');
     await expect(announcement).toHaveCSS('position', 'absolute');
     await expect(announcement).toHaveCSS('width', '1px');
@@ -141,21 +230,8 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
     await expect(
       panel.getByText('lama-native-1024.onnx · Required', { exact: false }),
     ).toBeVisible();
-    await page.getByTestId('editor-shell-export').click();
-    const exportDialog = page.getByRole('dialog', { name: 'Export image', exact: true });
-    await exportDialog.getByRole('radio', { name: 'PNG', exact: true }).click();
-    const downloading = page.waitForEvent('download');
-    await exportDialog.getByRole('button', { name: 'Export', exact: true }).click();
-    const download = await downloading;
-    expect(download.suggestedFilename()).toBe('photo.png');
-    const destination = testInfo.outputPath('photo.png');
-    await download.saveAs(destination);
-    expect(new Uint8Array(await readFile(destination))).toEqual(
-      await savedPng(root, testInfo.outputPath('oracle.png')),
-    );
+    await exportSaved('photo');
     expect(await readFile(join(root, 'photo.dng'))).toEqual(original);
-    await exportDialog.getByRole('button', { name: 'Done', exact: true }).click();
-    await expect(exportDialog).toBeHidden();
     await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
     await page.mouse.click(rect.x + rect.width / 2 - 1.5, rect.y + rect.height / 2 - 0.5);
     await expect(panel.getByRole('button', { name: 'Clear selection', exact: true })).toBeEnabled();

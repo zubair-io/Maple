@@ -66,3 +66,20 @@ export interface RemovalPersonSuggestion {
   role: RemovalPersonRole;
   keep: boolean;
 }
+export const SAVED_REMOVAL_EDIT_VERSION = 1;
+export interface SavedRemovalEntry {
+  readonly id: string;
+  readonly index: number;
+  readonly active: boolean;
+  readonly editable: boolean;
+  readonly needs_review: boolean;
+  readonly region: number[];
+  readonly model_version: string;
+  readonly mask: string | null;
+}
+export const SAVED_REMOVAL_ACTIONS = {
+  setActive: 'set-active',
+  delete: 'delete',
+  replace: 'replace',
+} as const;
+export type SavedRemovalAction = (typeof SAVED_REMOVAL_ACTIONS)[keyof typeof SAVED_REMOVAL_ACTIONS];

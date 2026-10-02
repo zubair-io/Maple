@@ -104,6 +104,8 @@ pub struct BakeGrade {
 /// sidecar; the patch *pixels* do not (they are referenced by `patch_ref`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Removal {
+    /// Schema-5 control state. Older records remain active and retain their wire.
+    pub operation: Option<super::accepted_removal::RemovalOperation>,
     /// Present only for schema-3 accepted edits. None denotes legacy schema 2.
     pub accepted: Option<super::accepted_removal::AcceptedRemoval>,
     /// Removal region in normalized full-image coords: `[x, y, w, h]` in `[0, 1]`.
@@ -121,8 +123,16 @@ pub struct Removal {
 /// Encode removals to the `papp:InpaintRemovals` attribute value (compact JSON
 /// array). Empty input produces `"[]"`.
 pub fn encode_removals(removals: &[Removal]) -> Result<String, String> {
+    let mut identities = std::collections::BTreeSet::new();
     for removal in removals {
         validate_removal(removal)?;
+        if removal
+            .operation
+            .as_ref()
+            .is_some_and(|operation| !identities.insert(operation.id.as_str()))
+        {
+            return Err("removal stack has duplicate operation identities".into());
+        }
     }
     let arr: Vec<Value> = removals.iter().map(removal_to_json).collect();
     Ok(Value::Array(arr).to_string())
@@ -140,6 +150,16 @@ pub fn decode_removals(s: &str) -> Result<Vec<Removal>, String> {
     let mut out = Vec::with_capacity(arr.len());
     for el in arr {
         if let Some(r) = removal_from_json(el)? {
+            if r.operation.as_ref().is_some_and(|operation| {
+                out.iter().any(|prior: &Removal| {
+                    prior
+                        .operation
+                        .as_ref()
+                        .is_some_and(|p| p.id == operation.id)
+                })
+            }) {
+                return Err("removal stack has duplicate operation identities".into());
+            }
             out.push(r);
         }
     }
@@ -163,6 +183,11 @@ pub(crate) fn removal_to_json(r: &Removal) -> Value {
         record["accepted"] =
             serde_json::to_value(accepted).expect("accepted removal is serializable");
     }
+    if let Some(operation) = &r.operation {
+        record["schema"] = 5.into();
+        record["id"] = operation.id.as_str().into();
+        record["active"] = operation.active.into();
+    }
     record
 }
 
@@ -180,11 +205,29 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
     // A recognized future schema cannot safely be interpreted as schema 2.
     let schema = obj.get("schema").map(|v| v.as_u64()).unwrap_or(Some(2));
     if let Some(value) = obj.get("schema") {
-        if schema != Some(2) && schema != Some(3) && schema != Some(4) {
+        if schema != Some(2) && schema != Some(3) && schema != Some(4) && schema != Some(5) {
             return Err(format!("unsupported removal schema: {value}"));
         }
     }
-    let accepted = if schema == Some(3) || schema == Some(4) {
+    let operation = if schema == Some(5) {
+        Some(super::accepted_removal::RemovalOperation {
+            id: super::accepted_removal::ContentDigest::parse(
+                obj.get("id")
+                    .and_then(Value::as_str)
+                    .ok_or("removal missing operation identity")?,
+            )?,
+            active: obj
+                .get("active")
+                .and_then(Value::as_bool)
+                .ok_or("removal missing boolean active state")?,
+        })
+    } else {
+        if obj.contains_key("id") || obj.contains_key("active") {
+            return Err("removal control state requires schema 5".into());
+        }
+        None
+    };
+    let accepted = if matches!(schema, Some(3 | 4 | 5)) {
         let value = obj
             .get("accepted")
             .ok_or_else(|| "accepted removal missing metadata".to_string())?;
@@ -194,10 +237,10 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
         let accepted: super::accepted_removal::AcceptedRemoval =
             serde_json::from_value(value.clone())
                 .map_err(|e| format!("invalid accepted removal: {e}"))?;
-        if schema == Some(4)
+        if matches!(schema, Some(4 | 5))
             && accepted.plate != super::accepted_removal::RemovalPlate::LinearCalibrationV1
         {
-            return Err("schema-4 removal requires its linear calibration plate".into());
+            return Err("schema-4/5 removal requires its linear calibration plate".into());
         }
         Some(accepted)
     } else {
@@ -219,6 +262,7 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
         .to_string();
     let bake = bake_from_json(obj.get("bake"))?;
     let removal = Removal {
+        operation,
         accepted,
         region,
         patch_ref,
@@ -231,6 +275,14 @@ fn removal_from_json(v: &Value) -> Result<Option<Removal>, String> {
 
 pub(crate) fn validate_removal(removal: &Removal) -> Result<(), String> {
     validate_region(removal.region)?;
+    if let Some(operation) = &removal.operation {
+        operation.id.validate()?;
+        if !removal.accepted.as_ref().is_some_and(|accepted| {
+            accepted.plate == super::accepted_removal::RemovalPlate::LinearCalibrationV1
+        }) {
+            return Err("editable removal requires its linear calibration plate".into());
+        }
+    }
     if let Some(accepted) = &removal.accepted {
         accepted.validate()?;
         super::accepted_removal::ContentDigest::parse(&removal.patch_ref)?;
@@ -252,6 +304,14 @@ pub(crate) fn validate_removal(removal: &Removal) -> Result<(), String> {
         return Err("removal bake grade must be finite".into());
     }
     Ok(())
+}
+
+impl Removal {
+    pub fn is_active(&self) -> bool {
+        self.operation
+            .as_ref()
+            .is_none_or(|operation| operation.active)
+    }
 }
 
 fn region_from_json(v: Option<&Value>) -> Result<[f32; 4], String> {
@@ -293,6 +353,7 @@ mod tests {
 
     fn sample() -> Removal {
         Removal {
+            operation: None,
             accepted: None,
             region: [0.25, 0.1, 0.5, 0.4],
             patch_ref: "blake3:deadbeef".to_string(),

@@ -1,4 +1,7 @@
 //! Experimental model pins shared with authoring workers (#3941).
+use raw_core::pipeline::{
+    SavedRemovalAction, SAVED_REMOVAL_EDIT_VERSION, SAVED_REMOVAL_ENTRY_FIELDS,
+};
 use raw_core::stages::removal_people::PersonRole;
 use raw_core::types::removal_models::{
     EXPERIMENTAL_REMOVAL_MODELS, REMOVAL_FRINGE_RADIUS, REMOVAL_HOLE_RADIUS,
@@ -41,6 +44,12 @@ pub fn emit_ts() -> String {
         "} as const;\nexport type RemovalPersonRole = keyof typeof REMOVAL_PERSON_ROLES;\n",
     );
     out.push_str("export interface RemovalPersonSuggestion {\n  detection: import('../removal/removal-inference.types').RemovalDetection;\n  role: RemovalPersonRole;\n  keep: boolean;\n}\n");
+    out.push_str(&format!("export const SAVED_REMOVAL_EDIT_VERSION = {SAVED_REMOVAL_EDIT_VERSION};\nexport interface SavedRemovalEntry {{\n"));
+    for (field, kind) in SAVED_REMOVAL_ENTRY_FIELDS {
+        out.push_str(&format!("  readonly {field}: {kind};\n"));
+    }
+    out.push_str("}\n");
+    emit_saved_actions(&mut out, false);
     out
 }
 
@@ -114,5 +123,68 @@ pub fn emit_swift() -> String {
         ));
     }
     out.push_str("    }\n  }\n}\n\npublic struct RemovalPersonSuggestion: Decodable, Sendable {\n  public let detection: NativeRemovalDetection\n  public let role: RemovalPersonRole\n  public let keep: Bool\n}\n");
+    out.push_str(&format!("\npublic let savedRemovalEditVersion = {SAVED_REMOVAL_EDIT_VERSION}\npublic struct SavedRemovalEntry: Decodable, Sendable, Identifiable {{\n"));
+    for (field, kind) in SAVED_REMOVAL_ENTRY_FIELDS {
+        let swift = match *kind {
+            "string" => "String",
+            "number" => "Int",
+            "boolean" => "Bool",
+            "number[]" => "[Float]",
+            "string | null" => "String?",
+            _ => panic!("unknown saved removal field type"),
+        };
+        out.push_str(&format!("  public let {}: {swift}\n", camel_case(field)));
+    }
+    out.push_str("  private enum CodingKeys: String, CodingKey {\n");
+    for (field, _) in SAVED_REMOVAL_ENTRY_FIELDS {
+        out.push_str(&format!("    case {} = \"{field}\"\n", camel_case(field)));
+    }
+    out.push_str("  }\n}\n");
+    emit_saved_actions(&mut out, true);
     out
+}
+
+fn emit_saved_actions(out: &mut String, swift: bool) {
+    out.push_str(if swift {
+        "\npublic enum SavedRemovalAction: String, Encodable, Sendable {\n"
+    } else {
+        "export const SAVED_REMOVAL_ACTIONS = {\n"
+    });
+    for action in SavedRemovalAction::ALL {
+        let value = serde_json::to_value(action).expect("saved action is serializable");
+        let wire = value.as_str().expect("saved action is a string");
+        let name = camel_case(wire);
+        out.push_str(&if swift {
+            format!("  case {name} = \"{wire}\"\n")
+        } else {
+            format!("  {name}: '{wire}',\n")
+        });
+    }
+    out.push_str(if swift {"}\n"} else {"} as const;\nexport type SavedRemovalAction = (typeof SAVED_REMOVAL_ACTIONS)[keyof typeof SAVED_REMOVAL_ACTIONS];\n"});
+}
+
+fn camel_case(wire: &str) -> String {
+    let mut words = wire.split(['-', '_']);
+    let mut name = words.next().unwrap().to_owned();
+    for word in words {
+        name.push_str(&word[..1].to_uppercase());
+        name.push_str(&word[1..]);
+    }
+    name
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn saved_rows_keep_wire_keys_and_use_valid_swift_names() {
+        let swift = emit_swift();
+        let ts = emit_ts();
+        for (wire, _) in SAVED_REMOVAL_ENTRY_FIELDS {
+            assert!(ts.contains(&format!("readonly {wire}:")));
+            assert!(swift.contains(&format!("public let {}:", camel_case(wire))));
+            assert!(swift.contains(&format!("case {} = \"{wire}\"", camel_case(wire))));
+        }
+        assert!(swift.contains("case setActive = \"set-active\""));
+    }
 }

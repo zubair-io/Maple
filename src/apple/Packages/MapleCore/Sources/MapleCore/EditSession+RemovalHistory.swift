@@ -16,29 +16,65 @@ extension EditSession {
   /// Intermediate assets may survive a failed publication, but no prefix of
   /// this group becomes visible in the sidecar or editor model.
   public func acceptRemovals(
-    _ proposals: [NativeRemovalProposal], snapshot: RemovalAuthoringSnapshot
+    _ proposals: [NativeRemovalProposal], snapshot: RemovalAuthoringSnapshot,
+    replacing id: String? = nil
   ) async throws {
     try Task.checkCancellation()
     guard !proposals.isEmpty else { throw RemovalError.invalid("No removal proposals to keep") }
+    guard id == nil || proposals.count == 1 else {
+      throw RemovalError.invalid("Replace one saved removal at a time")
+    }
     let expectedModel = snapshot.model
     guard model == expectedModel, editRevision == snapshot.editRevision else {
       throw RemovalError.saveConflict
     }
     let task = try confirmedRemovalTask(
       transition: .new(
-        .repair, proposals.count == 1 ? "Remove object" : "Remove \(proposals.count) objects"),
+        .repair,
+        id != nil
+          ? "Replace removal"
+          : (proposals.count == 1 ? "Remove object" : "Remove \(proposals.count) objects")),
       sidecarRevision: snapshot.sidecarRevision
     ) { raw in
       let store = LocalRemovalAssetStore(rawURL: raw)
-      var records = expectedModel.inpaintRemovals?.json ?? "[]"
+      let previous = expectedModel.inpaintRemovals?.json ?? "[]"
+      var records =
+        try id.map { try RemovalBridge.savedPrefix(records: previous, id: $0) } ?? previous
       for proposal in proposals {
         records = try await store.publish(
           request: proposal.request, prior: records, mask: proposal.mask, patch: proposal.patch)
+      }
+      if let id {
+        records = try RemovalBridge.savedEdit(
+          records: previous, id: id, action: .replace,
+          replacement: records)
       }
       var accepted = expectedModel
       accepted.inpaintRemovals = try RemovalRecords(json: records)
       return accepted
     }
+    try await task.value
+  }
+
+  /// One enable/delete action is one confirmed editor transaction. Immutable
+  /// companions remain retained for history, even when no current row uses them.
+  public func editSavedRemoval(
+    id: String, active: Bool?, snapshot: RemovalAuthoringSnapshot
+  ) async throws {
+    guard model == snapshot.model, editRevision == snapshot.editRevision else {
+      throw RemovalError.saveConflict
+    }
+    let before = snapshot.model
+    let records = try RemovalBridge.savedEdit(
+      records: before.inpaintRemovals?.json ?? "[]",
+      id: id, action: active == nil ? .delete : .setActive, active: active)
+    var target = before
+    target.inpaintRemovals = try RemovalRecords(json: records)
+    let description = active.map { $0 ? "Enable removal" : "Disable removal" } ?? "Delete removal"
+    let task = try confirmedRemovalTask(
+      transition: .new(.repair, description),
+      sidecarRevision: snapshot.sidecarRevision
+    ) { _ in target }
     try await task.value
   }
 

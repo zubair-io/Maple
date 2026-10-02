@@ -1,4 +1,4 @@
-// Execute the same actual WASM cold owner outside Playwright's CJS transform.
+// Execute the native Rust CLI oracle outside Playwright's CJS transform.
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';

@@ -16,6 +16,17 @@ export class SavedRemovalPreviewClient {
     this.current = null;
     this.client.close();
   }
+
+  /** Idle/cold derivatives share the bounded decode queue, never a live prepared stack. */
+  renderDerivative(
+    input: RemovalInput,
+    xmp: string,
+    bundle: RemovalCompanionBundle,
+    cap: number,
+    film?: ArrayBuffer,
+  ): Promise<DecodedImage> {
+    return this.queue(() => this.client.renderDerivative(input, xmp, bundle, cap, film));
+  }
   render(
     input: RemovalInput,
     records: string,

@@ -11,6 +11,10 @@ import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { hasXmlParseError } from '../xmp/xmp-dom-utils';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import type { PreviewLocation } from './preview-location';
+import init, { removal_asset_names } from '../raw-pipeline/pkg/raw_wasm';
+import { savedRemovalRecords } from '../removal/saved-removal-records';
+import { bundleRemovalCompanions } from '../removal/removal-companion-bundle';
+import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 
 /** Cold RAW derivatives use the actual authored sidecar, including its film LUT.
  * Missing sidecars permit embedded extraction; all other failures stay failures. */
@@ -40,12 +44,60 @@ export class HostedRawSidecarService {
     return xml;
   }
 
-  async develop(bytes: Uint8Array, ext: string, xml: string): Promise<Blob> {
+  async render(
+    bytes: Uint8Array,
+    ext: string,
+    xml: string,
+    folder: MapleFolderHandle,
+    location: PreviewLocation,
+    qualityPreview: boolean,
+  ): Promise<DecodedImage> {
     const { model } = this.parser.parseAdjustmentModel(xml);
     const film = await this.films.getLattice(model.filmLook ?? '');
-    const image = await this.injector
-      .get(RawPipelineService)
-      .decode(bytes, ext, xml, PREVIEW_LONG_EDGE_PX, true, film ?? undefined);
+    const pipeline = this.injector.get(RawPipelineService);
+    const records = savedRemovalRecords(xml);
+    if (!records)
+      return pipeline.decode(
+        bytes,
+        ext,
+        xml,
+        PREVIEW_LONG_EDGE_PX,
+        qualityPreview,
+        film ?? undefined,
+      );
+    const directory = location.dir ? `${location.dir}/` : '';
+    await init();
+    const names = JSON.parse(removal_asset_names(records)) as string[];
+    const entries = await Promise.all(
+      names.map(
+        async (name) =>
+          [
+            name,
+            await this.folders.readFile(folder, `${directory}.maple/inpaint/${name}`),
+          ] as const,
+      ),
+    );
+    return pipeline.savedPreview.renderDerivative(
+      {
+        sourceId: `${folder.persistedKey ?? folder.name}:${directory}${location.filename}`,
+        bytes,
+        ext,
+      },
+      xml,
+      bundleRemovalCompanions(new Map(entries)),
+      PREVIEW_LONG_EDGE_PX,
+      film ?? undefined,
+    );
+  }
+
+  async develop(
+    bytes: Uint8Array,
+    ext: string,
+    xml: string,
+    folder: MapleFolderHandle,
+    location: PreviewLocation,
+  ): Promise<Blob> {
+    const image = await this.render(bytes, ext, xml, folder, location, true);
     return (await encodeDevelopedRenderToAvif(image)) ?? encodeDevelopedRenderToJpeg(image);
   }
 }

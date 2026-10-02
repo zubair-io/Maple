@@ -231,6 +231,55 @@ public enum RemovalBridge {
     return try JSONDecoder().decode([String].self, from: data)
   }
 
+  public static func savedList(records: String) throws -> [SavedRemovalEntry] {
+    try requireCString(records)
+    let data = try records.withCString { records in
+      try buffer { output, capacity, length in
+        maple_removal_saved_list_buf(records, output, capacity, length)
+      }
+    }
+    return try JSONDecoder().decode([SavedRemovalEntry].self, from: data)
+  }
+
+  public static func savedPrefix(records: String, id: String) throws -> String {
+    try requireCString(records)
+    try requireCString(id)
+    let data = try records.withCString { records in
+      try id.withCString { id in
+        try buffer { output, capacity, length in
+          maple_removal_saved_prefix_buf(records, id, output, capacity, length)
+        }
+      }
+    }
+    return String(decoding: data, as: UTF8.self)
+  }
+
+  public static func savedEdit(
+    records: String, id: String, action: SavedRemovalAction,
+    active: Bool? = nil, replacement: String? = nil
+  ) throws -> String {
+    struct Request: Encodable {
+      let schema = savedRemovalEditVersion
+      let id: String
+      let action: SavedRemovalAction
+      let active: Bool?
+      let replacement: String?
+    }
+    try requireCString(records)
+    let request = String(
+      decoding: try JSONEncoder().encode(
+        Request(id: id, action: action, active: active, replacement: replacement)), as: UTF8.self)
+    try requireCString(request)
+    let data = try records.withCString { records in
+      try request.withCString { request in
+        try buffer { output, capacity, length in
+          maple_removal_saved_edit_buf(records, request, output, capacity, length)
+        }
+      }
+    }
+    return String(decoding: data, as: UTF8.self)
+  }
+
   public static func verifyAsset(name: String, data: Data) throws {
     try requireCString(name)
     let rc = name.withCString { name in

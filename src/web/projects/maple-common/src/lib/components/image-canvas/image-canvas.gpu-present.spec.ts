@@ -114,6 +114,7 @@ function makeHost(
 
   const canvasSvc = {
     currentPixels: signal<DecodedImage | null>(null),
+    cropInputDimensions: signal<{ w: number; h: number } | null>(null),
     pan: signal({ x: 0, y: 0 }),
   } as unknown as GpuPresentHost['canvasSvc'];
 
@@ -173,18 +174,31 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const neutral = '<rdf:Description papp:Profile="Neutral"/>';
 
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, params);
+    expect(render).toHaveBeenLastCalledWith(auto, params, undefined);
+    expect(host.savedRemovals.load).toHaveBeenCalledTimes(1);
     await present.render(neutral, 1);
-    expect(render).toHaveBeenLastCalledWith(neutral, undefined);
+    expect(render).toHaveBeenLastCalledWith(neutral, undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, params);
+    expect(render).toHaveBeenLastCalledWith(auto, params, undefined);
     present.teardown();
     await present.render(auto, 1, params);
-    expect(render).toHaveBeenLastCalledWith(auto, undefined);
+    expect(render).toHaveBeenLastCalledWith(auto, undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
   });
 
   it('uses full XMP when Auto is chosen while a Neutral render is pending', async () => {
@@ -205,13 +219,33 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
         }),
     );
     const pendingNeutral = present.render('Neutral', 1);
+    await vi.waitFor(() => expect(render).toHaveBeenCalledTimes(2));
     Object.assign(host, { renderGeneration: 2 });
     await present.render('Auto', 2, params);
-    expect(render).toHaveBeenLastCalledWith('Auto', undefined);
+    expect(render).toHaveBeenLastCalledWith('Auto', undefined, {
+      manifest: '[]',
+      bytes: new Uint8Array(),
+    });
     resolveNeutral({ colorSpace: 'srgb', width: 31, height: 19 });
     expect(await pendingNeutral).toBe(false);
     await present.render('Auto', 2, params);
-    expect(render).toHaveBeenLastCalledWith('Auto', params);
+    expect(render).toHaveBeenLastCalledWith('Auto', params, undefined);
+  });
+
+  it('transfers verified companions on a cold render and performs no companion read on scalar ticks', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    const bundle = { manifest: '[{"name":"saved","length":1}]', bytes: new Uint8Array([7]) };
+    vi.mocked(host.savedRemovals.load).mockResolvedValue(bundle);
+    const render = vi
+      .mocked(host.pipeline.renderLiveSession)
+      .mockResolvedValue({ colorSpace: 'srgb', width: 31, height: 19 });
+    const params = new Float32Array(19);
+    await present.render('accepted recipe', 1, params);
+    expect(render).toHaveBeenLastCalledWith('accepted recipe', undefined, bundle);
+    await present.render('next exposure', 1, params);
+    expect(render).toHaveBeenLastCalledWith('next exposure', params, undefined);
+    expect(host.savedRemovals.load).toHaveBeenCalledTimes(1);
   });
 
   it('publishes actual Auto provenance only for current XMP replies', async () => {

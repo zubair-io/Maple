@@ -217,7 +217,36 @@ The seven `crs:Perspective*` keys (#3410) are Adobe's own, read and written **un
 
 Band suffixes are `Red`, `Orange`, `Yellow`, `Green`, `Aqua`, `Blue`, `Purple`, `Magenta` for all four eight-band groups. Crop, culling, metadata, the point tone curves and local adjustments have their own sections below.
 
-The structured `papp:InpaintRemovals` key is validated by `raw-core`. Swift carries its exact validated JSON as immutable `AdjustmentModel.inpaintRemovals` state. Web carries the exact ordered JSON in its adjustment model and validates accepted assets through Rust; C# preserves it through passthrough. The array contains baked-removal records (region, patch content hash, model id and bake grade); pixels live out of band in `.maple/inpaint/` (`raw-core/src/types/inpaint.rs`). It uses a _tolerant_ reader for unknown element kinds, while a recognized removal with corrupt fields or an unsupported explicit schema version fails loudly. The reader accepts legacy schema `2` (including records with no schema stamp) and accepted-edit schema `3` and linear-calibration schema `4`; other explicit versions fail. Schema 3 adds the immutable original and fixed decode-anchor digests, source dimensions, intent-mask digest, native patch/context windows, exact model/recipe digests and ordered preceding context dependencies. Schema 3 retains its post-DCP composition semantics and omits a plate field. Schema 4 requires `accepted.plate="linear-calibration-v1"`: signed linear Rec.2020 calibration pixels return to camera RGB before lens correction and user WB/DCP. A missing, different or unknown plate fails; changing only the schema to 3 cannot reinterpret a schema-4 asset. Preparing a new record defaults to the legacy plate for compatibility, so calibration authoring must explicitly request its plate. Every content identity is a lowercase `blake3:` digest. Both companions must pass checksum and native-geometry validation; selected intent pixels require opaque replacement coverage. Changing a context dependency marks the later edit for review while retaining its accepted pixels. Shared preparation preserves unknown element kinds when appending a record. Regions must be finite, non-empty and inside the normalized source frame. Bake-grade values must be finite, and patch/model identities must be non-empty. The shared encoder returns an error rather than writing invalid metadata. This reader/codec foundation is not an editor authoring flow; completion is tracked by #1472. Local adjustments used to be the second member of this pair (`papp:LocalAdjustments`, a compact-JSON attribute); #358 moved it onto a canonical, nested-element wire form — see "Local adjustments" below.
+The structured `papp:InpaintRemovals` key is validated by `raw-core`. Swift carries its exact validated JSON as immutable `AdjustmentModel.inpaintRemovals` state. Web carries the exact ordered JSON in its adjustment model and validates accepted assets through Rust; C# preserves it through passthrough. The array contains baked-removal records (region, patch content hash, model id and bake grade); pixels live out of band in `.maple/inpaint/` (`raw-core/src/types/inpaint.rs`). It uses a _tolerant_ reader for unknown element kinds, while a recognized removal with corrupt fields or an unsupported explicit schema version fails loudly. The reader accepts legacy schema `2` (including records with no schema stamp) and accepted-edit schema `3` and linear-calibration schemas `4` and `5`; other explicit versions fail. Schema 3 adds the immutable original and fixed decode-anchor digests, source dimensions, intent-mask digest, native patch/context windows, exact model/recipe digests and ordered preceding context dependencies. Schema 3 retains its post-DCP composition semantics and omits a plate field. Schema 4 requires `accepted.plate="linear-calibration-v1"`: signed linear Rec.2020 calibration pixels return to camera RGB before lens correction and user WB/DCP. A missing, different or unknown plate fails; changing only the schema to 3 cannot reinterpret a schema-4 asset. Preparing a new record defaults to the legacy plate for compatibility, so calibration authoring must explicitly request its plate. Every content identity is a lowercase `blake3:` digest. Both companions must pass checksum and native-geometry validation; selected intent pixels require opaque replacement coverage. Changing a context dependency marks the later edit for review while retaining its accepted pixels. Shared preparation preserves unknown element kinds when appending a record. Regions must be finite, non-empty and inside the normalized source frame. Bake-grade values must be finite, and patch/model identities must be non-empty. The shared encoder returns an error rather than writing invalid metadata. This reader/codec foundation is not an editor authoring flow; completion is tracked by #1472. Local adjustments used to be the second member of this pair (`papp:LocalAdjustments`, a compact-JSON attribute); #358 moved it onto a canonical, nested-element wire form — see "Local adjustments" below.
+
+### Saved removal identities and controls
+
+Schema `5` adds required top-level `id` and `active` fields to the schema-4
+linear-calibration record. The id is a lowercase `blake3:` operation identity,
+separate from mask, patch and baked recipe digests; ids must be unique within the
+ordered stack. `active` must be a boolean. A schema-5 record requires accepted
+metadata and the explicit `linear-calibration-v1` plate. Schema 2/3/4 records
+carrying either control field fail rather than ignoring disabled intent. Older
+readers that reject schema 5 must not rewrite these edits.
+
+Read-only listing does not migrate legacy records. The first explicit saved-row
+edit upgrades supported schema-4 records together, assigning stable ids before
+changing array order. Legacy schema-2/3 records remain unchanged; deletion is
+available, but current calibration controls cannot toggle or regenerate them.
+Unknown element kinds retain their JSON values and array positions. Baked recipe
+fingerprints exclude operation id/enable state, preserving schema-3/4 dependency
+identities across this explicit upgrade.
+
+Disabling keeps both verified companions and all recipe metadata, while excluding
+that patch from composition and new generation context. Deleting removes the
+record but retains immutable assets for history and shared references. Replace
+loads the saved intent mask for refinement and generates against active earlier
+patches only. Keep replaces that operation at its original position and preserves
+its id; later patches keep their pixels and provenance. Changed intersecting
+preceding context produces **Needs review** until the photographer explicitly
+replaces the later result. Identical restored dependencies clear review without
+inference. Every accepted toggle, deletion or replacement is one confirmed editor
+history action; temporary strokes have their own undo/redo.
 
 ### Removal publication and confirmed saving
 

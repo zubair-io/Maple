@@ -9,6 +9,12 @@ import { bundleRemovalCompanions } from './removal-companion-bundle';
 import type { RemovalProposal } from './removal-inference.types';
 import type { RemovalEditorSession } from './removal-editor-session.service';
 import { REMOVAL_AUTHORING_DEFAULTS } from '../generated/removal-models.generated';
+import {
+  replacementPrefix,
+  replaceRecords,
+  companionsFor,
+  savedEntries,
+} from './removal-editor-saved';
 
 export async function remove(session: RemovalEditorSession): Promise<void> {
   const photo = session.photo;
@@ -17,7 +23,7 @@ export async function remove(session: RemovalEditorSession): Promise<void> {
   session.phase.set('generating');
   session.message.set('');
   try {
-    let records = photo.prior;
+    let records = replacementPrefix(session, photo.prior);
     const companions = new Map(photo.companions),
       proposals: RemovalProposal[] = [];
     const masks = session.mode() === 'people' ? session.masks : [session.selection()];
@@ -38,7 +44,7 @@ export async function remove(session: RemovalEditorSession): Promise<void> {
       const scene = await session.pipeline.removal.generationContext(
         xml,
         [x, y, width, height],
-        bundleRemovalCompanions(companions),
+        bundleRemovalCompanions(companionsFor(records, companions)),
       );
       session.check(token);
       const proposal = await session
@@ -56,8 +62,12 @@ export async function remove(session: RemovalEditorSession): Promise<void> {
       companions.set(removal_content_digest(proposal.patch).slice(7) + '.f16', proposal.patch);
       proposals.push(proposal);
     }
+    records = replaceRecords(session, photo.prior, records);
     const xml = session.recipe(photo, records);
-    await session.pipeline.removal.prepareSaved(xml, bundleRemovalCompanions(companions));
+    await session.pipeline.removal.prepareSaved(
+      xml,
+      bundleRemovalCompanions(companionsFor(records, companions)),
+    );
     session.check(token);
     const preview = await session.pipeline.removal.renderSaved(xml, 1280);
     session.check(token);
@@ -108,7 +118,7 @@ export async function keep(session: RemovalEditorSession): Promise<void> {
   session.phase.set('saving');
   session.message.set('');
   try {
-    let published = photo.prior;
+    let published = replacementPrefix(session, photo.prior);
     for (const proposal of draft.proposals) {
       published = await photo.assets.publish(
         proposal.request,
@@ -118,10 +128,11 @@ export async function keep(session: RemovalEditorSession): Promise<void> {
       );
       session.check(token);
     }
+    published = replaceRecords(session, photo.prior, published);
     if (published !== draft.records) throw new Error('Published removal records changed.');
     await session.pipeline.removal.prepareSaved(
       draft.xml,
-      bundleRemovalCompanions(draft.companions),
+      bundleRemovalCompanions(companionsFor(draft.records, draft.companions)),
     );
     session.check(token);
     session.committingXml = draft.xml;
@@ -129,7 +140,11 @@ export async function keep(session: RemovalEditorSession): Promise<void> {
     const sidecarRevision = await session.editor.acceptRemoval(
       draft.records,
       photo.model,
-      draft.proposals.length === 1 ? 'Remove object' : `Remove ${draft.proposals.length} objects`,
+      session.replacingRemoval()
+        ? 'Replace removal'
+        : draft.proposals.length === 1
+          ? 'Remove object'
+          : `Remove ${draft.proposals.length} objects`,
       photo.sidecarRevision,
     );
     if (token !== session.revision) return;
@@ -137,12 +152,15 @@ export async function keep(session: RemovalEditorSession): Promise<void> {
       ...photo,
       prior: draft.records,
       xml: draft.xml,
-      companions: draft.companions,
+      companions: companionsFor(draft.records, draft.companions),
       model: { ...photo.model, inpaintRemovals: draft.records },
       sidecarRevision,
     };
     session.key = session.keyFor(photo.asset, draft.xml);
     session.resetProxy();
+    session.savedRemovals.set(savedEntries(draft.records));
+    session.replacingRemoval.set(null);
+    session.replacementBase = new Uint8Array();
     session.draft = undefined;
     session.preview.set(null);
     session.phase.set('ready');

@@ -379,7 +379,17 @@ export class ImageCanvasGpuPresent {
     // even while the Neutral request is still queued in the worker (#2441).
     if (!fastParams) this.scalarPrefixRevision = undefined;
     try {
-      const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams);
+      // Only a cold prefix change reads companions. Scalar ticks keep their
+      // existing flat-params path with no file I/O or additional WASM call.
+      const saved =
+        !fastParams && this.host.currentAssetId
+          ? ((await this.host.savedRemovals.load(this.host.currentAssetId, xmp)) ?? {
+              manifest: '[]',
+              bytes: new Uint8Array(),
+            })
+          : undefined;
+      if (generation !== this.host.renderGeneration) return false;
+      const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams, saved);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.

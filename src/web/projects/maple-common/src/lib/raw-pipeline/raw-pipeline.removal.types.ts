@@ -9,6 +9,15 @@ export interface RemovalInput {
 }
 
 export type RemovalAuthoringCommand =
+  | {
+      kind: 'derivative';
+      bytes: ArrayBuffer;
+      xmp: string;
+      manifest: string;
+      companions: ArrayBuffer;
+      cap: number;
+      film?: ArrayBuffer;
+    }
   | { kind: 'source'; bytes: ArrayBuffer }
   | { kind: 'proxy'; xmp: string }
   | { kind: 'map'; xmp: string; request: string }

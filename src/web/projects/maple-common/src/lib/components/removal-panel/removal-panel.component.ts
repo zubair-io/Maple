@@ -5,7 +5,7 @@ import {
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
-import { MuiSegmentedToggleComponent } from '../../ui/segmented-toggle/mui-segmented-toggle.component';
+import { MuiSelectComponent } from '../../ui/select/mui-select.component';
 import {
   RemovalEditorSession,
   type RemovalMode,
@@ -14,7 +14,7 @@ import {
 @Component({
   selector: 'editor-removal-panel',
   standalone: true,
-  imports: [MuiButtonComponent, MuiLivingSliderComponent, MuiSegmentedToggleComponent],
+  imports: [MuiButtonComponent, MuiLivingSliderComponent, MuiSelectComponent],
   templateUrl: './removal-panel.component.html',
   styleUrl: './removal-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

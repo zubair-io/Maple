@@ -1,41 +1,41 @@
-// Actual cold WASM export oracle, executed in native Node ESM by Playwright.
-import { readFile, readdir, writeFile } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
-import {
-  initSync,
-  NativeDetailSession,
-} from '../../projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm.js';
+// Native Rust recipe oracle resolves exact XMP-referenced assets independently
+// of the browser, including disabled records and retained orphan companions.
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { writeFile, rm } from 'node:fs/promises';
+import { resolve, join, dirname, basename } from 'node:path';
 const [root, output] = process.argv.slice(2);
 if (!root || !output) throw new Error('Usage: saved-export-oracle.mjs ROOT OUTPUT');
-initSync({
-  module: await readFile(
-    resolve(
-      import.meta.dirname,
-      '../../projects/maple-common/src/lib/raw-pipeline/pkg/raw_wasm_bg.wasm',
-    ),
-  ),
-});
-const raw = new Uint8Array(await readFile(join(root, 'photo.dng')));
-const xmp = await readFile(join(root, 'photo.xmp'), 'utf8');
-const names = (await readdir(join(root, '.maple/inpaint'))).sort();
-const files = await Promise.all(names.map((name) => readFile(join(root, '.maple/inpaint', name))));
-const companions = Buffer.concat(files);
-const manifest = JSON.stringify(
-  names.map((name, index) => ({ name, length: files[index].length })),
+const cli = resolve(import.meta.dirname, '../../../raw-pipeline/target/release/maple-cli');
+const recipe = output + '.recipe.json';
+await writeFile(
+  recipe,
+  JSON.stringify({
+    schemaVersion: 1,
+    name: 'Removal browser qualification',
+    format: 'png',
+    quality: null,
+    bitDepth: 8,
+    maxLongEdge: null,
+    outputProfile: 'srgb',
+    renderingIntent: 'maple-display',
+    metadataPolicy: 'strip',
+    namingTemplate: basename(output),
+    destination: 'directory',
+    directory: dirname(output),
+    watermark: null,
+    overwritePolicy: 'replace',
+  }),
 );
-const session = new NativeDetailSession(raw, 'dng');
 try {
-  session.prepare_saved_removals(xmp, manifest, companions);
-  const encoded = session.export_saved_removals(
-    xmp,
-    JSON.stringify({ format: 'png', quality: 92, color_space: 'srgb', max_long_edge: 0 }),
-    new Uint8Array(),
-  );
-  try {
-    await writeFile(output, encoded.chunk(0, encoded.byteLength));
-  } finally {
-    encoded.free();
-  }
+  await promisify(execFile)(cli, [
+    'export-recipe',
+    join(root, 'photo.dng'),
+    '--params',
+    join(root, 'photo.xmp'),
+    '--recipe',
+    recipe,
+  ]);
 } finally {
-  session.free();
+  await rm(recipe);
 }

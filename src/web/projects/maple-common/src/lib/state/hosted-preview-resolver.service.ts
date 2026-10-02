@@ -125,7 +125,7 @@ export class HostedPreviewResolver {
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
       const blob =
         xml !== null
-          ? await this.sidecars.develop(snapshot.bytes, ext, xml)
+          ? await this.sidecars.develop(snapshot.bytes, ext, xml, folder!, location!)
           : (await this.previewExtractor.extractEmbeddedPreview(snapshot.bytes, ext)).blob;
       this._scheduleWrite(folder, location, blob, snapshot.source, id, getSourceIdentity, xml);
       return blob;
