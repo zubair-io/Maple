@@ -120,6 +120,7 @@ async function checkBinaryAsset(path, expectedContentType, magic, label) {
 	if (edgeHash !== originHash)
 		fail(label, `${path} SHA-256 differs from origin: edge=${edgeHash}, origin=${originHash}`);
 	else console.log(`${label}: ${buffer.length} bytes, sha256=${edgeHash} (matches origin)`);
+	return edge;
 }
 
 async function checkWasm() {
@@ -136,7 +137,9 @@ async function checkWoff2() {
 }
 
 async function checkHeaders() {
-	const response = await fetchResponse(baseUrl, '/');
+	const response = await fetchResponse(baseUrl, '/', {
+		headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate' },
+	});
 	if (response.status !== 200) fail('headers', `/ returned ${response.status}, expected 200`);
 	checkSecurityHeaders(response, '/');
 	checkStableCache(response, '/');
@@ -144,14 +147,15 @@ async function checkHeaders() {
 }
 
 async function checkServiceWorkerManifest() {
-	await checkBinaryAsset('/ngsw.json', 'application/json', [], 'service-worker');
-	const response = await fetchResponse(baseUrl, '/ngsw.json');
+	const asset = await checkBinaryAsset('/ngsw.json', 'application/json', [], 'service-worker');
+	if (!asset) return;
+	const { response, buffer } = asset;
 	const cache = response.headers.get('cache-control') ?? '';
 	if (!cache.split(',').some((directive) => directive.trim().toLowerCase() === 'no-cache')) {
 		fail('cache', `/ngsw.json must revalidate with no-cache (got "${cache}")`);
 	}
 	try {
-		const manifest = await response.json();
+		const manifest = JSON.parse(new TextDecoder().decode(buffer));
 		if (!manifest.hashTable || typeof manifest.hashTable !== 'object')
 			fail('service-worker', '/ngsw.json has no hashTable');
 	} catch {

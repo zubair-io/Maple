@@ -27,11 +27,13 @@
 	},
 
 	/**
-	 * Route this Worker onto the production Hosted domain. Needs a
+	 * Assign this standalone Worker to the production Hosted custom domain.
+	 * The existing dashboard `ssr` also serves other domains; preserve those
+	 * assignments when moving mapleaperture.com. Needs a
 	 * Cloudflare-managed zone for that domain. Uncomment once you have one:
-	 * https://developers.cloudflare.com/workers/configuration/routing/routes/
+	 * https://developers.cloudflare.com/workers/configuration/routing/custom-domains/
 	 */
-	// "routes": [{ "pattern": "mapleaperture.com/*", "zone_name": "mapleaperture.com" }],
+	// "routes": [{ "pattern": "mapleaperture.com", "custom_domain": true }],
 
 	/**
 	 * Smart Placement
