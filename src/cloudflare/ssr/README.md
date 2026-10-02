@@ -73,9 +73,13 @@ and zone. `wrangler.jsonc.example` is the committed template.
 1. Fill in `ORIGIN_BASE_URL` in your `wrangler.jsonc` with the public base
    URL of the Azure Blob Storage container `deploy-hosted.yml` uploads into
    (account `hornbeam`, container `mapleaperture` as of this writing).
-2. Attach the production route — uncomment and fill in the `routes` block
-   in your `wrangler.jsonc` (needs a Cloudflare-managed zone for the
-   domain).
+2. Assign the production custom domain — uncomment the `routes` block in
+   `wrangler.jsonc` (`pattern: "mapleaperture.com", custom_domain: true`).
+   The live dashboard Worker is named `ssr` and also serves
+   `mapleeditor.com` and `maple-editor.com` (verified 2026-10-02). Deploy
+   this standalone `maple-hosted-ssr` Worker and transfer only
+   `mapleaperture.com` to it. Record the prior custom-domain assignment and
+   Worker version before the transfer so it can be restored if needed.
 3. `npm run deploy`.
 4. Run the smoke check against the live domain:
    `npm run smoke -- https://mapleaperture.com`. It compares full SHA-256 hashes of WASM, PNG, WOFF2 and `ngsw.json`

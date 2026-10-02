@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { test } from 'node:test';
+import { gzipSync } from 'node:zlib';
 
 const policy = {
 	'cross-origin-opener-policy': 'same-origin',
@@ -32,7 +33,7 @@ async function runSmoke(change = () => {}, changeOrigin = () => {}) {
 				},
 				body: asset?.[1] ?? Buffer.from(missing ? 'missing' : '<html>Maple</html>'),
 			};
-			rewrite(path, result);
+			rewrite(path, result, request);
 			response.writeHead(result.status, result.headers);
 			response.end(result.body);
 		});
@@ -123,4 +124,21 @@ test('CLI rejects an unavailable origin rather than certifying edge bytes', asyn
 	);
 	assert.equal(result.code, 1, result.output);
 	assert.match(result.output, /origin.*returned 404/);
+});
+
+test('CLI requests the root as an HTML navigation, matching the SPA fallback contract', async () => {
+	const result = await runSmoke((path, response, request) => {
+		if (path === '/' && request.headers.accept !== 'text/html') response.status = 404;
+	});
+	assert.equal(result.code, 0, result.output);
+});
+
+test('CLI compares decoded compressed bytes to the origin without mistaking wire Content-Length for decoded length', async () => {
+	const result = await runSmoke((path, response) => {
+		if (path !== '/raw_wasm_bg.wasm') return;
+		response.body = gzipSync(response.body);
+		response.headers['content-encoding'] = 'gzip';
+		response.headers['content-length'] = String(response.body.length);
+	});
+	assert.equal(result.code, 0, result.output);
 });
