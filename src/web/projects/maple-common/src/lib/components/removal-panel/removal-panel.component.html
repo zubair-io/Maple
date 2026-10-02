@@ -84,20 +84,23 @@
     >
   }
   @if (session.canPaint() && session.phase() !== 'review') {
+    @if (session.phase() === 'ready' && !session.paintReady()) {
+      <p class="text-[11px] text-text-muted" role="status">Preparing photo for selection…</p>
+    }
     <mui-living-slider
       label="Brush size"
       [value]="session.radius()"
       [min]="0.0005"
       [max]="0.1"
       [step]="0.0005"
-      [disabled]="session.busy()"
+      [disabled]="!session.paintReady()"
       (valueChange)="session.radius.set($event)"
     />
     <div class="flex flex-wrap gap-2">
       <mui-button
         size="sm"
         [active]="!session.subtract()"
-        [disabled]="session.busy()"
+        [disabled]="!session.paintReady()"
         (pressed)="session.subtract.set(false)"
         ariaLabel="Paint to add selection"
         >Add</mui-button
@@ -105,7 +108,7 @@
       <mui-button
         size="sm"
         [active]="session.subtract()"
-        [disabled]="session.busy()"
+        [disabled]="!session.paintReady()"
         (pressed)="session.subtract.set(true)"
         ariaLabel="Paint to subtract selection"
         >Subtract</mui-button

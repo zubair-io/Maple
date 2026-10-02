@@ -104,14 +104,17 @@ export class RemovalOverlayComponent implements AfterViewInit, OnDestroy {
     this.resize?.disconnect();
   }
   protected down(event: PointerEvent): void {
-    if (event.button !== 0 || this.session.phase() !== 'ready' || !this.session.canPaint()) return;
+    if (event.button !== 0) return;
+    // An armed brush owns input even while its geometry loads. Falling through
+    // would let the canvas pan controller capture and discard the stroke.
+    event.preventDefault();
+    event.stopPropagation();
+    if (!this.session.paintReady() || !this.session.canPaint()) return;
     if (this.footprint().width <= 0 || !this.canvasState.cropInputDimensions()) return;
     this.pointer = event.pointerId;
     this.points = [];
     this.host.nativeElement.setPointerCapture(event.pointerId);
     this.append(event);
-    event.preventDefault();
-    event.stopPropagation();
   }
   protected move(event: PointerEvent): void {
     if (event.pointerId !== this.pointer) return;
