@@ -1,0 +1,103 @@
+{
+  "issue": 3875,
+  "sourceBase": "13d27467c",
+  "kind": "Sharpening and resizing order isolation",
+  "inputSha256": "EBFB56CD4A418D6F032F8A191143C593C44F43F788483AAB4C68A290DF7D9B4C",
+  "executableSha256": "67A83345A6E95D009842A706E424B8C89FA7EB9835D4F6FB2562B229C62E4F21",
+  "method": "Start from identical 6144x4096 scene-linear pixels immediately before sharpening. Reference: default amount 40/radius 1 sharpening, then production Mitchell resize. Candidates: same resize, then sharpening with unchanged radius or radius scaled by output density and clamped to the existing 0.5 minimum. No-sharpen control measures the stage contribution only.",
+  "results": [
+    {
+      "longEdge": 800,
+      "metrics": {
+        "unchanged-radius": {
+          "mean_dE": 1.0180918653045214,
+          "p95_dE": 3.468725268574021,
+          "max_dE": 11.19847494041464,
+          "bias_r": -0.00010935054160654545,
+          "bias_g": -0.0001144237321568653,
+          "bias_b": -5.0273676606593654E-05
+        },
+        "scaled-radius": {
+          "mean_dE": 0.3285838540903153,
+          "p95_dE": 1.08337586043029,
+          "max_dE": 7.925043900830422,
+          "bias_r": -3.350181714267819E-06,
+          "bias_g": 9.138874702330213E-06,
+          "bias_b": -9.697482164483517E-05
+        },
+        "unsharpened-control": {
+          "mean_dE": 0.06916453686548835,
+          "p95_dE": 0.21723527217974123,
+          "max_dE": 2.251059659338709,
+          "bias_r": -3.053608679692843E-06,
+          "bias_g": 1.711471486487426E-05,
+          "bias_b": -0.00017588767514098436
+        }
+      }
+    },
+    {
+      "longEdge": 1600,
+      "metrics": {
+        "unchanged-radius": {
+          "mean_dE": 0.6974194930832958,
+          "p95_dE": 2.422808827838738,
+          "max_dE": 11.393830669746693,
+          "bias_r": -4.661537241190672E-05,
+          "bias_g": -5.4283125791698694E-05,
+          "bias_b": 3.864549216814339E-05
+        },
+        "scaled-radius": {
+          "mean_dE": 0.1695980540814033,
+          "p95_dE": 0.5720433415156438,
+          "max_dE": 6.017590527506287,
+          "bias_r": -2.4901250981201883E-06,
+          "bias_g": 9.083592885872349E-06,
+          "bias_b": -9.06013447092846E-05
+        },
+        "unsharpened-control": {
+          "mean_dE": 0.12368451727554719,
+          "p95_dE": 0.4199268253250379,
+          "max_dE": 4.537291194585928,
+          "bias_r": -3.0988485377747566E-06,
+          "bias_g": 1.7093716451199725E-05,
+          "bias_b": -0.00017596629913896322
+        }
+      }
+    },
+    {
+      "longEdge": 3200,
+      "metrics": {
+        "unchanged-radius": {
+          "mean_dE": 0.3172547945689776,
+          "p95_dE": 1.1048746876654818,
+          "max_dE": 8.928977415814462,
+          "bias_r": -1.2357430932752322E-05,
+          "bias_g": -1.0726874279498588E-05,
+          "bias_b": 5.886230792384595E-05
+        },
+        "scaled-radius": {
+          "mean_dE": 0.04656274082500241,
+          "p95_dE": 0.16221793895169492,
+          "max_dE": 8.928977415814462,
+          "bias_r": -3.995898623543326E-06,
+          "bias_g": 1.025728397507919E-05,
+          "bias_b": -9.422955918125808E-05
+        },
+        "unsharpened-control": {
+          "mean_dE": 0.20386013319238763,
+          "p95_dE": 0.7144132902355904,
+          "max_dE": 10.216134171875984,
+          "bias_r": -3.1066711017047055E-06,
+          "bias_g": 1.7091393601731397E-05,
+          "bias_b": -0.00017596840916667134
+        }
+      }
+    }
+  ],
+  "conclusion": "Unchanged pixel radius contributes resolution-dependent disagreement. Density-scaled radius improves this isolated comparison at all three sizes. The 0.5 minimum limits scaling below half resolution. Production correction needs matching CPU/GPU/Apple handling and full photographic parity validation; this evidence alone does not justify disabling sharpening.",
+  "limitations": [
+    "One historical scene trace, with Preview reconstruction and auto exposure Off.",
+    "Metrics use scene-linear stage_diff.py and are not the display-output acceptance gate.",
+    "No shipping processing, default profile, sharpening amount or acceptance threshold changed."
+  ]
+}
