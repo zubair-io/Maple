@@ -38,7 +38,8 @@ extension AppShell {
     let vm = SearchViewModel(
       server: serverID,
       libraryID: libraryID,
-      searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
+      searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient),
+      currentUserID: sessionFor(serverID).user?.id)
     // `SearchParams.libraryID` — not the argument above — is what hits
     // the wire (`listQueryItems()`), so force it to match: a caller-
     // seeded `params` can never silently search the wrong scope.
@@ -151,7 +152,8 @@ extension AppShell {
       let vm = SearchViewModel(
         server: serverID,
         libraryID: nil,  // account-wide
-        searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient))
+        searchClient: CloudSearchClient(server: effectiveServer, httpClient: httpClient),
+        currentUserID: session.user?.id)
       return PhoneSearchSession(
         server: serverID,
         vm: vm,

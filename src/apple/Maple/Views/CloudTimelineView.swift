@@ -13,9 +13,9 @@
 // CloudTimelineMergedCell are deleted — ThumbnailProvider absorbs their
 // load paths.
 
-import SwiftUI
 import MapleCore
 import OSLog
+import SwiftUI
 
 private let timelineLog = Logger(subsystem: "app.justmaple.aperture", category: "CloudTimeline")
 
@@ -52,19 +52,39 @@ struct CloudTimelineView: View {
     self.displayMode = displayMode
     self.onSelectAsset = onSelectAsset
     self.onSelectLocalAsset = onSelectLocalAsset
-    self._provider = State(initialValue: ThumbnailProvider(
-      thumbClient: thumbClient, thumbCache: thumbCache))
+    self._provider = State(
+      initialValue: ThumbnailProvider(
+        thumbClient: thumbClient, thumbCache: thumbCache))
   }
 
   var body: some View {
     ScrollView {
       LazyVStack(alignment: .leading, spacing: 24) {
+        AssetOwnerFilter(
+          model: vm.ownerFilter,
+          ownerID: Binding(get: { vm.ownerID }, set: { vm.setOwnerID($0) }),
+          params: vm.ownerFacetParams)
+        if vm.ownerID != nil {
+          Button("Clear owner filter") { vm.setOwnerID(nil) }
+            .accessibilityIdentifier("timeline-clear-owner")
+        }
+        if vm.loadError != nil {
+          HStack {
+            Text("Could not load Timeline")
+            Button("Retry") { Task { await vm.loadBuckets() } }
+              .accessibilityLabel("Retry loading Timeline")
+          }
+        } else if !vm.isLoadingBuckets && vm.buckets.isEmpty {
+          Text(vm.ownerID == nil ? "No photos" : "No photos match this owner")
+            .foregroundStyle(.secondary)
+        }
         if vm.isLoadingBuckets && vm.buckets.isEmpty {
           ProgressView().padding(40)
         }
         ForEach(vm.buckets, id: \.bucketKey) { bucket in
           let bucketKey = CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
-          let sectionTaskID = CloudTimelineViewVM.bucketKey(year: bucket.year, month: bucket.month)
+          let sectionTaskID =
+            "\(vm.ownerID ?? "all"):\(CloudTimelineViewVM.bucketKey(year: bucket.year, month: bucket.month))"
           CloudTimelineMonthSection(
             year: bucket.year,
             month: bucket.month,
@@ -97,16 +117,20 @@ struct CloudTimelineView: View {
           // with onAppear in the same way LazyVGrid is — see the cell
           // comment below).
           .task(id: sectionTaskID) {
-            timelineLog.debug("section task fire \(sectionTaskID, privacy: .public) count=\(bucket.count, privacy: .public)")
+            timelineLog.debug(
+              "section task fire \(sectionTaskID, privacy: .public) count=\(bucket.count, privacy: .public)"
+            )
             await vm.loadPage(year: bucket.year, month: bucket.month)
-            timelineLog.debug("section task done \(sectionTaskID, privacy: .public) assetsLoaded=\(vm.pagesByBucket[bucketKey]?.count ?? -1, privacy: .public)")
+            timelineLog.debug(
+              "section task done \(sectionTaskID, privacy: .public) assetsLoaded=\(vm.pagesByBucket[bucketKey]?.count ?? -1, privacy: .public)"
+            )
           }
         }
       }
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
     }
-    .task { await vm.loadBuckets() }
+    .task(id: vm.ownerID) { await vm.loadBuckets() }
     .refreshable { await vm.loadBuckets() }
   }
 }
@@ -262,7 +286,7 @@ struct CloudTimelineMonthSection: View {
 
   private func syncBadge(for cell: MergedTimelineCell) -> SyncBadge {
     switch cell {
-    case .synced:    return .synced
+    case .synced: return .synced
     case .cloudOnly: return .cloudOnly
     case .localOnly: return .localOnly
     }
@@ -277,37 +301,37 @@ struct CloudTimelineMonthSection: View {
 // cells render their placeholder squares.
 
 #Preview("Loaded — months") {
-    CloudTimelineView(
-      vm: CloudTimelineViewModel.preview(.loaded),
-      thumbClient: CloudThumbClient.preview(),
-      thumbCache: CloudThumbCache.preview(),
-      displayMode: .fill,
-      onSelectAsset: { _ in },
-      onSelectLocalAsset: { _ in }
-    )
-    .frame(width: 720, height: 540)
+  CloudTimelineView(
+    vm: CloudTimelineViewModel.preview(.loaded),
+    thumbClient: CloudThumbClient.preview(),
+    thumbCache: CloudThumbCache.preview(),
+    displayMode: .fill,
+    onSelectAsset: { _ in },
+    onSelectLocalAsset: { _ in }
+  )
+  .frame(width: 720, height: 540)
 }
 
 #Preview("Empty (no months)") {
-    CloudTimelineView(
-      vm: CloudTimelineViewModel.preview(.empty),
-      thumbClient: CloudThumbClient.preview(),
-      thumbCache: CloudThumbCache.preview(),
-      displayMode: .fill,
-      onSelectAsset: { _ in },
-      onSelectLocalAsset: { _ in }
-    )
-    .frame(width: 720, height: 540)
+  CloudTimelineView(
+    vm: CloudTimelineViewModel.preview(.empty),
+    thumbClient: CloudThumbClient.preview(),
+    thumbCache: CloudThumbCache.preview(),
+    displayMode: .fill,
+    onSelectAsset: { _ in },
+    onSelectLocalAsset: { _ in }
+  )
+  .frame(width: 720, height: 540)
 }
 
 #Preview("Loading") {
-    CloudTimelineView(
-      vm: CloudTimelineViewModel.preview(.loading),
-      thumbClient: CloudThumbClient.preview(),
-      thumbCache: CloudThumbCache.preview(),
-      displayMode: .fill,
-      onSelectAsset: { _ in },
-      onSelectLocalAsset: { _ in }
-    )
-    .frame(width: 720, height: 540)
+  CloudTimelineView(
+    vm: CloudTimelineViewModel.preview(.loading),
+    thumbClient: CloudThumbClient.preview(),
+    thumbCache: CloudThumbCache.preview(),
+    displayMode: .fill,
+    onSelectAsset: { _ in },
+    onSelectLocalAsset: { _ in }
+  )
+  .frame(width: 720, height: 540)
 }

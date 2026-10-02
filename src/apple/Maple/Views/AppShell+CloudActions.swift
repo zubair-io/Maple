@@ -306,7 +306,8 @@ extension AppShell {
           libraryID: folderID,
           pathPrefix: timelinePrefix,
           searchClient: searchClient,
-          photoKitMerge: photoKitMerge)
+          photoKitMerge: photoKitMerge,
+          currentUserID: session.user?.id)
         cloudTimelineThumbClient = CloudThumbClient(server: effectiveServer, httpClient: httpClient)
         cloudTimelineThumbCache = CloudThumbCache()
         // Title is the friendly library name, not the URL host

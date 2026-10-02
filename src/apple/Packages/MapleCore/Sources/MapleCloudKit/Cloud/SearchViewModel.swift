@@ -35,7 +35,23 @@ public final class SearchViewModel {
 
   /// Mutable search parameters. Filter controls bind to fields here, then
   /// call `submit()`; the text box calls `queryChanged()` (debounced).
-  public var params: SearchParams
+  public var params: SearchParams {
+    didSet {
+      guard oldValue.ownerID != params.ownerID else { return }
+      generation &+= 1
+      debounceTask?.cancel()
+      results = []
+      facets = nil
+      total = 0
+      page = 0
+      nextCursor = nil
+      appliedDates = nil
+      isLoading = false
+      isLoadingMore = false
+      loadError = nil
+    }
+  }
+  public let ownerFilter: AssetOwnerFilterModel
 
   // MARK: - Dependencies
 
@@ -71,13 +87,18 @@ public final class SearchViewModel {
     let page: Int
   }
 
-  public init(server: URL,
-              libraryID: String? = nil,
-              searchClient: CloudSearchClient,
-              limit: Int = 100) {
+  public init(
+    server: URL,
+    libraryID: String? = nil,
+    searchClient: CloudSearchClient,
+    limit: Int = 100,
+    currentUserID: String? = nil
+  ) {
     self.server = server
     self.libraryID = libraryID
     self.searchClient = searchClient
+    self.ownerFilter = AssetOwnerFilterModel(
+      searchClient: searchClient, currentUserID: currentUserID)
     self.limit = limit
     self.params = SearchParams(libraryID: libraryID)
   }
@@ -139,6 +160,7 @@ public final class SearchViewModel {
     generation &+= 1
     let g = generation
     page = 0
+    isLoadingMore = false
     nextCursor = nil
     lastSubmittedParams = params
     let requested = params
@@ -247,11 +269,9 @@ public final class SearchViewModel {
     guard canLoadMore, !isLoading, !isLoadingMore else { return }
     let g = generation
     isLoadingMore = true
-    // Cleared unconditionally: if a `submit()` bumps `generation` mid-flight,
-    // a generation-guarded reset would leave this stuck `true` and block all
-    // further pagination. `submit()` doesn't read `isLoadingMore`, so an
-    // unconditional clear is safe.
-    defer { isLoadingMore = false }
+    // A fresh submit resets this flag; an older completion must never clear
+    // the flag belonging to the new owner's pagination request.
+    defer { if g == generation { isLoadingMore = false } }
 
     let next = page + 1
     let requested = params
@@ -333,11 +353,13 @@ public final class SearchViewModel {
     case .loaded:
       vm.total = 2
       vm.results = [
-        SearchAsset(id: "fs:/photos/IMG_0001.dng", folder_id: "lib",
-                    abs_path: "/photos/IMG_0001.dng", filename: "IMG_0001.dng",
-                    rating: 4),
-        SearchAsset(id: "fs:/photos/IMG_0002.dng", folder_id: "lib",
-                    abs_path: "/photos/IMG_0002.dng", filename: "IMG_0002.dng"),
+        SearchAsset(
+          id: "fs:/photos/IMG_0001.dng", folder_id: "lib",
+          abs_path: "/photos/IMG_0001.dng", filename: "IMG_0001.dng",
+          rating: 4),
+        SearchAsset(
+          id: "fs:/photos/IMG_0002.dng", folder_id: "lib",
+          abs_path: "/photos/IMG_0002.dng", filename: "IMG_0002.dng"),
       ]
     }
     return vm
@@ -350,12 +372,12 @@ public final class SearchViewModel {
   /// Equivalent to what the test extension tried to do, but expressed at
   /// the module level where the private setter is accessible.
   /// Called exclusively from `SearchViewModelTests`.
-  func _test_setResults(_ assets: [SearchAsset]) {
+  func _testSetResults(_ assets: [SearchAsset]) {
     results = assets
     total = assets.count
   }
 
-  func _test_seedForLoadMore(results: [SearchAsset], total: Int) {
+  func _testSeedForLoadMore(results: [SearchAsset], total: Int) {
     self.results = results
     self.total = total
   }

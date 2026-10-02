@@ -9,6 +9,7 @@
 // 600-LOC hard budget (tools/check-file-budget.sh).
 
 import XCTest
+
 @testable import MapleCore
 
 @MainActor
@@ -31,8 +32,9 @@ final class CloudTimelineUnionTests: XCTestCase {
       pagesCache: CloudPagesCache(baseDir: tmpDir()),
       photoKitMerge: adapter)
 
-    XCTAssertTrue(vm.buckets.contains { $0.year == 2024 && $0.month == 7 },
-                  "init must seed buckets from PhotoKit; got \(vm.buckets)")
+    XCTAssertTrue(
+      vm.buckets.contains { $0.year == 2024 && $0.month == 7 },
+      "init must seed buckets from PhotoKit; got \(vm.buckets)")
     XCTAssertEqual(vm.buckets.first { $0.year == 2024 && $0.month == 7 }?.count, 2)
   }
 
@@ -42,8 +44,8 @@ final class CloudTimelineUnionTests: XCTestCase {
     let server = URL(string: "https://example.test")!
     // Cloud knows about 2024-06 only.
     let json = """
-    {"total":1,"buckets":[{"year":2024,"month":6,"count":1}],"untimed_count":0}
-    """
+      {"total":1,"buckets":[{"year":2024,"month":6,"count":1}],"untimed_count":0}
+      """
     let session = URLSession.stubbed(response: json)
     let searchClient = CloudSearchClient(
       server: server,
@@ -60,10 +62,12 @@ final class CloudTimelineUnionTests: XCTestCase {
 
     await vm.loadBuckets()
 
-    XCTAssertTrue(vm.buckets.contains { $0.year == 2024 && $0.month == 7 },
-                  "local-only month missing from union: \(vm.buckets)")
-    XCTAssertTrue(vm.buckets.contains { $0.year == 2024 && $0.month == 6 },
-                  "cloud month missing from union: \(vm.buckets)")
+    XCTAssertTrue(
+      vm.buckets.contains { $0.year == 2024 && $0.month == 7 },
+      "local-only month missing from union: \(vm.buckets)")
+    XCTAssertTrue(
+      vm.buckets.contains { $0.year == 2024 && $0.month == 6 },
+      "cloud month missing from union: \(vm.buckets)")
     // Descending order: 2024-07 before 2024-06.
     XCTAssertEqual(vm.buckets.first?.month, 7)
   }
@@ -74,8 +78,8 @@ final class CloudTimelineUnionTests: XCTestCase {
   func test_loadPage_rendersLocalCellsWhenCloudPageEmpty() async throws {
     let server = URL(string: "https://example.test")!
     let emptyPage = """
-    {"total":0,"page":0,"limit":200,"results":[]}
-    """
+      {"total":0,"page":0,"limit":200,"results":[]}
+      """
     let session = URLSession.stubbed(response: emptyPage)
     let searchClient = CloudSearchClient(
       server: server,
@@ -92,20 +96,63 @@ final class CloudTimelineUnionTests: XCTestCase {
     await vm.loadPage(year: 2024, month: 7)
     let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
     let merged = vm.mergedPagesByBucket[key] ?? []
-    XCTAssertEqual(merged.count, 2,
-                   "expected the two local cells to survive an empty cloud page, got \(merged)")
-    XCTAssertTrue(merged.allSatisfy {
-      if case .localOnly = $0 { return true }
-      return false
-    }, "every cell should be .localOnly when the cloud page is empty: \(merged)")
+    XCTAssertEqual(
+      merged.count, 2,
+      "expected the two local cells to survive an empty cloud page, got \(merged)")
+    XCTAssertTrue(
+      merged.allSatisfy {
+        if case .localOnly = $0 { return true }
+        return false
+      }, "every cell should be .localOnly when the cloud page is empty: \(merged)")
+  }
+
+  func testOwnerFilterExcludesLocalBucketsAndCellsUntilCleared() async throws {
+    let server = URL(string: "https://example.test")!
+    let session = URLSession.stubbedSequence { request in
+      let body =
+        request.url!.path.hasSuffix("buckets")
+        ? "{\"total\":0,\"buckets\":[],\"untimed_count\":0}"
+        : "{\"total\":0,\"page\":0,\"limit\":200,\"results\":[]}"
+      return (
+        Data(body.utf8),
+        HTTPURLResponse(
+          url: request.url!, statusCode: 200,
+          httpVersion: nil, headerFields: nil)!
+      )
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: .unauthenticated(server: server, urlSession: session))
+    let (adapter, _) = try makeAdapterSeeded(localIDs: ["local"], year: 2024, month: 7)
+    let vm = CloudTimelineViewModel(
+      server: server, libraryID: "lib1", searchClient: client,
+      bucketsCache: CloudBucketsCache(baseDir: tmpDir()),
+      pagesCache: CloudPagesCache(baseDir: tmpDir()), photoKitMerge: adapter)
+    let key = CloudTimelineViewModel.BucketKey(year: 2024, month: 7)
+    await vm.loadPage(year: 2024, month: 7)
+    XCTAssertEqual(vm.mergedPagesByBucket[key]?.count, 1)
+    vm.setOwnerID("member")
+    XCTAssertTrue(vm.buckets.isEmpty)
+    XCTAssertTrue(vm.pagesByBucket.isEmpty)
+    XCTAssertTrue(vm.mergedPagesByBucket.isEmpty)
+    await vm.loadBuckets()
+    await vm.loadPage(year: 2024, month: 7)
+    XCTAssertTrue(vm.buckets.isEmpty)
+    XCTAssertNil(vm.mergedPagesByBucket[key])
+    vm.setOwnerID(nil)
+    XCTAssertEqual(vm.buckets.first?.month, 7)
+    await vm.loadPage(year: 2024, month: 7)
+    XCTAssertEqual(vm.mergedPagesByBucket[key]?.count, 1)
   }
 
   // MARK: - Helpers
 
   /// Construct a PhotoKitMergeAdapter pre-seeded with one month of ImageRefs
   /// by writing the on-disk cache fixture `init(diskCacheURL:)` reads.
-  private func makeAdapterSeeded(localIDs: [String],
-                                 year: Int, month: Int) throws -> (PhotoKitMergeAdapter, URL) {
+  private func makeAdapterSeeded(
+    localIDs: [String],
+    year: Int, month: Int
+  ) throws -> (PhotoKitMergeAdapter, URL) {
     let url = FileManager.default.temporaryDirectory
       .appendingPathComponent("UnionTests-merge-\(UUID()).json")
     addTeardownBlock { try? FileManager.default.removeItem(at: url) }
