@@ -250,7 +250,7 @@ final class EditorWorkflowPerfTests: XCTestCase {
   }
 
   @discardableResult
-  private func measureDrag(
+  func measureDrag(
     name: String, session: EditSession,
     change: (inout AdjustmentModel, Double) -> Void
   ) async throws -> TickSummary {
@@ -350,7 +350,7 @@ final class EditorWorkflowPerfTests: XCTestCase {
       p50Ms: p50Ms, p95Ms: p95Ms, maxMs: maxMs, over16: over16, published: samples.count)
   }
 
-  private func waitUntil(timeout: Duration, condition: () throws -> Bool) async throws {
+  func waitUntil(timeout: Duration, condition: () throws -> Bool) async throws {
     let deadline = ContinuousClock.now.advanced(by: timeout)
     while try !condition() {
       if ContinuousClock.now >= deadline {
@@ -361,18 +361,18 @@ final class EditorWorkflowPerfTests: XCTestCase {
     }
   }
 
-  private static func ms(_ duration: Duration) -> Double {
+  static func ms(_ duration: Duration) -> Double {
     Double(duration.components.seconds) * 1000
       + Double(duration.components.attoseconds) / 1e15
   }
 
-  private func report(_ values: [String: Any]) {
+  func report(_ values: [String: Any]) {
     let bytes = try! JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
     print("MAPLE_WORKFLOW_PERF \(String(decoding: bytes, as: UTF8.self))")
   }
 
   #if os(macOS)
-    private func makeWindow(layer: CAMetalLayer) -> NSWindow {
+    func makeWindow(layer: CAMetalLayer) -> NSWindow {
       _ = NSApplication.shared
       let window = NSWindow(
         contentRect: CGRect(x: 80, y: 80, width: 960, height: 640),
@@ -394,7 +394,7 @@ private final class Publications {
 }
 
 extension RenderActor {
-  fileprivate func finishBenchmarkWork() async {
+  func finishBenchmarkWork() async {
     let fast = renderTask
     let refine = refineTask
     let decode = decodeTask
