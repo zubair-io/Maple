@@ -29,7 +29,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import type { AssetId } from '../../models/asset';
-import { MapleIconComponent } from '../../icons/maple-icon.component';
+import { MuiButtonComponent } from '../../ui/button/mui-button.component';
+import { MuiActionButtonComponent } from '../../ui/action-button/mui-action-button.component';
 import { InfoPanelComponent } from '../../info/info-panel.component';
 import { fromMuiFlagState, toMuiFlagState } from '../../info/info-panel.vm';
 import { MuiRatingFlagsComponent } from '../../ui/rating-flags/mui-rating-flags.component';
@@ -59,7 +60,8 @@ const SWIPE_THRESHOLD_PX = 40;
   selector: 'preview-shell',
   standalone: true,
   imports: [
-    MapleIconComponent,
+    MuiButtonComponent,
+    MuiActionButtonComponent,
     MuiRatingFlagsComponent,
     InfoPanelComponent,
     MuiSheetShellComponent,
@@ -247,11 +249,13 @@ export class PreviewShellComponent implements OnDestroy {
   @HostListener('document:keydown', ['$event'])
   // fallow-ignore-next-line complexity
   onKeydown(e: KeyboardEvent): void {
-    // Skip when focus is in a text input or textarea (mirrors browse-shell).
+    // Focused controls own their keys; photo tiles retain Preview paging (#4034).
     const target = e.target as HTMLElement;
     if (
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLButtonElement && !target.closest('editor-filmstrip')) ||
+      target instanceof HTMLSelectElement ||
       target.isContentEditable
     )
       return;

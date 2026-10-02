@@ -69,6 +69,8 @@ export class MuiButtonComponent {
    * lands on the custom-element host, not the interactive control inside it,
    * so this exists to reach the real button (MW1, ticket #3020). */
   readonly ariaExpanded = input<boolean | null>(null);
+  /** Region IDs controlled by Preview Flag actions (#4034). */
+  readonly ariaControls = input<string | null>(null);
   /** For a two-state toggle button (e.g. a face-selection tile) — forwarded
    * to the native button's `aria-pressed`. Same host-vs-interactive-control
    * reasoning as `ariaExpanded` above. */

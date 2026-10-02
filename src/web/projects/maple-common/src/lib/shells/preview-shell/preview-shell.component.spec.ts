@@ -247,9 +247,9 @@ describe('PreviewShellComponent', () => {
     const el = fixture.nativeElement as HTMLElement;
     const bar = el.querySelector('.action-bar');
     expect(bar).not.toBeNull();
-    expect(bar!.querySelector('[aria-label="Flag"]')).not.toBeNull();
-    expect(bar!.querySelector('[aria-label="Edit"]')).not.toBeNull();
-    expect(bar!.querySelector('[aria-label="Info"]')).not.toBeNull();
+    expect(
+      [...bar!.querySelectorAll('button')].map((button) => button.textContent?.trim()),
+    ).toEqual(['Flag', 'Edit', 'Info']);
   });
 
   it('Edit navigates to the canvas-first editor route (S5 retired, #1807)', () => {

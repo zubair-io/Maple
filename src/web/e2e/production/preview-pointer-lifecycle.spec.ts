@@ -207,3 +207,84 @@ test('keyboard navigation cancels a gesture from the previous photo', async ({ p
   await page.keyboard.press('ArrowLeft');
   await expect(page.getByTestId('preview-filename')).toHaveText('first.DNG');
 });
+
+for (const width of [375, 800, 1280]) {
+  test(`Preview action targets do not overlap at ${width}px`, async ({ page }) => {
+    await openPreview(page, width);
+    const actions = page.locator(width < 768 ? '.preview-top-actions' : '.preview-action-bar');
+    const controls = [page.getByRole('button', { name: 'Back', exact: true })];
+    for (const label of ['Flag', 'Edit', 'Info'])
+      controls.push(actions.getByRole('button', { name: label, exact: true }));
+    const boxes = [];
+    for (const control of controls) {
+      await expect(control).toBeVisible();
+      const box = await control.boundingBox();
+      if (!box) throw new Error('Preview action has no bounds');
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      boxes.push(box);
+    }
+    for (let i = width < 768 ? 1 : 2; i < boxes.length; i++)
+      expect(boxes[i].x).toBeGreaterThanOrEqual(boxes[i - 1].x + boxes[i - 1].width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      width,
+    );
+    await page.screenshot({ path: test.info().outputPath(`preview-actions-${width}.png`) });
+  });
+
+  test(`Preview native actions retain keyboard and disclosure behavior at ${width}px`, async ({
+    page,
+  }) => {
+    await openPreview(page, width);
+    const actions = page.locator(width < 768 ? '.preview-top-actions' : '.preview-action-bar');
+    const photo = page.locator('editor-filmstrip button').first();
+    await photo.focus();
+    await expect(photo).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('preview-filename')).toHaveText('second.DNG');
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.getByTestId('preview-filename')).toHaveText('first.DNG');
+    const flag = actions.getByRole('button', { name: 'Flag', exact: true });
+    const info = actions.getByRole('button', { name: 'Info', exact: true });
+    const edit = actions.getByRole('button', { name: 'Edit', exact: true });
+    await flag.focus();
+    await expect(flag).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('preview-filename')).toHaveText('first.DNG');
+    await expect(flag).not.toHaveAttribute('aria-pressed');
+    await page.keyboard.press('Enter');
+    await expect(flag).toHaveAttribute('aria-expanded', 'true');
+    const controlled = await flag.getAttribute('aria-controls');
+    expect(controlled).toBe('preview-flag-popover');
+    await expect(page.locator('#' + controlled)).toBeVisible();
+    await page.keyboard.press('Space');
+    await expect(flag).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#' + controlled)).toHaveCount(0);
+    await expect(edit).not.toHaveAttribute('aria-pressed');
+    await info.focus();
+    await expect(info).toBeFocused();
+    const wasOpen = (await info.getAttribute('aria-pressed')) === 'true';
+    await page.keyboard.press('Space');
+    await expect(info).toHaveAttribute('aria-pressed', String(!wasOpen));
+    if (width < 768) {
+      await expect(page.getByTestId('bottom-sheet')).toBeVisible();
+      await page
+        .getByTestId('bottom-sheet')
+        .getByRole('button', { name: 'Close', exact: true })
+        .click();
+      await expect(info).toHaveAttribute('aria-pressed', 'false');
+    } else {
+      await expect(page.locator('.info-pane')).toHaveCount(wasOpen ? 0 : 1);
+    }
+    await page.getByRole('button', { name: 'Back', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/browse/);
+    await page.getByRole('button', { name: 'first.DNG', exact: true }).click();
+    await actions.getByRole('button', { name: 'Edit', exact: true }).focus();
+    await expect(actions.getByRole('button', { name: 'Edit', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/edit\//);
+  });
+}

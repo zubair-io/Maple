@@ -58,6 +58,8 @@ story; Apple and Windows have no reusable button at all).
   native button as `aria-describedby` (not the Angular host). Omitted when unset.
 - Web `title`: optional native-button tooltip. Use `ariaDescribedby` as well when an explanatory
   disabled reason must be available to assistive technology; a tooltip alone is insufficient.
+- Web `ariaControls`: optional space-separated controlled-region IDs, forwarded to the native
+  button as `aria-controls` (Preview Flag disclosure, #4034). Omitted when unset.
 - `onPress` / `action`: the platform's native action callback (`() -> Void` in SwiftUI,
   `@Output() pressed` in Angular, `Click` event in WinUI).
 
