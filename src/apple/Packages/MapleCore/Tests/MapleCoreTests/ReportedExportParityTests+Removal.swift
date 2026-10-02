@@ -105,6 +105,11 @@ extension ReportedExportParityTests {
       }
       XCTAssertEqual(rc, 0)
       guard rc == 0 else { throw RemovalError.invalid("Auto cube diagnostic failed: \(rc)") }
+      let expectedProxy = try Data(
+        contentsOf: autoFit.appendingPathComponent("proxy-\(dimension).f32"))
+      XCTAssertEqual(
+        lut.withUnsafeBytes { Data($0) }, expectedProxy,
+        "The AMaZE FFI fit must match the independently generated AMaZE proxy control")
       let cube = try XCTUnwrap(AutoProfileLUT.buildCubeFromLUT(lut, dimension: dimension))
       let filter = try XCTUnwrap(AutoProfileLUT.makeFilter(from: cube))
       let stats = removalExportDifference(

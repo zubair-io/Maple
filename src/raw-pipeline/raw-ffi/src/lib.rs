@@ -317,6 +317,8 @@ pub use raster_v2::{
 // directory (the FFI entries they exercise are crate-private through
 // `#[no_mangle]`, not `pub`, so integration-test access is awkward).
 #[cfg(test)]
+mod auto_profile_quality_tests;
+#[cfg(test)]
 #[path = "auto_tone_tests.rs"]
 mod auto_tone_tests;
 #[cfg(test)]
