@@ -21,7 +21,11 @@ public static class ExportSnapshot
     {
         var document = xml == null ? new XmpSidecarDocument() : XmpParser.Parse(xml)
             ?? throw new InvalidDataException("Cannot parse the photo's XMP sidecar. Repair it before exporting.");
-        if (activeModel != null) document.Adjustments = activeModel.Clone();
+        if (activeModel != null)
+        {
+            SidecarStore.RequireSameRemovals(document.Adjustments.InpaintRemovals, activeModel.InpaintRemovals);
+            document.Adjustments = activeModel.Clone();
+        }
         return XmpWriter.Serialize(document);
     }
 }

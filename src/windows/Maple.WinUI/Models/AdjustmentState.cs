@@ -171,6 +171,12 @@ namespace Maple.WinUI.Models
         // #3888: immutable repair state, evaluated by the shared decode path.
         public RetouchState Retouch = RetouchState.Empty;
 
+        /// <summary>Portable accepted removals (#1472). Preserve the exact
+        /// JSON value in model snapshots and decode XMP; the shared Rust
+        /// reader validates versions, source identities and companions.
+        /// Windows consumes saved removals but does not author them.</summary>
+        public string? InpaintRemovals;
+
         // --- Render / recovery enums ---
         public HighlightRecoveryMode HighlightRecovery = HighlightRecoveryMode.ChromaticAdaptation;
         public ToggleMode AutoExposure = ToggleMode.On;

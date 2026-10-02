@@ -17,6 +17,17 @@ namespace Maple.WinUI.Services
     /// </summary>
     public static unsafe partial class RenderEngine
     {
+        private static void RequireStoredRemovalHistory(string rawPath, AdjustmentState model)
+        {
+            string xml;
+            try { xml = System.IO.File.ReadAllText(Xmp.SidecarStore.SidecarPathFor(rawPath)); }
+            catch (System.IO.FileNotFoundException) { return; }
+            var stored = Xmp.XmpParser.Parse(xml)
+                ?? throw new InvalidOperationException("Cannot parse the photo's XMP. Repair it before rendering.");
+            if ((stored.Adjustments.InpaintRemovals ?? "[]") != (model.InpaintRemovals ?? "[]"))
+                throw new InvalidOperationException("Saved removal history changed. Reopen the photo before rendering.");
+        }
+
         /// <summary>
         /// Fields the per-tick chain re-applies must be zeroed in the decode
         /// model or they bake into the base image and double-apply
@@ -99,7 +110,8 @@ namespace Maple.WinUI.Services
         /// <summary>Fields owned by the decoded base, including the profile's
         /// AE anchor and fitted tail. A slider-only change reuses the base.</summary>
         public static bool DecodeInputsChanged(AdjustmentState before, AdjustmentState after) =>
-            before.Profile != after.Profile
+            before.InpaintRemovals != after.InpaintRemovals
+            || before.Profile != after.Profile
             || before.Demosaic != after.Demosaic
             || before.Retouch.Xml != after.Retouch.Xml
             || before.AutoExposure != after.AutoExposure

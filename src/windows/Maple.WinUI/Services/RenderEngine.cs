@@ -89,6 +89,7 @@ namespace Maple.WinUI.Services
             IntPtr cancelFlag, DecodedImage? reuseAutoProfileFrom = null)
         {
             var source = ProfileSourceGeneration.Read(rawPath);
+            RequireStoredRemovalHistory(rawPath, model);
             var stripped = StripChainStages(model);
             // An imported LCP the sidecar names must be resolvable in this
             // process before the develop reads it (#3480): warm cache, or

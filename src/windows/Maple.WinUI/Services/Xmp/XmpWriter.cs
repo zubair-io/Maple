@@ -37,6 +37,8 @@ namespace Maple.WinUI.Services.Xmp
             }
 
             AppendEnumFields(parts, doc.Adjustments);
+            if (doc.Adjustments.InpaintRemovals is { } removals)
+                parts.Add($"papp:InpaintRemovals=\"{XmpSchema.EscapeAttr(removals)}\"");
             XmpWhiteBalance.AppendAttributes(parts, doc.Adjustments);
             AppendCropFields(parts, doc.Adjustments);
             AppendCullingFields(parts, doc);

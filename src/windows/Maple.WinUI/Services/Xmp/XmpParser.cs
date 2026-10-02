@@ -37,6 +37,7 @@ namespace Maple.WinUI.Services.Xmp
                 "papp:Look", "papp:Profile", "papp:FilmLook", "papp:Demosaic",
                 "papp:HotPixelSuppression", "crs:LensProfileEnable",
                 "papp:LensProfile",
+                "papp:InpaintRemovals",
                 "crs:AutoLateralCA",
                 "papp:WbMethod", "papp:ToneCurveMode", "crs:ConvertToGrayscale",
                 "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom",
@@ -73,6 +74,7 @@ namespace Maple.WinUI.Services.Xmp
             var rdf = source.Descendants(Rdf + "RDF").FirstOrDefault();
             var descriptions = rdf?.Elements(Rdf + "Description").ToList();
             if (rdf is null || descriptions is null || descriptions.Count == 0) return null;
+            if (!XmpRemovalPayload.TryTake(source, out var removals)) return null;
 
             var primary = descriptions
                 .OrderByDescending(ManagedNodeCount)
@@ -81,6 +83,7 @@ namespace Maple.WinUI.Services.Xmp
             var doc = new XmpSidecarDocument();
             var sawPapp = DocumentCarriesPappNamespace(source);
             ParseAttributes(primary, doc, sawPapp);
+            doc.Adjustments.InpaintRemovals = removals;
             ParseChildren(primary, doc, xml);
             doc.Adjustments.LocalAdjustments = XmpLayerOrder.Sorted(doc.Adjustments.LocalAdjustments);
             CollectSiblingPassthrough(rdf, primary, doc);
