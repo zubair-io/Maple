@@ -183,7 +183,7 @@ export const xmpRoutes = new Elysia()
       return;
     },
     {
-      type: 'text',
+      parse: 'text',
       body: t.String(),
     },
   )

@@ -319,3 +319,4 @@ CloudFolderMoveTests
 WorkflowContractTests
 WorkflowSidecarTests
 NativeWorkflowHistoryTests
+NativeCloudWorkflowHistoryTests
