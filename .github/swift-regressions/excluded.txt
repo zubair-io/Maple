@@ -142,7 +142,6 @@ ReportedExportParityTests fixture needs the gitignored RAW fixtures (skip-passes
 ResolveThumbParentTests slow render or decode workload that costs minutes on the runner
 SMBCredentialStoreTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 SMBFileOperationsCacheInvalidationTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-SMBFileOperationsFolderTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SMBFileOperationsListingTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SMBFileOperationsRelocateTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 SMBSidecarStoreTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)

@@ -31,6 +31,7 @@
 // marker in the first place.
 
 using System;
+using Maple.WinUI.Generated;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -175,7 +176,7 @@ namespace Maple.WinUI.Services.FileOperations
         /// the trash-side primary path alone, so a caller that only has the
         /// trash-side path (a restore, or a trash listing) never needs
         /// separate plumbing to find the marker.</summary>
-        internal static string OriginalPathMarkerFor(string trashPrimaryPath) => trashPrimaryPath + ".origpath";
+        internal static string OriginalPathMarkerFor(string trashPrimaryPath) => trashPrimaryPath + FilenameVocabulary.OriginalPathMarkerSuffix;
 
         /// <summary>`&lt;stem&gt;.restored&lt;ext&gt;`, then
         /// `&lt;stem&gt;.restored.N&lt;ext&gt;` — mirrors the API's

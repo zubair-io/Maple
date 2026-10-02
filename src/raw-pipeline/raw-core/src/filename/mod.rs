@@ -33,6 +33,10 @@
 
 mod date;
 
+/// Windows trash bookkeeping is a companion file, never a restorable photo.
+/// Shared with generated Apple and Windows filename vocabulary (#4009).
+pub const TRASH_ORIGINAL_PATH_SUFFIX: &str = ".origpath";
+
 use date::{format_strftime, parse_exif_datetime, FALLBACK_DATE_TEXT};
 
 /// Per-render inputs describing exactly one output filename. Everything
