@@ -1,0 +1,263 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "scope": "Mac-first actual photographic RAW authoring, cold reopen and full PNG; scoped manual evidence, not release qualification",
+  "revision": "9db4ce5ea70b5beb2ab8b4671fd60f7d2f62f962",
+  "sourceHashes": {
+    "src/apple/Maple/Views/Removal/RemovalOverlay.swift": "1996cf2d9c3147eee79307037892b9d57a60069adcab7e5da169cc2b89e0eeef",
+    "src/apple/Maple/Views/Removal/RemovalPanel.swift": "62906ae426ebe31f4ea3a64f2a6c6e52a8f9d13c97b3dc729730b9fbb25038ff",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Inference.swift": "99f18a74d409b559c06e989218faa6b51e6bb909a7d787fcb1f274dc4931c640",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Painting.swift": "eaa5708f7a8732e6dab90a8fc63543173f74c90cfd010b01c7402baf1afda349",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+RenderHelpers.swift": "378c50bf47ecc0e35797a0fa2400060dab230f807b8d473820c3316909aa40ca",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/MapleExporter.swift": "ae777d0ae20f2c6710b99e3e4299feed40886bcf2eff1a0ae14e02ba3c129cfb"
+  },
+  "nativeBuild": {
+    "project": "src/apple/Maple.xcodeproj",
+    "scheme": "Maple",
+    "destination": "platform=macOS",
+    "result": "BUILD SUCCEEDED; TEST BUILD SUCCEEDED",
+    "qaBundleId": "app.justmaple.removalqa1472",
+    "packaging": "Full debug app/resources in an isolated ad hoc signed QA bundle. Production hardened runtime and sandbox not qualified. Installed user Maple was not terminated.",
+    "binarySha256": "089c9478df5b21a2f31d1bde2f5b2e1f91dfd8d730e0e43744032bbd7e11d673",
+    "debugDylibSha256": "23460e718045ff9fc51cb59668c076924172042e2db70c70586a296afb10905c"
+  },
+  "fixture": {
+    "source": "test-fixtures/raws/test_0002.dng",
+    "stagedName": "portrait.dng",
+    "camera": "Hasselblad H2D-39",
+    "dimensions": [7216, 5412],
+    "bytes": 50681152,
+    "sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe"
+  },
+  "checks": {
+    "paint": [
+      "Native pointer stroke selected the small mirror decoration near the inner eye",
+      "Selection Undo and Redo toggled native selection controls",
+      "Actual pinned LaMa generated a review candidate",
+      "Compare toggled to the current photo",
+      "Cancel left no XMP and no accepted companion assets; RAW SHA256 unchanged",
+      "Regenerated candidate; normal Keep saved the accepted record and two companions"
+    ],
+    "smartPaint": [
+      "Actual pinned MobileSAM expanded a short paint prompt to the upper mirror decoration",
+      "Actual LaMa generated a second review candidate from the inferred mask",
+      "Normal Keep appended a second accepted record with a dependency on the first patch"
+    ],
+    "backgroundPeople": [
+      "Actual RT-DETR plus MobileSAM found one person",
+      "Foreground subject started Keep / Likely subject with green protection and Remove disabled",
+      "Explicit Remove plus Apply person choices enabled selection and Remove",
+      "Restoring Keep plus Apply left no background selected and Remove disabled",
+      "No person reconstruction was accepted; no crowd fixture was tested"
+    ],
+    "coldReopen": [
+      "Quit and reopened the isolated app through normal native controls",
+      "Both accepted removals loaded as Enabled without configuring an inference folder after restart",
+      "GPU canvas reported ready",
+      "RAW, exact XMP and four companion byte hashes unchanged across restart and full PNG export"
+    ]
+  },
+  "savedState": {
+    "xmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+    "records": [
+      {
+        "accepted": {
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 3319,
+            "y": 1986
+          },
+          "dependencies": [],
+          "mask": "blake3:87511d6477bf8abc5207b285bd05a0cd2b2290db9251a6049462fbe2914e3499",
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 3319,
+            "y": 1986
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:533ebd78a429e4a4f55107b4ef0e716a9db0beb2497ce0a261bc725b365cf6fa",
+          "source": {
+            "decode": "blake3:dd35ba5fe0cfb4d6439d58d4ea4f23c4442e58c274707a723f0b4105474b69fb",
+            "height": 5412,
+            "original": "blake3:220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c",
+            "width": 7216
+          }
+        },
+        "bake": {
+          "ev": 0.0,
+          "temp": 6500.0,
+          "tint": 0.0
+        },
+        "kind": "removal",
+        "model": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "patch": "blake3:1d6aca14812faac0b00536844597eab605876a1f4fdd3d6d71224d160d509e4c",
+        "region": [
+          0.45995011925697327, 0.3669623136520386, 0.14190687239170074,
+          0.18920916318893433
+        ],
+        "schema": 4
+      },
+      {
+        "accepted": {
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 3434,
+            "y": 1693
+          },
+          "dependencies": [
+            {
+              "patch": "blake3:1d6aca14812faac0b00536844597eab605876a1f4fdd3d6d71224d160d509e4c",
+              "record": "blake3:d76cd5a12f9ef7cbeef0a4f77054608207bfee32689a13897681d4d0ea0c4c20"
+            }
+          ],
+          "mask": "blake3:7fb1f2a498fad9d968b885a85cf0f3290e3d922a3ae17199e2afe14f8cb610fd",
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 3434,
+            "y": 1693
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:edf9a0cc351d732111ac19f236190da485a0581709a71e79715217a0e7a6c12f",
+          "source": {
+            "decode": "blake3:dd35ba5fe0cfb4d6439d58d4ea4f23c4442e58c274707a723f0b4105474b69fb",
+            "height": 5412,
+            "original": "blake3:220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c",
+            "width": 7216
+          }
+        },
+        "bake": {
+          "ev": 0.0,
+          "temp": 6500.0,
+          "tint": 0.0
+        },
+        "kind": "removal",
+        "model": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "patch": "blake3:df0240597788e7c61dec80f7862076fd6922ab34ce7595946200f9fa5e706394",
+        "region": [
+          0.47588691115379333, 0.3128233551979065, 0.14190687239170074,
+          0.18920916318893433
+        ],
+        "schema": 4
+      }
+    ],
+    "companions": [
+      {
+        "path": ".maple/inpaint/7fb1f2a498fad9d968b885a85cf0f3290e3d922a3ae17199e2afe14f8cb610fd.mask",
+        "bytes": 12466,
+        "sha256": "74db870cd3cec5c294eb09bd9f392e2aeca55094dde9b894b063313d604050ef"
+      },
+      {
+        "path": ".maple/inpaint/87511d6477bf8abc5207b285bd05a0cd2b2290db9251a6049462fbe2914e3499.mask",
+        "bytes": 13372,
+        "sha256": "45379926e18412e089f4cd9e993ab38edf51c3fcbe569b3355ab71fb94770bdf"
+      },
+      {
+        "path": ".maple/inpaint/1d6aca14812faac0b00536844597eab605876a1f4fdd3d6d71224d160d509e4c.f16",
+        "bytes": 8388640,
+        "sha256": "611c3ee6822302971f2f8d68ac51e00996871c3bfdf0bec270bbcec8f9aaaab8"
+      },
+      {
+        "path": ".maple/inpaint/df0240597788e7c61dec80f7862076fd6922ab34ce7595946200f9fa5e706394.f16",
+        "bytes": 8388640,
+        "sha256": "ab6eb02cbad921751fde29c7a37c2acc536083e1d20d42a39b30f344f6927f51"
+      }
+    ]
+  },
+  "fullExport": {
+    "ui": "Normal Share / PNG / Full Size / Export / native Save",
+    "fileBytes": 52103714,
+    "candidateSha256": "e4a40b8526dca5e581df48ce734558e68debff409859dfc5aa6a806f41f30135",
+    "referenceSha256": "89631dc2e9b3ec950f41ece3839c4130788aaeea905c37c389640c8f48bc55d4",
+    "reference": "Independent maple-cli render of the actual staged RAW, XMP and four companions; AMaZE / sRGB / sidecar Auto profile",
+    "channelDifference": {
+      "dimensions": [7216, 5412],
+      "maxAbs8BitChannelError": 12,
+      "meanAbs8BitChannelError": 0.6079282905306376,
+      "differingChannels": 60993838,
+      "channels": 117158976,
+      "percentChannelsAtMost1": 92.88324694814676,
+      "signedMeanChannelError": [
+        -0.37256192816161177, -0.15462128996415947, -0.16640138609610244
+      ]
+    },
+    "perceptualDifference": {
+      "mean_deltaE": 0.5059431195259094,
+      "p95_deltaE": 1.0374207496643066,
+      "max_deltaE": 3.273937225341797,
+      "n_pixels": 39052992,
+      "implementation": "canonical compare_images._lab / colour.delta_E CIE 2000, chunked at full native resolution",
+      "paint_patch": {
+        "maxAbs8BitChannelError": 10,
+        "meanAbs8BitChannelError": 0.7902749379475912
+      },
+      "smart_patch": {
+        "maxAbs8BitChannelError": 10,
+        "meanAbs8BitChannelError": 0.8436616261800131
+      }
+    },
+    "limit": "This is measured evidence, not an established parity acceptance gate. Channel differences up to 12/255 remain to attribute. Screenshots are UI evidence only."
+  },
+  "screenshots": {
+    "before": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-before.png",
+      "sha256": "e72bd22d473acf753f2739cf37120861b43322db0e9c4ed10ebf04dcdeea63ff"
+    },
+    "paint-selection": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-paint-selection.png",
+      "sha256": "ef9b40b13cbb716256f2dced7c7b36eae84f9577e775fd9c49c55210725b59a7"
+    },
+    "paint-review": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-paint-review.png",
+      "sha256": "9b1227f0c787645b14b00bc0c7ca1d5ea2a41402ddb8570393d880b500b450f1"
+    },
+    "paint-compare": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-paint-compare.png",
+      "sha256": "d6dcf1638cc47526551fe89c23b05808c4a524605388ebd640391cf5e4e96058"
+    },
+    "paint-saved": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-paint-saved.png",
+      "sha256": "d35d56df8d1d7068722bedc1d2e357a0903648b5710d215c65df23c65a90d526"
+    },
+    "smart-selection": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-smart-selection.png",
+      "sha256": "23e0befaeefd9f7932bf75db78c291dddbd4559474f9c9c62651267a7ff33c52"
+    },
+    "smart-review": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-smart-review.png",
+      "sha256": "4ec26a1b122fd568acc78a2dbd35177e32127c6b08e7bba0b165e88aed19ccf2"
+    },
+    "people-protected": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-people-protected.png",
+      "sha256": "0a72a23a0ec4aa032915964d8c0872c820d8edd60357e674c26893997e6267ba"
+    },
+    "reopened": {
+      "diagnosticPath": "/tmp/maple-removal-mac-photographic-reopened.png",
+      "sha256": "4689b878bd69de43047dff0d25a6ca7c25076581b9fd8114af6d27c2a3157bc7"
+    }
+  },
+  "xctest": {
+    "target": "MapleUITests/RemovalHistoryUITests",
+    "isolatedTestBuild": "Succeeded",
+    "isolatedRun": "Failed before tests executed: timed out enabling automation mode",
+    "executedTests": 0,
+    "log": "/tmp/maple-removal-mac-isolated-ui-20261002v.log",
+    "resultBundle": "/tmp/maple-removal-mac-isolated-ui-20261002v.xcresult",
+    "limit": "Manual native CUA evidence is separate from the unqualified XCTest diagnostic; prior AX hit-point failure is unresolved"
+  },
+  "open": [
+    "Real background crowds, tiny people, protected overlaps and large ROIs",
+    "Signed HDR / exposure / white-balance / seam / noise quality",
+    "Representative GPU / CPU / full / tile / delivery parity and attribution of this measured difference",
+    "Missing or corrupt companion recovery through native UI and Mac source/file-operation/backup/sync workflows",
+    "Model licensing, signing, distribution and settings",
+    "Physical 100MP gesture-to-scanout, memory and cold-open performance",
+    "Existing broad color-gate breach; fresh main rebase / required CI / ready PRs and epic landing",
+    "Later Web / Windows / mobile porting remains deferred by the user Mac-first instruction"
+  ]
+}
