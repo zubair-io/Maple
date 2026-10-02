@@ -91,6 +91,18 @@ export class RemovalEditorSession {
   readonly refiningPerson = signal<number | null>(null);
   readonly personBases = signal<readonly PersonBase[]>([]);
   readonly canPaint = computed(() => this.mode() !== 'people' || this.refiningPerson() !== null);
+  // The camera JPEG can be visible before the decoder reports crop geometry.
+  // Brush controls must wait for the same geometry the overlay maps (#3984).
+  readonly paintReady = computed(() => {
+    const layout = this.canvas.displayLayout();
+    return (
+      this.phase() === 'ready' &&
+      this.canvas.cropInputDimensions() !== null &&
+      !!layout &&
+      layout.canvasW > 0 &&
+      layout.canvasH > 0
+    );
+  });
   personGestures: PersonGesture[] = [];
   redoPersonGestures: PersonGesture[] = [];
   readonly preview = signal<DecodedImage | null>(null);
