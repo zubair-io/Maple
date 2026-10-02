@@ -169,6 +169,8 @@ public enum RawCoreBridge {
     // White balance — chain applies it from a D65 reference (see above).
     m.temperature = d.temperature
     m.tint = d.tint
+    m.temperatureSeen = false
+    m.tintSeen = false
     // Preset/provenance describe the live WB pair, not decoded pixels.
     // Keep them out of the baked-model cache key as well as decode XMP.
     m.whiteBalancePreset = d.whiteBalancePreset

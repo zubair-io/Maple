@@ -30,9 +30,8 @@ extension EditSession {
   /// Flow:
   ///   1. Read the file's as-shot WB off MainActor (metadata only).
   ///   2. Try to load the XMP sidecar.
-  ///   3. If the sidecar exists, trust its values (user edits).
-  ///   4. If no sidecar, seed `temperature` + `tint` from the as-shot WB
-  ///      so the slider defaults to what the camera was metered at.
+  ///   3. Trust explicitly authored sidecar values and named illuminants.
+  ///   4. Seed missing components from the camera without authoring them.
   ///
   /// Hydration is silent for sessions pre-created by the browse grid; a
   /// render is scheduled only if the editor has already requested pixels.
@@ -106,9 +105,7 @@ extension EditSession {
       return
     }
 
-    // (3/4) Build the initial model. As-shot seeding only applies when
-    // no sidecar was loaded — once the user has saved edits, their
-    // stored temperature wins.
+    // Seed only missing WB components; explicitly authored values win.
     let seeded = Self.initialModel(
       loadedModel: loadedModel,
       asShotCCT: asShotCCT,
@@ -162,13 +159,10 @@ extension EditSession {
     model = base
     isHydratingInitialState = false
 
-    // Record what a fresh (sidecar-less) model was seeded with — the
-    // placeholder pair, or the defaults when no placeholder was
-    // readable (bytes-backed RAWs have no URL for the ImageIO read).
-    // `adoptDecodedWbFrame` re-seeds only while the model still sits
-    // exactly at this pair; authored sidecar values ⇒ nil ⇒ never.
-    wbSeedTemperature = loadedModel == nil ? base.temperature : nil
-    wbSeedTint = loadedModel == nil ? base.tint : nil
+    // Remember each unauthored component's placeholder so a late decode
+    // can refine it. Authored components have no seed and remain untouched.
+    wbSeedTemperature = base.usesAsShotTemperature ? base.temperature : nil
+    wbSeedTint = base.usesAsShotTint ? base.tint : nil
 
     if renderRequested, model != previousModel {
       _scheduleRender(phase: .fast)
@@ -180,28 +174,15 @@ extension EditSession {
     asShotCCT: Double?,
     asShotTint: Double?
   ) -> AdjustmentModel {
-    // Push asShotCCT/asShotTint into the model when there's no XMP
-    // sidecar so the slider DISPLAYS the camera's WB (matches the reference
-    // renderer's "As Shot" semantic — slider shows the as-shot CCT). Once the
-    // user has saved edits, the stored temperature wins.
-    //
-    // This pairs with `ImageEditPipeline.processSceneLinear`'s
-    // decodedTemp/decodedTint computation: when there's no sidecar
-    // those fall back to the same asShot CCT/tint, so the chain's
-    // `apply_delta(live=asShotCCT, decoded=asShotCCT)` is identity
-    // — slider shows asShotCCT, no shift applied. This is the
-    // expected UX. (Removing the asShotCCT push here without
-    // also fixing decodedTemp produced the "slider shows 6500" UX
-    // regression user noticed; pushing it without fixing decodedTemp
-    // produced the magenta cast.)
+    // Display the camera reading for every absent component, including
+    // sidecars carrying only unrelated edits. Presence stays false so the
+    // shared develop resolves the camera reading rather than a display seed.
     var base = loadedModel ?? .default
-    if loadedModel == nil,
-      let cct = asShotCCT, let tint = asShotTint
-    {
-      base.temperature = cct
-      base.tint = tint
+    if loadedModel == nil {
+      base.temperatureSeen = false
+      base.tintSeen = false
     }
-    return base
+    return base.seedingWhiteBalance(temperature: asShotCCT, tint: asShotTint)
   }
 
   // MARK: - Decode-exported WB slider frame adoption (#1781)
@@ -235,17 +216,16 @@ extension EditSession {
       if renderRequested { _scheduleRender(phase: .fast) }
       return
     }
-    // Re-seed only an untouched As-Shot model: both the live model and
-    // the RESET baseline still sit exactly at the recorded hydration
-    // seed (`wbSeedTemperature`/`wbSeedTint` — the placeholder pair, or
-    // the defaults for bytes-backed RAWs with no readable placeholder).
-    // A user WB move, or a sidecar carrying authored values (seed nil),
-    // never matches and is left alone.
-    let modelAtSeed =
-      oldCCT != nil && oldTint != nil
-      && model.temperature == oldCCT && model.tint == oldTint
-      && originalModel.temperature == oldCCT && originalModel.tint == oldTint
-    guard modelAtSeed else {
+    // Refine each untouched component independently. Presence distinguishes
+    // even a same-number manual edit from an unauthored placeholder.
+    let temperatureAtSeed =
+      oldCCT != nil && model.temperature == oldCCT
+      && originalModel.temperature == oldCCT
+      && model.temperatureSeen == originalModel.temperatureSeen
+    let tintAtSeed =
+      oldTint != nil && model.tint == oldTint
+      && originalModel.tint == oldTint && model.tintSeen == originalModel.tintSeen
+    guard temperatureAtSeed || tintAtSeed else {
       editSessionLogger.notice(
         "WB frame adopted (asShot \(newCCT, format: .fixed(precision: 0))K/\(newTint, format: .fixed(precision: 1))); model not at placeholder — sliders left alone"
       )
@@ -253,16 +233,28 @@ extension EditSession {
       return
     }
     isHydratingInitialState = true
-    model.temperature = newCCT
-    model.tint = newTint
-    originalModel.temperature = newCCT
-    originalModel.tint = newTint
+    if temperatureAtSeed {
+      let livePresence = model.temperatureSeen
+      let baselinePresence = originalModel.temperatureSeen
+      model.temperature = newCCT
+      originalModel.temperature = newCCT
+      model.temperatureSeen = livePresence
+      originalModel.temperatureSeen = baselinePresence
+    }
+    if tintAtSeed {
+      let livePresence = model.tintSeen
+      let baselinePresence = originalModel.tintSeen
+      model.tint = newTint
+      originalModel.tint = newTint
+      model.tintSeen = livePresence
+      originalModel.tintSeen = baselinePresence
+    }
     isHydratingInitialState = false
     // The frame's pair is the model's new "untouched" seed — a later
     // adoption (e.g. a re-decode) may re-seed again iff WB is still
     // sitting here.
-    wbSeedTemperature = newCCT
-    wbSeedTint = newTint
+    wbSeedTemperature = temperatureAtSeed ? newCCT : oldCCT
+    wbSeedTint = tintAtSeed ? newTint : oldTint
     editSessionLogger.notice(
       "WB frame adopted — As-Shot re-seeded from \(oldCCT ?? 0, format: .fixed(precision: 0))K/\(oldTint ?? 0, format: .fixed(precision: 1)) to \(newCCT, format: .fixed(precision: 0))K/\(newTint, format: .fixed(precision: 1))"
     )

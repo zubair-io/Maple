@@ -39,6 +39,8 @@ extension AdjustmentModel {
       tint: tint,
       wbScaleVersion: wbScaleVersion
     )
+    baseline.temperatureSeen = temperatureSeen
+    baseline.tintSeen = tintSeen
     if inpaintRemovals?.isEmpty == true { baseline.inpaintRemovals = inpaintRemovals }
     return self != baseline
   }
