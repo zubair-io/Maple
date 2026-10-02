@@ -3,8 +3,8 @@
 // results, timeline rows, map pins, people covers), plus the one remaining
 // pre-registration filesystem call.
 //
-// After the #1325 web cutover nothing here talks to `/api/fs/dir-fast`,
-// `/api/fs/thumb` or `/api/fs/raw` any more. An absolute path is resolved
+// After the #1325 web cutover nothing here talks to legacy directory, derivative
+// or original read routes. An absolute path is resolved
 // through the registered libraries (`LibraryStore.registeredFolders`) to its
 // `slug:relPath` address and the thumbnail is fetched from the unified
 // `/api/thumb/:slug/*` route via `LibrarySource.thumbBlob` (`HttpLibrarySource`
@@ -137,42 +137,27 @@ export class FilesystemBrowseService {
 
   /**
    * Fetch a display-resolution (1280px) preview blob for an absolute path.
-   * Resolves via registered library if available (GET /api/preview/:slug/*),
-   * falling back to GET /api/fs/preview?path=<absPath>.
+   * Uses the registered library's versioned preview route. Unknown paths
+   * and unavailable responses return null so the caller retains its placeholder.
    */
   getPreviewBlob(absPath: string): Promise<Blob | null> {
-    return this.fetchFsBlob(absPath, 'preview');
+    return this.fetchBlob(absPath, 'preview');
   }
 
   /**
-   * Fetch a thumbnail blob for an absolute path. Resolves via registered
-   * library if available (GET /api/thumb/:slug/*), falling back to
-   * GET /api/fs/thumb?path=<absPath>.
+   * Fetch a thumbnail blob through its registered library address. Unknown
+   * paths and unavailable responses return null, with no second legacy read.
    */
   getThumbBlob(absPath: string): Promise<Blob | null> {
-    return this.fetchFsBlob(absPath, 'thumb');
+    return this.fetchBlob(absPath, 'thumb');
   }
 
-  private async fetchFsBlob(absPath: string, endpoint: 'preview' | 'thumb'): Promise<Blob | null> {
+  private async fetchBlob(absPath: string, endpoint: 'preview' | 'thumb'): Promise<Blob | null> {
     try {
-      await this.ensureRegisteredFolders();
-      const address = addressForAbsPath(absPath, this.store.registeredFolders());
-      if (address) {
-        const blob =
-          endpoint === 'preview'
-            ? await this.librarySource.previewBlob(address)
-            : await this.librarySource.thumbBlob(address);
-        if (blob) return blob;
-      }
-    } catch {
-      // Not under registered library or source failed; fall back to /api/fs/<endpoint>
-    }
-    try {
-      return await firstValueFrom(
-        this.http.get(`${this.base}/fs/${endpoint}?path=${encodeURIComponent(absPath)}`, {
-          responseType: 'blob',
-        }),
-      );
+      const address = await this.resolveAddress(absPath);
+      return endpoint === 'preview'
+        ? await this.librarySource.previewBlob(address)
+        : await this.librarySource.thumbBlob(address);
     } catch {
       return null;
     }
@@ -213,7 +198,7 @@ export class FilesystemBrowseService {
     await this.ensureRegisteredFolders();
     const address = addressForAbsPath(absPath, this.store.registeredFolders());
     if (!address) {
-      throw new Error(`getThumbBlobUrl: ${absPath} is not under a registered library`);
+      throw new Error(`FilesystemBrowseService: ${absPath} is not under a registered library`);
     }
     return address;
   }

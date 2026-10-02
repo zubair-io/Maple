@@ -266,33 +266,44 @@ describe('FilesystemBrowseService', () => {
     expect(blob).toBeTruthy();
   });
 
-  it('getPreviewBlob falls back to /api/fs/preview?path= when not under a registered library', async () => {
-    store.registeredFolders.set([MAIN]);
-    const promise = service.getPreviewBlob('/unregistered/photo.jpg');
-    await settle();
+  for (const endpoint of ['thumb', 'preview'] as const) {
+    const read = (path: string) =>
+      endpoint === 'thumb' ? service.getThumbBlob(path) : service.getPreviewBlob(path);
 
-    http.expectNone((r) => r.url.startsWith('/api/preview'));
-    const req = http.expectOne('/api/fs/preview?path=%2Funregistered%2Fphoto.jpg');
-    expect(req.request.method).toBe('GET');
-    req.flush(new Blob(['fs-preview-data'], { type: 'image/jpeg' }));
+    it(`${endpoint} returns no blob for an unregistered path without a legacy read`, async () => {
+      store.registeredFolders.set([MAIN]);
+      const promise = read('/unregistered/photo.jpg');
+      await settle();
+      http.expectNone(() => true);
+      expect(await promise).toBeNull();
+    });
 
-    const blob = await promise;
-    expect(blob).toBeTruthy();
-  });
+    it(`${endpoint} preserves a not-ready response without a legacy read`, async () => {
+      store.registeredFolders.set([MAIN]);
+      const promise = read('/photos/library/photo.jpg');
+      await settle();
+      http
+        .expectOne(`/api/${endpoint}/library/photo.jpg?pv=${PIPELINE_OUTPUT_VERSION}`)
+        .flush(null, { status: 202, statusText: 'Accepted' });
+      await settle();
+      http.expectNone((request) => request.url.startsWith('/api/fs/'));
+      expect(await promise).toBeNull();
+    });
 
-  it('getThumbBlob falls back to /api/fs/thumb?path= when not under a registered library', async () => {
-    store.registeredFolders.set([MAIN]);
-    const promise = service.getThumbBlob('/unregistered/photo.jpg');
-    await settle();
-
-    http.expectNone((r) => r.url.startsWith('/api/thumb'));
-    const req = http.expectOne('/api/fs/thumb?path=%2Funregistered%2Fphoto.jpg');
-    expect(req.request.method).toBe('GET');
-    req.flush(new Blob(['fs-thumb-data'], { type: 'image/jpeg' }));
-
-    const blob = await promise;
-    expect(blob).toBeTruthy();
-  });
+    for (const status of [403, 409, 500]) {
+      it(`${endpoint} does not bypass a unified ${status} response through legacy routes`, async () => {
+        store.registeredFolders.set([MAIN]);
+        const promise = read('/photos/library/photo.jpg');
+        await settle();
+        http
+          .expectOne(`/api/${endpoint}/library/photo.jpg?pv=${PIPELINE_OUTPUT_VERSION}`)
+          .flush(new Blob(['unavailable']), { status, statusText: 'Unavailable' });
+        await settle();
+        http.expectNone((request) => request.url.startsWith('/api/fs/'));
+        expect(await promise).toBeNull();
+      });
+    }
+  }
 
   it('getPreviewBlobUrl caches and revokes on clearThumbCache', async () => {
     store.registeredFolders.set([MAIN]);
