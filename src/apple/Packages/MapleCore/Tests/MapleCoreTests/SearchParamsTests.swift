@@ -6,9 +6,25 @@
 // and the nil/empty skip rules.
 
 import XCTest
+
 @testable import MapleCore
 
 final class SearchParamsTests: XCTestCase {
+
+  func test_ownerOnlyFiltersSearchAndFacetsAndContributesToTheUnifiedBadge() {
+    var params = SearchParams()
+    params.ownerID = "111111111111111111111111"
+    XCTAssertTrue(params.hasActiveFilters)
+    XCTAssertTrue(params.hasUnifiedFilters)
+    XCTAssertEqual(params.unifiedFilterCount, 1)
+    XCTAssertEqual(dict(params.listQueryItems(page: 0, limit: 200))["ownerId"], params.ownerID)
+    XCTAssertEqual(dict(params.facetQueryItems())["ownerId"], params.ownerID)
+    params.ownerID = ""
+    XCTAssertFalse(params.hasUnifiedFilters)
+    XCTAssertFalse(params.hasActiveFilters)
+    XCTAssertEqual(params.unifiedFilterCount, 0)
+    XCTAssertNil(dict(params.facetQueryItems())["ownerId"])
+  }
 
   /// Collapse [URLQueryItem] into a name→value dictionary for assertions.
   private func dict(_ items: [URLQueryItem]) -> [String: String] {
@@ -17,7 +33,7 @@ final class SearchParamsTests: XCTestCase {
 
   func test_facetItems_emptyParams_onlyLibraryId() {
     var p = SearchParams(libraryID: "lib-1")
-    p.q = ""   // empty → omitted
+    p.q = ""  // empty → omitted
     let d = dict(p.facetQueryItems())
     XCTAssertEqual(d, ["libraryId": "lib-1"])
     // Facets never carry sort / page / limit.
@@ -121,9 +137,9 @@ final class SearchParamsTests: XCTestCase {
 
   func test_hasActiveFilters() {
     var p = SearchParams(libraryID: "lib-1")
-    p.q = "anything"        // q is not a "structured" filter
+    p.q = "anything"  // q is not a "structured" filter
     p.placeQuery = "a dog"  // nor is the main-box content query
-    p.sort = .name          // nor is sort
+    p.sort = .name  // nor is sort
     XCTAssertFalse(p.hasActiveFilters)
     p.rating = 3
     XCTAssertTrue(p.hasActiveFilters)
@@ -134,8 +150,9 @@ final class SearchParamsTests: XCTestCase {
   func test_people_serialisesCommaJoined_onListAndFacetItems() {
     var p = SearchParams(libraryID: "lib-1")
     p.people = ["Priya Patel", "Sam Ochoa"]
-    XCTAssertEqual(dict(p.listQueryItems(page: 0, limit: 100))["people"],
-                   "Priya Patel,Sam Ochoa")
+    XCTAssertEqual(
+      dict(p.listQueryItems(page: 0, limit: 100))["people"],
+      "Priya Patel,Sam Ochoa")
     XCTAssertEqual(dict(p.facetQueryItems())["people"], "Priya Patel,Sam Ochoa")
   }
 
@@ -143,8 +160,9 @@ final class SearchParamsTests: XCTestCase {
     // Pipe-joined because place labels themselves contain commas.
     var p = SearchParams(libraryID: "lib-1")
     p.place = ["Portland, OR", "Kyoto"]
-    XCTAssertEqual(dict(p.listQueryItems(page: 0, limit: 100))["place"],
-                   "Portland, OR|Kyoto")
+    XCTAssertEqual(
+      dict(p.listQueryItems(page: 0, limit: 100))["place"],
+      "Portland, OR|Kyoto")
     XCTAssertEqual(dict(p.facetQueryItems())["place"], "Portland, OR|Kyoto")
   }
 
@@ -167,7 +185,7 @@ final class SearchParamsTests: XCTestCase {
 
   func test_hasUnifiedFilters_dateOrPeopleOrPlace() {
     var p = SearchParams(libraryID: "lib-1")
-    p.placeQuery = "sunset"   // free text is not a filter
+    p.placeQuery = "sunset"  // free text is not a filter
     XCTAssertFalse(p.hasUnifiedFilters)
     p.from = "2026-01-01"
     XCTAssertTrue(p.hasUnifiedFilters)
@@ -210,7 +228,7 @@ final class SearchParamsTests: XCTestCase {
 
 extension SearchParamsTests {
   /// Pins the `month` wire name (#2715) and the nil-omitted skip rule.
-  func test_month_serialisesAndOmitsWhenNil() {
+  func testMonthSerialisesAndOmitsWhenNil() {
     var p = SearchParams(libraryID: "lib1")
     XCTAssertNil(dict(p.listQueryItems(page: 0, limit: 100))["month"])
     p.month = 8

@@ -6,17 +6,57 @@
 // guard against a `String?` regression that would throw `typeMismatch` and
 // break the whole `SearchAsset` decode for every geocoded asset.
 import XCTest
+
 @testable import MapleCore
 
 final class CloudSearchTypesTests: XCTestCase {
 
+  func test_ownerSummaryDecodesOnSearchAndDetailAndToleratesLegacyAndUnassignedRows() throws {
+    for (fields, expectedEmail, expectedID) in [
+      ("", nil, nil),
+      (",\"owner_id\":null,\"owner\":null", nil, nil),
+      (",\"owner_id\":\"member\",\"owner\":{\"id\":\"member\",\"email\":null}", nil, "member"),
+      (
+        ",\"owner_id\":\"member\",\"owner\":{\"id\":\"member\",\"email\":\"studio@example.com\"}",
+        "studio@example.com", "member"
+      ),
+    ] as [(String, String?, String?)] {
+      let json =
+        "{\"id\":\"a\",\"folder_id\":\"lib\",\"abs_path\":\"/p/a.dng\",\"filename\":\"a.dng\"\(fields)}"
+      let data = Data(json.utf8)
+      let asset = try JSONDecoder().decode(SearchAsset.self, from: data)
+      let detail = try JSONDecoder().decode(CloudAssetDetail.self, from: data)
+      XCTAssertEqual(asset.owner_id, expectedID)
+      XCTAssertEqual(asset.owner?.id, expectedID)
+      XCTAssertEqual(asset.owner?.email, expectedEmail)
+      XCTAssertEqual(detail.ownerID, expectedID)
+      XCTAssertEqual(detail.owner, asset.owner)
+      let restored = try JSONDecoder().decode(SearchAsset.self, from: JSONEncoder().encode(asset))
+      XCTAssertEqual(restored, asset)
+    }
+  }
+
+  func test_ownerFacetsDecodeWithServerIdsAndDefaultToEmptyOnOlderServers() throws {
+    let base =
+      "\"total\":3,\"cameras\":[],\"lenses\":[],\"extensions\":[],\"scene_types\":[],\"activities\":[],\"subjects\":[],\"is_screenshot\":{\"true\":0,\"false\":3,\"unknown\":0}"
+    let legacy = try JSONDecoder().decode(SearchFacets.self, from: Data("{\(base)}".utf8))
+    XCTAssertEqual(legacy.owners, [])
+    let modern = try JSONDecoder().decode(
+      SearchFacets.self,
+      from: Data(
+        "{\(base),\"owners\":[{\"id\":\"member\",\"email\":\"studio@example.com\",\"count\":3}]}"
+          .utf8))
+    XCTAssertEqual(
+      modern.owners, [AssetOwnerFacet(id: "member", email: "studio@example.com", count: 3)])
+  }
+
   func test_decode_fullPlaceObjectAndHasXmpTrue() throws {
     let json = """
-    {"id":"a1","folder_id":"lib-1","abs_path":"/p/a.dng","filename":"a.dng",
-     "has_xmp":true,
-     "place":{"display_name":"Paris, Île-de-France, France",
-               "rollups":{"locality":"Paris","region":"Île-de-France","country_code":"fr"}}}
-    """
+      {"id":"a1","folder_id":"lib-1","abs_path":"/p/a.dng","filename":"a.dng",
+       "has_xmp":true,
+       "place":{"display_name":"Paris, Île-de-France, France",
+                 "rollups":{"locality":"Paris","region":"Île-de-France","country_code":"fr"}}}
+      """
     let asset = try JSONDecoder().decode(SearchAsset.self, from: Data(json.utf8))
 
     XCTAssertEqual(asset.has_xmp, true)
@@ -28,9 +68,9 @@ final class CloudSearchTypesTests: XCTestCase {
 
   func test_decode_nullPlaceAndHasXmpFalse() throws {
     let json = """
-    {"id":"a2","folder_id":"lib-1","abs_path":"/p/b.dng","filename":"b.dng",
-     "has_xmp":false,"place":null}
-    """
+      {"id":"a2","folder_id":"lib-1","abs_path":"/p/b.dng","filename":"b.dng",
+       "has_xmp":false,"place":null}
+      """
     let asset = try JSONDecoder().decode(SearchAsset.self, from: Data(json.utf8))
 
     XCTAssertEqual(asset.has_xmp, false)
@@ -39,8 +79,8 @@ final class CloudSearchTypesTests: XCTestCase {
 
   func test_decode_absentKeysDecodeToNil() throws {
     let json = """
-    {"id":"a3","folder_id":"lib-1","abs_path":"/p/c.dng","filename":"c.dng"}
-    """
+      {"id":"a3","folder_id":"lib-1","abs_path":"/p/c.dng","filename":"c.dng"}
+      """
     let asset = try JSONDecoder().decode(SearchAsset.self, from: Data(json.utf8))
 
     XCTAssertNil(asset.has_xmp)
@@ -54,10 +94,10 @@ final class CloudSearchTypesTests: XCTestCase {
   /// deployments working with the new filter UI (it just shows no rows).
   func test_decodeFacets_absentPeoplePlacesDefaultToEmpty() throws {
     let json = """
-    {"total":3,"cameras":[],"lenses":[],"extensions":[],
-     "scene_types":[],"activities":[],"subjects":[],
-     "is_screenshot":{"true":0,"false":3,"unknown":0}}
-    """
+      {"total":3,"cameras":[],"lenses":[],"extensions":[],
+       "scene_types":[],"activities":[],"subjects":[],
+       "is_screenshot":{"true":0,"false":3,"unknown":0}}
+      """
     let facets = try JSONDecoder().decode(SearchFacets.self, from: Data(json.utf8))
     XCTAssertEqual(facets.total, 3)
     XCTAssertEqual(facets.people, [])
@@ -68,12 +108,12 @@ final class CloudSearchTypesTests: XCTestCase {
 
   func test_decodeFacets_peoplePlacesRoundTripValues() throws {
     let json = """
-    {"total":9,"cameras":[],"lenses":[],"extensions":[],
-     "scene_types":[],"activities":[],"subjects":[],
-     "is_screenshot":{"true":0,"false":9,"unknown":0},
-     "people":[{"value":"Priya Patel","count":812},{"value":"Sam Ochoa","count":40}],
-     "places":[{"value":"Portland, OR","count":946}]}
-    """
+      {"total":9,"cameras":[],"lenses":[],"extensions":[],
+       "scene_types":[],"activities":[],"subjects":[],
+       "is_screenshot":{"true":0,"false":9,"unknown":0},
+       "people":[{"value":"Priya Patel","count":812},{"value":"Sam Ochoa","count":40}],
+       "places":[{"value":"Portland, OR","count":946}]}
+      """
     let facets = try JSONDecoder().decode(SearchFacets.self, from: Data(json.utf8))
     XCTAssertEqual(facets.people.map(\.value), ["Priya Patel", "Sam Ochoa"])
     XCTAssertEqual(facets.people.map(\.count), [812, 40])
@@ -86,11 +126,11 @@ final class CloudSearchTypesTests: XCTestCase {
   /// caption/day-header needs, and synthesized Codable ignores extras.
   func test_decode_placeWithUnmodeledFieldsIgnoresExtras() throws {
     let json = """
-    {"id":"a4","folder_id":"lib-1","abs_path":"/p/d.dng","filename":"d.dng",
-     "place":{"display_name":"Kyoto, Japan","address":{"road":"Some Rd"},
-              "lat":35.0,"lon":135.7,"pois":["Fushimi Inari"],
-              "rollups":{"locality":"Kyoto","region":null,"country_code":"jp"}}}
-    """
+      {"id":"a4","folder_id":"lib-1","abs_path":"/p/d.dng","filename":"d.dng",
+       "place":{"display_name":"Kyoto, Japan","address":{"road":"Some Rd"},
+                "lat":35.0,"lon":135.7,"pois":["Fushimi Inari"],
+                "rollups":{"locality":"Kyoto","region":null,"country_code":"jp"}}}
+      """
     let asset = try JSONDecoder().decode(SearchAsset.self, from: Data(json.utf8))
 
     XCTAssertEqual(asset.place?.display_name, "Kyoto, Japan")
@@ -99,4 +139,3 @@ final class CloudSearchTypesTests: XCTestCase {
     XCTAssertEqual(asset.place?.rollups?.country_code, "jp")
   }
 }
-

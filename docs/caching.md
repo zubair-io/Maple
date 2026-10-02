@@ -95,6 +95,8 @@ The `ThumbnailDiskCache` file header still describes an LRU with a 500 MB / 10,0
 
 Sourced from `src/apple/Packages/MapleCore/Sources/MapleCloudKit/`, the Self-Hosted client adds four more, all under `~/Library/Caches/app.justmaple.aperture/`: `CloudThumbCache` (AVIF bytes keyed on absolute server path, LRU with a 2 GB soft cap and coalesced eviction sweeps), `CloudBucketsCache` and `CloudPagesCache` (JSON `/api/search` responses, stale-while-revalidate, no cap), `CloudFoldersCache` and `AuthUserCache` (last-known folder list and account metadata per `host:port`, used as an offline fallback).
 
+Cloud bucket/page scopes include the selected owner ID as well as the folder prefix. An owner-specific scope uses a separate filename/directory from All owners and every other owner. Absent or empty owner IDs retain the shipped unfiltered layout, so existing offline entries remain readable. Clearing a bucket scope removes only that owner/folder entry; clearing a library's page cache removes every owner/folder scope under it.
+
 ### File Provider and Quick Look
 
 The File Provider extension (`.../MapleCore/FileProvider/`) is a separate process with its own caches:

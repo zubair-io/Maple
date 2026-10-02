@@ -84,13 +84,13 @@ public enum SearchSceneType: String, Codable, Sendable, CaseIterable {
 public enum SearchHidden: String, Codable, Sendable, CaseIterable {
   case none = "none"
   case only = "only"
-  case all  = "all"
+  case all = "all"
 
   public var label: String {
     switch self {
     case .none: return "Exclude"
     case .only: return "Only"
-    case .all:  return "Include"
+    case .all: return "Include"
     }
   }
 }
@@ -113,6 +113,8 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   public var placeQuery: String = ""
   /// Scope to one registered library (folder ObjectId hex).
   public var libraryID: String?
+  /// Authenticated server user id whose assets to include (#4016).
+  public var ownerID: String?
   /// Case-insensitive substring on camera make / model.
   public var camera: String?
   /// Case-insensitive substring on lens.
@@ -188,6 +190,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
       || !subjects.isEmpty || !people.isEmpty || !place.isEmpty
       || isScreenshot != nil || hasCapturedAt != nil
       || hidden != .none
+      || ownerID?.isEmpty == false
   }
 
   /// True when any of the unified search filters (date range, people,
@@ -195,7 +198,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   /// is set. A filters-only search (empty text, filters set) must still
   /// fetch, so UI layers gate on this alongside the query text.
   public var hasUnifiedFilters: Bool {
-    from != nil || to != nil || !people.isEmpty || !place.isEmpty
+    from != nil || to != nil || !people.isEmpty || !place.isEmpty || ownerID?.isEmpty == false
   }
 
   /// Badge count for the "Filters" control: the date range counts once
@@ -203,6 +206,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
   /// per selected place.
   public var unifiedFilterCount: Int {
     ((from != nil || to != nil) ? 1 : 0) + people.count + place.count
+      + (ownerID?.isEmpty == false ? 1 : 0)
   }
 
   // MARK: - Serialisation
@@ -246,6 +250,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
     add("q", q)
     add("placeQuery", placeQuery)
     add("libraryId", libraryID)
+    add("ownerId", ownerID)
     add("camera", camera)
     add("lens", lens)
     add("isoMin", isoMin.map(String.init))

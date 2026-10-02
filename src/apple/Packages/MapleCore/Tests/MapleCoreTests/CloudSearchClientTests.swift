@@ -1,14 +1,52 @@
 // CloudSearchClientTests.swift
 import XCTest
+
 @testable import MapleCore
 
 final class CloudSearchClientTests: XCTestCase {
 
+  func test_ownerFilterMatchesAcrossTimelineBucketsAndPagesAndOmitsEmptyOwners() async throws {
+    let server = URL(string: "https://example.test")!
+    let captured = CapturedURL()
+    let session = URLSession.stubbedSequence { request in
+      captured.value = request.url
+      let json =
+        request.url!.path.hasSuffix("buckets")
+        ? "{\"total\":0,\"buckets\":[],\"untimed_count\":0}"
+        : "{\"total\":0,\"page\":0,\"limit\":200,\"results\":[]}"
+      let response = HTTPURLResponse(
+        url: request.url!, statusCode: 200, httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"])!
+      return (Data(json.utf8), response)
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+    for owner in [nil, "", "111111111111111111111111"] as [String?] {
+      _ = try await client.buckets(libraryID: "library", pathPrefix: "2026", ownerID: owner)
+      let bucketItems = URLComponents(url: captured.value!, resolvingAgainstBaseURL: false)!
+        .queryItems!
+      _ = try await client.page(
+        libraryID: "library", year: 2026, month: 1,
+        pathPrefix: "2026", ownerID: owner)
+      let pageItems = URLComponents(url: captured.value!, resolvingAgainstBaseURL: false)!
+        .queryItems!
+      for items in [bucketItems, pageItems] {
+        XCTAssertEqual(items.first { $0.name == "ownerId" }?.value, owner == "" ? nil : owner)
+        XCTAssertEqual(items.first { $0.name == "libraryId" }?.value, "library")
+        XCTAssertEqual(items.first { $0.name == "pathPrefix" }?.value, "2026/")
+        XCTAssertLessThanOrEqual(items.filter { $0.name == "ownerId" }.count, 1)
+      }
+      XCTAssertEqual(pageItems.first { $0.name == "page" }?.value, "0")
+      XCTAssertEqual(pageItems.first { $0.name == "hasCapturedAt" }?.value, "true")
+    }
+  }
+
   func test_buckets_parsesResponse() async throws {
     let server = URL(string: "https://example.test")!
     let json = """
-    {"total":12,"buckets":[{"year":2024,"month":7,"count":7},{"year":2024,"month":6,"count":5}],"untimed_count":0}
-    """
+      {"total":12,"buckets":[{"year":2024,"month":7,"count":7},{"year":2024,"month":6,"count":5}],"untimed_count":0}
+      """
     let session = URLSession.stubbed(response: json)
     let client = CloudSearchClient(
       server: server,
@@ -26,13 +64,13 @@ final class CloudSearchClientTests: XCTestCase {
   func test_page_parsesResponse() async throws {
     let server = URL(string: "https://example.test")!
     let json = """
-    {"total":42,"page":1,"limit":200,"results":[
-      {"id":"a1","folder_id":"lib-1","abs_path":"/photos/a1.dng","filename":"a1.dng",
-       "size":1024,"mtime":1719792000000,"captured_at":"2024-07-15T12:00:00Z",
-       "camera":{"make":"Canon","model":"R5"},"lens":null,"iso":100,"aperture":5.6,
-       "shutter":"1/200","focal_length":50.0,"rating":4,"flag":null,"color_label":null}
-    ]}
-    """
+      {"total":42,"page":1,"limit":200,"results":[
+        {"id":"a1","folder_id":"lib-1","abs_path":"/photos/a1.dng","filename":"a1.dng",
+         "size":1024,"mtime":1719792000000,"captured_at":"2024-07-15T12:00:00Z",
+         "camera":{"make":"Canon","model":"R5"},"lens":null,"iso":100,"aperture":5.6,
+         "shutter":"1/200","focal_length":50.0,"rating":4,"flag":null,"color_label":null}
+      ]}
+      """
     let session = URLSession.stubbed(response: json)
     let client = CloudSearchClient(
       server: server,
@@ -50,17 +88,18 @@ final class CloudSearchClientTests: XCTestCase {
   func test_search_buildsURLAndParsesResponse() async throws {
     let server = URL(string: "https://example.test")!
     let json = """
-    {"total":1,"page":0,"limit":100,"results":[
-      {"id":"fs:/p/a.dng","folder_id":"lib-1","abs_path":"/p/a.dng","filename":"a.dng",
-       "rating":5,"flag":1,"color_label":"red"}
-    ]}
-    """
+      {"total":1,"page":0,"limit":100,"results":[
+        {"id":"fs:/p/a.dng","folder_id":"lib-1","abs_path":"/p/a.dng","filename":"a.dng",
+         "rating":5,"flag":1,"color_label":"red"}
+      ]}
+      """
     // Capture the outgoing request URL so we can assert the query contract.
     let captured = CapturedURL()
     let session = URLSession.stubbedSequence { req in
       captured.value = req.url
-      let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
-                                 headerFields: ["Content-Type": "application/json"])!
+      let resp = HTTPURLResponse(
+        url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+        headerFields: ["Content-Type": "application/json"])!
       return (Data(json.utf8), resp)
     }
     let client = CloudSearchClient(
@@ -78,8 +117,8 @@ final class CloudSearchClientTests: XCTestCase {
 
     let comps = URLComponents(url: captured.value!, resolvingAgainstBaseURL: false)!
     XCTAssertEqual(comps.path, "/api/search")
-    let items = Dictionary(uniqueKeysWithValues:
-      (comps.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+    let items = Dictionary(
+      uniqueKeysWithValues: (comps.queryItems ?? []).map { ($0.name, $0.value ?? "") })
     XCTAssertEqual(items["q"], "beach")
     XCTAssertEqual(items["libraryId"], "lib-1")
     XCTAssertEqual(items["rating"], "4")
@@ -92,19 +131,19 @@ final class CloudSearchClientTests: XCTestCase {
   func test_facets_parsesResponse() async throws {
     let server = URL(string: "https://example.test")!
     let json = """
-    {"total":7,
-     "cameras":[{"make":"Canon","model":"R5","count":4}],
-     "lenses":[{"value":"RF 50","count":3},{"value":null,"count":1}],
-     "extensions":[{"value":"dng","count":7}],
-     "iso_range":{"min":100,"max":6400},
-     "capture_range":{"from":"2024-01-01T00:00:00Z","to":"2024-12-31T23:59:59Z"},
-     "scene_types":[{"value":"outdoor","count":5}],
-     "activities":[{"value":"hiking","count":2}],
-     "subjects":[{"value":"mountain","count":3}],
-     "is_screenshot":{"true":1,"false":5,"unknown":1},
-     "people":[{"value":"Priya Patel","count":812}],
-     "places":[{"value":"Portland, OR","count":946},{"value":"Kyoto","count":74}]}
-    """
+      {"total":7,
+       "cameras":[{"make":"Canon","model":"R5","count":4}],
+       "lenses":[{"value":"RF 50","count":3},{"value":null,"count":1}],
+       "extensions":[{"value":"dng","count":7}],
+       "iso_range":{"min":100,"max":6400},
+       "capture_range":{"from":"2024-01-01T00:00:00Z","to":"2024-12-31T23:59:59Z"},
+       "scene_types":[{"value":"outdoor","count":5}],
+       "activities":[{"value":"hiking","count":2}],
+       "subjects":[{"value":"mountain","count":3}],
+       "is_screenshot":{"true":1,"false":5,"unknown":1},
+       "people":[{"value":"Priya Patel","count":812}],
+       "places":[{"value":"Portland, OR","count":946},{"value":"Kyoto","count":74}]}
+      """
     let session = URLSession.stubbed(response: json)
     let client = CloudSearchClient(
       server: server,
