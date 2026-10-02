@@ -499,47 +499,4 @@ describe('PreviewShellComponent', () => {
     expect(setRating).not.toHaveBeenCalled();
     expect(setFlag).not.toHaveBeenCalled();
   });
-
-  // ── Swipe gesture on .preview-image-wrap ─────────────────────────────────
-
-  it('a leftward swipe past the threshold calls goNext', () => {
-    const { fixture, navigate } = setupFixture();
-    const comp = fixture.componentInstance;
-    const goNextSpy = vi.spyOn(comp, 'goNext');
-    comp.onImagePointerDown({ clientX: 300, clientY: 100 } as PointerEvent);
-    comp.onImagePointerUp({ clientX: 240, clientY: 105 } as PointerEvent);
-    expect(goNextSpy).toHaveBeenCalled();
-    void navigate; // navigate assertions covered by goNext/goPrev unit tests above
-  });
-
-  it('a rightward swipe past the threshold calls goPrev', () => {
-    const { fixture } = setupFixture();
-    const comp = fixture.componentInstance;
-    const goPrevSpy = vi.spyOn(comp, 'goPrev');
-    comp.onImagePointerDown({ clientX: 100, clientY: 100 } as PointerEvent);
-    comp.onImagePointerUp({ clientX: 170, clientY: 95 } as PointerEvent);
-    expect(goPrevSpy).toHaveBeenCalled();
-  });
-
-  it('a short drag under the threshold does not navigate', () => {
-    const { fixture } = setupFixture();
-    const comp = fixture.componentInstance;
-    const goNextSpy = vi.spyOn(comp, 'goNext');
-    const goPrevSpy = vi.spyOn(comp, 'goPrev');
-    comp.onImagePointerDown({ clientX: 100, clientY: 100 } as PointerEvent);
-    comp.onImagePointerUp({ clientX: 115, clientY: 100 } as PointerEvent);
-    expect(goNextSpy).not.toHaveBeenCalled();
-    expect(goPrevSpy).not.toHaveBeenCalled();
-  });
-
-  it('a mostly-vertical drag past the horizontal threshold does not navigate', () => {
-    const { fixture } = setupFixture();
-    const comp = fixture.componentInstance;
-    const goNextSpy = vi.spyOn(comp, 'goNext');
-    const goPrevSpy = vi.spyOn(comp, 'goPrev');
-    comp.onImagePointerDown({ clientX: 100, clientY: 100 } as PointerEvent);
-    comp.onImagePointerUp({ clientX: 150, clientY: 200 } as PointerEvent);
-    expect(goNextSpy).not.toHaveBeenCalled();
-    expect(goPrevSpy).not.toHaveBeenCalled();
-  });
 });

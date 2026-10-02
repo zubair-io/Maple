@@ -45,10 +45,9 @@
     </div>
 
     <div
-      class="absolute inset-0 grid place-items-center"
+      class="absolute inset-0 grid place-items-center select-none [touch-action:pan-y_pinch-zoom]"
       data-testid="preview-surface"
       (pointerdown)="onImagePointerDown($event)"
-      (pointerup)="onImagePointerUp($event)"
     >
       @if (videoUrl(); as video) {
         <video
@@ -65,6 +64,7 @@
       } @else {
         @if (thumbUrl(); as t) {
           <img
+            draggable="false"
             class="absolute max-h-full max-w-full object-contain"
             [src]="t"
             alt=""
@@ -82,6 +82,7 @@
              and the full still stacks over the thumb. -->
           @if (p !== thumbUrl()) {
             <img
+              draggable="false"
               class="absolute max-h-full max-w-full animate-[preview-fade_160ms_ease-out] object-contain"
               data-preview-stage="preview"
               data-preview-resolved="true"
