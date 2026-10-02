@@ -239,13 +239,24 @@ for (const width of [375, 800, 1280]) {
   }) => {
     await openPreview(page, width);
     const actions = page.locator(width < 768 ? '.preview-top-actions' : '.preview-action-bar');
-    const photo = page.locator('editor-filmstrip button').first();
+    const photo = page.locator('editor-filmstrip maple-asset-thumb button').first();
     await photo.focus();
     await expect(photo).toBeFocused();
     await page.keyboard.press('ArrowRight');
     await expect(page.getByTestId('preview-filename')).toHaveText('second.DNG');
     await page.keyboard.press('ArrowLeft');
     await expect(page.getByTestId('preview-filename')).toHaveText('first.DNG');
+    const toggle = page
+      .locator('editor-filmstrip')
+      .getByRole('button', { name: 'Hide filmstrip', exact: true });
+    await toggle.focus();
+    await expect(toggle).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('preview-filename')).toHaveText('first.DNG');
+    await page.keyboard.press('Space');
+    await expect(page.locator('editor-filmstrip maple-asset-thumb')).toHaveCount(0);
+    await page.keyboard.press('Space');
+    await expect(page.locator('editor-filmstrip maple-asset-thumb')).toHaveCount(2);
     const flag = actions.getByRole('button', { name: 'Flag', exact: true });
     const info = actions.getByRole('button', { name: 'Info', exact: true });
     const edit = actions.getByRole('button', { name: 'Edit', exact: true });

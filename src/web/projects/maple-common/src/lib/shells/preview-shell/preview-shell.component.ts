@@ -254,7 +254,8 @@ export class PreviewShellComponent implements OnDestroy {
     if (
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
-      (target instanceof HTMLButtonElement && !target.closest('editor-filmstrip')) ||
+      (target instanceof HTMLButtonElement &&
+        !target.closest('editor-filmstrip maple-asset-thumb')) ||
       target instanceof HTMLSelectElement ||
       target.isContentEditable
     )
