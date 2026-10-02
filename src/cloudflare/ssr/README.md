@@ -34,8 +34,10 @@ undoing one of those failures:
 3. Correct successful WASM/WOFF2 responses to `application/wasm` /
    `font/woff2` when Azure reports octet-stream. Origin error MIME types
    and status codes pass through unchanged.
-4. Never invent a `Cache-Control` — pass the origin's own value through
-   untouched. `index.html` requests routed through the fallback path get an
+4. Preserve the origin's cache freshness directives. HTML responses append
+   `no-transform` to prevent Cloudflare analytics injection from violating
+   the CSP or altering Angular's hashed app shell (#4026). Non-HTML cache
+   headers pass through unchanged. Fallback `index.html` responses get an
    explicit `no-cache`, matching the same rule the upload step in
    `deploy-hosted.yml` applies to the origin object directly.
 5. Apply the production security header contract
@@ -85,7 +87,8 @@ and zone. `wrangler.jsonc.example` is the committed template.
    `npm run smoke -- https://mapleaperture.com`. It compares full SHA-256 hashes of WASM, PNG, WOFF2 and `ngsw.json`
    against the Azure origin (the optional second URL argument defaults to
    `hornbeam/mapleaperture`). It checks MIME/magic, security headers on
-   root/assets/deep links, rejects immutable stable assets, requires
+   root/assets/deep links, checks complete HTML bytes against Azure and the
+   `no-transform` guard, rejects immutable stable assets, requires
    `no-cache` on the service-worker manifest, validates SPA fallback, and
    requires a real 404 for missing subresources. Each fetch has a 60-second
    deadline. Run against a settled deployment: a build changing between

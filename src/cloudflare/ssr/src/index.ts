@@ -34,10 +34,10 @@
  *   3. Origin 404 + not a navigation (a missing JS chunk, a stale asset
  *      path, ...) -> pass the real 404 through untouched.
  *   4. Any other status -> pass it through untouched, with the origin's own
- *      `Content-Type` and `Cache-Control` preserved (this Worker never
- *      invents a cache policy) except successful WASM/WOFF2 responses,
- *      which use `application/wasm` / `font/woff2` even when Azure uploads
- *      them as octet-stream. Origin error response types are preserved.
+ *      `Content-Type` and cache freshness preserved, with no-transform
+ *      added to HTML to prevent edge injection. Successful WASM/WOFF2
+ *      responses use `application/wasm` / `font/woff2` when Azure uploads
+ *      octet-stream. Origin error response types are preserved.
  *   5. Every response gets the production security headers.
  */
 
@@ -93,6 +93,20 @@ function withAssetContentType(headers: Headers, pathname: string, status: number
 	return headers;
 }
 
+function withHtmlIntegrity(headers: Headers): Headers {
+	const mediaType = headers.get('Content-Type')?.split(';')[0].trim().toLowerCase();
+	if (mediaType !== 'text/html') return headers;
+	const cache = headers.get('Cache-Control');
+	if (cache?.split(',').some((directive) => directive.trim().toLowerCase() === 'no-transform')) {
+		return headers;
+	}
+	// #4026: Cloudflare's automatic analytics injection violates the self-only
+	// CSP and changes Angular's hashed index.html. Preserve origin freshness
+	// directives while forbidding downstream changes to the streamed HTML.
+	headers.set('Cache-Control', cache ? `${cache}, no-transform` : 'no-transform');
+	return headers;
+}
+
 /**
  * SPA fallback: re-fetch `/index.html` from the origin and serve it in
  * place of the 404 the requested path produced.
@@ -131,7 +145,7 @@ async function spaFallback(originBaseUrl: string): Promise<Response> {
 	// would strand a returning client on a stale deploy — never cache it,
 	// same rule the upload step in deploy-hosted.yml applies at the origin.
 	headers.set('Cache-Control', 'no-cache');
-	return new Response(indexResponse.body, { status: 200, headers });
+	return new Response(indexResponse.body, { status: 200, headers: withHtmlIntegrity(headers) });
 }
 
 export default {
@@ -155,7 +169,7 @@ export default {
 		return new Response(originResponse.body, {
 			status: originResponse.status,
 			statusText: originResponse.statusText,
-			headers,
+			headers: withHtmlIntegrity(headers),
 		});
 	},
 } satisfies ExportedHandler<Env>;
