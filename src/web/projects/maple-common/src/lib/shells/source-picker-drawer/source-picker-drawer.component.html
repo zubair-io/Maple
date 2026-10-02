@@ -22,8 +22,6 @@
     [style.transform]="drawerTransform()"
     (pointerdown)="onPointerDown($event)"
     (pointermove)="onPointerMove($event)"
-    (pointerup)="onPointerUp($event)"
-    (pointercancel)="onPointerUp($event)"
   >
     <header
       class="flex shrink-0 flex-col gap-1.5 px-4 pt-[calc(18px+var(--safe-area-inset-top,0px))] pb-3"
@@ -89,7 +87,7 @@
     <!-- Source tree — rendered from the input. Section / subheader rows
          are visual group headers; tapping them does nothing. -->
     <nav
-      class="flex flex-1 flex-col overflow-y-auto pt-2 pb-[calc(8px+var(--safe-area-inset-bottom,0px))]"
+      class="flex flex-1 touch-pan-y flex-col overflow-y-auto pt-2 pb-[calc(8px+var(--safe-area-inset-bottom,0px))]"
       aria-label="Source tree"
     >
       @for (entry of sourceTree(); track entry.id) {
