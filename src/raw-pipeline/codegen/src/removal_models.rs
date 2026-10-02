@@ -1,4 +1,5 @@
 //! Experimental model pins shared with authoring workers (#3941).
+use raw_core::stages::removal_people::PersonRole;
 use raw_core::types::removal_models::{
     EXPERIMENTAL_REMOVAL_MODELS, REMOVAL_FRINGE_RADIUS, REMOVAL_HOLE_RADIUS,
     REMOVAL_PERSON_MIN_SCORE,
@@ -28,6 +29,18 @@ pub fn emit_ts() -> String {
     out.push_str(&format!(
         "export const REMOVAL_AUTHORING_DEFAULTS = {{\n  personMinScore: {REMOVAL_PERSON_MIN_SCORE},\n  holeRadius: {REMOVAL_HOLE_RADIUS},\n  fringeRadius: {REMOVAL_FRINGE_RADIUS},\n}} as const;\n"
     ));
+    out.push_str("export const REMOVAL_PERSON_ROLES = {\n");
+    for role in PersonRole::ALL {
+        out.push_str(&crate::support_tiers::ts_string_prop(
+            2,
+            role.name(),
+            role.label(),
+        ));
+    }
+    out.push_str(
+        "} as const;\nexport type RemovalPersonRole = keyof typeof REMOVAL_PERSON_ROLES;\n",
+    );
+    out.push_str("export interface RemovalPersonSuggestion {\n  detection: import('../removal/removal-inference.types').RemovalDetection;\n  role: RemovalPersonRole;\n  keep: boolean;\n}\n");
     out
 }
 
@@ -88,5 +101,18 @@ pub fn emit_swift() -> String {
     }
     let names = EXPERIMENTAL_REMOVAL_MODELS.map(|pin| pin.id).join(", ");
     out.push_str(&format!("  public static let all = [{names}]\n}}\n"));
+    out.push_str("\npublic enum RemovalPersonRole: String, Decodable, Sendable {\n");
+    for role in PersonRole::ALL {
+        out.push_str(&format!("  case {}\n", role.name()));
+    }
+    out.push_str("  public var label: String {\n    switch self {\n");
+    for role in PersonRole::ALL {
+        out.push_str(&format!(
+            "    case .{}: return \"{}\"\n",
+            role.name(),
+            role.label()
+        ));
+    }
+    out.push_str("    }\n  }\n}\n\npublic struct RemovalPersonSuggestion: Decodable, Sendable {\n  public let detection: NativeRemovalDetection\n  public let role: RemovalPersonRole\n  public let keep: Bool\n}\n");
     out
 }

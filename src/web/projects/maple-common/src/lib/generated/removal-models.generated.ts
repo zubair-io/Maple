@@ -55,3 +55,14 @@ export const REMOVAL_AUTHORING_DEFAULTS = {
   holeRadius: 1,
   fringeRadius: 1,
 } as const;
+export const REMOVAL_PERSON_ROLES = {
+  subject: 'Likely subject',
+  background: 'Suggested background',
+  uncertain: 'Uncertain',
+} as const;
+export type RemovalPersonRole = keyof typeof REMOVAL_PERSON_ROLES;
+export interface RemovalPersonSuggestion {
+  detection: import('../removal/removal-inference.types').RemovalDetection;
+  role: RemovalPersonRole;
+  keep: boolean;
+}

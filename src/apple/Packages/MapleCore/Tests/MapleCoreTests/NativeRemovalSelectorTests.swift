@@ -99,6 +99,16 @@ final class NativeRemovalSelectorTests: XCTestCase {
       XCTAssertEqual(actual.map(\.class), expected.map(\.class))
       XCTAssertEqual(actual.map(\.bounds), expected.map(\.bounds))
       XCTAssertEqual(actual.map(\.score), expected.map(\.score))
+      let suggestions = try RemovalBridge.peopleSuggestions(
+        actual, width: size[0], height: size[1])
+      let referenceSuggestions = try RemovalBridge.peopleSuggestions(
+        expected, width: size[0], height: size[1])
+      XCTAssertEqual(suggestions.count, 9)
+      XCTAssertEqual(suggestions.map(\.role), referenceSuggestions.map(\.role))
+      XCTAssertEqual(suggestions.map(\.keep), referenceSuggestions.map(\.keep))
+      XCTAssertTrue(suggestions.filter { $0.role != .background }.allSatisfy(\.keep))
+      print("Actual market detector role suggestions: \(suggestions.map { $0.role.rawValue })")
+
       XCTAssertThrowsError(
         try model.encode(source: source, request: request, rgb: rgb, operation: detectionOperation))
       detectionOperation.cancel()
@@ -111,6 +121,67 @@ final class NativeRemovalSelectorTests: XCTestCase {
       }
     #else
       throw XCTSkip("Static iOS selection execution requires device qualification (#3941)")
+    #endif
+  }
+
+  @MainActor
+  func testAutomaticDetectionRetainsPreviousSelectionWhenSegmentationModelIsMissing() async throws {
+    #if os(macOS)
+      let repository = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
+        value.deletingLastPathComponent()
+      }
+      let models = repository.appendingPathComponent("test-fixtures/raws/removal-inference")
+      let fixture = repository.appendingPathComponent("test-fixtures/raws/test_0002.dng")
+      guard FileManager.default.fileExists(atPath: fixture.path),
+        ["rtdetrv2-r18.onnx", "runtime.dylib"].allSatisfy({
+          FileManager.default.fileExists(atPath: models.appendingPathComponent($0).path)
+        })
+      else { throw XCTSkip("Actual photographic RAW and pinned detector are required (#3941)") }
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let raw = root.appendingPathComponent("photo.dng")
+      try FileManager.default.copyItem(at: fixture, to: raw)
+      for name in ["rtdetrv2-r18.onnx", "runtime.dylib"] {
+        try FileManager.default.copyItem(
+          at: models.appendingPathComponent(name), to: root.appendingPathComponent(name))
+      }
+      let session = EditSession(asset: AssetRef(url: raw))
+      let removal = RemovalSession(session: session)
+      await removal.open()
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      await removal.chooseModelFolder(root)
+      removal.setMode(.people)
+      let previous = try RemovalBridge.selection(
+        width: 7216, height: 5412,
+        request: #"{"schema":1,"strokes":[{"points":[[0.4,0.5]],"radius":0.001,"subtract":false}]}"#
+      )
+      removal.selection = previous
+      removal.protection = previous
+      removal.personMasks = [previous]
+      removal.people = [
+        RemovalSession.Person(
+          id: 1,
+          detection: NativeRemovalDetection(class: 0, bounds: [10, 10, 100, 200], score: 0.9),
+          keep: false)
+      ]
+      let original = try RemovalBridge.digest(Data(contentsOf: raw))
+      await removal.findPeople()
+      XCTAssertEqual(removal.phase, .ready)
+      XCTAssertTrue(removal.message.contains("mobile-sam-encoder"), removal.message)
+      XCTAssertEqual(removal.selection, previous)
+      XCTAssertEqual(removal.protection, previous)
+      XCTAssertEqual(removal.personMasks, [previous])
+      XCTAssertEqual(removal.people.first?.detection.bounds, [10, 10, 100, 200])
+      XCTAssertEqual(try RemovalBridge.digest(Data(contentsOf: raw)), original)
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: root.appendingPathComponent("photo.xmp").path))
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: root.appendingPathComponent(".maple/inpaint").path))
+      removal.close()
+      await session.releaseTransientMemory()
+    #else
+      throw XCTSkip("Actual detector failure-path qualification requires macOS (#3941)")
     #endif
   }
 

@@ -264,7 +264,8 @@ pub use removal_selection_inference::{
     MapleRemovalEmbedding, MapleRemovalSelector,
 };
 pub use removal_smart::{
-    maple_removal_smart_mask_buf, maple_removal_smart_prompts_buf, maple_removal_smart_strokes_buf,
+    maple_removal_people_suggestions_buf, maple_removal_smart_mask_buf,
+    maple_removal_smart_prompts_buf, maple_removal_smart_strokes_buf,
 };
 pub use scene_linear_chain::MapleAdjustmentParams;
 // #3272: cbindgen needs visibility on the struct; ungated (the CPU fused

@@ -16,20 +16,22 @@ extension RemovalSession {
       operation = run
       let detected = try await engine.detect(context: context, operation: run)
       guard current(token) else { return }
-      // All person proposals remain reviewable; the detector does not assign
-      // foreground/background roles (#3942).
-      people = detected.filter {
-        $0.class == 0 && $0.score >= ExperimentalRemovalModels.personMinScore
+      let suggestions = try RemovalBridge.peopleSuggestions(
+        detected, width: context.width, height: context.height)
+      let suggestedPeople = suggestions.enumerated().map {
+        Person(
+          id: $0.offset + 1, detection: $0.element.detection,
+          keep: $0.element.keep, role: $0.element.role)
       }
-      .sorted { $0.score > $1.score }.enumerated().map {
-        Person(id: $0.offset + 1, detection: $0.element, keep: false)
-      }
-      message =
-        people.isEmpty
-        ? "No people found. Paint the object instead."
-        : "Choose who to keep, then select the other people."
+      let masks = try await masksForPeople(suggestedPeople, context: context, token: token)
+      guard current(token) else { return }
+      people = suggestedPeople
+      selection = masks.selection
+      protection = masks.protection
+      personMasks = masks.people
       operation = nil
       phase = .ready
+      message = people.isEmpty ? "No people found. Paint the object instead." : peopleMessage
     } catch { fail(error, token: token) }
   }
 
@@ -37,7 +39,9 @@ extension RemovalSession {
     guard phase == .ready else { return }
     clearSelection()
     people = people.map {
-      Person(id: $0.id, detection: $0.detection, keep: $0.id == id ? !$0.keep : $0.keep)
+      Person(
+        id: $0.id, detection: $0.detection, keep: $0.id == id ? !$0.keep : $0.keep,
+        role: $0.role)
     }
   }
 
@@ -48,35 +52,52 @@ extension RemovalSession {
     phase = .selecting
     message = ""
     do {
-      let run = try await engine.selectionOperation()
-      guard current(token) else {
-        run.cancel()
-        return
-      }
-      operation = run
-      var selected = Data()
-      var protected = manualProtection
-      var masks: [Data] = []
-      for person in people {
-        let mask = try await engine.personMask(person.detection, context: context, operation: run)
-        guard current(token) else { return }
-        if person.keep {
-          protected = try RemovalBridge.combineMasks(protected, mask)
-        } else {
-          masks.append(mask)
-          selected = try RemovalBridge.combineMasks(selected, mask)
-        }
-      }
-      selection = try RemovalBridge.combineMasks(selected, protected, subtract: true)
-      personMasks = try masks.map {
-        try RemovalBridge.combineMasks($0, protected, subtract: true)
-      }.filter { !$0.isEmpty }
-      protection = protected
+      let masks = try await masksForPeople(people, context: context, token: token)
+      guard current(token) else { return }
+      selection = masks.selection
+      protection = masks.protection
+      personMasks = masks.people
       operation = nil
       phase = .ready
-      message =
-        selection.isEmpty ? "No removable people remain." : "Review the selection before removing."
+      message = peopleMessage
     } catch { fail(error, token: token) }
+  }
+
+  private var peopleMessage: String {
+    selection.isEmpty
+      ? "No background people selected. Review Keep/Remove choices or use Paint."
+      : "Review suggested background people and kept subjects before removing."
+  }
+
+  private func masksForPeople(
+    _ people: [Person], context: NativeRemovalEditorContext,
+    token: UInt64
+  ) async throws -> (selection: Data, protection: Data, people: [Data]) {
+    guard !people.isEmpty else { return (Data(), manualProtection, []) }
+    let run = try await engine.selectionOperation()
+    guard current(token) else {
+      run.cancel()
+      throw CancellationError()
+    }
+    operation = run
+    var selected = Data()
+    var protected = manualProtection
+    var masks: [Data] = []
+    for person in people {
+      let mask = try await engine.personMask(person.detection, context: context, operation: run)
+      guard current(token) else { throw CancellationError() }
+      if person.keep {
+        protected = try RemovalBridge.combineMasks(protected, mask)
+      } else {
+        masks.append(mask)
+        selected = try RemovalBridge.combineMasks(selected, mask)
+      }
+    }
+    let selection = try RemovalBridge.combineMasks(selected, protected, subtract: true)
+    let individual = try masks.map {
+      try RemovalBridge.combineMasks($0, protected, subtract: true)
+    }.filter { !$0.isEmpty }
+    return (selection, protected, individual)
   }
 
   public func remove() async {

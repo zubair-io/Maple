@@ -103,7 +103,9 @@ test('Paint, inspect, cancel, Keep and reopen use actual local RAW removal asset
       .getByRole('navigation', { name: 'Editor tools' })
       .getByRole('button', { name: 'Remove', exact: true })
       .click();
-    await expect(panel.getByRole('button', { name: 'Find people', exact: true })).toHaveCount(0);
+    await expect(
+      panel.getByRole('button', { name: 'Suggest background people', exact: true }),
+    ).toHaveCount(0);
     await expect(panel.getByRole('slider', { name: 'Brush size' })).toBeEnabled();
     await page.screenshot({ path: testInfo.outputPath('reopened.png') });
     expect(await readFile(join(root, 'photo.xmp'), 'utf8')).toBe(accepted);

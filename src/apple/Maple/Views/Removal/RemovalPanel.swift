@@ -109,20 +109,21 @@ struct RemovalPanel: View {
   @ViewBuilder
   private var selectionControls: some View {
     if removal.mode == .people {
-      MuiButton(label: "Find people", size: .sm, disabled: removal.busy) {
+      MuiButton(label: "Suggest background people", size: .sm, disabled: removal.busy) {
         Task { await removal.findPeople() }
       }
-      Text("Mark the people to keep, then select the others.").font(.caption)
+      Text("Likely subjects and uncertain people start kept. Review each suggestion.").font(
+        .caption)
       ForEach(removal.people) { person in
         MuiButton(
-          label: "Person \(person.id) · \(person.keep ? "Keep" : "Remove")",
+          label: "Person \(person.id) · \(person.keep ? "Keep" : "Remove") · \(person.role.label)",
           variant: person.keep ? .primary : .secondary, size: .sm, disabled: removal.busy
         ) {
           removal.keepPerson(person.id)
         }
       }
       MuiButton(
-        label: "Select other people", size: .sm,
+        label: "Apply person choices", size: .sm,
         disabled: removal.busy || removal.people.isEmpty
       ) { Task { await removal.selectOtherPeople() } }
     } else {

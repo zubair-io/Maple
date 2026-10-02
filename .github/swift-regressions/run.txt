@@ -400,3 +400,5 @@ RemovalGroupTests
 RemovalSnapshotTests
 RemovalSessionTests
 RemovalProxyTensorTests
+
+RemovalPeopleBridgeTests
