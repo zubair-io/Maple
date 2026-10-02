@@ -41,5 +41,9 @@
     // its own line for the same reason those are.
     "scripts/sqlite-bench/reader-pool.ts"
   ],
+  // #4035 deliberately stages the Rust-generated workflow contract; API
+  // persistence consumers land under #2437. Like the Web mirror, this output
+  // is codegen-drift gated rather than unused-export gated before integration.
+  "ignorePatterns": ["src/generated/workflow.generated.ts"],
   "ignoreDependencies": ["@socketsecurity/bun-security-scanner", "fallow", "@justmaple/maple"]
 }
