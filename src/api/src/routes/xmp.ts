@@ -32,7 +32,7 @@
  * note on #193.
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia, status, t } from 'elysia';
 import { callNative } from 'maple';
 import { parseSidecarWorkflow } from '../generated/workflow.generated.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
@@ -89,32 +89,35 @@ async function publishSidecarChange(rawAbsPath: string, edited: boolean): Promis
     );
   }
 }
+/** ENOENT alone means the sidecar is absent; permission/I/O errors must still fail. */
+function isMissingSidecar(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT';
+}
+
 // Note: we deliberately bypass `readXmp` from `../fs/xmp.ts` and call
 // `fs.readFile` directly so we can distinguish "no sidecar" (404) from
 // "filesystem error" (500). The id-keyed route conflates those by
 // returning an empty XMP stub on ENOENT.
 
 export const xmpPathRoutes = new Elysia()
+  // All four operations use the same authorized, normalized path (#4036).
+  .resolve(async ({ query }) => {
+    const authorized = await resolveAndAuthorizePath(query.path);
+    if (!authorized.ok) return status(authorized.status, { error: authorized.error });
+    return { rawPath: authorized.data, sidecar: xmpSidecarPath(authorized.data) };
+  })
   // Workflow authoring records share the authorized primary sidecar path.
   .patch(
     '/api/xmp/workflow',
-    async ({ query, body, set }) => {
-      const authorized = await resolveAndAuthorizePath(query.path);
-      if (!authorized.ok) {
-        set.status = authorized.status;
-        return { error: authorized.error };
-      }
+    async ({ rawPath, sidecar, body, set }) => {
       try {
         set.status = 422;
         const workflow = parseSidecarWorkflow(body);
         set.status = 500;
-        const existing = await fs
-          .readFile(xmpSidecarPath(authorized.data), 'utf8')
-          .catch((error: unknown) => {
-            if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
-              return mergeMetadataIntoXmp('', {});
-            throw error;
-          });
+        const existing = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
+          if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
+          throw error;
+        });
         const conversion = await callNative('workflowEmbedXmp', [
           JSON.stringify(workflow),
           existing,
@@ -123,12 +126,12 @@ export const xmpPathRoutes = new Elysia()
           set.status = 422;
           return { error: conversion.error };
         }
-        const outcome = await writeXmpAtomic(authorized.data, conversion.value);
+        const outcome = await writeXmpAtomic(rawPath, conversion.value);
         if (!outcome.ok) {
           set.status = 500;
           return { error: outcome.error };
         }
-        await publishSidecarChange(authorized.data, true);
+        await publishSidecarChange(rawPath, true);
         set.headers['Content-Type'] = 'application/xml';
         set.status = 200;
         return conversion.value;
@@ -145,24 +148,13 @@ export const xmpPathRoutes = new Elysia()
   // -- Read --------------------------------------------------------------
   .get(
     '/api/xmp',
-    async ({ query, set }) => {
-      const r = await resolveAndAuthorizePath(query.path);
-      if (!r.ok) {
-        set.status = r.status;
-        return { error: r.error };
-      }
-      const sidecar = xmpSidecarPath(r.data);
+    async ({ sidecar, set }) => {
       try {
         const body = await fs.readFile(sidecar, 'utf-8');
         set.headers['Content-Type'] = 'application/xml';
         return body;
       } catch (err: unknown) {
-        if (
-          err &&
-          typeof err === 'object' &&
-          'code' in err &&
-          (err as { code: string }).code === 'ENOENT'
-        ) {
+        if (isMissingSidecar(err)) {
           set.status = 404;
           return { error: 'No XMP sidecar at this path' };
         }
@@ -190,26 +182,21 @@ export const xmpPathRoutes = new Elysia()
   // -- Write -------------------------------------------------------------
   .post(
     '/api/xmp',
-    async ({ query, body, set }) => {
-      const r = await resolveAndAuthorizePath(query.path);
-      if (!r.ok) {
-        set.status = r.status;
-        return { error: r.error };
-      }
+    async ({ rawPath, body, set }) => {
       const xmlContent =
         typeof body === 'string'
           ? body
           : (body as unknown) instanceof Uint8Array
             ? new TextDecoder().decode(body as unknown as Uint8Array)
             : String(body);
-      const outcome = await writeXmpAtomic(r.data, xmlContent);
+      const outcome = await writeXmpAtomic(rawPath, xmlContent);
       if (!outcome.ok) {
         // Includes failed durable writes and unsupported workflow metadata;
         // either failure leaves the existing sidecar untouched.
         set.status = 500;
         return { error: outcome.error };
       }
-      await publishSidecarChange(r.data, true);
+      await publishSidecarChange(rawPath, true);
       set.headers['Content-Type'] = 'application/xml';
       return xmlContent;
     },
@@ -242,13 +229,7 @@ export const xmpPathRoutes = new Elysia()
   // -- Delete ------------------------------------------------------------
   .delete(
     '/api/xmp',
-    async ({ query, set }) => {
-      const r = await resolveAndAuthorizePath(query.path);
-      if (!r.ok) {
-        set.status = r.status;
-        return { error: r.error };
-      }
-      const sidecar = xmpSidecarPath(r.data);
+    async ({ rawPath, sidecar, set }) => {
       // Distinguish "didn't exist" (404) from "existed and was deleted"
       // (204). `deleteXmpSidecar` collapses both to ok:true for the
       // id-keyed route, so check existence ourselves.
@@ -256,12 +237,7 @@ export const xmpPathRoutes = new Elysia()
       try {
         await fs.stat(sidecar);
       } catch (err: unknown) {
-        if (
-          err &&
-          typeof err === 'object' &&
-          'code' in err &&
-          (err as { code: string }).code === 'ENOENT'
-        ) {
+        if (isMissingSidecar(err)) {
           existed = false;
         }
       }
@@ -269,12 +245,12 @@ export const xmpPathRoutes = new Elysia()
         set.status = 404;
         return { error: 'No XMP sidecar at this path' };
       }
-      const outcome = await deleteXmpSidecar(r.data);
+      const outcome = await deleteXmpSidecar(rawPath);
       if (!outcome.ok) {
         set.status = 500;
         return { error: outcome.error };
       }
-      await publishSidecarChange(r.data, false);
+      await publishSidecarChange(rawPath, false);
       set.status = 204;
       return;
     },

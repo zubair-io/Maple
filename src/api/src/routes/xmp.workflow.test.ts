@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { callNative, shutdownMaplePool } from 'maple';
@@ -108,4 +108,16 @@ test('invalid checkpoint and outside-root requests cannot publish', async () => 
   );
   expect(denied.status).toBe(403);
   expect(await readFile(join(directory, 'photo.xmp'), 'utf8')).toBe(xml);
+});
+
+test('API creates a workflow sidecar when none exists without touching the original', async () => {
+  await unlink(join(directory, 'photo.xmp'));
+  const response = await patch(corpus[0]);
+  expect(response.status).toBe(200);
+  const output = await readFile(join(directory, 'photo.xmp'), 'utf8');
+  const read = await callNative('workflowReadXmp', [output]);
+  expect(read.ok).toBe(true);
+  if (!read.ok) throw Error(read.error);
+  expect(JSON.parse(read.value)).toEqual(corpus[0]);
+  expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
 });

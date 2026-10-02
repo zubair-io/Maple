@@ -256,6 +256,7 @@ jobs:
           cp -R src/apple/MapleUITests/Fixtures/synthetic "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures"
           cp -R test-fixtures/local-adjustments "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/workflow "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer"
           cp test-fixtures/batch-transfer/{source,target}.dng "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer/"
       - name: Cache SwiftPM regression build
