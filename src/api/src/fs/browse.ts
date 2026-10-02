@@ -63,7 +63,7 @@ export interface DirListing {
 }
 
 /** Linux/macOS directory names hidden at the filesystem root unless showAll=1. */
-export const SYSTEM_DIRS = new Set<string>([
+const SYSTEM_DIRS = new Set<string>([
   'proc',
   'sys',
   'dev',
@@ -328,10 +328,8 @@ const VIDEO_EXTENSIONS = new Set<string>([
 
 /** Which non-decodable-but-listable bucket an extension falls into, if any.
  * `null` for a plain decodable image extension (`IMAGE_EXTENSIONS`) or an
- * extension recognised by none of the listing buckets. Shared by
- * `listDirContents` and `listDirFast` so the video/stub/audio classification
- * used to flag an `ImageChild`/`FastImageChild` entry can't drift between the
- * two listing paths (see #1835). */
+ * extension recognised by none of the listing buckets.
+ * `listDirContents` attaches the corresponding media-kind flag to each entry. */
 function classifyMediaKind(ext: string): 'isVideo' | 'isStub' | 'isAudio' | null {
   if (VIDEO_EXTENSIONS.has(ext)) return 'isVideo';
   if (STUB_IMAGE_EXTENSIONS.has(ext)) return 'isStub';
@@ -341,13 +339,12 @@ function classifyMediaKind(ext: string): 'isVideo' | 'isStub' | 'isAudio' | null
 
 /** True when `ext` belongs in the `images[]` listing bucket — a decodable
  * image, or any of the video/stub/audio kinds `classifyMediaKind` recognises.
- * Shared by `listDirContents` and `listDirFast`. */
+ * Used by `listDirContents`. */
 function isListableMediaExt(ext: string): boolean {
   return IMAGE_EXTENSIONS.has(ext) || classifyMediaKind(ext) !== null;
 }
 
-/** Build the pushed `images[]` entry (shared shape between `ImageChild` and
- * `FastImageChild`) for a listed file, attaching the `isVideo`/`isStub`/
+/** Build the `images[]` entry for a listed file, attaching the `isVideo`/`isStub`/
  * `isAudio` flag `classifyMediaKind` returns, if any. */
 function buildMediaListItem(
   name: string,
@@ -539,12 +536,18 @@ async function openDirectory(
 
   const real = await realpath(reqPath).catch((err: unknown) => err);
   if (typeof real !== 'string') {
-    return { ok: false, error: `Cannot access "${reqPath}": ${errorText(real)}` };
+    return {
+      ok: false,
+      error: `Cannot access "${reqPath}": ${errorText(real)}`,
+    };
   }
 
   const roots = await loadRoots();
   if (!roots.some((r) => isUnderRoot(real, r))) {
-    return { ok: false, error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]` };
+    return {
+      ok: false,
+      error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
+    };
   }
 
   const names = await readdir(real).catch((err: unknown) => err);
@@ -602,7 +605,10 @@ function decodeOffset(cursor: string | undefined): number | { ok: false; error: 
   try {
     return decodeCursor(cursor);
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -845,42 +851,6 @@ export async function listDirContents(
 }
 
 // ---------------------------------------------------------------------------
-// listDirFast — used by GET /api/fs/dir-fast.
-//
-// Pure-filesystem variant of `listDirContents`: readdir + realpath + stat,
-// nothing else. No database queries, no EXIF lookup, no trash hiding, no
-// sidecar pairing, no discover enqueue. Designed for the web Browse grid,
-// which doesn't need any of those — per-image badges (rating / flag / has-
-// edits / EXIF) live in the search/timeline grid, and the editor's cold-
-// load path keys assets by `fs:${abs_path}` so it doesn't need a stable
-// database id either.
-//
-// The Apple File Provider extension and the iOS/macOS cloud-source browse
-// continue to use `/api/fs/dir`, which preserves the enriched response
-// they depend on (assetID-keyed FP items, paired sidecars, etc).
-// ---------------------------------------------------------------------------
-
-export interface FastImageChild extends DirChild {
-  size: number; // bytes
-  ext: string; // lowercase, no dot
-  /** True when the file is a video container (e.g. .mov, .mp4). */
-  isVideo?: true;
-  /** True when the file is a metadata-only stub image with no decoder (e.g.
-   * .eip, .braw, .afphoto, .ai). See #1835. */
-  isStub?: true;
-  /** True when the file is an audio format (e.g. .mp3, .wav, .m4a, .aac).
-   * See #1835. */
-  isAudio?: true;
-}
-
-export interface FastDirContents {
-  path: string;
-  parent: string | null;
-  dirs: DirChild[];
-  images: FastImageChild[];
-  next_cursor?: string;
-}
-
 /** One surviving child of a listing: it resolved, and it is inside the jail. */
 interface ScannedEntry {
   name: string;
@@ -914,74 +884,6 @@ async function scanChildren(
       return st === null ? null : { name, path: childReal, st };
     }),
   );
-}
-
-/**
- * Sorts scanned children into the two lists the fast listing answers with.
- *
- * Anything that is neither a directory nor a listable media file is dropped —
- * including a file with no extension, which cannot be classified and is not
- * something this endpoint offers. A null entry is a child that vanished or
- * left the jail between the readdir and the stat.
- */
-function splitEntries(entries: ReadonlyArray<ScannedEntry | null>): {
-  dirs: DirChild[];
-  images: FastImageChild[];
-} {
-  const dirs: DirChild[] = [];
-  const images: FastImageChild[] = [];
-  for (const entry of entries) {
-    if (entry === null) continue;
-    const { name, path: childReal, st } = entry;
-    if (st.isDirectory()) {
-      dirs.push({ name, path: childReal, mtime: st.mtime.toISOString() });
-      continue;
-    }
-    const ext = listableExt(name, st);
-    if (ext !== null) images.push(buildMediaListItem(name, childReal, st, ext));
-  }
-  return { dirs, images };
-}
-
-/** The extension this entry should be listed under, or null for "not listed". */
-function listableExt(name: string, st: Stats): string | null {
-  if (!st.isFile()) return null;
-  const dot = name.lastIndexOf('.');
-  if (dot < 0) return null;
-  const ext = name.slice(dot + 1).toLowerCase();
-  return isListableMediaExt(ext) ? ext : null;
-}
-
-export async function listDirFast(
-  reqPath: string,
-  opts: ListDirOptions = {},
-): Promise<OpResult<FastDirContents>> {
-  const opened = await openDirectory(reqPath, browseRoots);
-  if ('error' in opened) return opened;
-  const { real, roots } = opened;
-  // This endpoint does not surface `.xmp` sidecars, and they should not pay
-  // the realpath+stat cost per entry, so they come out before paging.
-  const visible = opened.visible.filter((n) => !n.toLowerCase().endsWith('.xmp'));
-
-  const window = pageWindow(visible, opts);
-  if ('error' in window) return window;
-  const { slice, nextOffset } = window;
-
-  const results = await scanChildren(slice, real, roots);
-
-  const { dirs, images } = splitEntries(results);
-
-  const isRoot = real === '/';
-  return {
-    ok: true,
-    data: {
-      path: real,
-      parent: isRoot ? null : path.dirname(real),
-      dirs,
-      images,
-      ...(nextOffset !== null ? { next_cursor: encodeCursor(nextOffset) } : {}),
-    },
-  };
 }
 
 /**

@@ -15,7 +15,7 @@
 
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { Elysia } from 'elysia';
+import { Elysia, type Context } from 'elysia';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('static');
@@ -114,6 +114,39 @@ async function serveStatic(uiRelPath: string): Promise<Response | null> {
   }
 }
 
+async function proxyDevelopmentUi(
+  request: Request,
+  url: URL,
+  set: Context['set'],
+): Promise<Response | { error: string; tip: string }> {
+  const target = DEV_ORIGIN + url.pathname + (url.search ?? '');
+  log.debug({ target }, 'DEV proxy');
+  const proxyResp = await fetch(target, {
+    method: request.method,
+    headers: Object.fromEntries(request.headers),
+  }).catch((e) => {
+    log.error({ err: e.message }, 'dev proxy error');
+    return null;
+  });
+  if (!proxyResp) {
+    set.status = 502;
+    return {
+      error: 'Angular dev server not reachable',
+      tip: `Start it with: cd src/web && ng serve maple --port 4201`,
+    };
+  }
+  // T10: proxied responses from `ng serve` don't carry COOP/COEP. Clone
+  // with the isolation headers added so dev-mode threading works too.
+  const proxyHeaders = new Headers(proxyResp.headers);
+  proxyHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
+  proxyHeaders.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  return new Response(proxyResp.body, {
+    status: proxyResp.status,
+    statusText: proxyResp.statusText,
+    headers: proxyHeaders,
+  });
+}
+
 /**
  * Elysia plugin that mounts the static UI handler.
  *
@@ -122,36 +155,12 @@ async function serveStatic(uiRelPath: string): Promise<Response | null> {
 export const staticUiPlugin = new Elysia().get('/*', async ({ request, set }) => {
   const url = new URL(request.url);
   let uiPath = url.pathname;
-
-  // In dev mode: proxy to Angular dev server.
-  if (IS_DEV) {
-    const target = DEV_ORIGIN + uiPath + (url.search ?? '');
-    log.debug({ target }, 'DEV proxy');
-    const proxyResp = await fetch(target, {
-      method: request.method,
-      headers: Object.fromEntries(request.headers),
-    }).catch((e) => {
-      log.error({ err: e.message }, 'dev proxy error');
-      return null;
-    });
-    if (!proxyResp) {
-      set.status = 502;
-      return {
-        error: 'Angular dev server not reachable',
-        tip: `Start it with: cd src/web && ng serve maple --port 4201`,
-      };
-    }
-    // T10: proxied responses from `ng serve` don't carry COOP/COEP. Clone
-    // with the isolation headers added so dev-mode threading works too.
-    const proxyHeaders = new Headers(proxyResp.headers);
-    proxyHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
-    proxyHeaders.set('Cross-Origin-Embedder-Policy', 'require-corp');
-    return new Response(proxyResp.body, {
-      status: proxyResp.status,
-      statusText: proxyResp.statusText,
-      headers: proxyHeaders,
-    });
+  if (uiPath === '/api' || uiPath.startsWith('/api/')) {
+    set.status = 404;
+    return { error: 'Not found: ' + uiPath };
   }
+
+  if (IS_DEV) return proxyDevelopmentUi(request, url, set);
 
   // Production: serve from dist.
   // Strip leading slash.

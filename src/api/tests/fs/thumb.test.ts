@@ -1,285 +1,143 @@
-/**
- * Tests for GET /api/fs/thumb — RAW thumbnail extraction & cache.
- *
- * Behaviour exercised:
- *   - Unsupported extension          → 415
- *   - Path outside MAPLE_ROOTS jail  → 403
- *   - Cold render writes a thumbnail at the canonical .maple/ path
- *   - Warm read serves from cache (X-Thumb-Cache: hit) without rewriting
- *   - A cache hit is NOT invalidated by touching the RAW's mtime (#2258):
- *     the architecture forbids mutating originals in place (root CLAUDE.md
- *     principle 1), so there is no per-read source-staleness check any
- *     more — invalidation happens at O(changes) elsewhere (the `discover`
- *     watcher, `derivative-audit`, `generateThumb`'s own write-time mtime
- *     guard), not here. This used to be a "regenerates when the raw is
- *     newer" test; it now documents the opposite on purpose.
- *
- * Mirrors the bare-Elysia-app-handle test pattern from
- * `tests/auth/enforcement.test.ts`. Each test mounts only the routes it
- * needs and skips the body of the FFI-heavy tests when (a) the native
- * library hasn't been built or (b) no small RAW fixture is available.
- */
-
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { beforeEach, afterEach, it, expect } from 'bun:test';
 import { Elysia } from 'elysia';
-import * as path from 'node:path';
-import * as os from 'node:os';
-import * as fs from 'node:fs/promises';
+import { join, dirname, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
+import {
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+  copyFile,
+  mkdir,
+  stat,
+  utimes,
+  symlink,
+  readFile,
+} from '../../src/fs/mirrored.ts';
+import { maple } from 'maple';
+import { thumbRoutes } from '../../src/routes/library/thumb.ts';
+import { resolveThumbPath } from '../../src/fs/xmp.ts';
+import { ffiPool, _createFfiPoolForTests, _setFfiPoolForTests } from '../../src/ffi/ffi-pool.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { registerLibrary } from '../helpers/assets-route-fixtures.ts';
+import { invalidateLibraryRoots } from '../../src/indexer/libraries.cache.ts';
 
-// JWT secret bootstrap (mirrors enforcement.test.ts) — even though the
-// thumb route doesn't itself check auth, the shared `requireAuth`
-// middleware reads MAPLE_JWT_SECRET at module load for sibling routes.
-process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
+const repo = resolve(import.meta.dir, '../../../..');
+const fixture = ['test_0006.DNG', 'test_0015.dng', 'test_0017.dng']
+  .map((name) => join(repo, 'test-fixtures', 'raws', name))
+  .find(existsSync);
+const nativeAvailable = ffiPool().available();
+let live: LiveTestDatabase;
+let root: string;
+const app = new Elysia().use(thumbRoutes);
+const get = (name: string, query = '', etag?: string) =>
+  app.handle(
+    new Request(`http://localhost/thumb/photos/${name}${query}`, {
+      headers: etag ? { 'If-None-Match': etag } : undefined,
+    }),
+  );
 
-// ---------------------------------------------------------------------------
-// Locate a small RAW fixture and the native library; if either is absent,
-// the FFI-dependent tests skip-pass.
-// ---------------------------------------------------------------------------
+beforeEach(async () => {
+  root = await realpath(await mkdtemp(join(tmpdir(), 'maple-unified-raw-thumb-')));
+  live = await createLiveTestDatabase();
+  registerLibrary(live.db, root, 'photos');
+});
+afterEach(async () => {
+  invalidateLibraryRoots();
+  live.close();
+  await rm(root, { recursive: true, force: true });
+});
 
-const REPO_ROOT = path.resolve(import.meta.dir, '..', '..', '..', '..');
-const SMALL_FIXTURES = ['test_0006.DNG', 'test_0015.dng', 'test_0017.dng'];
+it('rejects an unsupported extension before reading a cached artifact', async () => {
+  await writeFile(join(root, 'notes.txt'), 'notes');
+  expect((await get('notes.txt')).status).toBe(415);
+});
 
-function findFixture(): string | null {
-  const dir = path.join(REPO_ROOT, 'test-fixtures', 'raws');
-  for (const name of SMALL_FIXTURES) {
-    const p = path.join(dir, name);
-    if (existsSync(p)) return p;
+it('rejects an original symlink outside the registered library', async () => {
+  const outside = await realpath(await mkdtemp(join(tmpdir(), 'maple-outside-')));
+  try {
+    const secret = join(outside, 'photo.dng');
+    await writeFile(secret, 'private');
+    await symlink(secret, join(root, 'escape.dng'));
+    const response = await get('escape.dng');
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain('library jail');
+  } finally {
+    await rm(outside, { recursive: true, force: true });
   }
-  return null;
-}
-
-const fixturePath = findFixture();
-const nativeLib =
-  process.platform === 'darwin'
-    ? path.join(REPO_ROOT, 'src', 'api', 'native', 'libraw_ffi.dylib')
-    : path.join(REPO_ROOT, 'src', 'api', 'native', 'libraw_ffi.so');
-const ffiAvailable = existsSync(nativeLib);
-
-const skipReason = !ffiAvailable
-  ? 'skipping: FFI not built'
-  : !fixturePath
-    ? 'skipping: no fixtures'
-    : null;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-async function buildApp() {
-  const { fsThumbsRoutes } = await import('../../src/routes/fs-thumbs.ts');
-  return new Elysia().use(fsThumbsRoutes);
-}
-
-async function copyFixtureTo(dst: string, src: string): Promise<void> {
-  await fs.copyFile(src, dst);
-}
-
-// ---------------------------------------------------------------------------
-// Tests that don't need the FFI/fixtures
-// ---------------------------------------------------------------------------
-
-describe('/api/fs/thumb — input validation (no FFI required)', () => {
-  let tmp: string;
-
-  beforeAll(async () => {
-    const rawTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-thumb-test-'));
-    tmp = await fs.realpath(rawTmp);
-    process.env.MAPLE_ROOTS = tmp;
-  });
-
-  afterAll(async () => {
-    await fs.rm(tmp, { recursive: true, force: true });
-    delete process.env.MAPLE_ROOTS;
-  });
-
-  it('rejects a non-RAW extension with 415', async () => {
-    const app = await buildApp();
-    const txtPath = path.join(tmp, 'not-a-raw.txt');
-    await fs.writeFile(txtPath, 'hello');
-
-    const url = `http://localhost/api/fs/thumb?path=${encodeURIComponent(txtPath)}&size=512`;
-    const r = await app.handle(new Request(url));
-    expect(r.status).toBe(415);
-  });
-
-  it('rejects a path outside MAPLE_ROOTS with 403', async () => {
-    // Build a temp file outside `tmp` so realpath resolves but the jail rejects.
-    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-outside-'));
-    try {
-      const fakeRaw = path.join(outside, 'test.dng');
-      await fs.writeFile(fakeRaw, Buffer.from([0])); // not a real RAW, but ext check passes
-      const app = await buildApp();
-      const url = `http://localhost/api/fs/thumb?path=${encodeURIComponent(fakeRaw)}&size=512`;
-      const r = await app.handle(new Request(url));
-      expect(r.status).toBe(403);
-    } finally {
-      await fs.rm(outside, { recursive: true, force: true });
-    }
-  });
-
-  it('rejects a relative path with 400', async () => {
-    const app = await buildApp();
-    const r = await app.handle(
-      new Request('http://localhost/api/fs/thumb?path=relative.dng&size=512'),
-    );
-    expect(r.status).toBe(400);
-  });
-
-  // The route has no `size` param any more (#2220) — the tier is fixed. A stale
-  // client still sending one must be served normally rather than rejected, since
-  // Elysia drops query params absent from the schema; that backward
-  // compatibility is what makes the removal deployable without a coordinated
-  // client release.
-  //
-  // Uses an unsupported extension deliberately, so this stays in the no-FFI
-  // section (a `.dng` would drive the route into the native render path and make
-  // this depend on libraw being built). It also sharpens the assertion: the old
-  // code validated `size` BEFORE the jail/extension gate, so an out-of-range
-  // value used to 400 here. Reaching 415 — identically with and without the
-  // param — proves the value is now inert rather than merely tolerated.
-  it('ignores a legacy size param instead of rejecting it', async () => {
-    const app = await buildApp();
-    const txtPath = path.join(tmp, 'legacy-size.txt');
-    await fs.writeFile(txtPath, 'hello');
-    const base = `http://localhost/api/fs/thumb?path=${encodeURIComponent(txtPath)}`;
-
-    const withLegacySize = await app.handle(new Request(`${base}&size=999999`));
-    const without = await app.handle(new Request(base));
-
-    expect(withLegacySize.status).toBe(415);
-    expect(withLegacySize.status).toBe(without.status);
-  });
 });
 
-// ---------------------------------------------------------------------------
-// FFI + fixture tests (skip-pass without prerequisites)
-// ---------------------------------------------------------------------------
-
-describe('/api/fs/thumb — render & cache (FFI + fixture)', () => {
-  let tmp: string;
-  let stagedRaw: string;
-
-  beforeAll(async () => {
-    if (skipReason) {
-      console.log(`[fs-thumbs.test] ${skipReason}`);
-      return;
-    }
-    // Resolve symlinks in tmpdir so MAPLE_ROOTS matches realpath form on
-    // macOS (where /var → /private/var). Mirrors the browseRoots() logic.
-    const rawTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-thumb-test-'));
-    tmp = await fs.realpath(rawTmp);
-    process.env.MAPLE_ROOTS = tmp;
-    stagedRaw = path.join(tmp, 'fixture.dng');
-    await copyFixtureTo(stagedRaw, fixturePath!);
-  });
-
-  afterAll(async () => {
-    if (skipReason) return;
-    await fs.rm(tmp, { recursive: true, force: true });
-    delete process.env.MAPLE_ROOTS;
-  });
-
-  // Cold render: writes a thumb at the canonical path AND verifies the warm
-  // cache-hit + stale-invalidation logic in the same `it()` block. We pack
-  // every cache transition into a single test because Bun 1.3.12 has a
-  // reproducible segfault on the SECOND FFI call after asynchronous I/O
-  // through `app.handle` (Elysia + bun:ffi worker-thread interaction). The
-  // workaround is to call the FFI exactly once in the FFI-dependent test
-  // (cold-render below) and exercise the cache-hit/staleness logic via
-  // hand-staged thumbs in separate tests that never touch the FFI.
-  it('cold render writes a thumbnail at the canonical .maple/thumbs/ path', async () => {
-    if (skipReason) {
-      console.log(`[fs-thumbs.test] ${skipReason}`);
-      return;
-    }
-    const app = await buildApp();
-    const url = `http://localhost/api/fs/thumb?path=${encodeURIComponent(stagedRaw)}&size=256`;
-    const { resolveThumbPath } = await import('../../src/fs/xmp.ts');
-    const cachedPath = resolveThumbPath(stagedRaw);
-
-    const r = await app.handle(new Request(url));
-    expect(r.status).toBe(200);
-    expect(r.headers.get('Content-Type')).toBe('image/avif');
-    expect(r.headers.get('X-Thumb-Cache')).toBe('miss');
-
-    const body = new Uint8Array(await r.arrayBuffer());
-    // AVIF magic bytes: ISOBMFF box — 4-byte size, then "ftyp".
-    expect(body[4]).toBe(0x66);
-    expect(body[5]).toBe(0x74);
-    expect(body[6]).toBe(0x79);
-    expect(body[7]).toBe(0x70);
-    expect(body.length).toBeGreaterThan(0);
-    expect(existsSync(cachedPath)).toBe(true);
-  }, 240_000);
+it('rejects encoded traversal with 400', async () => {
+  expect((await get('%2e%2e%2fphoto.dng')).status).toBe(400);
 });
 
-// ---------------------------------------------------------------------------
-// Cache-hit path — no FFI required. We hand-stage a thumb file at the
-// canonical .maple/ path, then call the route and assert it's served from
-// disk. This complements the FFI-dependent test above without triggering
-// the Bun 1.3.12 multi-FFI-call crash.
-// ---------------------------------------------------------------------------
+it('keeps the derivative tier fixed when a legacy size parameter is present', async () => {
+  expect((await get('notes.txt', '?size=999999')).status).toBe(415);
+  expect((await get('notes.txt')).status).toBe(415);
+});
 
-describe('/api/fs/thumb — cache-hit (no FFI required)', () => {
-  let tmp: string;
-  let stagedRaw: string;
-  let cachedPath: string;
+it.skipIf(!nativeAvailable || !fixture)(
+  'a real RAW cold render publishes a decodable canonical thumbnail and keeps its warm bytes',
+  async () => {
+    const source = join(root, 'fixture.dng');
+    await copyFile(fixture!, source);
+    const original = await readFile(source);
+    const cold = await get('fixture.dng');
+    expect(cold.status).toBe(200);
+    expect(cold.headers.get('X-Thumb-Cache')).toBe('miss');
+    const bytes = Buffer.from(await cold.arrayBuffer());
+    expect((await maple(bytes).metadata()).format).toBe('heif');
+    const cached = resolveThumbPath(source);
+    expect(await readFile(cached)).toEqual(bytes);
+    const before = await stat(cached);
+    const warm = await get('fixture.dng');
+    expect(warm.status).toBe(200);
+    expect(warm.headers.get('X-Thumb-Cache')).toBe('hit');
+    expect(Buffer.from(await warm.arrayBuffer())).toEqual(bytes);
+    expect((await stat(cached)).mtimeMs).toBe(before.mtimeMs);
+    expect(await readFile(source)).toEqual(original);
+  },
+  240_000,
+);
 
-  beforeAll(async () => {
-    const rawTmp = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-thumb-cache-'));
-    tmp = await fs.realpath(rawTmp);
-    process.env.MAPLE_ROOTS = tmp;
-    stagedRaw = path.join(tmp, 'fixture.dng');
-    // A near-empty file with .dng extension. Irrelevant to the cache-hit
-    // fast path (#2258), which never inspects the source's extension or
-    // stat — only whether a file already sits at the hashed thumb path.
-    await fs.writeFile(stagedRaw, Buffer.from([0xff, 0xd8, 0xff]));
+async function stageWarmThumb() {
+  const source = join(root, 'fixture.dng');
+  await writeFile(source, 'source');
+  const cached = resolveThumbPath(source);
+  await mkdir(dirname(cached), { recursive: true });
+  await writeFile(cached, 'cached-thumbnail');
+  return { source, cached };
+}
 
-    const { resolveThumbPath } = await import('../../src/fs/xmp.ts');
-    cachedPath = resolveThumbPath(stagedRaw);
-    await fs.mkdir(path.dirname(cachedPath), { recursive: true });
-    // Bytes that look like a real AVIF (ISOBMFF ftyp box). The route doesn't
-    // validate AVIF content — it just streams the file bytes.
-    await fs.writeFile(cachedPath, Buffer.from([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]));
+it('serves cached RAW derivative bytes without decoding', async () => {
+  await stageWarmThumb();
+  const response = await get('fixture.dng');
+  expect(response.status).toBe(200);
+  expect(response.headers.get('X-Thumb-Cache')).toBe('hit');
+  expect(await response.text()).toBe('cached-thumbnail');
+});
+
+it('a newer original cannot validate or serve stale cached bytes', async () => {
+  const { source, cached } = await stageWarmThumb();
+  const first = await get('fixture.dng');
+  const future = (await stat(cached)).mtimeMs / 1000 + 60;
+  await utimes(source, future, future);
+  const unavailable = _createFfiPoolForTests({
+    availableOverride: false,
+    workerFactory: () => {
+      throw new Error('must reject before decoding');
+    },
   });
-
-  afterAll(async () => {
-    await fs.rm(tmp, { recursive: true, force: true });
-    delete process.env.MAPLE_ROOTS;
-  });
-
-  it('serves a fresh cached thumb without invoking FFI', async () => {
-    const app = await buildApp();
-    const url = `http://localhost/api/fs/thumb?path=${encodeURIComponent(stagedRaw)}&size=256`;
-    const r = await app.handle(new Request(url));
-    expect(r.status).toBe(200);
-    expect(r.headers.get('Content-Type')).toBe('image/avif');
-    expect(r.headers.get('X-Thumb-Cache')).toBe('hit');
-    expect(r.headers.get('ETag')).toBeTruthy();
-    const body = new Uint8Array(await r.arrayBuffer());
-    expect(body[4]).toBe(0x66);
-    expect(body[5]).toBe(0x74);
-    expect(body[6]).toBe(0x79);
-    expect(body[7]).toBe(0x70);
-  });
-
-  it('still serves the cached thumb after the raw is touched — no per-read source-staleness check (#2258)', async () => {
-    // Push the raw's mtime well past the thumb's. Under the OLD `.meta`
-    // freshness protocol this test's inverse used to assert a forced
-    // regen; #2258 removes that check entirely (root CLAUDE.md principle
-    // 1: originals are never mutated, so a thumb once written never goes
-    // stale from a source edit) and this now documents the opposite: the
-    // fast path keeps serving the SAME cached bytes regardless.
-    const thumbStat = await fs.stat(cachedPath);
-    const future = thumbStat.mtimeMs / 1000 + 60;
-    await fs.utimes(stagedRaw, future, future);
-
-    const app = await buildApp();
-    const url = `http://localhost/api/fs/thumb?path=${encodeURIComponent(stagedRaw)}&size=256`;
-    const r = await app.handle(new Request(url));
-
-    expect(r.status).toBe(200);
-    expect(r.headers.get('X-Thumb-Cache')).toBe('hit');
-  });
+  const previous = _setFfiPoolForTests(unavailable);
+  try {
+    const response = await get('fixture.dng', '', first.headers.get('ETag')!);
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain('cached-thumbnail');
+  } finally {
+    _setFfiPoolForTests(previous);
+  }
 });

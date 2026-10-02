@@ -1,170 +1,87 @@
-/**
- * GET /api/thumb/:slug/*
- *
- * Returns the content-keyed thumbnail AVIF for an indexed image.
- * ETag: "<maple_id>-v<N>", Cache-Control: public, max-age=31536000, immutable.
- * Honors If-None-Match for 304 responses.
- *
- * If the image is on disk but not yet indexed (no maple_id), returns 202
- * with Retry-After: 2 so the client retries after the discover scan
- * completes.
- *
- * If the thumb file doesn't exist yet, generates it on-demand via the
- * existing thumb stage renderer (generateThumb).
- */
-
 import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia, type Context } from 'elysia';
-import type { AssetDoc } from '../../db/schema.ts';
-import { resolveAddress } from '../../library/address.ts';
 import { child as childLogger } from '../../log.ts';
-import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
+import { computeBodyETag, ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
+import {
+  assertDerivativeCacheDirectory,
+  isDerivativeCacheFresh,
+} from '../../indexer/derivative-cache.ts';
 import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { isUndecodableFilename } from '../../indexer/media-types.ts';
+import { isDecodableRasterExt, lowerExt } from '../fs-jail.ts';
 import {
   safeStat,
   safeReadBytes,
-  IMMUTABLE_CACHE,
+  MUTABLE_PREVIEW_CACHE,
   findAssetByAddress,
   parseWildcardSegments,
-  serveCachedBytesOr404,
   wildcardSlugParams,
+  derivativeDecoderUnavailable,
+  resolveDerivativeAddress,
 } from './shared.ts';
 
 const log = childLogger('routes/library/thumb');
-
-// Dedupe concurrent on-the-fly generation for the same source path: a folder
-// open fires many thumb requests at once, and without this a burst for one
-// un-indexed image would launch N overlapping generateThumb writes to the same
-// file (thundering herd / torn reads). generateThumb is itself idempotent and
-// mtime-guarded; this just collapses the in-flight overlap to a single render.
 const inflightThumbGen = new Map<string, Promise<void>>();
-function generateThumbDeduped(absPath: string): Promise<void> {
-  let p = inflightThumbGen.get(absPath);
-  if (!p) {
-    p = generateThumb(absPath).finally(() => inflightThumbGen.delete(absPath));
-    inflightThumbGen.set(absPath, p);
-  }
-  return p;
+
+function generateThumbDeduped(absPath: string, thumbPath: string): Promise<void> {
+  const existing = inflightThumbGen.get(thumbPath);
+  if (existing) return existing;
+  const pending = generateThumb(absPath, thumbPath).finally(() =>
+    inflightThumbGen.delete(thumbPath),
+  );
+  inflightThumbGen.set(thumbPath, pending);
+  return pending;
 }
 
-/** The handler's response context, threaded through to the serving helpers
- * so their status writes land on the actual response. */
-type RouteSet = Context['set'];
-
-/** Pre-index path — the file is on disk but the catalog has no `maple_id`
- * for it yet. Renders the thumbnail on the fly (keyed by source path via
- * `resolveThumbPath`, no `maple_id` needed) instead of making the grid
- * wait for the indexer, which may be idle/behind (`file_count` can sit at
- * 0). For RAW this extracts the embedded preview JPEG (cheap); non-RAW goes
- * through maple. Once the indexer assigns a `maple_id`, `serveIndexedThumb`
- * takes over at the same URL. */
-async function serveUnindexedThumb(
+async function serveThumb(
   absPath: string,
+  thumbPath: string,
   ifNoneMatch: string | undefined,
-  set: RouteSet,
+  set: Context['set'],
 ): Promise<Response | { error: string }> {
-  const diskSt = await safeStat(absPath);
-  if (!diskSt) {
-    set.status = 404;
-    return { error: 'File not found' };
-  }
-  // Weak, revalidating validator from the SOURCE file's mtime+size — a
-  // path-keyed pre-index thumb is NOT content-immutable (the file may
-  // change, and indexing will later serve a different content-keyed image
-  // at this same URL), so it must never be cached `immutable`. Computed and
-  // checked BEFORE any generation/read so a revalidation 304s without
-  // touching disk or rendering; the browser picks up the indexed version
-  // later on its own revalidation.
-  const wEtag = `W/"u-${Math.trunc(diskSt.mtimeMs)}-${diskSt.size}-v${PIPELINE_OUTPUT_VERSION}"`;
-  const revalidateCache = 'private, max-age=10, must-revalidate';
-  if (ifNoneMatchEqual(ifNoneMatch, wEtag)) {
-    return new Response(null, {
-      status: 304,
-      headers: { ETag: wEtag, 'Cache-Control': revalidateCache },
-    });
-  }
-  const thumbPath = resolveThumbPath(absPath);
-  // Call generateThumb UNCONDITIONALLY (not only when the thumb is missing):
-  // it has its own size+mtime staleness guard, so if the source changed
-  // since a prior render it regenerates instead of serving stale bytes under
-  // a fresh source-derived ETag; if the thumb still covers the source it's a
-  // cheap two-stat no-op. Deduped per source path against the request burst.
   try {
-    await generateThumbDeduped(absPath);
+    await assertDerivativeCacheDirectory(thumbPath);
+    const fresh = await isDerivativeCacheFresh(thumbPath, absPath);
+    if (!fresh) {
+      const unavailable = await derivativeDecoderUnavailable(absPath);
+      if (unavailable) {
+        set.status = 503;
+        return { error: unavailable };
+      }
+      await generateThumbDeduped(absPath, thumbPath);
+      if (!(await isDerivativeCacheFresh(thumbPath, absPath))) {
+        set.status = 404;
+        return { error: 'Thumbnail generation failed' };
+      }
+    }
+    const bytes = await safeReadBytes(thumbPath);
+    if (!bytes) {
+      set.status = 404;
+      return { error: 'Thumbnail file unreadable' };
+    }
+    const etag = computeBodyETag(bytes);
+    const unchanged = ifNoneMatchEqual(ifNoneMatch, etag);
+    return new Response(unchanged ? null : (bytes as unknown as BodyInit), {
+      status: unchanged ? 304 : 200,
+      headers: {
+        'Content-Type': 'image/avif',
+        'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
+        ETag: etag,
+        'Cache-Control': MUTABLE_PREVIEW_CACHE,
+        'X-Thumb-Cache': fresh ? 'hit' : 'miss',
+      },
+    });
   } catch (err) {
     log.warn(
       { absPath, thumbPath, err: err instanceof Error ? err.message : err },
-      'on-demand thumb generation failed (unindexed)',
+      'thumbnail read failed',
     );
     set.status = 500;
     return { error: 'Thumbnail generation failed' };
   }
-  const bytes = await safeReadBytes(thumbPath);
-  if (!bytes) {
-    set.status = 404;
-    return { error: 'Thumbnail file unreadable' };
-  }
-  return new Response(bytes as unknown as BodyInit, {
-    status: 200,
-    headers: {
-      'Content-Type': 'image/avif',
-      'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
-      ETag: wEtag,
-      'Cache-Control': revalidateCache,
-    },
-  });
-}
-
-/** Indexed path — the catalog row carries a `maple_id`, which is the ETag
- * (content-keyed = stable until the content changes) under an immutable
- * cache policy. The thumb file itself is path-keyed off the primary
- * location's filename, so it's the same file `/api/fs/thumb` and the `thumb`
- * stage use; it is generated on demand if missing. */
-async function serveIndexedThumb(
-  mapleId: string,
-  fileinfo: AssetDoc['fileinfo'],
-  absPath: string,
-  ifNoneMatch: string | undefined,
-  set: RouteSet,
-): Promise<Response | { error: string }> {
-  const etag = `"${mapleId}-v${PIPELINE_OUTPUT_VERSION}"`;
-  if (ifNoneMatchEqual(ifNoneMatch, etag)) {
-    return new Response(null, {
-      status: 304,
-      headers: { ETag: etag, 'Cache-Control': IMMUTABLE_CACHE },
-    });
-  }
-
-  // Resolve thumb path. Path-keyed off the primary location's filename, so
-  // it's the same file `/api/fs/thumb` and the `thumb` stage use — `maple_id`
-  // stays the ETag (a content validator) but is no longer the cache key.
-  const libs = await loadLibraryRoots();
-  const thumbPath = resolveThumbPathForAsset({ fileinfo: fileinfo as never }, libs);
-  if (!thumbPath) {
-    set.status = 404;
-    return { error: 'Cannot resolve thumbnail path for this asset' };
-  }
-
-  // Generate the thumb if it's missing.
-  const thumbSt = await safeStat(thumbPath);
-  if (!thumbSt) {
-    try {
-      await generateThumb(absPath, thumbPath);
-    } catch (err) {
-      log.warn(
-        { absPath, thumbPath, err: err instanceof Error ? err.message : err },
-        'on-demand thumb generation failed',
-      );
-      set.status = 500;
-      return { error: 'Thumbnail generation failed' };
-    }
-  }
-
-  return serveCachedBytesOr404(set, thumbPath, 'image/avif', etag, 'Thumbnail file unreadable');
 }
 
 export const thumbRoutes = new Elysia().get(
@@ -172,59 +89,36 @@ export const thumbRoutes = new Elysia().get(
   async ({ params, headers, query, set }) => {
     const versionError = incompatiblePipelineVersion(query.pv, set);
     if (versionError) return versionError;
-    const slug = params.slug;
-    const wildcard = (params as Record<string, string>)['*'] ?? '';
-    const segments = parseWildcardSegments(wildcard);
-
-    // Split the last segment off as the filename; the rest is the relative dir.
-    const filename = segments[segments.length - 1] ?? '';
+    const segments = parseWildcardSegments((params as Record<string, string>)['*'] ?? '');
+    const filename = segments.at(-1) ?? '';
     if (!filename) {
       set.status = 400;
       return { error: 'Filename is required' };
     }
-    // Metadata-only stub images (eip/braw/afphoto/ai) have no decoder, and
-    // audio (mp3/wav/m4a/aac) has no visual frame at all — both 404 rather
-    // than falling into `generateThumbDeduped`/`generateThumb`, which would
-    // otherwise copy the raw source bytes to a `.avif` path and serve them as
-    // garbage `image/avif` (see indexer/thumbnailer.ts).
-    //
-    // Video is NOT 404'd here any more (#1649): it falls through to
-    // `generateThumb`, whose video branch extracts a poster frame with the
-    // host ffmpeg. That makes this route generate posters on demand for a
-    // video the thumb stage hasn't reached yet. On a host with no ffmpeg the
-    // render fails, nothing is published, and the response is the same 404
-    // this guard used to produce — so the grid's placeholder behaviour is
-    // unchanged there.
     if (isUndecodableFilename(filename)) {
       set.status = 404;
       return { error: 'No thumbnail for this file type' };
     }
-
-    const dirSegs = segments.slice(0, -1);
-    const relDir = dirSegs.join('/');
-    const fileRelPath = dirSegs.length > 0 ? `${relDir}/${filename}` : filename;
-
-    let resolved: Awaited<ReturnType<typeof resolveAddress>>;
-    try {
-      resolved = await resolveAddress(slug, fileRelPath);
-    } catch (err) {
-      const e = err as { status?: number; message?: string };
-      set.status = e.status ?? 500;
-      return { error: e.message ?? 'Internal error' };
+    if (!isDecodableRasterExt(lowerExt(filename))) {
+      set.status = 415;
+      return { error: 'Unsupported image format' };
     }
-
+    const resolved = await resolveDerivativeAddress(params.slug, segments.join('/'), set);
+    if ('error' in resolved) return resolved;
     const { libraryId, absPath } = resolved;
-
-    // Look up the asset in the catalog by (library_id, dir, filename).
-    const asset = await findAssetByAddress(libraryId, relDir, filename);
-    const ifNoneMatch = headers['if-none-match'];
-    const ifNoneMatchValue = typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined;
-
-    return asset?.maple_id
-      ? serveIndexedThumb(asset.maple_id, asset.fileinfo, absPath, ifNoneMatchValue, set)
-      : serveUnindexedThumb(absPath, ifNoneMatchValue, set);
+    const asset = await findAssetByAddress(libraryId, segments.slice(0, -1).join('/'), filename);
+    if (!asset?.maple_id && !(await safeStat(absPath))?.isFile()) {
+      set.status = 404;
+      return { error: 'File not found' };
+    }
+    const thumbPath = asset?.maple_id
+      ? resolveThumbPathForAsset(asset, await loadLibraryRoots())
+      : resolveThumbPath(absPath);
+    if (!thumbPath) {
+      set.status = 404;
+      return { error: 'Cannot resolve thumbnail path for this asset' };
+    }
+    return serveThumb(absPath, thumbPath, headers['if-none-match'], set);
   },
-  {
-    params: wildcardSlugParams(),
-  },
+  { params: wildcardSlugParams() },
 );

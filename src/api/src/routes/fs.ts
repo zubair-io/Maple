@@ -12,7 +12,6 @@
 //   Finder / build the in-app grid. Does two `$in` Mongo lookups per
 //   request; cost grows with collection size.
 //
-// GET /api/fs/dir-fast?path=<abs>
 //   Pure-filesystem variant of `/dir`: readdir + realpath + stat, no Mongo,
 //   no EXIF, no sidecars. Used by the Angular Browse grid, which doesn't
 //   need any of that (per-image badges / EXIF live in search/timeline).
@@ -38,7 +37,6 @@ import { Readable } from 'node:stream';
 import {
   listDir,
   listDirContents,
-  listDirFast,
   browseRoots,
   isUnderRoot,
   RAW_EXTENSIONS,
@@ -68,7 +66,7 @@ async function realpathOrResolve(p: string): Promise<string> {
 
 // Path-addressed filesystem browsing + raw reads are the definition of
 // "file access" (#2893) — the whole module is gated. Members without the
-// permission keep /api/fs/thumb|preview (separate modules) for timeline.
+// permission use the unified derivative routes for timeline.
 export const fsRoutes = new Elysia({ prefix: '/api/fs' })
   .use(requireFileAccess)
   .get(
@@ -124,18 +122,17 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
           set.status = 400;
           return { error: res.error };
         }
-        // Body-hash ETag + If-None-Match short-circuit. The File Provider
-        // extension uses this on warm folder refreshes to avoid re-decoding
-        // unchanged directory listings.
+        // Windows directory refreshes can reuse an unchanged listing by ETag.
         const body = JSON.stringify(res.data);
         const etag = computeBodyETag(body);
         const ifNoneMatch = headers['if-none-match'];
-        if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
-          return new Response(null, { status: 304, headers: { ETag: etag } });
-        }
-        return new Response(body, {
-          status: 200,
-          headers: { ETag: etag, 'Content-Type': 'application/json' },
+        const unchanged = ifNoneMatchEqual(
+          typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined,
+          etag,
+        );
+        return new Response(unchanged ? null : body, {
+          status: unchanged ? 304 : 200,
+          headers: unchanged ? { ETag: etag } : { ETag: etag, 'Content-Type': 'application/json' },
         });
       } catch (err) {
         // Defensive: if anything inside listDirContents throws (e.g. a
@@ -144,54 +141,6 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
         // instead of getting an opaque error page.
         const msg = err instanceof Error ? err.message : String(err);
         log.error({ path: query.path, err: msg }, 'unhandled error');
-        set.status = 500;
-        return { error: msg };
-      }
-    },
-    {
-      query: t.Object({
-        path: t.String({ minLength: 1 }),
-        cursor: t.Optional(t.String()),
-        limit: t.Optional(t.String()),
-      }),
-    },
-  )
-  .get(
-    // Pure-filesystem variant of /dir. Used by the Angular Browse grid,
-    // which doesn't need EXIF / asset_id / sidecar pairing (those live in
-    // the search/timeline grid). Same paging contract as /dir.
-    '/dir-fast',
-    async ({ query, headers, set }) => {
-      try {
-        let parsedLimit: number | undefined;
-        if (query.limit !== undefined) {
-          if (!/^\d+$/.test(query.limit)) {
-            set.status = 400;
-            return { error: `limit must be an integer, got "${query.limit}"` };
-          }
-          parsedLimit = Number.parseInt(query.limit, 10);
-        }
-        const res = await listDirFast(query.path, {
-          cursor: query.cursor,
-          limit: parsedLimit,
-        });
-        if (!res.ok) {
-          set.status = 400;
-          return { error: res.error };
-        }
-        const body = JSON.stringify(res.data);
-        const etag = computeBodyETag(body);
-        const ifNoneMatch = headers['if-none-match'];
-        if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
-          return new Response(null, { status: 304, headers: { ETag: etag } });
-        }
-        return new Response(body, {
-          status: 200,
-          headers: { ETag: etag, 'Content-Type': 'application/json' },
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        log.error({ path: query.path, err: msg }, 'unhandled error (dir-fast)');
         set.status = 500;
         return { error: msg };
       }
@@ -216,7 +165,9 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
       const roots = await browseRoots();
       if (!roots.some((r) => isUnderRoot(real, r))) {
         set.status = 403;
-        return { error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]` };
+        return {
+          error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
+        };
       }
       const dot = real.lastIndexOf('.');
       const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : '';
@@ -240,7 +191,9 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
       const source = await resolveOriginalReadSource(real);
       if (source === null) {
         set.status = 404;
-        return { error: `Cannot read "${real}": no readable copy on the primary or a mirror` };
+        return {
+          error: `Cannot read "${real}": no readable copy on the primary or a mirror`,
+        };
       }
       const st = source.stat;
       // Re-assert the jail against the copy we are actually about to open.
@@ -258,11 +211,15 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
         source.origin === 'primary' ? await realpath(source.path).catch(() => null) : source.path;
       if (readPath === null) {
         set.status = 404;
-        return { error: `Cannot read "${real}": no readable copy on the primary or a mirror` };
+        return {
+          error: `Cannot read "${real}": no readable copy on the primary or a mirror`,
+        };
       }
       if (source.origin === 'primary' && !roots.some((r) => isUnderRoot(readPath, r))) {
         set.status = 403;
-        return { error: `Path "${readPath}" is outside MAPLE_ROOTS [${roots.join(', ')}]` };
+        return {
+          error: `Path "${readPath}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
+        };
       }
       // Stream the bytes. Web ReadableStream is built from the Node stream
       // so we don't have to slurp 100MP RAWs (~200MB) into memory.

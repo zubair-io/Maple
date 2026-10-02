@@ -19,7 +19,14 @@ import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { cachePathFor, resolveThumbPath, xmpSidecarPath } from '../fs/xmp.ts';
 import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
-import { fsThumbsRoutes } from '../routes/fs-thumbs.ts';
+import { thumbRoutes } from '../routes/library/thumb.ts';
+import { previewRoutes } from '../routes/library/preview.ts';
+import { registerLibrary, seedRouteAsset } from '../../tests/helpers/assets-route-fixtures.ts';
+import { invalidateLibraryRoots } from './libraries.cache.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { generatePreview } from './previewer.ts';
 import { generateThumb } from './thumbnailer.ts';
 
@@ -48,19 +55,20 @@ function withFilmLook(look: string): string {
 describe('RAW derivatives preserve real XMP edits (#3971)', () => {
   let directory: string;
   let rawPath: string;
-  let originalRoots: string | undefined;
+  let live: LiveTestDatabase;
+  let libraryId: string;
 
   beforeEach(async () => {
     directory = await realpath(await mkdtemp(join(tmpdir(), 'maple-raw-sidecar-')));
     rawPath = join(directory, 'photo.dng');
     await copyFile(fixture, rawPath);
-    originalRoots = process.env.MAPLE_ROOTS;
-    process.env.MAPLE_ROOTS = directory;
+    live = await createLiveTestDatabase();
+    libraryId = registerLibrary(live.db, directory, 'photos');
   });
 
   afterEach(async () => {
-    if (originalRoots === undefined) delete process.env.MAPLE_ROOTS;
-    else process.env.MAPLE_ROOTS = originalRoots;
+    invalidateLibraryRoots();
+    live.close();
     await rm(directory, { recursive: true, force: true });
   });
 
@@ -81,7 +89,11 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
       await ffiPool().exportRecipeToFile(
         rawPath,
         xml,
-        JSON.stringify({ ...DEFAULT_EXPORT_RECIPE, quality: 90, maxLongEdge: maxPx }),
+        JSON.stringify({
+          ...DEFAULT_EXPORT_RECIPE,
+          quality: 90,
+          maxLongEdge: maxPx,
+        }),
         resolve(dirname(fixture), '../../resources/film-luts'),
         jpeg,
       ),
@@ -242,12 +254,12 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
 
   async function getThumb() {
     return new Elysia()
-      .use(fsThumbsRoutes)
-      .handle(new Request(`http://localhost/api/fs/thumb?path=${encodeURIComponent(rawPath)}`));
+      .use(thumbRoutes)
+      .handle(new Request('http://localhost/thumb/photos/photo.dng'));
   }
 
   it.skipIf(!nativeAvailable)(
-    'filesystem route regenerates the authored edit and serves the same bytes on a warm hit',
+    'unified route regenerates the authored edit and serves the same bytes on a warm hit',
     async () => {
       await writeFile(xmpSidecarPath(rawPath), editedXmp);
       const expected = await expectedPixels(512, 55, xmpSidecarPath(rawPath));
@@ -264,7 +276,7 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
   );
 
   it.skipIf(!nativeAvailable)(
-    'filesystem route preserves the selected film look on cold, warm and regenerated reads',
+    'unified route preserves the selected film look on cold, warm and regenerated reads',
     async () => {
       const xml = withFilmLook('color_negative_kodak_portra_400');
       await writeFile(xmpSidecarPath(rawPath), xml);
@@ -287,7 +299,7 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
   );
 
   it.skipIf(!nativeAvailable)(
-    'filesystem route rejects invalid XMP instead of extracting the camera preview',
+    'unified route rejects invalid XMP instead of extracting the camera preview',
     async () => {
       await writeFile(xmpSidecarPath(rawPath), '<x:xmpmeta><rdf:RDF>');
       expect((await getThumb()).status).toBe(500);
@@ -295,6 +307,52 @@ describe('RAW derivatives preserve real XMP edits (#3971)', () => {
     },
     30_000,
   );
+
+  for (const tier of ['thumb', 'preview'] as const) {
+    for (const indexed of tier === 'thumb' ? [false, true] : [true]) {
+      it.skipIf(!nativeAvailable)(
+        `${tier} ${indexed ? 'indexed' : 'pre-index'}: a changed real XMP invalidates a conditional read`,
+        async () => {
+          if (indexed)
+            seedRouteAsset(live.db, {
+              libraryId,
+              path: '',
+              filename: 'photo.dng',
+              mapleId: 'original-id',
+            });
+          const app = new Elysia().use(thumbRoutes).use(previewRoutes);
+          const url = `http://localhost/${tier}/photos/photo.dng`;
+          await writeFile(xmpSidecarPath(rawPath), editedXmp);
+          const first = await app.handle(new Request(url));
+          expect(first.status).toBe(200);
+          const firstBytes = Buffer.from(await first.arrayBuffer());
+          const etag = first.headers.get('ETag')!;
+          const revised = editedXmp.replace('Exposure2012="-2"', 'Exposure2012="1"');
+          await writeFile(xmpSidecarPath(rawPath), revised);
+          const next = await app.handle(new Request(url, { headers: { 'If-None-Match': etag } }));
+          expect(next.status).toBe(200);
+          expect(next.headers.get('ETag')).not.toBe(etag);
+          const nextBytes = Buffer.from(await next.arrayBuffer());
+          expect(nextBytes).not.toEqual(firstBytes);
+          const expected = await expectedPixels(
+            tier === 'thumb' ? 512 : 1280,
+            tier === 'thumb' ? 55 : 70,
+            xmpSidecarPath(rawPath),
+          );
+          expect((await maple(nextBytes).toRaw()).data).toEqual(expected);
+          const warm = await app.handle(
+            new Request(url, {
+              headers: { 'If-None-Match': next.headers.get('ETag')! },
+            }),
+          );
+          expect(warm.status).toBe(304);
+          expect(await readFile(xmpSidecarPath(rawPath), 'utf8')).toBe(revised);
+          expect(await readFile(rawPath)).toEqual(await readFile(fixture));
+        },
+        30_000,
+      );
+    }
+  }
 
   it.skipIf(!nativeAvailable)(
     'a failed RAW develop propagates without leaving a cache file or intermediate',

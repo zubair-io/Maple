@@ -1,109 +1,67 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
-// fs-previews.test.ts
-//
-// Covers GET /api/fs/preview — the display-resolution tier behind the
-// Apple Preview screen's thumbnail → hi-res swap.
-//
-// Serving is exercised via pre-staged `.maple/previews/` cache files (fresh
-// mtime) so the tests never invoke maple/libraw. The catalogue lookup behind
-// the path-keyed entry runs against SQLite (#3787): a private database per
-// test, installed as the process-wide handle, which is also what makes the
-// route's `isSqliteOpen()` guard open the catalogue branch at all.
-
+import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 
-import { fsPreviewsRoutes, libraryAddressFor } from './fs-previews.ts';
-import { cachePathFor } from '../fs/xmp.ts';
-import { PREVIEW_CACHE_SUFFIX } from '../indexer/previewer.ts';
-import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import * as videoPosterModule from '../thumbs/video-poster.ts';
-import { registerLibrary, seedRouteAsset } from '../../tests/helpers/assets-route-fixtures.ts';
+import { previewRoutes } from './preview.ts';
+import { cachePathFor } from '../../fs/xmp.ts';
+import { PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
+import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import * as videoPosterModule from '../../thumbs/video-poster.ts';
+import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
-} from '../db/sqlite/test-sqlite.test-helpers.ts';
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
 
-describe('libraryAddressFor', () => {
-  const roots = new Map([['aaaaaaaaaaaaaaaaaaaaaaaa', '/lib/photos']]);
-
-  it('splits a nested path into (relDir, filename)', () => {
-    expect(libraryAddressFor('/lib/photos/2024/trip/a.dng', roots)).toEqual({
-      libraryIdHex: 'aaaaaaaaaaaaaaaaaaaaaaaa',
-      relDir: '2024/trip',
-      filename: 'a.dng',
-    });
-  });
-
-  it('uses an empty relDir at the library root', () => {
-    expect(libraryAddressFor('/lib/photos/a.dng', roots)).toEqual({
-      libraryIdHex: 'aaaaaaaaaaaaaaaaaaaaaaaa',
-      relDir: '',
-      filename: 'a.dng',
-    });
-  });
-
-  it('returns null for a path outside every root', () => {
-    expect(libraryAddressFor('/elsewhere/a.dng', roots)).toBeNull();
-  });
-
-  it('tolerates a trailing slash on the configured root', () => {
-    const slashed = new Map([['aaaaaaaaaaaaaaaaaaaaaaaa', '/lib/photos/']]);
-    expect(libraryAddressFor('/lib/photos/a.dng', slashed)?.filename).toBe('a.dng');
-  });
-});
-
-describe('GET /api/fs/preview', () => {
+describe('Unified preview — legacy reader regressions', () => {
   let live: LiveTestDatabase;
   let tmp: string;
   let rawPath: string;
-  let previousRoots: string | undefined;
+  let libraryId: string;
 
   beforeEach(async () => {
     live = await createLiveTestDatabase();
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-fs-previews-')));
-    previousRoots = process.env.MAPLE_ROOTS;
-    process.env.MAPLE_ROOTS = tmp;
+    libraryId = registerLibrary(live.db, tmp, 'photos');
     rawPath = join(tmp, 'a.jpg');
     await writeFile(rawPath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
     invalidateLibraryRoots();
   });
 
   afterEach(async () => {
-    if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
-    else process.env.MAPLE_ROOTS = previousRoots;
     live.close();
     await rm(tmp, { recursive: true, force: true }).catch(() => {});
     invalidateLibraryRoots();
   });
 
-  const get = (path: string, headers: Record<string, string> = {}) =>
-    new Elysia().use(fsPreviewsRoutes).handle(
-      new Request(`http://localhost/api/fs/preview?path=${encodeURIComponent(path)}`, {
-        headers,
-      }),
-    );
+  const get = (file: string, headers: Record<string, string> = {}) => {
+    const rel = relative(tmp, file).split('/').map(encodeURIComponent).join('/');
+    return new Elysia()
+      .use(previewRoutes)
+      .handle(new Request(`http://localhost/preview/photos/${rel}`, { headers }));
+  };
 
   /** Pre-stage the legacy basename-keyed cache entry with distinct bytes. */
-  const stageLegacyPreview = async (bytes: Buffer) => {
+  const stagePreview = async (bytes: Buffer) => {
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: 'a.jpg',
+      mapleId: 'original-id',
+    });
     const previewPath = cachePathFor(rawPath, 'previews', PREVIEW_CACHE_SUFFIX);
     await mkdir(dirname(previewPath), { recursive: true });
     await writeFile(previewPath, bytes);
   };
 
-  it('rejects a relative path', async () => {
-    const res = await get('not/absolute.jpg');
+  it('rejects traversal outside the library jail', async () => {
+    const res = await new Elysia()
+      .use(previewRoutes)
+      .handle(new Request('http://localhost/preview/photos/%2e%2e%2foutside.jpg'));
     expect(res.status).toBe(400);
-  });
-
-  it('rejects a path outside MAPLE_ROOTS', async () => {
-    const res = await get('/etc/hosts');
-    // realpath succeeds for /etc/hosts, so this must be the jail (403);
-    // an unsupported-extension 415 would mean the jail ran too late.
-    expect(res.status).toBe(403);
   });
 
   it('415s an unsupported extension inside the jail', async () => {
@@ -130,6 +88,11 @@ describe('GET /api/fs/preview', () => {
     try {
       const videoPath = join(tmp, 'no-decoder.mov');
       await writeFile(videoPath, Buffer.from('container bytes'));
+      seedRouteAsset(live.db, {
+        libraryId,
+        path: '',
+        filename: 'no-decoder.mov',
+      });
       const res = await get(videoPath);
       expect(res.status).toBe(503);
       expect(((await res.json()) as { error: string }).error).toMatch(/ffmpeg/i);
@@ -140,7 +103,7 @@ describe('GET /api/fs/preview', () => {
 
   it('serves a fresh pre-staged preview with an ETag, and 304s on If-None-Match', async () => {
     const staged = Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);
-    await stageLegacyPreview(staged);
+    await stagePreview(staged);
 
     const res = await get(rawPath);
     expect(res.status).toBe(200);
@@ -157,7 +120,6 @@ describe('GET /api/fs/preview', () => {
   });
 
   it('serves the indexer-written <filename>.avif when the asset is indexed (no maple_id needed)', async () => {
-    const libraryId = registerLibrary(live.db, tmp, 'test-lib');
     seedRouteAsset(live.db, { libraryId, path: '', filename: 'a.jpg' });
 
     const pathKeyed = Buffer.from([0xff, 0xd8, 0xaa, 0xbb, 0xff, 0xd9]);

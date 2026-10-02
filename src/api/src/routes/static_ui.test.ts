@@ -152,3 +152,66 @@ describe('static_ui /pkg asset-path 404 (#2408)', () => {
     expect(await viewRes.text()).toBe('<html lang="en"></html>');
   });
 });
+
+for (const retired of ['/api/fs/thumb', '/api/fs/preview', '/api/fs/dir-fast']) {
+  it(`retired ${retired} is absent from the assembled router and cannot return SPA HTML`, async () => {
+    const { authedApi } = await import('./authed-api.ts');
+    const assembled = new Elysia().use(authedApi).use(staticUiPlugin);
+    expect(assembled.routes.map((route) => route.path)).not.toContain(retired);
+    const response = await assembled.handle(
+      new Request(`http://localhost${retired}?path=/photo.jpg`),
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type')).not.toContain('text/html');
+    expect(await response.text()).not.toContain('<html');
+  });
+}
+
+// IS_DEV is read at import time. A separate process tests the dev branch
+// against its own loopback server without changing the production fixture.
+it('rejects missing API paths before the development proxy', async () => {
+  const modulePath = new URL('./static_ui.ts', import.meta.url).pathname;
+  const script = `
+    let hits = 0;
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch() {
+      hits++; return new Response('dev page', { status: 201 });
+    }});
+    process.env.MAPLE_DEV = '1';
+    process.env.MAPLE_DEV_ORIGIN = 'http://127.0.0.1:' + server.port;
+    try {
+      const { Elysia } = await import('elysia');
+      const { staticUiPlugin } = await import(${JSON.stringify(modulePath)});
+      const app = new Elysia().use(staticUiPlugin);
+      const missing = await app.handle(new Request('http://localhost/api/fs/preview?path=a'));
+      const apiHits = hits;
+      const page = await app.handle(new Request('http://localhost/editor'));
+      const body = await page.text();
+      const coop = page.headers.get('Cross-Origin-Opener-Policy');
+      server.stop(true);
+      const unavailable = await app.handle(new Request('http://localhost/editor'));
+      console.log(JSON.stringify({ missing: missing.status, apiHits, page: page.status, body, coop, hits, unavailable: unavailable.status }));
+    } finally { server.stop(true); }
+  `;
+  const child = Bun.spawn([process.execPath, '--eval', script], {
+    cwd: new URL('../../', import.meta.url).pathname,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [stdout, stderr, status] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect(status).toBe(0);
+  expect(stderr).not.toContain('error:');
+  const result = JSON.parse(stdout.trim().split('\n').at(-1)!);
+  expect(result).toEqual({
+    missing: 404,
+    apiHits: 0,
+    page: 201,
+    body: 'dev page',
+    coop: 'same-origin',
+    hits: 1,
+    unavailable: 502,
+  });
+});
