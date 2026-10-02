@@ -35,7 +35,7 @@ public actor ThumbnailLoader {
   /// share, so the static encoders reuse this one instance instead of
   /// minting a new context on every call (one per grid cell on scroll,
   /// otherwise).
-  private static let staticEncodeCIContext = CIContext()
+  static let staticEncodeCIContext = CIContext()
 
   /// Cap on concurrent thumbnail generations. The previous value (3) was
   /// tuned for the old Rust-develop thumbnail path (~350 ms each, CPU-
@@ -342,33 +342,6 @@ public actor ThumbnailLoader {
     let scaled = rendered.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
     guard let data = Self.thumbnailData(from: scaled, ctx: ctx) else { return }
     await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-  }
-
-  /// Extract camera pixels through the shared Rust core for RAWs, or
-  /// ImageIO for regular bitmaps, and encode the canonical AVIF grid tier.
-  private static func embeddedPreviewAVIF(at url: URL) -> Data? {
-    if !NonRawImageExtensions.all.contains(url.pathExtension.lowercased()) {
-      return embeddedCameraAVIF(
-        at: url, targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
-        quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
-    }
-    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-    let targetPx = Int(ThumbnailDiskCache.defaultThumbSize.width * 2)  // 2x for Retina
-    let opts: [CFString: Any] = [
-      // Prefer an existing embedded thumbnail; fall back to a new one
-      // generated from the full image if none is present.
-      kCGImageSourceCreateThumbnailFromImageAlways: false,
-      kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-      kCGImageSourceThumbnailMaxPixelSize: targetPx,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-      kCGImageSourceShouldCache: false,
-    ]
-    guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
-      return nil
-    }
-    // Encode to AVIF at spec quality via CIContext (reuses GPU path).
-    let ci = CIImage(cgImage: cg)
-    return thumbnailData(from: ci, ctx: staticEncodeCIContext)
   }
 
   /// Encode a CIImage to AVIF at the spec quality (`ThumbnailEncoder.quality`).

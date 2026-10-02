@@ -8,7 +8,32 @@ private let cameraPreviewLogger = Logger(
   subsystem: "app.justmaple.aperture", category: "CameraPreview")
 
 extension ThumbnailLoader {
-  private static let cameraEncodeContext = CIContext()
+  /// Extract camera pixels through the shared Rust core for RAWs, or
+  /// ImageIO for regular bitmaps, and encode the canonical AVIF grid tier.
+  nonisolated static func embeddedPreviewAVIF(at url: URL) -> Data? {
+    if !NonRawImageExtensions.all.contains(url.pathExtension.lowercased()) {
+      return embeddedCameraAVIF(
+        at: url, targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
+        quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
+    }
+    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    let targetPx = Int(ThumbnailDiskCache.defaultThumbSize.width * 2)  // 2x for Retina
+    let opts: [CFString: Any] = [
+      // Prefer an existing embedded thumbnail; fall back to a new one
+      // generated from the full image if none is present.
+      kCGImageSourceCreateThumbnailFromImageAlways: false,
+      kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+      kCGImageSourceThumbnailMaxPixelSize: targetPx,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCache: false,
+    ]
+    guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else {
+      return nil
+    }
+    // Encode to AVIF at spec quality via CIContext (reuses GPU path).
+    let ci = CIImage(cgImage: cg)
+    return thumbnailData(from: ci, ctx: staticEncodeCIContext)
+  }
 
   /// Both persisted tiers use the same embedded JPEG and AVIF encoder.
   /// Only call this after the sidecar gate permits a camera derivative.
@@ -22,7 +47,7 @@ extension ThumbnailLoader {
     let scale = min(1, targetLongEdge / CGFloat(max(image.width, image.height)))
     let scaled = CIImage(cgImage: image)
       .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-    return ThumbnailEncoder.encode(scaled, ctx: cameraEncodeContext, quality: quality)
+    return ThumbnailEncoder.encode(scaled, ctx: staticEncodeCIContext, quality: quality)
   }
 
   /// First pixels for a cold RAW, before reading or developing its sidecar.
