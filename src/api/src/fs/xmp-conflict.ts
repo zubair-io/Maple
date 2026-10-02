@@ -174,14 +174,19 @@ export async function writeConflictSidecarAtomic(
  * sidecars best-effort.
  */
 export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> {
-  const dir = path.dirname(rawAbsPath);
-  const rawBase = sidecarBase(rawAbsPath);
-  let entries: string[];
   try {
-    entries = await fs.readdir(dir);
+    return await listPairedSidecarsStrict(rawAbsPath);
   } catch {
     return [];
   }
+}
+
+/** Restore must distinguish an unreadable directory from an unedited photo;
+ * otherwise it could delete the primary while silently leaving its edits. */
+export async function listPairedSidecarsStrict(rawAbsPath: string): Promise<string[]> {
+  const dir = path.dirname(rawAbsPath);
+  const rawBase = sidecarBase(rawAbsPath);
+  const entries = await fs.readdir(dir);
   // Anchored: name is either `<rawBase>.xmp` (canonical) or
   // `<rawBase> (conflict from <device>)[ (N)].xmp` (variant). The
   // numeric `(N)` suffix is only valid AFTER a conflict-from suffix —
