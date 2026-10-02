@@ -6,7 +6,7 @@
 
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { AuthService, errorMessage } from '@maple-common';
+import { AuthService, MuiButtonComponent, errorMessage } from '@maple-common';
 
 /**
  * Post-sign-in destination from the guard's `returnUrl` query param
@@ -21,8 +21,9 @@ export function safeReturnUrl(raw: string | null): string {
 @Component({
   standalone: true,
   selector: 'maple-sign-in',
-  imports: [RouterLink],
+  imports: [RouterLink, MuiButtonComponent],
   templateUrl: './sign-in.component.html',
+  styleUrl: './sign-in.component.scss',
   host: { class: 'flex items-center justify-center w-full h-full bg-bg text-text-main p-6' },
 })
 export class SignInComponent implements OnInit {
@@ -54,50 +55,25 @@ export class SignInComponent implements OnInit {
   // form submits; passkey sign-in goes through signInPasskey() (#1377).
   async submit(): Promise<void> {
     if (this.claimed() !== false) return;
-    this.busy.set(true);
-    this.error.set(null);
-    try {
-      await this.auth.claim('Web');
-      // In the Apple shell's WKWebView the native host has already
-      // received the tokens via the `maple` message handler and is
-      // about to dismiss the sheet. Skip the SPA navigation so we
-      // don't waste a round-trip loading the library only to be
-      // closed.
-      if (!this.auth.isNativeShell) {
-        await this.router.navigateByUrl(this.returnUrl());
-      }
-    } catch (e: unknown) {
-      this.error.set(errorMessage(e));
-    } finally {
-      this.busy.set(false);
-    }
+    await this.authenticate(() => this.auth.claim('Web'));
   }
 
-  /**
-   * Usernameless passkey sign-in (#1304) — no email needed. The browser offers
-   * the user's discoverable passkeys for this site; the server identifies the
-   * account from the chosen credential.
-   */
+  /** Discoverable passkey sign-in needs no email address. */
   async signInPasskey(): Promise<void> {
-    this.busy.set(true);
-    this.error.set(null);
-    try {
-      await this.auth.signIn();
-      if (!this.auth.isNativeShell) {
-        await this.router.navigateByUrl(this.returnUrl());
-      }
-    } catch (e: unknown) {
-      this.error.set(errorMessage(e));
-    } finally {
-      this.busy.set(false);
-    }
+    await this.authenticate(() => this.auth.signIn());
   }
 
   async devSignIn(): Promise<void> {
+    await this.authenticate(() => this.auth.devSignIn());
+  }
+
+  private async authenticate(action: () => Promise<void>): Promise<void> {
+    if (this.busy()) return;
     this.busy.set(true);
     this.error.set(null);
     try {
-      await this.auth.devSignIn();
+      await action();
+      // A native shell receives the auth handoff and closes this sheet.
       if (!this.auth.isNativeShell) {
         await this.router.navigateByUrl(this.returnUrl());
       }

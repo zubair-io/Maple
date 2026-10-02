@@ -8,41 +8,39 @@
   @if (claimed() === true) {
     <!-- Pure passkey sign-in (#1377): no email to type — the browser offers
          your saved passkeys for this site. -->
-    <button
-      type="button"
-      (click)="signInPasskey()"
-      [disabled]="busy()"
-      class="inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed enabled:hover:bg-[color-mix(in_srgb,var(--color-primary)_88%,white)] disabled:bg-primary-dim disabled:text-text-muted"
+    <mui-button
+      variant="primary"
+      size="lg"
+      [fullWidth]="true"
+      (pressed)="signInPasskey()"
+      [loading]="busy()"
     >
       Sign in with a passkey
-    </button>
+    </mui-button>
   } @else if (claimed() === false) {
-    <button
-      type="submit"
-      [disabled]="busy()"
-      class="inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed enabled:hover:bg-[color-mix(in_srgb,var(--color-primary)_88%,white)] disabled:bg-primary-dim disabled:text-text-muted"
-    >
+    <mui-button type="submit" variant="primary" size="lg" [fullWidth]="true" [loading]="busy()">
       Create passkey
-    </button>
+    </mui-button>
   } @else {
     <!-- bootstrap() still in flight: show neither form to avoid a dead-end. -->
     <p class="m-0 text-[13px] text-text-muted text-center">Checking this server…</p>
   }
   @if (error(); as e) {
-    <p class="m-0 px-3 py-2 text-[13px] text-error-text bg-error-bg rounded-md">
+    <p role="alert" class="m-0 px-3 py-2 text-[13px] text-error-text bg-error-bg rounded-md">
       {{ e }}
     </p>
   }
   @if (devLoginEnabled()) {
-    <button
-      type="button"
-      (click)="devSignIn()"
-      [disabled]="busy()"
-      data-testid="dev-sign-in"
-      class="inline-block w-full px-4 py-3 text-sm font-semibold text-text-main bg-input-bg border border-border rounded-md transition-[background,opacity] duration-[120ms] ease-default hover:border-primary disabled:cursor-not-allowed"
+    <mui-button
+      variant="secondary"
+      size="lg"
+      [fullWidth]="true"
+      (pressed)="devSignIn()"
+      [loading]="busy()"
+      testId="dev-sign-in"
     >
       Sign in as dev (no passkey)
-    </button>
+    </mui-button>
   }
   @if (claimed() === true) {
     <a

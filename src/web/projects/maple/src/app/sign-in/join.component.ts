@@ -6,14 +6,14 @@
 
 import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
-import { FormsModule } from '@angular/forms';
-import { AuthService, errorMessage } from '@maple-common';
+import { AuthService, MuiButtonComponent, MuiInputComponent, errorMessage } from '@maple-common';
 
 @Component({
   standalone: true,
   selector: 'maple-join',
-  imports: [FormsModule, RouterLink],
+  imports: [RouterLink, MuiButtonComponent, MuiInputComponent],
   templateUrl: './join.component.html',
+  styleUrl: './join.component.scss',
   host: { class: 'flex items-center justify-center w-full h-full bg-bg text-text-main p-6' },
 })
 export class JoinComponent {
@@ -33,7 +33,12 @@ export class JoinComponent {
     this._code = (value ?? '').toUpperCase();
   }
 
+  canSubmit(): boolean {
+    return !this.busy() && this.code.length === 8;
+  }
+
   async submit(): Promise<void> {
+    if (!this.canSubmit()) return;
     this.busy.set(true);
     this.error.set(null);
     try {

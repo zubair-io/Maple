@@ -47,6 +47,8 @@ function boolAttr(value: boolean | null): string | null {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MuiButtonComponent {
+  /** Native form submission, used by Self Hosted claim/join (#4024). */
+  readonly type = input<'button' | 'submit'>('button');
   readonly variant = input<MuiButtonVariant>('secondary');
   readonly size = input<MuiButtonSize>('md');
   readonly disabled = input<boolean>(false);
@@ -116,7 +118,7 @@ export class MuiButtonComponent {
       case 'sm':
         return 'px-2 py-1';
       case 'lg':
-        return 'px-6 py-2';
+        return 'px-6 py-2 min-h-11';
       default:
         return 'px-4 py-2';
     }

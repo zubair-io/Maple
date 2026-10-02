@@ -25,7 +25,7 @@ import {
 import { MuiIconComponent } from '../icon/mui-icon.component';
 
 export type MuiInputVariant = 'default' | 'search' | 'numeric';
-export type MuiInputSize = 'sm' | 'md';
+export type MuiInputSize = 'sm' | 'md' | 'lg';
 
 @Component({
   selector: 'mui-input',
@@ -50,6 +50,13 @@ export class MuiInputComponent {
   /** Forwarded to the native control's `autocomplete` attribute — e.g. `'off'`
    * for a secret field the browser shouldn't offer to save/autofill. */
   readonly autocomplete = input<string | null>(null);
+  /** Native Join form constraints and entry hints (#4024). */
+  readonly name = input<string | null>(null);
+  readonly required = input<boolean>(false);
+  readonly minLength = input<number | null>(null);
+  readonly maxLength = input<number | null>(null);
+  readonly autocapitalize = input<string | null>(null);
+  readonly spellcheck = input<boolean | null>(null);
   /** Marks this field as the entry point of the surface that contains it.
    * `mui-popover` moves focus here on open instead of onto its own panel
    * (the Command Menu's search field), which is also what the native
@@ -92,7 +99,8 @@ export class MuiInputComponent {
    * JS branch reproduces that outcome without depending on Tailwind's
    * utility-generation order to replay it. */
   readonly fieldClasses = computed(() => {
-    const padding = this.size() === 'sm' ? 'px-2 py-1' : 'px-4 py-2';
+    const padding =
+      this.size() === 'sm' ? 'px-2 py-1' : this.size() === 'lg' ? 'px-4 py-0' : 'px-4 py-2';
     const borderColor = this.error()
       ? 'border-error-text'
       : this.focused()
@@ -119,7 +127,8 @@ export class MuiInputComponent {
   readonly controlClasses = computed(() =>
     this.size() === 'sm'
       ? 'control flex-1 min-w-0 border-0 outline-none bg-transparent text-text-main font-sans text-[12px] placeholder:text-text-muted'
-      : 'control flex-1 min-w-0 border-0 outline-none bg-transparent text-text-main font-sans text-[13px] placeholder:text-text-muted',
+      : 'control flex-1 min-w-0 border-0 outline-none bg-transparent text-text-main font-sans text-[13px] placeholder:text-text-muted' +
+        (this.size() === 'lg' ? ' min-h-11' : ''),
   );
 
   onInput(raw: string): void {

@@ -62,6 +62,7 @@ import { fileURLToPath } from 'node:url';
 import { walkFiles } from './lib/walk-files.mjs';
 
 const MIGRATED_DIRECTORIES = [
+  resolve(fileURLToPath(new URL('../projects/maple/src/app/sign-in', import.meta.url))), // #4024
   resolve(
     fileURLToPath(
       new URL('../projects/maple-common/src/lib/components/library-picker', import.meta.url),

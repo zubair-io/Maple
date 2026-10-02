@@ -7,28 +7,32 @@
     Enter the one-time invite code shared with you. New Maple accounts use a passkey and do not need
     an email address.
   </p>
-  <input
-    type="text"
-    [(ngModel)]="code"
+  <label for="invite-code" class="text-[13px] font-medium">Invite code</label>
+  <mui-input
+    size="lg"
+    inputId="invite-code"
     name="code"
+    [value]="code"
+    (valueChange)="code = $event"
     placeholder="Invite code"
-    minlength="8"
-    maxlength="8"
+    [minLength]="8"
+    [maxLength]="8"
+    [required]="true"
     autocapitalize="characters"
     autocomplete="one-time-code"
-    spellcheck="false"
-    required
-    class="block w-full px-3.5 py-3 text-sm text-text-main bg-input-bg border border-border rounded-md outline-none transition-colors duration-[120ms] ease-default font-mono tracking-[0.1em] uppercase placeholder:text-text-muted focus:border-primary"
+    [spellcheck]="false"
   />
-  <button
+  <mui-button
     type="submit"
-    [disabled]="busy() || code.length !== 8"
-    class="inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed enabled:hover:bg-[color-mix(in_srgb,var(--color-primary)_88%,white)] disabled:bg-primary-dim disabled:text-text-muted"
+    variant="primary"
+    size="lg"
+    [fullWidth]="true"
+    [loading]="busy()"
+    [disabled]="!canSubmit()"
+    >Create passkey</mui-button
   >
-    Create passkey
-  </button>
   @if (error(); as e) {
-    <p class="m-0 px-3 py-2 text-[13px] text-error-text bg-error-bg rounded-md">
+    <p role="alert" class="m-0 px-3 py-2 text-[13px] text-error-text bg-error-bg rounded-md">
       {{ e }}
     </p>
   }
