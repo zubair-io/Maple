@@ -27,6 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     std::fs::create_dir(&output)?;
     let mut cubes = Vec::new();
+    let mut artifacts = Vec::new();
     for (cap, label) in [(FitCap::Proxy, "proxy"), (FitCap::Native, "native")] {
         let (curve, residual) = fit_auto_profile_from_raw_at_cap(
             &raw,
@@ -37,6 +38,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .ok_or("No Auto fit available for this photographic RAW")?;
         let curve = curve.ok_or("Photographic control requires an actual fitted curve")?;
+        for (kind, lanes, edge) in [
+            ("curve", curve.to_flat(), 0),
+            (
+                "residual",
+                residual.as_ref().map_or_else(Vec::new, |r| r.data.clone()),
+                residual.as_ref().map_or(0, |r| r.size),
+            ),
+        ] {
+            let data: Vec<_> = lanes.iter().flat_map(|v| v.to_le_bytes()).collect();
+            let name = format!("{label}-{kind}.f32");
+            std::fs::write(output.join(&name), &data)?;
+            artifacts.push(serde_json::json!({
+                "path": name, "fit": label, "kind": kind, "edge": edge,
+                "bytes": data.len(), "blake3": blake3::hash(&data).to_hex().to_string()
+            }));
+        }
         for dimension in [33, 49, 65] {
             let lut = match &residual {
                 Some(residual) => bake_auto_profile_lut(&curve, residual, dimension),
@@ -59,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "sensorWidth": raw.width, "sensorHeight": raw.height,
         "quality": "amaze", "encoding": "little-endian f32 RGB, red fastest",
         "limit": "Native fit is an uncached diagnostic control; production policy unchanged",
-        "cubes": cubes
+        "cubes": cubes, "artifacts": artifacts
     });
     std::fs::write(
         output.join("manifest.json"),
