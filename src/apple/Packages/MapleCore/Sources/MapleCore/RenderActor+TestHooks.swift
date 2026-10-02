@@ -29,6 +29,7 @@ extension RenderActor {
     isFull: Bool = true,
     profile: Profile? = nil,
     autoExposure: AutoExposureMode? = nil,
+    quality: PipelineRenderer.Quality? = nil,
     aeGain: Float = 1.0,
     whitesAnchorEv: Float = .nan,
     nrSamplingScale: Float = 1
@@ -50,6 +51,7 @@ extension RenderActor {
     self.decodedIsFull = isFull
     self.decodedProfile = profile
     self.decodedAutoExposure = autoExposure
+    self.decodedQuality = quality
     // #1167/#2070 — defaults to 1.0 (the no-op gain), same as a
     // production seed; pass explicitly to test the AE-gain plumbing.
     self.decodedAeGain = aeGain

@@ -44,7 +44,6 @@ CloudflareSettingsFormTests host talks to a host service (keychain, FileProvider
 DecodeStripsDefringeTests slow render or decode workload that costs minutes on the runner
 DecodeStripsLocalAdjustmentsTests slow render or decode workload that costs minutes on the runner
 DecodeTargetTests slow render or decode workload that costs minutes on the runner
-DecodedCacheReplacementTests slow render or decode workload that costs minutes on the runner
 DeepZoomTileRenderingTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 DisplayEncodeZeroDimensionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 DisplayedHistogramTests slow render or decode workload that costs minutes on the runner

@@ -28,6 +28,7 @@ extension RenderActor {
     self.decodedProfile = nil
     // Seeded buffers likewise carry no known auto-exposure state
     // (#1387) — same reasoning as `decodedProfile` above.
+    self.decodedQuality = nil
     self.decodedAutoExposure = nil
     // Seeded preview buffers carry no slider-frame export (#1781); a
     // stale frame from a previous decode must not describe them.
@@ -71,6 +72,7 @@ extension RenderActor {
     self.decodedAtModel = decodedAtModel
     self.decodedIsFull = false
     self.decodedProfile = nil  // #871 — see `seed(...)`
+    self.decodedQuality = nil
     self.decodedAutoExposure = nil  // #1387 — see `seed(...)`
     self.decodedWbFrame = nil  // #1781 — see `seed(...)`
     self.decodedWhitesAnchorEv = .nan
