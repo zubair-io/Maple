@@ -1,5 +1,13 @@
 import '@angular/compiler';
 import { editorHistory } from './editor-history';
+import {
+  selfHostedEditorHistory,
+  selfHostedRejectedHistory,
+  selfHostedConcurrentStage,
+  selfHostedConcurrentGate,
+  selfHostedConcurrentClient,
+  selfHostedConcurrentRead,
+} from './self-hosted-editor-history';
 import { HostedWorkflowWriterService } from '../../projects/maple-common/src/lib/xmp/hosted-workflow-writer.service';
 import { createEnvironmentInjector, Injector, type EnvironmentInjector } from '@angular/core';
 import { FolderAccessService } from '../../projects/maple-common/src/lib/folder-access/folder-access.service';
@@ -78,6 +86,12 @@ async function publishFixtureWorkflow(
 
 Object.assign(window, {
   workflowTest: {
+    selfHostedEditorHistory,
+    selfHostedRejectedHistory,
+    selfHostedConcurrentStage,
+    selfHostedConcurrentGate,
+    selfHostedConcurrentClient,
+    selfHostedConcurrentRead,
     ready: true,
     editorHistory,
     async roundtrip(row: unknown, input: string, future = false, concurrent = false) {

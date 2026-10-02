@@ -30,6 +30,12 @@ import { XmpParserService } from './xmp-parser.service';
 import { SIDECAR_CACHE, type SidecarCache } from './sidecar-idb-cache';
 import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { firstValueFrom } from 'rxjs';
+import type { AssetId } from '../models/asset';
+import {
+  SelfHostedWorkflowWriterService,
+  type SelfHostedSemanticEdit,
+} from './self-hosted-workflow-writer.service';
+import { SidecarSaveStateService } from './sidecar-save-state.service';
 
 /**
  * The store's view of a sidecar. Matches the shape returned by
@@ -64,6 +70,10 @@ export class SidecarStore {
   private readonly parser = inject(XmpParserService);
   private readonly cache = inject<SidecarCache>(SIDECAR_CACHE);
   private readonly serverPersistence = inject(SERVER_WORKSPACE_PERSISTENCE);
+  private readonly workflow = inject(SelfHostedWorkflowWriterService);
+  private readonly saveState = inject(SidecarSaveStateService);
+  private readonly writes = new Map<string, Promise<void>>();
+  private readonly semanticAssets = new Map<string, AssetId>();
 
   /** Optimistic cache: parsed docs keyed by path. Populated by `write()`. */
   private readonly _docs = signal<Map<string, SidecarDoc>>(new Map());
@@ -79,7 +89,11 @@ export class SidecarStore {
    * Returns the resolved server-side outcome. Throws if the POST fails *after*
    * the rollback so callers can surface the error.
    */
-  async write(path: string, xml: string): Promise<void> {
+  write(path: string, xml: string): Promise<void> {
+    return this.serializeWrite(path, () => this.writeOptimistically(path, xml));
+  }
+
+  private async writeOptimistically(path: string, xml: string): Promise<void> {
     const previousMem = this._docs().get(path);
     // Capture IDB state BEFORE the optimistic write — `_ingest(..., true)`
     // fires `cache.put` and would otherwise overwrite the value we need to
@@ -96,7 +110,9 @@ export class SidecarStore {
       if (this.backend === 'self-hosted') {
         if (!this.serverPersistence)
           throw new Error('Self Hosted sidecar persistence is not configured');
-        await firstValueFrom(this.serverPersistence.writeSidecar(path, xml));
+        if (this.workflow.hasPending(path)) await firstValueFrom(this.workflow.flush(path));
+        const published = await firstValueFrom(this.serverPersistence.writeSidecar(path, xml));
+        await this._ingest(path, published, /* persist */ true);
       }
     } catch (err) {
       // 3. Rollback. We do this best-effort — if IDB write fails on rollback
@@ -134,6 +150,50 @@ export class SidecarStore {
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
+
+  commitSemantic(id: AssetId, path: string, edit: SelfHostedSemanticEdit): Promise<void> {
+    this.workflow.capture(path, edit);
+    this.semanticAssets.set(path, id);
+    return this.retrySemantic(path);
+  }
+
+  hasPendingSemantic(path: string): boolean {
+    return this.workflow.hasPending(path);
+  }
+
+  retrySemantic(path: string): Promise<void> {
+    const id = this.semanticAssets.get(path);
+    if (!id) return Promise.reject(Error('No captured semantic action for this source.'));
+    const revision = this.saveState.queued(id);
+    return this.serializeWrite(path, async () => {
+      this.saveState.saving(id, revision);
+      try {
+        const published = await firstValueFrom(this.workflow.flush(path));
+        if (published === null) throw Error('The committed primary sidecar is missing.');
+        await this._ingest(path, published, /* persist */ true);
+        this.saveState.saved(id, revision);
+        if (!this.workflow.hasPending(path)) this.semanticAssets.delete(path);
+      } catch (error) {
+        this.saveState.failed(id, revision, error);
+        throw error;
+      }
+    });
+  }
+
+  async flushSemantic(): Promise<void> {
+    await Promise.all(this.workflow.pendingPaths().map((path) => this.retrySemantic(path)));
+    await Promise.all(this.writes.values());
+  }
+
+  private serializeWrite(path: string, write: () => Promise<void>): Promise<void> {
+    const previous = this.writes.get(path) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(write);
+    const settled = next.catch(() => undefined);
+    this.writes.set(path, settled);
+    return next.finally(() => {
+      if (this.writes.get(path) === settled) this.writes.delete(path);
+    });
+  }
 
   private async _ingest(path: string, xml: string, persist: boolean): Promise<void> {
     try {

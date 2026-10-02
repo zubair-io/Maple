@@ -6,6 +6,7 @@
 // database). Also owns the debounced sidecar write and the `.maple/index.json`
 // debounced mirror.
 
+import { firstValueFrom } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, effect, inject } from '@angular/core';
 import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
@@ -27,6 +28,7 @@ import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { SidecarStore } from '../xmp/sidecar.store';
+import { SelfHostedWorkflowWriterService } from '../xmp/self-hosted-workflow-writer.service';
 import { PassthroughBucket, XmpCulling, XmpMetadata } from '../xmp/xmp.types';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { IndexedAsset } from '../maple-cache/maple-cache.types';
@@ -87,6 +89,15 @@ export { isSupportedRaw };
  */
 export const LAST_SOURCE_KEY = 'cm.lastSourceId';
 
+interface PendingApiSidecar {
+  readonly path: string;
+  readonly model: AdjustmentModel;
+  readonly patch: Partial<AdjustmentModel>;
+  readonly culling: XmpCulling;
+  readonly cullingPatch: Readonly<Partial<XmpCulling>>;
+  readonly revision: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LibraryFetch {
   private readonly store = inject(LibraryStore);
@@ -99,6 +110,7 @@ export class LibraryFetch {
   private readonly xmpStore = inject(XmpStoreService);
   private readonly xmpSerializer = inject(XmpSerializerService);
   private readonly sidecarStore = inject(SidecarStore);
+  private readonly workflowWriter = inject(SelfHostedWorkflowWriterService);
   private readonly api = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly prefs = inject(BrowsePreferencesService);
@@ -124,7 +136,7 @@ export class LibraryFetch {
   // ── Self-Hosted XMP write debounce ────────────────────────────────────────
   private readonly API_XMP_DEBOUNCE_MS = 200;
   private readonly _apiXmpTimers = new Map<AssetId, ReturnType<typeof setTimeout>>();
-  private readonly _apiXmpPending = new Map<AssetId, { culling: XmpCulling; revision: number }>();
+  private readonly _apiXmpPending = new Map<AssetId, PendingApiSidecar>();
   private readonly _apiXmpInFlight = new Map<AssetId, Promise<void>>();
   /** User-authored adjustment fields layered over the persisted sidecar base. */
   private readonly _apiAdjustmentPatches = new Map<AssetId, Partial<AdjustmentModel>>();
@@ -1165,7 +1177,7 @@ export class LibraryFetch {
           ...adjustmentPatch,
         });
       }
-      this._scheduleApiXmpWrite(id, culling);
+      this._scheduleApiXmpWrite(id, culling, fullModel);
       return;
     }
 
@@ -1177,7 +1189,7 @@ export class LibraryFetch {
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
   }
 
-  private _scheduleApiXmpWrite(id: AssetId, culling: XmpCulling): void {
+  private _scheduleApiXmpWrite(id: AssetId, culling: XmpCulling, model: AdjustmentModel): void {
     // Gate on a resolvable source path — no path, no XMP target. `absPathFor`
     // resolves post-M2 `slug:relPath` addresses through the registered
     // library roots; the raw `assetAbsPaths` map only ever held legacy
@@ -1190,7 +1202,15 @@ export class LibraryFetch {
     }
 
     const revision = this.sidecarSave.queued(id);
-    this._apiXmpPending.set(id, { culling, revision });
+    this._apiXmpPending.set(id, {
+      path: absPath,
+      model,
+      patch: this._apiAdjustmentPatches.get(id) ?? {},
+      culling,
+      cullingPatch: this.store.cullingPatchFor(id),
+      revision,
+    });
+    this.workflowWriter.noteModel(absPath, model);
 
     const existing = this._apiXmpTimers.get(id);
     if (existing) clearTimeout(existing);
@@ -1204,8 +1224,8 @@ export class LibraryFetch {
 
   private _flushApiXmpWrite(id: AssetId): Promise<void> {
     const pending = this._apiXmpPending.get(id);
-    const absPath = this.store.absPathFor(id);
-    if (!pending || !absPath) return Promise.resolve();
+    if (!pending) return Promise.resolve();
+    const absPath = pending.path;
     this._apiXmpPending.delete(id);
 
     // Re-use the canonical serializer so Self-Hosted XMP matches Hosted
@@ -1226,25 +1246,13 @@ export class LibraryFetch {
       .catch(() => undefined)
       .then(async () => {
         this.sidecarSave.saving(id, pending.revision);
-        const persisted = await this.xmpRestore.loadForWrite(id);
-        const model = this.store.mergePersistedAdjustment(
-          id,
-          persisted?.model ?? {},
-          this._apiAdjustmentPatches.get(id) ?? {},
-        );
-        const culling = this.store.mergePersistedCulling(id, persisted?.culling ?? pending.culling);
-        const passthrough = persisted?.passthrough ?? this.xmpStore.passthroughFor(id);
-        const xml = this.xmpSerializer.serialize(
-          model,
-          passthrough,
-          culling,
-          passthrough ? undefined : this.xmpStore.metadataFor(id),
-        );
+        const xml = await this.serializeCapturedSidecar(id, pending);
         return this.sidecarStore.write(absPath, xml);
       })
       .then(() => this.sidecarSave.saved(id, pending.revision))
       .catch((err) => {
         this.sidecarSave.failed(id, pending.revision, err);
+        if (!this._apiXmpPending.has(id)) this._apiXmpPending.set(id, pending);
         console.error(`putXmp failed for asset ${id} (path=${absPath}):`, err);
         throw err;
       })
@@ -1255,6 +1263,52 @@ export class LibraryFetch {
     return write;
   }
 
+  private async serializeCapturedSidecar(id: AssetId, pending: PendingApiSidecar): Promise<string> {
+    const currentSource = this.store.absPathFor(id) === pending.path;
+    const persisted = currentSource
+      ? await this.xmpRestore.loadForWrite(id)
+      : await this.readCapturedSidecar(pending.path);
+    const model = this.store.hydrateAdjustment(id, {
+      ...pending.model,
+      ...persisted?.model,
+      ...pending.patch,
+    });
+    this.hydrateActiveSidecar(id, pending, persisted);
+    const culling = { ...pending.culling, ...persisted?.culling, ...pending.cullingPatch };
+    const passthrough = persisted?.passthrough ?? this.xmpStore.passthroughFor(id);
+    return this.xmpSerializer.serialize(
+      model,
+      passthrough,
+      culling,
+      passthrough ? undefined : this.xmpStore.metadataFor(id),
+    );
+  }
+
+  private hydrateActiveSidecar(
+    id: AssetId,
+    pending: PendingApiSidecar,
+    persisted: Awaited<ReturnType<XmpAdjustmentRestoreService['loadForWrite']>>,
+  ): void {
+    // The active view uses all current intent; a queued publication stays frozen.
+    if (this.store.absPathFor(id) !== pending.path) return;
+    this.store.mergePersistedAdjustment(
+      id,
+      persisted?.model ?? {},
+      this._apiAdjustmentPatches.get(id) ?? {},
+    );
+    this.store.mergePersistedCulling(id, persisted?.culling ?? pending.culling);
+  }
+
+  private async readCapturedSidecar(path: string) {
+    const xml = await firstValueFrom(this.workflowWriter.read(path));
+    return xml === null
+      ? null
+      : {
+          ...this.xmpParser.parseAdjustmentModel(xml),
+          culling: this.xmpParser.parseCulling(xml),
+        };
+  }
+
   /** Await only the selected asset, retaining per-asset batch failures. */
   flushSidecarWrite(id: AssetId): Promise<void> {
     if (this.store.backend !== 'self-hosted') return this.xmpStore.flushAsset(id);
@@ -1263,6 +1317,9 @@ export class LibraryFetch {
     this._apiXmpTimers.delete(id);
     if (this._apiXmpPending.has(id)) return this._flushApiXmpWrite(id);
     const inFlight = this._apiXmpInFlight.get(id);
+    const path = this.store.absPathFor(id);
+    if (path && this.sidecarStore.hasPendingSemantic(path))
+      return this.sidecarStore.retrySemantic(path);
     return inFlight ?? Promise.reject(new Error('No writable sidecar path for this photo.'));
   }
 
@@ -1272,12 +1329,11 @@ export class LibraryFetch {
    */
   async flushPendingXmpWrites(): Promise<void> {
     if (this.store.backend === 'self-hosted') {
-      for (const [id, timeout] of this._apiXmpTimers.entries()) {
-        clearTimeout(timeout);
-        void this._flushApiXmpWrite(id);
-      }
+      for (const timeout of this._apiXmpTimers.values()) clearTimeout(timeout);
       this._apiXmpTimers.clear();
+      await Promise.all([...this._apiXmpPending.keys()].map((id) => this._flushApiXmpWrite(id)));
       await Promise.all(this._apiXmpInFlight.values());
+      await this.sidecarStore.flushSemantic();
       return;
     }
     return this.xmpStore.flushAll();

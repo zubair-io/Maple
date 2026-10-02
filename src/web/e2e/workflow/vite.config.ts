@@ -6,6 +6,10 @@ export default defineConfig({
   server: {
     port: 4518,
     strictPort: true,
+    proxy: {
+      '/api': 'http://127.0.0.1:4519',
+      '/workflow-fixture': 'http://127.0.0.1:4519',
+    },
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',

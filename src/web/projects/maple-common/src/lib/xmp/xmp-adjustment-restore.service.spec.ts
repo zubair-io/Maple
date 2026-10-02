@@ -89,7 +89,7 @@ const clearPrefKeys = (): void => {
 class ApiStub {
   getXmpResult: Observable<string | null> = of(SIDECAR_XML);
   getXmp = vi.fn((_path: string) => this.getXmpResult);
-  putXmp = vi.fn((_path: string, _xml: string) => of(undefined as void));
+  putXmp = vi.fn((_path: string, xml: string) => of(xml));
   listFolders = vi.fn(() => of([LIBRARY]));
   scanFolder = vi.fn(() => new Subject<never>().asObservable());
 }
