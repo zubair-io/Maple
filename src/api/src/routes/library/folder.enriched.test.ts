@@ -74,6 +74,34 @@ async function listing(tail = '', query = ''): Promise<Listing> {
 }
 
 describe('unified enriched folder listing #4001', () => {
+  test('keeps entry paths under the registered spelling of a symlinked root', async () => {
+    const alias = `${root}-alias`;
+    try {
+      await fs.symlink(root, alias);
+      run(live.db, 'UPDATE folders SET path = ? WHERE id = ?', alias, library);
+      invalidateLibraryRoots();
+      seed('photo.dng');
+      await fs.writeFile(path.join(root, 'photo.dng'), 'original bytes');
+      await fs.writeFile(path.join(root, 'photo.xmp'), '<x:xmpmeta/>');
+      await fs.mkdir(path.join(root, 'album'));
+      const body = await listing();
+      expect(body.path).toBe(alias);
+      expect(body.images[0]?.path).toBe(path.join(alias, 'photo.dng'));
+      expect(body.sidecars[0]?.path).toBe(path.join(alias, 'photo.xmp'));
+      expect(body.folders[0]?.path).toBe(path.join(alias, 'album'));
+    } finally {
+      await fs.unlink(alias);
+    }
+  });
+  test('keeps an in-library link address and logical path aligned', async () => {
+    await fs.mkdir(path.join(root, 'actual'));
+    await fs.symlink(path.join(root, 'actual'), path.join(root, 'alias'));
+    const body = await listing();
+    expect(body.folders.find((entry) => entry.name === 'alias')).toMatchObject({
+      address: 'photos:alias',
+      path: path.join(root, 'alias'),
+    });
+  });
   test('reports actual file metadata and indexed EXIF/identity', async () => {
     const id = seed('frame.dng');
     await fs.writeFile(path.join(root, 'frame.dng'), 'original bytes');
@@ -203,7 +231,7 @@ describe('unified enriched folder listing #4001', () => {
     expect(body.parent).toBe('photos:');
     expect(body.parentPath).toBe(root);
     expect(body.images.map((entry) => entry.name)).toEqual(['linked.jpg', 'real.jpg']);
-    expect(body.images[0]?.path).toBe(path.join(root, 'My Album', 'real.jpg'));
+    expect(body.images[0]?.path).toBe(path.join(root, 'My Album', 'linked.jpg'));
   });
   test('rejects malformed cursor and partially numeric page sizes', async () => {
     for (const query of [

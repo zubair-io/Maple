@@ -133,7 +133,9 @@ async function scanEntry(
     entry: {
       name,
       address: addressOf(slug, relPath, name),
-      path: real,
+      // Realpath is the jail/stat target; clients navigate by the registered
+      // library spelling, including in-library links and symlinked roots.
+      path: path.join(resolved.absPath, name),
       size: stat?.size ?? catalog!.size,
       mtime: new Date(stat?.mtimeMs ?? catalog!.mtime).toISOString(),
       ext: stat?.isDirectory() ? '' : path.extname(name).slice(1).toLowerCase(),
