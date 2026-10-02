@@ -55,6 +55,8 @@ import { child as childLogger } from '../log.ts';
 import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts';
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
 import { relocateRemoval } from './relocate-removal.ts';
+import { recoverRemovalRelocation, assertRemovalRecovered } from './removal-relocation-journal.ts';
+import { removalRelocationLease } from './removal-relocation-lease.ts';
 
 export { sidecarRenameTarget };
 
@@ -419,10 +421,15 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
           'relocate: case-only rename target is the same file as the source on a case-insensitive filesystem — copy is not meaningful',
       };
     }
-    return performCaseOnlyRename(req);
+    return withRelocationLease(req, req.destAbsPath, () => performCaseOnlyRename(req));
   }
 
   // 1. Resolve the destination per the caller's collision policy.
+  try {
+    await recoverRemovalRelocation(req.destAbsPath);
+  } catch (error) {
+    return { kind: 'error', error: String(error) };
+  }
   const resolution = await resolveDestination(req);
   if (resolution.kind === 'skip') {
     return { kind: 'skipped', reason: 'collision' };
@@ -430,8 +437,45 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
   const { finalDest } = resolution;
 
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
+  return withRelocationLease(req, finalDest, () => relocateResolved(req, finalDest));
+}
 
+async function withRelocationLease(
+  req: RelocateRequest,
+  target: string,
+  operation: () => Promise<RelocateOutcome>,
+): Promise<RelocateOutcome> {
   try {
+    await recoverRemovalRelocation(req.sourceAbsPath);
+    await recoverRemovalRelocation(target);
+    if (process.platform !== 'darwin' && process.platform !== 'linux') return await operation();
+    const lease = await removalRelocationLease(req.sourceAbsPath, target);
+    try {
+      await assertRemovalRecovered(req.sourceAbsPath);
+      await assertRemovalRecovered(target);
+      return await operation();
+    } finally {
+      await lease.release();
+    }
+  } catch (error) {
+    return { kind: 'error', error: String(error) };
+  }
+}
+
+async function relocateResolved(req: RelocateRequest, finalDest: string): Promise<RelocateOutcome> {
+  try {
+    if (req.collision !== 'replace') {
+      const appeared = await fs.lstat(finalDest).catch((error: unknown) => {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+          return null;
+        throw error;
+      });
+      if (appeared)
+        return {
+          kind: 'error',
+          error: 'Destination appeared during relocation; retry collision resolution',
+        };
+    }
     const removal = await relocateRemoval(req, finalDest);
     if (removal) return removal;
   } catch (error) {

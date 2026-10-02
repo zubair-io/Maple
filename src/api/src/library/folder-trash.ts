@@ -62,7 +62,7 @@ export interface FolderBatchSummary {
  * its children are gone. Never removes `stopAt` itself (the trashed
  * folder's own parent boundary is the caller's concern, not this
  * function's). A directory that still holds anything — including an
- * orphaned `.maple/` thumb cache for the files that just moved away — is
+ * orphaned `.maple/` thumb cache or persistent photo lock inodes — is
  * silently left in place; this is cosmetic cleanup, not a correctness
  * requirement, so any failure (permissions, non-empty, already gone) is
  * swallowed. */

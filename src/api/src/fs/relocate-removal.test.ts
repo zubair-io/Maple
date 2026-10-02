@@ -110,6 +110,25 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     await assertDestinationPixels(target);
   }, 30_000);
 
+  for (const mode of ['copy', 'move'] as const)
+    it(`${mode} from a read-only source folder preserves the intact accepted edit`, async () => {
+      await fs.chmod(dirname(raw), 0o555);
+      try {
+        const result = await relocateFile({
+          sourceAbsPath: raw,
+          destAbsPath: target,
+          mode,
+          collision: 'skip',
+        });
+        expect(result.kind).toBe('relocated');
+        await assertDestinationPixels(target);
+        expect(await fs.readFile(raw)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
+        expect(await fs.readFile(xmp, 'utf8')).toBe(xml);
+      } finally {
+        await fs.chmod(dirname(raw), 0o755);
+      }
+    }, 30_000);
+
   it('retains disabled schema-5 assets so the moved edit can be re-enabled', async () => {
     const [record] = JSON.parse(await fs.readFile(join(fixture, 'records.txt'), 'utf8'));
     const active = { ...record, schema: 5, id: record.patch, active: true };

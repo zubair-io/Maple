@@ -1,0 +1,87 @@
+{
+  "epic": 1472,
+  "measured_at_utc": "2026-10-02T09:06:59.577949+00:00",
+  "base_commit": "ba7668cfd9663409d9891812dacd8469b000bc67",
+  "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "native": "Actual API-built model-free raw-ffi dylib in disposable Bun IPC children; existing Rust source/asset validators and committed saved RGB oracle.",
+  "digests_sha256": {
+    "src/api/src/fs/removal-relocation-lease.ts": "84961a232aa8709344c31c217206910a0d0a303ee580068721066dc7f126849d",
+    "src/api/src/fs/removal-relocation-journal.ts": "9150c591b09e673b2465b5acdb1441b2a137877bc2238387271e061362e2a1cf",
+    "src/api/src/fs/sidecar-mutation-lease.ts": "822ac0d58f9f268f867db29b6de44bad24be147d1d8035696eba789c41e6d25c",
+    "src/api/src/fs/relocate-removal.ts": "2d443b0a6ae074f796c91f4e0a711139962640e48a6a68cc4119108aaf7ca0fb",
+    "src/api/src/fs/relocate.ts": "270b4fc4dd021f176ae525c8803426593bbb095cfe517578e179584fdfd0743f",
+    "src/api/src/fs/xmp.ts": "13975bd7000bc2c6ba5fe6513cf0a5298b459e2fc5ab064756cc46de74c4941b",
+    "src/api/src/fs/xmp-conflict.ts": "5f271234a8bb9f0f90cb165b3958cc5ac0e29d6e009db22ffc0329ce185c01ec",
+    "src/api/src/fs/removal-relocation-crash.fixture.ts": "6bd570d002f49b392f0f1e05c4360519c1b00070ee08b5cc054a97970adfaad7",
+    "src/api/src/fs/removal-relocation-journal.test.ts": "c1c6e339683ac963371557cb31eed933198da5957241d1b4b8253a8bb4f42412",
+    "src/api/src/fs/relocate-removal.test.ts": "ddea269f3d3a66c35115186ac996158fc2eb9ca553328a6aabc0e671110d740f",
+    "src/api/native/libraw_ffi.dylib": "b9563f9b1126039471f8631f4696db8e1094bcb48b511a315318068330a9ef14",
+    "test-fixtures/removal/calibration/source.dng": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618"
+  },
+  "related": {
+    "command": "cd src/api && bun test src/fs/removal-relocation-journal.test.ts src/fs/relocate-removal.test.ts src/fs/relocate.test.ts src/fs/relocate-case-only-rename.test.ts src/fs/relocate.parity.test.ts src/fs/trash.test.ts src/library/folder-trash.test.ts",
+    "passed": 107,
+    "failed": 0,
+    "skipped": 1,
+    "assertions": 538,
+    "files": 7,
+    "log": "/tmp/maple-removal-journal-final-qualified-related.log"
+  },
+  "recovery_tests": {
+    "passed": 23,
+    "failed": 0,
+    "skipped": 0,
+    "process_loss": "Real Bun owner SIGKILL; live ownership signalled over IPC. Prepared/partial boundaries use the production journal helper and real synced filesystem publication. Completed boundary runs the actual relocateFile primitive and dies inside its onVerified hook, before source deletion. No sidecar mocks or production fault switches."
+  },
+  "full_api": {
+    "command": "cd src/api && bun test --timeout 20000",
+    "passed": 5438,
+    "failed": 0,
+    "skipped": 8,
+    "assertions": 19836,
+    "files": 597,
+    "seconds": 85.55,
+    "log": "/tmp/maple-removal-journal-qualified-full-api.log"
+  },
+  "verified": [
+    "Kernel leases survive observation of a live owner and release on SIGKILL; ordinary incoming files cannot overwrite it even before journal creation.",
+    "API canonical/precondition/conflict-copy saves and deletes respect the same canonical lease, with server-local write serialization.",
+    "Prepared/partial replacements recover the previous RAW/XMP while retaining the incoming source; complete production publication retains exact saved pixels.",
+    "Complete publication recovers after its source directory disappears; source deletion is never part of recovery.",
+    "Retry recovers before collision resolution; a fresh metadata save recovers before applying its write.",
+    "Create-only retry, paired conflict XMP, resumed backup cleanup, dot-prefixed photos, case-only names and trash/restore regressions pass.",
+    "Later original/sidecar edits, changed backups and missing source/assets, escaped backup paths, substituted only-copy sources and lock symlinks fail closed with evidence retained.",
+    "Read-only source folders permit verified copy; failed move deletion retains both the source original and its XMP.",
+    "The shared file-operation corpus compares the same primary/sidecar/companion contract; only empty persistent coordination files are excluded, matching the existing Apple harness."
+  ],
+  "checks": {
+    "typecheck": "passed",
+    "scoped_oxlint": "passed",
+    "prettier": "passed via explicit repository configuration",
+    "diff_check": "passed",
+    "file_budget": "zero hard violations; two existing below-headroom soft warning paths (relocate.ts 542 lines, relocate.parity.test.ts 470 lines)",
+    "headroom": "passed against origin/main; no changed file grown past 570 lines"
+  },
+  "preliminary_failures": [
+    {
+      "log": "/tmp/maple-removal-journal-complete-full-api.log",
+      "failed": 13,
+      "resolution": "Persistent coordination files now use the same exclusion as the Apple parity harness and are explicitly retained by cosmetic folder cleanup. Source leases support existing read-only-source copy/delete-failure semantics. The case-only rollback test still pins original photo casing and now separately asserts the two persistent locks."
+    },
+    {
+      "log": "/tmp/maple-removal-journal-final-related.log",
+      "failed": 2,
+      "resolution": "Corrected a test helper path reference and fixed the read-only-source lease behavior; final shared corpus and full API suite pass."
+    }
+  ],
+  "limitations": [
+    "Local macOS synthetic interoperability/recovery qualification; no photographic/model/100MP transfer, power-loss or filesystem durability hardware qualification.",
+    "No Linux, Windows, SMB, mirror failure/restart, cross-native-app contention or network filesystem lease qualification.",
+    "Code rejects newly pending journals and newly occupied destinations under the acquired lease; the specific recovery-to-acquisition micro-windows have not been independently fault-injected.",
+    "Recovery runs on retry/save; passive startup/indexer reconciliation and catalogue acknowledgement-loss relocation integration remain open.",
+    "Existing non-POSIX ordinary metadata behavior is retained; pending transported removal journals and strict removal relocation fail closed on unsupported hosts.",
+    "Cosmetic folder cleanup retains directories containing persistent lock inodes, as it already does for orphaned cache directories.",
+    "Self Hosted authoring/remote companion transport, native saved-controls UI, crowd/model quality, shipping model distribution, physical-device performance, unchanged color breaches, current-main CI and full epic completion remain open."
+  ],
+  "release_qualified": false
+}
