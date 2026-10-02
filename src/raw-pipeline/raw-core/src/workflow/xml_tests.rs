@@ -14,6 +14,59 @@ fn workflow() -> SidecarWorkflow {
 }
 
 #[test]
+fn checkpoint_removes_only_validated_owned_region_and_preserves_exact_foreign_bytes() {
+    let source = XMP.replace(
+        "<crs:MaskGroupBasedCorrections>",
+        "<vendor:Workflow xmlns:vendor=\"urn:foreign\">keep &amp; preserve</vendor:Workflow>\r\n<crs:MaskGroupBasedCorrections>",
+    );
+    assert_eq!(SidecarWorkflow::checkpoint_xmp(&source).unwrap(), source);
+    let embedded = workflow().embed_in_xmp(&source).unwrap();
+    let start = embedded.find("<papp:Workflow").unwrap();
+    let end = embedded.find("</papp:Workflow>").unwrap() + "</papp:Workflow>".len();
+    let expected = format!("{}{}", &embedded[..start], &embedded[end..]);
+    let checkpoint = SidecarWorkflow::checkpoint_xmp(&embedded).unwrap();
+    assert_eq!(checkpoint.as_bytes(), expected.as_bytes());
+    assert_eq!(SidecarWorkflow::from_xmp(&checkpoint).unwrap(), None);
+    assert_eq!(
+        crate::xmp::parse(&checkpoint).unwrap(),
+        crate::xmp::parse(&source).unwrap()
+    );
+    assert!(checkpoint.contains("keep &amp; preserve</vendor:Workflow>\r\n"));
+    let dir = tempfile::tempdir().unwrap();
+    let original = dir.path().join("photo.dng");
+    let sidecar = dir
+        .path()
+        .join(super::variant_filename("photo.xmp", &workflow().variant_id).unwrap());
+    std::fs::write(&original, [1, 0, 255, 42]).unwrap();
+    std::fs::write(&sidecar, &checkpoint).unwrap();
+    let reopened = std::fs::read_to_string(sidecar).unwrap();
+    assert_eq!(
+        SidecarWorkflow::checkpoint_xmp(&reopened).unwrap(),
+        checkpoint
+    );
+    assert_eq!(std::fs::read(original).unwrap(), [1, 0, 255, 42]);
+}
+
+#[test]
+fn checkpoint_capture_refuses_future_malformed_or_rebound_owned_content() {
+    let embedded = workflow().embed_in_xmp(XMP).unwrap();
+    for xml in [
+        embedded.replace("<papp:SchemaVersion>1", "<papp:SchemaVersion>2"),
+        embedded.replace("<papp:VariantId>", "<papp:UnknownId>"),
+        embedded.replace("http://ns.justmaple.app/photo/1.0/", "urn:future"),
+        embedded
+            .replace("papp:Workflow", "alias:Workflow")
+            .replace("xmlns:papp=", "xmlns:alias="),
+        "not xml".into(),
+        format!("<!DOCTYPE x:xmpmeta [<!ENTITY x 'bad'>]>{XMP}"),
+    ] {
+        let before = xml.clone();
+        assert!(SidecarWorkflow::checkpoint_xmp(&xml).is_err());
+        assert_eq!(xml, before);
+    }
+}
+
+#[test]
 fn complete_record_survives_real_sidecar_write_reopen_without_touching_original() {
     let dir = tempfile::tempdir().unwrap();
     let original = dir.path().join("photo.dng");

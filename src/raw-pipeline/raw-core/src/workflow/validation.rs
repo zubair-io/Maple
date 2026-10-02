@@ -12,7 +12,7 @@ pub(super) fn size(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn identity(id: &str) -> Result<(), String> {
+pub(super) fn identity(id: &str) -> Result<(), String> {
     if id.len() != 36
         || !id.bytes().enumerate().all(|(i, c)| {
             if [8, 13, 18, 23].contains(&i) {
@@ -53,7 +53,7 @@ pub(super) fn xml_characters(xml: &str) -> Result<(), String> {
     }
     Ok(())
 }
-fn checkpoint(xml: &str) -> Result<(), String> {
+pub(super) fn checkpoint(xml: &str) -> Result<(), String> {
     size(xml)?;
     xml_characters(xml)?;
     let mut reader = NsReader::from_str(xml);

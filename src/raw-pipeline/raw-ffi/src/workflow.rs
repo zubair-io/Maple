@@ -102,3 +102,54 @@ pub unsafe extern "C" fn maple_workflow_embed_xmp(
         SidecarWorkflow::parse(input(json, json_len)?)?.embed_in_xmp(input(xmp, xmp_len)?)
     })
 }
+
+/// Capture a complete checkpoint by removing only validated owned workflow
+/// metadata (#4039). Same return codes and unchanged-on-failure contract.
+///
+/// # Safety
+/// Same pointer, length and non-overlap requirements as maple_workflow_validate_json.
+#[no_mangle]
+pub unsafe extern "C" fn maple_workflow_checkpoint_xmp(
+    xmp: *const u8,
+    xmp_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    output(
+        "maple_workflow_checkpoint_xmp",
+        out,
+        out_cap,
+        out_len,
+        || SidecarWorkflow::checkpoint_xmp(input(xmp, xmp_len)?),
+    )
+}
+
+/// Resolve a portable UUID sibling beside the primary filename (#4039).
+/// This returns a basename, never a filesystem path. Same return codes.
+///
+/// # Safety
+/// Same pointer, length and non-overlap requirements as maple_workflow_validate_json.
+#[no_mangle]
+pub unsafe extern "C" fn maple_workflow_variant_filename(
+    primary_name: *const u8,
+    primary_len: usize,
+    variant_id: *const u8,
+    variant_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    output(
+        "maple_workflow_variant_filename",
+        out,
+        out_cap,
+        out_len,
+        || {
+            raw_core::workflow::variant_filename(
+                input(primary_name, primary_len)?,
+                input(variant_id, variant_len)?,
+            )
+        },
+    )
+}

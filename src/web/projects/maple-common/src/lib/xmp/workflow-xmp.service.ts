@@ -15,19 +15,29 @@ export class WorkflowXmpService {
   }
 
   async read(xmp: string): Promise<SidecarWorkflow | null> {
-    const value: unknown = JSON.parse(await this.convert(xmp));
+    const value: unknown = JSON.parse(await this.convert('read', xmp));
     return value === null ? null : parseSidecarWorkflow(value);
   }
   embed(workflow: SidecarWorkflow, xmp: string): Promise<string> {
-    return this.convert(xmp, JSON.stringify(parseSidecarWorkflow(workflow)));
+    return this.convert('embed', xmp, JSON.stringify(parseSidecarWorkflow(workflow)));
   }
-  private convert(xmp: string, json?: string): Promise<string> {
+  checkpoint(xmp: string): Promise<string> {
+    return this.convert('checkpoint', xmp);
+  }
+  variantFilename(primaryName: string, variantId: string): Promise<string> {
+    return this.convert('filename', primaryName, variantId);
+  }
+  private convert(
+    operation: 'read' | 'embed' | 'checkpoint' | 'filename',
+    xmp: string,
+    json?: string,
+  ): Promise<string> {
     if (!this.worker) this.open();
     return new Promise((resolve, reject) => {
       const id = ++this.nextId;
       this.pending.set(id, { resolve, reject });
       try {
-        this.worker!.postMessage({ id, xmp, json });
+        this.worker!.postMessage({ id, operation, xmp, json });
       } catch (error) {
         this.pending.delete(id);
         reject(error);

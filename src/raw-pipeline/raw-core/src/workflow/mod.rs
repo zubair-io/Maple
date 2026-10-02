@@ -3,7 +3,7 @@
 //! These are persisted authoring records, never render-loop inputs. A checkpoint
 //! stores complete adjustment XMP, including authored WB and foreign edit data;
 //! a second hand-copied development schema cannot silently lose new fields.
-//! Host discovery, sidecar embedding, variant switching and UI remain tracked
+//! Host sibling discovery/create/delete, variant switching and UI remain tracked
 //! by #2437. This module alone does not release that workflow.
 
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 mod tests;
 mod validation;
+mod variants;
+pub use variants::variant_filename;
 mod xml;
 #[cfg(test)]
 mod xml_tests;

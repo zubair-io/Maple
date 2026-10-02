@@ -164,7 +164,10 @@ export function loadNativeBinding(): NativeBinding {
 
   const binding: NativeBinding = {
     ...createWorkflowBinding(
-      () => dlopen(libPath, getWorkflowFfiSymbols(FFIType)),
+      (symbol) => {
+        const symbols = getWorkflowFfiSymbols(FFIType);
+        return dlopen(libPath, { [symbol]: symbols[symbol as keyof typeof symbols] });
+      },
       ptr,
       getLastError,
     ),

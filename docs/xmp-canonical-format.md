@@ -561,6 +561,24 @@ browser WASM, and Bun/N-API call the same Rust converter; host wire parsers rema
 additional boundary checks. These operations run at confirmed save, never during
 slider rendering. Existing primary sidecar paths stay in use.
 
+`raw-core::workflow::variant_filename` (#4039) maps an already resolved primary
+basename to a sibling keyed by its canonical lowercase UUID. `primary` returns
+the existing basename byte-for-byte; additional variants use
+`<primary stem>.v<UUID>.xmp`. Thus `IMG_1234.xmp` and `IMG_1234.MOV.xmp` keep
+independent siblings. Display names never enter filenames. Traversal, invalid
+identities, nonportable characters and names exceeding 255 UTF-8 bytes fail;
+no truncation or fallback to primary is allowed. Apple `SidecarPath.variantURL`
+and the browser/Bun bindings call the same Rust operation.
+
+`SidecarWorkflow::checkpoint_xmp` captures the full current document by removing
+only the successfully validated owned Workflow resource. All other bytes remain
+unchanged, including foreign metadata, masks and white-balance intent. A document
+without that resource is returned byte-for-byte. Future, malformed or rebound
+owned resources fail instead of being erased. The Apple, browser WASM and
+Bun/N-API bindings share this operation. Native capabilities load separately,
+so adding these functions does not invalidate earlier workflow operations in
+an older native library.
+
 This completes storage and binding integration, not the product workflow. Sibling
 variant discovery/switching, snapshots/history UI, restore, cache identities and
 deletion/recovery remain acceptance requirements under #2437.

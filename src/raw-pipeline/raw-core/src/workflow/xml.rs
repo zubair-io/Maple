@@ -13,6 +13,20 @@ struct Locations {
 }
 
 impl SidecarWorkflow {
+    /// Capture current adjustments for a variant/snapshot/history checkpoint
+    /// (#4039). Validate before removing only the owned metadata region;
+    /// future or malformed records cannot be erased by an older host.
+    pub fn checkpoint_xmp(xml: &str) -> Result<String, String> {
+        Self::from_xmp(xml)?;
+        let locations = locate(xml)?;
+        let output = match locations.workflow {
+            Some(range) => format!("{}{}", &xml[..range.start], &xml[range.end..]),
+            None => xml.to_owned(),
+        };
+        super::validation::checkpoint(&output)?;
+        Ok(output)
+    }
+
     /// Absence stays explicit; the host chooses primary or missing-variant behavior.
     pub fn from_xmp(xml: &str) -> Result<Option<Self>, String> {
         let locations = locate(xml)?;

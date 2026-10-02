@@ -7,6 +7,8 @@ export interface WorkflowBinding {
   workflowValidateJson(json: string): WorkflowResult;
   workflowReadXmp(xmp: string): WorkflowResult;
   workflowEmbedXmp(json: string, xmp: string): WorkflowResult;
+  workflowCheckpointXmp(xmp: string): WorkflowResult;
+  workflowVariantFilename(primaryName: string, variantId: string): WorkflowResult;
 }
 
 type WorkflowLibrary = { symbols: Record<string, (...args: unknown[]) => unknown> };
@@ -20,6 +22,22 @@ export function getWorkflowFfiSymbols(FFIType: Record<string, string | number>) 
     },
     maple_workflow_read_xmp: {
       args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    maple_workflow_checkpoint_xmp: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    maple_workflow_variant_filename: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+      ],
       returns: FFIType.i32,
     },
     maple_workflow_embed_xmp: {
@@ -38,14 +56,16 @@ export function getWorkflowFfiSymbols(FFIType: Record<string, string | number>) 
 }
 
 export function createWorkflowBinding(
-  loadLibrary: () => WorkflowLibrary,
+  loadLibrary: (symbol: string) => WorkflowLibrary,
   ptr: (buf: Uint8Array) => unknown,
   getLastError: () => string | null,
 ): WorkflowBinding {
-  let library: WorkflowLibrary | null = null;
+  const libraries = new Map<string, WorkflowLibrary>();
   const convert = (symbol: string, inputs: readonly string[]): WorkflowResult => {
+    let library = libraries.get(symbol);
     try {
-      library ??= loadLibrary();
+      library ??= loadLibrary(symbol);
+      libraries.set(symbol, library);
     } catch (error) {
       return {
         ok: false,
@@ -75,5 +95,8 @@ export function createWorkflowBinding(
     workflowValidateJson: (json) => convert('maple_workflow_validate_json', [json]),
     workflowReadXmp: (xmp) => convert('maple_workflow_read_xmp', [xmp]),
     workflowEmbedXmp: (json, xmp) => convert('maple_workflow_embed_xmp', [json, xmp]),
+    workflowCheckpointXmp: (xmp) => convert('maple_workflow_checkpoint_xmp', [xmp]),
+    workflowVariantFilename: (primaryName, variantId) =>
+      convert('maple_workflow_variant_filename', [primaryName, variantId]),
   };
 }

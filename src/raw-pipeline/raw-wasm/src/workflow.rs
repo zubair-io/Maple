@@ -22,3 +22,13 @@ pub fn workflow_embed_xmp(json: &str, xmp: &str) -> Result<String, JsError> {
         .and_then(|record| record.embed_in_xmp(xmp))
         .map_err(|e| JsError::new(&e))
 }
+
+#[wasm_bindgen]
+pub fn workflow_checkpoint_xmp(xmp: &str) -> Result<String, JsError> {
+    SidecarWorkflow::checkpoint_xmp(xmp).map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
+pub fn workflow_variant_filename(primary_name: &str, variant_id: &str) -> Result<String, JsError> {
+    raw_core::workflow::variant_filename(primary_name, variant_id).map_err(|e| JsError::new(&e))
+}

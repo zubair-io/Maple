@@ -170,6 +170,12 @@ export function tryLoadNapiBinding(): NativeBinding | null {
       workflowEmbedXmp: wrap<'workflowEmbedXmp'>((json, xmp) =>
         workflow('workflowEmbedXmp', [json, xmp]),
       ),
+      workflowCheckpointXmp: wrap<'workflowCheckpointXmp'>((xmp) =>
+        workflow('workflowCheckpointXmp', [xmp]),
+      ),
+      workflowVariantFilename: wrap<'workflowVariantFilename'>((primaryName, variantId) =>
+        workflow('workflowVariantFilename', [primaryName, variantId]),
+      ),
       // -- filename (synchronous, no I/O) --------------------------------
       renderFilenameTemplate: wrap<'renderFilenameTemplate'>((args) =>
         addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined }),

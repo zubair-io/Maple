@@ -101,6 +101,58 @@ Object.assign(window, {
         await root.removeEntry(name, { recursive: true });
       }
     },
+    async checkpoints(row: unknown, input: string) {
+      const environment = injector();
+      const root = await navigator.storage.getDirectory();
+      const directoryName = 'maple-variant-checkpoint-' + crypto.randomUUID();
+      const native = await root.getDirectoryHandle(directoryName, { create: true });
+      const folder = { native, name: directoryName, read: true, write: true };
+      try {
+        const core: WorkflowXmpService = environment.get(WorkflowXmpService);
+        const access = environment.get(FolderAccessService);
+        const record = parseSidecarWorkflow(row);
+        const embedded = await core.embed(record, input);
+        const checkpoint = await core.checkpoint(embedded);
+        const basename = await core.variantFilename('photo.MOV.xmp', record.variantId);
+        await access.writeFile(folder, 'photo.MOV', new Uint8Array([1, 0, 255, 42]));
+        await access.writeFile(folder, basename, new TextEncoder().encode(checkpoint));
+        const reopened = new TextDecoder().decode(await access.readFile(folder, basename));
+        const start = embedded.indexOf('<papp:Workflow');
+        const end = embedded.indexOf('</papp:Workflow>') + '</papp:Workflow>'.length;
+        const exact = reopened === embedded.slice(0, start) + embedded.slice(end);
+        const parser = environment.get(XmpParserService);
+        const unchangedModel =
+          JSON.stringify(parser.parseAdjustmentModel(reopened).model) ===
+          JSON.stringify(parser.parseAdjustmentModel(embedded).model);
+        const reject = async (operation: () => Promise<string>) => {
+          try {
+            await operation();
+            return false;
+          } catch {
+            return true;
+          }
+        };
+        return {
+          basename,
+          exact,
+          unchangedModel,
+          record: await core.read(reopened),
+          primary: await core.variantFilename('photo.MOV.xmp', 'primary'),
+          plain: (await core.checkpoint(input)) === input,
+          invalidPath: await reject(() => core.variantFilename('../photo.xmp', record.variantId)),
+          invalidId: await reject(() => core.variantFilename('photo.xmp', '../primary')),
+          future: await reject(() =>
+            core.checkpoint(embedded.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2')),
+          ),
+          sidecarUnchanged:
+            new TextDecoder().decode(await access.readFile(folder, basename)) === reopened,
+          original: Array.from(await access.readFile(folder, 'photo.MOV')),
+        };
+      } finally {
+        environment.destroy();
+        await root.removeEntry(directoryName, { recursive: true });
+      }
+    },
     async rejects(row: unknown, xmp: string) {
       const environment = injector();
       try {
