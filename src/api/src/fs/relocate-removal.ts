@@ -8,6 +8,7 @@ import { listPairedSidecars } from './xmp-conflict.ts';
 import { removalRecords } from './removal-records.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
+import { createRemovalJournal } from './removal-relocation-journal.ts';
 import type { RelocateOutcome, RelocateRequest } from './relocate.ts';
 
 const log = childLogger('fs/removal-relocate');
@@ -118,37 +119,32 @@ async function copyAsset(source: string, target: string) {
 
 /** Null retains the existing ordinary-file path. Accepted edits are strict:
  * source assets are never deleted (other photos may share them), and a failed
- * destination/identity step restores previous occupants rather than losing edits. */
+ * destination/identity step restores previous occupants rather than losing edits.
+ * The ordinary relocate primitive holds the source/destination lease throughout. */
 export async function relocateRemoval(
   req: RelocateRequest,
   target: string,
 ): Promise<RelocateOutcome | null> {
   const source = await snapshots(req.sourceAbsPath);
   if (!source.some((value) => value.records !== null)) return null;
+  if (process.platform !== 'darwin' && process.platform !== 'linux')
+    throw new Error('Removal relocation requires a POSIX filesystem lease');
+  return relocateUnderLease(req, target, source);
+}
+
+async function relocateUnderLease(
+  req: RelocateRequest,
+  target: string,
+  source: Snapshot[],
+): Promise<RelocateOutcome> {
   const proof = await verify(req.sourceAbsPath, source);
   const pairs = source.map((value) => ({
     ...value,
     target: sidecarRenameTarget(req.sourceAbsPath, target, value.path)!,
   }));
-  const backups = new Map<string, string | null>();
   let repointed = false;
-  let cleanupBackups = false;
-  const remember = async (path: string) => {
-    if (backups.has(path)) return;
-    const info = await existing(path);
-    if (!info) {
-      backups.set(path, null);
-      return;
-    }
-    if (!info.isFile() || info.isSymbolicLink())
-      throw new Error(`Replacement is not a regular file: ${path}`);
-    const backup = `${path}.tmp.${randomUUID()}.rollback`;
-    await syncCopy(path, backup);
-    await syncDirectory(dirname(backup));
-    backups.set(path, backup);
-  };
+  let journal: Awaited<ReturnType<typeof createRemovalJournal>> | undefined;
   const publish = async (path: string, bytes: Buffer<ArrayBuffer> | null, from?: string) => {
-    await remember(path);
     const temp = `${path}.tmp.${randomUUID()}`;
     try {
       if (bytes) {
@@ -170,13 +166,34 @@ export async function relocateRemoval(
     const assets = await ensureAssetsDirectory(target);
     for (const name of proof.names)
       await copyAsset(join(dirname(req.sourceAbsPath), '.maple/inpaint', name), join(assets, name));
+    const companionPaths: string[] = [];
+    const companionSources = req.extraCompanionAbsPaths ?? [];
+    for (const path of companionSources) {
+      const candidate =
+        sidecarRenameTarget(req.sourceAbsPath, target, path) ??
+        join(dirname(target), path.split('/').at(-1)!);
+      const { pickFreePath } = await import('./relocate.ts');
+      companionPaths.push(await pickFreePath(candidate, 'relocate:companion'));
+    }
+    const staleSidecars = (await listPairedSidecars(target)).filter(
+      (path) => !pairs.some((pair) => pair.target === path),
+    );
+    journal = await createRemovalJournal(
+      req.sourceAbsPath,
+      target,
+      [req.sourceAbsPath, ...source.map((value) => value.path), ...companionSources],
+      [
+        { target, source: req.sourceAbsPath },
+        ...pairs.map((pair) => ({ target: pair.target, bytes: pair.bytes })),
+        ...staleSidecars.map((path) => ({ target: path })),
+        ...companionPaths.map((path, index) => ({ target: path, source: companionSources[index] })),
+      ],
+    );
     await assertSidecars(req.sourceAbsPath, source);
     await publish(target, null, req.sourceAbsPath);
     for (const pair of pairs) await publish(pair.target, pair.bytes);
     // Remove a replaced occupant's unmatched sidecars with rollback evidence.
-    for (const stale of await listPairedSidecars(target)) {
-      if (pairs.some((pair) => pair.target === stale)) continue;
-      await remember(stale);
+    for (const stale of staleSidecars) {
       await fs.unlink(stale);
       await syncDirectory(dirname(stale));
     }
@@ -188,18 +205,8 @@ export async function relocateRemoval(
     await verify(target, destination, proof.originalDigest);
     await assertSidecars(req.sourceAbsPath, source);
     await verify(req.sourceAbsPath, source, proof.originalDigest);
-    const companionPaths: string[] = [];
-    const companionSources: string[] = [];
-    for (const path of req.extraCompanionAbsPaths ?? []) {
-      const candidate =
-        sidecarRenameTarget(req.sourceAbsPath, target, path) ??
-        join(dirname(target), path.split('/').at(-1)!);
-      const { pickFreePath } = await import('./relocate.ts');
-      const companionTarget = await pickFreePath(candidate, 'relocate:companion');
-      await publish(companionTarget, null, path);
-      companionPaths.push(companionTarget);
-      companionSources.push(path);
-    }
+    for (const [index, path] of companionSources.entries())
+      await publish(companionPaths[index], null, path);
     await req.onVerified?.({
       newAbsPath: target,
       sidecarPaths: pairs.map((value) => value.target),
@@ -236,7 +243,7 @@ export async function relocateRemoval(
                 ),
               );
     }
-    cleanupBackups = true;
+    await journal.finish();
     return {
       kind: 'relocated',
       newAbsPath: target,
@@ -245,18 +252,7 @@ export async function relocateRemoval(
       renamedOnCollision: target !== req.destAbsPath,
     };
   } catch (error) {
-    if (!repointed) {
-      for (const [path, backup] of [...backups].reverse()) {
-        if (backup) await fs.rename(backup, path);
-        else await fs.rm(path, { force: true });
-      }
-    }
-    cleanupBackups = true;
+    if (!repointed) await journal?.rollback();
     return { kind: 'error', error: String(error) };
-  } finally {
-    // If restoration throws, retained backups are the previous occupant's
-    // recovery evidence (#1472); never delete them in a failure cleanup.
-    if (cleanupBackups)
-      for (const backup of backups.values()) if (backup) await fs.rm(backup, { force: true });
   }
 }

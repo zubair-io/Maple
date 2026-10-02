@@ -305,6 +305,32 @@ complete copies; an unreadable source sidecar stops before publishing the RAW.
 Trash and restore use this same path. These file-operation reads do not run during
 rendering or slider ticks, and do not create a new cache.
 
+Before replacement publication, the API syncs a confined
+`.<RAW filename>.removal-relocation.json` journal containing SHA-256 states and
+verified rollback copies for the RAW, paired XMP and extra companions. POSIX
+relocation and canonical XMP locks match Apple's persistent lock names; their
+descriptors release on process termination, and lock files are never unlinked.
+The source's existing read-only descriptor is also leased, allowing copies from
+read-only source folders without creating coordination files there. A move whose
+source cannot be deleted retains its original and XMP beside the verified copy.
+Ordinary relocations also hold the lease, including before a removal journal is
+created, so an unedited incoming file cannot overwrite an active removal move.
+Cosmetic empty-folder cleanup retains directories containing these lock inodes,
+as it already does for surviving `.maple/` cache content.
+Canonical/precondition/conflict saves and deletes hold the same lease across the
+whole mutation. A retry recovers the destination before collision resolution; a
+save also recovers before applying new metadata. An abandoned complete destination
+must pass original/companion verification before cleanup. Partial replacements
+restore only recorded bytes, with the incoming original and sidecars still intact
+at a distinct source. Recovery never deletes that source. Unknown later files,
+missing assets or damaged backups retain the journal and recovery evidence and
+fail closed. Cleanup is restartable. Local macOS SIGKILL and actual native-render
+qualification is recorded in
+`test-fixtures/qualification/removal-api-relocation-recovery-1472.json`; network
+filesystems, Linux/Windows recovery, machine power loss and background startup
+reconciliation remain unqualified. These are durable operation records, not cache
+entries or inference models.
+
 Only those two cheap raster stages reset. `describe`, `geocode`, `face-detect`, and `face-embed` keep their versions and timestamps, and `src/api/src/library/cache-invalidation-on-move.test.ts` asserts that explicitly: a move doesn't change pixels, so a caption, a reverse-geocode, or a face embedding computed before it is still valid, and re-running them would turn an O(1) filesystem operation into an O(inference) one. The same test also pins that re-running the thumb stage handler for that single asset — never a folder-wide rescan — is enough to produce a correct thumbnail at the new path, and that the old thumb is never served for it, because the two are different filesystem paths by construction rather than one cache slot being repointed.
 
 On Apple, `LocalFileOperations.invalidateDerivedCaches` (and its SMB twin) removes the old `.maple/thumbs/` and `.maple/previews/` files **and** awaits `RenderedPreviewCache.invalidate(assetURL:)`. That second call is load-bearing: the rendered-preview cache is an Apple-local cold-open cache with its own `<urlHash>_<variantHash>.jpg` naming in the same folder plus a 20-entry memory front, and a bare file removal never touches it. Nothing ever revisits a moved asset's old URL, so without the explicit call the old entry leaks in memory and on disk indefinitely — not a bounded wait for eviction. `refreshLibraryIndexAfterMove` separately carries the old `.maple/index.json` row's stars and flag across so a moved photo doesn't transiently read as unflagged.

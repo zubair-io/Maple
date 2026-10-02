@@ -24,6 +24,7 @@ import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
 import { PAIRED_SIDECAR_SUFFIX_PATTERN } from '../generated/filename-vocabulary.generated';
+import { withSidecarMutationLease } from './sidecar-mutation-lease.ts';
 
 /** Sanitize a device name for use in a conflict-copy filename. */
 function sanitizeDeviceName(raw: string | undefined): string {
@@ -162,7 +163,13 @@ export async function writeConflictSidecarAtomic(
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  return writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed');
+  try {
+    return await withSidecarMutationLease(rawAbsPath, () =>
+      writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed'),
+    );
+  } catch (error) {
+    return { ok: false, error: `Conflict sidecar write failed: ${String(error)}` };
+  }
 }
 
 /**
@@ -215,5 +222,11 @@ export async function deleteConflictSidecar(
 ): Promise<OpResult> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  return deleteSidecar(sidecar, 'Conflict sidecar delete failed');
+  try {
+    return await withSidecarMutationLease(rawAbsPath, () =>
+      deleteSidecar(sidecar, 'Conflict sidecar delete failed'),
+    );
+  } catch (error) {
+    return { ok: false, error: `Conflict sidecar delete failed: ${String(error)}` };
+  }
 }

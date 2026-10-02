@@ -144,9 +144,25 @@ describe('trashFolderRecursive / restoreFolderRecursive — nested-tree round tr
     expect(await read('photos/2024/other.dng')).toBe('pixels-other');
     expect(assetRow(live.db, idOther)?.deleted_at).toBeNull();
 
-    // Now-empty source subtree (vacation/, vacation/beach/) was cleaned up
-    // best-effort; photos/2024 survives (still holds other.dng).
-    expect(await exists('photos/2024/vacation')).toBe(false);
+    // Cosmetic cleanup retains coordination inodes (#1472), just as it
+    // retains an orphaned .maple cache. No user photo or sidecar remains.
+    expect((await fs.readdir(path.join(root, 'photos/2024/vacation'))).sort()).toEqual([
+      '.IMG_1.dng.relocation.lock',
+      '.IMG_1.xmp.lock',
+      'beach',
+    ]);
+    expect((await fs.readdir(path.join(root, 'photos/2024/vacation/beach'))).sort()).toEqual([
+      '.IMG_2.dng.relocation.lock',
+      '.IMG_2.xmp.lock',
+    ]);
+    for (const photo of ['photos/2024/vacation/IMG_1', 'photos/2024/vacation/beach/IMG_2']) {
+      const directory = path.dirname(photo);
+      const name = path.basename(photo);
+      expect(
+        await fs.readFile(path.join(root, `${directory}/.${name}.dng.relocation.lock`), 'utf8'),
+      ).toBe('');
+      expect(await fs.readFile(path.join(root, `${directory}/.${name}.xmp.lock`), 'utf8')).toBe('');
+    }
     expect(await exists('photos/2024')).toBe(true);
 
     // DB: both trashed assets tombstoned + repointed, original_path recorded.
