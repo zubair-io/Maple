@@ -260,3 +260,182 @@ for (const [route, method, body] of [
     }
   });
 }
+
+const actionRequest = (
+  operation: string,
+  variantId: string,
+  body: unknown,
+  rawPath = join(directory, 'photo.dng'),
+) =>
+  variantRequest(
+    'variant/' + operation + '?path=' + encodeURIComponent(rawPath) + '&variantId=' + variantId,
+    'POST',
+    body,
+  );
+const historyEntry = (adjustmentXmp: string, action = 'adjustment') => ({
+  id: crypto.randomUUID(),
+  createdAtMs: 10,
+  action,
+  label: 'Committed action',
+  adjustmentXmp,
+});
+const nativeValue = async (method: 'workflowCheckpointXmp' | 'workflowReadXmp', input: string) => {
+  const result = await callNative(method, [input]);
+  if (!result.ok) throw Error(result.error);
+  return result.value;
+};
+
+test('confirmed selected-variant actions retain immutable snapshots and history through reopen', async () => {
+  const branch = { ...corpus[1], snapshots: [], history: [] };
+  expect((await variantRequest('variants?' + variantQuery(), 'POST', branch)).status).toBe(201);
+  const filename = join(directory, `photo.v${branch.variantId}.xmp`);
+  const initial = await readFile(filename, 'utf8');
+  const checkpoint = await nativeValue('workflowCheckpointXmp', initial);
+  const entry = historyEntry(checkpoint);
+  const committed = await actionRequest('commit', branch.variantId, {
+    expectedXmp: initial,
+    xmp: initial,
+    entry,
+  });
+  expect(committed.status).toBe(200);
+  const saved = await committed.text();
+  expect(await readFile(filename, 'utf8')).toBe(saved);
+  const snapshot = {
+    id: crypto.randomUUID(),
+    name: 'Original treatment',
+    createdAtMs: 11,
+    adjustmentXmp: checkpoint,
+  };
+  const snap = await actionRequest('snapshot', branch.variantId, { expectedXmp: saved, snapshot });
+  expect(snap.status).toBe(200);
+  const snapped = await snap.text();
+  const changed = checkpoint.replace(
+    'crs:ProcessVersion="15.4"',
+    'crs:ProcessVersion="15.4" crs:Exposure2012="1.25"',
+  );
+  expect(changed).not.toBe(checkpoint);
+  const adjustment = await actionRequest('commit', branch.variantId, {
+    expectedXmp: snapped,
+    xmp: changed,
+    entry: historyEntry(changed),
+  });
+  expect(adjustment.status).toBe(200);
+  const latest = await adjustment.text();
+  const restore = await actionRequest('restore', branch.variantId, {
+    expectedXmp: latest,
+    entry: historyEntry(checkpoint, 'snapshot-restore'),
+  });
+  expect(restore.status).toBe(200);
+  const restored = await restore.text();
+  expect(await nativeValue('workflowCheckpointXmp', restored)).toBe(checkpoint);
+  expect(await readFile(filename, 'utf8')).toBe(restored);
+  const record = JSON.parse(await nativeValue('workflowReadXmp', restored));
+  expect(record.variantId).toBe(branch.variantId);
+  expect(record.snapshots).toEqual([snapshot]);
+  expect(record.history.map((row: { action: string }) => row.action)).toEqual([
+    'adjustment',
+    'adjustment',
+    'snapshot-restore',
+  ]);
+  const historyRestore = await actionRequest('restore', branch.variantId, {
+    expectedXmp: restored,
+    entry: historyEntry(changed, 'history-restore'),
+  });
+  expect(historyRestore.status).toBe(200);
+  expect(await nativeValue('workflowCheckpointXmp', await historyRestore.text())).toBe(changed);
+  expect(await readFile(join(directory, 'photo.xmp'), 'utf8')).toBe(xml);
+  expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
+});
+
+test('competing confirmed commits reject stale writers without dropping semantic history', async () => {
+  await symlink(directory, join(directory, 'inside-alias'), 'dir');
+  const first = historyEntry(xml);
+  const outcomes = await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      actionRequest(
+        'commit',
+        'primary',
+        {
+          expectedXmp: xml,
+          xmp: xml,
+          entry: { ...first, id: crypto.randomUUID() },
+        },
+        index % 2 === 0
+          ? join(directory, 'photo.dng')
+          : join(directory, 'inside-alias', 'photo.dng'),
+      ),
+    ),
+  );
+  expect(outcomes.map((row) => row.status).sort()).toEqual([
+    200, 409, 409, 409, 409, 409, 409, 409,
+  ]);
+  const saved = await readFile(join(directory, 'photo.xmp'), 'utf8');
+  expect(JSON.parse(await nativeValue('workflowReadXmp', saved)).history).toHaveLength(1);
+  const retry = await actionRequest('commit', 'primary', {
+    expectedXmp: saved,
+    xmp: xml,
+    entry: historyEntry(xml),
+  });
+  expect(retry.status).toBe(200);
+  expect(JSON.parse(await nativeValue('workflowReadXmp', await retry.text())).history).toHaveLength(
+    2,
+  );
+});
+
+test('explicit primary absence creates only once, while missing named branches never fall back', async () => {
+  await unlink(join(directory, 'photo.xmp'));
+  const requests = await Promise.all(
+    [0, 1].map(() =>
+      actionRequest('commit', 'primary', {
+        expectedXmp: null,
+        xmp: xml,
+        entry: historyEntry(xml),
+      }),
+    ),
+  );
+  expect(requests.map((row) => row.status).sort()).toEqual([200, 409]);
+  expect(
+    (
+      await actionRequest('commit', crypto.randomUUID(), {
+        expectedXmp: null,
+        xmp: xml,
+        entry: historyEntry(xml),
+      })
+    ).status,
+  ).toBe(404);
+  expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
+});
+
+test('forged checkpoints and restore states cannot publish and a failed action does not poison the write chain', async () => {
+  for (const [operation, body] of [
+    ['commit', { expectedXmp: xml, xmp: xml, entry: historyEntry(xml.replace('15.4', '16.0')) }],
+    [
+      'snapshot',
+      {
+        expectedXmp: xml,
+        snapshot: {
+          id: crypto.randomUUID(),
+          name: 'Forged',
+          createdAtMs: 1,
+          adjustmentXmp: xml.replace('15.4', '16.0'),
+        },
+      },
+    ],
+    ['restore', { expectedXmp: xml, entry: historyEntry(xml, 'snapshot-restore') }],
+  ] as const) {
+    expect((await actionRequest(operation, 'primary', body)).status).toBe(422);
+    expect(await readFile(join(directory, 'photo.xmp'), 'utf8')).toBe(xml);
+    expect((await actionRequest(operation, 'primary', body, '/outside/photo.dng')).status).toBe(
+      403,
+    );
+  }
+  expect(
+    (
+      await actionRequest('commit', 'primary', {
+        expectedXmp: xml,
+        xmp: xml,
+        entry: historyEntry(xml),
+      })
+    ).status,
+  ).toBe(200);
+});

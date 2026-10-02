@@ -62,32 +62,104 @@ public actor WorkflowVariantStore {
       throw failure("Commit the source adjustments before creating a variant.")
     }
     let output = try WorkflowSidecarCore.embed(workflow, in: source)
-    let temporary = destination.deletingLastPathComponent().appendingPathComponent(
-      ".variant.tmp.\(UUID().uuidString)")
-    defer { try? FileManager.default.removeItem(at: temporary) }
-    try Data(output.utf8).write(to: temporary, options: .atomic)
-    try FileManager.default.linkItem(at: temporary, to: destination)
+    try createSidecar(output, at: destination)
     return destination
   }
 
   /// Preserve authoring records through ordinary model writes. Validation and
   /// identity checks precede the same atomic publication used by primary XMP.
   public func write(variantId: String, xmp: String) throws {
-    let destination = try SidecarPath.variantURL(for: rawURL, variantId: variantId)
-    let existing = try read(variantId: variantId)
-    let oldRecord = try existing.map { try WorkflowSidecarCore.read(xmp: $0) } ?? nil
-    let nextRecord = try WorkflowSidecarCore.read(xmp: xmp)
-    let output: String
-    if let nextRecord {
-      try requireIdentity(nextRecord, variantId, destination.lastPathComponent)
-      output = xmp
-    } else if let oldRecord {
-      output = try WorkflowSidecarCore.embed(oldRecord, in: xmp)
-    } else {
-      try requireIdentity(nil, variantId, destination.lastPathComponent)
-      output = xmp
+    _ = try coordinateWrite(variantId: variantId) { existing in
+      let oldRecord = try existing.map { try WorkflowSidecarCore.read(xmp: $0) } ?? nil
+      let nextRecord = try WorkflowSidecarCore.read(xmp: xmp)
+      return try nextRecord == nil && oldRecord != nil
+        ? WorkflowSidecarCore.embed(oldRecord!, in: xmp) : xmp
     }
-    try Data(output.utf8).write(to: destination, options: .atomic)
+  }
+
+  /// Confirm exactly the branch the editor read before publishing a semantic action (#4045).
+  public func commit(
+    variantId: String, expectedXmp: String?, xmp: String, entry: WorkflowHistoryEntry
+  ) throws -> String {
+    try mutate(variantId: variantId, expectedXmp: expectedXmp) { current in
+      let checkpoint = try WorkflowSidecarCore.checkpoint(xmp: xmp)
+      let record = try current.map { try WorkflowSidecarCore.read(xmp: $0) } ?? nil
+      let candidate =
+        try record.map { try WorkflowSidecarCore.embed($0, in: checkpoint) } ?? checkpoint
+      return try WorkflowSidecarCore.commit(entry, in: candidate)
+    }
+  }
+
+  public func saveSnapshot(
+    variantId: String, expectedXmp: String, snapshot: WorkflowSnapshot
+  ) throws -> String {
+    try mutate(variantId: variantId, expectedXmp: expectedXmp) { current in
+      guard let current else {
+        throw self.failure("Commit the source adjustments before creating a snapshot.")
+      }
+      return try WorkflowSidecarCore.snapshot(snapshot, in: current)
+    }
+  }
+
+  public func restore(
+    variantId: String, expectedXmp: String, entry: WorkflowHistoryEntry
+  ) throws -> String {
+    try mutate(variantId: variantId, expectedXmp: expectedXmp) { current in
+      guard let current else {
+        throw self.failure("The sidecar is missing. Restore it before editing.")
+      }
+      return try WorkflowSidecarCore.restore(entry, in: current)
+    }
+  }
+
+  private func mutate(
+    variantId: String, expectedXmp: String?, convert: (String?) throws -> String
+  ) throws -> String {
+    try coordinateWrite(variantId: variantId) { current in
+      guard current == expectedXmp else {
+        throw self.failure("Variant changed. Reopen it before saving this action.")
+      }
+      return try convert(current)
+    }
+  }
+
+  /// Separate actor instances coordinate read/convert/publication as one file
+  /// operation. Uncooperative external applications retain the existing atomic
+  /// file-write contract; they do not provide a filesystem compare-and-swap.
+  private func coordinateWrite(
+    variantId: String, convert: (String?) throws -> String
+  ) throws -> String {
+    let destination = try SidecarPath.variantURL(for: rawURL, variantId: variantId)
+    let coordinator = NSFileCoordinator(filePresenter: nil)
+    var error: NSError?
+    var result: Result<String, Error>?
+    coordinator.coordinate(writingItemAt: destination, options: [], error: &error) { url in
+      result = Result {
+        let current = try self.read(variantId: variantId)
+        let output = try convert(current)
+        try self.requireIdentity(
+          WorkflowSidecarCore.read(xmp: output), variantId, url.lastPathComponent)
+        if current == nil {
+          try self.createSidecar(output, at: url)
+        } else {
+          try Data(output.utf8).write(to: url, options: .atomic)
+        }
+        return output
+      }
+    }
+    if let error { throw error }
+    guard let result else {
+      throw failure("Unable to coordinate the sidecar save. Retry after reopening.")
+    }
+    return try result.get()
+  }
+
+  private func createSidecar(_ output: String, at destination: URL) throws {
+    let temporary = destination.deletingLastPathComponent().appendingPathComponent(
+      ".variant.tmp.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    try Data(output.utf8).write(to: temporary, options: .atomic)
+    try FileManager.default.linkItem(at: temporary, to: destination)
   }
 
   private func inspect(_ id: String) throws -> WorkflowVariantSidecar {

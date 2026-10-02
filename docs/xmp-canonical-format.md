@@ -532,6 +532,18 @@ Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse
 
 ### Workflow storage and XMP bindings (#4035, #4036; workflow UI under #2437)
 
+Selected-variant stores also provide confirmed semantic commit, immutable
+snapshot and restore operations (#4045). Each requires the exact complete XMP
+last observed by the caller, with explicit `null` for an absent primary. A stale
+writer fails before publication. A successful response is the complete XML
+actually written; reopening reconstructs its snapshots and bounded history.
+Commit merges new adjustment XML with the currently stored authoring record.
+Apple coordinates cooperating store instances with `NSFileCoordinator`, Hosted
+Web uses Web Locks, and Self Hosted serializes writers by resolved sidecar path.
+These coordination contracts do not promise compare-and-swap against unrelated
+applications that write outside them. Editor transaction hooks and one-step
+Undo remain under #2437.
+
 Self Hosted file operations pair canonical UUID sibling sidecars with the original
 for browse, relocate, trash, verified restore, duplicate quarantine, and purge
 (#4044). Renaming changes only the primary stem; the variant UUID and XML bytes

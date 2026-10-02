@@ -9,6 +9,8 @@ import {
   parseSidecarWorkflow,
   PRIMARY_VARIANT_ID,
   type SidecarWorkflow,
+  type WorkflowHistoryEntry,
+  type WorkflowSnapshot,
 } from '../generated/workflow.generated';
 
 export class WorkflowVariantError extends Error {
@@ -27,7 +29,14 @@ type VariantSidecar = {
 };
 
 async function nativeValue(
-  method: 'workflowReadXmp' | 'workflowEmbedXmp' | 'workflowVariantFilename',
+  method:
+    | 'workflowReadXmp'
+    | 'workflowEmbedXmp'
+    | 'workflowVariantFilename'
+    | 'workflowCheckpointXmp'
+    | 'workflowCommitXmp'
+    | 'workflowSnapshotXmp'
+    | 'workflowRestoreXmp',
   args: [string] | [string, string],
 ): Promise<string> {
   const result = await callNative(method, args);
@@ -40,7 +49,7 @@ async function variantPath(rawPath: string, id: string): Promise<string> {
   const destination = path.join(path.dirname(primary), filename);
   const allowed = await safeWriteAllowed(destination);
   if (!allowed.ok) throw new WorkflowVariantError(403, allowed.error ?? 'Sidecar path not allowed');
-  return destination;
+  return allowed.data ?? destination;
 }
 async function record(xml: string): Promise<SidecarWorkflow | null> {
   const value: unknown = JSON.parse(await nativeValue('workflowReadXmp', [xml]));
@@ -118,15 +127,102 @@ export async function writeWorkflowVariant(
   xml: string,
 ): Promise<string> {
   const destination = await variantPath(rawPath, id);
-  const existing = await readWorkflowVariant(rawPath, id);
-  const oldRecord = existing === null ? null : await record(existing);
-  const nextRecord = await record(xml);
-  const output =
-    nextRecord === null && oldRecord !== null
-      ? await nativeValue('workflowEmbedXmp', [JSON.stringify(oldRecord), xml])
-      : xml;
-  requireIdentity(nextRecord ?? oldRecord, id, path.basename(destination));
-  const outcome = await writeSidecarAtomic(destination, output, 'Variant write failed');
-  if (!outcome.ok) throw new WorkflowVariantError(500, outcome.error);
-  return output;
+  return serializeWrite(destination, async () => {
+    const existing = await readWorkflowVariant(rawPath, id);
+    const oldRecord = existing === null ? null : await record(existing);
+    const nextRecord = await record(xml);
+    const output =
+      nextRecord === null && oldRecord !== null
+        ? await nativeValue('workflowEmbedXmp', [JSON.stringify(oldRecord), xml])
+        : xml;
+    requireIdentity(nextRecord ?? oldRecord, id, path.basename(destination));
+    const outcome = await writeSidecarAtomic(destination, output, 'Variant write failed');
+    if (!outcome.ok) throw new WorkflowVariantError(500, outcome.error);
+    return output;
+  });
+}
+
+/** Cooperating HTTP writers share a resolved-sidecar chain, including ordinary saves. */
+const pendingWrites = new Map<string, Promise<void>>();
+async function serializeWrite(destination: string, write: () => Promise<string>): Promise<string> {
+  const previous = pendingWrites.get(destination) ?? Promise.resolve();
+  const next = previous.then(write);
+  const settled = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  pendingWrites.set(destination, settled);
+  return next.finally(() => {
+    if (pendingWrites.get(destination) === settled) pendingWrites.delete(destination);
+  });
+}
+
+export function commitWorkflowVariant(
+  rawPath: string,
+  id: string,
+  expectedXmp: string | null,
+  xmp: string,
+  entry: WorkflowHistoryEntry,
+): Promise<string> {
+  return mutateVariant(rawPath, id, expectedXmp, async (current) => {
+    const checkpoint = await nativeValue('workflowCheckpointXmp', [xmp]);
+    const existing = current === null ? null : await record(current);
+    const candidate =
+      existing === null
+        ? checkpoint
+        : await nativeValue('workflowEmbedXmp', [JSON.stringify(existing), checkpoint]);
+    return nativeValue('workflowCommitXmp', [candidate, JSON.stringify(entry)]);
+  });
+}
+export function snapshotWorkflowVariant(
+  rawPath: string,
+  id: string,
+  expectedXmp: string,
+  snapshot: WorkflowSnapshot,
+): Promise<string> {
+  return mutateVariant(rawPath, id, expectedXmp, async (current) => {
+    if (current === null)
+      throw new WorkflowVariantError(
+        409,
+        'Commit the source adjustments before creating a snapshot.',
+      );
+    return nativeValue('workflowSnapshotXmp', [current, JSON.stringify(snapshot)]);
+  });
+}
+export function restoreWorkflowVariant(
+  rawPath: string,
+  id: string,
+  expectedXmp: string,
+  entry: WorkflowHistoryEntry,
+): Promise<string> {
+  return mutateVariant(rawPath, id, expectedXmp, async (current) => {
+    if (current === null)
+      throw new WorkflowVariantError(404, 'The sidecar is missing. Restore it before editing.');
+    return nativeValue('workflowRestoreXmp', [current, JSON.stringify(entry)]);
+  });
+}
+async function mutateVariant(
+  rawPath: string,
+  id: string,
+  expectedXmp: string | null,
+  convert: (current: string | null) => Promise<string>,
+): Promise<string> {
+  const destination = await variantPath(rawPath, id);
+  return serializeWrite(destination, async () => {
+    const current = await readWorkflowVariant(rawPath, id);
+    if (current !== expectedXmp)
+      throw new WorkflowVariantError(409, 'Variant changed. Reopen it before saving this action.');
+    const output = await convert(current);
+    requireIdentity(await record(output), id, path.basename(destination));
+    const result =
+      current === null
+        ? await writeSidecarCreateOnly(destination, output, 'Workflow action write failed')
+        : await writeSidecarAtomic(destination, output, 'Workflow action write failed');
+    if (!result.ok)
+      throw new WorkflowVariantError(
+        'exists' in result ? 409 : 500,
+        'exists' in result ? 'Variant changed. Reopen it before saving this action.' : result.error,
+      );
+    return output;
+  });
 }
