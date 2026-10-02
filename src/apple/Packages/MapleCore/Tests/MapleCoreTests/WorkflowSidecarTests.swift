@@ -39,6 +39,48 @@ final class WorkflowSidecarTests: XCTestCase {
     }
     XCTAssertEqual(try Data(contentsOf: original), Data([1, 0, 255, 42]))
   }
+  func testSemanticCommitSnapshotRestoreAndRejectionUseRealSidecars() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let original = dir.appendingPathComponent("photo.dng")
+    let sidecar = dir.appendingPathComponent("photo.xmp")
+    try Data([1, 0, 255, 42]).write(to: original)
+    func entry(_ xml: String, _ action: String = "adjustment") throws -> WorkflowHistoryEntry {
+      WorkflowHistoryEntry(
+        id: UUID().uuidString.lowercased(), createdAtMs: 1, action: action,
+        label: "Committed exposure", adjustmentXmp: try WorkflowSidecarCore.checkpoint(xmp: xml))
+    }
+    let source = try xml()
+    let first = try WorkflowSidecarCore.commit(entry(source), in: source)
+    let captured = try WorkflowSidecarCore.checkpoint(xmp: first)
+    let snapshot = WorkflowSnapshot(
+      id: UUID().uuidString.lowercased(), name: "Warm study 🌅",
+      createdAtMs: 1, adjustmentXmp: captured)
+    let saved = try WorkflowSidecarCore.snapshot(snapshot, in: first)
+    let edited = saved.replacingOccurrences(
+      of: "crs:ProcessVersion=\"15.4\"",
+      with: "crs:ProcessVersion=\"15.4\" crs:Exposure2012=\"1.25\"")
+    let next = try WorkflowSidecarCore.commit(entry(edited), in: edited)
+    try Data(next.utf8).write(to: sidecar, options: .atomic)
+    let reopened = try String(contentsOf: sidecar, encoding: .utf8)
+    let restore = try entry(captured, "snapshot-restore")
+    let restored = try WorkflowSidecarCore.restore(restore, in: reopened)
+    let record = try XCTUnwrap(WorkflowSidecarCore.read(xmp: restored))
+    XCTAssertEqual(record.snapshots, [snapshot])
+    XCTAssertEqual(record.history.last, restore)
+    XCTAssertEqual(try WorkflowSidecarCore.checkpoint(xmp: restored), captured)
+    XCTAssertEqual(try XMPParser.parse(restored).0, try XMPParser.parse(saved).0)
+    XCTAssertThrowsError(try WorkflowSidecarCore.commit(entry(saved), in: edited))
+    XCTAssertThrowsError(try WorkflowSidecarCore.snapshot(snapshot, in: saved))
+    XCTAssertThrowsError(
+      try WorkflowSidecarCore.restore(entry(edited, "snapshot-restore"), in: next))
+    let future = next.replacingOccurrences(
+      of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2")
+    XCTAssertThrowsError(try WorkflowSidecarCore.commit(entry(edited), in: future))
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), next)
+    XCTAssertEqual(try Data(contentsOf: original), Data([1, 0, 255, 42]))
+  }
   func testSharedSiblingPathsAndCapturedCheckpointsSurviveRealFiles() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

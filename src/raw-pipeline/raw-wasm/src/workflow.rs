@@ -32,3 +32,18 @@ pub fn workflow_checkpoint_xmp(xmp: &str) -> Result<String, JsError> {
 pub fn workflow_variant_filename(primary_name: &str, variant_id: &str) -> Result<String, JsError> {
     raw_core::workflow::variant_filename(primary_name, variant_id).map_err(|e| JsError::new(&e))
 }
+
+#[wasm_bindgen]
+pub fn workflow_commit_xmp(xmp: &str, json: &str) -> Result<String, JsError> {
+    SidecarWorkflow::commit_xmp(xmp, json).map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
+pub fn workflow_snapshot_xmp(xmp: &str, json: &str) -> Result<String, JsError> {
+    SidecarWorkflow::snapshot_xmp(xmp, json).map_err(|e| JsError::new(&e))
+}
+
+#[wasm_bindgen]
+pub fn workflow_restore_xmp(xmp: &str, json: &str) -> Result<String, JsError> {
+    SidecarWorkflow::restore_xmp(xmp, json).map_err(|e| JsError::new(&e))
+}

@@ -1,6 +1,11 @@
 /** Shared Rust metadata conversion at the confirmed-save boundary (#4036). */
 import { DestroyRef, Injectable, inject } from '@angular/core';
-import { parseSidecarWorkflow, type SidecarWorkflow } from '../generated/workflow.generated';
+import {
+  parseSidecarWorkflow,
+  type SidecarWorkflow,
+  type WorkflowHistoryEntry,
+  type WorkflowSnapshot,
+} from '../generated/workflow.generated';
 
 @Injectable({ providedIn: 'root' })
 export class WorkflowXmpService {
@@ -21,6 +26,15 @@ export class WorkflowXmpService {
   embed(workflow: SidecarWorkflow, xmp: string): Promise<string> {
     return this.convert('embed', xmp, JSON.stringify(parseSidecarWorkflow(workflow)));
   }
+  commit(entry: WorkflowHistoryEntry, xmp: string): Promise<string> {
+    return this.convert('commit', xmp, JSON.stringify(entry));
+  }
+  snapshot(snapshot: WorkflowSnapshot, xmp: string): Promise<string> {
+    return this.convert('snapshot', xmp, JSON.stringify(snapshot));
+  }
+  restore(entry: WorkflowHistoryEntry, xmp: string): Promise<string> {
+    return this.convert('restore', xmp, JSON.stringify(entry));
+  }
   checkpoint(xmp: string): Promise<string> {
     return this.convert('checkpoint', xmp);
   }
@@ -28,7 +42,7 @@ export class WorkflowXmpService {
     return this.convert('filename', primaryName, variantId);
   }
   private convert(
-    operation: 'read' | 'embed' | 'checkpoint' | 'filename',
+    operation: 'read' | 'embed' | 'checkpoint' | 'filename' | 'commit' | 'snapshot' | 'restore',
     xmp: string,
     json?: string,
   ): Promise<string> {

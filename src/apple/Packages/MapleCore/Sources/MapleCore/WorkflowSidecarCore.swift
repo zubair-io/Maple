@@ -12,16 +12,24 @@ public enum WorkflowSidecarCore {
     return try JSONDecoder().decode(SidecarWorkflow?.self, from: Data(json.utf8))
   }
   public static func embed(_ workflow: SidecarWorkflow, in xmp: String) throws -> String {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.withoutEscapingSlashes]
-    let json = String(decoding: try encoder.encode(workflow), as: UTF8.self)
-    return try convert(.embed, json, xmp)
+    return try convert(.embed, encode(workflow), xmp)
   }
   public static func validate(_ workflow: SidecarWorkflow) throws {
+    _ = try convert(.validate, encode(workflow))
+  }
+  public static func commit(_ entry: WorkflowHistoryEntry, in xmp: String) throws -> String {
+    try convert(.commit, xmp, encode(entry))
+  }
+  public static func snapshot(_ snapshot: WorkflowSnapshot, in xmp: String) throws -> String {
+    try convert(.snapshot, xmp, encode(snapshot))
+  }
+  public static func restore(_ entry: WorkflowHistoryEntry, in xmp: String) throws -> String {
+    try convert(.restore, xmp, encode(entry))
+  }
+  private static func encode<T: Encodable>(_ value: T) throws -> String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.withoutEscapingSlashes]
-    let json = String(decoding: try encoder.encode(workflow), as: UTF8.self)
-    _ = try convert(.validate, json)
+    return String(decoding: try encoder.encode(value), as: UTF8.self)
   }
   /// Complete current adjustments without recursively embedding prior history (#4039).
   public static func checkpoint(xmp: String) throws -> String {
@@ -30,7 +38,9 @@ public enum WorkflowSidecarCore {
   public static func variantFilename(primaryName: String, variantId: String) throws -> String {
     try convert(.filename, primaryName, variantId)
   }
-  private enum Operation { case read, embed, validate, checkpoint, filename }
+  private enum Operation {
+    case read, embed, validate, checkpoint, filename, commit, snapshot, restore
+  }
   private static func convert(_ operation: Operation, _ first: String, _ second: String = "") throws
     -> String
   {
@@ -60,6 +70,18 @@ public enum WorkflowSidecarCore {
               input.baseAddress, UInt(firstBytes.count), out.baseAddress, UInt(out.count), &length)
           case .embed:
             return maple_workflow_embed_xmp(
+              input.baseAddress, UInt(firstBytes.count), extra.baseAddress, UInt(secondBytes.count),
+              out.baseAddress, UInt(out.count), &length)
+          case .commit:
+            return maple_workflow_commit_xmp(
+              input.baseAddress, UInt(firstBytes.count), extra.baseAddress, UInt(secondBytes.count),
+              out.baseAddress, UInt(out.count), &length)
+          case .snapshot:
+            return maple_workflow_snapshot_xmp(
+              input.baseAddress, UInt(firstBytes.count), extra.baseAddress, UInt(secondBytes.count),
+              out.baseAddress, UInt(out.count), &length)
+          case .restore:
+            return maple_workflow_restore_xmp(
               input.baseAddress, UInt(firstBytes.count), extra.baseAddress, UInt(secondBytes.count),
               out.baseAddress, UInt(out.count), &length)
           case .filename:

@@ -177,7 +177,8 @@ pub use filename::MapleFilenameResult;
 pub use handle::MapleRawHandle;
 pub use id::MapleFallbackIdHasher;
 pub use workflow::{
-    maple_workflow_checkpoint_xmp, maple_workflow_embed_xmp, maple_workflow_read_xmp,
+    maple_workflow_checkpoint_xmp, maple_workflow_commit_xmp, maple_workflow_embed_xmp,
+    maple_workflow_read_xmp, maple_workflow_restore_xmp, maple_workflow_snapshot_xmp,
     maple_workflow_validate_json, maple_workflow_variant_filename,
 };
 // #3271: cbindgen needs no extra visibility here (both entries are plain

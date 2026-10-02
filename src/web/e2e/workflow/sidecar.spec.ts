@@ -130,3 +130,27 @@ for (const [index, attrs] of [
     expect(result.workflow).toEqual(corpus[0]);
     expect(result.original).toEqual([1, 0, 255, 42]);
   });
+
+test('real WASM semantic history and snapshot restore survive browser storage and reject stale state', async ({
+  page,
+}) => {
+  const result = await page.evaluate(
+    async (xml) => Reflect.get(window, 'workflowTest').mutations(xml),
+    xml,
+  );
+  expect(result.snapshot).toEqual(result.expectedSnapshot);
+  expect(result.historyCount).toBe(3);
+  expect(result.editedExposure).toBe(1.25);
+  expect(result.latest).toEqual(result.expectedRestore);
+  for (const field of [
+    'exact',
+    'modelRestored',
+    'stale',
+    'duplicate',
+    'forged',
+    'futureReject',
+    'diskUnchanged',
+  ])
+    expect(result[field], field).toBe(true);
+  expect(result.original).toEqual([1, 0, 255, 42]);
+});
