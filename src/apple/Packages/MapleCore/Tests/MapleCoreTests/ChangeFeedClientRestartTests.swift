@@ -32,6 +32,12 @@
       first.stop()
       let restarted = try await Server.start(api: api, database: database, retention: retention)
       defer { restarted.stop() }
+      let configuration = URLSessionConfiguration.ephemeral
+      // Earlier auth tests register a global catch-all URLProtocol. This gate
+      // must exercise the real restarted socket and production client (#4059).
+      configuration.protocolClasses = []
+      let network = URLSession(configuration: configuration)
+      defer { network.invalidateAndCancel() }
 
       let stale = expectation(description: "Native client requests working-set reconciliation")
       let received = expectation(description: "Native client receives the post-restart event")
@@ -40,7 +46,7 @@
       let domain = "restart-verification"
       cursorStore.save(1, domain: domain)
       let http = AuthenticatedHTTPClient(
-        server: restarted.url, urlSession: .shared,
+        server: restarted.url, urlSession: network,
         tokensProvider: { AuthTokens(access: "fixture-access", refresh: "fixture-refresh") },
         onTokensRefreshed: { _ in }, onSignOut: {})
       let client = ChangeFeedClient(
@@ -64,7 +70,7 @@
 
       var append = URLRequest(url: restarted.url.appendingPathComponent("test/append"))
       append.httpMethod = "POST"
-      let (data, response) = try await URLSession.shared.data(for: append)
+      let (data, response) = try await network.data(for: append)
       XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
       let result = try JSONSerialization.jsonObject(with: data) as? [String: Any]
       XCTAssertEqual(result?["cursor"] as? Int, 4)
@@ -75,7 +81,7 @@
         try await Task.sleep(for: .milliseconds(20))
       }
       XCTAssertEqual(cursorStore.load(domain: domain), 4)
-      let (requestsData, _) = try await URLSession.shared.data(
+      let (requestsData, _) = try await network.data(
         from: restarted.url.appendingPathComponent("test/requests"))
       let since = try JSONDecoder().decode([Int64].self, from: requestsData)
       XCTAssertEqual(since, [1, 3], "Reconnect must use the persisted allocator watermark")
@@ -104,10 +110,12 @@
       let process: Process
       let url: URL
       private let log: FileHandle
-      private init(process: Process, url: URL, log: FileHandle) {
+      private let exited: DispatchSemaphore
+      private init(process: Process, url: URL, log: FileHandle, exited: DispatchSemaphore) {
         self.process = process
         self.url = url
         self.log = log
+        self.exited = exited
       }
       static func start(api: URL, database: URL, retention: String) async throws -> Server {
         let receipt = database.deletingLastPathComponent().appendingPathComponent(
@@ -116,6 +124,8 @@
         _ = FileManager.default.createFile(atPath: logURL.path, contents: Data())
         let log = try FileHandle(forWritingTo: logURL)
         let process = Process()
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [
           "bun", "tests/fixtures/file-provider-restart.ts", database.path, receipt.path, retention,
@@ -123,15 +133,15 @@
         process.currentDirectoryURL = api
         process.standardOutput = log
         process.standardError = log
-        try process.run()
         do {
+          try process.run()
           let deadline = Date().addingTimeInterval(12)
           while process.isRunning && Date() < deadline {
             if let data = try? Data(contentsOf: receipt),
               let object = try? JSONDecoder().decode([String: String].self, from: data),
               let address = object["url"], let url = URL(string: address)
             {
-              return Server(process: process, url: url, log: log)
+              return Server(process: process, url: url, log: log, exited: exited)
             }
             try await Task.sleep(for: .milliseconds(25))
           }
@@ -140,19 +150,24 @@
             domain: "FileProviderRestart", code: 1, userInfo: [NSLocalizedDescriptionKey: output])
         } catch {
           if process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
+            stop(process, exited: exited)
           }
           try? log.close()
           throw error
         }
       }
       func stop() {
+        Self.stop(process, exited: exited)
+        try? log.close()
+      }
+      private static func stop(_ process: Process, exited: DispatchSemaphore) {
         if process.isRunning {
           process.terminate()
-          process.waitUntilExit()
+          if exited.wait(timeout: .now() + 5) == .timedOut {
+            XCTFail("Change-feed restart fixture did not exit after termination")
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+          }
         }
-        try? log.close()
       }
     }
   }
