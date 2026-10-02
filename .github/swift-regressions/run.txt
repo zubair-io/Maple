@@ -313,3 +313,4 @@ SMBFileOperationsFolderTests
 AssetOwnerFilterModelTests
 CloudTimelineOwnershipTests
 SearchOwnershipTests
+CloudFolderMoveTests

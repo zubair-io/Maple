@@ -139,6 +139,7 @@ struct LibrarySidebar: View {
   /// subfolder (#2696), via `POST /api/folders/:id/trash-folder`.
   /// `(server, libraryFolderID, libraryRootPath, absPath)`.
   var onTrashCloudFolder: (URL, String, String, String) -> Void = { _, _, _, _ in }
+  var onMoveCloudFolder: ((URL, String, String, String) -> Void)? = nil
   /// Drag-onto-source-tree (#2646) onto a Cloud library/subfolder row.
   /// `(server, libraryFolderID, libraryRootPath, absPath, ids, isCopy)` —
   /// same `ids == nil` ⇒ "use the current grid selection" contract as
@@ -656,6 +657,9 @@ struct LibrarySidebar: View {
       },
       onTrashFolder: { libraryFolderID, libraryRootPath, absPath in
         onTrashCloudFolder(url, libraryFolderID, libraryRootPath, absPath)
+      },
+      onMoveFolder: onMoveCloudFolder.map { callback in
+        { libraryID, rootPath, path in callback(url, libraryID, rootPath, path) }
       },
       onShowTrash: onShowCloudTrash.map { callback in
         { libraryFolderID, displayName in callback(url, libraryFolderID, displayName) }

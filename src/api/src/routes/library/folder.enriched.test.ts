@@ -25,6 +25,7 @@ interface Entry {
   size: number;
   mtime: string;
   ext: string;
+  realPath?: string;
   id?: string;
   asset_id?: string;
   exif?: { camera_make: string };
@@ -37,6 +38,7 @@ interface Listing {
   parent: string | null;
   path: string;
   parentPath: string | null;
+  realPath: string | null;
   folders: Entry[];
   images: Entry[];
   files: Entry[];
@@ -100,6 +102,18 @@ describe('unified enriched folder listing #4001', () => {
     expect(body.folders.find((entry) => entry.name === 'alias')).toMatchObject({
       address: 'photos:alias',
       path: path.join(root, 'alias'),
+      realPath: path.join(root, 'actual'),
+    });
+  });
+  test('exposes physical identity for an ancestor link without changing logical navigation', async () => {
+    await fs.mkdir(path.join(root, 'album'));
+    await fs.symlink(root, path.join(root, 'album', 'back'));
+    const body = await listing('/album');
+    expect(body.path).toBe(path.join(root, 'album'));
+    expect(body.realPath).toBe(path.join(root, 'album'));
+    expect(body.folders[0]).toMatchObject({
+      path: path.join(root, 'album', 'back'),
+      realPath: root,
     });
   });
   test('reports actual file metadata and indexed EXIF/identity', async () => {

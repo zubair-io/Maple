@@ -13,7 +13,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import { ObjectId } from '../db/object-id.ts';
@@ -73,11 +73,19 @@ describe('POST /api/folders/:id/move', () => {
   it('moves a folder into a different existing parent', async () => {
     await mkdir(nodePath.join(folderPath, 'src'), { recursive: true });
     await mkdir(nodePath.join(folderPath, 'dest'), { recursive: true });
+    await writeFile(nodePath.join(folderPath, 'src', 'frame.dng'), 'untouched original');
+    await writeFile(nodePath.join(folderPath, 'src', 'frame.xmp'), '<xmp>real sidecar</xmp>');
 
     const res = await call('src', 'dest/src');
     expect(res.status).toBe(200);
     const st = await stat(nodePath.join(folderPath, 'dest', 'src'));
     expect(st.isDirectory()).toBe(true);
+    expect(await readFile(nodePath.join(folderPath, 'dest', 'src', 'frame.dng'), 'utf8')).toBe(
+      'untouched original',
+    );
+    expect(await readFile(nodePath.join(folderPath, 'dest', 'src', 'frame.xmp'), 'utf8')).toBe(
+      '<xmp>real sidecar</xmp>',
+    );
   });
 
   it('returns 409 when the target already exists', async () => {

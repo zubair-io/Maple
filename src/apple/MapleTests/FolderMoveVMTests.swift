@@ -44,7 +44,8 @@ final class FolderMoveVMTests: XCTestCase {
     folderURL: URL(fileURLWithPath: "/Library/Trips/Iceland"), rootBookmark: Data([1, 2, 3]))
 
   private let nodes = [
-    FolderMoveDestination(id: "/Library", parentID: nil, name: "Library", depth: 0, hasChildren: true),
+    FolderMoveDestination(
+      id: "/Library", parentID: nil, name: "Library", depth: 0, hasChildren: true),
     FolderMoveDestination(
       id: "/Library/Trips", parentID: "/Library", name: "Trips", depth: 1, hasChildren: false),
   ]
@@ -78,6 +79,24 @@ final class FolderMoveVMTests: XCTestCase {
     }
     XCTAssertEqual(url.path, "/Library/Trips/Iceland")
     XCTAssertEqual(bookmark, Data([1, 2, 3]))
+  }
+
+  func testCloudTargetSurvivesPreparingAndConfirm() async {
+    let server = URL(string: "https://example.test")!
+    let cloud = FolderMovePrompt.Target.cloud(
+      server: server, libraryID: "f1", rootPath: "/photos", path: "/photos/Trips")
+    let vm = FolderMoveVM()
+    XCTAssertTrue(vm.begin(cloud) { self.nodes })
+    await settle { vm.prompt != nil }
+    guard case .cloud(let carriedServer, let libraryID, let root, let path)? = vm.finish()?.target
+    else {
+      return XCTFail("expected the actual Cloud target")
+    }
+    XCTAssertEqual(carriedServer, server)
+    XCTAssertEqual(libraryID, "f1")
+    XCTAssertEqual(root, "/photos")
+    XCTAssertEqual(path, "/photos/Trips")
+    XCTAssertNil(vm.prompt)
   }
 
   func testASecondBeginWhilePreparingIsIgnored() async {

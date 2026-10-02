@@ -13,9 +13,9 @@
 // the view's lifetime. Auto-expand walks the chain to `cloudCurrentPath`
 // on first appear so the user lands on the row they last selected.
 
-import SwiftUI
 import MapleCore
 import MapleUI
+import SwiftUI
 
 struct CloudFolderTreeRow: View {
   let serverURL: URL
@@ -69,6 +69,8 @@ struct CloudFolderTreeRow: View {
   /// via `POST /api/folders/:id/trash-folder` (#2630/#2695, wired #2696).
   /// `nil` suppresses the menu item (kept optional for the preview wrapper).
   var onTrashFolder: ((String, String, String) -> Void)? = nil
+  /// (libraryFolderID, libraryRootPath, absPath), subfolders only (#4017).
+  var onMoveFolder: ((String, String, String) -> Void)? = nil
   /// "Show Trash…" (#2653) — library root only (depth == 0). `(libraryFolderID, displayName)`.
   var onShowTrash: ((String, String) -> Void)? = nil
   /// Drag-onto-source-tree (#2646). `ids == nil` ⇒ "use current grid
@@ -103,7 +105,7 @@ struct CloudFolderTreeRow: View {
   /// (i.e. it should auto-expand to keep the chain visible).
   private var isOnChainToCurrent: Bool {
     guard let current = cloudCurrentPath else { return false }
-    if current == absPath { return false }   // self, not ancestor
+    if current == absPath { return false }  // self, not ancestor
     return current.hasPrefix(absPath + "/")
   }
 
@@ -120,10 +122,12 @@ struct CloudFolderTreeRow: View {
   }
 
   private var newFolderDraftIsValid: Bool {
-    FilenameValidation.isValidPathComponent(newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    FilenameValidation.isValidPathComponent(
+      newFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines))
   }
   private var renameDraftIsValid: Bool {
-    FilenameValidation.isValidPathComponent(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    FilenameValidation.isValidPathComponent(
+      renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
   }
 
   private var indent: CGFloat {
@@ -168,11 +172,16 @@ struct CloudFolderTreeRow: View {
       // Drag-onto-source-tree (#2646). See `FolderTreeRow`'s identical
       // modifier (`LibrarySidebar.swift`) for the payload/modifier-key
       // contract — this is its Cloud-row twin.
-      .dropDestination(for: DraggedAssetPayload.self, action: { payloads, _ in
-        guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
-        onDropAssets(libraryFolderID, libraryRootPath, absPath, Set(payload.ids), MapleDragModifier.isCopyRequested())
-        return true
-      }, isTargeted: { targeted in isDropTargeted = targeted })
+      .dropDestination(
+        for: DraggedAssetPayload.self,
+        action: { payloads, _ in
+          guard let payload = payloads.first, !payload.ids.isEmpty else { return false }
+          onDropAssets(
+            libraryFolderID, libraryRootPath, absPath, Set(payload.ids),
+            MapleDragModifier.isCopyRequested())
+          return true
+        }, isTargeted: { targeted in isDropTargeted = targeted }
+      )
       // Second, same-view drop target for OS file/folder drops (#2649).
       .urlDropDestination(perform: onDropURLs)
       .contextMenu {
@@ -217,6 +226,18 @@ struct CloudFolderTreeRow: View {
           }
           .accessibilityIdentifier("cloudFolderTree.rename.\(absPath)")
         }
+        if let onMoveFolder, depth > 0 {
+          Button {
+            onMoveFolder(libraryFolderID, libraryRootPath, absPath)
+          } label: {
+            Label {
+              Text("Move Folder to…")
+            } icon: {
+              MuiIcon(name: "drive_file_move", size: .sm)
+            }
+          }
+          .accessibilityIdentifier("cloudFolderTree.moveFolder.\(absPath)")
+        }
         // Move to Trash — wired to `POST /api/folders/:id/trash-folder`
         // (#2630/#2695) as of #2696. Subfolder rows only (depth > 0), same
         // reasoning as Rename above: the library root's relative path is
@@ -255,9 +276,10 @@ struct CloudFolderTreeRow: View {
         .disabled(!newFolderDraftIsValid)
         Button("Cancel", role: .cancel) {}
       } message: {
-        Text(newFolderDraftIsValid
-          ? "Creates a new folder inside \(displayName)."
-          : FilenameValidation.invalidNameMessage)
+        Text(
+          newFolderDraftIsValid
+            ? "Creates a new folder inside \(displayName)."
+            : FilenameValidation.invalidNameMessage)
       }
       .alert("Rename Folder", isPresented: $showRenameAlert) {
         TextField("Name", text: $renameDraft)
@@ -271,13 +293,17 @@ struct CloudFolderTreeRow: View {
       } message: {
         Text(renameDraftIsValid ? " " : FilenameValidation.invalidNameMessage)
       }
-      .confirmationDialog("Move to Trash", isPresented: $showTrashConfirm, titleVisibility: .visible) {
+      .confirmationDialog(
+        "Move to Trash", isPresented: $showTrashConfirm, titleVisibility: .visible
+      ) {
         Button("Move to Trash", role: .destructive) {
           onTrashFolder?(libraryFolderID, libraryRootPath, absPath)
         }
         Button("Cancel", role: .cancel) {}
       } message: {
-        Text("\"\(displayName)\" and everything inside it will move to this server's Trash. Recursive — every asset underneath goes too.")
+        Text(
+          "\"\(displayName)\" and everything inside it will move to this server's Trash. Recursive — every asset underneath goes too."
+        )
       }
       .onAppear { autoExpandIfOnChain() }
       .onChange(of: cloudCurrentPath) { _, _ in
@@ -323,6 +349,7 @@ struct CloudFolderTreeRow: View {
               onCreateFolder: onCreateFolder,
               onRenameFolder: onRenameFolder,
               onTrashFolder: onTrashFolder,
+              onMoveFolder: onMoveFolder,
               onShowTrash: onShowTrash,
               onDropAssets: onDropAssets,
               onDropURLs: onDropURLs,
