@@ -318,3 +318,4 @@ CloudFolderMoveTests
 # Shared authoring wire contract and real Rust/XMP persistence (#4035 / #4036).
 WorkflowContractTests
 WorkflowSidecarTests
+NativeWorkflowHistoryTests

@@ -31,6 +31,9 @@ public actor XMPSidecarStore {
   private var pendingTask: Task<Void, Never>?
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
+  // Captured complete checkpoints survive failed publication; preview debounce
+  // never coalesces distinct committed actions (#4046).
+  private var pendingSemanticEdits: [WorkflowHistoryEntry] = []
 
   private var pendingMetadata: XmpMetadata? = nil
 
@@ -114,10 +117,41 @@ public actor XMPSidecarStore {
   public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
     pendingTask?.cancel()
     pendingTask = nil
+    try writeAtomically(model: model, culling: culling)
     pendingModel = nil
     pendingCulling = nil
-    try writeAtomically(model: model, culling: culling)
     cached = (model, culling)
+  }
+
+  /// Record a real editor boundary, never an individual preview tick. Failed
+  /// publication keeps this exact checkpoint for the next write/exit flush.
+  public func commitSemantic(
+    model: AdjustmentModel, culling: CullingState, action: String, label: String
+  ) throws {
+    try coordinateSidecarWrite { existing in
+      if let existing { try self.requirePrimaryWorkflow(in: existing) }
+      let checkpoint = try WorkflowSidecarCore.checkpoint(
+        xmp: self.serializedSidecar(model: model, culling: culling, existingXML: existing))
+      let entry = WorkflowHistoryEntry(
+        id: UUID().uuidString.lowercased(),
+        createdAtMs: UInt64(Date().timeIntervalSince1970 * 1000),
+        action: action, label: label, adjustmentXmp: checkpoint)
+      // Invalid actions/checkpoints fail before entering the retry queue.
+      _ = try WorkflowSidecarCore.commit(entry, in: checkpoint)
+      self.pendingSemanticEdits.append(entry)
+      if self.pendingSemanticEdits.count > WorkflowContract.historyLimit {
+        self.pendingSemanticEdits.removeFirst(
+          self.pendingSemanticEdits.count - WorkflowContract.historyLimit)
+      }
+      self.pendingTask?.cancel()
+      self.pendingTask = nil
+      self.pendingModel = model
+      self.pendingCulling = culling
+      self.cached = (model, culling)
+      try self.writeSidecar(model: model, culling: culling, existingXML: existing)
+      self.pendingModel = nil
+      self.pendingCulling = nil
+    }
   }
 
   /// Workflow operations share the actor and primary path with adjustment writes.
@@ -129,17 +163,20 @@ public actor XMPSidecarStore {
   /// Publish pending authored adjustments and workflow in one atomic replacement.
   /// Validation finishes before the prior sidecar or pending state is changed.
   public func writeWorkflowConfirmed(_ workflow: SidecarWorkflow) throws {
-    let existing = try existingSidecarXML()
-    let xml: String
-    if let model = pendingModel, let culling = pendingCulling {
-      xml = serializedSidecar(model: model, culling: culling, existingXML: existing)
-    } else {
-      xml = existing ?? XMPSerializer.serialize(model: .default, culling: CullingState())
+    try coordinateSidecarWrite { existing in
+      let xml: String
+      if let model = self.pendingModel, let culling = self.pendingCulling {
+        xml = self.serializedSidecar(model: model, culling: culling, existingXML: existing)
+      } else {
+        xml = existing ?? XMPSerializer.serialize(model: .default, culling: CullingState())
+      }
+      // Validate the on-disk record even if a serializer would omit it.
+      if let existing { _ = try WorkflowSidecarCore.read(xmp: existing) }
+      let output = try self.appendingSemanticHistory(
+        to: WorkflowSidecarCore.embed(workflow, in: xml))
+      try self.publishSidecarXML(output)
+      self.pendingSemanticEdits.removeAll()
     }
-    // Validate the on-disk record even if a serializer would omit it.
-    if let existing { _ = try WorkflowSidecarCore.read(xmp: existing) }
-    let output = try WorkflowSidecarCore.embed(workflow, in: xml)
-    try publishSidecarXML(output)
     pendingTask?.cancel()
     pendingTask = nil
     pendingModel = nil
@@ -193,10 +230,10 @@ public actor XMPSidecarStore {
 
   private func writePending() async {
     guard let model = pendingModel, let culling = pendingCulling else { return }
-    pendingModel = nil
-    pendingCulling = nil
     do {
       try writeAtomically(model: model, culling: culling)
+      pendingModel = nil
+      pendingCulling = nil
     } catch {
       for subscriber in subscribers.values {
         subscriber.yield(error)
@@ -205,15 +242,69 @@ public actor XMPSidecarStore {
   }
 
   private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
-    let existingXML = try existingSidecarXML()
+    try coordinateSidecarWrite { existing in
+      try self.writeSidecar(model: model, culling: culling, existingXML: existing)
+    }
+  }
+
+  private func writeSidecar(
+    model: AdjustmentModel, culling: CullingState, existingXML: String?
+  ) throws {
     if let existingXML,
       existingXML.range(of: WorkflowContract.markupPattern, options: .regularExpression) != nil
     {
       _ = try WorkflowSidecarCore.read(xmp: existingXML)
     }
-    let xml = serializedSidecar(model: model, culling: culling, existingXML: existingXML)
+    let xml = try appendingSemanticHistory(
+      to: serializedSidecar(model: model, culling: culling, existingXML: existingXML))
     try publishSidecarXML(xml)
+    pendingSemanticEdits.removeAll()
     pendingMetadata = nil
+  }
+
+  private func appendingSemanticHistory(to xml: String) throws -> String {
+    guard !pendingSemanticEdits.isEmpty else { return xml }
+    try requirePrimaryWorkflow(in: xml)
+    var workflow = try WorkflowSidecarCore.read(xmp: xml)
+    for entry in pendingSemanticEdits {
+      let candidate =
+        try workflow.map {
+          try WorkflowSidecarCore.embed($0, in: entry.adjustmentXmp)
+        } ?? entry.adjustmentXmp
+      let committed = try WorkflowSidecarCore.commit(entry, in: candidate)
+      workflow = try WorkflowSidecarCore.read(xmp: committed)
+    }
+    guard let workflow else {
+      throw WorkflowSidecarError(message: "Committed history did not produce a workflow record")
+    }
+    return try WorkflowSidecarCore.embed(workflow, in: xml)
+  }
+
+  private func requirePrimaryWorkflow(in xml: String) throws {
+    let workflow = try WorkflowSidecarCore.read(xmp: xml)
+    guard
+      (workflow?.variantId ?? WorkflowContract.primaryVariantID)
+        == WorkflowContract.primaryVariantID
+    else {
+      throw WorkflowSidecarError(
+        message: "Primary sidecar has a different variant identity. Repair it before editing.")
+    }
+  }
+
+  /// Cooperate with separate editor/variant store instances on this same file.
+  private func coordinateSidecarWrite(_ write: (String?) throws -> Void) throws {
+    let coordinator = NSFileCoordinator(filePresenter: nil)
+    var error: NSError?
+    var result: Result<Void, Error>?
+    coordinator.coordinate(writingItemAt: sidecarURL, options: [], error: &error) { _ in
+      result = Result { try write(self.existingSidecarXML()) }
+    }
+    if let error { throw error }
+    guard let result else {
+      throw WorkflowSidecarError(
+        message: "Unable to coordinate the sidecar save. Reopen and retry.")
+    }
+    try result.get()
   }
 
   private func serializedSidecar(

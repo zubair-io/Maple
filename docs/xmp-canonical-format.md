@@ -647,7 +647,15 @@ complete checkpoint itself is never rewritten.
 The C-FFI, WASM and Bun/N-API implementations call these same pure Rust operations
 at the save boundary. Native symbols load separately, preserving all existing
 operations when an older installed binary lacks these new capabilities.
-Host transaction wiring, cache-aware switching, snapshots/history UI, one-step
+Native filesystem editor transactions now persist one semantic checkpoint per
+changed gesture, with explicit Undo/Redo entries (#4046). Preview ticks and no-op
+transactions do not enter history. Complete captured checkpoints survive a failed
+publication for retry; the shared core compacts the oldest retained entries and
+keeps named snapshots. Ordinary and semantic local writes coordinate on the same
+sidecar across store instances. Source-backed native and Web editor transaction
+wiring still follows under #2437.
+
+Cache-aware switching, snapshots/history UI, one-step
 Undo for restore, and deletion/recovery remain acceptance requirements under
 #2437.
 `tools/qualification/workflow-roundtrip.sh` runs the committed XMP corpus through

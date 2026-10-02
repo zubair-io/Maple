@@ -60,9 +60,9 @@ extension EditSession {
         before: pending.before, after: model)
     else { return }
     record(tx)
-    // The transaction IS what the sidecar persists: hand `after` to the
-    // store explicitly (it coalesces with the per-tick writes).
-    scheduleSidecarUpdate(model: tx.after, culling: culling)
+    scheduleSemanticSidecarCommit(
+      model: tx.after, culling: culling, action: workflowAction(for: tx.kind), label: tx.description
+    )
     announcer.announce(tx.description)
   }
 
@@ -78,6 +78,8 @@ extension EditSession {
     transactions.redoStack.append(tx)
     trim(&transactions.redoStack)
     model = tx.before
+    scheduleSemanticSidecarCommit(
+      model: tx.before, culling: culling, action: "undo", label: "Undo \(tx.description)")
     lastCommittedTransaction = tx
     announcer.announce("Undo \(tx.description)")
   }
@@ -88,6 +90,8 @@ extension EditSession {
     transactions.undoStack.append(tx)
     trim(&transactions.undoStack)
     model = tx.after
+    scheduleSemanticSidecarCommit(
+      model: tx.after, culling: culling, action: "redo", label: "Redo \(tx.description)")
     lastCommittedTransaction = tx
     announcer.announce("Redo \(tx.description)")
   }
