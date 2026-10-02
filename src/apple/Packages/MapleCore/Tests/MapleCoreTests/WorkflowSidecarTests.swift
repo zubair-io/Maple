@@ -103,4 +103,101 @@ final class WorkflowSidecarTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: sidecar), Data(future.utf8))
     XCTAssertEqual(try Data(contentsOf: original), Data([42]))
   }
+  func testSiblingStorageCreatesIndependentBranchesAndRejectsMissingOrCollidingIdentities()
+    async throws
+  {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let raw = dir.appendingPathComponent("photo.dng")
+    let primary = SidecarPath.sidecarURL(for: raw)
+    let original = Data([1, 0, 255, 42])
+    let source = try xml()
+    try original.write(to: raw)
+    try Data(source.utf8).write(to: primary)
+    let store = WorkflowVariantStore(rawURL: raw)
+    let first = try record()
+    let firstURL = try await store.create(first)
+    let edited = source.replacingOccurrences(
+      of: "crs:ProcessVersion=\"15.4\"",
+      with: "crs:ProcessVersion=\"15.4\" crs:Exposure2012=\"1.25\"")
+    try await store.write(variantId: first.variantId, xmp: edited)
+    let firstRead = try await store.read(variantId: first.variantId)
+    let firstXML = try XCTUnwrap(firstRead)
+    XCTAssertEqual(try WorkflowSidecarCore.read(xmp: firstXML), first)
+    XCTAssertEqual(try XMPParser.parse(firstXML).0.exposure, 1.25)
+    let second = SidecarWorkflow(
+      schemaVersion: first.schemaVersion, variantId: UUID().uuidString.lowercased(),
+      variantName: "Alternate", snapshots: [], history: [])
+    _ = try await store.create(second, sourceVariantId: first.variantId)
+    let secondRead = try await store.read(variantId: second.variantId)
+    let secondXML = try XCTUnwrap(secondRead)
+    XCTAssertEqual(try XMPParser.parse(secondXML).0.exposure, 1.25)
+    XCTAssertEqual(try WorkflowSidecarCore.read(xmp: secondXML), second)
+    let listed = try await WorkflowVariantStore(rawURL: raw).list()
+    XCTAssertEqual(
+      Set(listed.map(\.variantId)), Set(["primary", first.variantId, second.variantId]))
+    XCTAssertTrue(listed.allSatisfy(\.exists))
+    do {
+      _ = try await WorkflowVariantStore(rawURL: raw).create(first)
+      XCTFail("collision overwritten")
+    } catch {}
+    let missing = UUID().uuidString.lowercased()
+    do {
+      _ = try await store.read(variantId: missing)
+      XCTFail("missing variant fell back")
+    } catch { XCTAssertTrue(error.localizedDescription.contains("missing")) }
+    do {
+      try await store.write(variantId: missing, xmp: edited)
+      XCTFail("missing variant recreated")
+    } catch {}
+    XCTAssertFalse(
+      FileManager.default.fileExists(
+        atPath: try SidecarPath.variantURL(for: raw, variantId: missing).path))
+    XCTAssertEqual(try String(contentsOf: firstURL, encoding: .utf8), firstXML)
+    XCTAssertEqual(try String(contentsOf: primary, encoding: .utf8), source)
+    XCTAssertEqual(try Data(contentsOf: raw), original)
+  }
+
+  func testSiblingStorageRefusesFutureMetadataAndMismatchedIdentityWithoutPublishing() async throws
+  {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let raw = dir.appendingPathComponent("photo.dng")
+    try Data([42]).write(to: raw)
+    let store = WorkflowVariantStore(rawURL: raw)
+    let absent = try await store.read(variantId: "primary")
+    XCTAssertNil(absent)
+    let first = try record()
+    do {
+      _ = try await store.create(first)
+      XCTFail("uncommitted source silently invented")
+    } catch {}
+    try await store.write(variantId: "primary", xmp: xml())
+    let destination = try await store.create(first)
+    let saved = try String(contentsOf: destination, encoding: .utf8)
+    let future = saved.replacingOccurrences(
+      of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2")
+    try Data(future.utf8).write(to: destination)
+    do {
+      try await store.write(variantId: first.variantId, xmp: xml())
+      XCTFail("future overwritten")
+    } catch {}
+    do {
+      _ = try await store.list()
+      XCTFail("future silently omitted")
+    } catch {}
+    XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), future)
+    let mismatch = saved.replacingOccurrences(
+      of: first.variantId, with: UUID().uuidString.lowercased())
+    try Data(mismatch.utf8).write(to: destination)
+    do {
+      _ = try await store.read(variantId: first.variantId)
+      XCTFail("identity mismatch accepted")
+    } catch {}
+    XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), mismatch)
+    XCTAssertEqual(try Data(contentsOf: raw), Data([42]))
+  }
+
 }

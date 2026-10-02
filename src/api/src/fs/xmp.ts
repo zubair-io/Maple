@@ -10,7 +10,12 @@ import * as path from 'node:path';
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
-import { deleteSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sidecar-io.ts';
+import {
+  deleteSidecar,
+  writeSidecarAtomic,
+  writeSidecarCreateOnly,
+  isMissingSidecar,
+} from './sidecar-io.ts';
 // Conflict-copy sidecars (`<base> (conflict from <device>).xmp`) live in their
 // own module; the precondition write below is their only producer here.
 import { pickFreeConflictPath } from './xmp-conflict.ts';
@@ -78,8 +83,7 @@ async function preparePrimarySidecarWrite(
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
     const existing = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
-        return null;
+      if (isMissingSidecar(error)) return null;
       throw error;
     });
     return { ok: true, data: await prepareWorkflowWrite(existing, xmlContent) };

@@ -4,6 +4,7 @@ import { FolderAccessService } from '../../projects/maple-common/src/lib/folder-
 import { XmpStoreService } from '../../projects/maple-common/src/lib/xmp/xmp-store.service';
 import { XmpParserService } from '../../projects/maple-common/src/lib/xmp/xmp-parser.service';
 import { XmpSerializerService } from '../../projects/maple-common/src/lib/xmp/xmp-serializer.service';
+import { WorkflowVariantStoreService } from '../../projects/maple-common/src/lib/xmp/workflow-variant-store.service';
 import { WorkflowXmpService } from '../../projects/maple-common/src/lib/xmp/workflow-xmp.service';
 import { SidecarSaveStateService } from '../../projects/maple-common/src/lib/xmp/sidecar-save-state.service';
 import { defaultAdjustmentModel } from '../../projects/maple-common/src/lib/models/adjustment-model';
@@ -16,6 +17,7 @@ const injector = () =>
       XmpParserService,
       XmpSerializerService,
       WorkflowXmpService,
+      WorkflowVariantStoreService,
       SidecarSaveStateService,
     ],
     Injector.NULL as EnvironmentInjector,
@@ -99,6 +101,98 @@ Object.assign(window, {
       } finally {
         environment.destroy();
         await root.removeEntry(name, { recursive: true });
+      }
+    },
+    async variants(row: unknown, input: string) {
+      let environment = injector();
+      const root = await navigator.storage.getDirectory();
+      const directoryName = 'maple-variant-storage-' + crypto.randomUUID();
+      const native = await root.getDirectoryHandle(directoryName, { create: true });
+      const folder = { native, name: directoryName, read: true, write: true };
+      try {
+        const access = environment.get(FolderAccessService);
+        await access.writeFile(folder, 'photo.dng', new Uint8Array([1, 0, 255, 42]));
+        await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(input));
+        const record = parseSidecarWorkflow(row);
+        const store: WorkflowVariantStoreService = environment.get(WorkflowVariantStoreService);
+        const creations = await Promise.allSettled([
+          store.create(folder, 'photo.xmp', record),
+          store.create(folder, 'photo.xmp', record),
+        ]);
+        const oneCreated =
+          creations.filter((result) => result.status === 'fulfilled').length === 1 &&
+          creations.filter((result) => result.status === 'rejected').length === 1;
+        const edited = input.replace(
+          'crs:ProcessVersion="15.4"',
+          'crs:ProcessVersion="15.4" crs:Exposure2012="1.25"',
+        );
+        await store.write(folder, 'photo.xmp', record.variantId, edited);
+        const first = await store.read(folder, 'photo.xmp', record.variantId);
+        if (first === null) throw Error('Created variant missing');
+        const second = {
+          ...record,
+          variantId: crypto.randomUUID(),
+          variantName: 'Alternate',
+          snapshots: [],
+          history: [],
+        };
+        await store.create(folder, 'photo.xmp', second, record.variantId);
+        environment.destroy();
+        environment = injector();
+        const reopened: WorkflowVariantStoreService = environment.get(WorkflowVariantStoreService);
+        const listed = await reopened.list(folder, 'photo.xmp');
+        const secondXml = await reopened.read(folder, 'photo.xmp', second.variantId);
+        const reject = async (operation: () => Promise<unknown>) => {
+          try {
+            await operation();
+            return false;
+          } catch {
+            return true;
+          }
+        };
+        const missing = crypto.randomUUID();
+        const missingRead = await reject(() => reopened.read(folder, 'photo.xmp', missing));
+        const missingWrite = await reject(() =>
+          reopened.write(folder, 'photo.xmp', missing, edited),
+        );
+        const lostWrite = await reject(() =>
+          reopened.write({ ...folder, write: false }, 'photo.xmp', record.variantId, edited),
+        );
+        const filename = `photo.v${record.variantId}.xmp`;
+        const future = first.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
+        await access.writeFile(folder, filename, new TextEncoder().encode(future));
+        const futureWrite = await reject(() =>
+          reopened.write(folder, 'photo.xmp', record.variantId, edited),
+        );
+        const futureList = await reject(() => reopened.list(folder, 'photo.xmp'));
+        const futureUnchanged =
+          new TextDecoder().decode(await access.readFile(folder, filename)) === future;
+        const mismatch = first.replace(record.variantId, crypto.randomUUID());
+        await access.writeFile(folder, filename, new TextEncoder().encode(mismatch));
+        const mismatched = await reject(() => reopened.read(folder, 'photo.xmp', record.variantId));
+        return {
+          oneCreated,
+          listed: listed.map((variant) => variant.variantId).sort(),
+          expected: ['primary', record.variantId, second.variantId].sort(),
+          retained: await environment.get(WorkflowXmpService).read(first),
+          secondExposure:
+            secondXml !== null &&
+            environment.get(XmpParserService).parseAdjustmentModel(secondXml).model.exposure ===
+              1.25,
+          missingRead,
+          missingWrite,
+          lostWrite,
+          futureWrite,
+          futureList,
+          futureUnchanged,
+          mismatched,
+          sourceUnchanged:
+            new TextDecoder().decode(await access.readFile(folder, 'photo.xmp')) === input,
+          original: Array.from(await access.readFile(folder, 'photo.dng')),
+        };
+      } finally {
+        environment.destroy();
+        await root.removeEntry(directoryName, { recursive: true });
       }
     },
     async checkpoints(row: unknown, input: string) {

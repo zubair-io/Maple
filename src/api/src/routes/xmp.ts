@@ -45,6 +45,8 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { findDetailByAddress, recordSidecarEdit, setHasXmp } from '../db/assets.repo.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { child as childLogger } from '../log.ts';
+import { xmpVariantRoutes } from './xmp-variants';
+import { isMissingSidecar } from '../fs/sidecar-io';
 
 const log = childLogger('xmp-routes');
 
@@ -89,17 +91,13 @@ async function publishSidecarChange(rawAbsPath: string, edited: boolean): Promis
     );
   }
 }
-/** ENOENT alone means the sidecar is absent; permission/I/O errors must still fail. */
-function isMissingSidecar(error: unknown): boolean {
-  return !!error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT';
-}
-
 // Note: we deliberately bypass `readXmp` from `../fs/xmp.ts` and call
 // `fs.readFile` directly so we can distinguish "no sidecar" (404) from
 // "filesystem error" (500). The id-keyed route conflates those by
 // returning an empty XMP stub on ENOENT.
 
 export const xmpPathRoutes = new Elysia()
+  .use(xmpVariantRoutes)
   // All four operations use the same authorized, normalized path (#4036).
   .resolve(async ({ query }) => {
     const authorized = await resolveAndAuthorizePath(query.path);
@@ -111,6 +109,8 @@ export const xmpPathRoutes = new Elysia()
     '/api/xmp/workflow',
     async ({ rawPath, sidecar, body, set }) => {
       try {
+        // Wire validation reports 422; filesystem publication reports 500.
+        // Select each boundary's status before invoking the operation that can throw.
         set.status = 422;
         const workflow = parseSidecarWorkflow(body);
         set.status = 500;
