@@ -191,6 +191,8 @@
         "src/routes/library/folder.test.ts",
         "src/routes/library/folder.ts",
         "src/routes/library/image.test.ts",
+        // #3999: real temp replicas intentionally diverge; mirrored writes would hide failover/deletion regressions.
+        "src/routes/library/image.replica-range.test.ts",
         "src/routes/library/preview.test.ts",
         "src/routes/library/preview-ondemand-limiter.test.ts",
         "src/routes/library/shared.ts",

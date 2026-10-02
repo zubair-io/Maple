@@ -180,16 +180,17 @@ Orphans are reclaimed on two paths. Synchronously, wherever a `fileinfo` entry i
 
 ### HTTP caching
 
-| Route                                            | ETag                                               | `Cache-Control`                                                                            |
-| ------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `GET /api/thumb/:slug/*` (indexed)               | `"<maple_id>-v<N>"` — content and pipeline version | `public, max-age=31536000, immutable`                                                      |
-| `GET /api/thumb/:slug/*` (pre-index fallback)    | source-derived, weak                               | `private, max-age=10, must-revalidate`                                                     |
-| `GET /api/preview/:slug/*`                       | `"<mtimeMs>-<size>"` of the preview file           | `private, max-age=0, must-revalidate`                                                      |
-| `GET /api/fs/thumb`                              | SHA-1 of the response body                         | `private, max-age=3600`                                                                    |
-| `GET /api/fs/raw` (originals)                    | `"<mtimeMs>-<size>"`                               | `private, max-age=86400`                                                                   |
-| `GET /api/assets/:id/histogram`                  | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`              | `private, max-age=300`                                                                     |
-| Media streaming (`/api/video/*`, `/api/image/*`) | none                                               | `private, max-age=0, must-revalidate`                                                      |
-| Static Angular bundle                            | none                                               | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
+| Route                                         | ETag                                               | `Cache-Control`                                                                            |
+| --------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET /api/thumb/:slug/*` (indexed)            | `"<maple_id>-v<N>"` — content and pipeline version | `public, max-age=31536000, immutable`                                                      |
+| `GET /api/thumb/:slug/*` (pre-index fallback) | source-derived, weak                               | `private, max-age=10, must-revalidate`                                                     |
+| `GET /api/preview/:slug/*`                    | `"<mtimeMs>-<size>"` of the preview file           | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/fs/thumb`                           | SHA-1 of the response body                         | `private, max-age=3600`                                                                    |
+| `GET /api/fs/raw` (originals)                 | `"<mtimeMs>-<size>"`                               | `private, max-age=86400`                                                                   |
+| `GET /api/assets/:id/histogram`               | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`              | `private, max-age=300`                                                                     |
+| Original streaming (`/api/image/*`)           | `"<mtimeMs>-<size>"`                               | `private, max-age=0, must-revalidate`                                                      |
+| Video streaming (`/api/video/*`)              | none                                               | `private, max-age=0, must-revalidate`                                                      |
+| Static Angular bundle                         | none                                               | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
 
 Folder and directory listings (`/api/folders`, `/api/fs`) set no `Cache-Control` but do emit a body-hash ETag with a 304 short-circuit, which is what makes the File Provider extension's revalidation cheap.
 
