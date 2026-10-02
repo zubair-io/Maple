@@ -28,11 +28,11 @@ import {
   ElementRef,
   HostListener,
   computed,
-  inject,
   input,
   model,
   output,
   signal,
+  viewChild,
 } from '@angular/core';
 
 import { SidebarEntry } from '../../models/folder';
@@ -100,12 +100,12 @@ export class SourcePickerDrawerComponent {
     // Width is min(326px, 81vw); read the live width off the host element
     // so opacity tracks the actual rendered drawer. Falls back to 326 if
     // the host element isn't measurable yet.
-    const w = this.elRef.nativeElement.querySelector('.drawer')?.clientWidth ?? 326;
+    const w = this.drawer()?.nativeElement.clientWidth ?? 326;
     const visible = Math.max(0, w + Math.min(0, dx));
     return Math.max(0, Math.min(1, visible / w));
   });
 
-  private readonly elRef = inject(ElementRef<HTMLElement>);
+  private readonly drawer = viewChild<ElementRef<HTMLElement>>('drawer');
   private pointerId: number | null = null;
   private pointerStartX = 0;
 
@@ -140,7 +140,11 @@ export class SourcePickerDrawerComponent {
   protected onPointerDown(e: PointerEvent): void {
     // Only respond to the primary pointer; secondary touches (multi-touch
     // pinch) should not start a drag.
-    if (this.pointerId !== null) return;
+    // Capturing a button's press retargets its click to the drawer, which
+    // swallows Close, Search and source selection. Keep controls native;
+    // the non-interactive drawer surface owns the pan gesture (#4028).
+    const pressedControl = e.target instanceof Element && e.target.closest('button');
+    if (this.pointerId !== null || pressedControl) return;
     this.pointerId = e.pointerId;
     this.pointerStartX = e.clientX;
     this.dragDx.set(0);
@@ -168,7 +172,7 @@ export class SourcePickerDrawerComponent {
     // Threshold = 30% of measured drawer width. Reading clientWidth off
     // the rendered DOM rather than re-deriving from the viewport keeps the
     // threshold honest if the responsive `min(326px, 81vw)` rule clamps it.
-    const w = this.elRef.nativeElement.querySelector('.drawer')?.clientWidth ?? 326;
+    const w = this.drawer()?.nativeElement.clientWidth ?? 326;
     if (dx <= -w * 0.3) {
       this.isOpen.set(false);
     }

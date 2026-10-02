@@ -1,7 +1,7 @@
 // SourcePickerDrawerComponent — event-emission + visibility tests.
 //
 // Pan-to-dismiss is verified by a Playwright e2e at
-// `src/web/e2e/source-picker-drawer.spec.ts` instead of in jsdom — jsdom
+// `src/web/e2e/production/source-picker-drawer.spec.ts` instead of in jsdom — jsdom
 // doesn't dispatch PointerEvents the way a real browser does (pointer
 // capture + clientWidth round-trips), so a unit test would test the test
 // rather than the component.
