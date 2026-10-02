@@ -1,6 +1,6 @@
 <button
   #nativeButton
-  type="button"
+  [type]="type()"
   class="mui-button relative inline-flex items-center gap-1 rounded-lg font-semibold leading-none whitespace-nowrap cursor-pointer border border-transparent transition-[background-color,color,border-color,transform] duration-200 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:border-primary focus-visible:outline-[color-mix(in_srgb,var(--color-primary)_20%,transparent)] enabled:active:translate-y-0"
   [class]="
     'variant-' +

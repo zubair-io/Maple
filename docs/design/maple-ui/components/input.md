@@ -45,6 +45,8 @@ for this initial set; add it when a real screen needs it, per the design spec's 
 - `variant`: `default | search` (default `default`).
 - `value`: string (two-way bound).
 - `placeholder`: string.
+- Web `size`: `sm | md | lg`; `lg` gives the native entry control a 44px minimum height for standalone forms.
+- Web native form attributes: `name`, `required`, `minLength`, `maxLength`, `autocomplete`, `autocapitalize`, and `spellcheck` reach the inner input. Join uses these to preserve browser invite-code validation and entry hints.
 - `disabled`: boolean.
 - `error`: optional string — presence triggers the Error state and is displayed as helper text.
 - `onChange` / `onCommit`: platform-native value-changed and enter/blur-commit callbacks.
