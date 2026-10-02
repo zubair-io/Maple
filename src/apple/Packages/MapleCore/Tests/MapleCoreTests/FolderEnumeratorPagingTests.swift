@@ -1,5 +1,6 @@
-import XCTest
 import FileProvider
+import XCTest
+
 @testable import MapleCore
 
 final class FolderEnumeratorPagingTests: XCTestCase {
@@ -28,20 +29,29 @@ final class FolderEnumeratorPagingTests: XCTestCase {
       (2, nil),
     ]
     StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib")
       let q = req.url?.query ?? ""
       let idx: Int
-      if q.contains("cursor=p1") { idx = 1 }
-      else if q.contains("cursor=p2") { idx = 2 }
-      else { idx = 0 }
+      if q.contains("cursor=p1") {
+        idx = 1
+      } else if q.contains("cursor=p2") {
+        idx = 2
+      } else {
+        idx = 0
+      }
       let p = pages[idx]
       var imgs: [String] = []
       for i in 0..<p.images {
         let name = "IMG_\(idx)_\(i).dng"
         let path = "/lib/\(name)"
-        imgs.append("{\"name\":\"\(name)\",\"path\":\"\(path)\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"a\(idx)\(i)\"}")
+        imgs.append(
+          "{\"name\":\"\(name)\",\"path\":\"\(path)\",\"mtime\":\"2026-01-01T00:00:00Z\",\"size\":1,\"ext\":\"dng\",\"id\":\"a\(idx)\(i)\"}"
+        )
       }
       let cursorField = p.nextCursor.map { ",\"next_cursor\":\"\($0)\"" } ?? ""
-      let json = "{\"path\":\"/lib\",\"parent\":\"/\",\"dirs\":[],\"images\":[\(imgs.joined(separator: ","))],\"sidecars\":[]\(cursorField)}"
+      let json =
+        "{\"path\":\"/lib\",\"parentPath\":\"/\",\"folders\":[],\"images\":[\(imgs.joined(separator: ","))],\"sidecars\":[]\(cursorField)}"
       return (200, Data(json.utf8), [:])
     }
     let session = TestURLSession.make()
@@ -52,9 +62,10 @@ final class FolderEnumeratorPagingTests: XCTestCase {
       onTokensRefreshed: { _ in },
       onSignOut: {}
     )
-    let catalog = RemoteCatalog(http: http,
-                                server: URL(string: "https://x.test")!,
-                                downloadURLSession: session)
+    let catalog = RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
     let containerID = NSFileProviderItemIdentifier("folder/aaa:")
     let enumerator = FolderEnumerator(
       catalog: catalog,
@@ -74,7 +85,8 @@ final class FolderEnumeratorPagingTests: XCTestCase {
     XCTAssertNil(observer.error)
     XCTAssertEqual(observer.batches.count, 1, "one didEnumerate call per enumerateItems call")
     XCTAssertEqual(observer.batches.map(\.count), [3 + 1])
-    let page1 = try XCTUnwrap(observer.lastNextPage, "must return a continuation page — more items remain")
+    let page1 = try XCTUnwrap(
+      observer.lastNextPage, "must return a continuation page — more items remain")
 
     // Call 2: OS resumes with the page WE returned.
     observer.resetForNextCall()
@@ -103,14 +115,16 @@ final class FolderEnumeratorPagingTests: XCTestCase {
   func testFolderEnumeratorResumesFromOSSuppliedPageWithoutRestarting() async throws {
     var requestedCursors: [String?] = []
     StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
+      XCTAssertEqual(req.url?.path, "/api/folder/photos/lib")
       let q = req.url?.query ?? ""
       requestedCursors.append(q.contains("cursor=p2") ? "p2" : nil)
       // Only page 2's content is ever needed for this test.
       let json = """
-      {"path":"/lib","parent":"/","dirs":[],"images":[
-        {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b0"}
-      ],"sidecars":[]}
-      """
+        {"path":"/lib","parentPath":"/","folders":[],"images":[
+          {"name":"B.dng","path":"/lib/B.dng","mtime":"2026-01-01T00:00:00Z","size":1,"ext":"dng","id":"b0"}
+        ],"sidecars":[]}
+        """
       return (200, Data(json.utf8), [:])
     }
     let session = TestURLSession.make()
@@ -121,9 +135,10 @@ final class FolderEnumeratorPagingTests: XCTestCase {
       onTokensRefreshed: { _ in },
       onSignOut: {}
     )
-    let catalog = RemoteCatalog(http: http,
-                                server: URL(string: "https://x.test")!,
-                                downloadURLSession: session)
+    let catalog = RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
     let containerID = NSFileProviderItemIdentifier("folder/aaa:")
     let enumerator = FolderEnumerator(
       catalog: catalog,
@@ -140,10 +155,14 @@ final class FolderEnumeratorPagingTests: XCTestCase {
     let success = await observer.waitUntilFinished(timeoutSeconds: 5)
     XCTAssertTrue(success, "enumeration did not finish in time")
     XCTAssertNil(observer.error)
-    XCTAssertEqual(requestedCursors, ["p2"], "must hit the server with the OS-supplied cursor, not restart from the top")
+    XCTAssertEqual(
+      requestedCursors, ["p2"],
+      "must hit the server with the OS-supplied cursor, not restart from the top")
     let items = observer.batches.flatMap { $0 }
-    XCTAssertFalse(items.contains { $0.filename == ".maple" },
-                    ".maple/ was already delivered on the original (unseen-by-this-call) first page; a resumed page must not re-inject it")
+    XCTAssertFalse(
+      items.contains { $0.filename == ".maple" },
+      ".maple/ was already delivered on the original (unseen-by-this-call) first page; a resumed page must not re-inject it"
+    )
     XCTAssertEqual(items.map(\.filename), ["B.dng"])
   }
 }
@@ -156,7 +175,9 @@ final class FolderEnumeratorPagingTests: XCTestCase {
 /// test can drive a multi-page walk explicitly (feeding it back in as
 /// the next call's `startingAt:`) instead of expecting one call to
 /// internally full-drain.
-final class TestEnumerationObserver: NSObject, NSFileProviderEnumerationObserver, @unchecked Sendable {
+final class TestEnumerationObserver: NSObject, NSFileProviderEnumerationObserver,
+  @unchecked Sendable
+{
   var batches: [[NSFileProviderItem]] = []
   var finished = false
   var error: Error?
@@ -169,10 +190,18 @@ final class TestEnumerationObserver: NSObject, NSFileProviderEnumerationObserver
     cv.unlock()
   }
   func finishEnumerating(upTo nextPage: NSFileProviderPage?) {
-    cv.lock(); lastNextPage = nextPage; finished = true; cv.signal(); cv.unlock()
+    cv.lock()
+    lastNextPage = nextPage
+    finished = true
+    cv.signal()
+    cv.unlock()
   }
   func finishEnumeratingWithError(_ error: Error) {
-    cv.lock(); self.error = error; finished = true; cv.signal(); cv.unlock()
+    cv.lock()
+    self.error = error
+    finished = true
+    cv.signal()
+    cv.unlock()
   }
 
   /// Resets every per-call field so the SAME observer instance can drive
