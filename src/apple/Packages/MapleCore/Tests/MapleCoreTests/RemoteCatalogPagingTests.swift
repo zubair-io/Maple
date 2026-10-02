@@ -1,22 +1,25 @@
-import XCTest
 import Foundation
+import XCTest
+
 @testable import MapleCore
 
 final class RemoteCatalogPagingTests: XCTestCase {
   func testDecodeUnpagedDirContentsOmitsCursor() throws {
     let json = #"""
-    {"path":"/a","parent":"/","dirs":[],"images":[],"sidecars":[]}
-    """#
-    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+      {"path":"/a","parentPath":"/","folders":[],"images":[],"sidecars":[]}
+      """#
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
     let parsed = try decoder.decode(DirContents.self, from: Data(json.utf8))
     XCTAssertNil(parsed.nextCursor)
   }
 
   func testDecodePagedDirContentsExposesCursor() throws {
     let json = #"""
-    {"path":"/a","parent":"/","dirs":[],"images":[],"sidecars":[],"next_cursor":"eyJvZmZzZXQiOjUwMH0"}
-    """#
-    let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+      {"path":"/a","parentPath":"/","folders":[],"images":[],"sidecars":[],"next_cursor":"eyJvZmZzZXQiOjUwMH0"}
+      """#
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
     let parsed = try decoder.decode(DirContents.self, from: Data(json.utf8))
     XCTAssertEqual(parsed.nextCursor, "eyJvZmZzZXQiOjUwMH0")
   }
@@ -26,8 +29,12 @@ final class RemoteCatalogPagingTests: XCTestCase {
     StubURLProtocol.reset()
     var receivedQuery: String?
     StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
       receivedQuery = req.url?.query
-      return (200, Data(#"{"path":"/p","parent":"/","dirs":[],"images":[],"sidecars":[]}"#.utf8), [:])
+      return (
+        200, Data(#"{"path":"/p","parentPath":"/","folders":[],"images":[],"sidecars":[]}"#.utf8),
+        [:]
+      )
     }
     let session = TestURLSession.make()
     let http = AuthenticatedHTTPClient(
@@ -37,12 +44,13 @@ final class RemoteCatalogPagingTests: XCTestCase {
       onTokensRefreshed: { _ in },
       onSignOut: {}
     )
-    let catalog = RemoteCatalog(http: http,
-                                server: URL(string: "https://x.test")!,
-                                downloadURLSession: session)
+    let catalog = RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
     _ = try await catalog.listDir(absolutePath: "/p", cursor: "abc", limit: 250)
     let q = receivedQuery ?? ""
-    XCTAssertTrue(q.contains("path=/p"))
+    XCTAssertFalse(q.contains("path="))
     XCTAssertTrue(q.contains("cursor=abc"))
     XCTAssertTrue(q.contains("limit=250"))
   }
@@ -57,12 +65,13 @@ final class RemoteCatalogPagingTests: XCTestCase {
     StubURLProtocol.reset()
     var hits: [String] = []
     StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
       hits.append(req.url?.query ?? "")
       // First request (no cursor): a 500-entry page with the target dir
       // included, plus a next_cursor so we can detect over-fetching.
       let body = #"""
-      {"path":"/p","parent":"/","dirs":[{"name":"target","path":"/p/target","mtime":"2026-05-16T00:00:00Z"}],"images":[],"sidecars":[],"next_cursor":"page2"}
-      """#
+        {"path":"/p","parentPath":"/","folders":[{"name":"target","path":"/p/target","mtime":"2026-05-16T00:00:00Z"}],"images":[],"sidecars":[],"next_cursor":"page2"}
+        """#
       return (200, Data(body.utf8), [:])
     }
     let session = TestURLSession.make()
@@ -73,9 +82,10 @@ final class RemoteCatalogPagingTests: XCTestCase {
       onTokensRefreshed: { _ in },
       onSignOut: {}
     )
-    let catalog = RemoteCatalog(http: http,
-                                server: URL(string: "https://x.test")!,
-                                downloadURLSession: session)
+    let catalog = RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
     let found = try await FileProviderExtensionCore.findChildDir(
       catalog: catalog,
       absolutePath: "/p",
@@ -97,21 +107,22 @@ final class RemoteCatalogPagingTests: XCTestCase {
     StubURLProtocol.reset()
     var hits: [String] = []
     StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
       let q = req.url?.query ?? ""
       hits.append(q)
       // First page: 500 unrelated dirs (we only need a few in JSON since
       // the helper just iterates the array), next_cursor advertises page2.
       if !q.contains("cursor=") {
         let body = #"""
-        {"path":"/p","parent":"/","dirs":[{"name":"other_a","path":"/p/other_a","mtime":"2026-05-16T00:00:00Z"}],"images":[],"sidecars":[],"next_cursor":"page2"}
-        """#
+          {"path":"/p","parentPath":"/","folders":[{"name":"other_a","path":"/p/other_a","mtime":"2026-05-16T00:00:00Z"}],"images":[],"sidecars":[],"next_cursor":"page2"}
+          """#
         return (200, Data(body.utf8), [:])
       }
       // Second page contains the target plus a third-page cursor we
       // must NOT follow.
       let body = #"""
-      {"path":"/p","parent":"/","dirs":[{"name":"target","path":"/p/target","mtime":"2026-05-16T00:00:00Z"}],"images":[],"sidecars":[],"next_cursor":"page3"}
-      """#
+        {"path":"/p","parentPath":"/","folders":[{"name":"target","path":"/p/target","mtime":"2026-05-16T00:00:00Z"}],"images":[],"sidecars":[],"next_cursor":"page3"}
+        """#
       return (200, Data(body.utf8), [:])
     }
     let session = TestURLSession.make()
@@ -122,9 +133,10 @@ final class RemoteCatalogPagingTests: XCTestCase {
       onTokensRefreshed: { _ in },
       onSignOut: {}
     )
-    let catalog = RemoteCatalog(http: http,
-                                server: URL(string: "https://x.test")!,
-                                downloadURLSession: session)
+    let catalog = RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
     let found = try await FileProviderExtensionCore.findChildDir(
       catalog: catalog,
       absolutePath: "/p",
@@ -141,11 +153,12 @@ final class RemoteCatalogPagingTests: XCTestCase {
     StubURLProtocol.register()
     StubURLProtocol.reset()
     var hits = 0
-    StubURLProtocol.handler = { _ in
+    StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
       hits += 1
       let body = #"""
-      {"path":"/p","parent":"/","dirs":[],"images":[{"name":"IMG_1.ARW","path":"/p/IMG_1.ARW","mtime":"2026-05-16T00:00:00Z","size":3,"ext":"arw","id":"deadbeef"}],"sidecars":[],"next_cursor":"page2"}
-      """#
+        {"path":"/p","parentPath":"/","folders":[],"images":[{"name":"IMG_1.ARW","path":"/p/IMG_1.ARW","mtime":"2026-05-16T00:00:00Z","size":3,"ext":"arw","id":"deadbeef"}],"sidecars":[],"next_cursor":"page2"}
+        """#
       return (200, Data(body.utf8), [:])
     }
     let session = TestURLSession.make()
@@ -156,9 +169,10 @@ final class RemoteCatalogPagingTests: XCTestCase {
       onTokensRefreshed: { _ in },
       onSignOut: {}
     )
-    let catalog = RemoteCatalog(http: http,
-                                server: URL(string: "https://x.test")!,
-                                downloadURLSession: session)
+    let catalog = RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
     let id = try await FileProviderExtensionCore.findAssetID(
       catalog: catalog,
       absolutePath: "/p",
@@ -175,19 +189,20 @@ final class RemoteCatalogPagingTests: XCTestCase {
     StubURLProtocol.reset()
     var hits: [String] = []
     StubURLProtocol.handler = { req in
+      if let roots = UnifiedFolderTestResponses.roots(for: req) { return roots }
       let q = req.url?.query ?? ""
       hits.append(q)
       // Determine page number from cursor query (none, page2, page3).
       if q.contains("cursor=page3") {
         let body = #"""
-        {"path":"/p","parent":"/","dirs":[],"images":[{"name":"IMG_1.ARW","path":"/p/IMG_1.ARW","mtime":"2026-05-16T00:00:00Z","size":3,"ext":"arw","id":"feedface"}],"sidecars":[]}
-        """#
+          {"path":"/p","parentPath":"/","folders":[],"images":[{"name":"IMG_1.ARW","path":"/p/IMG_1.ARW","mtime":"2026-05-16T00:00:00Z","size":3,"ext":"arw","id":"feedface"}],"sidecars":[]}
+          """#
         return (200, Data(body.utf8), [:])
       }
       let next = q.contains("cursor=page2") ? "page3" : "page2"
       let body = """
-      {"path":"/p","parent":"/","dirs":[],"images":[],"sidecars":[],"next_cursor":"\(next)"}
-      """
+        {"path":"/p","parentPath":"/","folders":[],"images":[],"sidecars":[],"next_cursor":"\(next)"}
+        """
       return (200, Data(body.utf8), [:])
     }
     let session = TestURLSession.make()
@@ -198,9 +213,10 @@ final class RemoteCatalogPagingTests: XCTestCase {
       onTokensRefreshed: { _ in },
       onSignOut: {}
     )
-    let catalog = RemoteCatalog(http: http,
-                                server: URL(string: "https://x.test")!,
-                                downloadURLSession: session)
+    let catalog = RemoteCatalog(
+      http: http,
+      server: URL(string: "https://x.test")!,
+      downloadURLSession: session)
     let id = try await FileProviderExtensionCore.findAssetID(
       catalog: catalog,
       absolutePath: "/p",

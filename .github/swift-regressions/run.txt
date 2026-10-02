@@ -285,3 +285,23 @@ PartialWhiteBalanceTests
 CloudSourceTests
 CloudSourceOriginalHTTPTests
 CloudAddressResolverTests
+
+# Unified native folder readers and the production API contract (#4006).
+UnifiedFolderConsumerTests
+CloudFoldersClientTests
+RemoteCatalogETagTests
+RemoteCatalogPagingTests
+
+# Existing File Provider transport/DTO tests proved host-independent by #4006.
+FileProviderExtensionCoreCreateItemTests
+RemoteCatalogChangesTests
+RemoteCatalogDeleteAssetTests
+RemoteCatalogDownloadAssetTests
+RemoteCatalogDownloadSessionTests
+RemoteCatalogErrorMappingTests
+RemoteCatalogFileOpsTests
+RemoteCatalogMoveFolderTests
+RemoteCatalogRestoreFolderTests
+RemoteCatalogTests
+RemoteCatalogThumbTests
+RemoteCatalogXMPCreateTests

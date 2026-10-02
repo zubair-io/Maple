@@ -1,9 +1,8 @@
 // CloudSource.swift
 //
 // `ImageSource` that talks to a Maple Cloud server, scoped to one
-// registered library (folder). Lists files via `/api/fs/dir` — the
-// enriched listing (video entries, size/ext/mtime, EXIF) that
-// `/api/folder/:slug/*` does not carry yet — so the user sees
+// registered library (folder). Lists files via `/api/folder/:slug/*` —
+// enriched with media entries, size/ext/mtime and EXIF — so the user sees
 // subdirectory structure and the listing keeps up with the filesystem
 // instead of waiting for the indexer.
 //
@@ -28,7 +27,7 @@ public actor CloudSource {
   /// library root; bumped by `navigate(to:)` for subfolder drill-down.
   public private(set) var currentPath: String
   private let httpClient: AuthenticatedHTTPClient
-  /// Absolute path → `slug:relPath` for unified original/thumb/preview routes.
+  /// Absolute path → `slug:relPath` for unified folder/original/thumb/preview routes.
   /// Root-matched against `/api/folders` rather than derived from
   /// `folderID`/`libraryPath`, because the timeline builds one `CloudSource`
   /// per SERVER (`libraryPath: ""`) and serves assets from every library on
@@ -80,7 +79,7 @@ extension CloudSource: ImageSource {
     // fractional-second form the server emits, which the previous
     // plain-only formatter would have silently failed to parse.
     return listing.images.map { img in
-      let captureDate = img.exif?.captured_at.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) }
+      let captureDate = img.exif?.capturedAt.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) }
       return ImageRef(
         id: "fs:\(img.path)", displayName: img.name, url: nil,
         captureDate: captureDate)
@@ -90,9 +89,7 @@ extension CloudSource: ImageSource {
   /// Full directory listing — used by callers that also want subfolders
   /// (sidebar drill-down, breadcrumb navigation).
   public func listDir(absPath: String) async throws -> FsDirListing {
-    let dirURL = url(
-      "/api/fs/dir",
-      query: [URLQueryItem(name: "path", value: absPath)])
+    let dirURL = try await addresses.url(route: "folder", absPath: absPath)
     let req = URLRequest(url: dirURL)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)

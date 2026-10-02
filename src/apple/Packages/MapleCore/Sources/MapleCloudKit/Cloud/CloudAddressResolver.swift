@@ -5,7 +5,7 @@
 //
 // Apple's cloud clients are keyed on absolute paths end to end —
 // `SearchAsset.abs_path`, the `fs:<absPath>` `ImageRef` ids `CloudSource`
-// mints, `/api/fs/dir` listings — so the translation happens here, at the
+// mints, native directory models — so the translation happens here, at the
 // HTTP edge, the same way the web's `FilesystemBrowseService
 // .addressForAbsPath` does it: the registered libraries from `/api/folders`
 // are the only source of (slug, root) pairs, the longest root that contains

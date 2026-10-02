@@ -3,7 +3,7 @@
 // Covers `/api/imports/*` plus the slice of `/api/fs` the wizard's source
 // picker needs (`routes/imports.ts`, `routes/fs.ts`). The picker uses
 // `/api/fs/list` — the directories-only pre-registration picker route —
-// NOT the EXIF-enriched `/api/fs/dir` that `CloudFoldersClient.listDir` /
+// NOT the EXIF-enriched `/api/folder/:slug/*` that `CloudFoldersClient.listDir` /
 // `FsDirListing` cover; it is a distinct route with a distinct response
 // shape, so it gets its own decode type here.
 

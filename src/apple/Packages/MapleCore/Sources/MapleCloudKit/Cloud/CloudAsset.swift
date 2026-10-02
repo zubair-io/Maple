@@ -1,40 +1,38 @@
-// CloudAsset.swift
-//
-// DTOs for the cloud filesystem-walk endpoints. Mirrors the server's
-// FsDirListing shape from `src/api/src/fs/browse.ts` so listing a
-// folder gives subfolders + image files at one level (NOT recursive).
-//
-// Why not /api/folders/:id/assets? That endpoint returns the indexed
-// Mongo flat list — useful for indexer state but not for user-facing
-// browsing because (a) it doesn't expose subfolder structure, and (b)
-// indexed assets lag the filesystem when the library has just been
-// added or files have been moved. The web app made the same switch
-// in its "Phase B browse" — registered libraries from /api/folders
-// are sidebar roots; the contents come from /api/fs/dir.
+// Native Browse DTOs for the enriched `/api/folder/:slug/*` response.
+// `parent` is explicitly decoded from absolute `parentPath`; the wire's
+// `parent` is a unified address and must never enter filesystem navigation.
 
 import Foundation
 
-/// One subdirectory entry from `/api/fs/dir`.
+/// One subdirectory entry from `/api/folder/:slug/*`.
 public struct FsDirEntry: Decodable, Equatable, Sendable {
   public let name: String
   public let path: String
   public let mtime: String
 }
 
-/// EXIF subset returned by `/api/fs/dir` per image. Optional throughout —
+/// EXIF subset returned by `/api/folder/:slug/*` per image. Optional throughout —
 /// `nil` means the indexer hasn't run yet for this file.
 public struct FsImageExif: Decodable, Equatable, Sendable {
-  public let captured_at: String?
-  public let camera_make: String?
-  public let camera_model: String?
+  public let capturedAt: String?
+  public let cameraMake: String?
+  public let cameraModel: String?
   public let lens: String?
   public let iso: Int?
   public let aperture: Double?
   public let shutter: String?
-  public let focal_length: Double?
+  public let focalLength: Double?
+
+  private enum CodingKeys: String, CodingKey {
+    case lens, iso, aperture, shutter
+    case capturedAt = "captured_at"
+    case cameraMake = "camera_make"
+    case cameraModel = "camera_model"
+    case focalLength = "focal_length"
+  }
 }
 
-/// One image entry from `/api/fs/dir`.
+/// One image entry from `/api/folder/:slug/*`.
 public struct FsImageEntry: Decodable, Equatable, Sendable {
   public let name: String
   public let path: String
@@ -44,10 +42,16 @@ public struct FsImageEntry: Decodable, Equatable, Sendable {
   public let exif: FsImageExif?
 }
 
-/// Full response shape of `/api/fs/dir?path=<abs>`.
+/// Full response shape of `/api/folder/:slug/*`.
 public struct FsDirListing: Decodable, Sendable {
   public let path: String
   public let parent: String?
   public let dirs: [FsDirEntry]
   public let images: [FsImageEntry]
+
+  private enum CodingKeys: String, CodingKey {
+    case path, images
+    case parent = "parentPath"
+    case dirs = "folders"
+  }
 }
