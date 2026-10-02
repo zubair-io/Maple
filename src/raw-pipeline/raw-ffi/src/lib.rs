@@ -92,6 +92,8 @@ mod gpu_live;
 #[cfg(feature = "gpu")]
 mod gpu_auto_profile;
 mod handle;
+mod raw_dimensions;
+pub use raw_dimensions::{maple_raw_dimensions_bytes, maple_raw_dimensions_file};
 mod id;
 // Process-wide bitmap-mask raster registry (#3271): `maple_mask_raster_register`
 // / `_release`, plus the internal `resolve_into` / `layers_and_rasters_from_flat`

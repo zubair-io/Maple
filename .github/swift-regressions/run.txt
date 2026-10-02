@@ -377,3 +377,4 @@ RemovalProxyTensorTests
 RemovalPeopleBridgeTests
 
 RemovalPersonRefinementTests
+RemovalSavedControlsTests

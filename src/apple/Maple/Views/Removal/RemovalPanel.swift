@@ -7,6 +7,8 @@ struct RemovalPanel: View {
   @Bindable var state: EditorState
   @State private var selectingModels = false
   @State private var importError = ""
+  @State private var showingSavedRemovals = false
+  @State private var showingLocalModels = false
   private var removal: RemovalSession { state.removal }
 
   var body: some View {
@@ -49,7 +51,7 @@ struct RemovalPanel: View {
           .font(.caption).foregroundStyle(ProTokens.textMuted)
           .accessibilityIdentifier("removal-status")
       }
-      DisclosureGroup("Local AI models") {
+      MuiCollapsible(label: "Local AI models", open: $showingLocalModels) {
         VStack(alignment: .leading, spacing: 8) {
           Text(
             "Choose a folder containing the pinned model files listed below. Models are verified when used. Photographic quality and device performance are not release-qualified."
@@ -110,7 +112,7 @@ struct RemovalPanel: View {
   @ViewBuilder
   private var savedControls: some View {
     if !removal.savedRemovals.isEmpty {
-      DisclosureGroup("Saved removals") {
+      MuiCollapsible(label: "Saved removals", open: $showingSavedRemovals) {
         ForEach(removal.savedRemovals) { entry in
           VStack(alignment: .leading, spacing: 6) {
             Text("Removal \(entry.index + 1) · \(entry.active ? "Enabled" : "Disabled")")
