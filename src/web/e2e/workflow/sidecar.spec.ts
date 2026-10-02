@@ -64,3 +64,25 @@ test('an adjustment queued while the actual worker saves workflow retains every 
   expect(result.fresh).toEqual(row);
   expect(result.original).toEqual([1, 0, 255, 42]);
 });
+
+test('actual WASM captures exact complete checkpoints and resolves portable UUID siblings', async ({
+  page,
+}) => {
+  const result = await page.evaluate(
+    async ({ row, xml }) => Reflect.get(window, 'workflowTest').checkpoints(row, xml),
+    { row: corpus[1], xml },
+  );
+  expect(result).toEqual({
+    basename: `photo.MOV.v${corpus[1].variantId}.xmp`,
+    exact: true,
+    unchangedModel: true,
+    record: null,
+    primary: 'photo.MOV.xmp',
+    plain: true,
+    invalidPath: true,
+    invalidId: true,
+    future: true,
+    sidecarUnchanged: true,
+    original: [1, 0, 255, 42],
+  });
+});

@@ -16,6 +16,34 @@ final class WorkflowSidecarTests: XCTestCase {
         "local-adjustments/lightroom-group-add.xmp"),
       encoding: .utf8)
   }
+  func testSharedSiblingPathsAndCapturedCheckpointsSurviveRealFiles() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let record = try record()
+    let raw = dir.appendingPathComponent("photo.MOV")
+    let original = Data([1, 0, 255, 42])
+    try original.write(to: raw)
+    XCTAssertEqual(
+      try SidecarPath.variantURL(for: raw, variantId: "primary"), SidecarPath.sidecarURL(for: raw))
+    let sibling = try SidecarPath.variantURL(for: raw, variantId: record.variantId)
+    XCTAssertEqual(sibling.lastPathComponent, "photo.MOV.v\(record.variantId).xmp")
+    XCTAssertThrowsError(try SidecarPath.variantURL(for: raw, variantId: "../primary"))
+    let embedded = try WorkflowSidecarCore.embed(record, in: xml())
+    let checkpoint = try WorkflowSidecarCore.checkpoint(xmp: embedded)
+    XCTAssertNil(try WorkflowSidecarCore.read(xmp: checkpoint))
+    XCTAssertTrue(checkpoint.contains("<crs:MaskGroupBasedCorrections>"))
+    let before = try XMPParser.parse(embedded).0
+    let after = try XMPParser.parse(checkpoint).0
+    XCTAssertEqual(before, after)
+    try Data(checkpoint.utf8).write(to: sibling, options: .atomic)
+    XCTAssertEqual(try String(contentsOf: sibling, encoding: .utf8), checkpoint)
+    let future = embedded.replacingOccurrences(
+      of: "<papp:SchemaVersion>1", with: "<papp:SchemaVersion>2")
+    XCTAssertThrowsError(try WorkflowSidecarCore.checkpoint(xmp: future))
+    XCTAssertEqual(try Data(contentsOf: sibling), Data(checkpoint.utf8))
+    XCTAssertEqual(try Data(contentsOf: raw), original)
+  }
   func testRustValidationAndEmbeddingPreserveCompleteAuthoredCheckpoints() throws {
     let workflow = try record()
     let input = try xml()

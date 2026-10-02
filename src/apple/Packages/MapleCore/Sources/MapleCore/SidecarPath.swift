@@ -15,28 +15,36 @@ import Foundation
 /// a clip edited on Web and on Apple targets the SAME `.xmp` file. Existing
 /// photo sidecars are NOT migrated — only video naming changes.
 public enum SidecarPath {
-    /// Video container extensions (lowercase, no dot). Mirror of the API's
-    /// `VIDEO_EXTS`. Kept here rather than codegen'd because the list is small,
-    /// rarely changes, and is not part of the color/schema single-sourcing.
-    public static let videoExtensions: Set<String> = [
-        "mov", "mp4", "m4v", "avi", "mkv", "webm", "mts", "m2ts", "3gp",
-        "mxf", "3g2", "flv", "vob", "mpg", "wmv", "f4v",
-    ]
+  /// Video container extensions (lowercase, no dot). Mirror of the API's
+  /// `VIDEO_EXTS`. Kept here rather than codegen'd because the list is small,
+  /// rarely changes, and is not part of the color/schema single-sourcing.
+  public static let videoExtensions: Set<String> = [
+    "mov", "mp4", "m4v", "avi", "mkv", "webm", "mts", "m2ts", "3gp",
+    "mxf", "3g2", "flv", "vob", "mpg", "wmv", "f4v",
+  ]
 
-    /// True when `url`'s path extension names a recognised video container.
-    /// Case-insensitive — `IMG_3087.MOV` and `clip.mov` both match.
-    public static func isVideo(_ url: URL) -> Bool {
-        videoExtensions.contains(url.pathExtension.lowercased())
-    }
+  /// True when `url`'s path extension names a recognised video container.
+  /// Case-insensitive — `IMG_3087.MOV` and `clip.mov` both match.
+  public static func isVideo(_ url: URL) -> Bool {
+    videoExtensions.contains(url.pathExtension.lowercased())
+  }
 
-    /// Resolve the expected XMP sidecar URL for an asset's primary file.
-    ///
-    /// - Videos: append `.xmp`, preserving the original extension.
-    /// - Everything else (RAW + bitmap images): swap the extension for `xmp`.
-    public static func sidecarURL(for rawURL: URL) -> URL {
-        if isVideo(rawURL) {
-            return rawURL.appendingPathExtension("xmp")
-        }
-        return rawURL.deletingPathExtension().appendingPathExtension("xmp")
+  /// Resolve the expected XMP sidecar URL for an asset's primary file.
+  ///
+  /// - Videos: append `.xmp`, preserving the original extension.
+  /// - Everything else (RAW + bitmap images): swap the extension for `xmp`.
+  public static func sidecarURL(for rawURL: URL) -> URL {
+    if isVideo(rawURL) {
+      return rawURL.appendingPathExtension("xmp")
     }
+    return rawURL.deletingPathExtension().appendingPathExtension("xmp")
+  }
+  /// UUID siblings retain the primary image/video convention (#4039 / #2437).
+  public static func variantURL(for rawURL: URL, variantId: String) throws -> URL {
+    let primary = sidecarURL(for: rawURL)
+    let filename = try WorkflowSidecarCore.variantFilename(
+      primaryName: primary.lastPathComponent, variantId: variantId)
+    return primary.deletingLastPathComponent().appendingPathComponent(filename)
+  }
+
 }

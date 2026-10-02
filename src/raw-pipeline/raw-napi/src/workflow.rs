@@ -37,3 +37,16 @@ pub fn workflow_read_xmp(xmp: String) -> WorkflowResult {
 pub fn workflow_embed_xmp(json: String, xmp: String) -> WorkflowResult {
     result(SidecarWorkflow::parse(&json).and_then(|record| record.embed_in_xmp(&xmp)))
 }
+
+#[napi]
+pub fn workflow_checkpoint_xmp(xmp: String) -> WorkflowResult {
+    result(SidecarWorkflow::checkpoint_xmp(&xmp))
+}
+
+#[napi]
+pub fn workflow_variant_filename(primary_name: String, variant_id: String) -> WorkflowResult {
+    result(raw_core::workflow::variant_filename(
+        &primary_name,
+        &variant_id,
+    ))
+}

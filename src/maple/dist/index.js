@@ -451,6 +451,22 @@ function getWorkflowFfiSymbols(FFIType) {
       args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
       returns: FFIType.i32
     },
+    maple_workflow_checkpoint_xmp: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32
+    },
+    maple_workflow_variant_filename: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr
+      ],
+      returns: FFIType.i32
+    },
     maple_workflow_embed_xmp: {
       args: [
         FFIType.ptr,
@@ -466,10 +482,12 @@ function getWorkflowFfiSymbols(FFIType) {
   };
 }
 function createWorkflowBinding(loadLibrary, ptr, getLastError) {
-  let library = null;
+  const libraries = new Map;
   const convert = (symbol, inputs) => {
+    let library = libraries.get(symbol);
     try {
-      library ??= loadLibrary();
+      library ??= loadLibrary(symbol);
+      libraries.set(symbol, library);
     } catch (error) {
       return {
         ok: false,
@@ -497,7 +515,9 @@ function createWorkflowBinding(loadLibrary, ptr, getLastError) {
   return {
     workflowValidateJson: (json) => convert("maple_workflow_validate_json", [json]),
     workflowReadXmp: (xmp) => convert("maple_workflow_read_xmp", [xmp]),
-    workflowEmbedXmp: (json, xmp) => convert("maple_workflow_embed_xmp", [json, xmp])
+    workflowEmbedXmp: (json, xmp) => convert("maple_workflow_embed_xmp", [json, xmp]),
+    workflowCheckpointXmp: (xmp) => convert("maple_workflow_checkpoint_xmp", [xmp]),
+    workflowVariantFilename: (primaryName, variantId) => convert("maple_workflow_variant_filename", [primaryName, variantId])
   };
 }
 
@@ -755,6 +775,8 @@ function tryLoadNapiBinding() {
       workflowValidateJson: wrap((json) => workflow("workflowValidateJson", [json])),
       workflowReadXmp: wrap((xmp) => workflow("workflowReadXmp", [xmp])),
       workflowEmbedXmp: wrap((json, xmp) => workflow("workflowEmbedXmp", [json, xmp])),
+      workflowCheckpointXmp: wrap((xmp) => workflow("workflowCheckpointXmp", [xmp])),
+      workflowVariantFilename: wrap((primaryName, variantId) => workflow("workflowVariantFilename", [primaryName, variantId])),
       renderFilenameTemplate: wrap((args) => addon.renderFilenameTemplate({ ...args, capturedAt: args.capturedAt ?? undefined })),
       validateFilename: wrap((name) => addon.validateFilename(name)),
       rasterProbeMetadata: wrap((inputPath) => addon.rasterProbeMetadata(inputPath)),
@@ -812,7 +834,10 @@ function loadNativeBinding() {
     return res ? String(res) : null;
   }
   const binding = {
-    ...createWorkflowBinding(() => dlopen(libPath, getWorkflowFfiSymbols(FFIType)), ptr, getLastError),
+    ...createWorkflowBinding((symbol) => {
+      const symbols = getWorkflowFfiSymbols(FFIType);
+      return dlopen(libPath, { [symbol]: symbols[symbol] });
+    }, ptr, getLastError),
     exportDevelopedToFile(rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath) {
       const rawBuf = Buffer.from(rawPath + "\x00", "utf-8");
       const xmpBuf = xmpPath ? Buffer.from(xmpPath + "\x00", "utf-8") : null;

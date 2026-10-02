@@ -63,7 +63,13 @@ describe('napi binding resolution', () => {
       process.dlopen = (...args: Parameters<typeof process.dlopen>) => {
         original(...args);
         const exports = args[0].exports;
-        const methods = ['workflowReadXmp', 'workflowValidateJson', 'workflowEmbedXmp'];
+        const methods = [
+          'workflowReadXmp',
+          'workflowValidateJson',
+          'workflowEmbedXmp',
+          'workflowCheckpointXmp',
+          'workflowVariantFilename',
+        ];
         const saved = methods.map((method) => exports[method]);
         restoreExports = () =>
           methods.forEach((method, index) => {
@@ -82,6 +88,8 @@ describe('napi binding resolution', () => {
           binding.workflowReadXmp('<x/>'),
           binding.workflowValidateJson('{}'),
           binding.workflowEmbedXmp('{}', '<x/>'),
+          binding.workflowCheckpointXmp('<x/>'),
+          binding.workflowVariantFilename('photo.xmp', 'primary'),
         ]) {
           expect(result.ok).toBe(false);
           if (result.ok) throw Error('Unavailable workflow operation succeeded');

@@ -1,5 +1,10 @@
 /// <reference lib="webworker" />
-import init, { workflow_read_xmp, workflow_embed_xmp } from '../raw-pipeline/pkg/raw_wasm';
+import init, {
+  workflow_read_xmp,
+  workflow_embed_xmp,
+  workflow_checkpoint_xmp,
+  workflow_variant_filename,
+} from '../raw-pipeline/pkg/raw_wasm';
 // Metadata needs neither pixel buffers nor Rayon. Never used for render ticks.
 const ready = init({ module_or_path: '/raw_wasm_bg.wasm' });
 addEventListener(
@@ -7,16 +12,28 @@ addEventListener(
   async (
     event: MessageEvent<{
       id: number;
+      operation: 'read' | 'embed' | 'checkpoint' | 'filename';
       xmp: string;
       json?: string;
     }>,
   ) => {
     try {
       await ready;
-      const value =
-        event.data.json === undefined
-          ? workflow_read_xmp(event.data.xmp)
-          : workflow_embed_xmp(event.data.json, event.data.xmp);
+      const convert = () => {
+        switch (event.data.operation) {
+          case 'read':
+            return workflow_read_xmp(event.data.xmp);
+          case 'embed':
+            return workflow_embed_xmp(event.data.json!, event.data.xmp);
+          case 'checkpoint':
+            return workflow_checkpoint_xmp(event.data.xmp);
+          case 'filename':
+            return workflow_variant_filename(event.data.xmp, event.data.json!);
+          default:
+            throw Error('Unsupported workflow operation');
+        }
+      };
+      const value = convert();
       postMessage({ id: event.data.id, value });
     } catch (error) {
       postMessage({

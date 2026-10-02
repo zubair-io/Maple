@@ -8,6 +8,93 @@ const CORPUS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../test-fixtures/workflow/contract-v1.json"
 ));
+
+#[test]
+fn sibling_paths_and_checkpoint_capture_match_core_and_keep_failure_buffers_unchanged() {
+    let rows: Vec<SidecarWorkflow> = serde_json::from_str(CORPUS).unwrap();
+    let record = &rows[1];
+    let name = "photo.MOV.xmp";
+    let mut out = vec![0; WORKFLOW_MAX_BYTES];
+    let mut len = 0;
+    assert_eq!(
+        unsafe {
+            maple_workflow_variant_filename(
+                name.as_ptr(),
+                name.len(),
+                record.variant_id.as_ptr(),
+                record.variant_id.len(),
+                out.as_mut_ptr(),
+                out.len(),
+                &mut len,
+            )
+        },
+        0
+    );
+    assert_eq!(
+        &out[..len],
+        raw_core::workflow::variant_filename(name, &record.variant_id)
+            .unwrap()
+            .as_bytes()
+    );
+    let embedded = record.embed_in_xmp(XMP).unwrap();
+    assert_eq!(
+        unsafe {
+            maple_workflow_checkpoint_xmp(
+                embedded.as_ptr(),
+                embedded.len(),
+                out.as_mut_ptr(),
+                out.len(),
+                &mut len,
+            )
+        },
+        0
+    );
+    assert_eq!(
+        &out[..len],
+        SidecarWorkflow::checkpoint_xmp(&embedded)
+            .unwrap()
+            .as_bytes()
+    );
+    let future = embedded.replace("<papp:SchemaVersion>1", "<papp:SchemaVersion>2");
+    for xml in [&future, &embedded, "bad XML"] {
+        let mut out = [73; 1];
+        let mut len = 42;
+        assert_ne!(
+            unsafe {
+                maple_workflow_checkpoint_xmp(
+                    xml.as_ptr(),
+                    xml.len(),
+                    out.as_mut_ptr(),
+                    out.len(),
+                    &mut len,
+                )
+            },
+            0
+        );
+        assert_eq!(out, [73]);
+        assert_eq!(len, 42);
+    }
+    for id in ["../primary", &record.variant_id] {
+        let mut out = [73; 1];
+        let mut len = 42;
+        assert_ne!(
+            unsafe {
+                maple_workflow_variant_filename(
+                    name.as_ptr(),
+                    name.len(),
+                    id.as_ptr(),
+                    id.len(),
+                    out.as_mut_ptr(),
+                    out.len(),
+                    &mut len,
+                )
+            },
+            0
+        );
+        assert_eq!(out, [73]);
+        assert_eq!(len, 42);
+    }
+}
 #[test]
 fn ffi_roundtrip_is_identical_to_core_and_keeps_absence_explicit() {
     let rows: Vec<SidecarWorkflow> = serde_json::from_str(CORPUS).unwrap();

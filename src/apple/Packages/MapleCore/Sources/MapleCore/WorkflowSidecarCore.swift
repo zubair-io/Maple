@@ -8,48 +8,65 @@ public struct WorkflowSidecarError: Error, LocalizedError {
 }
 public enum WorkflowSidecarCore {
   public static func read(xmp: String) throws -> SidecarWorkflow? {
-    let json = try convert(json: nil, xmp: xmp)
+    let json = try convert(.read, xmp)
     return try JSONDecoder().decode(SidecarWorkflow?.self, from: Data(json.utf8))
   }
   public static func embed(_ workflow: SidecarWorkflow, in xmp: String) throws -> String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.withoutEscapingSlashes]
     let json = String(decoding: try encoder.encode(workflow), as: UTF8.self)
-    return try convert(json: json, xmp: xmp)
+    return try convert(.embed, json, xmp)
   }
   public static func validate(_ workflow: SidecarWorkflow) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.withoutEscapingSlashes]
     let json = String(decoding: try encoder.encode(workflow), as: UTF8.self)
-    _ = try convert(json: json, xmp: nil)
+    _ = try convert(.validate, json)
   }
-  private static func convert(json: String?, xmp: String?) throws -> String {
-    let jsonBytes = Array((json ?? "").utf8)
-    let xmpBytes = Array((xmp ?? "").utf8)
-    guard jsonBytes.count <= WorkflowContract.maxBytes, xmpBytes.count <= WorkflowContract.maxBytes
+  /// Complete current adjustments without recursively embedding prior history (#4039).
+  public static func checkpoint(xmp: String) throws -> String {
+    try convert(.checkpoint, xmp)
+  }
+  public static func variantFilename(primaryName: String, variantId: String) throws -> String {
+    try convert(.filename, primaryName, variantId)
+  }
+  private enum Operation { case read, embed, validate, checkpoint, filename }
+  private static func convert(_ operation: Operation, _ first: String, _ second: String = "") throws
+    -> String
+  {
+    let firstBytes = Array(first.utf8)
+    let secondBytes = Array(second.utf8)
+    guard firstBytes.count <= WorkflowContract.maxBytes,
+      secondBytes.count <= WorkflowContract.maxBytes
     else {
       throw WorkflowSidecarError(message: "Workflow input exceeds byte budget")
     }
-    let jsonInput = jsonBytes.isEmpty ? [UInt8(0)] : jsonBytes
-    let xmpInput = xmpBytes.isEmpty ? [UInt8(0)] : xmpBytes
+    let firstInput = firstBytes.isEmpty ? [UInt8(0)] : firstBytes
+    let secondInput = secondBytes.isEmpty ? [UInt8(0)] : secondBytes
     var output = [UInt8](repeating: 0, count: WorkflowContract.maxBytes)
     var length: UInt = 0
-    let code = jsonInput.withUnsafeBufferPointer { jsonBuffer in
-      xmpInput.withUnsafeBufferPointer { xmpBuffer in
+    let code = firstInput.withUnsafeBufferPointer { input in
+      secondInput.withUnsafeBufferPointer { extra in
         output.withUnsafeMutableBufferPointer { out in
-          if json == nil {
+          switch operation {
+          case .read:
             return maple_workflow_read_xmp(
-              xmpBuffer.baseAddress, UInt(xmpBytes.count), out.baseAddress, UInt(out.count), &length
-            )
-          }
-          if xmp == nil {
+              input.baseAddress, UInt(firstBytes.count), out.baseAddress, UInt(out.count), &length)
+          case .validate:
             return maple_workflow_validate_json(
-              jsonBuffer.baseAddress, UInt(jsonBytes.count), out.baseAddress, UInt(out.count),
-              &length)
+              input.baseAddress, UInt(firstBytes.count), out.baseAddress, UInt(out.count), &length)
+          case .checkpoint:
+            return maple_workflow_checkpoint_xmp(
+              input.baseAddress, UInt(firstBytes.count), out.baseAddress, UInt(out.count), &length)
+          case .embed:
+            return maple_workflow_embed_xmp(
+              input.baseAddress, UInt(firstBytes.count), extra.baseAddress, UInt(secondBytes.count),
+              out.baseAddress, UInt(out.count), &length)
+          case .filename:
+            return maple_workflow_variant_filename(
+              input.baseAddress, UInt(firstBytes.count), extra.baseAddress, UInt(secondBytes.count),
+              out.baseAddress, UInt(out.count), &length)
           }
-          return maple_workflow_embed_xmp(
-            jsonBuffer.baseAddress, UInt(jsonBytes.count), xmpBuffer.baseAddress,
-            UInt(xmpBytes.count), out.baseAddress, UInt(out.count), &length)
         }
       }
     }
