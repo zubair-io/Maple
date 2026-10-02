@@ -189,7 +189,7 @@ describe('Hosted SSR Worker', () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
-		expect(response.headers.get('cache-control')).toBe('no-cache');
+		expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
 		expect(await response.text()).toBe('<html>app shell</html>');
 	});
 
@@ -223,6 +223,37 @@ describe('Hosted SSR Worker', () => {
 
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe('<html>app shell</html>');
+	});
+
+	it.each([
+		[undefined, 'no-transform'],
+		['no-cache', 'no-cache, no-transform'],
+		['private, max-age=60', 'private, max-age=60, no-transform'],
+		['public, max-age=60, NO-TRANSFORM', 'public, max-age=60, NO-TRANSFORM'],
+	])('protects direct HTML from edge injection while preserving %s', async (cache, expected) => {
+		const html = '<html><script src="/main.abc.js"></script></html>';
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/index.html', method: 'GET' })
+			.reply(200, html, {
+				headers: {
+					'content-type': 'text/html; charset=utf-8',
+					...(cache ? { 'cache-control': cache } : {}),
+					etag: '"build-1"',
+				},
+			});
+		const response = await worker.fetch(
+			navigationRequest('https://mapleaperture.com/index.html'),
+			env,
+			createExecutionContext(),
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get('cache-control')).toBe(expected);
+		expect(response.headers.get('etag')).toBe('"build-1"');
+		expect(response.headers.get('content-security-policy')).toContain(
+			"script-src 'self' 'wasm-unsafe-eval'",
+		);
+		expect(await response.text()).toBe(html);
 	});
 
 	it('does not carry a stale If-None-Match from the deep-link request onto the index.html fallback fetch', async () => {

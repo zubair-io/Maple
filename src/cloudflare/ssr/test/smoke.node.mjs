@@ -29,7 +29,7 @@ async function runSmoke(change = () => {}, changeOrigin = () => {}) {
 				headers: {
 					...policy,
 					'content-type': asset?.[0] ?? 'text/html',
-					'cache-control': 'no-cache',
+					'cache-control': asset || missing ? 'no-cache' : 'no-cache, no-transform',
 				},
 				body: asset?.[1] ?? Buffer.from(missing ? 'missing' : '<html>Maple</html>'),
 			};
@@ -69,6 +69,22 @@ test('CLI proves complete bytes against the origin and accepts valid delivery', 
 	assert.equal(result.code, 0, result.output);
 	assert.match(result.output, /sha256=/);
 });
+
+for (const path of ['/', '/browse/smoke-check-library/does-not-exist']) {
+	test(`CLI rejects unguarded or transformed HTML at ${path}`, async () => {
+		const unguarded = await runSmoke((requestPath, response) => {
+			if (requestPath === path) response.headers['cache-control'] = 'no-cache';
+		});
+		assert.equal(unguarded.code, 1, unguarded.output);
+		assert.match(unguarded.output, /no-transform/);
+		const transformed = await runSmoke((requestPath, response) => {
+			if (requestPath === path)
+				response.body = Buffer.from('<html>Maple<script src="/beacon.js"></script></html>');
+		});
+		assert.equal(transformed.code, 1, transformed.output);
+		assert.match(transformed.output, /HTML SHA-256 differs from origin/);
+	});
+}
 
 for (const path of Object.keys(assets)) {
 	test(`CLI detects equal-length corruption beyond magic bytes: ${path}`, async () => {

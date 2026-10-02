@@ -136,6 +136,32 @@ async function checkWoff2() {
 	await checkBinaryAsset(WOFF2_ASSET, 'font/woff2', WOFF2_MAGIC, 'woff2');
 }
 
+async function checkHtmlIntegrity(response, path) {
+	const cache = response.headers.get('cache-control') ?? '';
+	if (!cache.split(',').some((directive) => directive.trim().toLowerCase() === 'no-transform')) {
+		fail('html-integrity', `${path} must forbid edge transformation with no-transform`);
+	}
+	const [buffer, origin] = await Promise.all([
+		response.arrayBuffer(),
+		fetchBytes(originUrl, '/index.html'),
+	]);
+	if (origin.response.status !== 200) {
+		fail('html-integrity', `/index.html origin returned ${origin.response.status}`);
+	} else {
+		const edgeHash = createHash('sha256').update(new Uint8Array(buffer)).digest('hex');
+		const originHash = createHash('sha256').update(origin.buffer).digest('hex');
+		if (edgeHash !== originHash) {
+			fail(
+				'html-integrity',
+				`${path} HTML SHA-256 differs from origin: edge=${edgeHash}, origin=${originHash}`,
+			);
+		} else {
+			console.log(`html ${path}: ${buffer.byteLength} bytes, sha256=${edgeHash} (matches origin)`);
+		}
+	}
+	return new TextDecoder().decode(buffer);
+}
+
 async function checkHeaders() {
 	const response = await fetchResponse(baseUrl, '/', {
 		headers: { accept: 'text/html', 'sec-fetch-mode': 'navigate' },
@@ -143,7 +169,7 @@ async function checkHeaders() {
 	if (response.status !== 200) fail('headers', `/ returned ${response.status}, expected 200`);
 	checkSecurityHeaders(response, '/');
 	checkStableCache(response, '/');
-	await response.body?.cancel();
+	await checkHtmlIntegrity(response, '/');
 }
 
 async function checkServiceWorkerManifest() {
@@ -176,7 +202,7 @@ async function checkDeepLinkSpaFallback() {
 	if (!contentType.includes('text/html')) {
 		fail('spa-fallback', `${DEEP_LINK_PATH} content-type is "${contentType}", expected text/html`);
 	}
-	const body = await response.text();
+	const body = await checkHtmlIntegrity(response, DEEP_LINK_PATH);
 	if (!body.includes('<html') && !body.toLowerCase().includes('<!doctype html')) {
 		fail('spa-fallback', `${DEEP_LINK_PATH} body does not look like the app shell`);
 	}
