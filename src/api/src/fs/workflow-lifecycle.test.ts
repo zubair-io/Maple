@@ -57,6 +57,25 @@ async function expectVariant(file: string, xml: string, id = ID) {
 }
 
 describe('portable variant asset lifecycle', () => {
+  test('pairing and trash preserve a UUID sidecar belonging to a differently cased stem', async () => {
+    const source = await stage('case', 'IMG_1.dng');
+    const foreign = path.join(path.dirname(source.primary), 'img_1.v' + OTHER + '.xmp');
+    const foreignXml = source.xml.replaceAll(ID, OTHER);
+    await fs.writeFile(foreign, foreignXml);
+    const paired = await listPairedSidecarsStrict(source.primary);
+    expect(paired.toSorted()).toEqual([source.sidecar, source.variant].toSorted());
+    const trash = await moveToTrash(source.primary, root);
+    if (trash.kind !== 'ok') throw Error(trash.error);
+    expect(await fs.readFile(trash.newAbsPath, 'utf8')).toBe(source.original);
+    await expectVariant(
+      sidecarRenameTarget(source.primary, trash.newAbsPath, source.variant)!,
+      source.xml,
+    );
+    expect(await fs.readFile(foreign, 'utf8')).toBe(foreignXml);
+    await fs.access(foreign);
+    await expect(fs.access(source.variant)).rejects.toThrow();
+  });
+
   test('browse pairing associates canonical photo/video UUID siblings with distinct originals', () => {
     expect(canonicalBaseFromSidecarFilename('photo.v' + ID + '.xmp')).toBe('photo');
     expect(canonicalBaseFromSidecarFilename('photo.MOV.v' + ID + '.xmp')).toBe('photo.MOV');

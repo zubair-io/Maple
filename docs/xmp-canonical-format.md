@@ -550,7 +550,10 @@ for browse, relocate, trash, verified restore, duplicate quarantine, and purge
 stay intact. Video branches retain the full video filename (including a changed
 extension). Orphan branches occupy a restore destination, preventing accidental
 association with a different original. Foreign version suffixes and backups are
-excluded. Apple asset-level variant relocation still follows under #2437.
+excluded. UUID branch pairing preserves the exact original stem case (#4050), so
+a differently cased original cannot claim another asset's branch on a
+case-sensitive filesystem. Apple asset-level variant relocation still follows
+under #2437.
 
 `raw-core::workflow` declares the versioned variant identity/name, named checkpoint,
 and committed semantic history wire records. `tools/codegen.sh` generates the
