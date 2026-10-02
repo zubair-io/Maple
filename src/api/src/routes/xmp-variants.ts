@@ -4,6 +4,9 @@ import { resolveAndAuthorizePath } from './xmp-path-auth';
 import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 import {
   createWorkflowVariant,
+  commitWorkflowVariant,
+  snapshotWorkflowVariant,
+  restoreWorkflowVariant,
   listWorkflowVariants,
   readWorkflowVariant,
   writeWorkflowVariant,
@@ -79,5 +82,67 @@ export const xmpVariantRoutes = new Elysia()
       body: t.String(),
       parse: 'text',
       detail: { tags: ['xmp'], summary: 'Atomically save one selected variant' },
+    },
+  )
+  .post(
+    '/api/xmp/variant/commit',
+    async ({ rawPath, query, body, set }) => {
+      const output = await commitWorkflowVariant(
+        rawPath,
+        query.variantId,
+        body.expectedXmp,
+        body.xmp,
+        body.entry,
+      );
+      set.headers['Content-Type'] = 'application/xml';
+      return output;
+    },
+    {
+      query: t.Object({ path: t.String(), variantId: t.String() }),
+      body: t.Object({
+        expectedXmp: t.Union([t.String(), t.Null()]),
+        xmp: t.String(),
+        entry: t.Any(),
+      }),
+      detail: { tags: ['xmp'], summary: 'Confirm a selected variant semantic adjustment commit' },
+    },
+  )
+  .post(
+    '/api/xmp/variant/snapshot',
+    async ({ rawPath, query, body, set }) => {
+      const output = await snapshotWorkflowVariant(
+        rawPath,
+        query.variantId,
+        body.expectedXmp,
+        body.snapshot,
+      );
+      set.headers['Content-Type'] = 'application/xml';
+      return output;
+    },
+    {
+      query: t.Object({ path: t.String(), variantId: t.String() }),
+      body: t.Object({ expectedXmp: t.String(), snapshot: t.Any() }),
+      detail: {
+        tags: ['xmp'],
+        summary: 'Confirm an immutable named snapshot in the selected variant',
+      },
+    },
+  )
+  .post(
+    '/api/xmp/variant/restore',
+    async ({ rawPath, query, body, set }) => {
+      const output = await restoreWorkflowVariant(
+        rawPath,
+        query.variantId,
+        body.expectedXmp,
+        body.entry,
+      );
+      set.headers['Content-Type'] = 'application/xml';
+      return output;
+    },
+    {
+      query: t.Object({ path: t.String(), variantId: t.String() }),
+      body: t.Object({ expectedXmp: t.String(), entry: t.Any() }),
+      detail: { tags: ['xmp'], summary: 'Confirm a recorded snapshot or history restore' },
     },
   );

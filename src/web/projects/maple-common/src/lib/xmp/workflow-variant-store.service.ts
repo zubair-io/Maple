@@ -6,6 +6,8 @@ import {
   PRIMARY_VARIANT_ID,
   parseSidecarWorkflow,
   type SidecarWorkflow,
+  type WorkflowHistoryEntry,
+  type WorkflowSnapshot,
 } from '../generated/workflow.generated';
 import { WorkflowXmpService } from './workflow-xmp.service';
 
@@ -97,6 +99,69 @@ export class WorkflowVariantStoreService {
         nextRecord === null && oldRecord !== null ? await this.core.embed(oldRecord, xmp) : xmp;
       this.requireIdentity(nextRecord ?? oldRecord, variantId, filename);
       await this.access.writeFile(folder, filename, new TextEncoder().encode(output));
+    });
+  }
+
+  commit(
+    folder: MapleFolderHandle,
+    primaryName: string,
+    variantId: string,
+    expectedXmp: string | null,
+    xmp: string,
+    entry: WorkflowHistoryEntry,
+  ): Promise<string> {
+    return this.mutate(folder, primaryName, variantId, expectedXmp, async (current) => {
+      const checkpoint = await this.core.checkpoint(xmp);
+      const record = current === null ? null : await this.core.read(current);
+      const candidate = record === null ? checkpoint : await this.core.embed(record, checkpoint);
+      return this.core.commit(entry, candidate);
+    });
+  }
+
+  saveSnapshot(
+    folder: MapleFolderHandle,
+    primaryName: string,
+    variantId: string,
+    expectedXmp: string,
+    snapshot: WorkflowSnapshot,
+  ): Promise<string> {
+    return this.mutate(folder, primaryName, variantId, expectedXmp, async (current) => {
+      if (current === null)
+        throw Error('Commit the source adjustments before creating a snapshot.');
+      return this.core.snapshot(snapshot, current);
+    });
+  }
+
+  restore(
+    folder: MapleFolderHandle,
+    primaryName: string,
+    variantId: string,
+    expectedXmp: string,
+    entry: WorkflowHistoryEntry,
+  ): Promise<string> {
+    return this.mutate(folder, primaryName, variantId, expectedXmp, async (current) => {
+      if (current === null) throw Error('The sidecar is missing. Restore it before editing.');
+      return this.core.restore(entry, current);
+    });
+  }
+
+  private async mutate(
+    folder: MapleFolderHandle,
+    primaryName: string,
+    variantId: string,
+    expectedXmp: string | null,
+    convert: (current: string | null) => Promise<string>,
+  ): Promise<string> {
+    this.requireWrite(folder);
+    return navigator.locks.request('maple-workflow-variant:' + variantId, async () => {
+      const filename = await this.core.variantFilename(primaryName, variantId);
+      const current = await this.read(folder, primaryName, variantId);
+      if (current !== expectedXmp)
+        throw Error('Variant changed. Reopen it before saving this action.');
+      const output = await convert(current);
+      this.requireIdentity(await this.core.read(output), variantId, filename);
+      await this.access.writeFile(folder, filename, new TextEncoder().encode(output));
+      return output;
     });
   }
 

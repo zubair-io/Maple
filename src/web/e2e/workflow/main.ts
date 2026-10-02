@@ -148,7 +148,14 @@ Object.assign(window, {
           label: 'Committed exposure',
           adjustmentXmp: await core.checkpoint(xml),
         });
-        const first = await core.commit(await entry(input), input);
+        const first = await store.commit(
+          folder,
+          'photo.xmp',
+          'primary',
+          input,
+          input,
+          await entry(input),
+        );
         const captured = await core.checkpoint(first);
         const snapshot = {
           id: crypto.randomUUID(),
@@ -156,13 +163,19 @@ Object.assign(window, {
           createdAtMs: Date.now(),
           adjustmentXmp: captured,
         };
-        const saved = await core.snapshot(snapshot, first);
+        const saved = await store.saveSnapshot(folder, 'photo.xmp', 'primary', first, snapshot);
         const edited = saved.replace(
           'crs:ProcessVersion="15.4"',
           'crs:ProcessVersion="15.4" crs:Exposure2012="1.25"',
         );
-        const next = await core.commit(await entry(edited), edited);
-        await store.write(folder, 'photo.xmp', 'primary', next);
+        const next = await store.commit(
+          folder,
+          'photo.xmp',
+          'primary',
+          saved,
+          edited,
+          await entry(edited),
+        );
         const restoreEntry = await entry(captured, 'snapshot-restore');
         const staleEntry = await entry(saved);
         const forgedRestore = await entry(edited, 'snapshot-restore');
@@ -174,8 +187,13 @@ Object.assign(window, {
         );
         const reopened = await freshStore.read(folder, 'photo.xmp', 'primary');
         if (reopened === null) throw Error('Committed history disappeared');
-        const restored = await freshCore.restore(restoreEntry, reopened);
-        await freshStore.write(folder, 'photo.xmp', 'primary', restored);
+        const restored = await freshStore.restore(
+          folder,
+          'photo.xmp',
+          'primary',
+          reopened,
+          restoreEntry,
+        );
         const record = await freshCore.read(restored);
         const reject = async (operation: () => Promise<string>) => {
           try {
@@ -185,9 +203,15 @@ Object.assign(window, {
             return true;
           }
         };
-        const stale = await reject(() => freshCore.commit(staleEntry, edited));
-        const duplicate = await reject(() => freshCore.snapshot(snapshot, restored));
-        const forged = await reject(() => freshCore.restore(forgedRestore, restored));
+        const stale = await reject(() =>
+          freshStore.commit(folder, 'photo.xmp', 'primary', reopened, edited, staleEntry),
+        );
+        const duplicate = await reject(() =>
+          freshStore.saveSnapshot(folder, 'photo.xmp', 'primary', restored, snapshot),
+        );
+        const forged = await reject(() =>
+          freshStore.restore(folder, 'photo.xmp', 'primary', restored, forgedRestore),
+        );
         const future = restored.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
         const futureReject = await reject(() => freshCore.restore(restoreEntry, future));
         return {
@@ -213,6 +237,59 @@ Object.assign(window, {
         };
       } finally {
         environment.destroy();
+        await root.removeEntry(directoryName, { recursive: true });
+      }
+    },
+    async confirmedRace(input: string, absent: boolean) {
+      const root = await navigator.storage.getDirectory();
+      const directoryName = 'maple-confirmed-race-' + crypto.randomUUID();
+      const native = await root.getDirectoryHandle(directoryName, { create: true });
+      const folder = { native, name: directoryName, read: true, write: true };
+      const environments = [injector(), injector()];
+      try {
+        const access = environments[0].get(FolderAccessService);
+        await access.writeFile(folder, 'photo.dng', new Uint8Array([1, 0, 255, 42]));
+        if (!absent) await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(input));
+        const attempts = await Promise.allSettled(
+          Array.from({ length: 8 }, (_, i) => {
+            const store = environments[i % environments.length].get(WorkflowVariantStoreService);
+            return store.commit(folder, 'photo.xmp', 'primary', absent ? null : input, input, {
+              id: crypto.randomUUID(),
+              createdAtMs: 1,
+              action: 'adjustment',
+              label: 'Exposure',
+              adjustmentXmp: input,
+            });
+          }),
+        );
+        const store = environments[0].get(WorkflowVariantStoreService);
+        const saved = await store.read(folder, 'photo.xmp', 'primary');
+        if (saved === null) throw Error('Confirmed sidecar disappeared');
+        const core = environments[0].get(WorkflowXmpService);
+        const record = await core.read(saved);
+        const next = await store.commit(folder, 'photo.xmp', 'primary', saved, input, {
+          id: crypto.randomUUID(),
+          createdAtMs: 2,
+          action: 'adjustment',
+          label: 'Retry after reopen',
+          adjustmentXmp: input,
+        });
+        return {
+          winners: attempts.filter((attempt) => attempt.status === 'fulfilled').length,
+          stale: attempts.filter(
+            (attempt) =>
+              attempt.status === 'rejected' && String(attempt.reason).includes('changed'),
+          ).length,
+          count: record?.history.length,
+          acknowledged: attempts.some(
+            (attempt) => attempt.status === 'fulfilled' && attempt.value === saved,
+          ),
+          retryCount: (await core.read(next))?.history.length,
+          retryAcknowledged: (await store.read(folder, 'photo.xmp', 'primary')) === next,
+          original: Array.from(await access.readFile(folder, 'photo.dng')),
+        };
+      } finally {
+        for (const environment of environments) environment.destroy();
         await root.removeEntry(directoryName, { recursive: true });
       }
     },

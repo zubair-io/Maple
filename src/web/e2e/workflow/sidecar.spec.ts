@@ -154,3 +154,20 @@ test('real WASM semantic history and snapshot restore survive browser storage an
     expect(result[field], field).toBe(true);
   expect(result.original).toEqual([1, 0, 255, 42]);
 });
+
+for (const absent of [false, true])
+  test(`confirmed browser writes have one winner across store instances (primary absent=${absent})`, async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ xml, absent }) => Reflect.get(window, 'workflowTest').confirmedRace(xml, absent),
+      { xml, absent },
+    );
+    expect(result.winners).toBe(1);
+    expect(result.stale).toBe(7);
+    expect(result.count).toBe(1);
+    expect(result.acknowledged).toBe(true);
+    expect(result.retryCount).toBe(2);
+    expect(result.retryAcknowledged).toBe(true);
+    expect(result.original).toEqual([1, 0, 255, 42]);
+  });
