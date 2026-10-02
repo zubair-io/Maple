@@ -163,12 +163,25 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
     try FileManager.default.createDirectory(
       at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    let developed = Data([0xFF, 0xD8, 0xAA, 0xBB, 0xFF, 0xD9])
+    // #4037: a served rendered tier must be an actual decodable derivative.
+    let rendered = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 250))
+    let developed = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: rendered))
     try developed.write(to: previewURL)
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
     XCTAssertEqual(data, developed)
+  }
+
+  func testEditedSidecarRejectsCorruptRenderedTier() async throws {
+    let assetURL = try writeJPEG(named: "corrupt.jpg", width: 400, height: 250)
+    try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))
+    let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+    try FileManager.default.createDirectory(
+      at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try Data([0xFF, 0xD8, 0xAA, 0xBB, 0xFF, 0xD9]).write(to: previewURL)
+    let data = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: assetURL))
+    XCTAssertNil(data)
   }
 
   // MARK: - Encode
