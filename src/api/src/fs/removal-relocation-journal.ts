@@ -6,6 +6,7 @@ import { ffiPool } from '../ffi/ffi-pool.ts';
 import { removalRecords } from './removal-records.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { removalRelocationLease } from './removal-relocation-lease.ts';
+import { isWithinRoot } from './root.ts';
 
 interface JournalFile {
   name: string;
@@ -214,7 +215,7 @@ export async function assertRemovalRecovered(target: string) {
 }
 
 /** Run before collision resolution: an abandoned partial file is not an occupant. */
-export async function recoverRemovalRelocation(target: string) {
+export async function recoverRemovalRelocation(target: string, sourceRoots?: readonly string[]) {
   const record = await readJournal(target);
   if (!record) return;
   const sourceExists = await fs.lstat(record.source).catch((error: unknown) => {
@@ -222,6 +223,13 @@ export async function recoverRemovalRelocation(target: string) {
       return null;
     throw error;
   });
+  // Passive discovery must not create coordination files at a source named
+  // by an on-disk journal outside the server's registered libraries.
+  if (sourceRoots && sourceExists) {
+    const source = await fs.realpath(record.source);
+    if (!sourceRoots.some((root) => isWithinRoot(root, source)))
+      throw new Error('Removal recovery source is outside registered libraries; evidence retained');
+  }
   const lease = await removalRelocationLease(
     sourceExists?.isFile() && !sourceExists.isSymbolicLink() ? record.source : target,
     target,

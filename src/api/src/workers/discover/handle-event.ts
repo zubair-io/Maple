@@ -41,6 +41,7 @@ import { libraryRootAvailable, statKind } from '../missing-reaper.helpers.ts';
 import { buildFileinfoEntry } from './types.ts';
 import { refusesReservedTreeEvent } from './reserved-trees.ts';
 import { classifyMediaType } from '../../indexer/media-types.ts';
+import { recoverRemovalForDiscover } from './removal-recovery.ts';
 
 const log = child('discover');
 
@@ -60,6 +61,9 @@ export async function handleEvent(
   // Reserved trees (`.maple/` cache, `_duplicates/` quarantine) must never be
   // indexed, whatever the producer — see `reserved-trees.ts` for why.
   if (refusesReservedTreeEvent(event, libraryRoot)) return;
+  if (!buildFileinfoEntry(libraryRoot, absPath, folderId)) return;
+  if (!(await recoverRemovalForDiscover(absPath, libraryRoot))) return;
+  if (fromPath && !(await recoverRemovalForDiscover(fromPath, libraryRoot))) return;
 
   if (kind === 'removed') return handleRemoved(absPath, folderId, libraryRoot);
   if (kind === 'renamed' && fromPath)

@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import * as fs from './mirrored.ts';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { maple } from 'maple';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { nativeLibAvailable } from '../ffi/raw_ffi.ts';
@@ -10,6 +11,7 @@ import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated.ts';
 import { relocateFile } from './relocate.ts';
 import { removalRecords } from './removal-records.ts';
 import { moveToTrash, moveOutOfTrash } from './trash.ts';
+import { removalJournalPath, recoverRemovalRelocation } from './removal-relocation-journal.ts';
 
 const fixture = resolve(import.meta.dir, '../../../../test-fixtures/removal/calibration');
 describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removals (#1472)', () => {
@@ -42,7 +44,7 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     const sidecar = path.replace(/\.[^.]+$/, '.xmp');
     expect(await fs.readFile(path)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
     expect(await fs.readFile(sidecar, 'utf8')).toBe(xml);
-    const output = join(root, 'oracle.png');
+    const output = join(root, `oracle-${randomUUID()}.png`);
     expect(
       await ffiPool().exportRecipeToFile(
         path,
@@ -236,7 +238,7 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     }, 30_000);
   }
 
-  it('failed identity repoint restores both replacement occupants and leaves originals intact', async () => {
+  it('unconfirmed identity repoint retains both complete edits and recovery evidence', async () => {
     await fs.mkdir(dirname(target), { recursive: true });
     await fs.writeFile(target, 'previous occupant');
     await fs.writeFile(target.replace('.dng', '.xmp'), 'previous edits');
@@ -251,13 +253,16 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     });
     expect(result.kind).toBe('error');
     expect(result.kind === 'error' && result.error).toContain('repoint refused');
-    expect(await fs.readFile(target, 'utf8')).toBe('previous occupant');
-    expect(await fs.readFile(target.replace('.dng', '.xmp'), 'utf8')).toBe('previous edits');
+    await assertDestinationPixels(target);
     expect(await fs.readFile(raw)).toEqual(await fs.readFile(join(fixture, 'source.dng')));
     expect(await fs.readFile(xmp, 'utf8')).toBe(xml);
-    expect((await fs.readdir(dirname(target))).filter((name) => name.includes('.tmp.'))).toEqual(
-      [],
-    );
+    expect(await fs.stat(removalJournalPath(target))).toBeDefined();
+    expect(
+      (await fs.readdir(dirname(target))).filter((name) => name.endsWith('.rollback')),
+    ).toHaveLength(2);
+    await recoverRemovalRelocation(target);
+    await assertDestinationPixels(target);
+    await expect(fs.stat(removalJournalPath(target))).rejects.toThrow();
   }, 30_000);
 
   it('later source edits after identity repoint retain both complete copies', async () => {
@@ -298,7 +303,6 @@ describe.skipIf(!nativeLibAvailable())('RAW relocation preserves durable removal
     expect(trashed.kind).toBe('ok');
     if (trashed.kind !== 'ok') throw new Error('Trash did not publish a path');
     await assertDestinationPixels(trashed.newAbsPath);
-    await fs.rm(join(root, 'oracle.png'));
     const restored = await moveOutOfTrash(trashed.newAbsPath, raw);
     expect(restored.kind).toBe('ok');
     if (restored.kind !== 'ok') throw new Error('Restore did not publish a path');
