@@ -26,6 +26,27 @@ shared Auto-quality display chain, before any host image conversion. C and Swift
 saved-session tests compare those bytes and decode lossless exports. This is a
 synthetic interoperability fixture, not photographic or device qualification.
 
+The calibration generator also emits quality-90 JPEG references directly from
+those committed RGB pixels. API tests use them as independent lossy-derivative
+oracles, rather than comparing two RAW renders that could both omit a patch.
+The real child worker tests cover lossless recipe exports, developed JPEG,
+histograms, schema-5 disable/re-enable, cold/warm/regenerated AVIF caches and
+fail-closed handling of missing/corrupt assets, changed originals and future
+schemas. Real SQLite export jobs additionally verify queued edit snapshots,
+per-photo companion failures and recovery after lost publication acknowledgement.
+The API library is built without authoring inference; accepted edits need no
+installed model. A missing native build visibly skips and proves no qualification.
+The first local run passes all 14 new tests without skips; measured results and
+the remaining scope limits are recorded in
+[`removal-api-saved-consumers-1472.json`](../qualification/removal-api-saved-consumers-1472.json).
+
+```sh
+./src/api/scripts/build-raw-ffi.sh
+cd src/api
+bun install --frozen-lockfile
+bun test src/indexer/removal-sidecar-derivatives.test.ts src/export/removal-export.integration.test.ts
+```
+
 ```sh
 cargo run --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --features test-support --example removal-fixture -- test-fixtures/removal/calibration --calibration
 cp test-fixtures/removal/calibration/* src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/removal/calibration/
