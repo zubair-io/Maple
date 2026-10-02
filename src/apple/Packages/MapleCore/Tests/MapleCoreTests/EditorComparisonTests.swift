@@ -172,7 +172,7 @@ final class EditorComparisonTests: XCTestCase {
     XCTAssertFalse(session.canUndo)
   }
 
-  func testComparisonRequestTracksLateLegacyWhiteBalanceAnchor() {
+  func testComparisonRequestIgnoresFrameLessMetadataWhiteBalanceEstimate() {
     let session = EditSession.preview()
     let comparison = EditorComparison(session: session)
     let viewport = CGSize(width: 32, height: 32)
@@ -180,8 +180,8 @@ final class EditorComparisonTests: XCTestCase {
     session.asShotCCT = 4200
     session.asShotTint = -8
     let after = comparison.request(viewport: viewport)
-    XCTAssertNotEqual(before, after)
-    XCTAssertEqual(after.asShot, .init(temperature: 4200, tint: -8))
+    XCTAssertEqual(before, after)
+    XCTAssertNil(after.asShot, "Frame-less RAW uses absolute CAT16 in the shared renderer")
   }
 
   private func red(_ image: CIImage) throws -> Float {

@@ -23,6 +23,76 @@ final class RemovalExportSnapshotTests: XCTestCase {
     return bytes
   }
 
+  @MainActor
+  func testFullSavedExportMatchesIndependentSharedRendererForFallbackWhiteBalance() async throws {
+    let previousSpace = UserDefaults.standard.object(forKey: CanvasColorSpace.defaultsKey)
+    UserDefaults.standard.set(
+      CanvasColorSpace.displayP3.rawValue, forKey: CanvasColorSpace.defaultsKey)
+    defer {
+      if let previousSpace {
+        UserDefaults.standard.set(previousSpace, forKey: CanvasColorSpace.defaultsKey)
+      } else {
+        UserDefaults.standard.removeObject(forKey: CanvasColorSpace.defaultsKey)
+      }
+    }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let raw = directory.appendingPathComponent("photo.dng")
+    let source = try fixture("source", "dng")
+    try source.write(to: raw)
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    let assets = directory.appendingPathComponent(".maple/inpaint")
+    try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+    for (name, ext, suffix) in [("mask", "mimf", "mask"), ("patch", "f16", "f16")] {
+      let data = try fixture(name, ext)
+      let digest = String(try RemovalBridge.digest(data).dropFirst(7))
+      try data.write(to: assets.appendingPathComponent("\(digest).\(suffix)"))
+    }
+    let saved = try XMPParser.parse(data: fixture("saved", "xmp")).0
+    for (accepted, temperature, tint, profile) in [
+      (false, 6500.0, 0.0, Profile.neutral), (true, 6500.0, 0.0, Profile.neutral),
+      (false, 4200.0, -8.0, Profile.neutral), (true, 4200.0, -8.0, Profile.neutral),
+      (false, 6500.0, 0.0, Profile.auto), (true, 6500.0, 0.0, Profile.auto),
+    ] {
+      var model = saved
+      if !accepted { model.inpaintRemovals = nil }
+      model.profile = profile
+      model.temperature = temperature
+      model.tint = tint
+      let xml = XMPSerializer.serialize(model: model, culling: CullingState())
+      try xml.write(to: sidecar, atomically: true, encoding: .utf8)
+      let reference = try PipelineRenderer.render(rawPath: raw, xmpPath: sidecar, quality: .amaze)
+      let actual = try await RenderActor(pipeline: ImageEditPipeline()).renderForExport(
+        asset: AssetRef(url: raw), model: model,
+        asShot: .init(temperature: 5001, tint: 9.6), qualityOverride: .amaze,
+        targetPrimariesOverride: .srgb)
+      let actualBytes = [UInt8](pixels(actual))
+      XCTAssertEqual(actualBytes.count, reference.pixels.count / 3 * 4)
+      let differences = reference.pixels.indices.map { index in
+        abs(Int(reference.pixels[index]) - Int(actualBytes[index / 3 * 4 + index % 3]))
+      }
+      XCTAssertLessThanOrEqual(
+        differences.max() ?? 0, 1,
+        "Independent shared renderer must agree for accepted=\(accepted); legacy WB has no camera frame"
+      )
+      let session = EditSession(asset: AssetRef(url: raw), model: model)
+      let encoded = try await MapleExporter.exportData(
+        session: session, options: ExportOptions(format: .png))
+      let exported = try XCTUnwrap(CIImage(data: encoded))
+      let exportBytes = [UInt8](pixels(exported))
+      XCTAssertEqual(exportBytes.count, actualBytes.count)
+      let exportDifferences = reference.pixels.indices.map { index in
+        abs(Int(reference.pixels[index]) - Int(exportBytes[index / 3 * 4 + index % 3]))
+      }
+      XCTAssertLessThanOrEqual(
+        exportDifferences.max() ?? 0, 1,
+        "Actual PNG delivery must match sRGB reference even with a P3 canvas")
+      await session.releaseTransientMemory()
+    }
+    XCTAssertEqual(try Data(contentsOf: raw), source)
+  }
+
   func testColdAndWarmExportsUseLiveRemovalSnapshotBeforeAutosave() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -291,15 +291,14 @@ extension EditSession {
     // anchors at the frame's own as-shot pair (`wbDeltaAnchor` — the
     // WB the strip-XMP decode actually baked) and the FFI derives the
     // matrix with the frame's own calibration — matching the CPU tick
-    // chain and a fresh full develop. Frame-less RAW keeps the legacy
-    // pre-decode as-shot anchor; non-RAW keeps the D65 baseline
-    // (#1734).
+    // chain and a fresh full develop. Frame-less RAW uses the absolute
+    // CAT16 sentinel (#1472); non-RAW keeps the D65 baseline (#1734).
     let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
     let anchor = wbDeltaAnchor
     let didPresent = await driver.present(
       model: m,
-      asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0,
-      asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0,
+      asShotCCT: resolvedIsRaw ? anchor?.temperature : 6500.0,
+      asShotTint: resolvedIsRaw ? anchor?.tint : 0.0,
       wbFrame: liveWbFrame,
       scopeEnabled: scopeEnabled,
       scopeLayer: scopeLayerIndex

@@ -24,11 +24,8 @@ extension RenderActor {
     // an sRGB-baked `FilmLookCube` on this function's NON-RAW result
     // when the asset has a resolvable look — the caller passes `.srgb`
     // in that case so the encode doesn't hand the cube P3-gamma bytes.
-    // The RAW branch below never needs this: a RAW export with a
-    // resolved look takes the bit-exact `maple_render_file_with_film`
-    // path instead and never reaches here (see
-    // `EditSession.renderForExport()`'s doc comment), so film is
-    // guaranteed inactive whenever the RAW branch runs.
+    // RAW and non-RAW callers may also pin the delivery primaries
+    // independently of the live canvas (#1472).
     targetPrimariesOverride: CanvasColorSpace? = nil
   ) async throws -> CIImage {
     let pipeline = self.pipeline
@@ -134,6 +131,8 @@ extension RenderActor {
     let exportNoiseProfile = exportDecodeResult.noiseProfile
     let exportISO = exportDecodeResult.iso
     let exportWbFrame = exportDecodeResult.wbFrame
+    // Frame-less RAWs use absolute CAT16 in the full develop; a metadata
+    // estimate is not a decode-baked camera WB anchor (#1472).
     let exportAnchor =
       exportWbFrame.flatMap { frame -> ImageEditPipeline.AsShotWB? in
         guard frame.isPresent else { return nil }
@@ -154,6 +153,7 @@ extension RenderActor {
           noiseProfile: exportNoiseProfile,
           iso: exportISO,
           wbFrame: exportWbFrame, whitesAnchorEv: exportDecodeResult.whitesAnchorEv,
+          targetPrimariesOverride: targetPrimariesOverride,
           nrSamplingScale: exportDecodeResult.nrSamplingScale
         )
       }

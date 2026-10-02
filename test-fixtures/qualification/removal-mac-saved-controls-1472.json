@@ -1,0 +1,122 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "scope": "Mac-first saved controls and full PNG delivery; not Mac release qualification",
+  "baseRevision": "49e5099f1bf5d76396ccc61176e346c1d9127019",
+  "sourceHashes": {
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+Derived.swift": "39df40b8725559bddc57c771944e34f1c19aa46d6acfdce7a08bb3c059afb468",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+GpuLive.swift": "6f71d096ac4b082ed3425608e1c571895b51c3bf631a80f69f82a11ec251ee6f",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+GpuPreviewPersist.swift": "baa79a467711cb1402f9e327a04425827401cf2fbad6d588198de57abdced0cd",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+RenderHelpers.swift": "378c50bf47ecc0e35797a0fa2400060dab230f807b8d473820c3316909aa40ca",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/MapleExporter.swift": "ae777d0ae20f2c6710b99e3e4299feed40886bcf2eff1a0ae14e02ba3c129cfb",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+Comparison.swift": "8ccc6caeafce572c5bd9723bd84e6ac327f19b1be946c0bb19db3042e0c5dd65",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+Export.swift": "4fe61df87a99e75cf6ecfaea27476ef1457ee34accd04eb12a3e2eb865206ba3",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/EditorComparisonTests.swift": "f65be29ffd5fc74cce197f7ea7207e5e790efd5d2461a2b7f577423e7b6222ed",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalExportSnapshotTests.swift": "7eb5a37b87e68c980882301407b4162255a7a76a2f5f1b2af7f159ba1bfa0ab9",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/WbSliderFrameTests.swift": "2dafd7a3099d73cdaa5afe0115cbe0aa7cb918c509c04974bfc0f6545d0a718d"
+  },
+  "nativeBuild": {
+    "project": "src/apple/Maple.xcodeproj",
+    "scheme": "Maple",
+    "destination": "platform=macOS",
+    "result": "BUILD SUCCEEDED",
+    "qaBundleId": "app.justmaple.removalqa1472",
+    "qaPackaging": "Full debug app/resources copied with symlinks preserved; unique QA bundle ID; URL/document/provider registrations removed; ad hoc signed. Production sandbox/signing not qualified.",
+    "qaBinarySha256": "089c9478df5b21a2f31d1bde2f5b2e1f91dfd8d730e0e43744032bbd7e11d673",
+    "qaDebugDylibSha256": "23460e718045ff9fc51cb59668c076924172042e2db70c70586a296afb10905c"
+  },
+  "manualNativeControls": {
+    "path": "Normal native folder picker / browse / edit / Remove / Saved removals; accessibility actions in isolated QA app",
+    "checks": [
+      "Disable and Enable persisted active state under the same stable ID",
+      "Replace loads the saved mask; Cancel replacement leaves XMP byte-identical",
+      "Delete, normal Cmd-Z Undo and Cmd-Shift-Z Redo round-trip exact accepted JSON",
+      "Reset all and normal Undo restore the same saved record",
+      "Cold process reopen retains enabled saved removal and exact XMP",
+      "No local AI model folder configured; retained edits load and export without inference",
+      "Rebuilt app shows GPU canvas ready and enabled saved removal after full PNG export"
+    ],
+    "schemaBefore": 4,
+    "schemaAfter": 5,
+    "recordId": "blake3:a8cc95aa771fd932e1205f1e81ff10b376c8a8168011b052b91d80ca91a3d21b",
+    "rawSha256": "24450571460687ee53852658deec26946c4a7877fe111a6ba5bb059c116f2618",
+    "rawUnchanged": true,
+    "sidecarUnchangedAcrossReopenAndFullExport": true,
+    "companionFileCount": 2,
+    "companionBytesUnchanged": true
+  },
+  "fullNativeExport": {
+    "reference": "Independent maple-cli render of the actual staged RAW/XMP/companions, default AMaZE / sRGB; no screenshot pixel comparison",
+    "before": {
+      "dimensions": [
+        16,
+        8
+      ],
+      "maxAbs8BitChannelError": 43,
+      "meanAbs8BitChannelError": 13.515625,
+      "differingChannels": 377
+    },
+    "after": {
+      "dimensions": [
+        16,
+        8
+      ],
+      "maxAbs8BitChannelError": 1,
+      "meanAbs8BitChannelError": 0.22916666666666666,
+      "differingChannels": 88
+    },
+    "perceptualAfter": {
+      "mean_deltaE": 0.10632545261567672,
+      "p95_deltaE": 0.38487599111781395,
+      "max_deltaE": 0.6258480093694616,
+      "bias_r": -0.00018382351845502853,
+      "bias_g": 6.127450615167618e-05,
+      "bias_b": -6.127450615167618e-05,
+      "n_pixels": 128
+    },
+    "causes": [
+      "Frame-less RAW decode must not use CIRAWFilter metadata as a second white-balance anchor",
+      "RAW delivery primaries override was dropped; delivery now develops into the selected format gamut before 8-bit quantization"
+    ],
+    "covered": "Actual normal Share / PNG / Full Size / Export / Save native UI",
+    "excluded": "Fast preview-quality export is not compared against full AMaZE pixels; photographic reconstruction quality, scanout parity and performance are not established by this tiny fixture"
+  },
+  "tests": [
+    {
+      "command": "swift test --filter RemovalExportSnapshotTests/testFullSavedExportMatchesIndependentSharedRendererForFallbackWhiteBalance",
+      "phase": "before WB fix, sRGB canvas",
+      "result": "Failed, max channel error 31 on original-only baseline"
+    },
+    {
+      "command": "same independent test",
+      "phase": "WB fix only, P3 canvas",
+      "result": "Failed, max channel error 23 on saved removal; delivery gamut override ignored"
+    },
+    {
+      "command": "swift test --filter Removal|WbSliderFrameTests|EditorComparisonTests|MapleExporterTests",
+      "result": "126 passed, 1 skipped, 0 failed",
+      "skipped": "Opt-in 100MP performance test; not qualified by this run"
+    },
+    {
+      "command": "swift test --filter RemovalExportSnapshotTests|WbSliderFrameTests|EditorComparisonTests|MapleExporterTests|NonRawExportTests|ExportEditParityTests|EditSessionNonRawFilmExportTests",
+      "result": "38 passed, 0 failed, 0 skipped after installing the existing real Canon RAW fixture",
+      "cases": "Independent full shared renderer against original/accepted; 6500/0 and 4200/-8 WB; Auto and Neutral; actual PNG with P3 canvas; local and bytes-backed Auto export; saved snapshot/missing companion refusal"
+    },
+    {
+      "command": "MANIFEST=/Users/riabuz/Projects/_Maple/test-fixtures/references/manifest.json FILTER=baseline src/scripts/test_color_pipeline.sh",
+      "result": "Exit 1: 40 comparisons, 1 Neutral budget breach; Auto 20/20 passes; no RAW/candidate/reference skips; detail has no matching cases",
+      "failure": "test_0011 Neutral baseline bias_R +0.0378, bias_G +0.0315, bias_B +0.0312 exceed 0.0113; budgets unchanged",
+      "limit": "Shared Rust stages unchanged in this Mac checkpoint; this is not a green broad color gate"
+    }
+  ],
+  "open": [
+    "Native saved-controls XCTest diagnostic is still unstaged/unqualified; manual CUA evidence above is separate",
+    "Actual photographic Paint/Smart/crowd/tiny-person/HDR/seam and large ROI quality",
+    "GPU/CPU/full/tile/saved parity over representative real RAWs",
+    "Incomplete-edit recovery and full Mac source/file-operation/backup/sync portability",
+    "Model license/signing/distribution and operator controls",
+    "100MP physical gesture/scanout/cold-open/memory performance",
+    "Fresh main rebase, required CI and landing all epic slices; no PR pushed or merged",
+    "Later Web/Windows/mobile ports remain in the original goal but are deferred by user Mac-first steering"
+  ]
+}
