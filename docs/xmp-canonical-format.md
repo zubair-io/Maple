@@ -657,8 +657,15 @@ publication for retry; the shared core compacts the oldest retained entries and
 keeps named snapshots. Ordinary and semantic local writes coordinate on the same
 sidecar across store instances. PhotoKit uses the same writer at the canonical
 App Support sidecar path used by backup companion upload (#4047); asset bytes and
-raw-adjacent sidecars are not written. SMB/API native and Web editor transaction
-wiring still follows under #2437.
+raw-adjacent sidecars are not written.
+Hosted Web filesystem editor gestures capture source folder, model and culling at
+commit, with explicit Undo/Redo history (#4049). Ordinary primary saves and semantic
+history publication share the selected-variant Web Lock and read current source XML
+inside it. Failed captured actions remain queued for flush or subsequent preview
+save; changing folders cannot redirect a previous gesture's sidecar. Named records
+in a primary sidecar and unsupported Workflow records fail without publication.
+SMB/API native and Self Hosted Web editor transaction/indexing wiring still follows
+under #2437.
 
 Cache-aware switching, snapshots/history UI, one-step
 Undo for restore, and deletion/recovery remain acceptance requirements under

@@ -25,6 +25,10 @@ import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { type EditTransaction, type EditTransactionKind } from './edit-transaction';
 import { EditTransactionRing, UNDO_STACK_CAP } from './edit-transaction-ring';
+import {
+  EditorWorkflowHistoryService,
+  type HostedWorkflowEdit,
+} from './editor-workflow-history.service';
 import type { AssetId } from '../models/asset';
 import { applyAutoInto } from './editor-state.auto';
 import { applyWhiteBalancePresetInto } from './editor-state.wb-preset';
@@ -112,6 +116,8 @@ export class EditorStateService {
   // Apple's `EditSession+UndoRedo.swift`; the bookkeeping lives in
   // `EditTransactionRing`.
   private readonly ring = new EditTransactionRing();
+  private readonly workflowHistory = inject(EditorWorkflowHistoryService);
+  private workflowEdit: HostedWorkflowEdit | null = null;
 
   /** The most recently recorded, undone, or redone transaction. */
   readonly lastCommittedTransaction = this.ring.lastCommitted;
@@ -199,6 +205,7 @@ export class EditorStateService {
    * sub-param is re-resolved from the session memory (it is per-session
    * state, so an image switch keeps the selection). */
   bind(id: AssetId, armed?: { group: ToolGroup; tool: ToolId }): void {
+    untracked(() => this.endEdit());
     this.imageId.set(id);
     this.autoResult.set(null);
     this.ring.reset();
@@ -219,6 +226,7 @@ export class EditorStateService {
     const adj = this.currentAdjustment();
     if (!adj) return;
     this.endEdit();
+    this.workflowEdit = this.workflowHistory.capture(this.imageId()!, adj);
     this.ring.open(kind, description ?? TOOL_DISPLAY[this.armedTool()], adj);
   }
 
@@ -227,17 +235,24 @@ export class EditorStateService {
    * as the state the sidecar persists, and is announced. */
   endEdit(): void {
     const id = this.imageId();
-    const tx = this.ring.close(this.serializer, this.currentAdjustment());
+    const edit = this.workflowEdit;
+    this.workflowEdit = null;
+    const model = edit
+      ? this.workflowHistory.model(edit, this.currentAdjustment())
+      : this.currentAdjustment();
+    const tx = this.ring.close(this.serializer, model);
     if (!tx || id == null) return;
     // The transaction IS what the sidecar persists (coalesces with the
     // per-tick writes through the same debounce).
-    this.library.updateAdjustment(id, tx.after);
+    if (!edit || this.workflowHistory.isCurrent(edit)) this.library.updateAdjustment(id, tx.after);
+    if (edit) this.workflowHistory.record(edit, tx.after, tx.kind, tx.description);
     void this.announcer.announce(tx.description);
   }
 
   /** Abandon the open transaction without recording it. The model keeps
    * whatever the preview ticks wrote. */
   cancelEdit(): void {
+    this.workflowEdit = null;
     this.ring.cancel();
   }
 
@@ -247,7 +262,9 @@ export class EditorStateService {
     this.endEdit();
     const tx = this.ring.popUndo();
     if (!tx) return;
+    const edit = this.workflowHistory.capture(id, tx.before);
     this.library.updateAdjustment(id, structuredClone(tx.before));
+    if (edit) this.workflowHistory.record(edit, tx.before, 'undo', `Undo ${tx.description}`);
     void this.announcer.announce(`Undo ${tx.description}`);
   }
 
@@ -257,7 +274,9 @@ export class EditorStateService {
     this.endEdit();
     const tx = this.ring.popRedo();
     if (!tx) return;
+    const edit = this.workflowHistory.capture(id, tx.after);
     this.library.updateAdjustment(id, structuredClone(tx.after));
+    if (edit) this.workflowHistory.record(edit, tx.after, 'redo', `Redo ${tx.description}`);
     void this.announcer.announce(`Redo ${tx.description}`);
   }
 
