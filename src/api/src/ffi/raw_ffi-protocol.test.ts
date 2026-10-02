@@ -29,10 +29,12 @@ describe('coerceFfiRequest', () => {
         'histogram',
         'registerLensProfile',
         'removalAssets',
+        'removalSource',
         'renderBitmap',
         'renderDevelop',
         'renderThumb',
         'validateAvif',
+        'validateRemovalAsset',
       ].sort(),
     );
   });

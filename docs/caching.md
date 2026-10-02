@@ -240,6 +240,8 @@ With `search_engine = in-process`, the search child (#4463) keeps a Tantivy keyw
 | Original streaming (`/api/image/*`)           | `"<mtimeMs>-<size>"`                     | `private, max-age=0, must-revalidate`                                                      |
 | Video streaming (`/api/video/*`)              | none                                     | `private, max-age=0, must-revalidate`                                                      |
 | Static Angular bundle                         | none                                     | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
+| `GET /api/removal/xmp`                           | none; exact revision is in the response body       | `private, no-store`                                                                        |
+| `GET /api/removal/companion`                     | none; Rust verifies the content-addressed filename | `private, no-store`                                                                        |
 
 Folder and legacy directory listings (`/api/folders`, `/api/fs`) set no `Cache-Control` but do emit a body-hash ETag with a 304 short-circuit. Unified `/api/folder/:slug[/...]` listings likewise emit a body-hash ETag, with `private, max-age=0, must-revalidate`. The hash covers the returned page, including original size/mtime, indexed EXIF/identity, and paired sidecar size/mtime; a matching `If-None-Match` returns 304. Clients cache each page by its complete URL (including cursor/limit). The body is deterministically ordered before hashing, so filesystem enumeration order does not cause needless refreshes.
 

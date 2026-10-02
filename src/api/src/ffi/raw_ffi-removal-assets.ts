@@ -32,6 +32,36 @@ export async function verifyRemovalFileAssets(
   rawPath: string,
   records: string,
 ): Promise<VerifiedRemovalAssets> {
+  return verifyFile(rawPath, records, true);
+}
+
+/** A clear/reset can recover a source-bound edit whose old companions are lost. */
+export async function verifyRemovalFileSource(
+  rawPath: string,
+  records: string,
+): Promise<VerifiedRemovalAssets> {
+  return verifyFile(rawPath, records, false);
+}
+
+export async function verifyRemovalAssetFile(filePath: string, name: string): Promise<void> {
+  const lib = open();
+  try {
+    const bytes = await readFile(filePath);
+    const basename = Buffer.from(name + '\0');
+    const rc = lib.symbols.maple_removal_asset_verify(ptr(basename), ptr(bytes), bytes.length);
+    if (rc !== 0)
+      throw new Error(String(lib.symbols.maple_last_error() ?? 'Removal asset validation failed'));
+  } finally {
+    lib.close();
+  }
+}
+
+async function verifyFile(
+  rawPath: string,
+  records: string,
+  companions: boolean,
+): Promise<VerifiedRemovalAssets> {
+  if (records.includes('\0')) throw new Error('Removal records contain a NUL transport byte');
   const lib = open();
   const { symbols } = lib;
   const check = (rc: number, probe = false) => {
@@ -64,7 +94,7 @@ export async function verifyRemovalFileAssets(
     const originalDigest = digest.toString('utf8', 0, digest.indexOf(0));
     const source = Buffer.from(originalDigest + '\0');
     check(symbols.maple_removal_source_verify(ptr(wire), ptr(source)));
-    for (const name of names) {
+    for (const name of companions ? names : []) {
       const bytes = await readFile(join(dirname(rawPath), '.maple/inpaint', name));
       const basename = Buffer.from(name + '\0');
       check(symbols.maple_removal_asset_verify(ptr(basename), ptr(bytes), bytes.length));
