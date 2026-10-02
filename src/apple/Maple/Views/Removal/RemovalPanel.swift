@@ -44,7 +44,7 @@ struct RemovalPanel: View {
         }
       }
       if removal.phase == .failed || removal.phase == .closed {
-        MuiButton(label: "Retry loading photo", size: .sm) { Task { await removal.open() } }
+        MuiButton(label: "Retry loading photo", size: .sm) { Task { await state.retryRendering() } }
       }
       if !removal.message.isEmpty || !importError.isEmpty {
         Text(importError.isEmpty ? removal.message : importError)

@@ -525,6 +525,7 @@ extension EditSession {
     } catch is CancellationError {
       return
     } catch {
+      let failure = await renderActor.removalRenderFailure(error, asset: asset, model: m)
       guard !Task.isCancelled else { return }
       if let gen {
         let live = await renderActor.currentGeneration()
@@ -533,9 +534,9 @@ extension EditSession {
         }
       }
       editSessionLogger.error(
-        "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
+        "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: failure), privacy: .public)"
       )
-      renderError = error
+      renderError = failure
       // Terminal failure once the decode is done (e.g. an unreadable file):
       // no full-quality frame is coming, so settle the cold-open indicator
       // here too — otherwise `isResolvingFirstFrame` (cleared only on a

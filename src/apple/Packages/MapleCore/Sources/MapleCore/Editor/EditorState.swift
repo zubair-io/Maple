@@ -114,6 +114,16 @@ public final class EditorState {
     session.model != session.originalModel
   }
 
+  /// Restore the canvas and the armed Remove session after companion recovery.
+  /// Retrying never changes the accepted sidecar or re-runs inference.
+  public func retryRendering() async {
+    await session.renderFull()
+    // The render scheduler can supersede this pass before its final publish.
+    // The armed tool independently validates the restored companions.
+    guard armedTool == .remove else { return }
+    await removal.open()
+  }
+
   // MARK: Crop session (#638)
 
   /// Selected crop aspect-ratio lock. Transient UI state — never persisted
