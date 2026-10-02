@@ -405,3 +405,4 @@ RemovalPeopleBridgeTests
 
 RemovalPersonRefinementTests
 RemovalSavedControlsTests
+RemovalRenderRecoveryTests
