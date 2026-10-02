@@ -342,5 +342,10 @@
     "Remove or bound the remaining interpolation/quantization difference using the real shared transform; do not paper over it with a larger cube or a raised budget",
     "Qualify representative GPU/CPU/full/tile/export parity across RAWs and edits, beyond this one photographic fixture",
     "Existing broad Neutral color failure, crowd/HDR/large-ROI quality, portability, model packaging and full hardware/performance qualification remain open"
-  ]
+  ],
+  "interpretationCorrection": {
+    "followUpEvidence": "test-fixtures/qualification/removal-mac-auto-quality-1472.json",
+    "limitation": "Historical AMaZE-labeled FFI calls selected Preview before the quality parser fix; the initial fit-size attribution was confounded",
+    "followUp": "Fixed AMaZE FFI proxy cubes now match independent AMaZE controls exactly. Repeated photographic reports are unchanged; at matched AMaZE quality the native-size control still reduces max12 to3 at the same33 cube. Historical measurements retained below"
+  }
 }

@@ -27,7 +27,7 @@ use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::decode::decode_bytes;
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 use raw_core::pipeline::{
-    cached_auto_profile_fit, fit_auto_profile_from_raw_at_cap, FitCap, RawInput, RenderQuality,
+    cached_auto_profile_fit, fit_auto_profile_from_raw_at_cap, FitCap, RawInput,
 };
 use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
 use std::ffi::{c_char, CStr};
@@ -68,7 +68,8 @@ const _: () = assert!(
 /// the host robust to a core change.
 ///
 /// `quality_preview`: `0` = `Full` (matches the parity harness / `maple-cli`),
-/// `1` = `Preview` (half-res develop). Pass the value the host's decode used so
+/// `1` = `Preview` (half-res), `2` = AMaZE, `3` = Auto demosaic.
+/// Pass the value the host's decode used so
 /// the fit matches the displayed buffer.
 ///
 /// This is a **per-image, one-shot** call (JPEG extract + full develop + fit,
@@ -199,11 +200,7 @@ unsafe fn fit_auto_profile(
         if model.profile != raw_core::xmp::Profile::Auto {
             return 1;
         }
-        let quality = if quality_preview != 0 {
-            RenderQuality::Preview
-        } else {
-            RenderQuality::Full
-        };
+        let quality = crate::auto_profile::quality_from_wire(quality_preview);
 
         // #2035: cache-only probe BEFORE any file I/O. The Apple GPU-live host
         // re-issues this call on every session re-open (a window resize, a
