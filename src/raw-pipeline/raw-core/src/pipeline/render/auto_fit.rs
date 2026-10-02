@@ -14,113 +14,25 @@
 //! renders can't depend on cache state or fit order, and a cold fit under an
 //! edited model can no longer learn (and partially cancel) the user's edits.
 
-use crate::error::Result;
 use crate::image::{ColorSpace, Image, RawImage};
-use crate::pipeline::develop::develop_scene_linear_from_raw_with_quality;
-use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_quality;
-use crate::pipeline::{stage, RenderQuality};
-use crate::stages::{color_grade, grain};
-use crate::types::adjustment::{AutoExposureMode, Profile};
+use crate::pipeline::RenderQuality;
+#[cfg(test)]
+use crate::types::adjustment::AutoExposureMode;
+use crate::types::adjustment::Profile;
+use crate::view::auto_profile;
 use crate::view::auto_profile::cache::{CacheKey, FitOrigin};
 use crate::view::auto_profile::curve::ProfileCurve;
 use crate::view::auto_profile::lut::ColorLut;
 use crate::view::auto_profile::preview::ExtractedPreview;
-use crate::view::{agx, auto_profile, encode};
 use crate::xmp::AdjustmentModel;
 
 use super::RawInput;
 
-/// Build the [`AdjustmentModel`] the fit develop runs with: the DEFAULT model
-/// with `auto_exposure: Off` pinned and the caller's `profile` carried —
-/// nothing else from the caller survives (#1085).
-///
-/// `auto_exposure: Off` is the existing #871/#550 split: the fitted tail owns
-/// the whole scene→JPEG brightness mapping, so AE is disabled for the fit
-/// develop. `profile` is the one field the fit genuinely needs from the
-/// caller — it is what makes this a `Profile::Auto` fit at all (the entry
-/// guards check it; the develop chain itself never reads it). Every other
-/// field is pinned to [`AdjustmentModel::default()`] so the fit input — and
-/// therefore the fitted curve/LUT under the RAW-identity cache key — cannot
-/// depend on the caller's live edits.
-///
-/// This REPLACES the #972 variant, which cloned the caller's model and zeroed
-/// the four high-frequency fields (`nr_color`, `nr_luminance`,
-/// `sharpen_amount`, `capture_sharpening_amount`). Two reasons:
-/// * Pinning to the default model is what makes the fit model-independent;
-///   a caller clone (even a partially-zeroed one) keeps every other slider
-///   leaking into the fit (#1085's bug).
-/// * The CPU render path fits from a default-model develop — which runs the
-///   DEFAULT `nr_color`@25 / `sharpen`@40 — and that path is what the
-///   bit-exact color-pipeline harness gates. Keeping the GPU fit zeroed would
-///   preserve #972's admitted (and harness-invisible) CPU↔GPU fit divergence;
-///   pinning both to the same default model removes it. The cost is that the
-///   GPU hosts' cold fit develop pays the default NR/sharpen again
-///   (~9 s on the 100 MP reference frame — the #972 saving), traded for one
-///   unified, deterministic fit definition across every path.
-fn fit_develop_model(model: &AdjustmentModel) -> AdjustmentModel {
-    AdjustmentModel {
-        auto_exposure: AutoExposureMode::Off,
-        profile: model.profile,
-        ..AdjustmentModel::default()
-    }
-}
-
-/// Develop a RAW through the EXACT (pinned) Auto Profile fit prefix and return
-/// the `DisplayEncodedSrgb` buffer the curve / residual LUT fits sample
-/// against:
-///   * the pinned fit model from [`fit_develop_model`] — default model,
-///     `auto_exposure: Off`, caller's `profile` carried (#1085; see that fn);
-///   * the shared scene-linear develop chain (early-downsampled when
-///     `max_long_edge` is `Some`, mirroring the sized render entry — the GPU
-///     fit entries pass `None` for the full-size develop);
-///   * the render's display tail up to the Auto Profile stage, every stage
-///     fed the PINNED model's fields: `agx` with the pinned `contrast` (= the
-///     default `0.0`, NOT the caller's — pre-#1085 the caller's contrast
-///     leaked into the fit here), `split_tone` (#1111) and `grain` (#1110) at
-///     their defaults (both identity short-circuits — present so the prefix
-///     stays stage-for-stage the render chain even if defaults ever change),
-///     then `rec2020→srgb` primaries, then `srgb` gamma encode. The fit lives
-///     in `DisplayEncodedSrgb` — the buffer state on return.
-///
-/// Shared by every fit entry in this module so the fit inputs can never drift
-/// from each other — one pinned prefix, CPU and GPU alike. It is the chain
-/// `render_display_from_raw` runs for a default-model caller, stage for stage
-/// — which is what lets `run_auto_profile_stage` treat that caller's render
-/// buffer AS the fit buffer without a second develop.
-fn develop_display_for_auto_fit(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    quality: RenderQuality,
-    max_long_edge: Option<u32>,
-) -> Result<Image> {
-    let auto_model = fit_develop_model(model);
-    let mut scene = match max_long_edge {
-        Some(mle) => {
-            develop_scene_linear_sized_from_raw_with_quality(raw, &auto_model, quality, mle)?
-        }
-        None => develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality)?,
-    };
-    stage("agx", || {
-        agx::apply(&mut scene, auto_model.contrast, auto_model.whites)
-    });
-    stage("color_grade", || {
-        color_grade::apply_model(&mut scene, &auto_model)
-    });
-    stage("grain", || {
-        grain::apply(
-            &mut scene,
-            auto_model.grain_amount,
-            auto_model.grain_size,
-            auto_model.grain_roughness,
-        )
-    });
-    stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
-    stage("srgb_gamma_encode", || {
-        encode::srgb_gamma_encode(&mut scene)
-    });
-    scene.assert_space(ColorSpace::DisplayEncodedSrgb);
-    Ok(scene)
-}
+#[path = "auto_fit_develop.rs"]
+mod develop;
+pub(super) use develop::{
+    develop_display_for_auto_fit, develop_display_for_auto_fit_cancellable, fit_develop_model,
+};
 
 /// Proxy long edge the standalone fit develops at — for EVERY sensor (#3510;
 /// originally #1647 M2 for the >50 MP class only). The fit needs only the
@@ -183,7 +95,7 @@ fn downsample_preview_for_fit(
 /// extraction shared by the curve fit, the residual fit, and the render
 /// path's will-it-fit probe (#1085 perf companion: pre-fix the cold Auto
 /// render extracted + JPEG-decoded the preview three times).
-fn extract_preview_for_fit(raw_source: &RawInput<'_>) -> Option<ExtractedPreview> {
+pub(super) fn extract_preview_for_fit(raw_source: &RawInput<'_>) -> Option<ExtractedPreview> {
     match raw_source {
         RawInput::Path(p) => auto_profile::preview::extract_for_fit(p),
         RawInput::Bytes { bytes, ext } => {

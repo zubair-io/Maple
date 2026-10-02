@@ -45,7 +45,7 @@ extension EditSession {
   /// disk for a write that must never happen.
   @discardableResult
   func persistCurrentPreviewToCache() -> Bool {
-    guard previewIsFullRender,
+    guard hasSettledCPUAutoProfile, previewIsFullRender,
       !isFullQualityDecoding,
       let url = asset.primaryURL,
       let preview = renderedPreview
@@ -90,6 +90,9 @@ extension EditSession {
   /// if the decoded cache was also dropped, a re-decode) on next visit,
   /// not correctness.
   public func releaseTransientMemory() async {
+    latestRenderSchedule?.cancel()
+    await renderActor.cancelAll()
+    await nativeAutoProfile.cancelAndWait()
     await renderActor.invalidate()
     // #1881 — the on-screen preview (if any) now predates this eviction,
     // so a refine-skip persist must not write these stale pixels under a

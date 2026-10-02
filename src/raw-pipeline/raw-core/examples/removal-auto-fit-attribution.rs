@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "bytes": data.len(), "blake3": blake3::hash(&data).to_hex().to_string()
             }));
         }
-        for dimension in [33, 49, 65] {
+        for dimension in [33, 49, 65, 97, 128] {
             let lut = match &residual {
                 Some(residual) => bake_auto_profile_lut(&curve, residual, dimension),
                 None => bake_profile_lut(&curve, dimension),

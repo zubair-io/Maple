@@ -98,6 +98,8 @@ mod gpu_live;
 #[cfg(feature = "gpu")]
 mod gpu_auto_profile;
 mod handle;
+#[cfg(feature = "gpu")]
+mod native_auto_profile;
 mod raw_dimensions;
 pub use raw_dimensions::{maple_raw_dimensions_bytes, maple_raw_dimensions_file};
 mod id;
@@ -165,6 +167,7 @@ mod scope_stats;
 // chain + display-encode in one call over one buffer, no intervening
 // Swift-side CIImage wrap/readback. Split out of `scene_linear_chain`
 // (rather than added to it) per the 600-LOC file-size budget.
+mod native_auto_chain;
 mod scene_linear_chain_fused;
 // Curves-aware sibling of the fused entry (#2576): same chain + encode, plus
 // the user point tone curves the scalars-only params ABI cannot carry.

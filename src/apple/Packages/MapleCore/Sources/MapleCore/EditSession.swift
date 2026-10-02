@@ -379,6 +379,8 @@ public final class EditSession {
   ///
   /// `internal` so the test suite can poke the actor's cache state
   /// and scheduler directly via `await session.renderActor.…`.
+  @ObservationIgnored let nativeAutoProfile = NativeAutoProfileState()
+  @ObservationIgnored var nativeAutoFrameID: UUID?
   @ObservationIgnored let renderActor: RenderActor
   /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
   /// hosted API) where sidecar persistence goes through the source's

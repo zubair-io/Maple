@@ -106,6 +106,7 @@ MapleThumbCacheKeyTests slow render or decode workload that costs minutes on the
 MaskRasterRehydrationTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 MaskRemapRenderParityTests gpu needs a real Metal device
 MetalKernelParityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
+NativeAutoProfilePhotographicTests fixture needs the gitignored 39MP RAW, accepted companions and a real Metal device (#1472)
 NativeDetailAEGainTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 NativeDetailExitForcesFreshRenderTests slow render or decode workload that costs minutes on the runner
 NativeDetailPerfTests slow render or decode workload that costs minutes on the runner

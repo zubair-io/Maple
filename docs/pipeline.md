@@ -412,3 +412,28 @@ Retained C RAW handles now prepare the verified saved stack at open and use the 
 Swift `AdjustmentModel.inpaintRemovals` retains the exact Rust-validated stack as immutable state. Namespace-owned attributes and scalar properties hydrate it; serializers emit it once while preserving foreign XML. Stripping live GPU stages retains removal state in the decoded-model key and temporary export/comparison parameters. Real-file tests prove a saved stack invalidates a warm original-only cache and that cold/warm snapshot export carries accepted pixels even before scalar autosave. Missing companions fail export rather than publishing an original-only fallback. A confirmed local save refreshes cached removal state; ordinary writes preserve the disk stack instead of authoring or undoing from stale models. These tests do not qualify native detail, remote companion transport, or Apple authoring/history UI.
 
 Real native/WASM tests cover saved reopening, both export depths, lens/crop/odd sensor geometry, zero coverage, high-noise kernel preservation and unchanged unselected native pixels. `tools/removal/probe-saved-render-browser.mjs REPORT_JSON` executes both retained session APIs in Chromium on the committed synthetic interoperability fixture, compares their cold saved pixels byte-for-byte, decodes PNG exports back to the same RGB, and rejects stale/corrupt preparation. The WebGPU owner's saved cold operations currently use the shared CPU renderer; this is not a GPU live-chain or photographic qualification. Native FFI/Swift saved rendering, live/tile/thumb/CLI/API/Windows consumers, recovery UI, complete authoring and release/device qualification remain under #3955/#1472.
+
+### Mac settled Auto tail (#1472)
+
+Mac prepares the full-export Auto curve/residual at the native Full or AMaZE
+quality selected for export, off the GPU submission actor. Preview demosaic and
+viewport size do not redefine the settled Auto fit. Both CPU fallback and native
+detail borrow that pair in the fused Rust chain/encode call and apply the
+existing curve and tetrahedral residual in place. GPU live rebinds the same
+artifacts when its session is resized. A composed Core Image cube was rejected
+because it fails the strict photographic 1/255 boundary even at denser grids.
+The native CPU tail adds no image-sized buffer and refuses failed native
+renders rather than publishing a provisional result as settled. Existing proxy fitting supplies
+provisional pixels until native preparation succeeds. A missing embedded JPEG
+is a valid absent tail; a preparation failure keeps the provisional frame and
+is logged without source paths or pixels. Provisional frames are not persisted
+as settled previews.
+
+The new preparation entry uses the existing pinned default-model prefix and
+`Render(None)` cache origin. It does not change CPU export arithmetic, standalone
+proxy semantics, the fitting model version, or the scene-linear removal stage.
+Cancellation is checked throughout the develop and before artifact delivery;
+noninterruptible fitting may finish without publishing to a cancelled caller.
+Native preparation and full Mac export serialize their expensive develops on
+one worker. This host policy is Mac only; iOS and browser ports are deferred.
+Resource and photographic release qualification remain part of epic #1472.

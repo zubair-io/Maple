@@ -20,7 +20,7 @@ use crate::model::{
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 
 #[path = "scene_linear_f32/file_decode.rs"]
-mod file_decode;
+pub(crate) mod file_decode;
 use raw_core::error::Error as CoreError;
 use raw_core::CancelToken;
 use std::ffi::{c_char, CStr};
