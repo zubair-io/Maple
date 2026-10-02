@@ -1,0 +1,66 @@
+{
+  "issue": 3875,
+  "sourceBase": "6b3bad6c6",
+  "build": "Maple.DesignAudit311",
+  "managedSha256": "5A0B370963F7EFB3E6D8750B5370DB9F30DC8861AB1DD4C66C405245E8FE4218",
+  "nativeSha256": "D7D3D38FE55BA8E2ACA5AE3D99F04C1ECFB54CC499A8885B696765D6709F341D",
+  "renderPath": "cpu",
+  "exitCode": 0,
+  "checkpoints": [
+    {
+      "name": "browse-grid",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "browse-list",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-info",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-list",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-rail",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    }
+  ],
+  "verified": [
+    "Grid and list both display 1 photo.",
+    "Explicitly selected fixture displays red grid outline and red/brown selected Browse list row, matching the selected-state design.",
+    "All five shell checkpoints captured and inspected; lifecycle then passed with normal shutdown."
+  ],
+  "limitations": [
+    "Same one-photo grey fixture and 150 percent scale limitations as windows-shell310/result.json. This extends shell-layout evidence; it is not complete design qualification.",
+    "No photographic EXIF, many-photo rail scrolling or real-account data validation in these screenshots.",
+    "GPU crash and image parity remain unresolved."
+  ]
+}

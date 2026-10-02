@@ -22,8 +22,8 @@ namespace Maple.WinUI
             var index = Array.IndexOf(args, "--lifecycle-smoke");
             if (index < 0) return;
             if (args.Length != index + 4 &&
-                !(args.Length == index + 5 && args[^1] == "--visual-checkpoints"))
-                throw new ArgumentException("--lifecycle-smoke RAW OUT gpu|cpu|empty [--visual-checkpoints]");
+                !(args.Length == index + 5 && args[^1] is "--visual-checkpoints" or "--shell-visual-checkpoints"))
+                throw new ArgumentException("--lifecycle-smoke RAW OUT gpu|cpu|empty [--visual-checkpoints|--shell-visual-checkpoints]");
             _ = RunLifecycleSmokeAsync(args[index + 1], args[index + 2], args[index + 3]);
         }
 
@@ -107,6 +107,7 @@ namespace Maple.WinUI
                     RecordSmokeStage(output, "transfer-undo");
                     await VerifyTransferUndoAsync(output);
                     VerifyViewerDesignNavigation();
+                    await VerifyShellVisualCheckpointsAsync(output);
                     RecordSmokeStage(output, "filmstrip-metadata");
                     await VerifyFilmstripMetadataAsync();
                     RecordSmokeStage(output, "local-save-failure");

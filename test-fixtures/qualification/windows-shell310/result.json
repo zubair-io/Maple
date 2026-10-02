@@ -1,0 +1,72 @@
+{
+  "issue": 3875,
+  "sourceBase": "6b3bad6c6",
+  "build": "Maple.DesignAudit310",
+  "managedSha256": "9799A915F5D2FDBC9ED25FA3C72788E7134EE6E94978EEDC6E174278AA8C88D6",
+  "nativeSha256": "D7D3D38FE55BA8E2ACA5AE3D99F04C1ECFB54CC499A8885B696765D6709F341D",
+  "renderPath": "cpu",
+  "checkpoints": [
+    {
+      "name": "browse-grid",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "browse-list",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-info",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-list",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-rail",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    }
+  ],
+  "observations": [
+    "Browse grid, Browse list/detail, Preview collapsed rail, Preview expanded list and Preview Info were captured through native Windows computer use.",
+    "Preview rail/list changes preserve the selected document; toolbar retains Back, filename, Edit and Info.",
+    "Info exposes five rating buttons, Clear, Unflagged/Pick/Reject and scrollable metadata.",
+    "Browse list/detail displays the selected preview and Open in editor, Preview, Info / Rating, Share actions."
+  ],
+  "findings": [
+    "Single-photo count incorrectly reads 1 photos in build310. Fixed in subsequent source; these screenshots are pre-fix evidence.",
+    "Browse row was not highlighted because the diagnostic set SelectedPhoto without populating the Browse multi-selection. The checkpoint fixture now establishes a real selection before capture. No production selection regression inferred."
+  ],
+  "limitations": [
+    "One square grey synthetic fixture, CPU rendering, 150 percent scale, 1440x960 native window only. Does not qualify photographic colour, histogram or large-library scrolling.",
+    "Fixture PhotoItem lacks populated EXIF and size fields, so 0 B and unknown metadata in these captures do not establish the production metadata outcome.",
+    "The native capture returns a logical-size raster; no pixel-for-pixel comparison against the 1440x960 reference is claimed.",
+    "Info retains additional existing metadata beyond the reference. No functions were removed to make the layout smaller.",
+    "GPU crash, 100/200 percent DPI, accessibility and real cloud-account qualification remain open."
+  ]
+}
