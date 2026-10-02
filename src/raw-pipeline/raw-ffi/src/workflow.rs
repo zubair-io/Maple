@@ -156,3 +156,63 @@ pub unsafe extern "C" fn maple_workflow_variant_filename(
         },
     )
 }
+
+/// Shared complete-XMP commit at a semantic save boundary (#4042).
+/// Same return codes and unchanged-on-failure contract as validation.
+///
+/// # Safety
+/// Same pointer, length and non-overlap requirements as maple_workflow_validate_json.
+#[no_mangle]
+pub unsafe extern "C" fn maple_workflow_commit_xmp(
+    xmp: *const u8,
+    xmp_len: usize,
+    json: *const u8,
+    json_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    output("maple_workflow_commit_xmp", out, out_cap, out_len, || {
+        SidecarWorkflow::commit_xmp(input(xmp, xmp_len)?, input(json, json_len)?)
+    })
+}
+
+/// Shared complete-XMP snapshot at a semantic save boundary (#4042).
+/// Same return codes and unchanged-on-failure contract as validation.
+///
+/// # Safety
+/// Same pointer, length and non-overlap requirements as maple_workflow_validate_json.
+#[no_mangle]
+pub unsafe extern "C" fn maple_workflow_snapshot_xmp(
+    xmp: *const u8,
+    xmp_len: usize,
+    json: *const u8,
+    json_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    output("maple_workflow_snapshot_xmp", out, out_cap, out_len, || {
+        SidecarWorkflow::snapshot_xmp(input(xmp, xmp_len)?, input(json, json_len)?)
+    })
+}
+
+/// Shared complete-XMP restore at a semantic save boundary (#4042).
+/// Same return codes and unchanged-on-failure contract as validation.
+///
+/// # Safety
+/// Same pointer, length and non-overlap requirements as maple_workflow_validate_json.
+#[no_mangle]
+pub unsafe extern "C" fn maple_workflow_restore_xmp(
+    xmp: *const u8,
+    xmp_len: usize,
+    json: *const u8,
+    json_len: usize,
+    out: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    output("maple_workflow_restore_xmp", out, out_cap, out_len, || {
+        SidecarWorkflow::restore_xmp(input(xmp, xmp_len)?, input(json, json_len)?)
+    })
+}

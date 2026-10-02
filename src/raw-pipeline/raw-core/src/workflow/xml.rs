@@ -53,15 +53,9 @@ impl SidecarWorkflow {
                 &xml[range.end..]
             )
         } else if let Some(close) = locations.description.close {
-            let line = xml[..close].rfind('\n').map_or(close, |index| index + 1);
-            let start = if xml[line..close].trim().is_empty() {
-                line
-            } else {
-                close
-            };
-            let prefix = &xml[..start];
-            let separator = if prefix.ends_with('\n') { "" } else { "\n" };
-            format!("{prefix}{separator}{element}\n{}", &xml[start..])
+            // Insert only the owned resource; surrounding checkpoint bytes,
+            // including existing whitespace, must survive a restore exactly.
+            format!("{}{}{}", &xml[..close], element.trim_start(), &xml[close..])
         } else {
             let opening = locations.description.opening;
             let prefix = &xml[..opening.end - 2];

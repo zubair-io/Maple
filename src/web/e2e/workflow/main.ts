@@ -129,6 +129,93 @@ Object.assign(window, {
         await root.removeEntry(name, { recursive: true });
       }
     },
+    async mutations(input: string) {
+      let environment = injector();
+      const root = await navigator.storage.getDirectory();
+      const directoryName = 'maple-authoring-' + crypto.randomUUID();
+      const native = await root.getDirectoryHandle(directoryName, { create: true });
+      const folder = { native, name: directoryName, read: true, write: true };
+      try {
+        const access = environment.get(FolderAccessService);
+        await access.writeFile(folder, 'photo.dng', new Uint8Array([1, 0, 255, 42]));
+        await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(input));
+        const core: WorkflowXmpService = environment.get(WorkflowXmpService);
+        const store: WorkflowVariantStoreService = environment.get(WorkflowVariantStoreService);
+        const entry = async (xml: string, action = 'adjustment') => ({
+          id: crypto.randomUUID(),
+          createdAtMs: Date.now(),
+          action,
+          label: 'Committed exposure',
+          adjustmentXmp: await core.checkpoint(xml),
+        });
+        const first = await core.commit(await entry(input), input);
+        const captured = await core.checkpoint(first);
+        const snapshot = {
+          id: crypto.randomUUID(),
+          name: 'Warm study 🌅',
+          createdAtMs: Date.now(),
+          adjustmentXmp: captured,
+        };
+        const saved = await core.snapshot(snapshot, first);
+        const edited = saved.replace(
+          'crs:ProcessVersion="15.4"',
+          'crs:ProcessVersion="15.4" crs:Exposure2012="1.25"',
+        );
+        const next = await core.commit(await entry(edited), edited);
+        await store.write(folder, 'photo.xmp', 'primary', next);
+        const restoreEntry = await entry(captured, 'snapshot-restore');
+        const staleEntry = await entry(saved);
+        const forgedRestore = await entry(edited, 'snapshot-restore');
+        environment.destroy();
+        environment = injector();
+        const freshCore: WorkflowXmpService = environment.get(WorkflowXmpService);
+        const freshStore: WorkflowVariantStoreService = environment.get(
+          WorkflowVariantStoreService,
+        );
+        const reopened = await freshStore.read(folder, 'photo.xmp', 'primary');
+        if (reopened === null) throw Error('Committed history disappeared');
+        const restored = await freshCore.restore(restoreEntry, reopened);
+        await freshStore.write(folder, 'photo.xmp', 'primary', restored);
+        const record = await freshCore.read(restored);
+        const reject = async (operation: () => Promise<string>) => {
+          try {
+            await operation();
+            return false;
+          } catch {
+            return true;
+          }
+        };
+        const stale = await reject(() => freshCore.commit(staleEntry, edited));
+        const duplicate = await reject(() => freshCore.snapshot(snapshot, restored));
+        const forged = await reject(() => freshCore.restore(forgedRestore, restored));
+        const future = restored.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
+        const futureReject = await reject(() => freshCore.restore(restoreEntry, future));
+        return {
+          snapshot: record?.snapshots[0],
+          expectedSnapshot: snapshot,
+          historyCount: record?.history.length,
+          latest: record?.history.at(-1),
+          expectedRestore: restoreEntry,
+          exact: (await freshCore.checkpoint(restored)) === captured,
+          modelRestored:
+            JSON.stringify(
+              environment.get(XmpParserService).parseAdjustmentModel(restored).model,
+            ) ===
+            JSON.stringify(environment.get(XmpParserService).parseAdjustmentModel(saved).model),
+          editedExposure: environment.get(XmpParserService).parseAdjustmentModel(next).model
+            .exposure,
+          stale,
+          duplicate,
+          forged,
+          futureReject,
+          diskUnchanged: (await freshStore.read(folder, 'photo.xmp', 'primary')) === restored,
+          original: Array.from(await access.readFile(folder, 'photo.dng')),
+        };
+      } finally {
+        environment.destroy();
+        await root.removeEntry(directoryName, { recursive: true });
+      }
+    },
     async variants(row: unknown, input: string) {
       let environment = injector();
       const root = await navigator.storage.getDirectory();

@@ -6,6 +6,9 @@ export type WorkflowResult = {
     error: string;
 };
 export interface WorkflowBinding {
+    workflowCommitXmp(xmp: string, entryJson: string): WorkflowResult;
+    workflowSnapshotXmp(xmp: string, snapshotJson: string): WorkflowResult;
+    workflowRestoreXmp(xmp: string, entryJson: string): WorkflowResult;
     workflowValidateJson(json: string): WorkflowResult;
     workflowReadXmp(xmp: string): WorkflowResult;
     workflowEmbedXmp(json: string, xmp: string): WorkflowResult;
@@ -17,6 +20,18 @@ type WorkflowLibrary = {
 };
 /** Load only at the first workflow operation; older libraries still support existing operations. */
 export declare function getWorkflowFfiSymbols(FFIType: Record<string, string | number>): {
+    maple_workflow_commit_xmp: {
+        args: (string | number)[];
+        returns: string | number;
+    };
+    maple_workflow_snapshot_xmp: {
+        args: (string | number)[];
+        returns: string | number;
+    };
+    maple_workflow_restore_xmp: {
+        args: (string | number)[];
+        returns: string | number;
+    };
     maple_workflow_validate_json: {
         args: (string | number)[];
         returns: string | number;

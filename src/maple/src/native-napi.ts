@@ -163,6 +163,15 @@ export function tryLoadNapiBinding(): NativeBinding | null {
           };
     };
     const binding = {
+      workflowCommitXmp: wrap<'workflowCommitXmp'>((xmp, json) =>
+        workflow('workflowCommitXmp', [xmp, json]),
+      ),
+      workflowSnapshotXmp: wrap<'workflowSnapshotXmp'>((xmp, json) =>
+        workflow('workflowSnapshotXmp', [xmp, json]),
+      ),
+      workflowRestoreXmp: wrap<'workflowRestoreXmp'>((xmp, json) =>
+        workflow('workflowRestoreXmp', [xmp, json]),
+      ),
       workflowValidateJson: wrap<'workflowValidateJson'>((json) =>
         workflow('workflowValidateJson', [json]),
       ),

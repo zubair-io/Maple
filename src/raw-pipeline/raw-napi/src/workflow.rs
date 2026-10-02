@@ -50,3 +50,18 @@ pub fn workflow_variant_filename(primary_name: String, variant_id: String) -> Wo
         &variant_id,
     ))
 }
+
+#[napi]
+pub fn workflow_commit_xmp(xmp: String, json: String) -> WorkflowResult {
+    result(SidecarWorkflow::commit_xmp(&xmp, &json))
+}
+
+#[napi]
+pub fn workflow_snapshot_xmp(xmp: String, json: String) -> WorkflowResult {
+    result(SidecarWorkflow::snapshot_xmp(&xmp, &json))
+}
+
+#[napi]
+pub fn workflow_restore_xmp(xmp: String, json: String) -> WorkflowResult {
+    result(SidecarWorkflow::restore_xmp(&xmp, &json))
+}

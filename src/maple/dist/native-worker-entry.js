@@ -445,6 +445,42 @@ var WORKFLOW_MAX_BYTES = 262144;
 // src/native-workflow.ts
 function getWorkflowFfiSymbols(FFIType) {
   return {
+    maple_workflow_commit_xmp: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr
+      ],
+      returns: FFIType.i32
+    },
+    maple_workflow_snapshot_xmp: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr
+      ],
+      returns: FFIType.i32
+    },
+    maple_workflow_restore_xmp: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr
+      ],
+      returns: FFIType.i32
+    },
     maple_workflow_validate_json: {
       args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
       returns: FFIType.i32
@@ -515,6 +551,9 @@ function createWorkflowBinding(loadLibrary, ptr, getLastError) {
     return { ok: true, value: out.subarray(0, length).toString("utf-8") };
   };
   return {
+    workflowCommitXmp: (xmp, json) => convert("maple_workflow_commit_xmp", [xmp, json]),
+    workflowSnapshotXmp: (xmp, json) => convert("maple_workflow_snapshot_xmp", [xmp, json]),
+    workflowRestoreXmp: (xmp, json) => convert("maple_workflow_restore_xmp", [xmp, json]),
     workflowValidateJson: (json) => convert("maple_workflow_validate_json", [json]),
     workflowReadXmp: (xmp) => convert("maple_workflow_read_xmp", [xmp]),
     workflowEmbedXmp: (json, xmp) => convert("maple_workflow_embed_xmp", [json, xmp]),
@@ -774,6 +813,9 @@ function tryLoadNapiBinding() {
       };
     };
     const binding = {
+      workflowCommitXmp: wrap((xmp, json) => workflow("workflowCommitXmp", [xmp, json])),
+      workflowSnapshotXmp: wrap((xmp, json) => workflow("workflowSnapshotXmp", [xmp, json])),
+      workflowRestoreXmp: wrap((xmp, json) => workflow("workflowRestoreXmp", [xmp, json])),
       workflowValidateJson: wrap((json) => workflow("workflowValidateJson", [json])),
       workflowReadXmp: wrap((xmp) => workflow("workflowReadXmp", [xmp])),
       workflowEmbedXmp: wrap((json, xmp) => workflow("workflowEmbedXmp", [json, xmp])),

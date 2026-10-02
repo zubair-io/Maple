@@ -137,3 +137,66 @@ test.skipIf(!isNativeAvailable() || !resolvePlatformNapiAddon())(
     }
   },
 );
+
+test('real FFI and N-API commit/snapshot/restore persist exact checkpoints and reject stale mutations', () => {
+  const ffi = loadNativeBinding();
+  const napi = tryLoadNapiBinding();
+  if (!napi) throw Error('Build raw-napi before authoring mutation qualification');
+  for (const binding of [ffi, napi]) {
+    const dir = mkdtempSync(join(tmpdir(), 'maple-workflow-actions-'));
+    const original = join(dir, 'photo.dng');
+    const sidecar = join(dir, 'photo.xmp');
+    const value = (result: ReturnType<typeof binding.workflowReadXmp>) => {
+      if (!result.ok) throw Error(result.error);
+      return result.value;
+    };
+    const id = (n: number) => `00000000-0000-0000-0000-${n.toString(16).padStart(12, '0')}`;
+    const entry = (xmp: string, n: number, action = 'adjustment') => ({
+      id: id(n),
+      createdAtMs: n,
+      action,
+      label: 'Committed exposure',
+      adjustmentXmp: value(binding.workflowCheckpointXmp(xmp)),
+    });
+    try {
+      writeFileSync(original, new Uint8Array([1, 0, 255, 42]));
+      const first = value(binding.workflowCommitXmp(xml, JSON.stringify(entry(xml, 1))));
+      const captured = value(binding.workflowCheckpointXmp(first));
+      const snapshot = {
+        id: id(100),
+        name: 'Warm study 🌅',
+        createdAtMs: 1,
+        adjustmentXmp: captured,
+      };
+      const saved = value(binding.workflowSnapshotXmp(first, JSON.stringify(snapshot)));
+      const edited = saved.replace(
+        'crs:ProcessVersion="15.4"',
+        'crs:ProcessVersion="15.4" crs:Exposure2012="1.25"',
+      );
+      const next = value(binding.workflowCommitXmp(edited, JSON.stringify(entry(edited, 2))));
+      writeFileSync(sidecar, next);
+      const reopened = readFileSync(sidecar, 'utf8');
+      const restore = entry(captured, 3, 'snapshot-restore');
+      const restored = value(binding.workflowRestoreXmp(reopened, JSON.stringify(restore)));
+      const record = JSON.parse(value(binding.workflowReadXmp(restored)));
+      expect(record.snapshots).toEqual([snapshot]);
+      expect(record.history.at(-1)).toEqual(restore);
+      expect(value(binding.workflowCheckpointXmp(restored))).toBe(captured);
+      expect(binding.workflowCommitXmp(edited, JSON.stringify(entry(saved, 4))).ok).toBe(false);
+      expect(binding.workflowSnapshotXmp(saved, JSON.stringify(snapshot)).ok).toBe(false);
+      expect(
+        binding.workflowRestoreXmp(next, JSON.stringify(entry(edited, 4, 'snapshot-restore'))).ok,
+      ).toBe(false);
+      expect(
+        binding.workflowCommitXmp(
+          next.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2'),
+          JSON.stringify(entry(edited, 4)),
+        ).ok,
+      ).toBe(false);
+      expect(readFileSync(sidecar, 'utf8')).toBe(next);
+      expect(readFileSync(original)).toEqual(Buffer.from([1, 0, 255, 42]));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});

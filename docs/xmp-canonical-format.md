@@ -609,8 +609,27 @@ operation against other applications. Portable Web writes require a native
 writable folder handle; copied-file fallback is read-only. These operations run
 outside rendering, using the shared Rust filename and XML validators.
 
-Cache-aware switching, snapshots/history UI, undoable restore, and
-deletion/recovery remain acceptance requirements under #2437.
+The shared semantic operations (#4042) accept generated `WorkflowHistoryEntry`
+and `WorkflowSnapshot` records. Commit and snapshot creation require their
+checkpoint to equal the current complete XMP after validated Workflow removal;
+stale or forged input fails. Restore requires an exact checkpoint already stored
+in the selected variant's snapshots or retained history and a corresponding
+`snapshot-restore` or `history-restore` action. It keeps the current variant
+identity and named snapshots while appending one committed restore entry.
+Compaction checks both JSON and the final escaped sidecar bound, retiring only
+oldest independent history entries. A newest state that cannot fit fails without
+publication. Snapshot creation never silently removes other snapshots or history.
+In a full Description envelope, insertion changes only the owned Workflow region,
+so foreign bytes and existing surrounding whitespace survive restore exactly;
+a self-closing Description expands to contain the Workflow resource. The stored
+complete checkpoint itself is never rewritten.
+
+The C-FFI, WASM and Bun/N-API implementations call these same pure Rust operations
+at the save boundary. Native symbols load separately, preserving all existing
+operations when an older installed binary lacks these new capabilities.
+Host transaction wiring, cache-aware switching, snapshots/history UI, one-step
+Undo for restore, and deletion/recovery remain acceptance requirements under
+#2437.
 `tools/qualification/workflow-roundtrip.sh` runs the committed XMP corpus through
 Rust → generated Swift → generated Web/API TypeScript → Rust and checks identical
 final serialization. It writes only its own temporary files.

@@ -1,6 +1,9 @@
 /// <reference lib="webworker" />
 import init, {
   workflow_read_xmp,
+  workflow_commit_xmp,
+  workflow_snapshot_xmp,
+  workflow_restore_xmp,
   workflow_embed_xmp,
   workflow_checkpoint_xmp,
   workflow_variant_filename,
@@ -12,7 +15,7 @@ addEventListener(
   async (
     event: MessageEvent<{
       id: number;
-      operation: 'read' | 'embed' | 'checkpoint' | 'filename';
+      operation: 'read' | 'embed' | 'checkpoint' | 'filename' | 'commit' | 'snapshot' | 'restore';
       xmp: string;
       json?: string;
     }>,
@@ -21,6 +24,12 @@ addEventListener(
       await ready;
       const convert = () => {
         switch (event.data.operation) {
+          case 'commit':
+            return workflow_commit_xmp(event.data.xmp, event.data.json!);
+          case 'snapshot':
+            return workflow_snapshot_xmp(event.data.xmp, event.data.json!);
+          case 'restore':
+            return workflow_restore_xmp(event.data.xmp, event.data.json!);
           case 'read':
             return workflow_read_xmp(event.data.xmp);
           case 'embed':
