@@ -236,8 +236,16 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
     expect(session.message()).toBe('Replay failed');
     await session.undoSelection();
     expect(session.selection()).toHaveLength(0);
+    expect(session.message()).toBe('');
+    vi.spyOn(session.pipeline.removal, 'selection').mockRejectedValueOnce(Error('Redo failed'));
+    await session.redoSelection();
+    expect(session.message()).toBe('Redo failed');
+    expect(session.selection()).toHaveLength(0);
+    expect(session.canUndoSelection()).toBe(false);
+    expect(session.canRedoSelection()).toBe(true);
     await session.redoSelection();
     expect(session.selection()).toEqual(selected);
+    expect(session.message()).toBe('');
     expect(await fs.readFile(join(root, 'photo.xmp'), 'utf8')).toBe(prior);
     expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
   });

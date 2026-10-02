@@ -178,10 +178,16 @@ test('Smart paint stroke preserves selection after incompatible subtraction and 
     await expect(redo).toBeEnabled();
     await expect(undo).toBeDisabled();
     await expect(
+      panel.getByRole('status').filter({ hasText: 'smart selection: no candidate honors' }),
+    ).toHaveCount(0);
+    await expect(
       panel.getByRole('button', { name: 'Clear selection', exact: true }),
     ).toBeDisabled();
     await redo.click();
     await expect(undo).toBeEnabled();
+    await expect(
+      panel.getByRole('status').filter({ hasText: 'smart selection: no candidate honors' }),
+    ).toHaveCount(0);
     const digests = await page.evaluate(async () =>
       Promise.all(Reflect.get(window, '__mapleSmartSelectionDigests') as Promise<string>[]),
     );

@@ -62,6 +62,7 @@ export async function undoSelection(session: RemovalEditorSession): Promise<void
   if (!session.canUndoSelection() || session.phase() !== 'ready') return;
   const token = ++session.revision;
   session.phase.set('selecting');
+  session.message.set('');
   try {
     if (session.mode() === 'people') {
       const gesture = session.personGestures.at(-1)!;
@@ -90,6 +91,7 @@ export async function redoSelection(session: RemovalEditorSession): Promise<void
   if (!session.canRedoSelection() || session.phase() !== 'ready') return;
   const token = ++session.revision;
   session.phase.set('selecting');
+  session.message.set('');
   try {
     if (session.mode() === 'people') {
       const gesture = session.redoPersonGestures.at(-1)!;
