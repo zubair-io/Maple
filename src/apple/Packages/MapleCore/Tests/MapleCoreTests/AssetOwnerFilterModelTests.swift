@@ -4,6 +4,26 @@ import XCTest
 
 @MainActor
 final class AssetOwnerFilterModelTests: XCTestCase {
+  func testNullAndMissingOwnerEmailsLoadFacetsWithStableIDLabels() async {
+    let server = URL(string: "https://example.test")!
+    let body =
+      #"{"total":3,"owners":[{"id":"device-null","email":null,"count":1},{"id":"device-absent","count":1},{"id":"blank","email":"  ","count":1}]}"#
+    let session = URLSession.stubbed(
+      response: String(decoding: Self.facetData(body), as: UTF8.self))
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: .unauthenticated(server: server, urlSession: session))
+    let model = AssetOwnerFilterModel(searchClient: client)
+    await model.load(SearchParams(libraryID: "library"))
+    XCTAssertNil(model.loadError)
+    XCTAssertFalse(model.isLoading)
+    XCTAssertEqual(model.owners.count, 3)
+    XCTAssertNil(model.owners.first?.email)
+    XCTAssertEqual(
+      model.options(selectedID: "device-null").map(\.label),
+      ["All owners", "device-null", "device-absent", "blank"])
+  }
+
   func testScopedOptionsKeepSelectedEmailThroughZeroResultsAndRetry() async throws {
     let server = URL(string: "https://example.test")!
     nonisolated(unsafe) var attempt = 0
