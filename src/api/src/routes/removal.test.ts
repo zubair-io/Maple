@@ -399,4 +399,25 @@ describe.skipIf(!nativeLibAvailable())('Self Hosted removal publication (#3984)'
       await lease.release();
     }
   });
+
+  it('ordinary full-document saves preserve accepted history and cannot bypass its confirmed commit', async () => {
+    const ordinary = (document: string) =>
+      app.handle(
+        new Request(`http://localhost/api/xmp?${new URLSearchParams({ path: raw })}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/xml' },
+          body: document,
+        }),
+      );
+    await publishAssets();
+    expect((await ordinary(xml)).status).toBe(409);
+    await expect(fs.stat(xmp)).rejects.toThrow();
+    expect((await commit()).status).toBe(200);
+    const cleared = xml.replace(/papp:InpaintRemovals="[^"]*"/, 'papp:InpaintRemovals="[]"');
+    expect((await ordinary(cleared)).status).toBe(409);
+    expect(await fs.readFile(xmp, 'utf8')).toBe(xml);
+    const metadata = xml.replace('rdf:Description', 'rdf:Description foreign="metadata"');
+    expect((await ordinary(metadata)).status).toBe(200);
+    expect(await fs.readFile(xmp, 'utf8')).toBe(metadata);
+  });
 });

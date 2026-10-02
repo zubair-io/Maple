@@ -205,9 +205,11 @@ exact committed document can confirm a lost-acknowledgement retry; a later edit
 cannot be overwritten by that retry. GET responses use `private, no-store`.
 Mutation requires a POSIX lease on macOS/Linux; other server hosts return 503.
 
-Browser authoring integration and coordination with ordinary full-document XMP
-saves remain under #3984. These transport endpoints alone do not enable Self
-Hosted authoring; the existing `/api/xmp` endpoint still overwrites full documents.
+Ordinary `/api/xmp` full-document writes hold the same sidecar mutation lease
+and reject changes to the owned removal list with 409. They can preserve that
+list while saving metadata or develop settings; introducing, replacing or
+clearing accepted removals requires the confirmed commit above. Browser
+authoring integration and qualification remain under #3984.
 
 ## Search
 
