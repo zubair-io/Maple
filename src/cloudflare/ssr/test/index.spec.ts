@@ -42,6 +42,44 @@ describe('Hosted SSR Worker', () => {
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(WASM_MAGIC);
 	});
 
+	it('corrects an octet-stream WOFF2 font without changing its bytes or cache policy', async () => {
+		const bytes = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0xff, 0x00, 0x80]);
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/assets/fonts/Lato-Regular.woff2', method: 'GET' })
+			.reply(200, bytes, {
+				headers: { 'content-type': 'application/octet-stream', 'cache-control': 'no-cache' },
+			});
+		const response = await worker.fetch(
+			new IncomingRequest('https://mapleaperture.com/assets/fonts/Lato-Regular.woff2'),
+			env,
+			createExecutionContext(),
+		);
+		expect(response.headers.get('content-type')).toBe('font/woff2');
+		expect(response.headers.get('cache-control')).toBe('no-cache');
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+	});
+
+	it.each(['wasm', 'woff2'])(
+		'preserves the origin error MIME and status for a missing %s resource',
+		async (extension) => {
+			fetchMock
+				.get('https://origin.test')
+				.intercept({ path: `/mapleaperture/missing.${extension}`, method: 'GET' })
+				.reply(404, '<Error>BlobNotFound</Error>', {
+					headers: { 'content-type': 'application/xml' },
+				});
+			const response = await worker.fetch(
+				new IncomingRequest(`https://mapleaperture.com/missing.${extension}`),
+				env,
+				createExecutionContext(),
+			);
+			expect(response.status).toBe(404);
+			expect(response.headers.get('content-type')).toBe('application/xml');
+			expect(await response.text()).toBe('<Error>BlobNotFound</Error>');
+		},
+	);
+
 	it('streams a PNG object byte-for-byte with the origin content-type preserved', async () => {
 		fetchMock
 			.get('https://origin.test')

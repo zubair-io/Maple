@@ -35,14 +35,13 @@
  *      path, ...) -> pass the real 404 through untouched.
  *   4. Any other status -> pass it through untouched, with the origin's own
  *      `Content-Type` and `Cache-Control` preserved (this Worker never
- *      invents a cache policy) except `.wasm`, which is forced to
- *      `application/wasm` regardless of what the origin reports.
+ *      invents a cache policy) except successful WASM/WOFF2 responses,
+ *      which use `application/wasm` / `font/woff2` even when Azure uploads
+ *      them as octet-stream. Origin error response types are preserved.
  *   5. Every response gets the production security headers.
  */
 
 import { buildResponseHeaders } from './security-headers';
-
-const WASM_CONTENT_TYPE = 'application/wasm';
 
 /** Headers that make sense on a browser->Worker request but have no
  * business reaching a static, unauthenticated Azure Blob Storage origin —
@@ -85,8 +84,12 @@ async function fetchOrigin(originBaseUrl: string, request: Request, pathname: st
 	return fetch(originRequest);
 }
 
-function withWasmContentType(headers: Headers, pathname: string): Headers {
-	if (pathname.endsWith('.wasm')) headers.set('Content-Type', WASM_CONTENT_TYPE);
+function withAssetContentType(headers: Headers, pathname: string, status: number): Headers {
+	// Azure uploads WOFF2 as octet-stream. Correct known binary types only
+	// for successful/cache-validation responses; BlobNotFound XML stays XML.
+	if ((status < 200 || status >= 300) && status !== 304) return headers;
+	if (pathname.endsWith('.wasm')) headers.set('Content-Type', 'application/wasm');
+	if (pathname.endsWith('.woff2')) headers.set('Content-Type', 'font/woff2');
 	return headers;
 }
 
@@ -144,7 +147,11 @@ export default {
 			return spaFallback(env.ORIGIN_BASE_URL);
 		}
 
-		const headers = withWasmContentType(buildResponseHeaders(originResponse.headers), url.pathname);
+		const headers = withAssetContentType(
+			buildResponseHeaders(originResponse.headers),
+			url.pathname,
+			originResponse.status,
+		);
 		return new Response(originResponse.body, {
 			status: originResponse.status,
 			statusText: originResponse.statusText,
