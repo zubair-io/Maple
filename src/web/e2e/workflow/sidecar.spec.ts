@@ -171,3 +171,29 @@ for (const absent of [false, true])
     expect(result.retryAcknowledged).toBe(true);
     expect(result.original).toEqual([1, 0, 255, 42]);
   });
+
+test('self-closing checkpoints retain exact captured bytes through WASM saves and snapshot restore', async ({
+  page,
+}) => {
+  const source =
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:vendor="urn:vendor" vendor:Opaque="keep &amp; exact" crs:ProcessVersion="15.4" /></rdf:RDF></x:xmpmeta>';
+  const result = await page.evaluate(
+    async (xml) => Reflect.get(window, 'workflowTest').mutations(xml),
+    source,
+  );
+  expect(result.snapshot.adjustmentXmp).toBe(source);
+  expect(result.latest.adjustmentXmp).toBe(source);
+  expect(result.historyCount).toBe(3);
+  expect(result.editedExposure).toBe(1.25);
+  expect(result.exact).toBe(false); // The active envelope expands to hold Workflow; stored checkpoints stay exact.
+  for (const field of [
+    'modelRestored',
+    'stale',
+    'duplicate',
+    'forged',
+    'futureReject',
+    'diskUnchanged',
+  ])
+    expect(result[field]).toBe(true);
+  expect(result.original).toEqual([1, 0, 255, 42]);
+});

@@ -212,7 +212,7 @@ Object.assign(window, {
           input,
           await entry(input),
         );
-        const captured = await core.checkpoint(first);
+        const captured = await core.checkpoint(input);
         const snapshot = {
           id: crypto.randomUUID(),
           name: 'Warm study 🌅',
@@ -220,7 +220,7 @@ Object.assign(window, {
           adjustmentXmp: captured,
         };
         const saved = await store.saveSnapshot(folder, 'photo.xmp', 'primary', first, snapshot);
-        const edited = saved.replace(
+        const edited = captured.replace(
           'crs:ProcessVersion="15.4"',
           'crs:ProcessVersion="15.4" crs:Exposure2012="1.25"',
         );

@@ -186,3 +186,35 @@ fn self_closing_partial_white_balance_checkpoint_keeps_authored_intent_on_restor
     assert_eq!(record.snapshots[0].adjustment_xmp, xml);
     assert_eq!(record.history.last().unwrap().adjustment_xmp, xml);
 }
+
+#[test]
+fn self_closing_checkpoint_expansion_accepts_only_the_owned_embedding_change() {
+    let xml = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:vendor="urn:vendor" vendor:Opaque="keep &amp; exact" crs:Temperature="5100" /></rdf:RDF></x:xmpmeta>"#;
+    let candidate = SidecarWorkflow::primary().embed_in_xmp(xml).unwrap();
+    assert_ne!(SidecarWorkflow::checkpoint_xmp(&candidate).unwrap(), xml);
+    let committed = SidecarWorkflow::commit_xmp(&candidate, &entry(xml, 1, "adjustment")).unwrap();
+    let saved = SidecarWorkflow::snapshot_xmp(&committed, &snapshot(xml)).unwrap();
+    let edited = saved.replace("crs:Temperature=\"5100\"", "crs:Temperature=\"7000\"");
+    let restored =
+        SidecarWorkflow::restore_xmp(&edited, &entry(xml, 2, "snapshot-restore")).unwrap();
+    let record = SidecarWorkflow::from_xmp(&restored).unwrap().unwrap();
+    assert_eq!(record.history[0].adjustment_xmp, xml);
+    assert_eq!(record.snapshots[0].adjustment_xmp, xml);
+    assert_eq!(record.history[1].adjustment_xmp, xml);
+    assert_eq!(
+        crate::xmp::parse(&restored).unwrap(),
+        crate::xmp::parse(xml).unwrap()
+    );
+    for forged in [
+        xml.replace("5100", "7000"),
+        xml.replace("keep &amp; exact", "different"),
+        xml.replace(" /></rdf:RDF>", "/></rdf:RDF>"),
+        xml.replace("<rdf:RDF", "\n<rdf:RDF"),
+    ] {
+        assert!(SidecarWorkflow::commit_xmp(&candidate, &entry(&forged, 3, "adjustment")).is_err());
+        assert!(SidecarWorkflow::snapshot_xmp(&candidate, &snapshot(&forged)).is_err());
+    }
+    let whitespace = candidate.replace("\n    </rdf:Description>", " </rdf:Description>");
+    assert!(SidecarWorkflow::commit_xmp(&whitespace, &entry(xml, 3, "adjustment")).is_err());
+    assert!(SidecarWorkflow::snapshot_xmp(&whitespace, &snapshot(xml)).is_err());
+}

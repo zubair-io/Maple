@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { callNative } from 'maple';
 import * as fs from './mirrored';
 import { xmpSidecarPath } from './xmp';
+import { serializeSidecarWrite } from './sidecar-write-order';
 import { safeWriteAllowed } from './root';
 import { writeSidecarAtomic, writeSidecarCreateOnly, isMissingSidecar } from './sidecar-io';
 import {
@@ -127,7 +128,7 @@ export async function writeWorkflowVariant(
   xml: string,
 ): Promise<string> {
   const destination = await variantPath(rawPath, id);
-  return serializeWrite(destination, async () => {
+  return serializeSidecarWrite(destination, async () => {
     const existing = await readWorkflowVariant(rawPath, id);
     const oldRecord = existing === null ? null : await record(existing);
     const nextRecord = await record(xml);
@@ -143,20 +144,6 @@ export async function writeWorkflowVariant(
 }
 
 /** Cooperating HTTP writers share a resolved-sidecar chain, including ordinary saves. */
-const pendingWrites = new Map<string, Promise<void>>();
-async function serializeWrite(destination: string, write: () => Promise<string>): Promise<string> {
-  const previous = pendingWrites.get(destination) ?? Promise.resolve();
-  const next = previous.then(write);
-  const settled = next.then(
-    () => undefined,
-    () => undefined,
-  );
-  pendingWrites.set(destination, settled);
-  return next.finally(() => {
-    if (pendingWrites.get(destination) === settled) pendingWrites.delete(destination);
-  });
-}
-
 export function commitWorkflowVariant(
   rawPath: string,
   id: string,
@@ -208,7 +195,7 @@ async function mutateVariant(
   convert: (current: string | null) => Promise<string>,
 ): Promise<string> {
   const destination = await variantPath(rawPath, id);
-  return serializeWrite(destination, async () => {
+  return serializeSidecarWrite(destination, async () => {
     const current = await readWorkflowVariant(rawPath, id);
     if (current !== expectedXmp)
       throw new WorkflowVariantError(409, 'Variant changed. Reopen it before saving this action.');
