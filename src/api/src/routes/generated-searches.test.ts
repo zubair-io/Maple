@@ -131,6 +131,27 @@ describe('GET /api/generated-searches', () => {
 });
 
 describe('GET /api/generated-searches/:id/assets', () => {
+  it('populates uploader attribution on generated collection results', async () => {
+    const principal = '1'.repeat(24);
+    run(
+      live.db,
+      'INSERT INTO users (id, email, email_key, role, created_at) VALUES (?, ?, ?, ?, ?)',
+      principal,
+      'member@maple.local',
+      'member@maple.local',
+      'member',
+      'created',
+    );
+    const assetId = seedAsset('owned');
+    run(live.db, 'UPDATE assets SET owner_id = ? WHERE id = ?', principal, assetId);
+    const collectionId = seedCollection({ result_count: 1 });
+    const { status, body } = await get(`/api/generated-searches/${collectionId}/assets`);
+    expect(status).toBe(200);
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0].owner_id).toBe(principal);
+    expect(body.results[0].owner).toEqual({ id: principal, email: 'member@maple.local' });
+  });
+
   it('runs the stored query and returns matching assets', async () => {
     const id = seedCollection();
     seedAsset('a');
