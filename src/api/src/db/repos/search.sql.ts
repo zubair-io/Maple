@@ -152,13 +152,15 @@ const PAGE_COLUMNS = `assets.id, assets.size, assets.mtime, assets.indexed_at,
 /**
  * One page of the grid.
  *
- * `INDEXED BY assets_live_captured` is a deliberate instruction to the planner,
+ * `INDEXED BY` is a deliberate instruction to the planner,
  * not a hint it may ignore, and it is here because without it a *filtered* page
  * takes the wrong plan. Given a residual the planner likes — `has_xmp = ?` was
  * the one that surfaced this during #3746 — it prefers a different partial
  * index, seeks on that, and then sorts the entire live set to satisfy the
  * `ORDER BY`. Walking the ordered index and stopping at the limit is what makes
  * a page cost the page rather than the library.
+ * With an owner equality, its ordered owner index leads instead: walking the
+ * global capture index could otherwise examine every other user's assets.
  *
  * It is applied only when the plan it names is actually available: the index is
  * partial over the live predicate, and it cannot serve a text query, whose
@@ -178,9 +180,15 @@ export function pageSql(
   const order = ranked
     ? `${FTS_RANK_ORDER}, assets.captured_at DESC, assets.id`
     : (ORDER_BY[sort] ?? ORDER_BY.captured_desc!);
+  const captureIndex =
+    where.ownerId === null
+      ? 'assets_live_captured'
+      : sort === 'captured_asc'
+        ? 'assets_live_owner_captured_asc'
+        : 'assets_live_owner_captured';
   const from =
     canNameIndex(where) && CAPTURE_SORTS.has(sort)
-      ? 'FROM assets INDEXED BY assets_live_captured'
+      ? `FROM assets INDEXED BY ${captureIndex}`
       : fromClause(where);
   return statement(
     projection,

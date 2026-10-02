@@ -94,6 +94,8 @@ export interface SearchWhere {
   clauses: readonly string[];
   params: readonly SqlValue[];
   match: TextFilter;
+  /** Normalized owner equality, used to select its capture-date pagination index. */
+  ownerId: string | null;
   /**
    * The always-on visibility filter: `0` excludes hidden assets (the default),
    * `1` is `hidden=only`, `null` is `hidden=all`.
@@ -186,6 +188,7 @@ export function buildSearchWhere(
     return { error: `Invalid scope: ${q.scope}` };
   }
 
+  const ownerId = ownerFilter(q);
   const terms: Term[] = [
     ...cameraAndLensTerms(q),
     ...placeAndPeopleTerms(q, excludedPersonIds, peoplePersonIds),
@@ -194,7 +197,7 @@ export function buildSearchWhere(
     ...screenshotTerms(q),
     ...visionTerms(q),
     ...fileTerms(q, extensions),
-    ...ownerTerms(q),
+    ...(ownerId === null ? [] : [{ sql: 'assets.owner_id = ?', params: [ownerId] }]),
     ...scopeTerms(q.scope),
   ];
 
@@ -202,6 +205,7 @@ export function buildSearchWhere(
     clauses: terms.map((term) => term.sql),
     params: terms.flatMap((term) => term.params),
     match: toTextFilter(text(q.placeQuery) ?? ''),
+    ownerId,
     hidden: hiddenFilter(q),
   };
 }
@@ -274,11 +278,9 @@ function fileTerms(q: SearchQuery, extensions: readonly string[]): Term[] {
 }
 
 /** Filter by asset owner ID. */
-function ownerTerms(q: SearchQuery): Term[] {
+function ownerFilter(q: SearchQuery): string | null {
   const raw = text(q.ownerId ?? q.owner_id);
-  if (raw === undefined) return [];
-  const ownerId = normaliseObjectIdHex(raw) ?? raw.toLowerCase();
-  return [{ sql: `assets.owner_id = ?`, params: [ownerId] }];
+  return raw === undefined ? null : (normaliseObjectIdHex(raw) ?? raw.toLowerCase());
 }
 
 /** A predicate and its bound values, ready to splice into a statement. */

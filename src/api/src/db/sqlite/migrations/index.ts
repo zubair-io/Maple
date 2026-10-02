@@ -34,6 +34,7 @@ import { unicodePresetEmailKeysMigration } from './0009-unicode-preset-email-key
 import { removeUnusedImageCapabilitiesMigration } from './0010-remove-unused-image-capabilities.ts';
 import { assetOwnerIdMigration } from './0011-asset-owner-id.ts';
 import { greekSigmaIdentityKeysMigration } from './0012-greek-sigma-identity-keys.ts';
+import { ownerCapturePaginationMigration } from './0013-owner-capture-pagination.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -48,4 +49,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   removeUnusedImageCapabilitiesMigration,
   assetOwnerIdMigration,
   greekSigmaIdentityKeysMigration,
+  ownerCapturePaginationMigration,
 ];

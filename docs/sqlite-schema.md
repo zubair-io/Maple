@@ -245,7 +245,14 @@ For that shape `sort_at` equals `captured_at` on every qualifying row, so the
 query keeps capture ordering and the `assets_live_captured` range index.
 Other working-set filters (`has_xmp`, `rating`) use `assets_live_sorted` and
 stop at the limit without a temporary sort. Search/grid capture sorting keeps
-its existing capture index.
+its existing capture index for unfiltered pages. Owner-filtered capture pages
+use `assets_live_owner_captured` (newest first) or
+`assets_live_owner_captured_asc` (oldest first), added by migration
+`0013-owner-capture-pagination`. Both lead with `owner_id`, share the live
+asset predicate, and keep `id` ascending for cursor tie breaking. Separate
+directions avoid sorting equal-date burst frames when traversing oldest first.
+The existing `assets_facet_owner` continues to serve owner counts and facets;
+full-text queries retain their relevance-ranked plan.
 
 ## Every query pattern in `src/api/src/db/`, and the index that serves it
 
