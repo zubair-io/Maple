@@ -1,4 +1,6 @@
 import '@angular/compiler';
+import { editorHistory } from './editor-history';
+import { HostedWorkflowWriterService } from '../../projects/maple-common/src/lib/xmp/hosted-workflow-writer.service';
 import { createEnvironmentInjector, Injector, type EnvironmentInjector } from '@angular/core';
 import { FolderAccessService } from '../../projects/maple-common/src/lib/folder-access/folder-access.service';
 import { XmpStoreService } from '../../projects/maple-common/src/lib/xmp/xmp-store.service';
@@ -8,12 +10,17 @@ import { WorkflowVariantStoreService } from '../../projects/maple-common/src/lib
 import { WorkflowXmpService } from '../../projects/maple-common/src/lib/xmp/workflow-xmp.service';
 import { SidecarSaveStateService } from '../../projects/maple-common/src/lib/xmp/sidecar-save-state.service';
 import { defaultAdjustmentModel } from '../../projects/maple-common/src/lib/models/adjustment-model';
-import { parseSidecarWorkflow } from '../../projects/maple-common/src/lib/generated/workflow.generated';
+import {
+  parseSidecarWorkflow,
+  type SidecarWorkflow,
+} from '../../projects/maple-common/src/lib/generated/workflow.generated';
+import type { MapleFolderHandle } from '../../projects/maple-common/src/lib/folder-access/folder-access.types';
 const injector = () =>
   createEnvironmentInjector(
     [
       FolderAccessService,
       XmpStoreService,
+      HostedWorkflowWriterService,
       XmpParserService,
       XmpSerializerService,
       WorkflowXmpService,
@@ -23,9 +30,56 @@ const injector = () =>
     Injector.NULL as EnvironmentInjector,
   );
 
+async function adjustRoundtrip(
+  environment: EnvironmentInjector,
+  folder: MapleFolderHandle,
+  record: SidecarWorkflow,
+  embedded: string,
+) {
+  const store = environment.get(XmpStoreService);
+  const variants = environment.get(WorkflowVariantStoreService);
+  // An ordinary edit must retain the exact embedded authored checkpoints.
+  const parser = environment.get(XmpParserService);
+  const parsed = parser.parseAdjustmentModel(embedded);
+  store.rememberPassthrough('photo', parsed.passthrough);
+  const model = { ...defaultAdjustmentModel(), ...parsed.model, exposure: 1.25 };
+  const culling = { rating: 0, flag: 'unflagged' as const, colorLabel: null, keywords: [] };
+  if (record.variantId === 'primary') {
+    store.scheduleWrite('photo', folder, 'photo.dng', model, culling);
+    await store.flushAsset('photo');
+  } else {
+    const output = environment
+      .get(XmpSerializerService)
+      .serialize(model, parsed.passthrough, culling);
+    await variants.write(folder, 'photo.xmp', record.variantId, output);
+  }
+}
+
+async function publishFixtureWorkflow(
+  environment: EnvironmentInjector,
+  folder: MapleFolderHandle,
+  record: SidecarWorkflow,
+  input: string,
+) {
+  const core = environment.get(WorkflowXmpService);
+  const store: XmpStoreService = environment.get(XmpStoreService);
+  const variants = environment.get(WorkflowVariantStoreService);
+  const filename = await core.variantFilename('photo.xmp', record.variantId);
+  const source = record.variantId === 'primary' ? input : await core.embed(record, input);
+  await environment
+    .get(FolderAccessService)
+    .writeFile(folder, filename, new TextEncoder().encode(source));
+  const publishing =
+    record.variantId === 'primary'
+      ? store.writeWorkflow('photo', folder, 'photo.dng', record)
+      : variants.write(folder, 'photo.xmp', record.variantId, await core.embed(record, input));
+  return { filename, publishing };
+}
+
 Object.assign(window, {
   workflowTest: {
     ready: true,
+    editorHistory,
     async roundtrip(row: unknown, input: string, future = false, concurrent = false) {
       const record = parseSidecarWorkflow(row);
       const root = await navigator.storage.getDirectory();
@@ -38,9 +92,16 @@ Object.assign(window, {
         if (access.backend !== 'fs-access')
           throw Error('This gate needs actual Chromium File System Access');
         await access.writeFile(folder, 'photo.dng', new Uint8Array([1, 0, 255, 42]));
-        await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(input));
+        const core = environment.get(WorkflowXmpService);
+        const { filename, publishing } = await publishFixtureWorkflow(
+          environment,
+          folder,
+          record,
+          input,
+        );
         const store: XmpStoreService = environment.get(XmpStoreService);
-        const workflowWrite = store.writeWorkflow('photo', folder, 'photo.dng', record);
+        const variants = environment.get(WorkflowVariantStoreService);
+        const workflowWrite = publishing;
         if (concurrent) {
           store.scheduleWrite(
             'photo',
@@ -51,17 +112,23 @@ Object.assign(window, {
           );
           await Promise.all([workflowWrite, store.flushAsset('photo')]);
         } else await workflowWrite;
-        const read = async () =>
-          new TextDecoder().decode(await access.readFile(folder, 'photo.xmp'));
+        const read = async () => new TextDecoder().decode(await access.readFile(folder, filename));
         const embedded = await read();
-        const core = environment.get(WorkflowXmpService);
         const reopened = await core.read(embedded);
         if (future) {
           const unsupported = embedded.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2');
-          await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(unsupported));
+          await access.writeFile(folder, filename, new TextEncoder().encode(unsupported));
           let rejected = false;
           try {
-            await store.writeWorkflow('photo', folder, 'photo.dng', record);
+            if (record.variantId === 'primary')
+              await store.writeWorkflow('photo', folder, 'photo.dng', record);
+            else
+              await variants.write(
+                folder,
+                'photo.xmp',
+                record.variantId,
+                await core.embed(record, input),
+              );
           } catch {
             rejected = true;
           }
@@ -73,18 +140,7 @@ Object.assign(window, {
             original: Array.from(await access.readFile(folder, 'photo.dng')),
           };
         }
-        // An ordinary edit must retain the exact embedded authored checkpoints.
-        const parser = environment.get(XmpParserService);
-        const parsed = parser.parseAdjustmentModel(embedded);
-        store.rememberPassthrough('photo', parsed.passthrough);
-        store.scheduleWrite(
-          'photo',
-          folder,
-          'photo.dng',
-          { ...defaultAdjustmentModel(), ...parsed.model, exposure: 1.25 },
-          { rating: 0, flag: 'none', colorLabel: 'none', keywords: [] },
-        );
-        await store.flushAsset('photo');
+        await adjustRoundtrip(environment, folder, record, embedded);
         const adjusted = await read();
         const retained = await core.read(adjusted);
         environment.destroy();

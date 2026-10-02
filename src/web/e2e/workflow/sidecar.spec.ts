@@ -54,7 +54,7 @@ test('real WASM rejects malformed complete checkpoints and duplicate workflow', 
 test('an adjustment queued while the actual worker saves workflow retains every checkpoint', async ({
   page,
 }) => {
-  const row = corpus[1];
+  const row = corpus[0];
   const result = await page.evaluate(
     async ({ row, xml }) => Reflect.get(window, 'workflowTest').roundtrip(row, xml, false, true),
     { row, xml },

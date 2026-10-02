@@ -19,6 +19,7 @@ import { XmpSerializerService } from './xmp-serializer.service';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpParserService } from './xmp-parser.service';
+import { HostedWorkflowWriterService } from './hosted-workflow-writer.service';
 import { WORKFLOW_MARKUP_PATTERN, type SidecarWorkflow } from '../generated/workflow.generated';
 
 @Injectable({ providedIn: 'root' })
@@ -28,6 +29,16 @@ export class XmpStoreService {
   private saveState = inject(SidecarSaveStateService);
   private readonly workflowCore = inject(WorkflowXmpService);
   private readonly parser = inject(XmpParserService);
+  private readonly hostedWriter = inject(HostedWorkflowWriterService);
+  private readonly latestModels = new WeakMap<MapleFolderHandle, Map<AssetId, AdjustmentModel>>();
+  private readonly retryWrites = new Map<
+    AssetId,
+    {
+      folder: MapleFolderHandle;
+      rawFilename: string;
+      run: () => Promise<void>;
+    }[]
+  >();
 
   // Leave 100ms for browser scheduling and File System Access dispatch while
   // meeting the 250ms edit-to-sidecar contract in installed Chrome.
@@ -47,6 +58,8 @@ export class XmpStoreService {
   >();
   /** Publish workflow metadata through the same per-asset atomic write chain.
    * Requires an existing sidecar; the caller commits initial adjustments first. */
+  // Browser workflow gate calls this through a nested handler; product controls follow #2437.
+  // fallow-ignore-next-line unused-class-member
   async writeWorkflow(
     assetId: AssetId,
     folder: MapleFolderHandle,
@@ -58,13 +71,23 @@ export class XmpStoreService {
     const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
     const write = prior
       .then(async () => {
-        const name = this._sidecarFilename(rawFilename);
-        const xml = new TextDecoder('utf-8', { fatal: true }).decode(
-          await this.folderAccess.readFile(folder, name),
-        );
-        const output = await this.workflowCore.embed(workflow, xml);
-        await this.folderAccess.writeFile(folder, name, new TextEncoder().encode(output));
-        this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
+        const publish = async () => {
+          if (workflow.variantId !== 'primary')
+            throw Error('Variant identity does not match the primary sidecar.');
+          const name = this._sidecarFilename(rawFilename);
+          const xml = new TextDecoder('utf-8', { fatal: true }).decode(
+            await this.folderAccess.readFile(folder, name),
+          );
+          const existing = await this.workflowCore.read(xml);
+          if ((existing?.variantId ?? 'primary') !== 'primary')
+            throw Error('Variant identity does not match the primary sidecar.');
+          const output = await this.workflowCore.embed(workflow, xml);
+          await this.folderAccess.writeFile(folder, name, new TextEncoder().encode(output));
+          this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
+        };
+        if (folder.native && navigator.locks)
+          await navigator.locks.request('maple-workflow-variant:primary', publish);
+        else await publish();
       })
       .finally(() => {
         if (this._inFlightWrites.get(assetId) === write) this._inFlightWrites.delete(assetId);
@@ -146,6 +169,9 @@ export class XmpStoreService {
     culling: XmpCulling,
   ): void {
     if (!folder.write) return;
+    const models = this.latestModels.get(folder) ?? new Map<AssetId, AdjustmentModel>();
+    models.set(assetId, structuredClone(model));
+    this.latestModels.set(folder, models);
     const revision = this.saveState.queued(assetId);
 
     const existing = this._pendingWrites.get(assetId);
@@ -174,6 +200,48 @@ export class XmpStoreService {
     });
   }
 
+  latestModel(assetId: AssetId, folder: MapleFolderHandle): AdjustmentModel | undefined {
+    return this.latestModels.get(folder)?.get(assetId);
+  }
+
+  async commitSemantic(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+    model: AdjustmentModel,
+    culling: XmpCulling,
+    action: string,
+    label: string,
+  ): Promise<void> {
+    const revision = this.saveState.queued(assetId);
+    try {
+      this.hostedWriter.capture(
+        folder,
+        this._sidecarFilename(rawFilename),
+        model,
+        culling,
+        action,
+        label,
+      );
+      const pending = this._pendingWrites.get(assetId);
+      if (pending?.folder === folder) {
+        clearTimeout(pending.timeout);
+        this._pendingWrites.delete(assetId);
+      }
+      await this._startWrite(
+        assetId,
+        folder,
+        rawFilename,
+        structuredClone(model),
+        structuredClone(culling),
+        revision,
+      );
+    } catch (error) {
+      this.saveState.failed(assetId, revision, error);
+      throw error;
+    }
+  }
+
   /** Settle this asset's real atomic write before a batch records success. */
   async flushAsset(id: AssetId): Promise<void> {
     const pending = this._pendingWrites.get(id);
@@ -192,6 +260,8 @@ export class XmpStoreService {
     }
     const inFlight = this._inFlightWrites.get(id);
     if (inFlight) return inFlight;
+    const retry = this.retryWrites.get(id);
+    if (retry) return Promise.all(retry.map((write) => write.run())).then(() => undefined);
     throw new Error(
       'No writable sidecar was queued for this photo. Reopen its folder with write access.',
     );
@@ -225,6 +295,9 @@ export class XmpStoreService {
     }
     this._pendingWrites.clear();
     await Promise.all(new Set([...this._inFlightWrites.values(), ...writes]));
+    await Promise.all(
+      [...this.retryWrites.values()].flatMap((scope) => scope.map((write) => write.run())),
+    );
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────
@@ -243,9 +316,46 @@ export class XmpStoreService {
     const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
     const write = prior
       .catch(() => undefined)
-      .then(() =>
-        this._flushWrite(assetId, folder, rawFilename, model, culling, revision, passthrough),
-      )
+      .then(async () => {
+        try {
+          await this._flushWrite(
+            assetId,
+            folder,
+            rawFilename,
+            model,
+            culling,
+            revision,
+            passthrough,
+          );
+          const remaining = (this.retryWrites.get(assetId) ?? []).filter(
+            (retry) => retry.folder !== folder || retry.rawFilename !== rawFilename,
+          );
+          if (remaining.length === 0) this.retryWrites.delete(assetId);
+          else this.retryWrites.set(assetId, remaining);
+        } catch (error) {
+          const retained = (this.retryWrites.get(assetId) ?? []).filter(
+            (retry) => retry.folder !== folder || retry.rawFilename !== rawFilename,
+          );
+          this.retryWrites.set(assetId, [
+            ...retained,
+            {
+              folder,
+              rawFilename,
+              run: () =>
+                this._startWrite(
+                  assetId,
+                  folder,
+                  rawFilename,
+                  model,
+                  culling,
+                  revision,
+                  passthrough,
+                ),
+            },
+          ]);
+          throw error;
+        }
+      })
       .finally(() => {
         if (this._inFlightWrites.get(assetId) === write) {
           this._inFlightWrites.delete(assetId);
@@ -274,6 +384,19 @@ export class XmpStoreService {
     const bytes = new TextEncoder().encode(xml);
     const sidecarName = this._sidecarFilename(rawFilename);
     try {
+      if (folder.native && navigator.locks) {
+        const output = await this.hostedWriter.write(
+          folder,
+          sidecarName,
+          model,
+          culling,
+          currentPassthrough,
+          metadata,
+        );
+        this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
+        this.saveState.saved(assetId, revision);
+        return;
+      }
       if (new RegExp(WORKFLOW_MARKUP_PATTERN, 'u').test(xml)) await this.workflowCore.read(xml);
       // FolderAccessService.writeFile uses FS Access writable-stream on Chromium,
       // whose close() is atomic at the OS level.  The fallback backend writes to
