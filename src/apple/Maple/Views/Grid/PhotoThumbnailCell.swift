@@ -191,6 +191,7 @@ struct PhotoThumbnailCell: View {
     .accessibilityHint(accessibilityHintText)
     .task(id: decodedKey) {
       let key = decodedKey
+      decoded = nil
       // Fetch bytes, then decode — both OFF the main actor. The whole
       // load is keyed on the asset id + saved revision, and it is
       // cancelled when the cell scrolls off-screen, so a fast fling
@@ -200,11 +201,17 @@ struct PhotoThumbnailCell: View {
       // resolves 20–30 tiles at once drives that many overlapping
       // animations and hitches the scroll. Thumbnails just appear
       // (Photos.app does the same during scroll).
-      let bytes = await provider.thumbnail(for: item.thumbnailSource)
+      let bytes = await provider.thumbnail(for: item.thumbnailSource) { camera in
+        let image = await ThumbnailDecoder.image(for: camera, key: "camera:" + key)
+        guard !Task.isCancelled, let image else { return }
+        // Keep camera pixels under a separate bounded bitmap-cache key so
+        // the final authored thumbnail can replace them.
+        decoded = image
+      }
       guard !Task.isCancelled else { return }
       let image = await ThumbnailDecoder.image(for: bytes, key: key)
       guard !Task.isCancelled else { return }
-      decoded = image
+      if let image { decoded = image }
     }
   }
 

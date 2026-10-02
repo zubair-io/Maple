@@ -62,6 +62,10 @@ public actor ThumbnailLoader {
   /// under a `"display-preview:"`-namespaced key.)
   var inFlight: [String: Task<Data?, Never>] = [:]
 
+  /// Camera seeds must not wait behind multi-second authored RAW develops.
+  /// Keep extraction bounded independently to avoid a cold-grid memory spike.
+  let cameraPreviewGate = BoundedAsyncSemaphore(value: 2)
+
   public init() {}
 
   // MARK: - Concurrency gate
@@ -256,10 +260,9 @@ public actor ThumbnailLoader {
       }
     }
 
-    // FAST PATH — read the embedded JPEG preview via ImageIO.
-    // DNGs (and most camera RAWs) carry a ~1920 px preview; ImageIO
-    // extracts + resamples it at the target size in 5-50 ms per
-    // image vs 300-500 ms for a full Rust develop.
+    // FAST PATH — the shared Rust extractor reads the camera JPEG for
+    // RAWs; ImageIO handles ordinary bitmaps. Neither synthesizes an
+    // Apple RAW develop. The sidecar gate above preserves authored edits.
     let t0 = Date()
     if let data = embeddedPreviewAVIF(at: assetURL) {
       let ms = Int(Date().timeIntervalSince(t0) * 1000)
@@ -341,10 +344,14 @@ public actor ThumbnailLoader {
     await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
   }
 
-  /// Read the embedded JPEG preview from a file and resample + re-encode it
-  /// to AVIF via ImageIO. Returns nil if the file has no extractable
-  /// thumbnail (very rare for modern RAWs + regular JPEGs).
+  /// Extract camera pixels through the shared Rust core for RAWs, or
+  /// ImageIO for regular bitmaps, and encode the canonical AVIF grid tier.
   private static func embeddedPreviewAVIF(at url: URL) -> Data? {
+    if !NonRawImageExtensions.all.contains(url.pathExtension.lowercased()) {
+      return embeddedCameraAVIF(
+        at: url, targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
+        quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
+    }
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
     let targetPx = Int(ThumbnailDiskCache.defaultThumbSize.width * 2)  // 2x for Retina
     let opts: [CFString: Any] = [

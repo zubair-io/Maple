@@ -122,25 +122,23 @@ struct PreviewImage: View {
     // Already showing this source — nothing to do.
     if loadedID == id, decodedImage != nil { return }
     phase = .loading
-    guard let data = await provider.thumbnail(for: source) else {
-      // Don't strand the view on the spinner: a nil thumbnail is the
-      // source's terminal answer, not a slow one.
+    if loadedID != id { decodedImage = nil }
+    let data = await provider.thumbnail(for: source) { camera in
+      let image = await ThumbnailDecoder.decodeFull(camera)
+      guard !Task.isCancelled, let image else { return }
+      decodedImage = image
+      loadedID = id
+      phase = .loaded
+    }
+    guard !Task.isCancelled else { return }
+    if let data, let image = await ThumbnailDecoder.decodeFull(data), !Task.isCancelled {
+      decodedImage = image
+      loadedID = id
+      phase = .loaded
+    } else if decodedImage == nil {
       if !Task.isCancelled { phase = .failed }
       return
     }
-    // decodeFull is nonisolated async: it decodes off-main AND inherits this
-    // task's cancellation, so a superseded page (prev/next swipe cancels the
-    // .task) stops decoding instead of finishing an off-screen image.
-    let image = await ThumbnailDecoder.decodeFull(data)
-    // Stale-guard: a newer `.task(id:)` supersedes and cancels this one on
-    // an id change, so `!Task.isCancelled` is the real check. (`sourceID`
-    // is derived from the view's `source` prop; a re-created struct with a
-    // new source runs its own fresh task, so a value compare here would be
-    // redundant.) Copilot review #1810.
-    guard !Task.isCancelled else { return }
-    decodedImage = image
-    loadedID = id
-    phase = image == nil ? .failed : .loaded
 
     // The tiny cached image owns first paint. Once it is on screen, ask
     // the source for display-sized pixels and swap them in only if this
