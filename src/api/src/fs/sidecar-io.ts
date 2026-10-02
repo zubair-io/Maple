@@ -37,6 +37,11 @@ import * as fs from './mirrored.ts';
 import { safeWriteAllowed } from './root.ts';
 import type { OpResult } from './root.ts';
 
+/** Only ENOENT means absence; permission and I/O errors must remain failures. */
+export function isMissingSidecar(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT';
+}
+
 /**
  * Atomically publish `content` at `destPath`, returning the published file's
  * mtime — callers hand that back to clients as the precondition token for the

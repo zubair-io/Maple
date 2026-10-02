@@ -579,8 +579,30 @@ Bun/N-API bindings share this operation. Native capabilities load separately,
 so adding these functions does not invalidate earlier workflow operations in
 an older native library.
 
-This completes storage and binding integration, not the product workflow. Sibling
-variant discovery/switching, snapshots/history UI, restore, cache identities and
+Sibling storage (#4040) is reconstructed from committed XMP by Apple's
+`WorkflowVariantStore`, Web's `WorkflowVariantStoreService`, and the authorized
+server endpoints below. Creating a sibling requires a committed source sidecar;
+cloning an edited sibling carries its complete current document. Saving one
+identity preserves its authoring record through ordinary adjustment writes and
+leaves other branches and the original untouched. Discovery reports missing
+primary state explicitly. A missing named sibling, mismatched identity, future
+schema, or lost write access fails without silently falling back to primary.
+
+- `GET /api/xmp/variants?path=…` discovers the primary and UUID siblings.
+- `GET /api/xmp/variant?path=…&variantId=…` reads one exact identity.
+- `POST /api/xmp/variants?path=…&sourceVariantId=…` creates from the committed
+  source using a generated workflow wire record; source defaults to `primary`.
+- `PUT /api/xmp/variant?path=…&variantId=…` saves the selected complete XML.
+
+Apple and server creation publish with create-only filesystem links, so an
+existing UUID cannot be overwritten by a concurrent creator. Web coordinates
+cooperating tabs with a UUID Web Lock and publishes using the existing writable
+File System Access stream-close contract. This is not an OS-wide create-only
+operation against other applications. Portable Web writes require a native
+writable folder handle; copied-file fallback is read-only. These operations run
+outside rendering, using the shared Rust filename and XML validators.
+
+Cache-aware switching, snapshots/history UI, undoable restore, and
 deletion/recovery remain acceptance requirements under #2437.
 `tools/qualification/workflow-roundtrip.sh` runs the committed XMP corpus through
 Rust → generated Swift → generated Web/API TypeScript → Rust and checks identical

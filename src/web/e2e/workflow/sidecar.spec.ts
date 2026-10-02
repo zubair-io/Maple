@@ -86,3 +86,28 @@ test('actual WASM captures exact complete checkpoints and resolves portable UUID
     original: [1, 0, 255, 42],
   });
 });
+
+test('real browser storage discovers, branches, edits and reopens independent variants', async ({
+  page,
+}) => {
+  const result = await page.evaluate(
+    async ({ row, xml }) => Reflect.get(window, 'workflowTest').variants(row, xml),
+    { row: corpus[1], xml },
+  );
+  expect(result.listed).toEqual(result.expected);
+  expect(result.retained).toEqual(corpus[1]);
+  for (const key of [
+    'oneCreated',
+    'secondExposure',
+    'missingRead',
+    'missingWrite',
+    'lostWrite',
+    'futureWrite',
+    'futureList',
+    'futureUnchanged',
+    'mismatched',
+    'sourceUnchanged',
+  ])
+    expect(result[key]).toBe(true);
+  expect(result.original).toEqual([1, 0, 255, 42]);
+});
