@@ -379,3 +379,4 @@ RemovalPeopleBridgeTests
 RemovalPersonRefinementTests
 RemovalSavedControlsTests
 RemovalRenderRecoveryTests
+NativeFloatExportTests

@@ -94,14 +94,6 @@ extension EditSession {
       return CGSize(width: resolvedEdge, height: resolvedEdge)
     }()
 
-    // Film look (epic #2683, Task 10): a RAW asset with a resolved look
-    // routes through `maple_render_file_with_film` instead of the plain
-    // CIImage graph below — see `EditSession+FilmExport.swift` for why.
-    // Returns `nil` (falls through) for every other case: no look,
-    // non-RAW, sourceless, or an FFI render failure.
-    if !isFast, let filmExport = try await renderExportWithFilmLook() {
-      return filmExport
-    }
     // Resolve the look BEFORE the render (#3190 review follow-up): a
     // non-RAW export with an active look must pin `renderForExport`'s
     // encode to sRGB, matching the interactive CPU fallback's rule
@@ -118,7 +110,9 @@ extension EditSession {
       asset: asset, model: exportModel, asShot: wbDeltaAnchor,
       targetSize: targetSize,
       qualityOverride: qualityOverride,
-      targetPrimariesOverride: filmActive ? .srgb : targetPrimariesOverride
+      targetPrimariesOverride:
+        filmActive && (!asset.isRaw || isFast) ? .srgb : targetPrimariesOverride,
+      filmLut: asset.isRaw && !isFast ? filmLattice : nil
     )
     // Non-RAW (and fast RAW) film-look export (#2713): the CIImage-graph
     // path above has no FFI film-look stage (`maple_render_file_with_film`
@@ -129,9 +123,9 @@ extension EditSession {
       ? image
       : FilmLookCube.apply(
         to: image, lattice: filmLattice, strengthPct: exportModel.filmStrength)
-    // Scene-linear renders return the full oriented frame. The live canvas
-    // crops separately; export must do the same, even while the crop tool
-    // is armed. The full RAW film path above already crops in Rust (#3357).
+    // The shared full RAW float export already applies geometry and crop.
+    // Non-RAW and fast exports still use the uncropped preview graph.
+    if asset.isRaw && !isFast { return developed }
     return CropImageStage.apply(
       exportModel.crop, to: developed, nativeSize: developed.extent.size)
   }

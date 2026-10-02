@@ -51,6 +51,12 @@ mod auto_profile_compose;
 mod auto_profile_lut_apply;
 mod auto_tone;
 mod buffers;
+mod display_f32;
+#[cfg(test)]
+mod display_f32_tests;
+pub use display_f32::{
+    maple_free_display_buffer_f32, maple_render_file_display_f32, MapleDisplayBufferF32,
+};
 mod camera_support;
 mod cancel;
 mod white_balance_sample;
