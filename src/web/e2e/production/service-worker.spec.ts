@@ -197,13 +197,18 @@ test('Hosted service worker controls, caches, and reloads the welcome offline', 
 
   const apiProbePage = await context.newPage();
   await apiProbePage.goto('/');
+  // The local release server supplies a 200 probe; public Hosted correctly
+  // returns 404 for this nonexistent API. The controlled fetch must preserve
+  // the actual network status, then become 504 offline without a cached API.
+  const networkProbe = await page.request.get('/api/service-worker-fetch-probe');
+  expect([200, 404]).toContain(networkProbe.status());
   const apiFetchResponse = apiProbePage.waitForResponse((response) =>
     response.url().includes('/api/service-worker-fetch-probe'),
   );
   await apiProbePage.evaluate(async () => {
     await (await fetch('/api/service-worker-fetch-probe')).text();
   });
-  expect((await apiFetchResponse).status()).toBe(200);
+  expect((await apiFetchResponse).status()).toBe(networkProbe.status());
 
   const apiNavigation = await apiProbePage.goto('/api/service-worker-navigation-probe');
   expect(apiNavigation?.status()).toBe(200);
