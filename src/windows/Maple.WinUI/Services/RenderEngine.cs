@@ -86,6 +86,7 @@ namespace Maple.WinUI.Services
             string rawPath, AdjustmentState model, int maxLongEdge, int quality,
             IntPtr cancelFlag, DecodedImage? reuseAutoProfileFrom = null)
         {
+            RequireStoredRemovalHistory(rawPath, model);
             var stripped = StripChainStages(model);
             // An imported LCP the sidecar names must be resolvable in this
             // process before the develop reads it (#3480): warm cache, or
