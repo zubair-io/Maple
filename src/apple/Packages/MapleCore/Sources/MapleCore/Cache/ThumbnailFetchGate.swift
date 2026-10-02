@@ -96,7 +96,8 @@ public actor ThumbnailFetchGate {
   /// cancels the shared fetch every other coalesced caller is waiting on.
   /// Accepted trade-off: grid thumbnails rarely coalesce in practice, and
   /// re-fetching a `nil` result is cheap next to persistent starvation.
-  private static func awaitCancellably(_ task: Task<Data?, Never>) async -> Data? {
+  /// Also shared by `ThumbnailLoader`'s transient camera-preview requests.
+  static func awaitCancellably(_ task: Task<Data?, Never>) async -> Data? {
     await withTaskCancellationHandler {
       await task.value
     } onCancel: {

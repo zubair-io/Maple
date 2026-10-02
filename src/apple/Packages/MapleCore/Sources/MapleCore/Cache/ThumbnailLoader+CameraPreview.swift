@@ -54,15 +54,18 @@ extension ThumbnailLoader {
   /// This temporary camera rendering never enters the edited derivative caches.
   /// Grid and Preview share the same extraction and in-flight request.
   public func loadCameraPreview(for asset: AssetRef) async -> Data? {
-    guard let url = asset.primaryURL, asset.isRaw else { return nil }
+    guard !Task.isCancelled, let url = asset.primaryURL, asset.isRaw else { return nil }
     if let cached = await ThumbnailDiskCache.shared.thumbnailData(for: url),
       Self.isUsableImageData(cached)
     {
       return nil
     }
 
+    guard !Task.isCancelled else { return nil }
     let key = "camera-preview:" + url.absoluteString
-    if let existing = inFlight[key] { return await existing.value }
+    if let existing = inFlight[key] {
+      return await ThumbnailFetchGate.awaitCancellably(existing)
+    }
     let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
     let gate = cameraPreviewGate
     let task = Task.detached(priority: .userInitiated) { () -> Data? in
@@ -71,10 +74,12 @@ extension ThumbnailLoader {
       let data = Task.isCancelled ? nil : Self.embeddedCameraJPEG(at: url)
       if accessing { scope.stopAccessingSecurityScopedResource() }
       await gate.release()
-      return data
+      // The synchronous Rust extractor cannot be interrupted mid-call.
+      // Always release its permit, then discard canceled extraction results.
+      return Task.isCancelled ? nil : data
     }
     inFlight[key] = task
-    let data = await task.value
+    let data = await ThumbnailFetchGate.awaitCancellably(task)
     if inFlight[key] == task { inFlight.removeValue(forKey: key) }
     return data
   }

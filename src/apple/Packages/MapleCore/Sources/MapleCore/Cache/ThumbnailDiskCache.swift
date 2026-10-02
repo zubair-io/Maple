@@ -159,7 +159,7 @@ public actor ThumbnailDiskCache {
     syncPeekCache.removeObject(forKey: key as NSString)
     if let dir = cacheDir {
       try? fm.removeItem(
-        at: dir.appendingPathComponent(MapleThumbCacheKey.thumbFilename(forKey: key)))
+        at: dir.appending(path: MapleThumbCacheKey.thumbFilename(forKey: key)))
     }
     try? fm.removeItem(at: MapleSidecarPaths.thumbURL(for: assetURL))
   }
