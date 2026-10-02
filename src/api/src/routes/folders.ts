@@ -587,7 +587,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // to a few KB regardless of file size.
   .post(
     '/:id/upload',
-    async ({ params, headers, request, set }) => {
+    async (ctx) => {
+      const { params, headers, request, set } = ctx;
+      const ownerId = (ctx as { auth?: { user?: { sub?: string } } }).auth?.user?.sub;
       const folder = await folderOrError(params.id);
       if (folder instanceof Response) return folder;
       const folderId = folder._id;
@@ -859,6 +861,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         try {
           assetID = await upsertUploadedAsset({
             libraryId: folderId,
+            ownerId,
             path: relDir,
             filename,
             size: st.size,

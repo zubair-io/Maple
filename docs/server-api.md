@@ -100,6 +100,8 @@ A library is a registered root folder with a slug. `:id` is the folder's 24-char
 | POST   | `/api/mirror/retry-dead`          | bearer | Re-arm dead-lettered mirror copies                                                                                                        |
 | GET    | `/api/mirror/orphans`             | bearer | Dry-run report of mirror files with no primary counterpart. Deletes nothing                                                               |
 
+Media uploaded through `/api/folders/:id/upload` is attributed to the authenticated uploader, including when the filesystem watcher creates the asset first. Client-supplied owner headers are ignored. Internal writers without a principal preserve existing attribution; a principal whose user row is absent leaves new assets unassigned and keeps an existing asset's owner.
+
 ## Unified addressing (`slug:relPath`)
 
 The four routes clients should prefer. Each resolves the slug through an in-memory cache and jails the relative path with a realpath check.

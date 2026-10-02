@@ -209,6 +209,8 @@ export async function listTrashedDirectoryFilenames(
 /** What an upload knows about the file it has just written into place. */
 export interface UploadedAsset {
   libraryId: ObjectId;
+  /** Authenticated uploader; omitted for internal writers without a principal. */
+  ownerId?: string | null;
   path: string;
   filename: string;
   size: number;
@@ -221,10 +223,12 @@ export interface UploadedAsset {
 }
 
 const UPDATE_UPLOADED_SQL = `
-  UPDATE assets SET size = ?, mtime = ?, indexed_at = ?, deleted_at = NULL WHERE id = ?`;
+  UPDATE assets SET size = ?, mtime = ?, indexed_at = ?, deleted_at = NULL,
+    owner_id = COALESCE((SELECT id FROM users WHERE id = ?), owner_id) WHERE id = ?`;
 
 const INSERT_UPLOADED_SQL = `
-  INSERT INTO assets (id, size, mtime, indexed_at, media_kind) VALUES (?, ?, ?, ?, ?)`;
+  INSERT INTO assets (id, size, mtime, indexed_at, media_kind, owner_id)
+  VALUES (?, ?, ?, ?, ?, (SELECT id FROM users WHERE id = ?))`;
 
 const INSERT_LOCATION_SQL = `
   INSERT INTO asset_locations (asset_id, ordinal, library_id, path, filename)
@@ -261,10 +265,15 @@ export async function upsertUploadedAsset(
 ): Promise<ObjectId> {
   const db = sqliteDb(dbOverride);
   const address = [input.libraryId.toHexString(), input.path, input.filename];
+  // Looking up the user inside each write also tolerates legacy principals or
+  // account deletion between authentication and upload completion. An absent
+  // principal leaves existing attribution intact rather than replacing it.
+  const ownerId = input.ownerId ?? null;
+  const metadata = [input.size, input.mtimeMs, input.indexedAt, ownerId];
 
   const existing = (await db.read<{ asset_id: string }>(ID_AT_ADDRESS_SQL, address))[0]?.asset_id;
   if (existing !== undefined) {
-    await db.write(UPDATE_UPLOADED_SQL, [input.size, input.mtimeMs, input.indexedAt, existing]);
+    await db.write(UPDATE_UPLOADED_SQL, [...metadata, existing]);
     return toObjectId(existing);
   }
 
@@ -273,7 +282,7 @@ export async function upsertUploadedAsset(
     await db.transaction([
       {
         sql: INSERT_UPLOADED_SQL,
-        params: [id, input.size, input.mtimeMs, input.indexedAt, input.mediaKind],
+        params: [id, input.size, input.mtimeMs, input.indexedAt, input.mediaKind, ownerId],
       },
       { sql: INSERT_LOCATION_SQL, params: [id, ...address] },
       ...seedStageRowStatements(id, input.stages),
@@ -283,7 +292,7 @@ export async function upsertUploadedAsset(
     if (!isAddressConflict(err)) throw err;
     const winner = (await db.read<{ asset_id: string }>(ID_AT_ADDRESS_SQL, address))[0]?.asset_id;
     if (winner === undefined) throw err;
-    await db.write(UPDATE_UPLOADED_SQL, [input.size, input.mtimeMs, input.indexedAt, winner]);
+    await db.write(UPDATE_UPLOADED_SQL, [...metadata, winner]);
     return toObjectId(winner);
   }
 }
