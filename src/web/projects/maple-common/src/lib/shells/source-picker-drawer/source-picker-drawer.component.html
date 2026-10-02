@@ -12,6 +12,7 @@
   <!-- Drawer. Pointer handlers live on the drawer itself so the pan-left
        gesture follows the user's finger. -->
   <aside
+    #drawer
     class="fixed top-0 bottom-0 left-0 z-[91] flex w-[min(326px,81vw)] flex-col overflow-hidden rounded-tr-[18px] rounded-br-[18px] bg-sidebar text-text-main shadow-[12px_0_40px_rgba(0,0,0,0.5)] [touch-action:pan-y]"
     [class]="drawerTransitionClass()"
     role="dialog"
