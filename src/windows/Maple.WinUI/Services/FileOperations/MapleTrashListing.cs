@@ -7,6 +7,7 @@
 // itself failed.
 
 using System;
+using Maple.WinUI.Generated;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -89,7 +90,7 @@ namespace Maple.WinUI.Services.FileOperations
                 // restorable asset either.
                 var extension = Path.GetExtension(primaryPath);
                 if (string.Equals(extension, ".xmp", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(extension, ".origpath", StringComparison.OrdinalIgnoreCase))
+                    || string.Equals(extension, FilenameVocabulary.OriginalPathMarkerSuffix, StringComparison.OrdinalIgnoreCase))
                     continue;
 
                 string? sidecarPath;

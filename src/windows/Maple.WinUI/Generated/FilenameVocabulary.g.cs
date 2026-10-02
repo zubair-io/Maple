@@ -32,4 +32,5 @@ public static class FilenameVocabulary
         "LPT8",
         "LPT9",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+    public const string OriginalPathMarkerSuffix = ".origpath";
 }

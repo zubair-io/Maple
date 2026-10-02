@@ -306,3 +306,5 @@ RemoteCatalogTests
 RemoteCatalogPreviewTests
 RemoteCatalogThumbTests
 RemoteCatalogXMPCreateTests
+TrashMetadataListingTests
+SMBFileOperationsFolderTests
