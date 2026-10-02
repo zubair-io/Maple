@@ -221,15 +221,22 @@ pub fn apply_color_sampled_cancellable(
     let w = img.width as usize;
     let h = img.height as usize;
 
-    let mut oklab: Vec<[f32; 3]> = vec![[0.0; 3]; img.pixels.len()];
-    oklab
+    // Keep only the channel planes needed by NLM. A second interleaved
+    // Oklab image would duplicate all three planes (1.2 GB at 100 MP).
+    let mut l_plane = vec![0.0f32; img.pixels.len()];
+    let mut a_plane = vec![0.0f32; img.pixels.len()];
+    let mut b_plane = vec![0.0f32; img.pixels.len()];
+    l_plane
         .par_iter_mut()
+        .zip(a_plane.par_iter_mut())
+        .zip(b_plane.par_iter_mut())
         .zip(img.pixels.par_iter())
-        .for_each(|(dst, src)| *dst = rec2020_to_oklab(*src));
-
-    let l_plane: Vec<f32> = oklab.par_iter().map(|p| p[0]).collect();
-    let a_plane: Vec<f32> = oklab.par_iter().map(|p| p[1]).collect();
-    let b_plane: Vec<f32> = oklab.par_iter().map(|p| p[2]).collect();
+        .for_each(|(((l, a), b), src)| {
+            let lab = rec2020_to_oklab(*src);
+            *l = lab[0];
+            *a = lab[1];
+            *b = lab[2];
+        });
 
     // Run both NLM passes in parallel — each is already internally
     // parallel via the row-update sweeps, but at viewport sizes the
@@ -266,11 +273,11 @@ pub fn apply_color_sampled_cancellable(
 
     img.pixels
         .par_iter_mut()
-        .zip(oklab.par_iter())
+        .zip(l_plane.par_iter())
         .zip(denoised_a.par_iter())
         .zip(denoised_b.par_iter())
-        .for_each(|(((dst, lab), &new_a), &new_b)| {
-            *dst = oklab_to_rec2020([lab[0], new_a, new_b]);
+        .for_each(|(((dst, &l), &new_a), &new_b)| {
+            *dst = oklab_to_rec2020([l, new_a, new_b]);
         });
 }
 
@@ -283,6 +290,10 @@ pub fn chroma_search_radius(scale: f32) -> usize {
         .round()
         .max(1.0) as usize
 }
+
+#[cfg(test)]
+#[path = "noise_reduction_storage_tests.rs"]
+mod storage_tests;
 
 #[cfg(test)]
 mod tests {

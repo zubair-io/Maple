@@ -297,15 +297,15 @@ pub fn denoise_plane_cancellable(
     }
 
     // Add central pixel with weight = running max weight (Buades'
-    // self-similarity correction), then divide.
-    let mut out = vec![0.0f32; n];
-    out.par_iter_mut().enumerate().for_each(|(i, dst)| {
+    // self-similarity correction), then divide. No later shift needs acc,
+    // so normalize it in place instead of allocating another full plane.
+    acc.par_iter_mut().enumerate().for_each(|(i, dst)| {
         let mw_i = max_w[i].max(1e-12);
         let total_w = wsum[i] + mw_i;
-        let total_acc = acc[i] + mw_i * plane[i];
+        let total_acc = *dst + mw_i * plane[i];
         *dst = total_acc / total_w;
     });
-    out
+    acc
 }
 
 #[inline(always)]
