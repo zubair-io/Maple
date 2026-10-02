@@ -18,6 +18,7 @@ const expectations: Record<string, number[]> = {
   'failed-navigation': [0.5],
   delayed: [0.25, 0.75, 1.25],
   compaction: Array.from({ length: 32 }, (_, index) => (index + 9) / 10),
+  'model-lifetime': [1.25],
 };
 for (const [scenario, expected] of Object.entries(expectations)) {
   test(`Self Hosted editor ${scenario} uses real API, SQLite, native/WASM and files`, async ({

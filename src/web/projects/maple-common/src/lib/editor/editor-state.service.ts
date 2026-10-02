@@ -238,7 +238,10 @@ export class EditorStateService {
       ? this.workflowHistory.model(edit, this.currentAdjustment())
       : this.currentAdjustment();
     const tx = this.ring.close(this.serializer, model);
-    if (!tx || id == null) return;
+    if (!tx || id == null) {
+      this.workflowHistory.release(edit);
+      return;
+    }
     // The transaction IS what the sidecar persists (coalesces with the
     // per-tick writes through the same debounce).
     if (!edit || this.workflowHistory.isCurrent(edit)) this.library.updateAdjustment(id, tx.after);
@@ -249,6 +252,7 @@ export class EditorStateService {
   /** Abandon the open transaction without recording it. The model keeps
    * whatever the preview ticks wrote. */
   cancelEdit(): void {
+    this.workflowHistory.release(this.workflowEdit);
     this.workflowEdit = null;
     this.ring.cancel();
   }
