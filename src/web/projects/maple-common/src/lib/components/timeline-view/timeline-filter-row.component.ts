@@ -13,6 +13,7 @@ import {
 } from '../../state/timeline-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { COLOR_LABEL_OPTIONS } from '../../models/color-label';
+import { TimelineOwnerFilterComponent } from './timeline-owner-filter/timeline-owner-filter.component';
 
 const COLOR_OPTIONS: ReadonlyArray<{ value: TimelineColor; label: string; swatch: string }> = [
   { value: '', label: 'Any color', swatch: 'transparent' },
@@ -34,7 +35,7 @@ const HIDDEN_OPTIONS: ReadonlyArray<{ value: 'none' | 'all' | 'only'; label: str
 @Component({
   selector: 'app-timeline-filter-row',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MapleIconComponent, TimelineOwnerFilterComponent],
   templateUrl: './timeline-filter-row.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

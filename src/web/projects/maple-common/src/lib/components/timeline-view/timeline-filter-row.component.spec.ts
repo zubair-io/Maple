@@ -57,6 +57,10 @@ describe('TimelineFilterRowComponent', () => {
     expect(buttons.length).toBe(5);
   });
 
+  it('exposes a native owner picker above the timeline', () => {
+    expect(fixture.nativeElement.querySelector('select[aria-label="Asset owner"]')).not.toBeNull();
+  });
+
   it('renders all six color swatches, including Orange (#1657)', () => {
     const group = fixture.nativeElement.querySelector(
       '[aria-label="Color label filter"]',
@@ -85,6 +89,7 @@ describe('TimelineFilterRowComponent', () => {
     state.setColor('red');
     state.setFrom('2025-01-01');
     state.setTo('2025-12-31');
+    state.setOwnerId('222222222222222222222222');
     fixture.detectChanges();
 
     const clearBtn = Array.from(
@@ -99,6 +104,7 @@ describe('TimelineFilterRowComponent', () => {
     expect(state.color()).toBe('');
     expect(state.from()).toBe('');
     expect(state.to()).toBe('');
+    expect(state.ownerId()).toBe('');
   });
 
   it('flag pills are exposed via aria-pressed (S5)', () => {

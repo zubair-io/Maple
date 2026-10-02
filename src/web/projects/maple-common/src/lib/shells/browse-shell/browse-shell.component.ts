@@ -362,11 +362,12 @@ export class BrowseShellComponent {
   @HostListener('document:keydown', ['$event'])
   // fallow-ignore-next-line complexity
   onKeydown(e: KeyboardEvent): void {
-    // Skip when focus is in a text input or textarea.
+    // Native fields own their keyboard interaction, including select navigation.
     const target = e.target as HTMLElement;
     if (
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
       target.isContentEditable
     )
       return;

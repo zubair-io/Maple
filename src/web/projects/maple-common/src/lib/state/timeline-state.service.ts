@@ -57,6 +57,8 @@ export class TimelineStateService {
   readonly hiddenFilter = signal<'none' | 'all' | 'only'>('none');
   readonly from = signal<string>('');
   readonly to = signal<string>('');
+  readonly ownerId = signal<string>('');
+  private readonly ownerParam = computed(() => this.ownerId() || undefined);
 
   // ── Derived: address of the selected sidebar entry, if it's a folder ─────
   /**
@@ -158,6 +160,7 @@ export class TimelineStateService {
       from: from || undefined,
       to: to || undefined,
       hidden: hidden === 'none' ? undefined : hidden,
+      ownerId: this.ownerParam(),
     };
   });
 
@@ -206,6 +209,10 @@ export class TimelineStateService {
     this.hiddenFilter.set(v);
   }
 
+  setOwnerId(id: string): void {
+    this.ownerId.set(id);
+  }
+
   clearAll(): void {
     this.minRating.set(0);
     this.flag.set('');
@@ -213,6 +220,7 @@ export class TimelineStateService {
     this.from.set('');
     this.to.set('');
     this.hiddenFilter.set('none');
+    this.ownerId.set('');
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
