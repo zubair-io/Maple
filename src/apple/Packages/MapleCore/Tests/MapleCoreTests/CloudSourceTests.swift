@@ -7,65 +7,37 @@ final class CloudSourceTests: XCTestCase {
 
   private let libPath = "/srv/photos/Library"
 
-  // MARK: images() — calls /api/fs/dir (the enriched listing: video, size,
-  // EXIF — `/api/folder/:slug/*` carries none of those yet), no auto-pagination
+  // MARK: images() — complete unified folder listing, no auto-pagination
 
   func test_images_returnsImagesAtPathLevel() async throws {
     let server = URL(string: "https://example.test")!
-    var requestCount = 0
-    var lastURL: URL?
-    let session = URLSession.stubbedSequence { req in
-      requestCount += 1
-      lastURL = req.url
-      let json = Self.fsDirListingJSON(path: self.libPath, imageCount: 3)
-      let resp = HTTPURLResponse(
-        url: req.url!, statusCode: 200,
-        httpVersion: "HTTP/1.1",
-        headerFields: ["Content-Type": "application/json"])!
-      return (Data(json.utf8), resp)
-    }
+    let urls = Box()
+    let session = stubbedAddressSession(
+      imageStatus: 200, imageBody: Self.fsDirListingJSON(path: libPath, imageCount: 3), urls: urls)
     let source = CloudSource(
-      server: server, folderID: "f1",
-      libraryPath: libPath,
+      server: server, folderID: "f1", libraryPath: libPath,
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
-
     let refs = try await source.images()
-
     XCTAssertEqual(refs.count, 3)
-    XCTAssertEqual(requestCount, 1, "must NOT auto-paginate")
-    XCTAssertTrue(
-      lastURL?.absoluteString.contains("/api/fs/dir") == true,
-      "must use /api/fs/dir, got: \(lastURL?.absoluteString ?? "nil")")
-    XCTAssertTrue(lastURL?.absoluteString.contains("path=") == true)
     XCTAssertEqual(
-      refs.first?.id.hasPrefix("fs:") == true, true,
-      "ImageRef.id should be prefixed `fs:` for cloud sources")
+      urls.values.count, 2, "one registered-root lookup and one complete folder listing")
+    XCTAssertEqual(urls.values.last?.absoluteString, "https://example.test/api/folder/library")
+    XCTAssertNil(urls.values.last?.query)
+    XCTAssertEqual(refs.first?.id.hasPrefix("fs:"), true)
   }
 
   func test_navigate_changesNextListingPath() async throws {
     let server = URL(string: "https://example.test")!
-    var lastURL: URL?
-    let session = URLSession.stubbedSequence { req in
-      lastURL = req.url
-      let json = Self.fsDirListingJSON(path: "/srv/photos/Library/sub", imageCount: 1)
-      let resp = HTTPURLResponse(
-        url: req.url!, statusCode: 200,
-        httpVersion: "HTTP/1.1",
-        headerFields: ["Content-Type": "application/json"])!
-      return (Data(json.utf8), resp)
-    }
+    let urls = Box()
+    let session = stubbedAddressSession(
+      imageStatus: 200,
+      imageBody: Self.fsDirListingJSON(path: libPath + "/sub", imageCount: 1), urls: urls)
     let source = CloudSource(
-      server: server, folderID: "f1",
-      libraryPath: libPath,
+      server: server, folderID: "f1", libraryPath: libPath,
       httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
-
-    await source.navigate(to: "/srv/photos/Library/sub")
+    await source.navigate(to: libPath + "/sub")
     _ = try await source.images()
-
-    XCTAssertTrue(
-      lastURL?.absoluteString.contains("path=/srv/photos/Library/sub") == true
-        || lastURL?.absoluteString.contains("path=%2Fsrv%2Fphotos%2FLibrary%2Fsub") == true,
-      "expected path query to reflect navigate(), got: \(lastURL?.absoluteString ?? "nil")")
+    XCTAssertEqual(urls.values.last?.absoluteString, "https://example.test/api/folder/library/sub")
   }
 
   // MARK: thumb / preview — unified `/api/thumb|preview/:slug/*` by address (#1325)
@@ -259,7 +231,7 @@ final class CloudSourceTests: XCTestCase {
       """
     }.joined(separator: ",")
     return """
-      {"path":"\(path)","parent":null,"dirs":[],"images":[\(images)]}
+      {"path":"\(path)","parentPath":null,"folders":[],"images":[\(images)]}
       """
   }
 }

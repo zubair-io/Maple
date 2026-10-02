@@ -4,240 +4,247 @@ import Foundation
 import OSLog
 
 public struct LibraryRoot: Codable, Equatable, Sendable {
-    public let id: String
-    public let path: String         // absolute path on the server's filesystem
-    public let label: String
-    public let fileCount: Int
+  public let id: String
+  public let path: String  // absolute path on the server's filesystem
+  public let label: String
+  public let fileCount: Int
 
-    enum CodingKeys: String, CodingKey {
-        case id, path, label
-        case fileCount = "file_count"
-    }
+  enum CodingKeys: String, CodingKey {
+    case id, path, label
+    case fileCount = "file_count"
+  }
 }
 
 public struct DirChild: Codable, Equatable, Sendable {
-    public let name: String
-    public let path: String         // absolute, server-side
-    public let mtime: Date          // ISO-8601
+  public let name: String
+  public let path: String  // absolute, server-side
+  public let mtime: Date  // ISO-8601
 
-    public init(name: String, path: String, mtime: Date) {
-        self.name = name
-        self.path = path
-        self.mtime = mtime
-    }
+  public init(name: String, path: String, mtime: Date) {
+    self.name = name
+    self.path = path
+    self.mtime = mtime
+  }
 }
 
 public struct ImageChild: Codable, Equatable, Sendable {
-    public let name: String
-    public let path: String
-    public let mtime: Date
-    public let size: Int64
-    public let ext: String
-    public let assetID: String?     // server-side Mongo ObjectId; nil if not yet indexed
+  public let name: String
+  public let path: String
+  public let mtime: Date
+  public let size: Int64
+  public let ext: String
+  public let assetID: String?  // server-side Mongo ObjectId; nil if not yet indexed
 
-    public init(name: String, path: String, mtime: Date, size: Int64, ext: String, assetID: String?) {
-        self.name = name
-        self.path = path
-        self.mtime = mtime
-        self.size = size
-        self.ext = ext
-        self.assetID = assetID
-    }
+  public init(name: String, path: String, mtime: Date, size: Int64, ext: String, assetID: String?) {
+    self.name = name
+    self.path = path
+    self.mtime = mtime
+    self.size = size
+    self.ext = ext
+    self.assetID = assetID
+  }
 
-    enum CodingKeys: String, CodingKey {
-        case name, path, mtime, size, ext
-        case assetID = "id"
-    }
+  enum CodingKeys: String, CodingKey {
+    case name, path, mtime, size, ext
+    case assetID = "id"
+  }
 }
 
 public struct SidecarChild: Codable, Equatable, Sendable {
-    public let name: String
-    public let path: String
-    public let mtime: Date
-    public let size: Int64
-    public let assetID: String
+  public let name: String
+  public let path: String
+  public let mtime: Date
+  public let size: Int64
+  public let assetID: String
 
-    public init(name: String, path: String, mtime: Date, size: Int64, assetID: String) {
-        self.name = name
-        self.path = path
-        self.mtime = mtime
-        self.size = size
-        self.assetID = assetID
-    }
+  public init(name: String, path: String, mtime: Date, size: Int64, assetID: String) {
+    self.name = name
+    self.path = path
+    self.mtime = mtime
+    self.size = size
+    self.assetID = assetID
+  }
 
-    enum CodingKeys: String, CodingKey {
-        case name, path, mtime, size
-        case assetID = "asset_id"
-    }
+  enum CodingKeys: String, CodingKey {
+    case name, path, mtime, size
+    case assetID = "asset_id"
+  }
 }
 
 /// A regular file that is neither an indexed image nor an `.xmp` sidecar
 /// (video, documents, extensionless files). Stored + synced but has no
 /// `AssetDoc`, so it carries no asset id — it's addressed by its path.
 public struct FileChild: Codable, Equatable, Sendable {
-    public let name: String
-    public let path: String
-    public let mtime: Date
-    public let size: Int64
-    public let ext: String          // lowercase, no dot; "" for extensionless files
+  public let name: String
+  public let path: String
+  public let mtime: Date
+  public let size: Int64
+  public let ext: String  // lowercase, no dot; "" for extensionless files
 
-    public init(name: String, path: String, mtime: Date, size: Int64, ext: String) {
-        self.name = name
-        self.path = path
-        self.mtime = mtime
-        self.size = size
-        self.ext = ext
-    }
+  public init(name: String, path: String, mtime: Date, size: Int64, ext: String) {
+    self.name = name
+    self.path = path
+    self.mtime = mtime
+    self.size = size
+    self.ext = ext
+  }
 }
 
 public struct DirContents: Codable, Equatable, Sendable {
-    public let path: String
-    public let parent: String?
-    public let dirs: [DirChild]
-    public let images: [ImageChild]
-    public let sidecars: [SidecarChild]
-    /// Non-image, non-sidecar regular files. Surfaced so the File Provider
-    /// can sync every file type; these never carry an asset id.
-    public let files: [FileChild]
-    /// Opaque continuation token from the server. Present when paged mode
-    /// is engaged and more entries remain; nil otherwise. Clients
-    /// round-trip the string verbatim to fetch the next page.
-    public let nextCursor: String?
+  public let path: String
+  public let parent: String?
+  public let dirs: [DirChild]
+  public let images: [ImageChild]
+  public let sidecars: [SidecarChild]
+  /// Non-image, non-sidecar regular files. Surfaced so the File Provider
+  /// can sync every file type; these never carry an asset id.
+  public let files: [FileChild]
+  /// Opaque continuation token from the server. Present when paged mode
+  /// is engaged and more entries remain; nil otherwise. Clients
+  /// round-trip the string verbatim to fetch the next page.
+  public let nextCursor: String?
 
-    public init(path: String, parent: String?, dirs: [DirChild], images: [ImageChild],
-                sidecars: [SidecarChild], files: [FileChild] = [], nextCursor: String? = nil) {
-        self.path = path
-        self.parent = parent
-        self.dirs = dirs
-        self.images = images
-        self.sidecars = sidecars
-        self.files = files
-        self.nextCursor = nextCursor
-    }
+  public init(
+    path: String, parent: String?, dirs: [DirChild], images: [ImageChild],
+    sidecars: [SidecarChild], files: [FileChild] = [], nextCursor: String? = nil
+  ) {
+    self.path = path
+    self.parent = parent
+    self.dirs = dirs
+    self.images = images
+    self.sidecars = sidecars
+    self.files = files
+    self.nextCursor = nextCursor
+  }
 
-    private enum CodingKeys: String, CodingKey {
-        case path, parent, dirs, images, sidecars, files
-        case nextCursor = "next_cursor"
-    }
+  private enum CodingKeys: String, CodingKey {
+    case path, images, sidecars, files
+    case parent = "parentPath"
+    case dirs = "folders"
+    case nextCursor = "next_cursor"
+  }
 
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.path = try c.decode(String.self, forKey: .path)
-        self.parent = try c.decodeIfPresent(String.self, forKey: .parent)
-        self.dirs = try c.decode([DirChild].self, forKey: .dirs)
-        self.images = try c.decode([ImageChild].self, forKey: .images)
-        // Tolerate the field being absent — pre-Phase-2 servers don't send it.
-        self.sidecars = (try? c.decode([SidecarChild].self, forKey: .sidecars)) ?? []
-        // Tolerate absence — servers without the sync-all-files change omit it.
-        self.files = (try? c.decode([FileChild].self, forKey: .files)) ?? []
-        self.nextCursor = try c.decodeIfPresent(String.self, forKey: .nextCursor)
-    }
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    self.path = try c.decode(String.self, forKey: .path)
+    self.parent = try c.decodeIfPresent(String.self, forKey: .parent)
+    self.dirs = try c.decode([DirChild].self, forKey: .dirs)
+    self.images = try c.decode([ImageChild].self, forKey: .images)
+    // Tolerate the field being absent — pre-Phase-2 servers don't send it.
+    self.sidecars = try c.decodeIfPresent([SidecarChild].self, forKey: .sidecars) ?? []
+    // Tolerate absence — servers without the sync-all-files change omit it.
+    self.files = try c.decodeIfPresent([FileChild].self, forKey: .files) ?? []
+    self.nextCursor = try c.decodeIfPresent(String.self, forKey: .nextCursor)
+  }
 }
 
 public struct UploadResponse: Codable, Equatable, Sendable {
-    /// nil when the uploaded file is not an indexed image — the server
-    /// stored the bytes but created no `AssetDoc`, so there's no asset id.
-    public let assetID: String?
-    public let absPath: String
-    public let size: Int64
-    public let mtime: Date
+  /// nil when the uploaded file is not an indexed image — the server
+  /// stored the bytes but created no `AssetDoc`, so there's no asset id.
+  public let assetID: String?
+  public let absPath: String
+  public let size: Int64
+  public let mtime: Date
 
-    public init(assetID: String?, absPath: String, size: Int64, mtime: Date) {
-        self.assetID = assetID
-        self.absPath = absPath
-        self.size = size
-        self.mtime = mtime
-    }
+  public init(assetID: String?, absPath: String, size: Int64, mtime: Date) {
+    self.assetID = assetID
+    self.absPath = absPath
+    self.size = size
+    self.mtime = mtime
+  }
 
-    enum CodingKeys: String, CodingKey {
-        case absPath = "abs_path"
-        case size, mtime
-        case assetID = "asset_id"
-    }
+  enum CodingKeys: String, CodingKey {
+    case absPath = "abs_path"
+    case size, mtime
+    case assetID = "asset_id"
+  }
 }
 
 public struct TrashItem: Codable, Equatable, Sendable {
-    /// nil when the trashed row is not an indexed image — mirrors
-    /// `FileChild`/`UploadResponse.assetID`. A non-optional `assetID`
-    /// here (the pre-#2546 shape) meant a single non-image row in
-    /// `/api/folders/:id/trash` failed `[TrashItem]`'s array decode
-    /// ATOMICALLY, taking the whole Trash listing down with it instead
-    /// of just that one row.
-    public let assetID: String?
-    public let filename: String
-    public let originalRelativePath: String
-    public let trashRelativePath: String
-    public let size: Int64
-    public let mtime: Date
-    public let deletedAt: Date
+  /// nil when the trashed row is not an indexed image — mirrors
+  /// `FileChild`/`UploadResponse.assetID`. A non-optional `assetID`
+  /// here (the pre-#2546 shape) meant a single non-image row in
+  /// `/api/folders/:id/trash` failed `[TrashItem]`'s array decode
+  /// ATOMICALLY, taking the whole Trash listing down with it instead
+  /// of just that one row.
+  public let assetID: String?
+  public let filename: String
+  public let originalRelativePath: String
+  public let trashRelativePath: String
+  public let size: Int64
+  public let mtime: Date
+  public let deletedAt: Date
 
-    public init(assetID: String?, filename: String, originalRelativePath: String, trashRelativePath: String, size: Int64, mtime: Date, deletedAt: Date) {
-        self.assetID = assetID
-        self.filename = filename
-        self.originalRelativePath = originalRelativePath
-        self.trashRelativePath = trashRelativePath
-        self.size = size
-        self.mtime = mtime
-        self.deletedAt = deletedAt
-    }
+  public init(
+    assetID: String?, filename: String, originalRelativePath: String, trashRelativePath: String,
+    size: Int64, mtime: Date, deletedAt: Date
+  ) {
+    self.assetID = assetID
+    self.filename = filename
+    self.originalRelativePath = originalRelativePath
+    self.trashRelativePath = trashRelativePath
+    self.size = size
+    self.mtime = mtime
+    self.deletedAt = deletedAt
+  }
 
-    enum CodingKeys: String, CodingKey {
-        case filename, size, mtime
-        case assetID = "asset_id"
-        case originalRelativePath = "original_relative_path"
-        case trashRelativePath = "trash_relative_path"
-        case deletedAt = "deleted_at"
-    }
+  enum CodingKeys: String, CodingKey {
+    case filename, size, mtime
+    case assetID = "asset_id"
+    case originalRelativePath = "original_relative_path"
+    case trashRelativePath = "trash_relative_path"
+    case deletedAt = "deleted_at"
+  }
 }
 
 public struct TrashListResponse: Codable, Equatable, Sendable {
-    public let items: [TrashItem]
-    public let nextCursor: String?
+  public let items: [TrashItem]
+  public let nextCursor: String?
 
-    public init(items: [TrashItem], nextCursor: String?) {
-        self.items = items
-        self.nextCursor = nextCursor
-    }
+  public init(items: [TrashItem], nextCursor: String?) {
+    self.items = items
+    self.nextCursor = nextCursor
+  }
 
-    enum CodingKeys: String, CodingKey {
-        case items
-        case nextCursor = "next_cursor"
-    }
+  enum CodingKeys: String, CodingKey {
+    case items
+    case nextCursor = "next_cursor"
+  }
 }
 
 public struct RestoreResponse: Codable, Equatable, Sendable {
-    public let assetID: String
-    public let absPath: String       // server-side path; do NOT stat on the Mac
-    public let filename: String
-    public let size: Int64
-    public let mtime: Date
+  public let assetID: String
+  public let absPath: String  // server-side path; do NOT stat on the Mac
+  public let filename: String
+  public let size: Int64
+  public let mtime: Date
 
-    public init(assetID: String, absPath: String, filename: String, size: Int64, mtime: Date) {
-        self.assetID = assetID
-        self.absPath = absPath
-        self.filename = filename
-        self.size = size
-        self.mtime = mtime
-    }
+  public init(assetID: String, absPath: String, filename: String, size: Int64, mtime: Date) {
+    self.assetID = assetID
+    self.absPath = absPath
+    self.filename = filename
+    self.size = size
+    self.mtime = mtime
+  }
 
-    enum CodingKeys: String, CodingKey {
-        case assetID = "asset_id"
-        case absPath = "abs_path"
-        case filename, size, mtime
-    }
+  enum CodingKeys: String, CodingKey {
+    case assetID = "asset_id"
+    case absPath = "abs_path"
+    case filename, size, mtime
+  }
 }
 
 public enum UploadOutcome: Equatable, Sendable {
-    case ok(UploadResponse)
-    case unsupported
+  case ok(UploadResponse)
+  case unsupported
 }
 
 /// Explicit intent for `RemoteCatalog.deleteAsset` (#2749) — see that
 /// method's doc comment for why omitting this (legacy dual-mode) is only
 /// correct for the File Provider extension, never a UI-driven call.
 public enum DeleteAssetIntent: String, Sendable {
-    case trash
-    case purge
+  case trash
+  case purge
 }
 
 /// Outcome of `RemoteCatalog.deleteAsset`. `.stateMismatch` is the 409 the
@@ -247,25 +254,25 @@ public enum DeleteAssetIntent: String, Sendable {
 /// (`"trashed"` or `"live"`), for the caller to refresh against rather than
 /// silently retrying the original intent.
 public enum DeleteAssetResult: Equatable, Sendable {
-    case ok
-    case stateMismatch(state: String)
+  case ok
+  case stateMismatch(state: String)
 }
 
 struct DeleteAssetConflictBody: Codable {
-    let error: String
-    let state: String
+  let error: String
+  let state: String
 }
 
 public struct MakeDirResponse: Codable, Equatable, Sendable {
-    public let absPath: String
+  public let absPath: String
 
-    public init(absPath: String) {
-        self.absPath = absPath
-    }
+  public init(absPath: String) {
+    self.absPath = absPath
+  }
 
-    enum CodingKeys: String, CodingKey {
-        case absPath = "abs_path"
-    }
+  enum CodingKeys: String, CodingKey {
+    case absPath = "abs_path"
+  }
 }
 
 /// Decodes `POST /api/folders/<id>/trash-folder` and `/restore-folder`'s
@@ -274,75 +281,75 @@ public struct MakeDirResponse: Codable, Equatable, Sendable {
 /// surfaced item-by-item, matching every other multi-asset outcome report
 /// in this app (`AssetDropItemResult`, `CloudBatchRenameResultItem`).
 public struct FolderTrashSummary: Codable, Equatable, Sendable {
-    public struct Item: Codable, Equatable, Sendable {
-        public let assetId: String
-        public let filename: String
-        public let ok: Bool
-        public let error: String?
-    }
+  public struct Item: Codable, Equatable, Sendable {
+    public let assetId: String
+    public let filename: String
+    public let ok: Bool
+    public let error: String?
+  }
 
-    public let total: Int
-    public let succeeded: Int
-    public let failed: Int
-    public let items: [Item]
+  public let total: Int
+  public let succeeded: Int
+  public let failed: Int
+  public let items: [Item]
 }
 
 /// Outcome of `RemoteCatalog.moveFolder`. Domain-neutral so the HTTP
 /// layer stays free of FileProvider types — the extension maps
 /// `.conflict` to `NSFileProviderError.filenameCollision`.
 public enum MoveFolderResult: Equatable, Sendable {
-    case ok(MakeDirResponse)
-    /// 409 — a directory already exists at the target path.
-    case conflict
+  case ok(MakeDirResponse)
+  /// 409 — a directory already exists at the target path.
+  case conflict
 }
 
 /// `POST /api/assets/:id/rename` success body (#2638's server counterpart,
 /// #2636). Mirrors `routes/assets/rename.ts`'s response shape exactly.
 public struct RenameAssetResponse: Decodable, Equatable, Sendable {
-    public let newAbsPath: String
-    public let newPath: String
-    public let newFilename: String
-    public let renamedOnCollision: Bool
-    /// True when the submitted filename's extension differs from the
-    /// original — the server allows this (it doesn't transcode anything)
-    /// but flags it so the caller can have warned the user before this
-    /// response even lands, per the design doc's "Rename" section.
-    public let extensionChanged: Bool
+  public let newAbsPath: String
+  public let newPath: String
+  public let newFilename: String
+  public let renamedOnCollision: Bool
+  /// True when the submitted filename's extension differs from the
+  /// original — the server allows this (it doesn't transcode anything)
+  /// but flags it so the caller can have warned the user before this
+  /// response even lands, per the design doc's "Rename" section.
+  public let extensionChanged: Bool
 
-    enum CodingKeys: String, CodingKey {
-        case newAbsPath = "new_abs_path"
-        case newPath = "new_path"
-        case newFilename = "new_filename"
-        case renamedOnCollision = "renamed_on_collision"
-        case extensionChanged = "extension_changed"
-    }
+  enum CodingKeys: String, CodingKey {
+    case newAbsPath = "new_abs_path"
+    case newPath = "new_path"
+    case newFilename = "new_filename"
+    case renamedOnCollision = "renamed_on_collision"
+    case extensionChanged = "extension_changed"
+  }
 }
 
 /// Outcome of `RemoteCatalog.renameAsset`. Domain-neutral (no HTTP status
 /// codes leak out) so callers can switch on it directly, matching
 /// `MoveFolderResult`'s shape.
 public enum RenameAssetResult: Equatable, Sendable {
-    case ok(RenameAssetResponse)
-    /// 200 with `skipped: true` — the server's `collision: 'skip'` policy
-    /// found an existing file at the target and left both untouched.
-    /// `reason` is the server's skip reason string (e.g. `"collision"`).
-    case skipped(reason: String)
-    /// 400 — `new_filename` failed the shared `raw-core` filename engine.
-    case invalid(String)
-    /// 404 — the asset id doesn't exist (deleted, or never indexed).
-    case notFound
+  case ok(RenameAssetResponse)
+  /// 200 with `skipped: true` — the server's `collision: 'skip'` policy
+  /// found an existing file at the target and left both untouched.
+  /// `reason` is the server's skip reason string (e.g. `"collision"`).
+  case skipped(reason: String)
+  /// 400 — `new_filename` failed the shared `raw-core` filename engine.
+  case invalid(String)
+  /// 404 — the asset id doesn't exist (deleted, or never indexed).
+  case notFound
 }
 
 /// Decode helpers for `RemoteCatalog.renameAsset`'s two 200-status shapes
 /// (relocated vs. skipped) and its 400 error body. File-private — nothing
 /// outside this rename call needs them.
 private struct RenameSkippedBody: Decodable {
-    let skipped: Bool
-    let reason: String
+  let skipped: Bool
+  let reason: String
 }
 
 private struct RenameErrorBody: Decodable {
-    let error: String
+  let error: String
 }
 
 /// `POST /api/assets/:id/relocate` success body (#2629's client counterpart,
@@ -351,43 +358,43 @@ private struct RenameErrorBody: Decodable {
 /// `RenameAssetResponse` (no `extension_changed`, since a cross-folder
 /// relocate has no "did the extension change" warning to surface).
 public struct RelocateAssetResponse: Decodable, Equatable, Sendable {
-    public let newAbsPath: String
-    public let newPath: String
-    public let newFilename: String
-    public let renamedOnCollision: Bool
+  public let newAbsPath: String
+  public let newPath: String
+  public let newFilename: String
+  public let renamedOnCollision: Bool
 
-    enum CodingKeys: String, CodingKey {
-        case newAbsPath = "new_abs_path"
-        case newPath = "new_path"
-        case newFilename = "new_filename"
-        case renamedOnCollision = "renamed_on_collision"
-    }
+  enum CodingKeys: String, CodingKey {
+    case newAbsPath = "new_abs_path"
+    case newPath = "new_path"
+    case newFilename = "new_filename"
+    case renamedOnCollision = "renamed_on_collision"
+  }
 }
 
 /// Outcome of `RemoteCatalog.relocateAsset`. Domain-neutral, matching
 /// `RenameAssetResult`'s shape.
 public enum RelocateAssetResult: Equatable, Sendable {
-    case ok(RelocateAssetResponse)
-    /// 200 with `skipped: true` — `collision: "skip"` found an existing
-    /// file at the destination and left both untouched. The drop-handling
-    /// caller uses THIS collision policy as its "detect a collision
-    /// without touching anything" probe (mirroring
-    /// `LocalFileOperations`'s `collision: .fail` probe), then re-calls
-    /// with `.replace`/`.keepBoth` once the user has chosen.
-    case skipped(reason: String)
-    /// 400 — an invalid `destination_path`/`destination_filename`.
-    case invalid(String)
-    /// 404 — the asset id doesn't exist.
-    case notFound
+  case ok(RelocateAssetResponse)
+  /// 200 with `skipped: true` — `collision: "skip"` found an existing
+  /// file at the destination and left both untouched. The drop-handling
+  /// caller uses THIS collision policy as its "detect a collision
+  /// without touching anything" probe (mirroring
+  /// `LocalFileOperations`'s `collision: .fail` probe), then re-calls
+  /// with `.replace`/`.keepBoth` once the user has chosen.
+  case skipped(reason: String)
+  /// 400 — an invalid `destination_path`/`destination_filename`.
+  case invalid(String)
+  /// 404 — the asset id doesn't exist.
+  case notFound
 }
 
 private struct RelocateSkippedBody: Decodable {
-    let skipped: Bool
-    let reason: String
+  let skipped: Bool
+  let reason: String
 }
 
 private struct RelocateErrorBody: Decodable {
-    let error: String
+  let error: String
 }
 
 /// 409 conflict body shared by `RemoteCatalog.deleteFile` and
@@ -395,13 +402,13 @@ private struct RelocateErrorBody: Decodable {
 /// `findLiveIndexedAsset` guard) — the addressed path is actually a LIVE
 /// indexed asset, not a `FileChild`.
 private struct FileConflictBody: Decodable {
-    let error: String
-    let assetID: String
+  let error: String
+  let assetID: String
 
-    enum CodingKeys: String, CodingKey {
-        case error
-        case assetID = "asset_id"
-    }
+  enum CodingKeys: String, CodingKey {
+    case error
+    case assetID = "asset_id"
+  }
 }
 
 /// Outcome of `RemoteCatalog.deleteFile` (#2535). Domain-neutral, matching
@@ -410,24 +417,24 @@ private struct FileConflictBody: Decodable {
 /// `DeleteAssetResult.stateMismatch` (which is about trash-vs-purge, a
 /// concept non-asset files don't have).
 public enum DeleteFileResult: Equatable, Sendable {
-    case ok
-    case indexedAsset(assetID: String)
+  case ok
+  case indexedAsset(assetID: String)
 }
 
 /// `POST /api/folders/<id>/file/relocate` success body — mirrors
 /// `RelocateAssetResponse`'s shape exactly (see that type's doc comment).
 public struct RelocateFileResponse: Decodable, Equatable, Sendable {
-    public let newAbsPath: String
-    public let newPath: String
-    public let newFilename: String
-    public let renamedOnCollision: Bool
+  public let newAbsPath: String
+  public let newPath: String
+  public let newFilename: String
+  public let renamedOnCollision: Bool
 
-    enum CodingKeys: String, CodingKey {
-        case newAbsPath = "new_abs_path"
-        case newPath = "new_path"
-        case newFilename = "new_filename"
-        case renamedOnCollision = "renamed_on_collision"
-    }
+  enum CodingKeys: String, CodingKey {
+    case newAbsPath = "new_abs_path"
+    case newPath = "new_path"
+    case newFilename = "new_filename"
+    case renamedOnCollision = "renamed_on_collision"
+  }
 }
 
 /// Outcome of `RemoteCatalog.relocateFile`. Domain-neutral, matching
@@ -438,22 +445,22 @@ public struct RelocateFileResponse: Decodable, Equatable, Sendable {
 /// destination throws (mapped via `mapHTTPError`) rather than returning a
 /// structured 400 body the way the asset route does.
 public enum RelocateFileResult: Equatable, Sendable {
-    case ok(RelocateFileResponse)
-    /// 200 with `skipped: true` — `collision: "skip"`/`"fail"` found an
-    /// existing file at the destination and left both untouched.
-    case skipped(reason: String)
-    case indexedAsset(assetID: String)
-    /// 400 — the server refused the request shape: a destination path or
-    /// filename it will not accept (empty, dot segments, a separator in
-    /// the filename). Carries the server's own message so the caller can
-    /// surface an actionable "invalid name" instead of a generic failure.
-    /// Mirrors `RelocateAssetResult.invalid`.
-    case invalid(String)
+  case ok(RelocateFileResponse)
+  /// 200 with `skipped: true` — `collision: "skip"`/`"fail"` found an
+  /// existing file at the destination and left both untouched.
+  case skipped(reason: String)
+  case indexedAsset(assetID: String)
+  /// 400 — the server refused the request shape: a destination path or
+  /// filename it will not accept (empty, dot segments, a separator in
+  /// the filename). Carries the server's own message so the caller can
+  /// surface an actionable "invalid name" instead of a generic failure.
+  /// Mirrors `RelocateAssetResult.invalid`.
+  case invalid(String)
 }
 
 private struct RelocateFileSkippedBody: Decodable {
-    let skipped: Bool
-    let reason: String
+  let skipped: Bool
+  let reason: String
 }
 
 /// One item of `POST /api/assets/batch-rename/preview`'s response
@@ -465,22 +472,22 @@ private struct RelocateFileSkippedBody: Decodable {
 /// `oldFilename`/`newFilename` are `nil` when `error` is set (asset not
 /// found, or its rendered name failed validation).
 public struct CloudBatchRenamePreviewItem: Decodable, Equatable, Sendable {
-    public let id: String
-    public let oldFilename: String?
-    public let newFilename: String?
-    public let error: String?
-    public let duplicate: Bool
+  public let id: String
+  public let oldFilename: String?
+  public let newFilename: String?
+  public let error: String?
+  public let duplicate: Bool
 
-    enum CodingKeys: String, CodingKey {
-        case id
-        case oldFilename = "old_filename"
-        case newFilename = "new_filename"
-        case error, duplicate
-    }
+  enum CodingKeys: String, CodingKey {
+    case id
+    case oldFilename = "old_filename"
+    case newFilename = "new_filename"
+    case error, duplicate
+  }
 }
 
 private struct CloudBatchRenamePreviewResponse: Decodable {
-    let items: [CloudBatchRenamePreviewItem]
+  let items: [CloudBatchRenamePreviewItem]
 }
 
 /// One item of `POST /api/assets/batch-rename`'s response — `kind`
@@ -489,37 +496,37 @@ private struct CloudBatchRenamePreviewResponse: Decodable {
 /// `newFilename`; `"skipped"` carries `reason`; `"invalid"`/`"error"` carry
 /// `error`; `"not-found"` carries neither.
 public struct CloudBatchRenameResultItem: Decodable, Equatable, Sendable {
-    public let id: String
-    public let kind: String
-    public let newFilename: String?
-    public let reason: String?
-    public let error: String?
+  public let id: String
+  public let kind: String
+  public let newFilename: String?
+  public let reason: String?
+  public let error: String?
 
-    enum CodingKeys: String, CodingKey {
-        case id, kind, reason, error
-        case newFilename = "new_filename"
-    }
+  enum CodingKeys: String, CodingKey {
+    case id, kind, reason, error
+    case newFilename = "new_filename"
+  }
 }
 
 public struct CloudBatchRenameSummary: Decodable, Equatable, Sendable {
-    public let total: Int
-    public let relocated: Int
-    public let skipped: Int
-    public let failed: Int
+  public let total: Int
+  public let relocated: Int
+  public let skipped: Int
+  public let failed: Int
 }
 
 public struct CloudBatchRenameResponse: Decodable, Equatable, Sendable {
-    public let summary: CloudBatchRenameSummary
-    public let results: [CloudBatchRenameResultItem]
+  public let summary: CloudBatchRenameSummary
+  public let results: [CloudBatchRenameResultItem]
 }
 
 public enum XMPWriteResult: Equatable, Sendable {
-    /// Write succeeded; the response's Last-Modified header is parsed
-    /// into this Date and reflects the new on-disk mtime.
-    case ok(mtime: Date)
-    /// Server detected a precondition mismatch and wrote the bytes to a
-    /// conflict-copy file instead. The original sidecar is untouched.
-    case conflict(path: String, mtime: Date)
+  /// Write succeeded; the response's Last-Modified header is parsed
+  /// into this Date and reflects the new on-disk mtime.
+  case ok(mtime: Date)
+  /// Server detected a precondition mismatch and wrote the bytes to a
+  /// conflict-copy file instead. The original sidecar is untouched.
+  case conflict(path: String, mtime: Date)
 }
 
 /// Thrown by `RemoteCatalog` when an asset ID fails shape validation
@@ -528,1057 +535,1100 @@ public enum XMPWriteResult: Equatable, Sendable {
 /// Anything else is either a programming error or a path-traversal
 /// attempt; in either case we refuse to interpolate it into the URL.
 public struct InvalidAssetIDError: Error, Equatable, Sendable {
-    public let assetID: String
-    public init(assetID: String) { self.assetID = assetID }
+  public let assetID: String
+  public init(assetID: String) { self.assetID = assetID }
 }
 
 /// A non-success response from the Maple API. Unlike the previous generic
 /// `URLError(.badServerResponse)`, this preserves the HTTP status and the
 /// server's JSON error text so File Provider failures remain diagnosable.
 public struct RemoteCatalogHTTPError: Error, Equatable, Sendable, LocalizedError, CustomNSError {
-    public let statusCode: Int
-    public let message: String?
-    public let url: URL?
+  public let statusCode: Int
+  public let message: String?
+  public let url: URL?
 
-    public init(statusCode: Int, message: String?, url: URL?) {
-        self.statusCode = statusCode
-        self.message = message
-        self.url = url
-    }
+  public init(statusCode: Int, message: String?, url: URL?) {
+    self.statusCode = statusCode
+    self.message = message
+    self.url = url
+  }
 
-    public var errorDescription: String? {
-        let detail = message.map { ": \($0)" } ?? ""
-        return "Maple server returned HTTP \(statusCode)\(detail)"
-    }
+  public var errorDescription: String? {
+    let detail = message.map { ": \($0)" } ?? ""
+    return "Maple server returned HTTP \(statusCode)\(detail)"
+  }
 
-    public static var errorDomain: String { "app.justmaple.aperture.RemoteCatalogHTTP" }
-    public var errorCode: Int { statusCode }
-    public var errorUserInfo: [String: Any] {
-        [NSLocalizedDescriptionKey: errorDescription ?? "Maple server request failed"]
-    }
+  public static var errorDomain: String { "app.justmaple.aperture.RemoteCatalogHTTP" }
+  public var errorCode: Int { statusCode }
+  public var errorUserInfo: [String: Any] {
+    [NSLocalizedDescriptionKey: errorDescription ?? "Maple server request failed"]
+  }
 }
 
 public actor RemoteCatalog {
-    internal let http: AuthenticatedHTTPClient
-    /// The address used to build every request URL below. Starts as the
-    /// identity URL the extension was configured with; `updateServer(_:)`
-    /// swaps it to the server's LAN address once
-    /// `FileProviderExtensionCore.init` resolves one, so subsequent
-    /// requests (folders/thumbs/downloads/xmp/uploads) go over the LAN when
-    /// the host device is on the same network as the server. `http`'s own
-    /// (private, separately-held) server field is untouched — it only
-    /// builds the token-refresh request and stays on the identity URL.
-    internal var server: URL
-    private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "catalog")
-    // `Date.toISOString()` (the server's emitter) always includes
-    // fractional seconds (`2026-05-15T10:00:00.123Z`), but `.iso8601`
-    // does NOT parse them — every trash/upload/restore decode would
-    // fail. `ISO8601FlexibleDateDecoding` tries fractional first, then
-    // plain; shared with `ChangeFeedClient` so both decoders can't drift
-    // out of sync again (#2534).
-    private let decoder: JSONDecoder = ISO8601FlexibleDateDecoding.decoder
+  internal let http: AuthenticatedHTTPClient
+  /// The address used to build every request URL below. Starts as the
+  /// identity URL the extension was configured with; `updateServer(_:)`
+  /// swaps it to the server's LAN address once
+  /// `FileProviderExtensionCore.init` resolves one, so subsequent
+  /// requests (folders/thumbs/downloads/xmp/uploads) go over the LAN when
+  /// the host device is on the same network as the server. `http`'s own
+  /// (private, separately-held) server field is untouched — it only
+  /// builds the token-refresh request and stays on the identity URL.
+  internal var server: URL
+  private var addresses: CloudAddressResolver
+  private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "catalog")
+  // `Date.toISOString()` (the server's emitter) always includes
+  // fractional seconds (`2026-05-15T10:00:00.123Z`), but `.iso8601`
+  // does NOT parse them — every trash/upload/restore decode would
+  // fail. `ISO8601FlexibleDateDecoding` tries fractional first, then
+  // plain; shared with `ChangeFeedClient` so both decoders can't drift
+  // out of sync again (#2534).
+  private let decoder: JSONDecoder = ISO8601FlexibleDateDecoding.decoder
 
-    /// In-memory cache of `(etag, decoded value)` keyed by absolute URL.
-    /// One entry per URL — sufficient for `/api/folders` (one URL),
-    /// `/api/fs/dir?path=…` (one URL per directory the user touches),
-    /// and `/api/assets/<id>/thumb` (one URL per asset).
-    ///
-    /// Bounded LRU: insertions beyond `etagCacheCap` evict the least-
-    /// recently-used entry. Without the bound, a Finder spacebar-walk
-    /// through a 10k-asset folder pins ~1 GB of `Data` in the extension
-    /// (Phase 5c perf audit, Phase 6 item 1).
-    ///
-    /// The payload is stored as `Any` because the three call sites
-    /// produce different concrete types (`[LibraryRoot]`, `DirContents`,
-    /// `Data`). All access happens inside the actor, so the value-level
-    /// `Sendable` story is safe — the dictionary itself is actor-isolated.
-    ///
-    /// Implementation: an order-array (LRU at index 0, MRU at end) +
-    /// a dict for O(1) lookup. The order array stays tiny (≤ cap) so the
-    /// linear `firstIndex(of:)` on touch is cheap in practice — 256
-    /// pointer compares per slider tick is dwarfed by the network call
-    /// the cache exists to avoid.
-    private var etagCache: [String: ETagEntry] = [:]
-    private var etagOrder: [String] = []
+  /// In-memory cache of `(etag, decoded value)` keyed by absolute URL.
+  /// One entry per URL — sufficient for `/api/folders` (one URL),
+  /// `/api/folder/:slug/*` (one URL per directory page the user touches),
+  /// and `/api/assets/<id>/thumb` (one URL per asset).
+  ///
+  /// Bounded LRU: insertions beyond `etagCacheCap` evict the least-
+  /// recently-used entry. Without the bound, a Finder spacebar-walk
+  /// through a 10k-asset folder pins ~1 GB of `Data` in the extension
+  /// (Phase 5c perf audit, Phase 6 item 1).
+  ///
+  /// The payload is stored as `Any` because the three call sites
+  /// produce different concrete types (`[LibraryRoot]`, `DirContents`,
+  /// `Data`). All access happens inside the actor, so the value-level
+  /// `Sendable` story is safe — the dictionary itself is actor-isolated.
+  ///
+  /// Implementation: an order-array (LRU at index 0, MRU at end) +
+  /// a dict for O(1) lookup. The order array stays tiny (≤ cap) so the
+  /// linear `firstIndex(of:)` on touch is cheap in practice — 256
+  /// pointer compares per slider tick is dwarfed by the network call
+  /// the cache exists to avoid.
+  private var etagCache: [String: ETagEntry] = [:]
+  private var etagOrder: [String] = []
+  private var etagGeneration = 0
 
-    /// Maximum number of entries the ETag cache holds. 256 is well above
-    /// any realistic single-session enumeration (a typical Finder window
-    /// touches one folder and ≤ a few hundred thumbs at a time) and
-    /// caps memory at a few hundred MB worst-case (thumbs are the
-    /// largest payload). Revisit if profiling shows the working-set
-    /// straddles this number.
-    public static let etagCacheCap: Int = 256
+  /// Maximum number of entries the ETag cache holds. 256 is well above
+  /// any realistic single-session enumeration (a typical Finder window
+  /// touches one folder and ≤ a few hundred thumbs at a time) and
+  /// caps memory at a few hundred MB worst-case (thumbs are the
+  /// largest payload). Revisit if profiling shows the working-set
+  /// straddles this number.
+  public static let etagCacheCap: Int = 256
 
-    /// Test-only accessor: current number of entries in the ETag cache.
-    /// Lets `RemoteCatalogETagTests` assert the bound holds under load
-    /// without poking at private state via `@testable` reflection.
-    internal var _etagCacheCountForTesting: Int { etagCache.count }
+  /// Test-only accessor: current number of entries in the ETag cache.
+  /// Lets `RemoteCatalogETagTests` assert the bound holds under load
+  /// without poking at private state via `@testable` reflection.
+  internal var _etagCacheCountForTesting: Int { etagCache.count }
 
-    private struct ETagEntry {
-        let etag: String
-        let payload: Any
+  private struct ETagEntry {
+    let etag: String
+    let payload: Any
+  }
+
+  /// Look up an entry and promote it to MRU on hit. Returns the entry
+  /// or nil if absent.
+  private func etagCacheGet(_ key: String) -> ETagEntry? {
+    guard let entry = etagCache[key] else { return nil }
+    etagOrderTouch(key)
+    return entry
+  }
+
+  /// Insert or refresh an entry. New keys are appended; existing keys
+  /// have their payload replaced and are promoted to MRU. When inserting
+  /// a new key past the cap, the LRU key is evicted first.
+  private func etagCacheSet(_ key: String, _ entry: ETagEntry) {
+    if etagCache[key] != nil {
+      etagCache[key] = entry
+      etagOrderTouch(key)
+      return
+    }
+    if etagCache.count >= Self.etagCacheCap, let lru = etagOrder.first {
+      etagOrder.removeFirst()
+      etagCache.removeValue(forKey: lru)
+    }
+    etagCache[key] = entry
+    etagOrder.append(key)
+  }
+
+  /// Move `key` to the MRU end of `etagOrder`. Caller has already
+  /// confirmed the key exists.
+  private func etagOrderTouch(_ key: String) {
+    if let idx = etagOrder.firstIndex(of: key) {
+      etagOrder.remove(at: idx)
+    }
+    etagOrder.append(key)
+  }
+
+  private let downloadURLSession: URLSession
+
+  public init(
+    http: AuthenticatedHTTPClient, server: URL,
+    downloadURLSession: URLSession? = nil
+  ) {
+    self.http = http
+    self.server = server
+    self.addresses = CloudAddressResolver(server: server, httpClient: http)
+    // Default download session uses `.ephemeral` so RAW asset bodies are
+    // never persisted to URLCache, cookie storage, or credential storage:
+    // the OS-side File Provider cache is the canonical store and the
+    // bodies are large (100 MP RAW ≈ 150 MB) — sharing them with
+    // `URLSession.shared.configuration.urlCache` would both waste disk
+    // and cross-contaminate caching state with the main app. Tests
+    // inject a session whose protocolClasses include StubURLProtocol.
+    if let injected = downloadURLSession {
+      self.downloadURLSession = injected
+    } else {
+      let cfg = URLSessionConfiguration.ephemeral
+      // `.ephemeral` already nils urlCache/cookies/credentials; the
+      // assignments below are belt-and-suspenders + intent-as-doc.
+      cfg.urlCache = nil
+      cfg.httpCookieStorage = nil
+      cfg.urlCredentialStorage = nil
+      self.downloadURLSession = URLSession(configuration: cfg)
+    }
+  }
+
+  /// Swaps the address used for future requests — see the `server` doc
+  /// comment above. Actor-isolated, so this can't race an in-flight
+  /// request reading the old value mid-build.
+  public func updateServer(_ url: URL) {
+    self.server = url
+    self.addresses = CloudAddressResolver(server: url, httpClient: http)
+    invalidateETagCache()
+  }
+
+  /// Test-only accessor: the URLSession used for streaming asset bodies.
+  /// Exposed so the Issue #3 regression test can assert the ephemeral
+  /// configuration. Not part of the public contract; use only from
+  /// `@testable import MapleCore`. `nonisolated` because the underlying
+  /// `let` is set during init and never mutated.
+  internal nonisolated var _downloadURLSessionForTesting: URLSession { downloadURLSession }
+
+  /// Drop the entire ETag cache. Called by the FP extension's
+  /// ChangeFeedClient on a 409 stale-cursor reply — the cursor reset
+  /// implies the cache's entries reflect pre-gap state and a 304
+  /// against them would serve a stale folder/dir list.
+  public func invalidateETagCache() {
+    etagGeneration += 1
+    etagCache.removeAll()
+    etagOrder.removeAll()
+  }
+
+  /// Generic helper: send `If-None-Match` when we have a cached entry,
+  /// return cached value on 304, decode + store on 200. Used by every
+  /// JSON-bodied catalog call that participates in revalidation.
+  private func fetchCachedJSON<T: Decodable & Sendable>(
+    url: URL,
+    decode: T.Type,
+  ) async throws -> T {
+    var req = URLRequest(url: url)
+    let key = url.absoluteString
+    let generation = etagGeneration
+    let cached = etagCacheGet(key)
+    if let cached {
+      req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+    }
+    let (data, resp) = try await http.data(for: req)
+    let httpResp = resp as? HTTPURLResponse
+    if httpResp?.statusCode == 304,
+      let cached,
+      let value = cached.payload as? T
+    {
+      return value
+    }
+    try Self.check2xx(resp, data: data, url: url)
+    let value = try decoder.decode(T.self, from: data)
+    if generation == etagGeneration, let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
+      etagCacheSet(key, ETagEntry(etag: etag, payload: value))
+    }
+    return value
+  }
+
+  public func listFolders() async throws -> [LibraryRoot] {
+    let url = server.appending(path: "/api/folders")
+    log.notice("listFolders GET \(url.absoluteString, privacy: .public)")
+    do {
+      let result = try await fetchCachedJSON(url: url, decode: [LibraryRoot].self)
+      log.notice("listFolders ok count=\(result.count, privacy: .public)")
+      return result
+    } catch {
+      log.error("listFolders FAILED: \(String(describing: error), privacy: .public)")
+      throw error
+    }
+  }
+
+  /// Unified enriched enumeration. Each cursor/limit combination has its
+  /// own URL and conditional-response cache entry (#4006).
+  public func listDir(
+    absolutePath: String,
+    cursor: String? = nil,
+    limit: Int? = nil
+  ) async throws -> DirContents {
+    let url = try await addresses.url(route: "folder", absPath: absolutePath)
+    let query = [
+      cursor.map { URLQueryItem(name: "cursor", value: $0) },
+      limit.map { URLQueryItem(name: "limit", value: String($0)) },
+    ].compactMap { $0 }
+    let pageURL = query.isEmpty ? url : url.appending(queryItems: query)
+    return try await fetchCachedJSON(url: pageURL, decode: DirContents.self)
+  }
+
+  /// Streams the asset body to `localURL` via `URLSession.download(for:)`.
+  /// Peak memory stays at the URLSession download buffer (single-digit MB)
+  /// instead of the full asset body (~150 MB for a 100 MP RAW). The HTTP
+  /// Auth header is injected inside `AuthenticatedHTTPClient
+  /// .refreshIfNeededAndRetry`, which also handles single-flight 401
+  /// refresh + one retry.
+  public func downloadAsset(assetID: String, to localURL: URL) async throws {
+    try Self.validateAssetID(assetID)
+    let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/raw"))
+    let session = downloadURLSession
+    let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
+      try await session.download(for: injected)
+    }
+    try Self.check2xx(resp, url: req.url)
+    // download() returns a tmp URL inside NSTemporaryDirectory; move it
+    // into place. The destination's parent directory must exist — the
+    // File Provider extension hands us a tmp dir from
+    // NSFileProviderManager.temporaryDirectoryURL().
+    let fm = FileManager.default
+    if fm.fileExists(atPath: localURL.path) {
+      try fm.removeItem(at: localURL)
+    }
+    try fm.moveItem(at: tmpURL, to: localURL)
+  }
+
+  internal static func check2xx(
+    _ resp: URLResponse,
+    data: Data? = nil,
+    url: URL? = nil
+  ) throws {
+    let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    guard (200..<300).contains(code) else {
+      struct ErrorBody: Decodable {
+        let error: String?
+        let message: String?
+      }
+      let body = data.flatMap { try? JSONDecoder().decode(ErrorBody.self, from: $0) }
+      let fallback = data.flatMap { String(data: $0.prefix(512), encoding: .utf8) }
+      let underlying = RemoteCatalogHTTPError(
+        statusCode: code,
+        message: body?.message ?? body?.error ?? fallback,
+        url: url ?? resp.url)
+      throw Self.mapHTTPError(status: code, underlying: underlying)
+    }
+  }
+
+  /// Maps an HTTP status code from the residual "anything else failed"
+  /// throw path to the `NSFileProviderError` case Finder can act on,
+  /// instead of a bare `URLError(.badServerResponse)` (#2548).
+  ///
+  /// Unlike the structured per-call outcomes elsewhere in this file
+  /// (`MoveFolderResult`, `RenameAssetResult`, `RelocateAssetResult`,
+  /// `DeleteAssetResult`, `XMPWriteResult`) — which stay domain-neutral
+  /// BY DESIGN (see their doc comments) because
+  /// `FileProviderExtensionCore` maps each KNOWN alternate outcome
+  /// explicitly — this covers the UNEXPECTED-status throw path.
+  /// Nothing downstream re-interprets a thrown `Error` from that path:
+  /// `FileProviderExtensionCore`'s `catch` blocks forward it to the OS
+  /// completion handler as-is. Encoding `NSFileProviderErrorDomain`
+  /// directly here (rather than a neutral wrapper nothing unwraps) is
+  /// what actually gets Finder the right UX for this path.
+  ///
+  /// - 401 -> `.notAuthenticated` — defensive: `AuthenticatedHTTPClient`
+  ///   already retries once after a token refresh, so a caller
+  ///   normally never sees a raw 401, but a persistent one should
+  ///   surface as an auth problem, not a generic transport failure.
+  /// - 404 -> `.noSuchItem` — the resource the caller addressed is
+  ///   gone server-side.
+  /// - 409 -> `.filenameCollision` — a residual conflict not already
+  ///   caught by a call's own structured 409 handling (several calls
+  ///   above already branch on 409 explicitly before ever reaching
+  ///   `check2xx`/this default path).
+  /// - 413 / 507 -> `.insufficientQuota` — "Payload Too Large" /
+  ///   "Insufficient Storage" are the standard HTTP-semantics codes
+  ///   (RFC 7231 §6.5.11, RFC 4918 §11.5) for an over-quota write.
+  ///   Today's server (`src/api/src/routes/folders.ts`) doesn't emit
+  ///   either yet — there's no quota enforcement wired up server-side
+  ///   as of this change — but the mapping is unambiguous per the
+  ///   RFCs regardless of what THIS server currently sends, so a
+  ///   future quota check gets the correct Finder UX for free instead
+  ///   of another silent "server response" error.
+  /// - anything else -> `.serverUnreachable` — a supported File Provider
+  ///   error that keeps Finder's transient-error retry handling while the
+  ///   underlying HTTP error retains the status and server response text.
+  internal static func mapHTTPError(
+    status: Int,
+    underlying: RemoteCatalogHTTPError? = nil
+  ) -> Error {
+    let userInfo: [String: Any]
+    if let underlying {
+      userInfo = [
+        NSLocalizedDescriptionKey: underlying.localizedDescription,
+        NSUnderlyingErrorKey: underlying as NSError,
+      ]
+    } else {
+      userInfo = [:]
     }
 
-    /// Look up an entry and promote it to MRU on hit. Returns the entry
-    /// or nil if absent.
-    private func etagCacheGet(_ key: String) -> ETagEntry? {
-        guard let entry = etagCache[key] else { return nil }
-        etagOrderTouch(key)
-        return entry
+    switch status {
+    case 401, 403:
+      return NSError(
+        domain: NSFileProviderErrorDomain,
+        code: NSFileProviderError.notAuthenticated.rawValue,
+        userInfo: userInfo)
+    case 404:
+      return NSError(
+        domain: NSFileProviderErrorDomain,
+        code: NSFileProviderError.noSuchItem.rawValue,
+        userInfo: userInfo)
+    case 409:
+      return NSError(
+        domain: NSFileProviderErrorDomain,
+        code: NSFileProviderError.filenameCollision.rawValue,
+        userInfo: userInfo)
+    case 413, 507:
+      return NSError(
+        domain: NSFileProviderErrorDomain,
+        code: NSFileProviderError.insufficientQuota.rawValue,
+        userInfo: userInfo)
+    default:
+      return NSError(
+        domain: NSFileProviderErrorDomain,
+        code: NSFileProviderError.serverUnreachable.rawValue,
+        userInfo: userInfo)
     }
+  }
 
-    /// Insert or refresh an entry. New keys are appended; existing keys
-    /// have their payload replaced and are promoted to MRU. When inserting
-    /// a new key past the cap, the LRU key is evicted first.
-    private func etagCacheSet(_ key: String, _ entry: ETagEntry) {
-        if etagCache[key] != nil {
-            etagCache[key] = entry
-            etagOrderTouch(key)
-            return
-        }
-        if etagCache.count >= Self.etagCacheCap, let lru = etagOrder.first {
-            etagOrder.removeFirst()
-            etagCache.removeValue(forKey: lru)
-        }
-        etagCache[key] = entry
-        etagOrder.append(key)
+  /// Validates that `assetID` is a 24-character hex Mongo ObjectID.
+  /// Anything else cannot reach the server safely — the value is
+  /// interpolated into a URL path segment, and a string containing
+  /// `..`, `/`, or `%2F` would let an attacker pivot to other routes.
+  /// The API itself parses `new ObjectId(params.id)` (see
+  /// `src/api/src/routes/assets.ts`) so non-ObjectID input always 4xx's
+  /// server-side — guarding here means we never even open the socket.
+  static func validateAssetID(_ assetID: String) throws {
+    guard assetID.count == 24 else {
+      throw InvalidAssetIDError(assetID: assetID)
     }
-
-    /// Move `key` to the MRU end of `etagOrder`. Caller has already
-    /// confirmed the key exists.
-    private func etagOrderTouch(_ key: String) {
-        if let idx = etagOrder.firstIndex(of: key) {
-            etagOrder.remove(at: idx)
-        }
-        etagOrder.append(key)
+    for scalar in assetID.unicodeScalars {
+      let v = scalar.value
+      let isDigit = (0x30...0x39).contains(v)
+      let isLower = (0x61...0x66).contains(v)  // a-f
+      let isUpper = (0x41...0x46).contains(v)  // A-F
+      guard isDigit || isLower || isUpper else {
+        throw InvalidAssetIDError(assetID: assetID)
+      }
     }
+  }
 
-    private let downloadURLSession: URLSession
-
-    public init(http: AuthenticatedHTTPClient, server: URL,
-                downloadURLSession: URLSession? = nil) {
-        self.http = http
-        self.server = server
-        // Default download session uses `.ephemeral` so RAW asset bodies are
-        // never persisted to URLCache, cookie storage, or credential storage:
-        // the OS-side File Provider cache is the canonical store and the
-        // bodies are large (100 MP RAW ≈ 150 MB) — sharing them with
-        // `URLSession.shared.configuration.urlCache` would both waste disk
-        // and cross-contaminate caching state with the main app. Tests
-        // inject a session whose protocolClasses include StubURLProtocol.
-        if let injected = downloadURLSession {
-            self.downloadURLSession = injected
-        } else {
-            let cfg = URLSessionConfiguration.ephemeral
-            // `.ephemeral` already nils urlCache/cookies/credentials; the
-            // assignments below are belt-and-suspenders + intent-as-doc.
-            cfg.urlCache = nil
-            cfg.httpCookieStorage = nil
-            cfg.urlCredentialStorage = nil
-            self.downloadURLSession = URLSession(configuration: cfg)
-        }
+  /// GET /api/assets/<assetID>/thumb. Returns the AVIF bytes of the
+  /// pre-baked preview. Throws on non-2xx — 404 in particular means
+  /// "thumbnail not generated yet" and the Quick Look extension
+  /// uses that signal to fall back to OS-default RAW materialization.
+  ///
+  /// Participates in the same per-URL ETag cache as the JSON
+  /// enumeration calls: a 304 reply returns the in-memory `Data` from
+  /// the prior 200. The cache is bounded LRU (cap: `etagCacheCap`) —
+  /// a spacebar-walk across thousands of assets evicts older thumb
+  /// payloads instead of pinning them all.
+  public func getThumb(assetID: String) async throws -> Data {
+    try Self.validateAssetID(assetID)
+    let url = server.appending(path: "/api/assets/\(assetID)/thumb")
+    var req = URLRequest(url: url)
+    let key = url.absoluteString
+    let cached = etagCacheGet(key)
+    if let cached {
+      req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
     }
-
-    /// Swaps the address used for future requests — see the `server` doc
-    /// comment above. Actor-isolated, so this can't race an in-flight
-    /// request reading the old value mid-build.
-    public func updateServer(_ url: URL) {
-        self.server = url
+    let (data, resp) = try await http.data(for: req)
+    let httpResp = resp as? HTTPURLResponse
+    if httpResp?.statusCode == 304,
+      let cached,
+      let bytes = cached.payload as? Data
+    {
+      return bytes
     }
-
-    /// Test-only accessor: the URLSession used for streaming asset bodies.
-    /// Exposed so the Issue #3 regression test can assert the ephemeral
-    /// configuration. Not part of the public contract; use only from
-    /// `@testable import MapleCore`. `nonisolated` because the underlying
-    /// `let` is set during init and never mutated.
-    internal nonisolated var _downloadURLSessionForTesting: URLSession { downloadURLSession }
-
-    /// Drop the entire ETag cache. Called by the FP extension's
-    /// ChangeFeedClient on a 409 stale-cursor reply — the cursor reset
-    /// implies the cache's entries reflect pre-gap state and a 304
-    /// against them would serve a stale folder/dir list.
-    public func invalidateETagCache() {
-        etagCache.removeAll()
-        etagOrder.removeAll()
+    try Self.check2xx(resp, data: data, url: req.url)
+    if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
+      etagCacheSet(key, ETagEntry(etag: etag, payload: data))
     }
+    return data
+  }
 
-    /// Generic helper: send `If-None-Match` when we have a cached entry,
-    /// return cached value on 304, decode + store on 200. Used by every
-    /// JSON-bodied catalog call that participates in revalidation.
-    private func fetchCachedJSON<T: Decodable & Sendable>(
-        url: URL,
-        decode: T.Type,
-    ) async throws -> T {
-        var req = URLRequest(url: url)
-        let key = url.absoluteString
-        let cached = etagCacheGet(key)
-        if let cached {
-            req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
-        }
-        let (data, resp) = try await http.data(for: req)
-        let httpResp = resp as? HTTPURLResponse
-        if httpResp?.statusCode == 304,
-           let cached,
-           let value = cached.payload as? T {
-            return value
-        }
-        try Self.check2xx(resp, data: data, url: url)
-        let value = try decoder.decode(T.self, from: data)
-        if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-            etagCacheSet(key, ETagEntry(etag: etag, payload: value))
-        }
-        return value
+  /// Thumb fetch result used by `getThumbConditional`. `notModified`
+  /// happens when the server returned 304 to an `If-None-Match` —
+  /// callers reuse their own cached bytes. `ok` carries the 200 body
+  /// plus the new ETag (nil if the server didn't send one).
+  /// `GET /api/fs/preview?path=<abs>` — the developed 1280 px preview the
+  /// server keeps at `.maple/previews/<filename>.avif`, generated on demand
+  /// when stale (#3571). Path-addressed: there is no id-keyed preview
+  /// route, and the preview cache is keyed on the file, not the asset.
+  /// Same ETag revalidation as `getThumb`; the server's ETag is the
+  /// preview FILE's mtime + size, so an in-place overwrite after an edit
+  /// busts it.
+  public func getPreview(absPath: String) async throws -> Data {
+    var comps = URLComponents(
+      url: server.appending(path: "/api/fs/preview"),
+      resolvingAgainstBaseURL: false)!
+    comps.queryItems = [URLQueryItem(name: "path", value: absPath)]
+    guard let url = comps.url else { throw URLError(.badURL) }
+    var req = URLRequest(url: url)
+    let key = url.absoluteString
+    let cached = etagCacheGet(key)
+    if let cached {
+      req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
     }
-
-    public func listFolders() async throws -> [LibraryRoot] {
-        let url = server.appending(path: "/api/folders")
-        log.notice("listFolders GET \(url.absoluteString, privacy: .public)")
-        do {
-            let result = try await fetchCachedJSON(url: url, decode: [LibraryRoot].self)
-            log.notice("listFolders ok count=\(result.count, privacy: .public)")
-            return result
-        } catch {
-            log.error("listFolders FAILED: \(String(describing: error), privacy: .public)")
-            throw error
-        }
+    let (data, resp) = try await http.data(for: req)
+    let httpResp = resp as? HTTPURLResponse
+    if httpResp?.statusCode == 304,
+      let cached,
+      let bytes = cached.payload as? Data
+    {
+      return bytes
     }
-
-    /// Enumerator listing for one directory. Stays on the path-addressed
-    /// `/api/fs/dir` (#1325): `/api/folder/:slug/*` returns only
-    /// `mapleId`/`indexed` per entry, with no size, ext, mtime, EXIF,
-    /// paired sidecars, non-image `files`, or cursor paging — every one of
-    /// which `MapleItem`/`MapleEnumerator` publish items on. Moving this
-    /// needs a richer `/api/folder` first.
-    public func listDir(absolutePath: String,
-                        cursor: String? = nil,
-                        limit: Int? = nil) async throws -> DirContents {
-        var comps = URLComponents(url: server.appending(path: "/api/fs/dir"), resolvingAgainstBaseURL: false)!
-        var q: [URLQueryItem] = [.init(name: "path", value: absolutePath)]
-        if let cursor { q.append(.init(name: "cursor", value: cursor)) }
-        if let limit { q.append(.init(name: "limit", value: String(limit))) }
-        comps.queryItems = q
-        // The ETag cache keys on the full URL, so each (path, cursor,
-        // limit) combination gets its own cached entry. Phase 5c's
-        // server-side ETag is body-hash, so paged responses round-trip
-        // correctly through the same revalidation path.
-        return try await fetchCachedJSON(url: comps.url!, decode: DirContents.self)
+    try Self.check2xx(resp, data: data, url: req.url)
+    if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
+      etagCacheSet(key, ETagEntry(etag: etag, payload: data))
     }
+    return data
+  }
 
-    /// Streams the asset body to `localURL` via `URLSession.download(for:)`.
-    /// Peak memory stays at the URLSession download buffer (single-digit MB)
-    /// instead of the full asset body (~150 MB for a 100 MP RAW). The HTTP
-    /// Auth header is injected inside `AuthenticatedHTTPClient
-    /// .refreshIfNeededAndRetry`, which also handles single-flight 401
-    /// refresh + one retry.
-    public func downloadAsset(assetID: String, to localURL: URL) async throws {
-        try Self.validateAssetID(assetID)
-        let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/raw"))
-        let session = downloadURLSession
-        let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
-            try await session.download(for: injected)
-        }
-        try Self.check2xx(resp, url: req.url)
-        // download() returns a tmp URL inside NSTemporaryDirectory; move it
-        // into place. The destination's parent directory must exist — the
-        // File Provider extension hands us a tmp dir from
-        // NSFileProviderManager.temporaryDirectoryURL().
-        let fm = FileManager.default
-        if fm.fileExists(atPath: localURL.path) {
-            try fm.removeItem(at: localURL)
-        }
-        try fm.moveItem(at: tmpURL, to: localURL)
+  public enum ThumbFetchResult: Sendable, Equatable {
+    case ok(data: Data, etag: String?)
+    case notModified
+  }
+
+  /// GET /api/assets/<assetID>/thumb with an explicit `If-None-Match`
+  /// header and a structured result that exposes the response ETag.
+  ///
+  /// Sibling to `getThumb(assetID:)` — `getThumb` participates in the
+  /// in-process LRU ETag cache, which is the right behaviour for the
+  /// host app (long-lived process, ETag cache amortises across requests).
+  /// The QL extension is short-lived per launch, so it disk-caches the
+  /// bytes itself via `QuickLookThumbDiskCache` and needs the raw
+  /// ETag back to key the file. This method intentionally bypasses
+  /// `etagCache` to keep both roles independent — the disk cache is
+  /// the only thumb cache that survives the extension's lifetime.
+  ///
+  /// 404 still throws (URLError) — caller falls back to the OS-default
+  /// preview path, same as `getThumb`.
+  public func getThumbConditional(
+    assetID: String,
+    ifNoneMatch: String?
+  ) async throws -> ThumbFetchResult {
+    try Self.validateAssetID(assetID)
+    let url = server.appending(path: "/api/assets/\(assetID)/thumb")
+    var req = URLRequest(url: url)
+    if let etag = ifNoneMatch {
+      req.setValue(etag, forHTTPHeaderField: "If-None-Match")
     }
-
-    internal static func check2xx(_ resp: URLResponse,
-                                  data: Data? = nil,
-                                  url: URL? = nil) throws {
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        guard (200..<300).contains(code) else {
-            struct ErrorBody: Decodable {
-                let error: String?
-                let message: String?
-            }
-            let body = data.flatMap { try? JSONDecoder().decode(ErrorBody.self, from: $0) }
-            let fallback = data.flatMap { String(data: $0.prefix(512), encoding: .utf8) }
-            let underlying = RemoteCatalogHTTPError(
-                statusCode: code,
-                message: body?.message ?? body?.error ?? fallback,
-                url: url ?? resp.url)
-            throw Self.mapHTTPError(status: code, underlying: underlying)
-        }
+    let (data, resp) = try await http.data(for: req)
+    let httpResp = resp as? HTTPURLResponse
+    if httpResp?.statusCode == 304 {
+      return .notModified
     }
+    try Self.check2xx(resp, data: data, url: req.url)
+    let newETag = httpResp?.value(forHTTPHeaderField: "ETag")
+    return .ok(data: data, etag: newETag)
+  }
 
-    /// Maps an HTTP status code from the residual "anything else failed"
-    /// throw path to the `NSFileProviderError` case Finder can act on,
-    /// instead of a bare `URLError(.badServerResponse)` (#2548).
-    ///
-    /// Unlike the structured per-call outcomes elsewhere in this file
-    /// (`MoveFolderResult`, `RenameAssetResult`, `RelocateAssetResult`,
-    /// `DeleteAssetResult`, `XMPWriteResult`) — which stay domain-neutral
-    /// BY DESIGN (see their doc comments) because
-    /// `FileProviderExtensionCore` maps each KNOWN alternate outcome
-    /// explicitly — this covers the UNEXPECTED-status throw path.
-    /// Nothing downstream re-interprets a thrown `Error` from that path:
-    /// `FileProviderExtensionCore`'s `catch` blocks forward it to the OS
-    /// completion handler as-is. Encoding `NSFileProviderErrorDomain`
-    /// directly here (rather than a neutral wrapper nothing unwraps) is
-    /// what actually gets Finder the right UX for this path.
-    ///
-    /// - 401 -> `.notAuthenticated` — defensive: `AuthenticatedHTTPClient`
-    ///   already retries once after a token refresh, so a caller
-    ///   normally never sees a raw 401, but a persistent one should
-    ///   surface as an auth problem, not a generic transport failure.
-    /// - 404 -> `.noSuchItem` — the resource the caller addressed is
-    ///   gone server-side.
-    /// - 409 -> `.filenameCollision` — a residual conflict not already
-    ///   caught by a call's own structured 409 handling (several calls
-    ///   above already branch on 409 explicitly before ever reaching
-    ///   `check2xx`/this default path).
-    /// - 413 / 507 -> `.insufficientQuota` — "Payload Too Large" /
-    ///   "Insufficient Storage" are the standard HTTP-semantics codes
-    ///   (RFC 7231 §6.5.11, RFC 4918 §11.5) for an over-quota write.
-    ///   Today's server (`src/api/src/routes/folders.ts`) doesn't emit
-    ///   either yet — there's no quota enforcement wired up server-side
-    ///   as of this change — but the mapping is unambiguous per the
-    ///   RFCs regardless of what THIS server currently sends, so a
-    ///   future quota check gets the correct Finder UX for free instead
-    ///   of another silent "server response" error.
-    /// - anything else -> `.serverUnreachable` — a supported File Provider
-    ///   error that keeps Finder's transient-error retry handling while the
-    ///   underlying HTTP error retains the status and server response text.
-    internal static func mapHTTPError(status: Int,
-                                      underlying: RemoteCatalogHTTPError? = nil) -> Error {
-        let userInfo: [String: Any]
-        if let underlying {
-            userInfo = [
-                NSLocalizedDescriptionKey: underlying.localizedDescription,
-                NSUnderlyingErrorKey: underlying as NSError,
-            ]
-        } else {
-            userInfo = [:]
-        }
-
-        switch status {
-        case 401, 403:
-            return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.notAuthenticated.rawValue,
-                            userInfo: userInfo)
-        case 404:
-            return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.noSuchItem.rawValue,
-                            userInfo: userInfo)
-        case 409:
-            return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.filenameCollision.rawValue,
-                            userInfo: userInfo)
-        case 413, 507:
-            return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.insufficientQuota.rawValue,
-                            userInfo: userInfo)
-        default:
-            return NSError(domain: NSFileProviderErrorDomain,
-                            code: NSFileProviderError.serverUnreachable.rawValue,
-                            userInfo: userInfo)
-        }
+  /// GET /api/assets/<assetID>/xmp[?conflict=<basename>]. Returns the
+  /// raw XMP bytes. For conflict copies, `conflictBasename` must match
+  /// the server's pairing rule (canonical base + " (conflict from …)"
+  /// suffix, optionally with " (N)").
+  public func getXMP(assetID: String, conflictBasename: String?) async throws -> Data {
+    try Self.validateAssetID(assetID)
+    var comps = URLComponents(
+      url: server.appending(path: "/api/assets/\(assetID)/xmp"),
+      resolvingAgainstBaseURL: false,
+    )!
+    if let conflictBasename {
+      comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
     }
+    let req = URLRequest(url: comps.url!)
+    let (data, resp) = try await http.data(for: req)
+    try Self.check2xx(resp, data: data, url: req.url)
+    return data
+  }
 
-    /// Validates that `assetID` is a 24-character hex Mongo ObjectID.
-    /// Anything else cannot reach the server safely — the value is
-    /// interpolated into a URL path segment, and a string containing
-    /// `..`, `/`, or `%2F` would let an attacker pivot to other routes.
-    /// The API itself parses `new ObjectId(params.id)` (see
-    /// `src/api/src/routes/assets.ts`) so non-ObjectID input always 4xx's
-    /// server-side — guarding here means we never even open the socket.
-    static func validateAssetID(_ assetID: String) throws {
-        guard assetID.count == 24 else {
-            throw InvalidAssetIDError(assetID: assetID)
-        }
-        for scalar in assetID.unicodeScalars {
-            let v = scalar.value
-            let isDigit  = (0x30...0x39).contains(v)
-            let isLower  = (0x61...0x66).contains(v)  // a-f
-            let isUpper  = (0x41...0x46).contains(v)  // A-F
-            guard isDigit || isLower || isUpper else {
-                throw InvalidAssetIDError(assetID: assetID)
-            }
-        }
+  /// PUT /api/assets/<assetID>/xmp.
+  ///
+  /// - `conflictBasename`: when non-nil, addresses a specific conflict
+  ///   copy via `?conflict=<basename>`. Unconditional write — the
+  ///   `ifMtimeMatches`/`requireAbsent` preconditions are ignored in this
+  ///   mode because the caller is editing this exact file directly.
+  /// - `ifMtimeMatches`: only used when `conflictBasename == nil` and
+  ///   `requireAbsent == false`. nil = unconditional overwrite; otherwise
+  ///   precondition (mismatch → conflict copy, canonical untouched).
+  /// - `deviceName`: stamped into conflict-copy filenames the server
+  ///   may create on precondition mismatch (canonical-write mode only).
+  /// - `requireAbsent`: create-only precondition, for a caller (e.g.
+  ///   FileProvider `createItem`) that believes this sidecar doesn't
+  ///   exist yet. Takes priority over `ifMtimeMatches` — passing
+  ///   `ifMtimeMatches: nil` alone means "overwrite unconditionally",
+  ///   which is correct for a modify with no known prior version but
+  ///   would silently destroy an existing sidecar on create (#2532).
+  public func putXMP(
+    assetID: String,
+    data: Data,
+    ifMtimeMatches: Date?,
+    deviceName: String,
+    requireAbsent: Bool = false,
+    conflictBasename: String? = nil
+  ) async throws -> XMPWriteResult {
+    try Self.validateAssetID(assetID)
+    var comps = URLComponents(
+      url: server.appending(path: "/api/assets/\(assetID)/xmp"),
+      resolvingAgainstBaseURL: false,
+    )!
+    if let conflictBasename {
+      comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
     }
-
-    /// GET /api/assets/<assetID>/thumb. Returns the AVIF bytes of the
-    /// pre-baked preview. Throws on non-2xx — 404 in particular means
-    /// "thumbnail not generated yet" and the Quick Look extension
-    /// uses that signal to fall back to OS-default RAW materialization.
-    ///
-    /// Participates in the same per-URL ETag cache as the JSON
-    /// enumeration calls: a 304 reply returns the in-memory `Data` from
-    /// the prior 200. The cache is bounded LRU (cap: `etagCacheCap`) —
-    /// a spacebar-walk across thousands of assets evicts older thumb
-    /// payloads instead of pinning them all.
-    public func getThumb(assetID: String) async throws -> Data {
-        try Self.validateAssetID(assetID)
-        let url = server.appending(path: "/api/assets/\(assetID)/thumb")
-        var req = URLRequest(url: url)
-        let key = url.absoluteString
-        let cached = etagCacheGet(key)
-        if let cached {
-            req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
-        }
-        let (data, resp) = try await http.data(for: req)
-        let httpResp = resp as? HTTPURLResponse
-        if httpResp?.statusCode == 304,
-           let cached,
-           let bytes = cached.payload as? Data {
-            return bytes
-        }
-        try Self.check2xx(resp, data: data, url: req.url)
-        if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-            etagCacheSet(key, ETagEntry(etag: etag, payload: data))
-        }
-        return data
+    var req = URLRequest(url: comps.url!)
+    req.httpMethod = "PUT"
+    req.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+    req.setValue(deviceName, forHTTPHeaderField: "X-Maple-Device-Name")
+    // Preconditions only apply to the canonical write path.
+    if conflictBasename == nil, requireAbsent {
+      req.setValue("true", forHTTPHeaderField: "X-Maple-Require-Absent")
+    } else if conflictBasename == nil, let prior = ifMtimeMatches {
+      req.setValue(
+        String(Int(prior.timeIntervalSince1970)), forHTTPHeaderField: "X-If-Mtime-Matches")
     }
-
-    /// Thumb fetch result used by `getThumbConditional`. `notModified`
-    /// happens when the server returned 304 to an `If-None-Match` —
-    /// callers reuse their own cached bytes. `ok` carries the 200 body
-    /// plus the new ETag (nil if the server didn't send one).
-    /// `GET /api/fs/preview?path=<abs>` — the developed 1280 px preview the
-    /// server keeps at `.maple/previews/<filename>.avif`, generated on demand
-    /// when stale (#3571). Path-addressed: there is no id-keyed preview
-    /// route, and the preview cache is keyed on the file, not the asset.
-    /// Same ETag revalidation as `getThumb`; the server's ETag is the
-    /// preview FILE's mtime + size, so an in-place overwrite after an edit
-    /// busts it.
-    public func getPreview(absPath: String) async throws -> Data {
-        var comps = URLComponents(url: server.appending(path: "/api/fs/preview"),
-                                  resolvingAgainstBaseURL: false)!
-        comps.queryItems = [URLQueryItem(name: "path", value: absPath)]
-        guard let url = comps.url else { throw URLError(.badURL) }
-        var req = URLRequest(url: url)
-        let key = url.absoluteString
-        let cached = etagCacheGet(key)
-        if let cached {
-            req.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
+    req.httpBody = data
+    let (respData, resp) = try await http.data(for: req)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    if status == 204 {
+      let mtime = Self.parseLastModified(resp as? HTTPURLResponse) ?? Date()
+      return .ok(mtime: mtime)
+    }
+    if status == 409 {
+      struct Body: Decodable {
+        let conflictPath: String
+        let conflictMtime: String
+        enum CodingKeys: String, CodingKey {
+          case conflictPath = "conflict_path"
+          case conflictMtime = "conflict_mtime"
         }
-        let (data, resp) = try await http.data(for: req)
-        let httpResp = resp as? HTTPURLResponse
-        if httpResp?.statusCode == 304,
-           let cached,
-           let bytes = cached.payload as? Data {
-            return bytes
-        }
-        try Self.check2xx(resp, data: data, url: req.url)
-        if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-            etagCacheSet(key, ETagEntry(etag: etag, payload: data))
-        }
-        return data
+      }
+      let body = try decoder.decode(Body.self, from: respData)
+      // #959: this was hand-rolling the exact fractional-then-plain
+      // fallback (and a fresh `ISO8601DateFormatter()` per call)
+      // that `ISO8601FlexibleDateDecoding` already provides, cached.
+      let mtime = ISO8601FlexibleDateDecoding.date(from: body.conflictMtime) ?? Date()
+      return .conflict(path: body.conflictPath, mtime: mtime)
     }
+    throw Self.mapHTTPError(status: status)
+  }
 
-    public enum ThumbFetchResult: Sendable, Equatable {
-        case ok(data: Data, etag: String?)
-        case notModified
+  /// DELETE /api/assets/<assetID>/xmp[?conflict=<basename>]. Idempotent.
+  public func deleteXMP(assetID: String, conflictBasename: String? = nil) async throws {
+    try Self.validateAssetID(assetID)
+    var comps = URLComponents(
+      url: server.appending(path: "/api/assets/\(assetID)/xmp"),
+      resolvingAgainstBaseURL: false,
+    )!
+    if let conflictBasename {
+      comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
     }
+    var req = URLRequest(url: comps.url!)
+    req.httpMethod = "DELETE"
+    let (data, resp) = try await http.data(for: req)
+    try Self.check2xx(resp, data: data, url: req.url)
+  }
 
-    /// GET /api/assets/<assetID>/thumb with an explicit `If-None-Match`
-    /// header and a structured result that exposes the response ETag.
-    ///
-    /// Sibling to `getThumb(assetID:)` — `getThumb` participates in the
-    /// in-process LRU ETag cache, which is the right behaviour for the
-    /// host app (long-lived process, ETag cache amortises across requests).
-    /// The QL extension is short-lived per launch, so it disk-caches the
-    /// bytes itself via `QuickLookThumbDiskCache` and needs the raw
-    /// ETag back to key the file. This method intentionally bypasses
-    /// `etagCache` to keep both roles independent — the disk cache is
-    /// the only thumb cache that survives the extension's lifetime.
-    ///
-    /// 404 still throws (URLError) — caller falls back to the OS-default
-    /// preview path, same as `getThumb`.
-    public func getThumbConditional(
-        assetID: String,
-        ifNoneMatch: String?
-    ) async throws -> ThumbFetchResult {
-        try Self.validateAssetID(assetID)
-        let url = server.appending(path: "/api/assets/\(assetID)/thumb")
-        var req = URLRequest(url: url)
-        if let etag = ifNoneMatch {
-            req.setValue(etag, forHTTPHeaderField: "If-None-Match")
-        }
-        let (data, resp) = try await http.data(for: req)
-        let httpResp = resp as? HTTPURLResponse
-        if httpResp?.statusCode == 304 {
-            return .notModified
-        }
-        try Self.check2xx(resp, data: data, url: req.url)
-        let newETag = httpResp?.value(forHTTPHeaderField: "ETag")
-        return .ok(data: data, etag: newETag)
+  private static func parseLastModified(_ resp: HTTPURLResponse?) -> Date? {
+    guard let raw = resp?.value(forHTTPHeaderField: "Last-Modified") else { return nil }
+    let fmt = DateFormatter()
+    fmt.locale = Locale(identifier: "en_US_POSIX")
+    fmt.timeZone = TimeZone(identifier: "GMT")
+    fmt.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+    return fmt.date(from: raw)
+  }
+
+  /// Percent-encode a relative path for the `X-Maple-Target-Path`
+  /// header. `.urlPathAllowed` keeps `/` (we want directory
+  /// separators preserved) but encodes spaces, non-ASCII, and `%`
+  /// itself so server-side `decodeURIComponent` round-trips
+  /// cleanly. Throws rather than silently sending unencoded data on
+  /// the (extremely rare) failure path — the server would reject
+  /// malformed input with a 400 and the caller has no way to
+  /// recover.
+  static func encodeTargetPath(_ path: String) throws -> String {
+    guard let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+      throw URLError(.badURL)
     }
+    return encoded
+  }
 
-    /// GET /api/assets/<assetID>/xmp[?conflict=<basename>]. Returns the
-    /// raw XMP bytes. For conflict copies, `conflictBasename` must match
-    /// the server's pairing rule (canonical base + " (conflict from …)"
-    /// suffix, optionally with " (N)").
-    public func getXMP(assetID: String, conflictBasename: String?) async throws -> Data {
-        try Self.validateAssetID(assetID)
-        var comps = URLComponents(
-            url: server.appending(path: "/api/assets/\(assetID)/xmp"),
-            resolvingAgainstBaseURL: false,
-        )!
-        if let conflictBasename {
-            comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
-        }
-        let req = URLRequest(url: comps.url!)
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp, data: data, url: req.url)
-        return data
+  // MARK: - Phase 3: uploads + trash + restore
+
+  /// Upload a file to the given folder. Streams `fileURL` via
+  /// `URLSession.upload(for:fromFile:)`. Returns `.ok` on 201,
+  /// `.unsupported` on 415; throws on anything else. A duplicate upload
+  /// (file already at the target path) is handled server-side by
+  /// moving the prior file to trash and returning 201, so the client
+  /// never sees a conflict status.
+  public func uploadFile(
+    folderID: String,
+    targetRelativePath: String,
+    fileURL: URL,
+    mtime: Date?
+  ) async throws -> UploadOutcome {
+    var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/upload"))
+    req.httpMethod = "POST"
+    req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+    req.setValue(
+      try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+    if let mtime {
+      req.setValue(
+        String(Int(mtime.timeIntervalSince1970)), forHTTPHeaderField: "X-Maple-File-Mtime")
     }
-
-    /// PUT /api/assets/<assetID>/xmp.
-    ///
-    /// - `conflictBasename`: when non-nil, addresses a specific conflict
-    ///   copy via `?conflict=<basename>`. Unconditional write — the
-    ///   `ifMtimeMatches`/`requireAbsent` preconditions are ignored in this
-    ///   mode because the caller is editing this exact file directly.
-    /// - `ifMtimeMatches`: only used when `conflictBasename == nil` and
-    ///   `requireAbsent == false`. nil = unconditional overwrite; otherwise
-    ///   precondition (mismatch → conflict copy, canonical untouched).
-    /// - `deviceName`: stamped into conflict-copy filenames the server
-    ///   may create on precondition mismatch (canonical-write mode only).
-    /// - `requireAbsent`: create-only precondition, for a caller (e.g.
-    ///   FileProvider `createItem`) that believes this sidecar doesn't
-    ///   exist yet. Takes priority over `ifMtimeMatches` — passing
-    ///   `ifMtimeMatches: nil` alone means "overwrite unconditionally",
-    ///   which is correct for a modify with no known prior version but
-    ///   would silently destroy an existing sidecar on create (#2532).
-    public func putXMP(
-        assetID: String,
-        data: Data,
-        ifMtimeMatches: Date?,
-        deviceName: String,
-        requireAbsent: Bool = false,
-        conflictBasename: String? = nil
-    ) async throws -> XMPWriteResult {
-        try Self.validateAssetID(assetID)
-        var comps = URLComponents(
-            url: server.appending(path: "/api/assets/\(assetID)/xmp"),
-            resolvingAgainstBaseURL: false,
-        )!
-        if let conflictBasename {
-            comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
-        }
-        var req = URLRequest(url: comps.url!)
-        req.httpMethod = "PUT"
-        req.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        req.setValue(deviceName, forHTTPHeaderField: "X-Maple-Device-Name")
-        // Preconditions only apply to the canonical write path.
-        if conflictBasename == nil, requireAbsent {
-            req.setValue("true", forHTTPHeaderField: "X-Maple-Require-Absent")
-        } else if conflictBasename == nil, let prior = ifMtimeMatches {
-            req.setValue(String(Int(prior.timeIntervalSince1970)), forHTTPHeaderField: "X-If-Mtime-Matches")
-        }
-        req.httpBody = data
-        let (respData, resp) = try await http.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        if status == 204 {
-            let mtime = Self.parseLastModified(resp as? HTTPURLResponse) ?? Date()
-            return .ok(mtime: mtime)
-        }
-        if status == 409 {
-            struct Body: Decodable { let conflict_path: String; let conflict_mtime: String }
-            let body = try decoder.decode(Body.self, from: respData)
-            // #959: this was hand-rolling the exact fractional-then-plain
-            // fallback (and a fresh `ISO8601DateFormatter()` per call)
-            // that `ISO8601FlexibleDateDecoding` already provides, cached.
-            let mtime = ISO8601FlexibleDateDecoding.date(from: body.conflict_mtime) ?? Date()
-            return .conflict(path: body.conflict_path, mtime: mtime)
-        }
-        throw Self.mapHTTPError(status: status)
+    let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+    // `NSNumber.intValue` is a 32-bit conversion — files larger than
+    // 2 GB (RAW/TIFF can hit this) would overflow before being sent
+    // as Content-Length. Use the 64-bit accessor instead.
+    let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+    req.setValue(String(size), forHTTPHeaderField: "Content-Length")
+    let (data, resp) = try await http.upload(for: req, fromFile: fileURL)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    if status == 201 {
+      return .ok(try decoder.decode(UploadResponse.self, from: data))
     }
+    if status == 415 { return .unsupported }
+    throw Self.mapHTTPError(status: status)
+  }
 
-    /// DELETE /api/assets/<assetID>/xmp[?conflict=<basename>]. Idempotent.
-    public func deleteXMP(assetID: String, conflictBasename: String? = nil) async throws {
-        try Self.validateAssetID(assetID)
-        var comps = URLComponents(
-            url: server.appending(path: "/api/assets/\(assetID)/xmp"),
-            resolvingAgainstBaseURL: false,
-        )!
-        if let conflictBasename {
-            comps.queryItems = [.init(name: "conflict", value: conflictBasename)]
-        }
-        var req = URLRequest(url: comps.url!)
-        req.httpMethod = "DELETE"
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp, data: data, url: req.url)
+  /// Stream a non-indexed file's bytes to `localURL` by its library-relative
+  /// path. Non-image files have no `AssetDoc`, so `downloadAsset` can't
+  /// reach them — this hits `GET /api/folders/<id>/file?path=<rel>` instead.
+  /// Mirrors `downloadAsset`'s streaming + atomic-move behaviour.
+  public func downloadFile(folderID: String, relativePath: String, to localURL: URL) async throws {
+    var comps = URLComponents(
+      url: server.appending(path: "/api/folders/\(folderID)/file"),
+      resolvingAgainstBaseURL: false)!
+    comps.queryItems = [.init(name: "path", value: relativePath)]
+    let req = URLRequest(url: comps.url!)
+    let session = downloadURLSession
+    let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
+      try await session.download(for: injected)
     }
-
-    private static func parseLastModified(_ resp: HTTPURLResponse?) -> Date? {
-        guard let raw = resp?.value(forHTTPHeaderField: "Last-Modified") else { return nil }
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "en_US_POSIX")
-        fmt.timeZone = TimeZone(identifier: "GMT")
-        fmt.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return fmt.date(from: raw)
+    try Self.check2xx(resp, url: req.url)
+    let fm = FileManager.default
+    if fm.fileExists(atPath: localURL.path) {
+      try fm.removeItem(at: localURL)
     }
+    try fm.moveItem(at: tmpURL, to: localURL)
+  }
 
-    /// Percent-encode a relative path for the `X-Maple-Target-Path`
-    /// header. `.urlPathAllowed` keeps `/` (we want directory
-    /// separators preserved) but encodes spaces, non-ASCII, and `%`
-    /// itself so server-side `decodeURIComponent` round-trips
-    /// cleanly. Throws rather than silently sending unencoded data on
-    /// the (extremely rare) failure path — the server would reject
-    /// malformed input with a 400 and the caller has no way to
-    /// recover.
-    static func encodeTargetPath(_ path: String) throws -> String {
-        guard let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
-            throw URLError(.badURL)
-        }
-        return encoded
+  /// Stat a non-indexed file by its library-relative path. Lets `item(for:)`
+  /// resolve a bare `.file(folderID:relativePath:)` identifier (size + mtime)
+  /// without downloading the bytes. The `/file-meta` response shape matches
+  /// `FileChild` exactly, so we decode straight into it.
+  ///
+  /// Returns nil on 404 (file gone) so the caller can map to `noSuchItem`
+  /// while still propagating transient failures (network/auth/5xx) — mirrors
+  /// `getAsset`, and lets the OS tell "evict this item" apart from "retry".
+  public func statFile(folderID: String, relativePath: String) async throws -> FileChild? {
+    var comps = URLComponents(
+      url: server.appending(path: "/api/folders/\(folderID)/file-meta"),
+      resolvingAgainstBaseURL: false)!
+    comps.queryItems = [.init(name: "path", value: relativePath)]
+    let req = URLRequest(url: comps.url!)
+    let (data, resp) = try await http.data(for: req)
+    let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    if code == 404 { return nil }
+    try Self.check2xx(resp, data: data, url: req.url)
+    return try decoder.decode(FileChild.self, from: data)
+  }
+
+  /// DELETE /api/folders/<folderID>/file?path=<relativePath> — trash a
+  /// non-indexed file addressed by its library-relative path (#2535).
+  /// The asset-ID-keyed `deleteAsset` can't reach `.file` items — they
+  /// have no `AssetDoc`. 409 means the path is actually a LIVE indexed
+  /// asset (a race between this client's stale listing and the server
+  /// indexing it) — surfaced as `.indexedAsset` so the caller can retry
+  /// via `deleteAsset` instead of failing outright.
+  public func deleteFile(folderID: String, relativePath: String) async throws -> DeleteFileResult {
+    var comps = URLComponents(
+      url: server.appending(path: "/api/folders/\(folderID)/file"),
+      resolvingAgainstBaseURL: false)!
+    comps.queryItems = [.init(name: "path", value: relativePath)]
+    var req = URLRequest(url: comps.url!)
+    req.httpMethod = "DELETE"
+    let (data, resp) = try await http.data(for: req)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    if status == 409 {
+      let body = try? decoder.decode(FileConflictBody.self, from: data)
+      return .indexedAsset(assetID: body?.assetID ?? "")
     }
+    try Self.check2xx(resp)
+    return .ok
+  }
 
-    // MARK: - Phase 3: uploads + trash + restore
-
-    /// Upload a file to the given folder. Streams `fileURL` via
-    /// `URLSession.upload(for:fromFile:)`. Returns `.ok` on 201,
-    /// `.unsupported` on 415; throws on anything else. A duplicate upload
-    /// (file already at the target path) is handled server-side by
-    /// moving the prior file to trash and returning 201, so the client
-    /// never sees a conflict status.
-    public func uploadFile(
-        folderID: String,
-        targetRelativePath: String,
-        fileURL: URL,
-        mtime: Date?
-    ) async throws -> UploadOutcome {
-        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/upload"))
-        req.httpMethod = "POST"
-        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        req.setValue(try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
-        if let mtime {
-            req.setValue(String(Int(mtime.timeIntervalSince1970)), forHTTPHeaderField: "X-Maple-File-Mtime")
-        }
-        let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
-        // `NSNumber.intValue` is a 32-bit conversion — files larger than
-        // 2 GB (RAW/TIFF can hit this) would overflow before being sent
-        // as Content-Length. Use the 64-bit accessor instead.
-        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
-        req.setValue(String(size), forHTTPHeaderField: "Content-Length")
-        let (data, resp) = try await http.upload(for: req, fromFile: fileURL)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        if status == 201 {
-            return .ok(try decoder.decode(UploadResponse.self, from: data))
-        }
-        if status == 415 { return .unsupported }
-        throw Self.mapHTTPError(status: status)
+  /// POST /api/folders/<folderID>/file/relocate — move, rename, or copy
+  /// a non-indexed file addressed by its library-relative path (#2535).
+  /// Sibling to `relocateAsset`, but built directly on the server's
+  /// path-addressed route (`routes/folders-file-ops.ts`) since there is
+  /// no asset id — and no Mongo `fileinfo` entry — to key on. 409 means
+  /// the source path is actually a LIVE indexed asset; see
+  /// `deleteFile`'s doc comment for the same race.
+  public func relocateFile(
+    folderID: String,
+    sourceRelativePath: String,
+    mode: RelocateMode,
+    collision: CollisionPolicy,
+    destinationRelativePath: String,
+    destinationFilename: String? = nil
+  ) async throws -> RelocateFileResult {
+    var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/file/relocate"))
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    var body: [String: Any] = [
+      "source_path": sourceRelativePath,
+      "mode": mode == .move ? "move" : "copy",
+      "collision": Self.wireCollision(collision),
+      "destination_path": destinationRelativePath,
+    ]
+    if let destinationFilename { body["destination_filename"] = destinationFilename }
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+    let (data, resp) = try await http.data(for: req)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    switch status {
+    case 200:
+      if let skipped = try? decoder.decode(RelocateFileSkippedBody.self, from: data),
+        skipped.skipped
+      {
+        return .skipped(reason: skipped.reason)
+      }
+      return .ok(try decoder.decode(RelocateFileResponse.self, from: data))
+    case 400:
+      let message =
+        (try? decoder.decode(RelocateErrorBody.self, from: data))?.error ?? "Invalid destination"
+      return .invalid(message)
+    case 409:
+      let body = try? decoder.decode(FileConflictBody.self, from: data)
+      return .indexedAsset(assetID: body?.assetID ?? "")
+    default:
+      throw Self.mapHTTPError(status: status)
     }
+  }
 
-    /// Stream a non-indexed file's bytes to `localURL` by its library-relative
-    /// path. Non-image files have no `AssetDoc`, so `downloadAsset` can't
-    /// reach them — this hits `GET /api/folders/<id>/file?path=<rel>` instead.
-    /// Mirrors `downloadAsset`'s streaming + atomic-move behaviour.
-    public func downloadFile(folderID: String, relativePath: String, to localURL: URL) async throws {
-        var comps = URLComponents(
-            url: server.appending(path: "/api/folders/\(folderID)/file"),
-            resolvingAgainstBaseURL: false)!
-        comps.queryItems = [.init(name: "path", value: relativePath)]
-        let req = URLRequest(url: comps.url!)
-        let session = downloadURLSession
-        let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
-            try await session.download(for: injected)
-        }
-        try Self.check2xx(resp, url: req.url)
-        let fm = FileManager.default
-        if fm.fileExists(atPath: localURL.path) {
-            try fm.removeItem(at: localURL)
-        }
-        try fm.moveItem(at: tmpURL, to: localURL)
-    }
+  /// Create a subdirectory under a library root. `targetRelativePath`
+  /// is sent percent-encoded in the `X-Maple-Target-Path` header and
+  /// validated server-side the same way uploads are (no leading `/`,
+  /// no `..`/`.` components, no leading-dot segments). Idempotent —
+  /// `mkdir -p` doesn't error if the directory already exists.
+  ///
+  /// Called from the File Provider extension when the OS asks to
+  /// create a folder (Finder "New Folder", or the folder-create that
+  /// precedes a drag-in of a folder full of files).
+  public func makeDir(
+    folderID: String,
+    targetRelativePath: String
+  ) async throws -> MakeDirResponse {
+    var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/mkdir"))
+    req.httpMethod = "POST"
+    req.setValue(
+      try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+    let (data, resp) = try await http.data(for: req)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    guard status == 201 else { throw Self.mapHTTPError(status: status) }
+    return try decoder.decode(MakeDirResponse.self, from: data)
+  }
 
-    /// Stat a non-indexed file by its library-relative path. Lets `item(for:)`
-    /// resolve a bare `.file(folderID:relativePath:)` identifier (size + mtime)
-    /// without downloading the bytes. The `/file-meta` response shape matches
-    /// `FileChild` exactly, so we decode straight into it.
-    ///
-    /// Returns nil on 404 (file gone) so the caller can map to `noSuchItem`
-    /// while still propagating transient failures (network/auth/5xx) — mirrors
-    /// `getAsset`, and lets the OS tell "evict this item" apart from "retry".
-    public func statFile(folderID: String, relativePath: String) async throws -> FileChild? {
-        var comps = URLComponents(
-            url: server.appending(path: "/api/folders/\(folderID)/file-meta"),
-            resolvingAgainstBaseURL: false)!
-        comps.queryItems = [.init(name: "path", value: relativePath)]
-        let req = URLRequest(url: comps.url!)
-        let (data, resp) = try await http.data(for: req)
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        if code == 404 { return nil }
-        try Self.check2xx(resp, data: data, url: req.url)
-        return try decoder.decode(FileChild.self, from: data)
-    }
+  /// Rename or move a subdirectory within a library root.
+  /// `sourceRelativePath` is the folder's current path; `targetRelativePath`
+  /// its new path. Both are sent percent-encoded (source in
+  /// `X-Maple-Source-Path`, target in `X-Maple-Target-Path`) and
+  /// validated server-side the same way uploads and `mkdir` are. The
+  /// server `fs.rename`s the whole directory and lets its discover
+  /// watcher reconcile the indexed asset paths.
+  ///
+  /// Called from the File Provider extension when the OS renames or
+  /// moves a folder (`modifyItem` with `.filename` / `.parentItemIdentifier`).
+  /// A 409 surfaces as `.conflict` (a directory already exists at the
+  /// target) so the caller can map it to a filename collision — this
+  /// layer stays free of FileProvider types.
+  public func moveFolder(
+    folderID: String,
+    sourceRelativePath: String,
+    targetRelativePath: String
+  ) async throws -> MoveFolderResult {
+    var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/move"))
+    req.httpMethod = "POST"
+    req.setValue(
+      try Self.encodeTargetPath(sourceRelativePath), forHTTPHeaderField: "X-Maple-Source-Path")
+    req.setValue(
+      try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+    let (data, resp) = try await http.data(for: req)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    if status == 409 { return .conflict }
+    guard status == 200 else { throw Self.mapHTTPError(status: status) }
+    return .ok(try decoder.decode(MakeDirResponse.self, from: data))
+  }
 
-    /// DELETE /api/folders/<folderID>/file?path=<relativePath> — trash a
-    /// non-indexed file addressed by its library-relative path (#2535).
-    /// The asset-ID-keyed `deleteAsset` can't reach `.file` items — they
-    /// have no `AssetDoc`. 409 means the path is actually a LIVE indexed
-    /// asset (a race between this client's stale listing and the server
-    /// indexing it) — surfaced as `.indexedAsset` so the caller can retry
-    /// via `deleteAsset` instead of failing outright.
-    public func deleteFile(folderID: String, relativePath: String) async throws -> DeleteFileResult {
-        var comps = URLComponents(
-            url: server.appending(path: "/api/folders/\(folderID)/file"),
-            resolvingAgainstBaseURL: false)!
-        comps.queryItems = [.init(name: "path", value: relativePath)]
-        var req = URLRequest(url: comps.url!)
-        req.httpMethod = "DELETE"
-        let (data, resp) = try await http.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        if status == 409 {
-            let body = try? decoder.decode(FileConflictBody.self, from: data)
-            return .indexedAsset(assetID: body?.assetID ?? "")
-        }
-        try Self.check2xx(resp)
-        return .ok
+  /// DELETE /api/assets/<id>. Server distinguishes trash-vs-permanent-purge
+  /// from the current asset state (legacy dual-mode) UNLESS `intent` is
+  /// supplied.
+  ///
+  /// `intent` closes the dual-mode staleness race (#2749): without it,
+  /// the same call means "trash" for a live asset and "PERMANENTLY purge"
+  /// for an already-trashed one, decided by state the caller may hold a
+  /// stale copy of — a stale grid listing could silently purge instead of
+  /// trash, or a stale Trash panel could "permanently delete" an asset
+  /// someone restored, quietly re-trashing a live photo instead. `nil`
+  /// preserves the legacy dual-mode contract byte-for-byte — the File
+  /// Provider extension (`FileProviderExtensionCore.swift`) depends on it
+  /// and cannot be flag-dayed; every UI-driven call (grid trash, Trash
+  /// browser) should pass an explicit `intent`.
+  @discardableResult
+  public func deleteAsset(assetID: String, intent: DeleteAssetIntent? = nil) async throws
+    -> DeleteAssetResult
+  {
+    try Self.validateAssetID(assetID)
+    var comps = URLComponents(
+      url: server.appending(path: "/api/assets/\(assetID)"), resolvingAgainstBaseURL: false)!
+    if let intent {
+      comps.queryItems = [URLQueryItem(name: "intent", value: intent.rawValue)]
     }
+    var req = URLRequest(url: comps.url!)
+    req.httpMethod = "DELETE"
+    let (data, resp) = try await http.data(for: req)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    if status == 409 {
+      let body = try? decoder.decode(DeleteAssetConflictBody.self, from: data)
+      return .stateMismatch(state: body?.state ?? "unknown")
+    }
+    try Self.check2xx(resp, data: data, url: req.url)
+    return .ok
+  }
 
-    /// POST /api/folders/<folderID>/file/relocate — move, rename, or copy
-    /// a non-indexed file addressed by its library-relative path (#2535).
-    /// Sibling to `relocateAsset`, but built directly on the server's
-    /// path-addressed route (`routes/folders-file-ops.ts`) since there is
-    /// no asset id — and no Mongo `fileinfo` entry — to key on. 409 means
-    /// the source path is actually a LIVE indexed asset; see
-    /// `deleteFile`'s doc comment for the same race.
-    public func relocateFile(
-        folderID: String,
-        sourceRelativePath: String,
-        mode: RelocateMode,
-        collision: CollisionPolicy,
-        destinationRelativePath: String,
-        destinationFilename: String? = nil
-    ) async throws -> RelocateFileResult {
-        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/file/relocate"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = [
-            "source_path": sourceRelativePath,
-            "mode": mode == .move ? "move" : "copy",
-            "collision": Self.wireCollision(collision),
-            "destination_path": destinationRelativePath,
-        ]
-        if let destinationFilename { body["destination_filename"] = destinationFilename }
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, resp) = try await http.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        switch status {
-        case 200:
-            if let skipped = try? decoder.decode(RelocateFileSkippedBody.self, from: data), skipped.skipped {
-                return .skipped(reason: skipped.reason)
-            }
-            return .ok(try decoder.decode(RelocateFileResponse.self, from: data))
-        case 400:
-            let message = (try? decoder.decode(RelocateErrorBody.self, from: data))?.error ?? "Invalid destination"
-            return .invalid(message)
-        case 409:
-            let body = try? decoder.decode(FileConflictBody.self, from: data)
-            return .indexedAsset(assetID: body?.assetID ?? "")
-        default:
-            throw Self.mapHTTPError(status: status)
-        }
+  /// POST /api/assets/<id>/rename — same-folder single-asset rename
+  /// (#2638, server side #2636). `collision: "skip"` is deliberate: the
+  /// caller is an inline text-field commit from a live user, and a name
+  /// collision should surface as an inline error next to the field
+  /// (`.skipped`) rather than the server silently auto-suffixing a name
+  /// the user didn't type.
+  public func renameAsset(assetID: String, newFilename: String) async throws -> RenameAssetResult {
+    try Self.validateAssetID(assetID)
+    var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/rename"))
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = try JSONSerialization.data(withJSONObject: [
+      "new_filename": newFilename,
+      "collision": "skip",
+    ])
+    let (data, resp) = try await http.data(for: req)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    switch status {
+    case 200:
+      if let skipped = try? decoder.decode(RenameSkippedBody.self, from: data), skipped.skipped {
+        return .skipped(reason: skipped.reason)
+      }
+      return .ok(try decoder.decode(RenameAssetResponse.self, from: data))
+    case 400:
+      let message =
+        (try? decoder.decode(RenameErrorBody.self, from: data))?.error ?? "Invalid filename"
+      return .invalid(message)
+    case 404:
+      return .notFound
+    default:
+      throw Self.mapHTTPError(status: status)
     }
+  }
 
-    /// Create a subdirectory under a library root. `targetRelativePath`
-    /// is sent percent-encoded in the `X-Maple-Target-Path` header and
-    /// validated server-side the same way uploads are (no leading `/`,
-    /// no `..`/`.` components, no leading-dot segments). Idempotent —
-    /// `mkdir -p` doesn't error if the directory already exists.
-    ///
-    /// Called from the File Provider extension when the OS asks to
-    /// create a folder (Finder "New Folder", or the folder-create that
-    /// precedes a drag-in of a folder full of files).
-    public func makeDir(
-        folderID: String,
-        targetRelativePath: String
-    ) async throws -> MakeDirResponse {
-        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/mkdir"))
-        req.httpMethod = "POST"
-        req.setValue(try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
-        let (data, resp) = try await http.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        guard status == 201 else { throw Self.mapHTTPError(status: status) }
-        return try decoder.decode(MakeDirResponse.self, from: data)
+  /// POST /api/assets/<id>/relocate — move or copy an asset (+ its XMP
+  /// sidecar) to a different folder within its own library (#2629, client
+  /// side #2646). `destinationPath` is POSIX-relative under the asset's
+  /// library root (`""` = root); `mode`/`collision` mirror
+  /// `RelocateMode`/the three ask-flow policies the drop-handling caller
+  /// resolves a collision to (`autoSuffix` maps to the server's
+  /// `"keep-both"` — same semantics, different vocabulary between the
+  /// on-device `CollisionPolicy` and the API's wire strings).
+  public func relocateAsset(
+    assetID: String, mode: RelocateMode, collision: CollisionPolicy,
+    destinationPath: String, destinationFilename: String? = nil
+  ) async throws -> RelocateAssetResult {
+    try Self.validateAssetID(assetID)
+    var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/relocate"))
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    var body: [String: Any] = [
+      "mode": mode == .move ? "move" : "copy",
+      "collision": Self.wireCollision(collision),
+      "destination_path": destinationPath,
+    ]
+    if let destinationFilename { body["destination_filename"] = destinationFilename }
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+    let (data, resp) = try await http.data(for: req)
+    let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+    switch status {
+    case 200:
+      if let skipped = try? decoder.decode(RelocateSkippedBody.self, from: data), skipped.skipped {
+        return .skipped(reason: skipped.reason)
+      }
+      return .ok(try decoder.decode(RelocateAssetResponse.self, from: data))
+    case 400:
+      let message =
+        (try? decoder.decode(RelocateErrorBody.self, from: data))?.error ?? "Invalid destination"
+      return .invalid(message)
+    case 404:
+      return .notFound
+    default:
+      throw Self.mapHTTPError(status: status)
     }
+  }
 
-    /// Rename or move a subdirectory within a library root.
-    /// `sourceRelativePath` is the folder's current path; `targetRelativePath`
-    /// its new path. Both are sent percent-encoded (source in
-    /// `X-Maple-Source-Path`, target in `X-Maple-Target-Path`) and
-    /// validated server-side the same way uploads and `mkdir` are. The
-    /// server `fs.rename`s the whole directory and lets its discover
-    /// watcher reconcile the indexed asset paths.
-    ///
-    /// Called from the File Provider extension when the OS renames or
-    /// moves a folder (`modifyItem` with `.filename` / `.parentItemIdentifier`).
-    /// A 409 surfaces as `.conflict` (a directory already exists at the
-    /// target) so the caller can map it to a filename collision — this
-    /// layer stays free of FileProvider types.
-    public func moveFolder(
-        folderID: String,
-        sourceRelativePath: String,
-        targetRelativePath: String
-    ) async throws -> MoveFolderResult {
-        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/move"))
-        req.httpMethod = "POST"
-        req.setValue(try Self.encodeTargetPath(sourceRelativePath), forHTTPHeaderField: "X-Maple-Source-Path")
-        req.setValue(try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
-        let (data, resp) = try await http.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        if status == 409 { return .conflict }
-        guard status == 200 else { throw Self.mapHTTPError(status: status) }
-        return .ok(try decoder.decode(MakeDirResponse.self, from: data))
+  /// Maps the on-device `CollisionPolicy` vocabulary (shared with
+  /// `LocalFileOperations`/`SMBFileOperations`, which have no server
+  /// counterpart) onto the API's four wire strings. `.fail` is used as
+  /// the ask-flow's collision PROBE (see `RelocateAssetResult.skipped`'s
+  /// doc comment) — the server has no bare "fail" policy, so the probe
+  /// is sent as `"skip"`, which has the identical "detect, touch
+  /// nothing" effect.
+  private static func wireCollision(_ policy: CollisionPolicy) -> String {
+    switch policy {
+    case .autoSuffix: return "keep-both"
+    case .fail: return "skip"
+    case .replace: return "replace"
     }
+  }
 
-    /// DELETE /api/assets/<id>. Server distinguishes trash-vs-permanent-purge
-    /// from the current asset state (legacy dual-mode) UNLESS `intent` is
-    /// supplied.
-    ///
-    /// `intent` closes the dual-mode staleness race (#2749): without it,
-    /// the same call means "trash" for a live asset and "PERMANENTLY purge"
-    /// for an already-trashed one, decided by state the caller may hold a
-    /// stale copy of — a stale grid listing could silently purge instead of
-    /// trash, or a stale Trash panel could "permanently delete" an asset
-    /// someone restored, quietly re-trashing a live photo instead. `nil`
-    /// preserves the legacy dual-mode contract byte-for-byte — the File
-    /// Provider extension (`FileProviderExtensionCore.swift`) depends on it
-    /// and cannot be flag-dayed; every UI-driven call (grid trash, Trash
-    /// browser) should pass an explicit `intent`.
-    @discardableResult
-    public func deleteAsset(assetID: String, intent: DeleteAssetIntent? = nil) async throws -> DeleteAssetResult {
-        try Self.validateAssetID(assetID)
-        var comps = URLComponents(url: server.appending(path: "/api/assets/\(assetID)"), resolvingAgainstBaseURL: false)!
-        if let intent {
-            comps.queryItems = [URLQueryItem(name: "intent", value: intent.rawValue)]
-        }
-        var req = URLRequest(url: comps.url!)
-        req.httpMethod = "DELETE"
-        let (data, resp) = try await http.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        if status == 409 {
-            let body = try? decoder.decode(DeleteAssetConflictBody.self, from: data)
-            return .stateMismatch(state: body?.state ?? "unknown")
-        }
-        try Self.check2xx(resp, data: data, url: req.url)
-        return .ok
-    }
+  /// POST /api/assets/<id>/restore. `targetRelativePath` is sent in the
+  /// body when non-nil; server defaults to `original_path` otherwise.
+  /// `targetFolderID` is the new parent's library folder ID — the server
+  /// uses it to reject cross-library restores (Phase 3 only restores
+  /// into the asset's own library). Server appends `.restored[.N]` on
+  /// collision; the new path comes back in `RestoreResponse.absPath`.
+  public func restoreAsset(
+    assetID: String,
+    targetRelativePath: String?,
+    targetFolderID: String? = nil,
+  ) async throws -> RestoreResponse {
+    var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/restore"))
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    var body: [String: String] = [:]
+    if let targetRelativePath { body["target_relative_path"] = targetRelativePath }
+    if let targetFolderID { body["target_folder_id"] = targetFolderID }
+    req.httpBody = try JSONSerialization.data(withJSONObject: body)
+    let (data, resp) = try await http.data(for: req)
+    try Self.check2xx(resp, data: data, url: req.url)
+    return try decoder.decode(RestoreResponse.self, from: data)
+  }
 
-    /// POST /api/assets/<id>/rename — same-folder single-asset rename
-    /// (#2638, server side #2636). `collision: "skip"` is deliberate: the
-    /// caller is an inline text-field commit from a live user, and a name
-    /// collision should surface as an inline error next to the field
-    /// (`.skipped`) rather than the server silently auto-suffixing a name
-    /// the user didn't type.
-    public func renameAsset(assetID: String, newFilename: String) async throws -> RenameAssetResult {
-        try Self.validateAssetID(assetID)
-        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/rename"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "new_filename": newFilename,
-            "collision": "skip",
-        ])
-        let (data, resp) = try await http.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        switch status {
-        case 200:
-            if let skipped = try? decoder.decode(RenameSkippedBody.self, from: data), skipped.skipped {
-                return .skipped(reason: skipped.reason)
-            }
-            return .ok(try decoder.decode(RenameAssetResponse.self, from: data))
-        case 400:
-            let message = (try? decoder.decode(RenameErrorBody.self, from: data))?.error ?? "Invalid filename"
-            return .invalid(message)
-        case 404:
-            return .notFound
-        default:
-            throw Self.mapHTTPError(status: status)
-        }
-    }
+  /// POST /api/assets/batch-rename/preview — dry-run template render over
+  /// an ordered asset list, no writes (#2636, consumed by the Apple
+  /// batch-rename sheet, #2641). `ids` order matters: it's also the `{n}`
+  /// sequence order, and it's what makes `duplicate` in the response mean
+  /// "collides with an earlier item in THIS batch."
+  public func previewBatchRename(
+    ids: [String], template: String, sequenceStart: Int, sequencePadWidth: Int
+  ) async throws -> [CloudBatchRenamePreviewItem] {
+    var req = URLRequest(url: server.appending(path: "/api/assets/batch-rename/preview"))
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = try JSONSerialization.data(withJSONObject: [
+      "ids": ids,
+      "template": template,
+      "sequence_start": sequenceStart,
+      "sequence_pad_width": sequencePadWidth,
+    ])
+    let (data, resp) = try await http.data(for: req)
+    try Self.check2xx(resp, data: data, url: req.url)
+    return try decoder.decode(CloudBatchRenamePreviewResponse.self, from: data).items
+  }
 
-    /// POST /api/assets/<id>/relocate — move or copy an asset (+ its XMP
-    /// sidecar) to a different folder within its own library (#2629, client
-    /// side #2646). `destinationPath` is POSIX-relative under the asset's
-    /// library root (`""` = root); `mode`/`collision` mirror
-    /// `RelocateMode`/the three ask-flow policies the drop-handling caller
-    /// resolves a collision to (`autoSuffix` maps to the server's
-    /// `"keep-both"` — same semantics, different vocabulary between the
-    /// on-device `CollisionPolicy` and the API's wire strings).
-    public func relocateAsset(
-        assetID: String, mode: RelocateMode, collision: CollisionPolicy,
-        destinationPath: String, destinationFilename: String? = nil
-    ) async throws -> RelocateAssetResult {
-        try Self.validateAssetID(assetID)
-        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/relocate"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: Any] = [
-            "mode": mode == .move ? "move" : "copy",
-            "collision": Self.wireCollision(collision),
-            "destination_path": destinationPath,
-        ]
-        if let destinationFilename { body["destination_filename"] = destinationFilename }
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, resp) = try await http.data(for: req)
-        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        switch status {
-        case 200:
-            if let skipped = try? decoder.decode(RelocateSkippedBody.self, from: data), skipped.skipped {
-                return .skipped(reason: skipped.reason)
-            }
-            return .ok(try decoder.decode(RelocateAssetResponse.self, from: data))
-        case 400:
-            let message = (try? decoder.decode(RelocateErrorBody.self, from: data))?.error ?? "Invalid destination"
-            return .invalid(message)
-        case 404:
-            return .notFound
-        default:
-            throw Self.mapHTTPError(status: status)
-        }
-    }
+  /// POST /api/assets/batch-rename — apply, sequentially, per
+  /// `batch-rename.ts`'s doc comment (a shared-destination template can
+  /// collide with itself mid-batch, not only with a pre-existing file;
+  /// the server resolves each item's collision against the PREVIOUS
+  /// item's already-applied result before starting the next). Partial
+  /// failure is normal here — the summary/per-item `results` carry it,
+  /// this call only throws on a transport-level failure (non-2xx).
+  public func batchRename(
+    ids: [String], template: String, sequenceStart: Int, sequencePadWidth: Int, collision: String
+  ) async throws -> CloudBatchRenameResponse {
+    var req = URLRequest(url: server.appending(path: "/api/assets/batch-rename"))
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = try JSONSerialization.data(withJSONObject: [
+      "ids": ids,
+      "template": template,
+      "sequence_start": sequenceStart,
+      "sequence_pad_width": sequencePadWidth,
+      "collision": collision,
+    ])
+    let (data, resp) = try await http.data(for: req)
+    try Self.check2xx(resp, data: data, url: req.url)
+    return try decoder.decode(CloudBatchRenameResponse.self, from: data)
+  }
 
-    /// Maps the on-device `CollisionPolicy` vocabulary (shared with
-    /// `LocalFileOperations`/`SMBFileOperations`, which have no server
-    /// counterpart) onto the API's four wire strings. `.fail` is used as
-    /// the ask-flow's collision PROBE (see `RelocateAssetResult.skipped`'s
-    /// doc comment) — the server has no bare "fail" policy, so the probe
-    /// is sent as `"skip"`, which has the identical "detect, touch
-    /// nothing" effect.
-    private static func wireCollision(_ policy: CollisionPolicy) -> String {
-        switch policy {
-        case .autoSuffix: return "keep-both"
-        case .fail: return "skip"
-        case .replace: return "replace"
-        }
-    }
+  /// POST /api/folders/<id>/trash-folder — recursively trash every live
+  /// asset under a subfolder (#2630's server route, wired here for #2696).
+  /// `relativePath` is the subfolder's path relative to the library root,
+  /// same `X-Maple-Target-Path` header/validation contract as `makeDir`/
+  /// `moveFolder`. The response body is a per-asset summary the server
+  /// already produces (`library/folder-trash.ts`'s `trashFolderRecursive`);
+  /// this layer decodes it opaquely as `FolderTrashSummary` since the
+  /// caller only needs success/failure counts, not per-asset detail.
+  public func trashFolder(folderID: String, relativePath: String) async throws -> FolderTrashSummary
+  {
+    var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/trash-folder"))
+    req.httpMethod = "POST"
+    req.setValue(try Self.encodeTargetPath(relativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+    let (data, resp) = try await http.data(for: req)
+    try Self.check2xx(resp, data: data, url: req.url)
+    return try decoder.decode(FolderTrashSummary.self, from: data)
+  }
 
-    /// POST /api/assets/<id>/restore. `targetRelativePath` is sent in the
-    /// body when non-nil; server defaults to `original_path` otherwise.
-    /// `targetFolderID` is the new parent's library folder ID — the server
-    /// uses it to reject cross-library restores (Phase 3 only restores
-    /// into the asset's own library). Server appends `.restored[.N]` on
-    /// collision; the new path comes back in `RestoreResponse.absPath`.
-    public func restoreAsset(
-        assetID: String,
-        targetRelativePath: String?,
-        targetFolderID: String? = nil,
-    ) async throws -> RestoreResponse {
-        var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/restore"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var body: [String: String] = [:]
-        if let targetRelativePath { body["target_relative_path"] = targetRelativePath }
-        if let targetFolderID { body["target_folder_id"] = targetFolderID }
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp, data: data, url: req.url)
-        return try decoder.decode(RestoreResponse.self, from: data)
-    }
+  /// POST /api/folders/<id>/restore-folder — the inverse of `trashFolder`:
+  /// restore every trashed asset whose original location was under a
+  /// subfolder (#2751). Same request/response shape as `trashFolder` —
+  /// same `X-Maple-Target-Path` header/validation, same
+  /// `FolderTrashSummary` decode (the server's `restoreFolderRecursive`
+  /// and `trashFolderRecursive` both produce the identical
+  /// `{total, succeeded, failed, items}` shape via one shared
+  /// `summarize` helper — see `library/folder-trash.ts`).
+  ///
+  /// #2696 deliberately left this unwired: an unreachable method with no
+  /// caller is dead code, not a completed feature, and there was no
+  /// browsable "trashed folder" surface for it to serve — the Trash
+  /// browser (`TrashBrowserSheet`) only listed individual trashed assets.
+  /// #2751 adds that surface (grouping the flat asset list by each row's
+  /// `originalRelativePath` directory) and wires this method to its
+  /// per-group "Restore Folder" action.
+  public func restoreFolder(folderID: String, relativePath: String) async throws
+    -> FolderTrashSummary
+  {
+    var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/restore-folder"))
+    req.httpMethod = "POST"
+    req.setValue(try Self.encodeTargetPath(relativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+    let (data, resp) = try await http.data(for: req)
+    try Self.check2xx(resp, data: data, url: req.url)
+    return try decoder.decode(FolderTrashSummary.self, from: data)
+  }
 
-    /// POST /api/assets/batch-rename/preview — dry-run template render over
-    /// an ordered asset list, no writes (#2636, consumed by the Apple
-    /// batch-rename sheet, #2641). `ids` order matters: it's also the `{n}`
-    /// sequence order, and it's what makes `duplicate` in the response mean
-    /// "collides with an earlier item in THIS batch."
-    public func previewBatchRename(
-        ids: [String], template: String, sequenceStart: Int, sequencePadWidth: Int
-    ) async throws -> [CloudBatchRenamePreviewItem] {
-        var req = URLRequest(url: server.appending(path: "/api/assets/batch-rename/preview"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "ids": ids,
-            "template": template,
-            "sequence_start": sequenceStart,
-            "sequence_pad_width": sequencePadWidth,
-        ])
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp, data: data, url: req.url)
-        return try decoder.decode(CloudBatchRenamePreviewResponse.self, from: data).items
-    }
-
-    /// POST /api/assets/batch-rename — apply, sequentially, per
-    /// `batch-rename.ts`'s doc comment (a shared-destination template can
-    /// collide with itself mid-batch, not only with a pre-existing file;
-    /// the server resolves each item's collision against the PREVIOUS
-    /// item's already-applied result before starting the next). Partial
-    /// failure is normal here — the summary/per-item `results` carry it,
-    /// this call only throws on a transport-level failure (non-2xx).
-    public func batchRename(
-        ids: [String], template: String, sequenceStart: Int, sequencePadWidth: Int, collision: String
-    ) async throws -> CloudBatchRenameResponse {
-        var req = URLRequest(url: server.appending(path: "/api/assets/batch-rename"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "ids": ids,
-            "template": template,
-            "sequence_start": sequenceStart,
-            "sequence_pad_width": sequencePadWidth,
-            "collision": collision,
-        ])
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp, data: data, url: req.url)
-        return try decoder.decode(CloudBatchRenameResponse.self, from: data)
-    }
-
-    /// POST /api/folders/<id>/trash-folder — recursively trash every live
-    /// asset under a subfolder (#2630's server route, wired here for #2696).
-    /// `relativePath` is the subfolder's path relative to the library root,
-    /// same `X-Maple-Target-Path` header/validation contract as `makeDir`/
-    /// `moveFolder`. The response body is a per-asset summary the server
-    /// already produces (`library/folder-trash.ts`'s `trashFolderRecursive`);
-    /// this layer decodes it opaquely as `FolderTrashSummary` since the
-    /// caller only needs success/failure counts, not per-asset detail.
-    public func trashFolder(folderID: String, relativePath: String) async throws -> FolderTrashSummary {
-        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/trash-folder"))
-        req.httpMethod = "POST"
-        req.setValue(try Self.encodeTargetPath(relativePath), forHTTPHeaderField: "X-Maple-Target-Path")
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp, data: data, url: req.url)
-        return try decoder.decode(FolderTrashSummary.self, from: data)
-    }
-
-    /// POST /api/folders/<id>/restore-folder — the inverse of `trashFolder`:
-    /// restore every trashed asset whose original location was under a
-    /// subfolder (#2751). Same request/response shape as `trashFolder` —
-    /// same `X-Maple-Target-Path` header/validation, same
-    /// `FolderTrashSummary` decode (the server's `restoreFolderRecursive`
-    /// and `trashFolderRecursive` both produce the identical
-    /// `{total, succeeded, failed, items}` shape via one shared
-    /// `summarize` helper — see `library/folder-trash.ts`).
-    ///
-    /// #2696 deliberately left this unwired: an unreachable method with no
-    /// caller is dead code, not a completed feature, and there was no
-    /// browsable "trashed folder" surface for it to serve — the Trash
-    /// browser (`TrashBrowserSheet`) only listed individual trashed assets.
-    /// #2751 adds that surface (grouping the flat asset list by each row's
-    /// `originalRelativePath` directory) and wires this method to its
-    /// per-group "Restore Folder" action.
-    public func restoreFolder(folderID: String, relativePath: String) async throws -> FolderTrashSummary {
-        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/restore-folder"))
-        req.httpMethod = "POST"
-        req.setValue(try Self.encodeTargetPath(relativePath), forHTTPHeaderField: "X-Maple-Target-Path")
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp, data: data, url: req.url)
-        return try decoder.decode(FolderTrashSummary.self, from: data)
-    }
-
-    /// GET /api/folders/<id>/trash. `cursor` and `limit` are optional.
-    public func listTrash(folderID: String, limit: Int? = nil, cursor: String? = nil) async throws -> TrashListResponse {
-        var comps = URLComponents(
-            url: server.appending(path: "/api/folders/\(folderID)/trash"),
-            resolvingAgainstBaseURL: false,
-        )!
-        var qi: [URLQueryItem] = []
-        if let limit { qi.append(.init(name: "limit", value: String(limit))) }
-        if let cursor { qi.append(.init(name: "cursor", value: cursor)) }
-        if !qi.isEmpty { comps.queryItems = qi }
-        let req = URLRequest(url: comps.url!)
-        let (data, resp) = try await http.data(for: req)
-        try Self.check2xx(resp, data: data, url: req.url)
-        return try decoder.decode(TrashListResponse.self, from: data)
-    }
+  /// GET /api/folders/<id>/trash. `cursor` and `limit` are optional.
+  public func listTrash(folderID: String, limit: Int? = nil, cursor: String? = nil) async throws
+    -> TrashListResponse
+  {
+    var comps = URLComponents(
+      url: server.appending(path: "/api/folders/\(folderID)/trash"),
+      resolvingAgainstBaseURL: false,
+    )!
+    var qi: [URLQueryItem] = []
+    if let limit { qi.append(.init(name: "limit", value: String(limit))) }
+    if let cursor { qi.append(.init(name: "cursor", value: cursor)) }
+    if !qi.isEmpty { comps.queryItems = qi }
+    let req = URLRequest(url: comps.url!)
+    let (data, resp) = try await http.data(for: req)
+    try Self.check2xx(resp, data: data, url: req.url)
+    return try decoder.decode(TrashListResponse.self, from: data)
+  }
 }
