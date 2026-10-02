@@ -6,6 +6,7 @@ export const WORKFLOW_MAX_BYTES = 262144;
 export const PRIMARY_VARIANT_ID = 'primary';
 export const WORKFLOW_MAX_TIMESTAMP_MS = 9007199254740991;
 export const WORKFLOW_MARKUP_PATTERN = '<(?:[^<\\s:]+:)?Workflow(?=[\\s/>])';
+export const WORKFLOW_UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 export const WORKFLOW_ACTIONS = [
   'adjustment',
   'preset',
@@ -111,10 +112,7 @@ function validateField(field: unknown, key: string, kind: string): void {
   for (const child of field) validateRecord(child, kind);
 }
 function validateIdentity(id: string): void {
-  if (
-    id.length !== 36 ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
-  )
+  if (id.length !== 36 || !new RegExp('^(?:' + WORKFLOW_UUID_PATTERN + ')$').test(id))
     throw new Error('Workflow identity must be a lowercase UUID');
 }
 function validateName(name: string): void {

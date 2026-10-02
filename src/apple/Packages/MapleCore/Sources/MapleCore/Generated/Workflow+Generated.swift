@@ -9,6 +9,7 @@ public enum WorkflowContract {
   public static let maxBytes = 262144
   public static let primaryVariantID = "primary"
   public static let markupPattern = "<(?:[^<\\s:]+:)?Workflow(?=[\\s/>])"
+  public static let uuidPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
   public static let actions = [
     "adjustment",
     "preset",
@@ -188,7 +189,7 @@ private struct WorkflowAnyKey: CodingKey {
 private func workflowIdentity(_ id: String) throws {
   guard id.utf8.count == 36,
     id.range(
-      of: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      of: "^(?:" + WorkflowContract.uuidPattern + ")$",
       options: .regularExpression) != nil
   else {
     throw WorkflowWireError.invalid

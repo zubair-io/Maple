@@ -5,6 +5,7 @@
  * circular import between that file and `relocate.ts`.
  */
 import * as path from 'node:path';
+import { isVideoFilename } from '../indexer/media-types';
 
 /** Compute a sidecar's destination path when its RAW moves from
  * `oldAbsPath` to `newAbsPath`, applying the SAME base-swap
@@ -29,8 +30,31 @@ export function sidecarRenameTarget(
   newAbsPath: string,
   sidecarAbsPath: string,
 ): string | null {
-  const oldBase = path.basename(oldAbsPath, path.extname(oldAbsPath));
-  const newBase = path.basename(newAbsPath, path.extname(newAbsPath));
+  const oldBase = path.basename(
+    oldAbsPath,
+    isVideoFilename(oldAbsPath) ? '' : path.extname(oldAbsPath),
+  );
+  const newBase = path.basename(
+    newAbsPath,
+    isVideoFilename(newAbsPath) ? '' : path.extname(newAbsPath),
+  );
+  return swapBase(newAbsPath, sidecarAbsPath, oldBase, newBase);
+}
+
+/** Derived previews keep the historical stem-based naming convention, including videos. */
+export function companionRenameTarget(oldPath: string, newPath: string, companion: string): string {
+  return (
+    swapBase(newPath, companion, path.parse(oldPath).name, path.parse(newPath).name) ??
+    path.join(path.dirname(newPath), path.basename(companion))
+  );
+}
+
+function swapBase(
+  newAbsPath: string,
+  sidecarAbsPath: string,
+  oldBase: string,
+  newBase: string,
+): string | null {
   const sidecarName = path.basename(sidecarAbsPath);
   const prefix = sidecarName.slice(0, oldBase.length);
   if (prefix.length !== oldBase.length || prefix.toLowerCase() !== oldBase.toLowerCase()) {

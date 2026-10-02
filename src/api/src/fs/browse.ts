@@ -24,6 +24,7 @@ import {
 } from '../indexer/media-types.ts';
 import type { AssetExif } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
+import { workflowSidecarBase } from './workflow-sidecar-pairing';
 
 const log = childLogger('fs/browse');
 
@@ -391,7 +392,7 @@ function buildMediaListItem(
  */
 export function canonicalBaseFromSidecarFilename(filename: string): string | null {
   const m = /^(.+?)( \(conflict from [^)]+\))?( \(\d+\))?\.xmp$/i.exec(filename);
-  return m ? m[1] : null;
+  return workflowSidecarBase(filename) ?? (m ? m[1] : null);
 }
 
 export interface DirChild {

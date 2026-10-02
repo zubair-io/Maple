@@ -50,7 +50,7 @@ import * as crypto from 'node:crypto';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { filesIdentical } from '../backup/fs-util.ts';
 import { child as childLogger } from '../log.ts';
-import { sidecarRenameTarget } from './sidecar-rename.ts';
+import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts';
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
 
 export { sidecarRenameTarget };
@@ -245,21 +245,6 @@ async function tryCopySidecar(sidecar: string, dest: string): Promise<boolean> {
     );
     return false;
   }
-}
-
-/** #2667: where a non-sidecar companion (e.g. `apple_rendered_path`) lands
- * when the primary relocates — the SAME base-swap rename `sidecarRenameTarget`
- * uses, falling back to the companion's unchanged basename in the new
- * directory when its name doesn't share the primary's base. Matches
- * `workers/migration/restructure-fs.ts`'s `planAndPlace` fallback for the
- * same companion. */
-function companionRenameTarget(
-  oldAbsPath: string,
-  newAbsPath: string,
-  companionAbsPath: string,
-): string {
-  const renamed = sidecarRenameTarget(oldAbsPath, newAbsPath, companionAbsPath);
-  return renamed ?? path.join(path.dirname(newAbsPath), path.basename(companionAbsPath));
 }
 
 /** Best-effort copy of one non-sidecar companion — same contract as

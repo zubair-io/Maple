@@ -532,6 +532,14 @@ Presets are **not** stored in XMP. A preset is a named, schema-versioned _sparse
 
 ### Workflow storage and XMP bindings (#4035, #4036; workflow UI under #2437)
 
+Self Hosted file operations pair canonical UUID sibling sidecars with the original
+for browse, relocate, trash, verified restore, duplicate quarantine, and purge
+(#4044). Renaming changes only the primary stem; the variant UUID and XML bytes
+stay intact. Video branches retain the full video filename (including a changed
+extension). Orphan branches occupy a restore destination, preventing accidental
+association with a different original. Foreign version suffixes and backups are
+excluded. Apple asset-level variant relocation still follows under #2437.
+
 `raw-core::workflow` declares the versioned variant identity/name, named checkpoint,
 and committed semantic history wire records. `tools/codegen.sh` generates the
 Apple, Web and API records and bounds from that declaration. Each checkpoint
