@@ -141,9 +141,8 @@
         </button>
       </div>
 
-      <!-- Center spacer -->
+      <!-- Snapshot/history controls share the action toolbar. -->
       <ng-container [ngTemplateOutlet]="workflowControls.triggerTemplate() ?? null" />
-      <div class="shrink-0 grow-0 basis-1"></div>
 
       <!-- Histogram / scopes (#2449) — the one stable scopes location on
            every breakpoint: a toggle that opens the scopes panel (histogram

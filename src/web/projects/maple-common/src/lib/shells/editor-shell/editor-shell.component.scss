@@ -253,7 +253,12 @@
     right: 0;
     width: 100%;
     max-width: none;
-    height: calc(52px + var(--safe-area-inset-top));
+    // Keep every action reachable when the toolbar exceeds a narrow viewport.
+    // The row grows naturally rather than clipping the final Export action (#4060).
+    flex-wrap: wrap;
+    height: auto;
+    min-height: calc(52px + var(--safe-area-inset-top));
+    padding-bottom: 4px;
     translate: none;
     transform: none;
     border-radius: 0;

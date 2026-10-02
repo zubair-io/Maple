@@ -33,6 +33,7 @@ const VIEWPORTS = [
 const TOP_BAR = [
   'Back to Library',
   'Commands',
+  'Snapshots and history',
   'Scopes',
   'Auto adjust',
   'Reset all adjustments',
@@ -213,6 +214,17 @@ for (const viewport of VIEWPORTS) {
     }, testInfo) => {
       await openEditor(page);
       await expectPrimaryActionsReachable(page);
+      if (viewport.name === 'phone') {
+        await page.setViewportSize({ width: 320, height: 844 });
+        await expectPrimaryActionsReachable(page);
+        await recordGate(
+          page,
+          testInfo,
+          { name: 'narrow-phone', width: 320, height: 844 },
+          'pointer',
+        );
+        await page.setViewportSize(viewport);
+      }
       if (!viewport.dockColumn) {
         const card = await page.locator('[data-editor-region="tool-controls"]').boundingBox();
         const dock = await page.locator('[data-editor-region="tools"]').boundingBox();
