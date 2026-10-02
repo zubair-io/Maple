@@ -241,7 +241,8 @@ pub use removal_saved::{
     maple_removal_saved_selection_proxy, MapleRemovalBuffer, MapleSavedRemovals,
 };
 pub use removal_selection::{
-    maple_removal_combine_masks_buf, maple_removal_mask_decode_buf, maple_removal_selection_buf,
+    maple_removal_combine_masks_buf, maple_removal_mask_decode_buf,
+    maple_removal_refine_selection_buf, maple_removal_selection_buf,
 };
 #[cfg(any(feature = "removal", feature = "removal-ios"))]
 pub use removal_selection_inference::{

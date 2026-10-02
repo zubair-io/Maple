@@ -3,6 +3,7 @@
 import { removal_combine_masks, removal_people_suggestions } from '../raw-pipeline/pkg/raw_wasm';
 import type { RemovalPersonSuggestion } from '../generated/removal-models.generated';
 import type { RemovalDetection } from './removal-inference.types';
+import type { PersonBase } from './removal-person-refinement';
 export type RemovalPerson = RemovalPersonSuggestion;
 
 export function suggestPeople(
@@ -36,18 +37,19 @@ export async function collectPersonMasks(
   maskForPerson: (detection: RemovalDetection) => Promise<Uint8Array>,
 ) {
   let protectedMask = manualProtection;
-  const selected: Uint8Array[] = [];
-  for (const person of people) {
+  const selected: PersonBase[] = [];
+  for (const [index, person] of people.entries()) {
     const mask = await maskForPerson(person.detection);
     if (person.keep) protectedMask = removal_combine_masks(protectedMask, mask, false);
-    else if (mask.length) selected.push(mask);
+    else if (mask.length) selected.push({ index, mask });
   }
-  const individual = selected
-    .map((mask) => removal_combine_masks(mask, protectedMask, true))
-    .filter((mask) => mask.length);
+  const bases = selected
+    .map(({ index, mask }) => ({ index, mask: removal_combine_masks(mask, protectedMask, true) }))
+    .filter(({ mask }) => mask.length);
+  const individual = bases.map(({ mask }) => mask);
   const selection = individual.reduce(
     (union, mask) => removal_combine_masks(union, mask, false),
     new Uint8Array(),
   );
-  return { selection, protection: protectedMask, people: individual };
+  return { selection, protection: protectedMask, people: individual, bases };
 }

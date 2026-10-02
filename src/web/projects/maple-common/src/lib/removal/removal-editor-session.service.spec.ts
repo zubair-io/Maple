@@ -217,6 +217,23 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
   });
   const paint = () => session.paint([[3.5 / 16, 2.5 / 8]], [16, 8]);
 
+  it('failed gesture replay preserves selection and its undo/redo history', async () => {
+    await paint();
+    const selected = session.selection().slice();
+    const strokes = session.strokes;
+    vi.spyOn(session.pipeline.removal, 'selection').mockRejectedValueOnce(Error('Replay failed'));
+    await session.paint([[0.7, 0.5]], [16, 8]);
+    expect(session.selection()).toEqual(selected);
+    expect(session.strokes).toBe(strokes);
+    expect(session.message()).toBe('Replay failed');
+    await session.undoSelection();
+    expect(session.selection()).toHaveLength(0);
+    await session.redoSelection();
+    expect(session.selection()).toEqual(selected);
+    expect(await fs.readFile(join(root, 'photo.xmp'), 'utf8')).toBe(prior);
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
+  });
+
   // Controlled selector outputs exercise lifecycle failure/cancellation with
   // actual RAW ownership, shared binary masks and real sidecars. ONNX scene
   // execution is covered separately by the browser photographic gate.

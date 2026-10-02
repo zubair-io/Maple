@@ -375,3 +375,5 @@ RemovalSessionTests
 RemovalProxyTensorTests
 
 RemovalPeopleBridgeTests
+
+RemovalPersonRefinementTests

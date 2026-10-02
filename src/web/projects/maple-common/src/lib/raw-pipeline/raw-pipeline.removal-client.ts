@@ -110,6 +110,24 @@ export class RemovalAuthoringClient {
     return new Uint8Array(result.mask);
   }
 
+  async refineSelection(
+    baseMask: Uint8Array,
+    request: string,
+    protectedMask: Uint8Array,
+  ): Promise<Uint8Array> {
+    if (!this.input) throw new Error('Removal RAW session is not open');
+    const base = baseMask.slice().buffer as ArrayBuffer;
+    const protection = protectedMask.slice().buffer as ArrayBuffer;
+    const result = await this.send(
+      this.input,
+      { kind: 'refine-selection', base, protection, request },
+      this.epoch,
+      [base, protection],
+    );
+    if (result.kind !== 'selection') throw new Error('Invalid removal refinement reply');
+    return new Uint8Array(result.mask);
+  }
+
   private operation(command: RemovalAuthoringCommand): Promise<RemovalAuthoringValue> {
     if (!this.input) return Promise.reject(new Error('Removal RAW session is not open'));
     return this.send(this.input, command, this.epoch);

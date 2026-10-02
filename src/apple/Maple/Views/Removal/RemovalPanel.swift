@@ -121,12 +121,26 @@ struct RemovalPanel: View {
         ) {
           removal.keepPerson(person.id)
         }
+        if !person.keep {
+          MuiButton(
+            label: "Refine Person \(person.id)", size: .sm,
+            disabled: removal.busy || !removal.canRefinePerson(person.id)
+          ) { removal.refinePerson(person.id) }
+        }
       }
       MuiButton(
         label: "Apply person choices", size: .sm,
         disabled: removal.busy || removal.people.isEmpty
       ) { Task { await removal.selectOtherPeople() } }
-    } else {
+      if let id = removal.refiningPersonID {
+        Text("Painting Person \(id): include missed edges, belongings, shadows or reflections.")
+          .font(.caption)
+        MuiButton(label: "Done refining", size: .sm, disabled: removal.busy) {
+          removal.refinePerson(nil)
+        }
+      }
+    }
+    if removal.canPaint {
       MuiSegmentedToggle(
         options: [
           MuiSegmentedOption(value: "add", label: "Add"),

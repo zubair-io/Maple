@@ -1,6 +1,11 @@
 import { takeRenderFrame } from './raw-pipeline.render-frame';
 /// <reference lib="webworker" />
-import { removal_content_digest, removal_selection } from './pkg/raw_wasm';
+import {
+  RemovalMask,
+  removal_content_digest,
+  removal_refine_selection,
+  removal_selection,
+} from './pkg/raw_wasm';
 import { ensureReady } from './raw-pipeline.worker-handlers';
 import { withLiveRemovalSession } from './raw-pipeline.session-handler';
 import { withNativeRemovalSession } from './raw-pipeline.native-detail-handler';
@@ -109,6 +114,23 @@ export function runRemovalAuthoring(
         kind: 'selection',
         mask: mask.buffer.slice(mask.byteOffset, mask.byteOffset + mask.byteLength) as ArrayBuffer,
       };
+    }
+    case 'refine-selection': {
+      const base = new Uint8Array(command.base);
+      for (const bytes of [base, new Uint8Array(command.protection)]) {
+        if (!bytes.length && bytes !== base) continue;
+        const decoded = new RemovalMask(bytes);
+        const geometry = decoded.geometry();
+        decoded.free();
+        if (geometry[0] !== anchor.width || geometry[1] !== anchor.height)
+          throw new Error('Person mask belongs to a different RAW geometry');
+      }
+      const mask = removal_refine_selection(
+        base,
+        new Uint8Array(command.protection),
+        command.request,
+      );
+      return { kind: 'selection', mask: mask.slice().buffer as ArrayBuffer };
     }
   }
 }

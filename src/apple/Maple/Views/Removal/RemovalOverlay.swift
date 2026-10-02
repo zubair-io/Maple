@@ -58,7 +58,7 @@ struct RemovalOverlay: View {
                 lineCap: .round, lineJoin: .round)
             ).allowsHitTesting(false)
           }
-          if removal.phase == .ready, removal.mode != .people, projectionError.isEmpty {
+          if removal.phase == .ready, removal.canPaint, projectionError.isEmpty {
             #if os(macOS)
               RemovalPointerSurface(
                 onChanged: { appendPoint($0, frame: frame) }, onEnded: finishStroke)
@@ -77,6 +77,7 @@ struct RemovalOverlay: View {
         .accessibilityLabel("Paint to select objects")
         .accessibilityIdentifier("removal-overlay")
         .onChange(of: removal.mode) { _, _ in points = [] }
+        .onChange(of: removal.refiningPersonID) { _, _ in points = [] }
         .onChange(of: removal.phase) { _, phase in
           if phase != .ready { points = [] }
         }

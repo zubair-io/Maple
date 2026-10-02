@@ -2,7 +2,7 @@ import Foundation
 
 extension RemovalSession {
   public func paint(_ points: [[Double]], cropInputSize: [UInt32]) async {
-    guard phase == .ready, mode != .people, let context, !points.isEmpty else { return }
+    guard phase == .ready, canPaint, let context, !points.isEmpty else { return }
     let token = revision &+ 1
     revision = token
     let brushRadius = radius
@@ -25,6 +25,10 @@ extension RemovalSession {
       let next = batches.filter { !$0.isEmpty }.map {
         RemovalStroke(points: $0, radius: brushRadius, subtract: subtracting)
       }
+      if mode == .people {
+        try await paintPerson(next, token: token)
+        return
+      }
       let proposed = strokes + next
       let mask = try await selectedMask(proposed, context: context, token: token)
       guard current(token) else { return }
@@ -39,6 +43,10 @@ extension RemovalSession {
   }
 
   public func undoSelection() async {
+    if mode == .people {
+      await undoPersonRefinement()
+      return
+    }
     guard canUndoSelection, let context else { return }
     let count = gestureSizes.last ?? 1
     let proposed = Array(strokes.dropLast(count))
@@ -58,6 +66,10 @@ extension RemovalSession {
   }
 
   public func redoSelection() async {
+    if mode == .people {
+      await redoPersonRefinement()
+      return
+    }
     guard canRedoSelection, let context, let gesture = redoGestures.last else { return }
     let proposed = strokes + gesture
     let token = revision &+ 1
