@@ -142,7 +142,7 @@ async function relocateUnderLease(
     ...value,
     target: sidecarRenameTarget(req.sourceAbsPath, target, value.path)!,
   }));
-  let repointed = false;
+  let identityMayBeRepointed = false;
   let journal: Awaited<ReturnType<typeof createRemovalJournal>> | undefined;
   const publish = async (path: string, bytes: Buffer<ArrayBuffer> | null, from?: string) => {
     const temp = `${path}.tmp.${randomUUID()}`;
@@ -207,12 +207,15 @@ async function relocateUnderLease(
     await verify(req.sourceAbsPath, source, proof.originalDigest);
     for (const [index, path] of companionSources.entries())
       await publish(companionPaths[index], null, path);
+    // A throwing hook can have committed before losing its acknowledgement.
+    // From this boundary onwards keep both complete copies and the journal:
+    // rolling back would invalidate a catalogue that already names target.
+    identityMayBeRepointed = true;
     await req.onVerified?.({
       newAbsPath: target,
       sidecarPaths: pairs.map((value) => value.target),
       companionPaths,
     });
-    repointed = true;
     // A later save must never be unlinked under the old snapshot. Once the
     // identity hook succeeds, keep both copies on conflict because a catalogue
     // can already refer to the verified destination.
@@ -252,7 +255,7 @@ async function relocateUnderLease(
       renamedOnCollision: target !== req.destAbsPath,
     };
   } catch (error) {
-    if (!repointed) await journal?.rollback();
+    if (!identityMayBeRepointed) await journal?.rollback();
     return { kind: 'error', error: String(error) };
   }
 }

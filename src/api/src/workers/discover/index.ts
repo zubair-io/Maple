@@ -84,6 +84,7 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
   const folderDocs = (await listLibraryRoots()).map((root) => ({ _id: root.id, path: root.path }));
 
   const loops: SweeperLoop[] = [];
+  const runs: Promise<void>[] = [];
   for (const root of opts.roots) {
     const folder = resolveFolder(root, folderDocs) ?? resolveFolder(root + '/', folderDocs);
     if (!folder) {
@@ -108,16 +109,24 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
       loadConfig: loadDiscoverConfig,
     });
     loops.push(loop);
-    void loop
-      .run()
-      .catch((err) =>
-        log.error({ root, err: err instanceof Error ? err.message : err }, 'sweeper loop crashed'),
-      );
+    runs.push(
+      loop
+        .run()
+        .catch((err) =>
+          log.error(
+            { root, err: err instanceof Error ? err.message : err },
+            'sweeper loop crashed',
+          ),
+        ),
+    );
   }
 
   return {
     stop: async () => {
       for (const l of loops) l.stop();
+      // Recovery and catalogue writes must finish before shutdown closes the
+      // database or a replacement discover worker starts the same sweep.
+      await Promise.all(runs);
     },
   };
 }
