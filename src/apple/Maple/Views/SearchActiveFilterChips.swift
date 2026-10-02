@@ -24,7 +24,9 @@ struct SearchActiveFilterChips: View {
   private typealias Chip = SearchActiveFilterChipsVM.Chip
 
   var body: some View {
-    let all = SearchActiveFilterChipsVM.chips(params: vm.params, applied: vm.appliedDates)
+    let all = SearchActiveFilterChipsVM.chips(
+      params: vm.params, applied: vm.appliedDates,
+      ownerLabel: vm.params.ownerID.map { vm.ownerFilter.label(for: $0) })
     if all.isEmpty {
       EmptyView()
     } else {
@@ -112,6 +114,8 @@ struct SearchActiveFilterChips: View {
       vm.params.people = vm.params.people.filter { $0 != name }
     case .place(let label):
       vm.params.place = vm.params.place.filter { $0 != label }
+    case .owner:
+      vm.params.ownerID = nil
     case .inferredDate:
       // Not user-set, so there is nothing in `params` to clear. The chip
       // renders without an X; this arm keeps the switch exhaustive.

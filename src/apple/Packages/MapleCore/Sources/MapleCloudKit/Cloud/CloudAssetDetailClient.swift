@@ -115,6 +115,7 @@ public struct CloudAssetDetail: Decodable, Equatable, Sendable {
       city: Self.city(from: place),
       fileSize: size,
       folderDisplay: address.map(Self.folder(fromAddress:)),
+      ownerLabel: Self.nonEmpty(owner?.email) ?? Self.nonEmpty(owner?.id) ?? Self.nonEmpty(ownerID),
       place: Self.placeDisplay(place),
       vision: Self.visionDisplay(vision, meta: visionMeta),
       faces: Self.facesDisplay(faces)
@@ -242,6 +243,7 @@ public struct CloudEnrichmentSections: Equatable, Sendable {
   /// Populated from the fetched `address` (cloud browse assets that had no
   /// address up front); `nil` when the asset already carried one.
   public let folderDisplay: String?
+  public let ownerLabel: String?
   /// Place section (rollup line + display name); `nil` when un-geocoded.
   public let place: CloudPlaceDisplay?
   /// Vision section; `nil` when the asset has no vision tags.
@@ -257,6 +259,7 @@ public struct CloudEnrichmentSections: Equatable, Sendable {
     city: String? = nil,
     fileSize: Int64? = nil,
     folderDisplay: String? = nil,
+    ownerLabel: String? = nil,
     place: CloudPlaceDisplay? = nil,
     vision: CloudVisionDisplay? = nil,
     faces: CloudFacesDisplay = CloudFacesDisplay(count: 0, tagged: [], untaggedCount: 0)
@@ -268,6 +271,7 @@ public struct CloudEnrichmentSections: Equatable, Sendable {
     self.city = city
     self.fileSize = fileSize
     self.folderDisplay = folderDisplay
+    self.ownerLabel = ownerLabel
     self.place = place
     self.vision = vision
     self.faces = faces
@@ -277,7 +281,7 @@ public struct CloudEnrichmentSections: Equatable, Sendable {
   /// description/OCR/transcript, no place, no vision, and no faces.
   public var isEmpty: Bool {
     description == nil && ocrText == nil && transcriptText == nil
-      && place == nil && vision == nil && faces.count == 0
+      && ownerLabel == nil && place == nil && vision == nil && faces.count == 0
   }
 }
 

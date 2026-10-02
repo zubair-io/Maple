@@ -11,18 +11,33 @@
 // without any real network involvement.
 
 import XCTest
-@testable import MapleCore
+
 @testable import MapleCloudKit
+@testable import MapleCore
 
 @MainActor
 final class SearchViewModelTests: XCTestCase {
+
+  @MainActor
+  func testOwnerChangeClearsPriorResultsAndPaginationBeforeSubmitting() async {
+    let vm = makeVM(throwing: URLError(.cancelled), preSeedResults: [makeAsset(id: "prior-owner")])
+    XCTAssertFalse(vm.results.isEmpty)
+    vm.params.ownerID = "member"
+    XCTAssertTrue(vm.results.isEmpty)
+    XCTAssertEqual(vm.total, 0)
+    XCTAssertEqual(vm.page, 0)
+    XCTAssertNil(vm.nextCursor)
+    XCTAssertNil(vm.facets)
+    XCTAssertEqual(vm.unifiedFilterCount, 1)
+  }
 
   // MARK: - submit() cancellation
 
   func test_submit_urlErrorCancelled_doesNotSetLoadError() async {
     let vm = makeVM(throwing: URLError(.cancelled))
     await vm.submit()
-    XCTAssertNil(vm.loadError,
+    XCTAssertNil(
+      vm.loadError,
       "A cancelled request must not surface an error banner")
   }
 
@@ -31,14 +46,16 @@ final class SearchViewModelTests: XCTestCase {
     let vm = makeVM(throwing: URLError(.cancelled), preSeedResults: existing)
     await vm.submit()
     // results must be unchanged — we kept the old set
-    XCTAssertEqual(vm.results.map(\.id), existing.map(\.id),
+    XCTAssertEqual(
+      vm.results.map(\.id), existing.map(\.id),
       "Cancellation must leave existing results in place")
   }
 
   func test_submit_swiftCancellationError_doesNotSetLoadError() async {
     let vm = makeVM(throwing: CancellationError())
     await vm.submit()
-    XCTAssertNil(vm.loadError,
+    XCTAssertNil(
+      vm.loadError,
       "A Swift CancellationError must not surface an error banner")
   }
 
@@ -59,7 +76,8 @@ final class SearchViewModelTests: XCTestCase {
 
     await vm.loadMore()
 
-    XCTAssertNil(vm.loadError,
+    XCTAssertNil(
+      vm.loadError,
       "A cancelled loadMore must not set loadError")
   }
 
@@ -70,7 +88,8 @@ final class SearchViewModelTests: XCTestCase {
 
     await vm.loadMore()
 
-    XCTAssertEqual(vm.results.map(\.id), seed.map(\.id),
+    XCTAssertEqual(
+      vm.results.map(\.id), seed.map(\.id),
       "Cancelled loadMore must not append or remove results")
   }
 
@@ -85,14 +104,15 @@ final class SearchViewModelTests: XCTestCase {
     let counter = RequestCounter()
     let vm = makeCountingVM(counter)
     vm.params.placeQuery = "cat"
-    vm.queryChanged()             // schedules the 250 ms debounced submit
-    vm.cancelPendingDebounce()    // ...which we cancel before it can fire
+    vm.queryChanged()  // schedules the 250 ms debounced submit
+    vm.cancelPendingDebounce()  // ...which we cancel before it can fire
     // A fixed wait, because absence is the thing being proved and there is no
     // condition to poll for. Generous — 6× the debounce — so that a loaded
     // runner cannot pass this test by merely not having got round to firing
     // yet, which is the failure mode its two positive siblings hit (#3800).
     try await Task.sleep(for: .milliseconds(1500))
-    XCTAssertEqual(counter.count, 0,
+    XCTAssertEqual(
+      counter.count, 0,
       "A cancelled debounce must issue no search request")
   }
 
@@ -104,7 +124,8 @@ final class SearchViewModelTests: XCTestCase {
     vm.params.placeQuery = "cat"
     vm.queryChanged()
     let issued = try await counter.waitForRequest()
-    XCTAssertGreaterThan(issued, 0,
+    XCTAssertGreaterThan(
+      issued, 0,
       "An un-cancelled debounce must issue at least one request")
   }
 
@@ -120,7 +141,8 @@ final class SearchViewModelTests: XCTestCase {
     XCTAssertTrue(vm.hasUnifiedFilters)
     vm.queryChanged()
     let issued = try await counter.waitForRequest()
-    XCTAssertGreaterThan(issued, 0,
+    XCTAssertGreaterThan(
+      issued, 0,
       "A filters-only search (empty text) must issue a request")
   }
 
@@ -147,9 +169,11 @@ final class SearchViewModelTests: XCTestCase {
 
     XCTAssertEqual(vm.peopleFacets.compactMap(\.value), ["Priya Patel"])
     XCTAssertEqual(vm.placeFacets.compactMap(\.value), ["Portland, OR"])
-    XCTAssertTrue(vm.results.isEmpty,
+    XCTAssertTrue(
+      vm.results.isEmpty,
       "A facets-only load must not populate results — the iPhone empty-query state shows Recents")
-    XCTAssertEqual(stub.count(for: "/api/search"), 0,
+    XCTAssertEqual(
+      stub.count(for: "/api/search"), 0,
       "A facets-only load must not hit the result endpoint")
     XCTAssertEqual(stub.count(for: "/api/search/facets"), 1)
   }
@@ -161,7 +185,8 @@ final class SearchViewModelTests: XCTestCase {
     await vm.loadFacetsIfNeeded()
     await vm.loadFacetsIfNeeded()
 
-    XCTAssertEqual(stub.count(for: "/api/search/facets"), 1,
+    XCTAssertEqual(
+      stub.count(for: "/api/search/facets"), 1,
       "A second call with facets already loaded must not re-request")
   }
 
@@ -176,8 +201,10 @@ final class SearchViewModelTests: XCTestCase {
 
     XCTAssertNotNil(vm.loadError, "precondition: the search actually failed")
     XCTAssertTrue(vm.results.isEmpty)
-    XCTAssertEqual(vm.peopleFacets.compactMap(\.value), ["Priya Patel"],
-      "A failed search must keep the last good facets — an aggregation hiccup shouldn't blank the pickers")
+    XCTAssertEqual(
+      vm.peopleFacets.compactMap(\.value), ["Priya Patel"],
+      "A failed search must keep the last good facets — an aggregation hiccup shouldn't blank the pickers"
+    )
     XCTAssertEqual(vm.placeFacets.compactMap(\.value), ["Portland, OR"])
   }
 
@@ -191,8 +218,9 @@ final class SearchViewModelTests: XCTestCase {
       libraryID: nil,
       searchClient: CloudSearchClient.preview(server: server))
     let items = vm.params.listQueryItems(page: 0, limit: 100)
-    XCTAssertFalse(items.contains { $0.name == "libraryId" },
-                   "account-wide search must not send a libraryId")
+    XCTAssertFalse(
+      items.contains { $0.name == "libraryId" },
+      "account-wide search must not send a libraryId")
   }
 
   // MARK: - Helpers
@@ -218,7 +246,8 @@ final class SearchViewModelTests: XCTestCase {
       }
       // Only the dated query carries a window.
       let dated = (request.url?.query ?? "").contains("2024")
-      let body = dated
+      let body =
+        dated
         // `page` and `limit` are non-optional on `SearchResponse`; omitting
         // them makes decoding throw and the VM take its error path, which
         // looks exactly like "the field was never set".
@@ -248,14 +277,15 @@ final class SearchViewModelTests: XCTestCase {
     //    this still reported the 2024 window.
     vm.params.placeQuery = "beach"
     await vm.submit()
-    XCTAssertNil(vm.appliedDates, "cached page left the previous query's date attribution on screen")
+    XCTAssertNil(
+      vm.appliedDates, "cached page left the previous query's date attribution on screen")
   }
 
   private static let minimalFacetsJSON = """
-  {"total":0,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],\
-  "activities":[],"subjects":[],"is_screenshot":{"true":0,"false":0,"unknown":0},\
-  "people":[],"places":[]}
-  """
+    {"total":0,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],\
+    "activities":[],"subjects":[],"is_screenshot":{"true":0,"false":0,"unknown":0},\
+    "people":[],"places":[]}
+    """
 
   private func makeVM(
     throwing error: Error,
@@ -275,9 +305,10 @@ final class SearchViewModelTests: XCTestCase {
   }
 
   private func makeAsset(id: String) -> SearchAsset {
-    SearchAsset(id: id, folder_id: "lib-test",
-                abs_path: "/photos/\(id).dng",
-                filename: "\(id).dng")
+    SearchAsset(
+      id: id, folder_id: "lib-test",
+      abs_path: "/photos/\(id).dng",
+      filename: "\(id).dng")
   }
 
   /// A VM whose every request bumps `counter` (then fails at the transport
@@ -344,11 +375,11 @@ final class FacetStub: @unchecked Sendable {
   }
 
   private static let facetsJSON = """
-  {"total":7,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],\
-  "activities":[],"subjects":[],"is_screenshot":{"true":0,"false":7,"unknown":0},\
-  "people":[{"value":"Priya Patel","count":4}],\
-  "places":[{"value":"Portland, OR","count":3}]}
-  """
+    {"total":7,"cameras":[],"lenses":[],"extensions":[],"scene_types":[],\
+    "activities":[],"subjects":[],"is_screenshot":{"true":0,"false":7,"unknown":0},\
+    "people":[{"value":"Priya Patel","count":4}],\
+    "places":[{"value":"Portland, OR","count":3}]}
+    """
 }
 
 /// Thread-safe request tally — `StubURLProtocol`'s responder runs off the
@@ -382,12 +413,12 @@ extension SearchViewModel {
   /// Seed results + total directly, bypassing the network, so tests can
   /// verify that a subsequent cancellation leaves the state intact.
   @MainActor func setResultsForTesting(_ assets: [SearchAsset]) {
-    _test_setResults(assets)
+    _testSetResults(assets)
   }
 
   /// Seed the state that loadMore() requires to proceed (canLoadMore == true).
   @MainActor func seedForLoadMore(results: [SearchAsset], total: Int) {
-    _test_seedForLoadMore(results: results, total: total)
+    _testSeedForLoadMore(results: results, total: total)
   }
 }
 
@@ -400,7 +431,7 @@ extension URLSession {
     let cfg = URLSessionConfiguration.ephemeral
     cfg.protocolClasses = [StubURLProtocol.self]
     StubURLProtocol.reset()
-    let captured = error   // capture before closure
+    let captured = error  // capture before closure
     StubURLProtocol.responder = { _ in
       if let urlError = captured as? URLError {
         return .failure(urlError)

@@ -14,6 +14,15 @@ import Observation
 public final class CloudTimelineViewModel {
   // MARK: - Public state
 
+  public private(set) var ownerID: String?
+  public private(set) var pageLoadRevision = 0
+  public let ownerFilter: AssetOwnerFilterModel
+
+  /// Local photos have no server owner; only All owners includes them.
+  private var activePhotoKitMerge: PhotoKitMergeAdapter? {
+    ownerID == nil ? photoKitMerge : nil
+  }
+
   /// The month sections the timeline renders. This is the UNION of the
   /// cloud's buckets and the PhotoKit local month buckets (see
   /// `recomputeBuckets()`) — NOT the cloud feed alone. A month present in
@@ -40,7 +49,8 @@ public final class CloudTimelineViewModel {
     public let year: Int
     public let month: Int
     public init(year: Int, month: Int) {
-      self.year = year; self.month = month
+      self.year = year
+      self.month = month
     }
   }
 
@@ -82,18 +92,23 @@ public final class CloudTimelineViewModel {
   /// `BoundedAsyncSemaphoreTests.swift` for the stress-test coverage.
   private let semaphore: BoundedAsyncSemaphore
 
-  public init(server: URL,
-              libraryID: String,
-              pathPrefix: String? = nil,
-              searchClient: CloudSearchClient,
-              bucketsCache: CloudBucketsCache = CloudBucketsCache(),
-              pagesCache: CloudPagesCache = CloudPagesCache(),
-              maxConcurrentPageFetches: Int = 2,
-              photoKitMerge: PhotoKitMergeAdapter? = nil) {
+  public init(
+    server: URL,
+    libraryID: String,
+    pathPrefix: String? = nil,
+    searchClient: CloudSearchClient,
+    bucketsCache: CloudBucketsCache = CloudBucketsCache(),
+    pagesCache: CloudPagesCache = CloudPagesCache(),
+    maxConcurrentPageFetches: Int = 2,
+    photoKitMerge: PhotoKitMergeAdapter? = nil,
+    currentUserID: String? = nil
+  ) {
     self.server = server
     self.libraryID = libraryID
     self.pathPrefix = pathPrefix
     self.searchClient = searchClient
+    self.ownerFilter = AssetOwnerFilterModel(
+      searchClient: searchClient, currentUserID: currentUserID)
     self.bucketsCache = bucketsCache
     self.pagesCache = pagesCache
     self.semaphore = BoundedAsyncSemaphore(value: maxConcurrentPageFetches)
@@ -139,13 +154,14 @@ public final class CloudTimelineViewModel {
     for b in cloudBuckets {
       counts[BucketKey(year: b.year, month: b.month)] = b.count
     }
-    if let merge = photoKitMerge {
+    if let merge = activePhotoKitMerge {
       for local in merge.localBuckets() {
         let k = BucketKey(year: local.key.year, month: local.key.month)
         counts[k] = max(counts[k] ?? 0, local.count)
       }
     }
-    buckets = counts
+    buckets =
+      counts
       .map { TimelineBucket(year: $0.key.year, month: $0.key.month, count: $0.value) }
       .sorted { ($0.year, $0.month) > ($1.year, $1.month) }
   }
@@ -162,7 +178,7 @@ public final class CloudTimelineViewModel {
   /// large library doesn't do O(library) synchronous merge work on the
   /// MainActor.
   private func remergeLoadedBuckets() {
-    guard let merge = photoKitMerge else { return }
+    guard let merge = activePhotoKitMerge else { return }
     // Warm-up may have discovered months the cloud doesn't have (local-only)
     // — re-union so they gain sections; their cells fill in via loadPage.
     recomputeBuckets()
@@ -175,6 +191,26 @@ public final class CloudTimelineViewModel {
     }
   }
 
+  /// Invalidates old requests and clears visible rows before any async load.
+  public func setOwnerID(_ value: String?) {
+    let normalized = value.flatMap { $0.isEmpty ? nil : $0 }
+    guard normalized != ownerID else { return }
+    ownerID = normalized
+    _ = bumpGeneration()
+    cloudBuckets = []
+    pagesByBucket = [:]
+    mergedPagesByBucket = [:]
+    loadError = nil
+    isLoadingBuckets = false
+    recomputeBuckets()
+  }
+
+  public var ownerFacetParams: SearchParams {
+    var params = SearchParams(libraryID: libraryID)
+    params.pathPrefix = pathPrefix
+    return params
+  }
+
   // MARK: - Loaders
 
   /// Stale-while-revalidate. Reads cached buckets immediately (if any),
@@ -182,6 +218,7 @@ public final class CloudTimelineViewModel {
   /// appearance and refreshable.
   public func loadBuckets() async {
     let g = bumpGeneration()
+    let requestedOwner = ownerID
     // hostKey includes the port when present so two servers sharing a
     // hostname but on different ports (e.g. localhost:3000 vs :3001)
     // don't collide in the on-disk caches. Plain `server.host` drops
@@ -190,19 +227,23 @@ public final class CloudTimelineViewModel {
     // Clear any stale error from a previous load so an offline-then-
     // online retry doesn't leave the banner up.
     loadError = nil
-    if let cached = await bucketsCache.read(host: host, libraryID: libraryID, pathPrefix: pathPrefix) {
+    isLoadingBuckets = true
+    defer { if g == generation { isLoadingBuckets = false } }
+    if let cached = await bucketsCache.read(
+      host: host, libraryID: libraryID, pathPrefix: pathPrefix, ownerID: requestedOwner)
+    {
       guard g == generation else { return }
       cloudBuckets = cached.buckets
       recomputeBuckets()
     }
-    isLoadingBuckets = true
-    defer { if g == generation { isLoadingBuckets = false } }
     do {
-      let fresh = try await searchClient.buckets(libraryID: libraryID, pathPrefix: pathPrefix)
+      let fresh = try await searchClient.buckets(
+        libraryID: libraryID, pathPrefix: pathPrefix, ownerID: requestedOwner)
       guard g == generation else { return }
       cloudBuckets = fresh.buckets
       recomputeBuckets()
-      await bucketsCache.write(host: host, libraryID: libraryID, pathPrefix: pathPrefix, fresh)
+      await bucketsCache.write(
+        host: host, libraryID: libraryID, pathPrefix: pathPrefix, ownerID: requestedOwner, fresh)
     } catch {
       guard g == generation else { return }
       // Network failure must NOT empty the timeline — the PhotoKit half
@@ -226,6 +267,7 @@ public final class CloudTimelineViewModel {
   public func loadPage(year: Int, month: Int) async {
     let key = BucketKey(year: year, month: month)
     let g = generation
+    let requestedOwner = ownerID
     let host = server.cacheHostKey
 
     // Guard + insert MUST be synchronous (no `await` between them) so
@@ -243,7 +285,7 @@ public final class CloudTimelineViewModel {
       if acquired {
         Task.detached { await sem.release() }
       }
-      inFlight.remove(key)
+      if g == generation { inFlight.remove(key) }
     }
 
     // Render the PhotoKit-local cells for this month IMMEDIATELY, before any
@@ -253,7 +295,7 @@ public final class CloudTimelineViewModel {
     // network. The cache/network reads below re-merge with the cloud
     // results when they arrive. Only seed when there's local content and we
     // haven't already produced a (richer) merge for this bucket.
-    if let merge = photoKitMerge, g == generation {
+    if let merge = activePhotoKitMerge, g == generation {
       let localRefs = merge.assetsForMonth(year: year, month: month)
       if !localRefs.isEmpty, mergedPagesByBucket[key] == nil {
         // Cheap local-only seed: map straight to `.localOnly` cells rather
@@ -269,12 +311,14 @@ public final class CloudTimelineViewModel {
 
     // Server pagination is zero-indexed — page 0 is the first page. Same
     // index used as the cache key so a hit/miss compares like-for-like.
-    if let cached = await pagesCache.read(host: host, libraryID: libraryID,
-                                          pathPrefix: pathPrefix,
-                                          year: year, month: month, page: 0) {
+    if let cached = await pagesCache.read(
+      host: host, libraryID: libraryID,
+      pathPrefix: pathPrefix, ownerID: requestedOwner,
+      year: year, month: month, page: 0)
+    {
       guard g == generation else { return }
       pagesByBucket[key] = cached.results
-      if let merge = photoKitMerge, g == generation {
+      if let merge = activePhotoKitMerge, g == generation {
         let localRefs = merge.assetsForMonth(year: year, month: month)
         let cloudRefs = cached.results.map { Self.searchAssetToImageRef($0) }
         mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
@@ -295,25 +339,31 @@ public final class CloudTimelineViewModel {
       return
     }
     acquired = true
+    guard g == generation, !Task.isCancelled else { return }
 
     do {
-      let fresh = try await searchClient.page(libraryID: libraryID,
-                                              year: year, month: month,
-                                              page: 0,
-                                              pathPrefix: pathPrefix)
+      let fresh = try await searchClient.page(
+        libraryID: libraryID,
+        year: year, month: month,
+        page: 0,
+        pathPrefix: pathPrefix, ownerID: requestedOwner)
       if g == generation {
         pagesByBucket[key] = fresh.results
-        await pagesCache.write(host: host, libraryID: libraryID,
-                               pathPrefix: pathPrefix,
-                               year: year, month: month, page: 0, fresh)
-        if let merge = photoKitMerge, g == generation {
+        await pagesCache.write(
+          host: host, libraryID: libraryID,
+          pathPrefix: pathPrefix, ownerID: requestedOwner,
+          year: year, month: month, page: 0, fresh)
+        if let merge = activePhotoKitMerge, g == generation {
           let localRefs = merge.assetsForMonth(year: year, month: month)
           let cloudRefs = fresh.results.map { Self.searchAssetToImageRef($0) }
           mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
         }
       }
     } catch {
-      if g == generation { loadError = error }
+      guard g == generation, !(error is CancellationError),
+        (error as? URLError)?.code != .cancelled
+      else { return }
+      loadError = error
     }
   }
 
@@ -351,7 +401,8 @@ public final class CloudTimelineViewModel {
     // parsed fine under the old formatter, so `swift test` never caught it.
     let captured: Date? = a.captured_at.flatMap(parseTimelineISO8601)
     let links = a.phasset_links ?? []
-    let allPHIDs: [String]? = links.isEmpty
+    let allPHIDs: [String]? =
+      links.isEmpty
       ? nil
       : links.map { $0.phasset_local_id }
     // First non-nil cloud id across every link, NOT just links[0]. A row
@@ -375,6 +426,8 @@ public final class CloudTimelineViewModel {
 
   private func bumpGeneration() -> Int {
     generation &+= 1
+    pageLoadRevision &+= 1
+    inFlight.removeAll()
     return generation
   }
 

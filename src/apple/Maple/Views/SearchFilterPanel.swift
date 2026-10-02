@@ -32,6 +32,11 @@ struct SearchFilterPanel: View {
       Divider().overlay(MapleTokens.border)
       ScrollView {
         VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
+          AssetOwnerFilter(
+            model: vm.ownerFilter,
+            ownerID: Binding(get: { vm.params.ownerID }, set: { vm.params.ownerID = $0 }),
+            params: vm.params,
+            onSelection: { Task { await vm.submit() } })
           dateSection
           facetRowsSection(
             title: "People",

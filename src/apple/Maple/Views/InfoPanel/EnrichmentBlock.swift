@@ -53,6 +53,9 @@ struct EnrichmentBlock: View {
   var body: some View {
     if let sections {
       VStack(alignment: .leading, spacing: MapleTokens.Spacing.sectionGap) {
+        if let owner = sections.ownerLabel {
+          textSection("Owner", body: owner)
+        }
         PlaceBlock(place: sections.place)
         if let description = sections.description {
           textSection("Description", body: description)
@@ -115,27 +118,29 @@ struct EnrichmentBlock: View {
 }
 
 #Preview("EnrichmentBlock — populated") {
-  EnrichmentBlock(sections: CloudEnrichmentSections(
-    description: "A red barn at golden hour.",
-    ocrText: "OPEN 24 HOURS",
-    transcriptText: nil,
-    transcriptFooter: nil,
-    city: "Albany",
-    fileSize: 42_000_000,
-    place: CloudPlaceDisplay(rollupLine: "Albany, New York", displayName: "Albany, NY, USA"),
-    vision: CloudVisionDisplay(
-      isScreenshot: false,
-      subjects: ["barn", "field"],
-      primaryChips: ["outdoor", "farm"],
-      secondaryChips: ["warm", "golden hour"],
-      notableObjects: ["tractor"],
-      colors: ["red", "gold"],
-      footer: "qwen2.5-vl · prompt v6"),
-    faces: CloudFacesDisplay(
-      count: 2,
-      tagged: [FaceTag(personID: "p1", name: "Ada")],
-      untaggedCount: 1)))
-    .frame(width: 280)
-    .padding()
-    .background(MapleTokens.bg)
+  EnrichmentBlock(
+    sections: CloudEnrichmentSections(
+      description: "A red barn at golden hour.",
+      ocrText: "OPEN 24 HOURS",
+      transcriptText: nil,
+      transcriptFooter: nil,
+      city: "Albany",
+      fileSize: 42_000_000,
+      place: CloudPlaceDisplay(rollupLine: "Albany, New York", displayName: "Albany, NY, USA"),
+      vision: CloudVisionDisplay(
+        isScreenshot: false,
+        subjects: ["barn", "field"],
+        primaryChips: ["outdoor", "farm"],
+        secondaryChips: ["warm", "golden hour"],
+        notableObjects: ["tractor"],
+        colors: ["red", "gold"],
+        footer: "qwen2.5-vl · prompt v6"),
+      faces: CloudFacesDisplay(
+        count: 2,
+        tagged: [FaceTag(personID: "p1", name: "Ada")],
+        untaggedCount: 1))
+  )
+  .frame(width: 280)
+  .padding()
+  .background(MapleTokens.bg)
 }

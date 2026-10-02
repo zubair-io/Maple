@@ -308,3 +308,8 @@ RemoteCatalogThumbTests
 RemoteCatalogXMPCreateTests
 TrashMetadataListingTests
 SMBFileOperationsFolderTests
+
+# Ownership facet choices and stale scope responses (#4016).
+AssetOwnerFilterModelTests
+CloudTimelineOwnershipTests
+SearchOwnershipTests

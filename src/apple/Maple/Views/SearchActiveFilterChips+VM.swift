@@ -14,6 +14,7 @@ enum SearchActiveFilterChipsVM {
     case date(label: String)
     case person(String)
     case place(String)
+    case owner(id: String, label: String)
     /// A window the SERVER read out of the query text. Carries the text it
     /// came from so the chip can say why it is there — the user did not set
     /// it, and nothing in the filter panel reflects it (#2956).
@@ -24,6 +25,7 @@ enum SearchActiveFilterChipsVM {
       case .date: return "date"
       case .person(let name): return "person:\(name)"
       case .place(let label): return "place:\(label)"
+      case .owner(let id, _): return "owner:\(id)"
       case .inferredDate: return "inferred-date"
       }
     }
@@ -33,6 +35,7 @@ enum SearchActiveFilterChipsVM {
       case .date(let label): return label
       case .person(let name): return name
       case .place(let label): return label
+      case .owner(_, let label): return label
       case .inferredDate(let label, _): return label
       }
     }
@@ -40,7 +43,7 @@ enum SearchActiveFilterChipsVM {
     var icon: String {
       switch self {
       case .date: return "calendar"
-      case .person: return "person"
+      case .person, .owner: return "person"
       case .place: return "mappin.and.ellipse"
       // Still a date, and reads as one. What sets it apart is the
       // explanatory text and the chip's dashed treatment, not a new glyph.
@@ -54,13 +57,17 @@ enum SearchActiveFilterChipsVM {
   static func chips(
     params: SearchParams,
     applied: AppliedDateFilter? = nil,
+    ownerLabel: String? = nil,
     now: Date = Date()
   ) -> [Chip] {
-    let dateChip: [Chip] = dateLabel(from: params.from, to: params.to, now: now)
+    let dateChip: [Chip] =
+      dateLabel(from: params.from, to: params.to, now: now)
       .map { [.date(label: $0)] } ?? []
     // Appended, not prepended: the user's own filters keep their established
     // order and the derived one reads as an addition to them.
     return dateChip
+      + (params.ownerID.flatMap { $0.isEmpty ? nil : [Chip.owner(id: $0, label: ownerLabel ?? $0)] }
+        ?? [])
       + params.people.map { Chip.person($0) }
       + params.place.map { Chip.place($0) }
       + inferredChip(applied, now: now)
