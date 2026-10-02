@@ -20,6 +20,70 @@ impl LocalRadiusPlane {
         s_coeff: f32,
         o_coeff: f32,
     ) -> (Self, Vec<f32>) {
+        let mut radius = Self::new(n, params.search_radius);
+        let mut inv_norm = vec![0.0f32; n];
+        radius.fill_variance_scaled(&mut inv_norm, l_plane, params, s_coeff, o_coeff);
+        (radius, inv_norm)
+    }
+
+    pub(super) fn new(n: usize, search_radius: usize) -> Self {
+        if search_radius <= u8::MAX as usize {
+            Self::Compact(vec![0u8; n])
+        } else {
+            Self::Wide(vec![0isize; n])
+        }
+    }
+
+    pub(super) fn fill_variance_scaled(
+        &mut self,
+        inv_norm: &mut [f32],
+        l_plane: &[f32],
+        params: NlmParams,
+        s_coeff: f32,
+        o_coeff: f32,
+    ) {
+        self.fill_indexed(
+            inv_norm,
+            |i| l_plane.get(i).copied(),
+            params,
+            s_coeff,
+            o_coeff,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn fill_tile(
+        &mut self,
+        inv_norm: &mut [f32],
+        guide: &[f32],
+        image_width: usize,
+        row_start: usize,
+        col_start: usize,
+        tile_width: usize,
+        params: NlmParams,
+        noise: (f32, f32),
+    ) {
+        self.fill_indexed(
+            inv_norm,
+            |i| {
+                guide
+                    .get((row_start + i / tile_width) * image_width + col_start + i % tile_width)
+                    .copied()
+            },
+            params,
+            noise.0,
+            noise.1,
+        );
+    }
+
+    fn fill_indexed(
+        &mut self,
+        inv_norm: &mut [f32],
+        guide: impl Fn(usize) -> Option<f32> + Sync,
+        params: NlmParams,
+        s_coeff: f32,
+        o_coeff: f32,
+    ) {
         let patch_area = ((2 * params.patch_radius + 1) * (2 * params.patch_radius + 1)) as f32;
         let local_params = |l_val: f32| {
             let local_l = l_val.clamp(0.0, 10.0);
@@ -32,33 +96,30 @@ impl LocalRadiusPlane {
             let local_s = (params.search_radius as f32 * scale).round() as isize;
             (local_s.clamp(1, params.search_radius as isize), inv_norm)
         };
-        let mut inv_norm = vec![0.0f32; n];
-        let radius = if params.search_radius <= u8::MAX as usize {
-            let mut radius = vec![0u8; n];
-            radius
-                .par_iter_mut()
-                .zip(inv_norm.par_iter_mut())
-                .zip(l_plane.par_iter())
-                .for_each(|((r, inv), &l)| {
-                    let (value, norm) = local_params(l);
-                    *r = value as u8;
-                    *inv = norm;
-                });
-            Self::Compact(radius)
-        } else {
-            let mut radius = vec![0isize; n];
-            radius
-                .par_iter_mut()
-                .zip(inv_norm.par_iter_mut())
-                .zip(l_plane.par_iter())
-                .for_each(|((r, inv), &l)| {
-                    let (value, norm) = local_params(l);
-                    *r = value;
-                    *inv = norm;
-                });
-            Self::Wide(radius)
-        };
-        (radius, inv_norm)
+        match self {
+            Self::Compact(radius) => {
+                radius
+                    .par_iter_mut()
+                    .zip(inv_norm.par_iter_mut())
+                    .enumerate()
+                    .for_each(|(i, (r, inv))| {
+                        let (value, norm) = guide(i).map(local_params).unwrap_or((0, 0.0));
+                        *r = value as u8;
+                        *inv = norm;
+                    });
+            }
+            Self::Wide(radius) => {
+                radius
+                    .par_iter_mut()
+                    .zip(inv_norm.par_iter_mut())
+                    .enumerate()
+                    .for_each(|(i, (r, inv))| {
+                        let (value, norm) = guide(i).map(local_params).unwrap_or((0, 0.0));
+                        *r = value;
+                        *inv = norm;
+                    });
+            }
+        }
     }
 
     #[inline(always)]

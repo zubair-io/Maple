@@ -58,10 +58,17 @@
 //! window down out of it. The persistent acc/wsum/max_w buffers are
 //! allocated once per `denoise_plane` call and reused across all shifts.
 //! Squared differences use the existing thread-local row scratch (#1472).
+//! Above 256 MiB of full-plane weight/radius metadata, persistent workers
+//! process 512-column row tiles instead. They replay the original global box
+//! seeds, preserve per-pixel shift order, and briefly lock only to copy finished
+//! tiles into the required output plane. Worker scratch targets 256 MiB; input
+//! and output are excluded. Small viewport planes keep the existing strip path.
 
 use crate::cancel::CancelToken;
 use rayon::prelude::*;
 
+#[path = "nlm_bounded.rs"]
+mod bounded;
 #[path = "nlm_radius.rs"]
 mod radius;
 #[path = "nlm_shift.rs"]
@@ -198,6 +205,8 @@ pub fn denoise_plane(plane: &[f32], w: usize, h: usize, params: NlmParams) -> Ve
 /// work inside `process_shift` runs through rayon and is *not* instrumented
 /// — a rayon parallel iterator can't `break`, and a per-pixel atomic load
 /// would add contention for no latency win.
+/// Large planes check between regional shifts in each bounded worker; any
+/// cancellation discards all completed/partial tiles and returns the whole input.
 ///
 /// On cancel the develop chain bails immediately after this stage (it checks
 /// the same token and returns `Err(Cancelled)`), so the returned passthrough
@@ -233,6 +242,19 @@ pub fn denoise_plane_cancellable(
     } else {
         (0.0, 0.0)
     };
+
+    if bounded::use_bounded(n, use_dynamic, params) {
+        return bounded::denoise(
+            plane,
+            w,
+            h,
+            params,
+            cancel,
+            l_plane,
+            use_dynamic,
+            (s_coeff, o_coeff),
+        );
+    }
 
     let (local_s_plane, local_inv_norm_plane) = if use_dynamic {
         LocalRadiusPlane::variance_scaled(n, l_plane, params, s_coeff, o_coeff)
