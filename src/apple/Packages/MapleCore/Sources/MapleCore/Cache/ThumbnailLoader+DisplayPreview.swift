@@ -227,15 +227,18 @@ extension ThumbnailLoader {
     return model.isVisuallyEditedBeyondWhiteBalance
   }
 
-  /// Extract the display-preview AVIF via ImageIO. RAWs use the embedded
-  /// camera preview ONLY (`FromImageIfAbsent: false` — an Apple-RAW decode
-  /// renders differently from the Maple pipeline and must never be
-  /// persisted as this asset's preview). Non-RAW bitmaps decode exactly,
+  /// RAWs use the shared Rust embedded-camera extractor. An Apple-RAW
+  /// full decode renders differently from Maple and must never be persisted
+  /// as this asset's preview. Non-RAW bitmaps decode exactly via ImageIO,
   /// so when their embedded thumb is too small to be useful they
   /// synthesize one from the full image instead. The ImageIO thumbnail is
   /// already capped at `displayPreviewLongEdge`, so the CGImage is
   /// AVIF-encoded directly (no second downscale).
   private nonisolated static func displayPreviewAVIF(at url: URL, isRaw: Bool) -> Data? {
+    if isRaw {
+      return embeddedCameraAVIF(
+        at: url, targetLongEdge: displayPreviewLongEdge, quality: displayPreviewAvifQuality)
+    }
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
     let targetPx = Int(displayPreviewLongEdge)
     let embeddedOpts: [CFString: Any] = [
@@ -252,7 +255,6 @@ extension ThumbnailLoader {
       {
         return embedded
       }
-      guard !isRaw else { return nil }
       let decodeOpts: [CFString: Any] = [
         kCGImageSourceCreateThumbnailFromImageAlways: true,
         kCGImageSourceThumbnailMaxPixelSize: targetPx,

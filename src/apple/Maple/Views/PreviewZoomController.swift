@@ -185,9 +185,16 @@
     private func loadThumbnail() {
       thumbnailTask = Task { [weak self] in
         guard let self else { return }
-        let data = await provider.thumbnail(for: source)
+        let data = await provider.thumbnail(for: source) { [weak self] camera in
+          guard let self, let image = await Self.image(from: camera),
+            !Task.isCancelled
+          else { return }
+          imageView.image = image
+          hideStatusViews()
+          view.setNeedsLayout()
+        }
         guard !Task.isCancelled else { return }
-        if let data, let image = await Self.image(from: data) {
+        if let data, let image = await Self.image(from: data), !Task.isCancelled {
           imageView.image = image
           hideStatusViews()
           view.setNeedsLayout()
@@ -208,7 +215,8 @@
           let image = await Self.image(from: previewData),
           !Task.isCancelled
         else {
-          showFailure()
+          guard !Task.isCancelled else { return }
+          if imageView.image == nil { showFailure() }
           return
         }
         imageView.image = image
