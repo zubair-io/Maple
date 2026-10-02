@@ -671,8 +671,18 @@ sequencing barrier (#4051). Ordinary saves retain the latest persisted Workflow
 record even if incoming XML carries an older copy. Successful selected-primary
 write, commit, snapshot and restore operations publish the library sidecar state
 and change feed; named-variant operations leave the primary index unchanged.
-SMB/API native and Self Hosted Web editor transaction hooks still follow under
-#2437.
+Self Hosted Web editor gestures capture their actual source path and authored
+model/culling intent (#4053). Confirmed API commits share the ordinary save chain,
+and caches ingest the published XML. Native API editors use the same confirmed
+primary endpoint for filesystem and catalog references (#4056), retaining failed
+captures and recognizing an accepted action after a lost acknowledgement.
+Native filesystem, PhotoKit and API primary hydration reject unsupported Workflow
+records or mismatched named identities before caching current adjustments (#4057).
+Local ordinary saves and explicit primary workflow publication validate identity
+again at the coordinated write boundary; a failed save keeps its pending intent
+for retry after the sidecar is repaired. Legacy sidecars without Workflow markup
+retain their existing read/write behavior. SMB native editor history still needs
+connected-share qualification under #2437.
 
 Cache-aware switching, snapshots/history UI, one-step
 Undo for restore, and deletion/recovery remain acceptance requirements under

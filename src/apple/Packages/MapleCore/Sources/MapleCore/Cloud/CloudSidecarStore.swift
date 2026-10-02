@@ -59,6 +59,7 @@ public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
       return nil
     }
     try Self.checkOK(resp, data: data)
+    _ = try primaryWorkflow(String(decoding: data, as: UTF8.self))
     let result = try XMPParser.parse(data: data)
     cached = result
     cachedPassthrough = XMPParser.parsePassthrough(data: data)
@@ -175,13 +176,10 @@ public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
     }
     let existing: Data? = absent ? nil : bytes
     if let existing {
+      let currentXML = String(decoding: existing, as: UTF8.self)
       _ = try XMPParser.parse(data: existing)
-      if String(decoding: existing, as: UTF8.self).range(
-        of: WorkflowContract.markupPattern, options: .regularExpression) != nil
-      {
-        _ = try primaryWorkflow(String(decoding: existing, as: UTF8.self))
-      }
-      cachedMetadata = XMPParser.parseMetadata(String(decoding: existing, as: UTF8.self))
+      _ = try primaryWorkflow(currentXML)
+      cachedMetadata = XMPParser.parseMetadata(currentXML)
       cachedPassthrough = XMPParser.parsePassthrough(data: existing)
     }
     let xml = XMPSerializer.serialize(
@@ -251,13 +249,7 @@ public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
   }
 
   private func primaryWorkflow(_ xml: String) throws -> SidecarWorkflow? {
-    let record = try WorkflowSidecarCore.read(xmp: xml)
-    guard
-      (record?.variantId ?? WorkflowContract.primaryVariantID) == WorkflowContract.primaryVariantID
-    else {
-      throw WorkflowSidecarError(message: "Variant identity does not match the primary sidecar.")
-    }
-    return record
+    try WorkflowSidecarCore.primaryWorkflow(xmp: xml)
   }
 
   private func historyEntry(_ edit: CapturedCloudEdit, checkpoint: String) -> WorkflowHistoryEntry {

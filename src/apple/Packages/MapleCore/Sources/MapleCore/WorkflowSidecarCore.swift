@@ -11,6 +11,21 @@ public enum WorkflowSidecarCore {
     let json = try convert(.read, xmp)
     return try JSONDecoder().decode(SidecarWorkflow?.self, from: Data(json.utf8))
   }
+  /// Primary editors must never hydrate or overwrite a different branch (#4057).
+  /// Legacy sidecars keep their existing parse path without a workflow conversion.
+  static func primaryWorkflow(xmp: String) throws -> SidecarWorkflow? {
+    guard xmp.range(of: WorkflowContract.markupPattern, options: .regularExpression) != nil else {
+      return nil
+    }
+    let record = try read(xmp: xmp)
+    guard
+      (record?.variantId ?? WorkflowContract.primaryVariantID) == WorkflowContract.primaryVariantID
+    else {
+      throw WorkflowSidecarError(
+        message: "Variant identity does not match the primary sidecar. Repair it before editing.")
+    }
+    return record
+  }
   public static func embed(_ workflow: SidecarWorkflow, in xmp: String) throws -> String {
     return try convert(.embed, encode(workflow), xmp)
   }

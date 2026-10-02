@@ -8,8 +8,8 @@ import XCTest
   final class NativeCloudWorkflowHistoryTests: EditorTestCase {
     private func input() throws -> String {
       try String(
-        contentsOf: WorkflowFixture.root().appendingPathComponent(
-          "local-adjustments/lightroom-group-add.xmp"), encoding: .utf8)
+        contentsOf: WorkflowFixture.root().appending(
+          path: "local-adjustments/lightroom-group-add.xmp"), encoding: .utf8)
     }
 
     private func corpus() throws -> [SidecarWorkflow] {
@@ -17,7 +17,7 @@ import XCTest
         [SidecarWorkflow].self,
         from: Data(
           contentsOf:
-            WorkflowFixture.root().appendingPathComponent("workflow/contract-v1.json")))
+            WorkflowFixture.root().appending(path: "workflow/contract-v1.json")))
     }
 
     private func xml(_ source: NativeWorkflowHTTPFixture.Source) throws -> String {
@@ -183,6 +183,32 @@ import XCTest
           XCTFail("unsupported primary was accepted")
         } catch {}
         XCTAssertEqual(try xml(source), source.input)
+      }
+    }
+
+    func testActualFolderAndCatalogHydrationRejectInvalidPrimaryThenLoadRepairedSource()
+      async throws
+    {
+      let fixture = try await NativeWorkflowHTTPFixture.start()
+      defer { fixture.stop() }
+      let rows = try corpus()
+      let valid = try input()
+      for catalog in [false, true] {
+        for (workflow, future) in [(rows[0], true), (rows[1], false)] {
+          let source = try await fixture.stage(xml: valid, workflow: workflow, future: future)
+          let original = try Data(contentsOf: URL(fileURLWithPath: source.path))
+          let store = fixture.store(source, catalog: catalog)
+          do {
+            _ = try await store.loadIfPresent()
+            XCTFail("Native API hydration accepted an invalid primary workflow")
+          } catch {}
+          XCTAssertEqual(try xml(source), source.input)
+          try Data(valid.utf8).write(
+            to: SidecarPath.sidecarURL(for: URL(fileURLWithPath: source.path)), options: .atomic)
+          let repaired = try await store.loadIfPresent()
+          XCTAssertEqual(repaired?.0, try XMPParser.parse(valid).0)
+          XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: source.path)), original)
+        }
       }
     }
 
