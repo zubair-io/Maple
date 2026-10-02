@@ -10,7 +10,7 @@
   />
 }
 @if (state.backendEmpty() && !state.backendLoading() && !state.backendError()) {
-  <app-library-picker (pick)="state.addLibraryFolder($event)" />
+  <app-library-picker [showCancel]="false" (pick)="state.addLibraryFolder($event)" />
 }
 @if (state.viewMode() === 'timeline') {
   <app-timeline-view />
