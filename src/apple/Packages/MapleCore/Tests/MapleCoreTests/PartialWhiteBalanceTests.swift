@@ -16,6 +16,17 @@ final class PartialWhiteBalanceTests: XCTestCase {
     """
   }
 
+  private func activeXmp(_ sidecar: URL) throws -> String {
+    try WorkflowSidecarCore.checkpoint(xmp: String(contentsOf: sidecar, encoding: .utf8))
+  }
+
+  private func assertAuthoredTintRetainedInHistory(_ sidecar: URL) throws {
+    let record = try XCTUnwrap(
+      WorkflowSidecarCore.read(xmp: String(contentsOf: sidecar, encoding: .utf8)))
+    XCTAssertTrue(record.history.contains { $0.adjustmentXmp.contains("crs:Tint=") })
+    XCTAssertFalse(try activeXmp(sidecar).contains("crs:Tint="))
+  }
+
   func testRealSidecarsPreserveIndependentAxesAfterHydrationAndUnrelatedEdit() throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -209,7 +220,7 @@ final class PartialWhiteBalanceTests: XCTestCase {
     session.model.exposure = 1.25
     session.endEdit()
     await session.flushPendingSidecarWrite()
-    XCTAssertFalse(try String(contentsOf: sidecar, encoding: .utf8).contains("crs:Tint="))
+    XCTAssertFalse(try activeXmp(sidecar).contains("crs:Tint="))
     let reopened = EditSession(asset: AssetRef(url: raw))
     await reopened.loadSidecar()
     XCTAssertEqual(reopened.model, session.model)
@@ -217,10 +228,11 @@ final class PartialWhiteBalanceTests: XCTestCase {
     ToolValueMapping.apply(session.model.temperature, to: &session.model, tool: .temp)
     session.endEdit()
     await session.flushPendingSidecarWrite()
-    XCTAssertTrue(try String(contentsOf: sidecar, encoding: .utf8).contains("crs:Tint="))
+    XCTAssertTrue(try activeXmp(sidecar).contains("crs:Tint="))
     session.undo()
     await session.flushPendingSidecarWrite()
-    XCTAssertFalse(try String(contentsOf: sidecar, encoding: .utf8).contains("crs:Tint="))
+    XCTAssertFalse(try activeXmp(sidecar).contains("crs:Tint="))
+    try assertAuthoredTintRetainedInHistory(sidecar)
     XCTAssertEqual(try Data(contentsOf: raw), originalBytes)
   }
 
@@ -293,11 +305,11 @@ final class PartialWhiteBalanceTests: XCTestCase {
       await editor.applyWhiteBalancePreset(preset)
       XCTAssertNil(session.model.partialWhiteBalance, "\(preset)")
       await session.flushPendingSidecarWrite()
-      XCTAssertTrue(try String(contentsOf: sidecar, encoding: .utf8).contains("crs:Tint="))
+      XCTAssertTrue(try activeXmp(sidecar).contains("crs:Tint="))
       editor.undo()
       XCTAssertEqual(session.model, before)
       await session.flushPendingSidecarWrite()
-      XCTAssertFalse(try String(contentsOf: sidecar, encoding: .utf8).contains("crs:Tint="))
+      XCTAssertFalse(try activeXmp(sidecar).contains("crs:Tint="))
       await session.releaseTransientMemory()
     }
     let session = EditSession(asset: AssetRef(url: raw))
@@ -312,7 +324,7 @@ final class PartialWhiteBalanceTests: XCTestCase {
     XCTAssertNil(session.model.partialWhiteBalance)
     XCTAssertEqual(session.model.wbScaleVersion, 5)
     await session.flushPendingSidecarWrite()
-    XCTAssertTrue(try String(contentsOf: sidecar, encoding: .utf8).contains(#"crs:Tint="-12""#))
+    XCTAssertTrue(try activeXmp(sidecar).contains(#"crs:Tint="-12""#))
     session.undo()
     XCTAssertEqual(session.model, before)
     var source = before
@@ -324,11 +336,13 @@ final class PartialWhiteBalanceTests: XCTestCase {
     XCTAssertNil(session.model.partialWhiteBalance)
     XCTAssertEqual(session.model.temperature, 6200)
     XCTAssertEqual(session.model.tint, 9)
-    XCTAssertTrue(try String(contentsOf: sidecar, encoding: .utf8).contains(#"crs:Tint="9""#))
+    XCTAssertTrue(try activeXmp(sidecar).contains(#"crs:Tint="9""#))
     session.undo()
     XCTAssertEqual(session.model, before)
     await session.flushPendingSidecarWrite()
-    XCTAssertFalse(try String(contentsOf: sidecar, encoding: .utf8).contains("crs:Tint="))
+    XCTAssertFalse(try activeXmp(sidecar).contains("crs:Tint="))
+    try assertAuthoredTintRetainedInHistory(sidecar)
+    XCTAssertNil(session.sidecarError)
     XCTAssertEqual(try Data(contentsOf: raw), bytes)
     await session.releaseTransientMemory()
   }

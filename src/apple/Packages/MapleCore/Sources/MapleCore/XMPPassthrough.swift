@@ -101,6 +101,7 @@ enum XMPKnownFields {
   /// Scene-linear develop sliders + the WB group.
   private static let develop: Set<String> = [
     "crs:WhiteBalance", "crs:Temperature", "crs:Tint", "papp:WbScaleVersion",
+    "papp:WbSource", "papp:WbSampleX", "papp:WbSampleY", "papp:WbAlgorithmVersion",
     "crs:Exposure2012", "papp:Brightness", "crs:Contrast2012",
     "crs:Highlights2012", "crs:Shadows2012", "crs:Whites2012", "crs:Blacks2012",
     "crs:ParametricHighlights", "crs:ParametricLights",
