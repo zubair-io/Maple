@@ -129,7 +129,7 @@ public actor XMPSidecarStore {
   public func commitSemantic(
     model: AdjustmentModel, culling: CullingState, action: String, label: String
   ) throws {
-    try coordinateSidecarWrite { existing in
+    try coordinateSidecarWrite { destination, existing in
       if let existing { try self.requirePrimaryWorkflow(in: existing) }
       let checkpoint = try WorkflowSidecarCore.checkpoint(
         xmp: self.serializedSidecar(model: model, culling: culling, existingXML: existing))
@@ -149,7 +149,7 @@ public actor XMPSidecarStore {
       self.pendingModel = model
       self.pendingCulling = culling
       self.cached = (model, culling)
-      try self.writeSidecar(model: model, culling: culling, existingXML: existing)
+      try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination)
       self.pendingModel = nil
       self.pendingCulling = nil
     }
@@ -157,14 +157,14 @@ public actor XMPSidecarStore {
 
   /// Workflow operations share the actor and primary path with adjustment writes.
   public func readWorkflow() throws -> SidecarWorkflow? {
-    guard let xml = try existingSidecarXML() else { return nil }
+    guard let xml = try existingSidecarXML(at: sidecarURL) else { return nil }
     return try WorkflowSidecarCore.read(xmp: xml)
   }
 
   /// Publish pending authored adjustments and workflow in one atomic replacement.
   /// Validation finishes before the prior sidecar or pending state is changed.
   public func writeWorkflowConfirmed(_ workflow: SidecarWorkflow) throws {
-    try coordinateSidecarWrite { existing in
+    try coordinateSidecarWrite { destination, existing in
       let xml: String
       if let model = self.pendingModel, let culling = self.pendingCulling {
         xml = self.serializedSidecar(model: model, culling: culling, existingXML: existing)
@@ -175,7 +175,7 @@ public actor XMPSidecarStore {
       if let existing { _ = try WorkflowSidecarCore.read(xmp: existing) }
       let output = try self.appendingSemanticHistory(
         to: WorkflowSidecarCore.embed(workflow, in: xml))
-      try self.publishSidecarXML(output)
+      try self.publishSidecarXML(output, at: destination)
       self.pendingSemanticEdits.removeAll()
     }
     pendingTask?.cancel()
@@ -216,9 +216,9 @@ public actor XMPSidecarStore {
   /// threaded down from `EditSession`, so an externally-edited sidecar
   /// contributes its current contents instead of a stale snapshot taken at
   /// open time.
-  private func existingSidecarXML() throws -> String? {
-    guard FileManager.default.fileExists(atPath: sidecarURL.path) else { return nil }
-    return try String(contentsOf: sidecarURL, encoding: .utf8)
+  private func existingSidecarXML(at url: URL) throws -> String? {
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    return try String(contentsOf: url, encoding: .utf8)
   }
 
   private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
@@ -243,13 +243,13 @@ public actor XMPSidecarStore {
   }
 
   private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
-    try coordinateSidecarWrite { existing in
-      try self.writeSidecar(model: model, culling: culling, existingXML: existing)
+    try coordinateSidecarWrite { destination, existing in
+      try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination)
     }
   }
 
   private func writeSidecar(
-    model: AdjustmentModel, culling: CullingState, existingXML: String?
+    model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL
   ) throws {
     if let existingXML,
       existingXML.range(of: WorkflowContract.markupPattern, options: .regularExpression) != nil
@@ -258,7 +258,7 @@ public actor XMPSidecarStore {
     }
     let xml = try appendingSemanticHistory(
       to: serializedSidecar(model: model, culling: culling, existingXML: existingXML))
-    try publishSidecarXML(xml)
+    try publishSidecarXML(xml, at: destination)
     pendingSemanticEdits.removeAll()
     pendingMetadata = nil
   }
@@ -293,12 +293,12 @@ public actor XMPSidecarStore {
   }
 
   /// Cooperate with separate editor/variant store instances on this same file.
-  private func coordinateSidecarWrite(_ write: (String?) throws -> Void) throws {
+  private func coordinateSidecarWrite(_ write: (URL, String?) throws -> Void) throws {
     let coordinator = NSFileCoordinator(filePresenter: nil)
     var error: NSError?
     var result: Result<Void, Error>?
-    coordinator.coordinate(writingItemAt: sidecarURL, options: [], error: &error) { _ in
-      result = Result { try write(self.existingSidecarXML()) }
+    coordinator.coordinate(writingItemAt: sidecarURL, options: [], error: &error) { url in
+      result = Result { try write(url, self.existingSidecarXML(at: url)) }
     }
     if let error { throw error }
     guard let result else {
@@ -336,18 +336,18 @@ public actor XMPSidecarStore {
     return xml
   }
 
-  private func publishSidecarXML(_ xml: String) throws {
+  private func publishSidecarXML(_ xml: String, at destination: URL) throws {
     guard let data = xml.data(using: .utf8) else {
       throw XMPStoreError.encodingError
     }
-    let tmpURL = sidecarURL.deletingLastPathComponent()
-      .appendingPathComponent(".\(sidecarURL.lastPathComponent).tmp")
+    let tmpURL = destination.deletingLastPathComponent()
+      .appendingPathComponent(".\(destination.lastPathComponent).tmp")
     try data.write(to: tmpURL, options: .atomic)
     // Atomic rename
-    if FileManager.default.fileExists(atPath: sidecarURL.path) {
-      _ = try FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmpURL)
+    if FileManager.default.fileExists(atPath: destination.path) {
+      _ = try FileManager.default.replaceItemAt(destination, withItemAt: tmpURL)
     } else {
-      try FileManager.default.moveItem(at: tmpURL, to: sidecarURL)
+      try FileManager.default.moveItem(at: tmpURL, to: destination)
     }
   }
 }
