@@ -25,10 +25,7 @@ import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { type EditTransaction, type EditTransactionKind } from './edit-transaction';
 import { EditTransactionRing, UNDO_STACK_CAP } from './edit-transaction-ring';
-import {
-  EditorWorkflowHistoryService,
-  type HostedWorkflowEdit,
-} from './editor-workflow-history.service';
+import { EditorWorkflowHistoryService, type WorkflowEdit } from './editor-workflow-history.service';
 import type { AssetId } from '../models/asset';
 import { applyAutoInto } from './editor-state.auto';
 import { applyWhiteBalancePresetInto } from './editor-state.wb-preset';
@@ -117,7 +114,7 @@ export class EditorStateService {
   // `EditTransactionRing`.
   private readonly ring = new EditTransactionRing();
   private readonly workflowHistory = inject(EditorWorkflowHistoryService);
-  private workflowEdit: HostedWorkflowEdit | null = null;
+  private workflowEdit: WorkflowEdit | null = null;
 
   /** The most recently recorded, undone, or redone transaction. */
   readonly lastCommittedTransaction = this.ring.lastCommitted;
@@ -262,7 +259,7 @@ export class EditorStateService {
     this.endEdit();
     const tx = this.ring.popUndo();
     if (!tx) return;
-    const edit = this.workflowHistory.capture(id, tx.before);
+    const edit = this.workflowHistory.capture(id, this.currentAdjustment() ?? tx.after);
     this.library.updateAdjustment(id, structuredClone(tx.before));
     if (edit) this.workflowHistory.record(edit, tx.before, 'undo', `Undo ${tx.description}`);
     void this.announcer.announce(`Undo ${tx.description}`);
@@ -274,7 +271,7 @@ export class EditorStateService {
     this.endEdit();
     const tx = this.ring.popRedo();
     if (!tx) return;
-    const edit = this.workflowHistory.capture(id, tx.after);
+    const edit = this.workflowHistory.capture(id, this.currentAdjustment() ?? tx.before);
     this.library.updateAdjustment(id, structuredClone(tx.after));
     if (edit) this.workflowHistory.record(edit, tx.after, 'redo', `Redo ${tx.description}`);
     void this.announcer.announce(`Redo ${tx.description}`);

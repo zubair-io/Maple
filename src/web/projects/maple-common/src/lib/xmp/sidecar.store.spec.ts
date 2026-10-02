@@ -51,7 +51,7 @@ class ApiStub {
     if (this.putResult === 'fail') {
       return throwError(() => new Error('POST failed'));
     }
-    return of(undefined as void);
+    return of(xml);
   });
 }
 

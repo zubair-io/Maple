@@ -5,6 +5,7 @@ import { map } from 'rxjs';
 import { HttpLibrarySource } from '../addressing/http-library-source';
 import { LIBRARY_SOURCE } from '../addressing/library-source';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { WorkflowApiService } from '../api/workflow-api.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { SELF_HOSTED_WORKSPACE_POLICY, WORKSPACE_CAPABILITIES } from './workspace-capabilities';
 import {
@@ -24,9 +25,12 @@ import { SelfHostedBatchSyncService } from '../editor/copy-paste/self-hosted-bat
 
 function serverPersistenceFactory(): ServerWorkspacePersistence {
   const api = inject(BunApiBackendService);
+  const workflow: WorkflowApiService = inject(WorkflowApiService);
   return {
     readSidecar: (path) => api.getXmp(path),
-    writeSidecar: (path, xml) => api.putXmp(path, xml).pipe(map(() => undefined)),
+    writeSidecar: (path, xml) => api.putXmp(path, xml),
+    commitSidecar: (path, expectedXmp, xml, entry) =>
+      workflow.commit(path, expectedXmp, xml, entry),
     writePreview: (path, bytes, contentType) =>
       api.putPreview(path, bytes, contentType).pipe(map(() => undefined)),
   };

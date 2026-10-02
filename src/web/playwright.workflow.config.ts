@@ -11,10 +11,18 @@ export default defineConfig({
     channel: 'chrome',
     trace: 'retain-on-failure',
   },
-  webServer: {
-    command: './node_modules/.bin/vite --config e2e/workflow/vite.config.ts',
-    port: 4518,
-    reuseExistingServer: false,
-    timeout: 30000,
-  },
+  webServer: [
+    {
+      command: './node_modules/.bin/vite --config e2e/workflow/vite.config.ts',
+      port: 4518,
+      reuseExistingServer: false,
+      timeout: 30000,
+    },
+    {
+      command: 'bun ../api/tests/browser/workflow-server.ts',
+      url: 'http://127.0.0.1:4519/workflow-fixture/health',
+      reuseExistingServer: false,
+      timeout: 30000,
+    },
+  ],
 });

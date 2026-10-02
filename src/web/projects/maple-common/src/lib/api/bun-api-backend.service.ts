@@ -968,16 +968,14 @@ export class BunApiBackendService {
    * goes through `encodeURIComponent` because absolute paths legitimately
    * contain `/`, spaces, and other URL-meaningful characters.
    */
-  putXmp(path: string, xml: string): Observable<void> {
+  putXmp(path: string, xml: string): Observable<string> {
     // The API deliberately echoes the written XML. Request text explicitly:
     // treating that successful application/xml response as JSON makes
     // HttpClient reject after the sidecar has already reached disk.
-    return this.http
-      .post(`${this.base}/xmp?path=${encodeURIComponent(path)}`, xml, {
-        headers: { 'Content-Type': 'application/xml' },
-        responseType: 'text',
-      })
-      .pipe(map(() => undefined));
+    return this.http.post(`${this.base}/xmp?path=${encodeURIComponent(path)}`, xml, {
+      headers: { 'Content-Type': 'application/xml' },
+      responseType: 'text',
+    });
   }
 
   /** Delete the XMP sidecar at `path`. */

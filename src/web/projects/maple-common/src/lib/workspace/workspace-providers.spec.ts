@@ -34,7 +34,7 @@ describe('workspace providers', () => {
     const httpSource = {};
     const api = {
       getXmp: vi.fn(() => of('<xmp/>')),
-      putXmp: vi.fn(() => of(undefined)),
+      putXmp: vi.fn((_path: string, xml: string) => of(xml)),
       putPreview: vi.fn(() => of(undefined)),
     };
     TestBed.configureTestingModule({

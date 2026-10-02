@@ -310,6 +310,11 @@ export class LibraryStore {
     );
   }
 
+  /** Immutable authored fields to capture with a delayed source publication (#4053). */
+  cullingPatchFor(id: AssetId): Readonly<Partial<XmpCulling>> {
+    return this._sessionCullingPatches.get(id) ?? {};
+  }
+
   mergePersistedCulling(id: AssetId, persisted: XmpCulling): XmpCulling {
     const merged = { ...persisted, ...(this._sessionCullingPatches.get(id) ?? {}) };
     this.assets.update((assets) =>
@@ -342,6 +347,12 @@ export class LibraryStore {
     return true;
   }
 
+  /** Hydrate a captured publication without mutating the current editor model (#4053). */
+  hydrateAdjustment(id: AssetId, model: AdjustmentModel): AdjustmentModel {
+    const frame = this.asShotWb.get(id)?.frame;
+    return hydratePartialWhiteBalance(model, frame?.temperature ?? 6500, frame?.tint ?? 0, !!frame);
+  }
+
   /** Merge a delayed persisted base with fields authored during that read. */
   mergePersistedAdjustment(
     id: AssetId,
@@ -349,13 +360,7 @@ export class LibraryStore {
     authored: Partial<AdjustmentModel>,
   ): AdjustmentModel {
     const current = this.adjustmentModels().get(id) ?? defaultAdjustmentModel();
-    const frame = this.asShotWb.get(id)?.frame;
-    const merged = hydratePartialWhiteBalance(
-      { ...current, ...persisted, ...authored },
-      frame?.temperature ?? 6500,
-      frame?.tint ?? 0,
-      !!frame,
-    );
+    const merged = this.hydrateAdjustment(id, { ...current, ...persisted, ...authored });
     this.adjustmentModels.update((models) => new Map(models).set(id, merged));
     return merged;
   }
