@@ -29,6 +29,7 @@ extension RemovalSession {
       selection = masks.selection
       protection = masks.protection
       personMasks = masks.people
+      resetPersonRefinement(masks.bases)
       operation = nil
       phase = .ready
       message = people.isEmpty ? "No people found. Paint the object instead." : peopleMessage
@@ -57,6 +58,7 @@ extension RemovalSession {
       selection = masks.selection
       protection = masks.protection
       personMasks = masks.people
+      resetPersonRefinement(masks.bases)
       operation = nil
       phase = .ready
       message = peopleMessage
@@ -72,8 +74,10 @@ extension RemovalSession {
   private func masksForPeople(
     _ people: [Person], context: NativeRemovalEditorContext,
     token: UInt64
-  ) async throws -> (selection: Data, protection: Data, people: [Data]) {
-    guard !people.isEmpty else { return (Data(), manualProtection, []) }
+  ) async throws -> (
+    selection: Data, protection: Data, people: [Data], bases: [RemovalPersonSelection]
+  ) {
+    guard !people.isEmpty else { return (Data(), manualProtection, [], []) }
     let run = try await engine.selectionOperation()
     guard current(token) else {
       run.cancel()
@@ -82,22 +86,23 @@ extension RemovalSession {
     operation = run
     var selected = Data()
     var protected = manualProtection
-    var masks: [Data] = []
+    var masks: [RemovalPersonSelection] = []
     for person in people {
       let mask = try await engine.personMask(person.detection, context: context, operation: run)
       guard current(token) else { throw CancellationError() }
       if person.keep {
         protected = try RemovalBridge.combineMasks(protected, mask)
       } else {
-        masks.append(mask)
+        masks.append(RemovalPersonSelection(id: person.id, mask: mask))
         selected = try RemovalBridge.combineMasks(selected, mask)
       }
     }
     let selection = try RemovalBridge.combineMasks(selected, protected, subtract: true)
-    let individual = try masks.map {
-      try RemovalBridge.combineMasks($0, protected, subtract: true)
-    }.filter { !$0.isEmpty }
-    return (selection, protected, individual)
+    let bases = try masks.map {
+      RemovalPersonSelection(
+        id: $0.id, mask: try RemovalBridge.combineMasks($0.mask, protected, subtract: true))
+    }.filter { !$0.mask.isEmpty }
+    return (selection, protected, bases.map(\.mask), bases)
   }
 
   public func remove() async {

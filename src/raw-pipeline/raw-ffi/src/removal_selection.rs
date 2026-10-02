@@ -4,6 +4,72 @@
 use crate::error::{catch_panic_rc, set_last_error};
 use std::ffi::{c_char, CStr};
 
+/// Replay source-framed Add/Subtract strokes over a detected native mask.
+/// Returns the selection return codes; a fully erased mask has out_len=0.
+/// # Safety
+/// base is readable for base_len; protected is readable for protected_len when
+/// nonzero. request is NUL-terminated UTF-8, out_len is
+/// writable, and non-null output is writable for out_cap and disjoint from inputs.
+#[no_mangle]
+pub unsafe extern "C" fn maple_removal_refine_selection_buf(
+    base: *const u8,
+    base_len: usize,
+    protected: *const u8,
+    protected_len: usize,
+    request: *const c_char,
+    out_buf: *mut u8,
+    out_cap: usize,
+    out_len: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_removal_refine_selection_buf", || {
+        if out_len.is_null() {
+            return 1;
+        }
+        *out_len = 0;
+        if base.is_null() || request.is_null() {
+            return 1;
+        }
+        if base_len > isize::MAX as usize
+            || protected_len > isize::MAX as usize
+            || (protected_len > 0 && protected.is_null())
+            || out_cap > isize::MAX as usize
+        {
+            set_last_error("invalid refinement buffer length".into());
+            return 5;
+        }
+        let result = CStr::from_ptr(request)
+            .to_str()
+            .map_err(|e| format!("removal refinement: invalid UTF-8: {e}"))
+            .and_then(|request| {
+                raw_core::stages::removal_selection::refine_json(
+                    std::slice::from_raw_parts(base, base_len),
+                    if protected_len == 0 {
+                        &[]
+                    } else {
+                        std::slice::from_raw_parts(protected, protected_len)
+                    },
+                    request,
+                )
+            });
+        let bytes = match result {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                set_last_error(e);
+                return 5;
+            }
+        };
+        *out_len = bytes.len();
+        if bytes.is_empty() {
+            return 0;
+        }
+        if out_buf.is_null() || out_cap < bytes.len() {
+            return 100;
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf, bytes.len());
+        0
+    })
+}
+
 /// Union reviewed source masks, or subtract protected intent. Empty input or
 /// output means no selection, never a zero-sized MIMF. Geometry and binary
 /// mask validation use the same core as WASM. Return codes match selection.

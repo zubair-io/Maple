@@ -10,6 +10,82 @@ struct SelectionRequest {
     strokes: Vec<RemovalStroke>,
 }
 
+/// Replay manual Add/Subtract gestures over a detected person's native mask.
+/// The original base is retained by the editor, so undo replays the remaining
+/// gestures without inference. An erased mask is empty bytes, as for Paint.
+pub fn refine_json(base: &[u8], protected: &[u8], request: &str) -> Result<Vec<u8>, String> {
+    let request: SelectionRequest = serde_json::from_str(request)
+        .map_err(|e| format!("removal refinement: invalid request: {e}"))?;
+    if request.schema != 1 {
+        return Err("removal refinement: unsupported schema".into());
+    }
+    let base = crate::pipeline::removal_mask_from_bytes(base)?;
+    let protected = if protected.is_empty() {
+        None
+    } else {
+        let mask = crate::pipeline::removal_mask_from_bytes(protected)?;
+        if (mask.source_width, mask.source_height) != (base.source_width, base.source_height) {
+            return Err("removal refinement: protected source geometry differs".into());
+        }
+        Some(mask)
+    };
+    let Some(mut mask) = apply_to_mask(&base, &request.strokes)? else {
+        return Ok(Vec::new());
+    };
+    let mut bounds = [mask.width, mask.height, 0, 0];
+    for (i, pixel) in mask.pixels.iter_mut().enumerate() {
+        if *pixel == 0 {
+            continue;
+        }
+        let (x, y) = (i as u32 % mask.width, i as u32 / mask.width);
+        let (sx, sy) = (mask.x + x, mask.y + y);
+        if protected.as_ref().is_some_and(|p| {
+            sx >= p.x
+                && sy >= p.y
+                && sx - p.x < p.width
+                && sy - p.y < p.height
+                && p.pixels[((sy - p.y) * p.width + sx - p.x) as usize] == 255
+        }) {
+            *pixel = 0;
+        } else {
+            bounds = [
+                bounds[0].min(x),
+                bounds[1].min(y),
+                bounds[2].max(x + 1),
+                bounds[3].max(y + 1),
+            ];
+        }
+    }
+    let [x, y, end_x, end_y] = bounds;
+    if end_x <= x || end_y <= y {
+        return Ok(Vec::new());
+    }
+    // Undo with no manual edits preserves the detected mask's exact frame.
+    // Edited masks drop zero borders, so erasing or painting only on protected
+    // pixels cannot retain/inflate an otherwise oversized generation context.
+    if !request.strokes.is_empty() && bounds != [0, 0, mask.width, mask.height] {
+        let (width, height) = (end_x - x, end_y - y);
+        let mut pixels = Vec::new();
+        pixels
+            .try_reserve_exact(width as usize * height as usize)
+            .map_err(|_| "removal refinement: insufficient memory".to_string())?;
+        for row in y..end_y {
+            let start = row as usize * mask.width as usize + x as usize;
+            pixels.extend_from_slice(&mask.pixels[start..start + width as usize]);
+        }
+        mask = RemovalMask {
+            source_width: mask.source_width,
+            source_height: mask.source_height,
+            x: mask.x + x,
+            y: mask.y + y,
+            width,
+            height,
+            pixels,
+        };
+    }
+    crate::pipeline::removal_mask_to_bytes(&mask)
+}
+
 /// Shared, versioned host request boundary. The request is ephemeral gesture
 /// data; durable intent is the resulting MIMF mask. Empty selection is empty
 /// bytes, never a zero-sized asset that could be mistaken for a saved mask.

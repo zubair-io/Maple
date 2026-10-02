@@ -1,9 +1,11 @@
 import * as publication from './removal-editor-publication';
+import * as painting from './removal-editor-painting';
+import type { PersonBase, PersonGesture } from './removal-person-refinement';
 import { rebindAfterExport } from './removal-editor-rebind';
 // Complete local authoring flow for the explicitly installed #3941 experiment.
 // Release remains gated on #1472 photo quality, hardware and consumer parity.
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
-import init, { removal_combine_masks, removal_smart_strokes } from '../raw-pipeline/pkg/raw_wasm';
+import init, { removal_combine_masks } from '../raw-pipeline/pkg/raw_wasm';
 import { EditorStateService } from '../editor/editor-state.service';
 import { LibraryStateService } from '../state/library-state.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
@@ -80,6 +82,11 @@ export class RemovalEditorSession {
   readonly selection = signal<Uint8Array>(new Uint8Array());
   readonly protection = signal<Uint8Array>(new Uint8Array());
   readonly people = signal<readonly Person[]>([]);
+  readonly refiningPerson = signal<number | null>(null);
+  readonly personBases = signal<readonly PersonBase[]>([]);
+  readonly canPaint = computed(() => this.mode() !== 'people' || this.refiningPerson() !== null);
+  personGestures: PersonGesture[] = [];
+  redoPersonGestures: PersonGesture[] = [];
   readonly preview = signal<DecodedImage | null>(null);
   readonly compare = signal(false);
   readonly stage = signal('');
@@ -90,9 +97,9 @@ export class RemovalEditorSession {
   draft?: Draft;
   inference?: RemovalInferenceClient;
   private tensors?: Awaited<ReturnType<typeof selectionTensors>>;
-  private strokes: RemovalStroke[] = [];
-  private gestureSizes: number[] = [];
-  private redoGestures: RemovalStroke[][] = [];
+  strokes: RemovalStroke[] = [];
+  gestureSizes: number[] = [];
+  redoGestures: RemovalStroke[][] = [];
   private manualProtection: Uint8Array = new Uint8Array();
   committingXml?: string;
   masks: Uint8Array[] = [];
@@ -153,6 +160,7 @@ export class RemovalEditorSession {
     this.gestureSizes = [];
     this.redoGestures = [];
     this.masks = [];
+    this.resetPersonRefinement();
     this.selection.set(new Uint8Array());
     this.canUndoSelection.set(false);
     this.canRedoSelection.set(false);
@@ -174,79 +182,33 @@ export class RemovalEditorSession {
     this.scopeFolder = this.library.currentFolder() ?? undefined;
     await this.open(asset, xml);
   }
-  async paint(
+  paint(
     points: readonly (readonly [number, number])[],
     cropInputSize: readonly [number, number],
   ): Promise<void> {
-    if (this.phase() !== 'ready' || !this.photo || this.mode() === 'people') return;
-    const token = ++this.revision;
-    const radius = this.radius(),
-      subtract = this.subtract();
-    this.phase.set('selecting');
-    this.message.set('');
-    try {
-      const mapping = JSON.parse(
-        await this.pipeline.removal.map(
-          this.photo.xml,
-          JSON.stringify({ schema: 1, crop_input_size: cropInputSize, points }),
-        ),
-      ) as { points: ([number, number] | null)[] };
-      this.check(token);
-      // A null surround breaks the stroke; it must never connect across an
-      // unmapped horizon or clamp the outside pointer onto the image edge.
-      const batches: [number, number][][] = [[]];
-      for (const point of mapping.points) {
-        if (point) batches[batches.length - 1].push(point);
-        else if (batches[batches.length - 1].length) batches.push([]);
-      }
-      const next = batches
-        .filter((batch) => batch.length)
-        .map((batch) => ({
-          points: batch,
-          radius,
-          subtract,
-        }));
-      this.strokes = [...this.strokes, ...next];
-      if (next.length) this.gestureSizes = [...this.gestureSizes, next.length];
-      this.redoGestures = [];
-      await this.refreshSelection(token);
-    } catch (error) {
-      this.fail(error, token);
-    } finally {
-      if (token === this.revision) this.phase.set('ready');
-    }
+    return painting.paint(this, points, cropInputSize);
   }
-  async undoSelection(): Promise<void> {
-    if (this.busy() || !this.strokes.length || this.phase() === 'review') return;
-    const count = this.gestureSizes.at(-1) ?? 1;
-    this.redoGestures = [...this.redoGestures, this.strokes.slice(-count)];
-    this.gestureSizes = this.gestureSizes.slice(0, -1);
-    this.strokes = this.strokes.slice(0, -count);
-    const token = ++this.revision;
-    this.phase.set('selecting');
-    try {
-      await this.refreshSelection(token);
-    } catch (error) {
-      this.fail(error, token);
-    } finally {
-      if (token === this.revision) this.phase.set('ready');
-    }
+  undoSelection(): Promise<void> {
+    return painting.undoSelection(this);
   }
-  async redoSelection(): Promise<void> {
-    const gesture = this.redoGestures.at(-1);
-    if (!gesture || this.phase() !== 'ready') return;
-    this.redoGestures = this.redoGestures.slice(0, -1);
-    this.gestureSizes = [...this.gestureSizes, gesture.length];
-    this.strokes = [...this.strokes, ...gesture];
-    const token = ++this.revision;
-    this.phase.set('selecting');
-    try {
-      await this.refreshSelection(token);
-    } catch (error) {
-      this.fail(error, token);
-    } finally {
-      if (token === this.revision) this.phase.set('ready');
-    }
+  redoSelection(): Promise<void> {
+    return painting.redoSelection(this);
+  }
+  refinePerson(index: number | null): void {
+    if (this.phase() !== 'ready') return;
+    if (index === null || this.personBases().some((base) => base.index === index))
+      this.refiningPerson.set(index);
+  }
+  canRefinePerson(index: number): boolean {
+    return this.personBases().some((base) => base.index === index);
+  }
+  resetPersonRefinement(bases: readonly PersonBase[] = []): void {
+    this.personBases.set(bases);
+    this.personGestures = [];
+    this.redoPersonGestures = [];
+    this.refiningPerson.set(null);
+    this.canUndoSelection.set(false);
+    this.canRedoSelection.set(false);
   }
   async protectSelection(): Promise<void> {
     if (this.busy() || this.phase() !== 'ready') return;
@@ -279,6 +241,7 @@ export class RemovalEditorSession {
       this.check(token);
       this.people.set(suggestions);
       this.masks = masks.people;
+      this.resetPersonRefinement(masks.bases);
       this.selection.set(masks.selection);
       this.protection.set(masks.protection);
       this.message.set(
@@ -308,6 +271,7 @@ export class RemovalEditorSession {
       const masks = await this.masksForPeople(this.people(), token);
       this.check(token);
       this.masks = masks.people;
+      this.resetPersonRefinement(masks.bases);
       this.selection.set(masks.selection);
       this.protection.set(masks.protection);
       this.message.set(peopleSelectionMessage(this.masks.length > 0));
@@ -324,6 +288,7 @@ export class RemovalEditorSession {
         selection: new Uint8Array(),
         protection: this.manualProtection,
         people: [] as Uint8Array[],
+        bases: [] as PersonBase[],
       };
     const photo = this.photo!;
     const tensors = await this.selectionInputs(token);
@@ -426,29 +391,7 @@ export class RemovalEditorSession {
     return mapped.points;
   }
 
-  private async refreshSelection(token: number): Promise<void> {
-    const photo = this.photo;
-    if (!photo) throw new Error('Open the RAW before selecting.');
-    let mask: Uint8Array;
-    if (!this.strokes.length) mask = new Uint8Array();
-    else if (this.mode() === 'paint')
-      mask = await this.pipeline.removal.selection(
-        JSON.stringify({ schema: 1, strokes: this.strokes }),
-      );
-    else {
-      const tensors = await this.selectionInputs(token);
-      const request = removal_smart_strokes(
-        JSON.stringify(this.smartRequest(tensors, this.strokes)),
-      );
-      await this.ai().encode(photo.source, request, tensors.encoder.slice());
-      mask = await this.ai().refine(photo.source, request);
-    }
-    this.check(token);
-    this.selection.set(removal_combine_masks(mask, this.protection(), true));
-    this.canUndoSelection.set(this.strokes.length > 0);
-    this.canRedoSelection.set(this.redoGestures.length > 0);
-  }
-  private smartRequest(
+  smartRequest(
     tensors: Awaited<ReturnType<typeof selectionTensors>>,
     strokes: readonly RemovalStroke[],
   ) {
@@ -464,7 +407,7 @@ export class RemovalEditorSession {
       strokes,
     };
   }
-  private async selectionInputs(token: number) {
+  async selectionInputs(token: number) {
     if (!this.tensors) {
       const photo = this.photo!;
       const tensors = await selectionTensors(
@@ -544,6 +487,7 @@ export class RemovalEditorSession {
     this.gestureSizes = [];
     this.redoGestures = [];
     this.masks = [];
+    this.resetPersonRefinement();
     this.undoRecords = undefined;
     this.manualProtection = new Uint8Array();
     this.committingXml = undefined;

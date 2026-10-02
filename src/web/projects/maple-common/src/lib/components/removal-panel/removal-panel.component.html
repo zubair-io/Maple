@@ -16,7 +16,7 @@
       >Retry opening photo</mui-button
     >
   }
-  @if (session.mode() !== 'people' && session.phase() !== 'review') {
+  @if (session.canPaint() && session.phase() !== 'review') {
     <mui-living-slider
       label="Brush size"
       [value]="session.radius()"
@@ -26,7 +26,7 @@
       [disabled]="session.busy()"
       (valueChange)="session.radius.set($event)"
     />
-    <div class="flex gap-2">
+    <div class="flex flex-wrap gap-2">
       <mui-button
         size="sm"
         [active]="!session.subtract()"
@@ -85,9 +85,19 @@
           "
           [ariaPressed]="person.keep"
           (pressed)="session.keepPerson($index)"
-          >Person {{ $index + 1 }} · {{ person.keep ? 'Keep' : 'Remove' }} ·
-          {{ roles[person.role] }}</mui-button
+          >Person {{ $index + 1 }} · {{ person.keep ? 'Keep' : 'Remove' }}</mui-button
         >
+        <p class="text-[11px] text-text-muted">{{ roles[person.role] }}</p>
+        @if (!person.keep) {
+          <mui-button
+            size="sm"
+            [active]="session.refiningPerson() === $index"
+            [disabled]="session.busy() || !session.canRefinePerson($index)"
+            [ariaLabel]="'Refine Person ' + ($index + 1)"
+            (pressed)="session.refinePerson($index)"
+            >Refine Person {{ $index + 1 }}</mui-button
+          >
+        }
       }
     </div>
     <mui-button
@@ -96,6 +106,15 @@
       (pressed)="session.selectBackgroundPeople()"
       >Apply person choices</mui-button
     >
+    @if (session.refiningPerson() !== null) {
+      <p class="text-[11px] text-text-muted" role="status">
+        Painting Person {{ session.refiningPerson()! + 1 }}: include missed edges, belongings,
+        shadows or reflections.
+      </p>
+      <mui-button size="sm" [disabled]="session.busy()" (pressed)="session.refinePerson(null)">
+        Done refining
+      </mui-button>
+    }
   }
   @if (session.phase() === 'review' || session.phase() === 'recovery') {
     <div class="flex gap-2">

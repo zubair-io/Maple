@@ -22,6 +22,7 @@ export type RemovalAuthoringCommand =
     }
   | { kind: 'render-saved'; xmp: string; cap: number; film?: ArrayBuffer }
   | { kind: 'selection'; request: string }
+  | { kind: 'refine-selection'; request: string; base: ArrayBuffer; protection: ArrayBuffer }
   | { kind: 'prepare-saved'; xmp: string; manifest: string; companions: ArrayBuffer };
 
 export interface RemovalAuthoringRequest {

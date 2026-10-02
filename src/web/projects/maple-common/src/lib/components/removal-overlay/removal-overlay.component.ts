@@ -104,8 +104,7 @@ export class RemovalOverlayComponent implements AfterViewInit, OnDestroy {
     this.resize?.disconnect();
   }
   protected down(event: PointerEvent): void {
-    if (event.button !== 0 || this.session.phase() !== 'ready' || this.session.mode() === 'people')
-      return;
+    if (event.button !== 0 || this.session.phase() !== 'ready' || !this.session.canPaint()) return;
     if (this.footprint().width <= 0 || !this.canvasState.cropInputDimensions()) return;
     this.pointer = event.pointerId;
     this.points = [];

@@ -43,6 +43,7 @@ public final class RemovalSession {
   public var compare = false
   public internal(set) var message = ""
   public internal(set) var people: [Person] = []
+  public internal(set) var refiningPersonID: Int?
   public private(set) var modelFolderName: String?
   public var radius: Double = 0.02
   public var subtract = false
@@ -58,6 +59,9 @@ public final class RemovalSession {
   @ObservationIgnored var manualProtection = Data()
   @ObservationIgnored var proposals: [NativeRemovalProposal] = []
   @ObservationIgnored var personMasks: [Data] = []
+  @ObservationIgnored var personBases: [RemovalPersonSelection] = []
+  @ObservationIgnored var personGestures: [RemovalPersonGesture] = []
+  @ObservationIgnored var redoPersonGestures: [RemovalPersonGesture] = []
   @ObservationIgnored var job: NativeRemovalAuthoringJob?
   @ObservationIgnored var operation: NativeRemovalInferenceOperation?
   @ObservationIgnored private var scope: RemovalSecurityScope?
@@ -67,8 +71,15 @@ public final class RemovalSession {
   public var busy: Bool {
     phase == .preparing || phase == .selecting || phase == .generating || phase == .saving
   }
-  public var canUndoSelection: Bool { !busy && phase == .ready && !strokes.isEmpty }
-  public var canRedoSelection: Bool { !busy && phase == .ready && !redoGestures.isEmpty }
+  public var canUndoSelection: Bool {
+    !busy && phase == .ready && (mode == .people ? !personGestures.isEmpty : !strokes.isEmpty)
+  }
+  public var canRedoSelection: Bool {
+    !busy && phase == .ready
+      && (mode == .people ? !redoPersonGestures.isEmpty : !redoGestures.isEmpty)
+  }
+  public var canPaint: Bool { mode != .people || refiningPersonID != nil }
+  public func canRefinePerson(_ id: Int) -> Bool { personBases.contains { $0.id == id } }
   public var canRemove: Bool { phase == .ready && !selection.isEmpty && modelFolderName != nil }
 
   public func open() async {
@@ -108,6 +119,7 @@ public final class RemovalSession {
     snapshot = nil
     proposals = []
     personMasks = []
+    resetPersonRefinement()
     preview = nil
     compare = false
     selection = Data()
@@ -147,6 +159,7 @@ public final class RemovalSession {
     selection = Data()
     strokes = []
     personMasks = []
+    resetPersonRefinement()
     gestureSizes = []
     redoGestures = []
   }

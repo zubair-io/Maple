@@ -402,3 +402,5 @@ RemovalSessionTests
 RemovalProxyTensorTests
 
 RemovalPeopleBridgeTests
+
+RemovalPersonRefinementTests

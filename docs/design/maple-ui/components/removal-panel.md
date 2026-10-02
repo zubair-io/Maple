@@ -10,6 +10,8 @@ Select an object in a RAW, inspect an AI reconstruction and save it non-destruct
 
 Paint records source-framed strokes; Smart paint expands them into an object mask. Add/Subtract, brush radius and whole-stroke undo/redo refine selection. Keep selected area creates protection; protected pixels are excluded from removal. People shows numbered candidates on the image and corresponding Keep/Remove buttons. Suggest background people runs the shared conservative prominence policy and prepares masks in one operation. Likely subjects and uncertain instances start kept; the list labels each role. Every Keep/Remove choice is editable through the list and numbered pins, and Apply person choices rebuilds selection/protection. Only Remove and then Keep can change the accepted image. Box prominence is a suggestion, not background ground truth; the policy remains experimental until labeled scene qualification.
 
+A selected person exposes **Refine Person N**. Add/Subtract paints directly into that person’s mask to include a shadow, reflection, carried object or missed fragment. Other person masks remain independent, and kept subjects stay protected. Whole-gesture Undo/Redo spans person switches; Done refining ends brush input while retaining the selection and history. Applying person choices or successful new detection rebuilds the masks and clears manual refinements. Failed or cancelled replay retains the previous mask and history. Edited masks trim empty borders after excluding protection so erased extent cannot consume the native reconstruction limit.
+
 Remove starts local inference. The proposed pixels remain temporary until Keep. Compare shows the current confirmed photo. Cancel restores its verified saved stack and writes no proposal files. Keep verifies companion publication before confirming XMP. Navigation, model changes and late worker results cannot replace a newer photo's selection. A failed restoration preserves inspection state, disables Keep and offers Retry restoring photo.
 
 ## States
@@ -86,6 +88,6 @@ likely subjects and six uncertain, all initially kept. The size/overlap policy
 therefore still requires corrections in this scene; it is not qualified crowd
 background selection. Actual browser CPU/WebGPU checks on the 39MP portrait
 exercise automatic subject protection, a deliberate Remove override, and
-restoring Keep without writing XMP or changing the original. The local
+restoring Keep without writing XMP or changing the original. Manual per-person Subtract, Undo and Redo are also checked through actual retained-RAW worker replies in both browser paths. Native real-file session tests and retained-WASM tests cover Add, protection, separate person windows, cross-person undo and failed replay without history changes. Native refinement UI and physical-device behavior still need qualification. The local
 photographic browser gate requires `test_0002.dng` and the pinned models; absent
 artifacts fail rather than qualifying the feature.

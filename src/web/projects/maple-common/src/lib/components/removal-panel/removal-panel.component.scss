@@ -4,6 +4,10 @@
 .removal-panel {
   max-height: min(75vh, 640px);
   overflow-y: auto;
+
+  > * {
+    flex-shrink: 0;
+  }
 }
 .people-list {
   display: flex;

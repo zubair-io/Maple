@@ -18,6 +18,29 @@ public enum RemovalError: Error, LocalizedError {
 }
 
 public enum RemovalBridge {
+  static func refineSelection(_ base: Data, strokes: [RemovalStroke], protection: Data = Data())
+    throws -> Data
+  {
+    struct Request: Encodable {
+      let schema = 1
+      let strokes: [RemovalStroke]
+    }
+    let json = String(
+      decoding: try JSONEncoder().encode(Request(strokes: strokes)), as: UTF8.self)
+    return try base.withUnsafeBytes { bytes in
+      try protection.withUnsafeBytes { protected in
+        try json.withCString { request in
+          try buffer { output, capacity, length in
+            maple_removal_refine_selection_buf(
+              bytes.bindMemory(to: UInt8.self).baseAddress, UInt(base.count),
+              protected.bindMemory(to: UInt8.self).baseAddress, UInt(protection.count), request,
+              output, capacity, length)
+          }
+        }
+      }
+    }
+  }
+
   /// Shared conservative subject/background/uncertain proposal policy. The
   /// returned Keep defaults remain editable and never publish an accepted edit.
   public static func peopleSuggestions(
