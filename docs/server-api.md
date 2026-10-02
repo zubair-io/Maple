@@ -177,6 +177,38 @@ Asset detail, batch metadata, working-set, folder asset/Trash, and Search respon
 | POST   | `/api/metadata/snapshots` | bearer | Effective metadata for a batch of paths, merging `metadata_override` over `exif`. Only non-null fields appear, so the Batch Metadata panel can detect mixed state                                         |
 | PUT    | `/api/preview`            | bearer | Publish an already-rendered preview for `?path=` into `.maple/previews/`. Accepts AVIF or JPEG (sniffed by Content-Type then magic bytes) and transcodes JPEG to AVIF; the write is temp-file-then-rename |
 
+## Removal authoring transport (#3984)
+
+These bearer-authenticated endpoints address a RAW through `?path=<absolute path>`
+under the registered library roots. Inference remains in the browser. They publish
+durable edit companions, not preview-cache entries.
+
+| Method | Path                                                      | Body / result                                                                                  |
+| ------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| GET    | `/api/removal/xmp`                                        | `{ revision, xml }`; revision is SHA-256 of the exact sidecar bytes, or `missing`              |
+| POST   | `/api/removal/xmp`                                        | JSON `{ expectedRevision, expectedRecords, xml }`; returns the confirmed revision and document |
+| PUT    | `/api/removal/companion?name=<digest>.mask\|<digest>.f16` | Binary bytes; validates and publishes create-only, returning `{ name }`                        |
+| GET    | `/api/removal/companion?name=<digest>.mask\|<digest>.f16` | Verified binary bytes; missing companions return 404                                           |
+
+Companion names are confined to `.maple/inpaint/` beside the addressed RAW.
+Rust checks digests, codecs and record schemas in disposable native children.
+Publication closes and syncs the staged file, creates the immutable destination
+with a hard link, verifies it, and syncs its directory. Identical uploads are
+idempotent; corrupt occupants remain intact. Directory/file symlinks are rejected.
+
+The XMP commit holds the existing source/sidecar mutation lease. It checks the
+whole-document revision, exact prior owned removal records, original identity,
+and every new companion before publishing and confirming the new document.
+Stale revisions return 409; invalid records or assets return 422. Clear may
+recover an edit with missing old assets, but still verifies the original. An
+exact committed document can confirm a lost-acknowledgement retry; a later edit
+cannot be overwritten by that retry. GET responses use `private, no-store`.
+Mutation requires a POSIX lease on macOS/Linux; other server hosts return 503.
+
+Browser authoring integration and coordination with ordinary full-document XMP
+saves remain under #3984. These transport endpoints alone do not enable Self
+Hosted authoring; the existing `/api/xmp` endpoint still overwrites full documents.
+
 ## Search
 
 Every filter parameter below is shared by `/api/search`, `/api/search/facets`, `/api/search/buckets`, and `/api/map/clusters`, declared once in `routes/search/query-schema.ts`.

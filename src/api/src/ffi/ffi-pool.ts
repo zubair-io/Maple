@@ -271,13 +271,42 @@ class FfiWorkerPool {
   }
 
   async verifyRemovalAssets(rawPath: string, records: string): Promise<VerifiedRemovalAssets> {
+    return this.verifyRemoval('removalAssets', rawPath, records);
+  }
+
+  async verifyRemovalSource(rawPath: string, records: string): Promise<VerifiedRemovalAssets> {
+    return this.verifyRemoval('removalSource', rawPath, records);
+  }
+
+  async verifyRemovalAsset(filePath: string, name: string): Promise<void> {
     const id = this.requestId();
     return new Promise((resolve, reject) =>
       this.enqueue({
         id,
-        post: (w) => w.postMessage({ type: 'removalAssets', id, rawPath, records }),
+        post: (w) => w.postMessage({ type: 'validateRemovalAsset', id, filePath, name }),
         onResponse: (msg) => {
-          if (msg.type !== 'removalAssets') return false;
+          if (msg.type !== 'validateRemovalAsset') return false;
+          if (msg.ok) resolve();
+          else reject(new Error(msg.error ?? 'Removal asset validation failed'));
+          return true;
+        },
+        onError: reject,
+      }),
+    );
+  }
+
+  private async verifyRemoval(
+    type: 'removalAssets' | 'removalSource',
+    rawPath: string,
+    records: string,
+  ): Promise<VerifiedRemovalAssets> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) =>
+      this.enqueue({
+        id,
+        post: (w) => w.postMessage({ type, id, rawPath, records }),
+        onResponse: (msg) => {
+          if (msg.type !== type) return false;
           if (msg.ok && msg.assets) resolve(msg.assets);
           else reject(new Error(msg.error ?? 'Removal asset validation failed'));
           return true;

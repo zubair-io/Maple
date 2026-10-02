@@ -111,6 +111,8 @@ export interface AsShotResponse {
 
 export type FfiRequest =
   | { type: 'removalAssets'; id: number; rawPath: string; records: string }
+  | { type: 'removalSource'; id: number; rawPath: string; records: string }
+  | { type: 'validateRemovalAsset'; id: number; filePath: string; name: string }
   | AsShotRequest
   | ExportRecipeRequest
   | RegisterLensProfileRequest
@@ -124,6 +126,8 @@ export type FfiRequest =
  * unknown variants; the value below drives the runtime wire guard. */
 const requestTypes = {
   removalAssets: true,
+  removalSource: true,
+  validateRemovalAsset: true,
   asShot: true,
   exportRecipe: true,
   registerLensProfile: true,
@@ -193,13 +197,14 @@ export interface ValidateAvifResponse {
 
 export type FfiResponse =
   | {
-      type: 'removalAssets';
+      type: 'removalAssets' | 'removalSource';
       id: number;
       ok: boolean;
       assets?: VerifiedRemovalAssets;
       error?: string;
     }
   | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
+  | { type: 'validateRemovalAsset'; id: number; ok: boolean; error?: string }
   | AsShotResponse
   | RegisterLensProfileResponse
   | RenderThumbResponse
