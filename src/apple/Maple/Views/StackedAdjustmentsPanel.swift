@@ -55,6 +55,7 @@ struct StackedAdjustmentsPanel: View {
         .font(.caption)
         .foregroundStyle(ProTokens.textMuted)
         .frame(minHeight: 44)
+        .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Reset all adjustments")

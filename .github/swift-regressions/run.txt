@@ -404,3 +404,4 @@ RemovalProxyTensorTests
 RemovalPeopleBridgeTests
 
 RemovalPersonRefinementTests
+RemovalSavedControlsTests

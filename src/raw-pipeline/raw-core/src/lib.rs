@@ -22,6 +22,7 @@ pub mod image;
 pub use image::{CfaPattern, ColorSpace, ExifOrientation, Image, RawImage};
 
 pub mod decode;
+pub mod raw_dimensions;
 
 pub mod lens_profile;
 

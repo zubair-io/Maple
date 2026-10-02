@@ -33,7 +33,7 @@ use rawler::tags::DngTag;
 
 use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::error::Error;
-use crate::image::{CfaPattern, CropRect, ExifOrientation, RawImage};
+use crate::image::{CfaPattern, ExifOrientation, RawImage};
 use crate::math::Matrix3;
 use crate::Result;
 
@@ -226,6 +226,24 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             ),
         });
     }
+
+    // ── 3a. Default-crop rectangle (DNG § 6.3 DefaultCropOrigin/Size) ────
+    // Rawler's `crop_area` is consistently populated for DNG / CR2 / CR3 /
+    // ARW / NEF / RAF / ORF / RW2 from either the camera-table per-body
+    // crop or the DNG tags themselves (see rawler/src/decoders/dng.rs:248).
+    // Prefer it as the primary source. Fall back to reading DNG tags
+    // directly only when rawler returns None — covers the rare malformed-
+    // metadata case.
+    //
+    // Coordinates are sensor-absolute. The pipeline applies the crop
+    // post-demosaic and (for half-res Preview) halves the rect at
+    // apply-time, so we don't even-align here.
+    //
+    // test_0002 (DNG without crop tags), test_0013 (iPhone DNG, ditto),
+    // test_0016 (X3F that rawler can't decode) hit the None path. The
+    // pipeline treats None as "no crop" — full-sensor render, matches
+    // ACR's behaviour on these fixtures.
+    let crop_rect = crate::raw_dimensions::default_crop(&raw, root_ifd.as_deref());
 
     // ── 4. Black / white levels ───────────────────────────────────────────
     // `as_bayer_array()` returns 4 values in [top-left, top-right, bottom-left, bottom-right]
@@ -571,54 +589,6 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         })
     });
 
-    // ── 10. Default-crop rectangle (DNG § 6.3 DefaultCropOrigin/Size) ────
-    // Rawler's `crop_area` is consistently populated for DNG / CR2 / CR3 /
-    // ARW / NEF / RAF / ORF / RW2 from either the camera-table per-body
-    // crop or the DNG tags themselves (see rawler/src/decoders/dng.rs:248).
-    // Prefer it as the primary source. Fall back to reading DNG tags
-    // directly only when rawler returns None — covers the rare malformed-
-    // metadata case.
-    //
-    // Coordinates are sensor-absolute. The pipeline applies the crop
-    // post-demosaic and (for half-res Preview) halves the rect at
-    // apply-time, so we don't even-align here.
-    //
-    // test_0002 (DNG without crop tags), test_0013 (iPhone DNG, ditto),
-    // test_0016 (X3F that rawler can't decode) hit the None path. The
-    // pipeline treats None as "no crop" — full-sensor render, matches
-    // ACR's behaviour on these fixtures.
-    let crop_rect: Option<CropRect> = raw
-        .crop_area
-        .and_then(|r| {
-            CropRect::clamped(
-                r.p.x as u32,
-                r.p.y as u32,
-                r.d.w as u32,
-                r.d.h as u32,
-                width,
-                height,
-            )
-        })
-        .or_else(|| {
-            // Fallback: read DNG tags directly. Rawler already does this
-            // for DNG sources (`get_crop` in decoders/dng.rs), so this
-            // path is hit only when the source claims to be a DNG but
-            // rawler routed it to a non-DNG decoder that doesn't know
-            // about `DefaultCrop*` (vanishingly rare in practice — none
-            // of the slice-1 fixtures hit it). Kept as belt-and-braces.
-            let ifd = root_ifd.as_ref()?;
-            let origin = ifd.get_entry(DngTag::DefaultCropOrigin)?;
-            let size = ifd.get_entry(DngTag::DefaultCropSize)?;
-            if origin.value.count() < 2 || size.value.count() < 2 {
-                return None;
-            }
-            let x = origin.value.force_f32(0).round() as u32;
-            let y = origin.value.force_f32(1).round() as u32;
-            let w = size.value.force_f32(0).round() as u32;
-            let h = size.value.force_f32(1).round() as u32;
-            CropRect::clamped(x, y, w, h, width, height)
-        });
-
     let md = decoder
         .as_ref()
         .and_then(|dec| dec.raw_metadata(&source, &params).ok());
@@ -870,7 +840,7 @@ fn read_encoding(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> crate::color:
 
 /// Map rawler's `Orientation` enum to our `ExifOrientation`. Used as the
 /// fallback when `raw_metadata().exif.orientation` is absent.
-fn rawler_orientation_to_core(o: &rawler::decoders::Orientation) -> ExifOrientation {
+pub(crate) fn rawler_orientation_to_core(o: &rawler::decoders::Orientation) -> ExifOrientation {
     use rawler::decoders::Orientation as R;
     match o {
         R::Normal | R::Unknown => ExifOrientation::Normal,

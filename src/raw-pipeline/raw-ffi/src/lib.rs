@@ -92,6 +92,8 @@ mod gpu_live;
 #[cfg(feature = "gpu")]
 mod gpu_auto_profile;
 mod handle;
+mod raw_dimensions;
+pub use raw_dimensions::{maple_raw_dimensions_bytes, maple_raw_dimensions_file};
 mod id;
 // Brush dab-series rasterization (#360): `maple_brush_rasterize` stamps a
 // dab series into the caller's R8 buffer — the bytes the host then registers
