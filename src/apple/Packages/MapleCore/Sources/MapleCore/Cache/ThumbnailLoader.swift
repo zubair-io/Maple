@@ -61,6 +61,7 @@ public actor ThumbnailLoader {
   /// `ThumbnailLoader+DisplayPreview.swift` coalesces through the same map
   /// under a `"display-preview:"`-namespaced key.)
   var inFlight: [String: Task<Data?, Never>] = [:]
+  var cameraPreviewWaiters: [String: Set<UUID>] = [:]
 
   /// Camera seeds must not wait behind multi-second authored RAW develops.
   /// Keep extraction bounded independently to avoid a cold-grid memory spike.
@@ -318,6 +319,7 @@ public actor ThumbnailLoader {
   public func cancelAll() {
     for task in inFlight.values { task.cancel() }
     inFlight.removeAll()
+    cameraPreviewWaiters.removeAll()
     // Drain waiters so anyone parked on the decode slot semaphore
     // unblocks (they'll return nil when their Task sees cancellation).
     for waiter in waiters { waiter.resume() }

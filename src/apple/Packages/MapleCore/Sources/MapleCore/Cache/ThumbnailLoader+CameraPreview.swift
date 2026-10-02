@@ -63,10 +63,21 @@ extension ThumbnailLoader {
 
     guard !Task.isCancelled else { return nil }
     let key = "camera-preview:" + url.absoluteString
-    if let existing = inFlight[key] {
-      return await ThumbnailFetchGate.awaitCancellably(existing)
-    }
     let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+    let task = cameraPreviewTask(key: key, url: url, scope: scope)
+    let waiter = UUID()
+    cameraPreviewWaiters[key, default: []].insert(waiter)
+    let data = await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      Task { await self.removeCameraPreviewWaiter(key: key, waiter: waiter, task: task) }
+    }
+    removeCameraPreviewWaiter(key: key, waiter: waiter, task: task)
+    return Task.isCancelled ? nil : data
+  }
+
+  private func cameraPreviewTask(key: String, url: URL, scope: URL) -> Task<Data?, Never> {
+    if let existing = inFlight[key], !existing.isCancelled { return existing }
     let gate = cameraPreviewGate
     let task = Task.detached(priority: .userInitiated) { () -> Data? in
       do { try await gate.acquire() } catch { return nil }
@@ -79,9 +90,22 @@ extension ThumbnailLoader {
       return Task.isCancelled ? nil : data
     }
     inFlight[key] = task
-    let data = await ThumbnailFetchGate.awaitCancellably(task)
-    if inFlight[key] == task { inFlight.removeValue(forKey: key) }
-    return data
+    cameraPreviewWaiters[key] = []
+    return task
+  }
+
+  /// A disappearing grid cell must not cancel a coalesced Preview request.
+  /// Remove each waiter once; cancel queued extraction when nobody needs it.
+  private func removeCameraPreviewWaiter(
+    key: String, waiter: UUID, task: Task<Data?, Never>
+  ) {
+    guard inFlight[key] == task,
+      cameraPreviewWaiters[key]?.remove(waiter) != nil,
+      cameraPreviewWaiters[key]?.isEmpty == true
+    else { return }
+    cameraPreviewWaiters.removeValue(forKey: key)
+    inFlight.removeValue(forKey: key)
+    task.cancel()
   }
 
   /// Use the canonical Rust preview extractor rather than asking ImageIO to
