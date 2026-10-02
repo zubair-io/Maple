@@ -1,27 +1,17 @@
-// fs-thumbs.video.test.ts
-//
-// GET /api/fs/thumb for video containers (#2132).
-//
-// The regression this exists to prevent: #1649 taught the render paths to
-// extract poster frames, but `/api/fs/thumb` gates on a positive allowlist in
-// `fs-jail.ts` that never mentioned video, so every request 415'd at the
-// extension check before any render was attempted. The denylist rename in
-// #1649 forced a compile error at each site that had an opinion about video —
-// an allowlist that simply omitted it could not be caught that way, which is
-// why these cases are pinned explicitly.
-//
-// Split from `fs-thumbs.etag.test.ts` rather than appended: that file is not
-// prettier-clean under the repo config, so touching it would drag an unrelated
-// reformat into the diff.
-
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath, readdir, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { maple } from 'maple';
-import { fsThumbsRoutes } from './fs-thumbs.ts';
-import * as videoPosterModule from '../thumbs/video-poster.ts';
+import { thumbRoutes } from './thumb.ts';
+import { registerLibrary } from '../../../tests/helpers/assets-route-fixtures.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import * as videoPosterModule from '../../thumbs/video-poster.ts';
 
 /** Synthesize a real video via the host ffmpeg. Null when unavailable, which
  * gates the decode-dependent cases — same skip-pass convention as the color
@@ -47,24 +37,24 @@ async function makeTestVideo(bin: string, out: string): Promise<string | null> {
   return (await proc.exited) === 0 ? out : null;
 }
 
+let tmp: string;
+let live: LiveTestDatabase;
 function get(p: string): Promise<Response> {
-  const app = new Elysia().use(fsThumbsRoutes);
-  return app.handle(
-    new Request(`http://localhost/api/fs/thumb?path=${encodeURIComponent(p)}&size=512`),
-  );
+  const rel = relative(tmp, p).split('/').map(encodeURIComponent).join('/');
+  return new Elysia().use(thumbRoutes).handle(new Request(`http://localhost/thumb/photos/${rel}`));
 }
 
-describe('GET /api/fs/thumb — video', () => {
-  let tmp: string | null = null;
-
+describe('Unified thumbnail route — video', () => {
   beforeEach(async () => {
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-fs-thumb-video-')));
-    process.env.MAPLE_ROOTS = tmp;
+    live = await createLiveTestDatabase();
+    registerLibrary(live.db, tmp, 'photos');
   });
 
   afterEach(async () => {
     if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
-    tmp = null;
+    invalidateLibraryRoots();
+    live.close();
   });
 
   it('no longer 415s a .MOV at the extension gate', async () => {
@@ -100,14 +90,14 @@ describe('GET /api/fs/thumb — video', () => {
     }
   });
 
-  it('500s on a corrupt container when ffmpeg IS available', async () => {
+  it('rejects a corrupt container when ffmpeg IS available', async () => {
     const spy = spyOn(videoPosterModule, 'ffmpegBinary').mockResolvedValue('/usr/bin/ffmpeg');
     const extract = spyOn(videoPosterModule, 'extractVideoPosterJpeg').mockResolvedValue(false);
     try {
       const p = join(tmp!, 'broken.mov');
       await writeFile(p, Buffer.from('truncated'));
       const res = await get(p);
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(404);
     } finally {
       extract.mockRestore();
       spy.mockRestore();

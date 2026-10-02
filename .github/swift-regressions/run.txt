@@ -303,5 +303,6 @@ RemoteCatalogFileOpsTests
 RemoteCatalogMoveFolderTests
 RemoteCatalogRestoreFolderTests
 RemoteCatalogTests
+RemoteCatalogPreviewTests
 RemoteCatalogThumbTests
 RemoteCatalogXMPCreateTests

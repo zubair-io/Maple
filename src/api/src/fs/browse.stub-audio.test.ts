@@ -1,5 +1,5 @@
 /**
- * Tests for metadata-only stub-image and audio surfacing in listDirFast and
+ * Tests for metadata-only stub-image and audio surfacing in listDirContents and
  * listDirContents (#1835). These formats must land in the `images[]` bucket
  * (like video) with `isStub`/`isAudio` flags — not the inert `files[]`
  * bucket that never gets indexed/surfaced in the grid.
@@ -30,9 +30,9 @@ afterAll(() => {
   live.close();
 });
 
-describe('listDirFast — stub images and audio (#1835)', () => {
+describe('listDirContents — stub images and audio (#1835)', () => {
   it('includes stub-image files in the images array with isStub=true', async () => {
-    const { listDirFast } = await import('./browse.ts');
+    const { listDirContents } = await import('./browse.ts');
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-browse-stub-'));
     try {
       await fs.writeFile(path.join(dir, 'scan.eip'), 'x');
@@ -41,7 +41,7 @@ describe('listDirFast — stub images and audio (#1835)', () => {
       await fs.writeFile(path.join(dir, 'logo.ai'), 'x');
       await fs.writeFile(path.join(dir, 'photo.dng'), 'x');
 
-      const result = await listDirFast(dir);
+      const result = await listDirContents(dir);
       expect(result.ok).toBe(true);
       const { images } = result.data!;
 
@@ -59,7 +59,7 @@ describe('listDirFast — stub images and audio (#1835)', () => {
   });
 
   it('includes audio files in the images array with isAudio=true', async () => {
-    const { listDirFast } = await import('./browse.ts');
+    const { listDirContents } = await import('./browse.ts');
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-browse-audio-'));
     try {
       await fs.writeFile(path.join(dir, 'track.mp3'), 'x');
@@ -67,7 +67,7 @@ describe('listDirFast — stub images and audio (#1835)', () => {
       await fs.writeFile(path.join(dir, 'memo.m4a'), 'x');
       await fs.writeFile(path.join(dir, 'song.aac'), 'x');
 
-      const result = await listDirFast(dir);
+      const result = await listDirContents(dir);
       expect(result.ok).toBe(true);
       const { images } = result.data!;
 

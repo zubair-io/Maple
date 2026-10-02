@@ -1,19 +1,5 @@
-// src/api/src/routes/fs-jail.ts
-//
-// Shared request preamble for the path-addressed `/api/fs/*` image routes
-// (`/api/fs/thumb`, `/api/fs/preview`): absolute-path validation, the
-// symlink-resolving MAPLE_ROOTS jail, the decodable-raster extension gate,
-// and the source stat — plus the shared `notModifiedResponse` 304
-// conditional-request helper. Extracted from fs-thumbs.ts so fs-previews.ts
-// doesn't clone the whole dance (fallow duplication gate, PR #1907).
-//
-// `/api/fs/thumb`'s cache-hit path bypasses this entirely (#2258) — a hit is
-// ONE `readFile`, no realpath — and calls this preamble only on a miss,
-// where the full symlink-resolving jail matters because arbitrary source
-// bytes get read. `/api/fs/preview` still calls this on every request.
-//
-// Reads only — no writes happen here (the .oxlintrc.json fs-import
-// allowlist entry rests on that).
+// Shared extension gates for unified derivatives and the absolute-path video jail.
+// Reads only; original files are never modified here.
 
 import { stat, realpath } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -25,7 +11,6 @@ import {
   PSD_HDR_EXTENSIONS,
 } from '../fs/browse.ts';
 import { VIDEO_EXTS } from '../indexer/media-types.ts';
-import { ifNoneMatchEqual } from '../runtime/http-etag.ts';
 
 export type JailedFile = {
   ok: true;
@@ -54,10 +39,7 @@ export type JailedFileError = { ok: false; status: number; error: string };
  * is a denylist, so the two cannot be collapsed and must be kept in step by
  * hand when a format is added.
  *
- * Exported (PR #2275 review, finding 3) so `fs-thumbs.ts`'s cache-hit fast
- * path can apply the SAME allowlist before its one read, instead of growing
- * a second copy that could silently drift — exactly the kind of divergence
- * that caused #1999.
+ * Shared by thumbnail, preview and video routes to keep supported formats aligned.
  */
 export function isDecodableRasterExt(ext: string): boolean {
   return (
@@ -72,7 +54,7 @@ export function isDecodableRasterExt(ext: string): boolean {
  * Lowercased extension without the dot, or `''` for an extension-less name.
  * Shared so every caller of `isDecodableRasterExt` derives its input the
  * same way — `resolveJailedFile` (below, on the realpath'd name) and
- * `fs-thumbs.ts`'s fast path (on the raw requested name) alike.
+ * unified derivative routes (on the resolved filename) alike.
  */
 export function lowerExt(p: string): string {
   const dot = p.lastIndexOf('.');
@@ -119,7 +101,11 @@ export async function resolveJailedFile(reqPath: string): Promise<JailedFile | J
 
   const ext = lowerExt(real);
   if (!isDecodableRasterExt(ext)) {
-    return { ok: false, status: 415, error: `Unsupported file extension: "${ext}"` };
+    return {
+      ok: false,
+      status: 415,
+      error: `Unsupported file extension: "${ext}"`,
+    };
   }
 
   let srcStat: Awaited<ReturnType<typeof stat>>;
@@ -137,24 +123,4 @@ export async function resolveJailedFile(reqPath: string): Promise<JailedFile | J
   }
 
   return { ok: true, real, ext, stat: srcStat };
-}
-
-/**
- * The If-None-Match short-circuit: a 304 (with the SAME Cache-Control as the
- * 200, per RFC 9110 §15.4.5 so URLSession doesn't downgrade freshness on
- * revalidation) when the client's validator matches, else null and the
- * caller serves the body.
- */
-export function notModifiedResponse(
-  ifNoneMatch: unknown,
-  etag: string,
-  cacheControl: string,
-): Response | null {
-  if (!ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
-    return null;
-  }
-  return new Response(null, {
-    status: 304,
-    headers: { ETag: etag, 'Cache-Control': cacheControl },
-  });
 }

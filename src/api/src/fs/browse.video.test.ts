@@ -1,5 +1,5 @@
 /**
- * Tests for video-file surfacing in listDirFast and listDirContents.
+ * Tests for video-file surfacing in listDirContents and listDirContents.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs/promises';
@@ -27,15 +27,15 @@ afterAll(() => {
   live.close();
 });
 
-describe('listDirFast — video files', () => {
+describe('listDirContents — video files', () => {
   it('includes .mov files in the images array with isVideo=true', async () => {
-    const { listDirFast } = await import('./browse.ts');
+    const { listDirContents } = await import('./browse.ts');
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-browse-video-'));
     try {
       await fs.writeFile(path.join(dir, 'clip.mov'), 'x');
       await fs.writeFile(path.join(dir, 'photo.dng'), 'x');
 
-      const result = await listDirFast(dir);
+      const result = await listDirContents(dir);
       expect(result.ok).toBe(true);
       const { images } = result.data!;
 
@@ -54,12 +54,12 @@ describe('listDirFast — video files', () => {
   });
 
   it('includes .mp4 files in the images array with isVideo=true', async () => {
-    const { listDirFast } = await import('./browse.ts');
+    const { listDirContents } = await import('./browse.ts');
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-browse-video2-'));
     try {
       await fs.writeFile(path.join(dir, 'video.mp4'), 'x');
 
-      const result = await listDirFast(dir);
+      const result = await listDirContents(dir);
       expect(result.ok).toBe(true);
       const { images } = result.data!;
 
@@ -72,12 +72,12 @@ describe('listDirFast — video files', () => {
   });
 
   it('does NOT include .xmp files in the images array', async () => {
-    const { listDirFast } = await import('./browse.ts');
+    const { listDirContents } = await import('./browse.ts');
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-browse-video3-'));
     try {
       await fs.writeFile(path.join(dir, 'clip.mov.xmp'), '<x/>');
 
-      const result = await listDirFast(dir);
+      const result = await listDirContents(dir);
       expect(result.ok).toBe(true);
       const { images } = result.data!;
 

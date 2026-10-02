@@ -1,8 +1,7 @@
 /**
  * API-process-wide concurrency gate for ON-DEMAND (request-path) preview
  * regeneration — `GET /api/preview/:slug/*` (`routes/library/preview.ts`)
- * and `GET /api/fs/preview` (`routes/fs-previews.ts`) both call
- * `generatePreview` synchronously on a cache miss. Unlike the background
+ * calls `generatePreview` synchronously on a cache miss. Unlike the background
  * `preview` stage (`workers/stages/preview.ts`), which already bounds its
  * own decode+AVIF-encode work via `defineStage`'s per-tick `concurrency`
  * dispatch pool, nothing bounded how many of these on-demand calls could run

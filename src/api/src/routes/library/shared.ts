@@ -2,9 +2,15 @@
  * Shared utilities for the M1 library routes.
  */
 
-import { stat } from 'node:fs/promises';
+import { stat, open } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { assertDerivativeCacheDirectory } from '../../indexer/derivative-cache.ts';
+import { isVideoFilename } from '../../indexer/media-types.ts';
+import { ffmpegBinary } from '../../thumbs/video-poster.ts';
+import { ffiPool } from '../../ffi/ffi-pool.ts';
 import type { Stats } from 'node:fs';
 import { t, type Context } from 'elysia';
+import { resolveAddress, type ResolvedAddress } from '../../library/address.ts';
 import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import {
   RAW_EXTENSIONS,
@@ -101,11 +107,8 @@ export function mimeForExt(ext: string): string {
   return MIME_BY_EXT[ext.toLowerCase()] ?? 'application/octet-stream';
 }
 
-/** Immutable cache control for content-keyed responses. */
-export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
-
 /**
- * Cache control for the preview tier (#2017). The preview is a pure cache
+ * Cache control for mutable derivatives. The preview is a pure cache
  * overwritten in place at a stable URL — never content-keyed — so it must NOT
  * be `immutable`; a client that cached it forever would never pick up an edit.
  * `must-revalidate` with `max-age=0` forces a conditional request every time,
@@ -119,9 +122,7 @@ export const MUTABLE_PREVIEW_CACHE = 'private, max-age=0, must-revalidate';
  * Strong ETag for a preview file: its full-precision mtime + size. An in-place
  * overwrite by the editor changes the bytes (and thus the size and/or the
  * mtime), so the validator busts automatically — no version token in the URL
- * required. Deliberately NOT floored to whole milliseconds (unlike the
- * source-stat-derived thumb ETag `/api/fs/thumb` used before #2258 — that
- * route's ETag is now content-hash-derived instead): the preview is
+ * required. Deliberately NOT floored to whole milliseconds: the preview is
  * overwritten in place, so two rapid re-saves of the same byte-size within
  * one millisecond would collide under a floored mtime and wrongly serve a
  * 304 with stale bytes; the sub-ms `mtimeMs` fraction distinguishes them.
@@ -147,28 +148,26 @@ export async function safeStat(p: string): Promise<Stats | null> {
  */
 export async function safeReadBytes(p: string): Promise<Uint8Array | null> {
   try {
-    return new Uint8Array(await Bun.file(p).arrayBuffer());
+    await assertDerivativeCacheDirectory(p);
+    const file = await open(p, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      if (!(await file.stat()).isFile()) return null;
+      return new Uint8Array(await file.readFile());
+    } finally {
+      await file.close();
+    }
   } catch {
     return null;
   }
 }
 
-/**
- * Read `cachePath`'s bytes and return the standard immutable-cached 200
- * Response, or set a 404 and return the error body. Shared tail of the
- * preview and thumb on-demand routes — once a generated derivative is on
- * disk, both serve it identically (only the `Content-Type` and the
- * not-found message differ). Takes `set` directly (rather than returning a
- * discriminated result for the caller to unwrap) so each call site is a
- * single `return`, not a repeated unwrap-and-forward.
- */
 export async function serveCachedBytesOr404(
   set: Context['set'],
   cachePath: string,
   contentType: string,
   etag: string,
   notFoundMessage: string,
-  cacheControl: string = IMMUTABLE_CACHE,
+  cacheControl: string = MUTABLE_PREVIEW_CACHE,
 ): Promise<Response | { error: string }> {
   const bytes = await safeReadBytes(cachePath);
   if (!bytes) {
@@ -182,36 +181,6 @@ export async function serveCachedBytesOr404(
       'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
       ETag: etag,
       'Cache-Control': cacheControl,
-    },
-  });
-}
-
-/**
- * Stream a file as a Response. Returns null if the file cannot be read.
- *
- * The body is a `BunFile` so `Bun.serve` takes its zero-copy file-send path.
- * The previous `Readable.toWeb(createReadStream(...))` bridge delivered bytes
- * with several ms of per-chunk latency that, under HTTP/2 per-stream flow
- * control, capped a single download near ~5–11 MB/s regardless of link speed
- * (#1735). Explicit headers override Bun's auto-detected Content-Type/Length.
- */
-export async function streamFile(
-  absPath: string,
-  contentType: string,
-  extraHeaders?: Record<string, string>,
-): Promise<Response | null> {
-  const st = await safeStat(absPath);
-  if (!st || !st.isFile()) return null;
-  return new Response(Bun.file(absPath), {
-    status: 200,
-    headers: {
-      // Exempt from the global `set.headers` hook (#2382), so this response
-      // has to carry CORS/CORP itself or `/api/image/...` would answer with
-      // none at all.
-      ...STREAMED_FILE_HEADERS,
-      'Content-Type': contentType,
-      'Content-Length': String(st.size),
-      ...extraHeaders,
     },
   });
 }
@@ -395,4 +364,27 @@ import type { ObjectId } from '../../db/object-id.ts';
 
 export async function findAssetByAddress(libraryId: ObjectId, relPath: string, filename: string) {
   return findAssetAtAddress(libraryId, relPath, filename);
+}
+
+export async function derivativeDecoderUnavailable(sourcePath: string): Promise<string | null> {
+  if (isVideoFilename(sourcePath) && !(await ffmpegBinary())) {
+    return 'Video posters need ffmpeg on the server — install it and retry (no restart needed)';
+  }
+  return ffiPool().available()
+    ? null
+    : 'Derivative FFI not built — run src/api/scripts/build-raw-ffi.sh to build native/libraw_ffi.* first';
+}
+
+export async function resolveDerivativeAddress(
+  slug: string,
+  relPath: string,
+  set: Context['set'],
+): Promise<ResolvedAddress | { error: string }> {
+  try {
+    return await resolveAddress(slug, relPath);
+  } catch (error) {
+    const failure = error as { status?: number; message?: string };
+    set.status = failure.status ?? 500;
+    return { error: failure.message ?? 'Internal error' };
+  }
 }

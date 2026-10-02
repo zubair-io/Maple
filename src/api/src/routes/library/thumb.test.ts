@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 /**
  * Integration tests for GET /api/thumb/:slug/*
  *
@@ -70,7 +69,7 @@ describe('GET /thumb/:slug/*', () => {
     // Pre-seed the path-keyed thumb so the route serves it without invoking
     // native generation (mirrors the 304 test below). The behavioural contract
     // under test is: un-indexed + on-disk no longer 202s — it renders/serves a
-    // real JPEG with a weak, revalidating validator (NOT immutable).
+    // cached derivative with a body-derived, revalidating validator.
     const thumbPath = resolveThumbPath(src);
     await mkdir(path.dirname(thumbPath), { recursive: true });
     await writeFile(thumbPath, 'thumb-bytes');
@@ -81,7 +80,7 @@ describe('GET /thumb/:slug/*', () => {
     expect(res.headers.get('Retry-After')).toBeNull();
     expect(res.headers.get('Cache-Control')).toContain('must-revalidate');
     expect(res.headers.get('Cache-Control')).not.toContain('immutable');
-    expect(res.headers.get('ETag') ?? '').toMatch(/^W\//); // weak validator
+    expect(res.headers.get('ETag') ?? '').toMatch(/^"[0-9a-f]+"$/);
   });
 
   test('on-the-fly thumb honours If-None-Match with a 304', async () => {
@@ -93,7 +92,7 @@ describe('GET /thumb/:slug/*', () => {
 
     const first = await app.handle(new Request('http://localhost/thumb/thumblib/pending2.jpg'));
     const etag = first.headers.get('ETag')!;
-    expect(etag).toMatch(/^W\//);
+    expect(etag).toMatch(/^"[0-9a-f]+"$/);
 
     const second = await app.handle(
       new Request('http://localhost/thumb/thumblib/pending2.jpg', {
@@ -104,23 +103,18 @@ describe('GET /thumb/:slug/*', () => {
     expect(second.headers.get('ETag')).toBe(etag);
   });
 
-  test('returns 404 (never a 200 image) for an un-indexed video on disk', async () => {
-    // Post-#1638 videos are selectable, so the grid will request thumbs for
-    // them. A video has no still frame: the route must 404 rather than fall
-    // through to generation (which would otherwise copy the raw .MOV bytes to
-    // a .avif and serve 200 image/avif garbage → broken <img>).
+  test('never serves corrupt unindexed video bytes as an image', async () => {
     const src = path.join(tmpDir, 'clip.mov');
     await writeFile(src, 'fake-video-bytes');
 
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/clip.mov'));
-    expect(res.status).toBe(404);
-    // Critically: NOT a 200 image with video bytes.
+    expect([404, 503]).toContain(res.status);
     expect(res.status).not.toBe(200);
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
     expect(res.headers.get('Content-Type')).not.toBe('image/avif');
   });
 
-  test('returns 404 (never a 200 image) for an indexed video asset', async () => {
+  test('never serves corrupt indexed video bytes as an image', async () => {
     seedRouteAsset(live.db, {
       libraryId,
       path: '',
@@ -132,7 +126,7 @@ describe('GET /thumb/:slug/*', () => {
     await writeFile(src, 'fake-video-bytes-2');
 
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/indexed-clip.mp4'));
-    expect(res.status).toBe(404);
+    expect([404, 503]).toContain(res.status);
     expect(res.status).not.toBe(200);
     expect(res.headers.get('Content-Type')).not.toBe('image/jpeg');
     expect(res.headers.get('Content-Type')).not.toBe('image/avif');
@@ -171,12 +165,21 @@ describe('GET /thumb/:slug/*', () => {
 
   test('returns 304 when ETag matches If-None-Match', async () => {
     const mapleId = newObjectIdHex();
-    seedRouteAsset(live.db, { libraryId, path: '', filename: 'cached.jpg', mapleId });
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: 'cached.jpg',
+      mapleId,
+    });
 
-    // The indexed branch answers the conditional request from `maple_id` alone
-    // and returns before it resolves (or generates) the thumb file, so there is
-    // nothing to pre-stage on disk here.
-    const etag = `"${mapleId}-v${PIPELINE_OUTPUT_VERSION}"`;
+    const source = path.join(tmpDir, 'cached.jpg');
+    await writeFile(source, 'source-bytes');
+    const cached = resolveThumbPath(source);
+    await mkdir(path.dirname(cached), { recursive: true });
+    await writeFile(cached, 'thumbnail-bytes');
+    const first = await app.handle(new Request('http://localhost/thumb/thumblib/cached.jpg'));
+    expect(first.status).toBe(200);
+    const etag = first.headers.get('ETag')!;
     const res = await app.handle(
       new Request('http://localhost/thumb/thumblib/cached.jpg', {
         headers: { 'If-None-Match': etag },

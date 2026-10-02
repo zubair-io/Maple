@@ -182,19 +182,20 @@ Orphans are reclaimed on two paths. Synchronously, wherever a `fileinfo` entry i
 
 ### HTTP caching
 
-| Route                                         | ETag                                               | `Cache-Control`                                                                            |
-| --------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `GET /api/thumb/:slug/*` (indexed)            | `"<maple_id>-v<N>"` — content and pipeline version | `public, max-age=31536000, immutable`                                                      |
-| `GET /api/thumb/:slug/*` (pre-index fallback) | source-derived, weak                               | `private, max-age=10, must-revalidate`                                                     |
-| `GET /api/preview/:slug/*`                    | `"<mtimeMs>-<size>"` of the preview file           | `private, max-age=0, must-revalidate`                                                      |
-| `GET /api/fs/thumb`                           | SHA-1 of the response body                         | `private, max-age=3600`                                                                    |
-| `GET /api/fs/raw` (originals)                 | `"<mtimeMs>-<size>"`                               | `private, max-age=86400`                                                                   |
-| `GET /api/assets/:id/histogram`               | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`              | `private, max-age=300`                                                                     |
-| Original streaming (`/api/image/*`)           | `"<mtimeMs>-<size>"`                               | `private, max-age=0, must-revalidate`                                                      |
-| Video streaming (`/api/video/*`)              | none                                               | `private, max-age=0, must-revalidate`                                                      |
-| Static Angular bundle                         | none                                               | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
+| Route                                         | ETag                                     | `Cache-Control`                                                                            |
+| --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET /api/thumb/:slug/*` (indexed)            | SHA-1 of the cached response bytes       | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/thumb/:slug/*` (pre-index fallback) | SHA-1 of the cached response bytes       | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/preview/:slug/*`                    | `"<mtimeMs>-<size>"` of the preview file | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/fs/raw` (originals)                 | `"<mtimeMs>-<size>"`                     | `private, max-age=86400`                                                                   |
+| `GET /api/assets/:id/histogram`               | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`    | `private, max-age=300`                                                                     |
+| Original streaming (`/api/image/*`)           | `"<mtimeMs>-<size>"`                     | `private, max-age=0, must-revalidate`                                                      |
+| Video streaming (`/api/video/*`)              | none                                     | `private, max-age=0, must-revalidate`                                                      |
+| Static Angular bundle                         | none                                     | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
 
 Folder and legacy directory listings (`/api/folders`, `/api/fs`) set no `Cache-Control` but do emit a body-hash ETag with a 304 short-circuit. Unified `/api/folder/:slug[/...]` listings likewise emit a body-hash ETag, with `private, max-age=0, must-revalidate`. The hash covers the returned page, including original size/mtime, indexed EXIF/identity, and paired sidecar size/mtime; a matching `If-None-Match` returns 304. Clients cache each page by its complete URL (including cursor/limit). The body is deterministically ordered before hashing, so filesystem enumeration order does not cause needless refreshes.
+
+Unified thumbnail responses use the same body-derived validator before and after indexing. The URL identifies a library location, so a `maple_id` for original content cannot make an edited thumbnail immutable. Conditional requests validate cache freshness against the original and present XMP sidecar before comparing validators; a newer sidecar regenerates the derivative through the shared renderer. Cache files are opened with `O_NOFOLLOW`, and symlinked `.maple` or tier directories are refused before reads or generation. A warm video derivative does not require a decoder; a cold read with no native core or runnable ffmpeg returns an actionable 503.
 
 The preview ETag is deliberately **not** floored to whole milliseconds: the file is overwritten in place, so two rapid re-saves of identical byte size within one millisecond would collide under a floored mtime and wrongly serve a 304 with stale bytes. And the preview is never `immutable` — it lives at a stable URL and changes whenever the editor saves, so a client that cached it forever would never see an edit. Helpers are in `src/api/src/routes/library/shared.ts` and `src/api/src/runtime/http-etag.ts`.
 

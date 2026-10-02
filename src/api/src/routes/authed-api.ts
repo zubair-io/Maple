@@ -25,8 +25,6 @@ import { assetsRoutes } from './assets.ts';
 import { xmpPathRoutes } from './xmp.ts';
 import { previewPathRoutes } from './preview.ts';
 import { fsRoutes } from './fs.ts';
-import { fsThumbsRoutes } from './fs-thumbs.ts';
-import { fsPreviewsRoutes } from './fs-previews.ts';
 import { searchRoutes } from './search.ts';
 import { generatedSearchesRoutes } from './generated-searches.ts';
 import { mapRoutes } from './map/index.ts';
@@ -99,8 +97,6 @@ export const authedApi = new Elysia({ name: 'authedApi' })
   .use(previewPathRoutes)
   .use(batchMetadataRoutes)
   .use(fsRoutes)
-  .use(fsThumbsRoutes)
-  .use(fsPreviewsRoutes)
   .use(searchRoutes)
   .use(generatedSearchesRoutes)
   .use(mapRoutes)

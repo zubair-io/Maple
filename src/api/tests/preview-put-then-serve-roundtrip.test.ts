@@ -1,54 +1,22 @@
 import { PIPELINE_OUTPUT_VERSION } from '../src/generated/adjustment-fields.generated.ts';
-/**
- * Cross-platform round-trip validation (#1997, epic #1993 stage 5, item 2):
- * a client-shaped AVIF upload via `PUT /api/preview` — mimicking an
- * Apple-cloud or server-backed-web editor uploading a developed preview —
- * must be servable byte-identically through `GET /api/fs/preview?path=…`,
- * the path-addressed sibling read route that resolves the exact same
- * `<dir>/.maple/previews/<filename>.avif` cache file (no asset row needed).
- *
- * This is the server half of the "producer writes → contract holds for any
- * consumer" claim; `preview-path-contract.test.ts` covers the PATH agreement
- * across server/web/Apple, this file covers that the BYTES round-trip once
- * published.
- *
- * Deliberately does NOT also exercise `GET /api/preview/:slug/*` (the
- * indexed-asset route) here: that route resolves an asset via the
- * `libraries.cache.ts` in-memory slug map AND the process-wide database
- * handle — both non-isolated, and shared by every test file `bun test` runs
- * concurrently in this process (default `--max-concurrency=20`, ~300 files).
- * A PUT-then-GET test does enough real async work (AVIF encode, fs I/O, a
- * database round trip) between setup and assertion that another
- * concurrently-running file's own `setLibraryRootsForTests` /
- * `createLiveTestDatabase()` calls reliably land in the window and resolve
- * against a different file's registered library or database — confirmed
- * empirically while developing this test (consistent 202 "indexing"
- * responses despite a correctly-inserted asset row). That's a pre-existing
- * trait of this suite's shared test seams, not a gap in the route itself;
- * fixing it needs per-file process isolation (`bun test --parallel`) which is
- * out of scope here. `GET /api/preview/:slug/*`'s OWN dedicated test file
- * (`src/routes/library/preview.test.ts`) already covers it in isolation.
- *
- * This file therefore needs no database at all: `setLibraryRootsForTests`
- * supplies the jail, and `fs-previews.ts` skips its catalogue lookup when no
- * database is open. The only reason it ever imported from `mongodb` was to
- * mint a library id, which `newObjectIdHex()` now does (#3787).
- */
-
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { newObjectIdHex } from '../src/db/object-id.ts';
 import { maple } from 'maple';
 import { solidAvif } from '../src/test-support/synth-image.ts';
 
 import { previewPathRoutes } from '../src/routes/preview.ts';
-import { fsPreviewsRoutes } from '../src/routes/fs-previews.ts';
+import { previewRoutes } from '../src/routes/library/preview.ts';
+import {
+  createLiveTestDatabase,
+  type LiveTestDatabase,
+} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+import { registerLibrary, seedRouteAsset } from './helpers/assets-route-fixtures.ts';
 import { cachePathFor } from '../src/fs/xmp.ts';
 import { PREVIEW_CACHE_SUFFIX } from '../src/indexer/previewer.ts';
-import { setLibraryRootsForTests, invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
+import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 
 /** A genuine, decodable AVIF a real editor client would produce — passes the
  * #2014 `validateAvifOutput` gate (no ICC profile, no orientation tag). */
@@ -68,40 +36,53 @@ const put = (path: string, body: BodyInit | Buffer) =>
     }),
   );
 
-const getViaFs = (path: string) =>
-  new Elysia()
-    .use(fsPreviewsRoutes)
-    .handle(new Request(`http://localhost/api/fs/preview?path=${encodeURIComponent(path)}`));
+const getPreview = (file: string, etag?: string) =>
+  new Elysia().use(previewRoutes).handle(
+    new Request(`http://localhost/preview/photos/${encodeURIComponent(file.split('/').at(-1)!)}`, {
+      headers: etag ? { 'If-None-Match': etag } : undefined,
+    }),
+  );
 
-describe('PUT /api/preview → GET /api/fs/preview round-trips byte-identically (no DB needed)', () => {
+describe('Client preview PUT → unified preview GET with real SQLite addressing', () => {
   let tmp = '';
+  let live: LiveTestDatabase;
+  let libraryId: string;
+  let previousRoots: string | undefined;
 
   beforeEach(async () => {
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-preview-roundtrip-')));
-    setLibraryRootsForTests(new Map([[newObjectIdHex(), tmp]]));
+    live = await createLiveTestDatabase();
+    libraryId = registerLibrary(live.db, tmp, 'photos');
+    previousRoots = process.env.MAPLE_ROOTS;
     process.env.MAPLE_ROOTS = tmp;
   });
 
   afterEach(async () => {
     if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
     tmp = '';
-    delete process.env.MAPLE_ROOTS;
-    setLibraryRootsForTests(null);
+    if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = previousRoots;
+    live.close();
     invalidateLibraryRoots();
   });
 
   it('a client-shaped PUT is served back byte-identical and decodable, with no on-demand regeneration clobbering it', async () => {
     const original = join(tmp, 'IMG_5150.dng');
     // The original must exist on disk (and be older than the PUT) for
-    // GET /api/fs/preview's jail + freshness check — the uploaded preview is
+    // the unified preview jail + freshness check — the uploaded preview is
     // NOT derived from this file's bytes (it's a client-supplied render), so
     // its content is irrelevant; only its existence + mtime ordering matter.
     await writeFile(original, Buffer.from([0x00, 0x01, 0x02, 0x03]));
 
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: original.split('/').at(-1)!,
+    });
     const uploaded = await clientShapedAvif();
     expect((await put(original, uploaded)).status).toBe(204);
 
-    const res = await getViaFs(original);
+    const res = await getPreview(original);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/avif');
     expect(res.headers.get('etag')).toBeTruthy();
@@ -120,27 +101,26 @@ describe('PUT /api/preview → GET /api/fs/preview round-trips byte-identically 
     // serving route treated the PUT'd file as fresh rather than
     // regenerating (which would also have produced a NEW ETag each time).
     const etag = res.headers.get('etag')!;
-    const revalidated = await new Elysia().use(fsPreviewsRoutes).handle(
-      new Request(`http://localhost/api/fs/preview?path=${encodeURIComponent(original)}`, {
-        headers: { 'if-none-match': etag },
-      }),
-    );
+    const revalidated = await getPreview(original, etag);
     expect(revalidated.status).toBe(304);
   });
 
   it('PUT then GET agree on the exact same on-disk cache path (cachePathFor)', async () => {
     const original = join(tmp, 'a.nef');
     await writeFile(original, Buffer.from([0x00]));
+    seedRouteAsset(live.db, {
+      libraryId,
+      path: '',
+      filename: original.split('/').at(-1)!,
+    });
     const uploaded = await clientShapedAvif();
     expect((await put(original, uploaded)).status).toBe(204);
 
     const expectedPath = cachePathFor(original, 'previews', PREVIEW_CACHE_SUFFIX);
-    const res = await getViaFs(original);
+    const res = await getPreview(original);
     expect(res.status).toBe(200);
     const served = Buffer.from(await res.arrayBuffer());
     expect(served.equals(uploaded)).toBe(true);
-    // Sanity: the legacy resolver both PUT and GET fall back to for an
-    // un-indexed asset is the SAME function, applied to the SAME path.
     expect(expectedPath).toBe(
       join(tmp, '.maple', 'previews', `a.nef.v${PIPELINE_OUTPUT_VERSION}.avif`),
     );

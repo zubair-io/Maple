@@ -53,6 +53,7 @@ import { renderImageThumbToFileViaPool } from '../thumbs/bitmap-pool.ts';
 import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
+import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('previewer');
@@ -98,13 +99,9 @@ let _failed = 0;
  * Generate (or refresh) the 1280-px preview (AVIF) for an asset. RAWs with
  * an authored XMP sidecar are developed with its adjustments (#3971).
  *
- * `previewPathOverride` lets the caller supply a path-keyed cache path (e.g.
- * `<lib>/<fileinfo[0].path>/.maple/previews/<filename>.avif`, via
- * `cachePathForAsset`) instead of the legacy basename-keyed
- * `cachePathFor(absPath, "previews", PREVIEW_CACHE_SUFFIX)`. The legacy path
- * is only reachable when no asset row exists yet to resolve fileinfo from
- * (DB down, or a file `/api/fs/preview` is asked to preview before the
- * indexer has ever seen it) — see `routes/fs-previews.ts`'s `legacy()`.
+ * `previewPathOverride` supplies the indexed filename cache path via
+ * `cachePathForAsset`. Without an override, background callers derive the
+ * same per-directory cache location from the original path.
  */
 export async function generatePreview(
   absPath: string,
@@ -115,6 +112,8 @@ export async function generatePreview(
   const previewPath =
     previewPathOverride ?? cachePathFor(absPath, 'previews', PREVIEW_CACHE_SUFFIX);
 
+  await assertDerivativeCacheDirectory(previewPath);
+
   try {
     await fs.mkdir(path.dirname(previewPath), { recursive: true });
   } catch (e) {
@@ -124,8 +123,6 @@ export async function generatePreview(
     return;
   }
 
-  // Stale-check: if the cached preview's mtime is >= the source's, reuse it.
-  // Matches the thumb-stage convention so a rerun is cheap.
   if (await isPreviewCacheFresh(previewPath, absPath)) {
     _cached++;
     logTotals();
@@ -192,27 +189,8 @@ export async function generatePreview(
   logTotals();
 }
 
-/**
- * True when the cached preview at `previewPath` is fresh relative to its
- * source (`absPath`): the file exists, is non-empty, and is at least as new
- * as the source. This is the exact rule `generatePreview` uses internally to
- * short-circuit a rerun — exported so a caller can decide WHETHER to invoke
- * `generatePreview` at all before doing so, e.g. to gate an on-demand
- * concurrency limiter (`preview-ondemand-limiter.ts`) only around genuine
- * cache misses rather than every request (a warm read is two `stat` calls;
- * routing it through the limiter would make it queue behind unrelated
- * cold-cache regeneration work during a migration burst). One definition,
- * so the two call sites can never drift apart.
- */
 export async function isPreviewCacheFresh(previewPath: string, absPath: string): Promise<boolean> {
-  try {
-    const [previewStat, srcStat] = await Promise.all([fs.stat(previewPath), fs.stat(absPath)]);
-    return previewStat.size > 0 && previewStat.mtimeMs >= srcStat.mtimeMs;
-  } catch {
-    // missing preview, or source vanished — not fresh (and generatePreview
-    // will no-op cleanly downstream if the source really is gone).
-    return false;
-  }
+  return isDerivativeCacheFresh(previewPath, absPath);
 }
 
 function logTotals(): void {

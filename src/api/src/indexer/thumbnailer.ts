@@ -38,6 +38,7 @@ import { extractVideoPosterJpeg } from '../thumbs/video-poster.ts';
 import { THUMB_AVIF_QUALITY, THUMB_LONG_EDGE_PX } from '../thumbs/render.ts';
 import { finalizeAvifRender } from '../thumbs/validate-avif.ts';
 import { renderRawSidecarDerivative } from '../thumbs/raw-sidecar-render.ts';
+import { assertDerivativeCacheDirectory, isDerivativeCacheFresh } from './derivative-cache.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('thumbnailer');
@@ -80,6 +81,8 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
   const extNoDot = ext.startsWith('.') ? ext.slice(1) : ext;
   const thumbPath = thumbPathOverride ?? resolveThumbPath(absPath);
 
+  await assertDerivativeCacheDirectory(thumbPath);
+
   try {
     await fs.mkdir(path.dirname(thumbPath), { recursive: true });
   } catch (e) {
@@ -89,21 +92,10 @@ export async function generateThumb(absPath: string, thumbPathOverride?: string)
     return;
   }
 
-  // Apple, Web, and the lazy fs-thumbs route all write to the same path —
-  // don't clobber a thumb that already covers the source's mtime. This is
-  // the O(changes) write-time freshness guard #2258 leans on: since the
-  // architecture forbids mutating originals in place (root CLAUDE.md
-  // principle 1), a thumb newer than its source is always still current, and
-  // no per-read staleness check is needed anywhere downstream.
-  try {
-    const [thumbStat, srcStat] = await Promise.all([fs.stat(thumbPath), fs.stat(absPath)]);
-    if (thumbStat.size > 0 && thumbStat.mtimeMs >= srcStat.mtimeMs) {
-      _cached++;
-      logTotals();
-      return;
-    }
-  } catch {
-    // Thumb missing (or source vanished — that will fail downstream anyway).
+  if (await isDerivativeCacheFresh(thumbPath, absPath)) {
+    _cached++;
+    logTotals();
+    return;
   }
 
   // Metadata-only stub images (eip/braw/afphoto/ai) and audio have no still
@@ -330,7 +322,7 @@ async function renderVideoThumbToFile(videoPath: string, outPath: string): Promi
 /**
  * Bitmap formats (JPEG / PNG / WEBP / TIFF / AVIF / HEIC / HEIF): decode
  * + resize via the FFI child pool (Maple), same isolated process as RAW.
- * Same output as the live `/api/fs/thumb` route on a cache miss.
+ * Same output as the live `/api/thumb/:slug/*` route on a cache miss.
  * `outPath` is the caller's private temp path — see `renderRawThumbToFile`.
  */
 async function renderBitmapThumbToFile(

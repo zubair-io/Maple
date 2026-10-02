@@ -109,6 +109,29 @@ import XCTest
       XCTAssertNil(records.last?.etag, "new server must not receive the previous server's ETag")
     }
 
+    func testFileProviderReadsRealUnifiedPreviewAndRevalidatesItsETag() async throws {
+      let fixture = try await UnifiedFolderHTTPFixture.start()
+      defer { fixture.stop() }
+      let catalog = RemoteCatalog(http: client(fixture.url), server: fixture.url)
+      let path = "\(fixture.album)/photo.dng"
+      let first = try await catalog.getPreview(absPath: path)
+      let second = try await catalog.getPreview(absPath: path)
+      XCTAssertEqual(first, Data("published-preview".utf8))
+      XCTAssertEqual(second, first)
+      let records = try await requests(fixture.url)
+      XCTAssertEqual(records.filter { $0.path == "/maple/api/folders" }.count, 1)
+      let previews = records.filter { $0.path.contains("/api/preview/") }
+      XCTAssertEqual(previews.count, 2)
+      XCTAssertTrue(
+        previews.allSatisfy {
+          $0.path
+            == "/maple/api/preview/photos/My%20Album%20%23%3F/photo.dng?pv=\(MaplePipelineVersion.value)"
+        })
+      XCTAssertNotNil(previews.last?.etag)
+      XCTAssertTrue(records.allSatisfy { $0.authorization == "Bearer folder-token" })
+      XCTAssertFalse(records.contains { $0.path.contains("/api/fs/") })
+    }
+
     private func client(_ url: URL) -> AuthenticatedHTTPClient {
       AuthenticatedHTTPClient(
         server: url, urlSession: URLSession(configuration: .ephemeral),
