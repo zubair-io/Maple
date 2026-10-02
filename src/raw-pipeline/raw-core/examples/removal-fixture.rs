@@ -112,6 +112,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(cap),
                 None,
             )?;
+            std::fs::write(
+                directory.join(format!("preview-{cap}-q90.jpg")),
+                raw_core::jpeg::encode(w, h, &pixels, 90)?,
+            )?;
             std::fs::write(directory.join(format!("preview-{cap}.rgb")), pixels)?;
             std::fs::write(
                 directory.join(format!("preview-{cap}.json")),
