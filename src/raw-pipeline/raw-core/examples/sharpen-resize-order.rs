@@ -33,6 +33,9 @@ fn main() {
     native.pixels = decoded.layer_data.channel_data.pixels.1;
     let mut reduced = native.clone();
     downsample_image_area(&mut reduced, edge);
+    // Candidates below set their effective radius explicitly, to keep the
+    // unchanged-radius control independent of production density handling.
+    reduced.nr_sampling_scale = 1.0;
     let model = AdjustmentModel::default();
     let scale = reduced.width as f32 / native.width as f32;
     let output = Path::new(&args[2]);

@@ -227,10 +227,11 @@ pub fn apply_scene_linear_chain(
     // before nr_luminance) and as the GPU live chain's `SharpenPass`.
     // `sharpen::apply` short-circuits below |amount| < 1e-3.
     stage("ffi_chain_sharpen", || {
+        let radius = sharpen::radius_at_scale(model.sharpen_radius, img.nr_sampling_scale);
         sharpen::apply(
             &mut img,
             model.sharpen_amount,
-            model.sharpen_radius,
+            radius,
             model.sharpen_detail,
             model.sharpen_masking,
         )

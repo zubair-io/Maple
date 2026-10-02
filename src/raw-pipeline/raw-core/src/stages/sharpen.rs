@@ -81,6 +81,17 @@ pub fn stencil_reach_px(radius: f32) -> usize {
     (3.0 * radius.clamp(0.5, 3.0)).ceil() as usize + 1
 }
 
+/// Convert a global sharpening radius from developed-frame to preview pixels.
+/// Local-adjustment sharpening retains its separate fixed-radius contract.
+pub fn radius_at_scale(radius: f32, sampling_scale: f32) -> f32 {
+    let scale = if sampling_scale.is_finite() && sampling_scale > 0.0 {
+        sampling_scale.min(1.0)
+    } else {
+        1.0
+    };
+    (radius.clamp(0.5, 3.0) * scale).clamp(0.5, 3.0)
+}
+
 #[inline]
 pub fn apply(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
     apply_cancellable(img, amount, radius, detail, masking, CancelToken::never());
@@ -248,3 +259,7 @@ mod tests;
 #[cfg(test)]
 #[path = "sharpen/tests_fringing.rs"]
 mod tests_fringing;
+
+#[cfg(test)]
+#[path = "sharpen/tests_sampling.rs"]
+mod tests_sampling;

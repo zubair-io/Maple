@@ -49,6 +49,17 @@ use crate::chain::Pass;
 use crate::context::GpuContext;
 use crate::spatial::{alloc_plane, alloc_rgba, encode_simple, pool_data_storage};
 
+/// Convert authored developed-frame radius to the preview's pixel density.
+/// Keep the same clamp and invalid-density fallback as raw-core sharpening.
+pub(crate) fn radius_at_scale(radius: f32, sampling_scale: f32) -> f32 {
+    let scale = if sampling_scale.is_finite() && sampling_scale > 0.0 {
+        sampling_scale.min(1.0)
+    } else {
+        1.0
+    };
+    (radius.clamp(0.5, 3.0) * scale).clamp(0.5, 3.0)
+}
+
 /// Fixed tap-capacity of the pooled sharpen kernel buffer: the longest kernel
 /// the clamped sigma range can demand. `sigma <= 3.0` → `half = ceil(3σ) <= 9`
 /// → `klen = 2*half + 1 <= 19`. Allocating at the ceiling keeps the pooled

@@ -476,7 +476,7 @@ pub fn build_split<'a>(
     }));
     suffix.push(Box::new(SharpenPass {
         amount: inputs.sharpen_amount,
-        radius: inputs.sharpen_radius,
+        radius: crate::sharpen::radius_at_scale(inputs.sharpen_radius, inputs.nr_sampling_scale),
         detail: inputs.sharpen_detail,
         masking: inputs.sharpen_masking,
     }));

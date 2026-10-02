@@ -1,0 +1,141 @@
+{
+  "issue": 3875,
+  "sourceBase": "6d38128de",
+  "change": "Convert global sharpening radius to carried preview pixel density in CPU develop, CPU f16/f32 live chains and GPU full/live composition; native and local-mask contracts retained.",
+  "managedSourceRevision": "13d27467c",
+  "provenance": {
+    "physical_reference_qualified": false,
+    "managed_app_sha256": "DF3421E9647EDE3B73630E6B80AE64C1F7937930DF0DF0C0CC81814D5DC30F54",
+    "reference_demosaic": "AMaZE with sidecar override",
+    "cli_sha256": "646C89059EDB406EBCFDDA094637405D293027091BD8F0F152E4C6A8DC091A92",
+    "qualification_limits": [
+      "Physical reference hardware and 100MP source dimensions require separate verification.",
+      "GPU screenshot perceptual parity is not covered by these CPU-preview and production-export comparisons."
+    ],
+    "production_export_demosaic": "Auto policy with sidecar override",
+    "sidecar_sha256": null,
+    "native_pipeline_sha256": "554700030AC160579BEE2FB149BD01D0D89758F29B48AF4FF14A5C33A35D001C",
+    "app_sha256": "8B990383328B403862ADA6CEF57352C931C1C720FDE4F07F7D5273EA443C5E1D",
+    "fixture_sha256": "F4B60B3672BDF7FF7F4376FBA9DA1B1D22C925EBC3E16BAA5FD4A64FA1045AA5"
+  },
+  "tests": {
+    "sharpenStagePassed": 13,
+    "fileBudgetHardViolations": 0,
+    "cpuLiveSamplingAndNativeDetailPassed": 1,
+    "gpuSamplingPassed": 2
+  },
+  "qualificationExitCode": 1,
+  "verdict": {
+    "mean_budget": 2.0,
+    "preview_parity_failed": true,
+    "tick_verdict": "FAIL (fast tick exceeds 50ms hard limit)",
+    "preview_export_parity_failed": true,
+    "export_parity_failed": false
+  },
+  "previewFullReference": {
+    "mean_deltaE": 3.9113374993637335,
+    "p95_deltaE": 10.069627062435712,
+    "max_deltaE": 68.31616558461548,
+    "bias_r": -0.004647171590477228,
+    "bias_g": -0.0030081458389759064,
+    "bias_b": -0.003558577736839652,
+    "n_pixels": 100663296
+  },
+  "exportFullReference": {
+    "mean_deltaE": 0.5863638150561259,
+    "p95_deltaE": 1.3255641912670881,
+    "max_deltaE": 23.71250312820742,
+    "bias_r": 1.862841054389719E-05,
+    "bias_g": 8.035370410652831E-05,
+    "bias_b": 8.548622281523421E-05,
+    "n_pixels": 100663296
+  },
+  "previewProductionExport": {
+    "mean_deltaE": 3.8619006132321982,
+    "p95_deltaE": 10.022206865502005,
+    "max_deltaE": 68.56050841613568,
+    "bias_r": -0.004688919987529516,
+    "bias_g": -0.00310270837508142,
+    "bias_b": -0.0036671224515885115,
+    "n_pixels": 100663296
+  },
+  "matchedViewport": {
+    "mean_deltaE": 2.6246169372949812,
+    "p95_deltaE": 6.106473843126895,
+    "max_deltaE": 38.71583331598337,
+    "bias_r": 0.004257204011082649,
+    "bias_g": 0.0027383090928196907,
+    "bias_b": 0.0033568586222827435,
+    "n_pixels": 1707200
+  },
+  "gpuTiming": {
+    "raw": "C:\\Users\\zubai\\AppData\\Local\\Temp\\maple-qualify-0f98c38a0e0c457085a58586b6f71c7b\\gpu\\test_0000.DNG",
+    "render_path": "gpu",
+    "timing_clock": "Stopwatch",
+    "timing_frequency_hz": 10000000,
+    "timing_high_resolution": true,
+    "decode_ms": 13274.7959,
+    "tick_ms": [
+      77.4409,
+      6.524,
+      4.4865,
+      3.8349,
+      4.2011,
+      3.4219,
+      5.2584,
+      3.4024,
+      3.583,
+      3.6282,
+      3.9181,
+      3.41,
+      3.5599,
+      3.3119,
+      3.5084,
+      3.3176,
+      3.856,
+      3.596,
+      14.5635,
+      4.155
+    ],
+    "median_ms": 3.7315500000000004,
+    "p95_ms": 14.5635,
+    "target_ms": 16,
+    "hard_limit_ms": 50,
+    "refine_ms": [
+      87.0049,
+      4.0046,
+      3.7499,
+      3.613,
+      2.9516,
+      3.4222,
+      3.6542,
+      3.5697,
+      3.3787,
+      3.6148,
+      3.1681,
+      3.3316,
+      3.4602,
+      3.4353,
+      3.4409,
+      3.1655,
+      9.5162,
+      20.3188,
+      6.7165,
+      3.9186
+    ],
+    "refine_median_ms": 3.5913500000000003
+  },
+  "previousMeans": {
+    "previewProductionExport": 3.9681796821974076,
+    "previewFullReference": 4.0104025784531,
+    "matchedViewport": 2.7552724057473723,
+    "exportFullReference": 0.5863638150561259
+  },
+  "conclusion": "Production preview mean error improves in both full-reference and viewport-matched comparisons, while native export remains numerically unchanged. All preview comparisons still exceed 2.0. The first GPU tick exceeded 50ms, so performance also fails this run.",
+  "limitations": [
+    "One real RAW; no complete scene-corpus or GPU screenshot qualification.",
+    "GPU timing ran on uncontrolled host conditions, including a background repository file-budget scan; it is retained as a failed observation, not physical reference-hardware qualification.",
+    "The earlier native XAML crash remains unresolved.",
+    "No threshold, default profile, sharpening amount or user sidecar value changed."
+  ]
+}

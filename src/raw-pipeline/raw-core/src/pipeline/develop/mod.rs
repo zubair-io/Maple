@@ -487,10 +487,11 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     });
     dump_after("12c_vignette", &scene);
     stage("sharpen", || {
+        let radius = sharpen::radius_at_scale(model.sharpen_radius, scene.nr_sampling_scale);
         sharpen::apply_cancellable(
             &mut scene,
             model.sharpen_amount,
-            model.sharpen_radius,
+            radius,
             model.sharpen_detail,
             model.sharpen_masking,
             cancel,

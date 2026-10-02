@@ -55,7 +55,8 @@ pub struct Image {
     /// Full-frame pre-AE scene white, carried through edits and detail crops.
     pub whites_anchor_ev: Option<f32>,
     /// Output pixels per developed full-frame pixel; cropping preserves density.
-    /// #3875: host/ABI propagation is staged separately; never infer this from a crop.
+    /// Used by sharpening and chroma NR; never infer this from a crop.
+    /// The ABI retains the original NR-specific field name.
     pub nr_sampling_scale: f32,
 }
 

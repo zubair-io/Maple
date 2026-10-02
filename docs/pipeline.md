@@ -138,6 +138,8 @@ Every row is at or below AMaZE on the flat ROI, on ΔE and on mean Oklab chroma 
 
 Cancellation is cooperative: `CancelToken` is threaded into demosaic, BM3D, capture sharpening, sharpen and both NR stages, and checked between the heavy stages, so a superseded cold open unwinds mid-stage instead of finishing an 8-second denoise nobody wants.
 
+Global sharpening radius is measured in developed-frame pixels. Reduced previews convert it using the carried output-pixel density before constructing the Gaussian kernel, with the existing 0.5–3 pixel kernel clamp. Native detail stays at density 1; cropping does not change density. CPU develop, both CPU live-buffer formats, and GPU full/live composition use this conversion. The ABI retains the `nr_sampling_scale` name for the density already used by chroma NR. Local-mask sharpening retains its separate fixed-radius contract. The isolated evidence in `windows-sharpen-order313.json` demonstrates the resolution mismatch; it is not a replacement for the production display-parity gate.
+
 ### Colour management
 
 **DCP profiles.** `color/dcp.rs` builds a `DcpProfile` — a camera→XYZ `ColorMatrix` at the scene illuminant, an optional `ForwardMatrix` (white-balanced camera RGB → XYZ-D50 per the DNG SDK, _not_ XYZ→ProPhoto), the scene white point, and an optional HueSatMap. Dual-illuminant profiles interpolate CM, FM and HSM together by reciprocal CCT (`interpolated_profile`). Apply runs CM/FM chromatic adaptation plus HSM metameric correction in linear ProPhoto D50, then converts to Rec.2020. Adobe's aesthetic layers — `ProfileToneCurve` and `ProfileLookTable` — deliberately do **not** run: they were calibrated under Adobe's tone mapping and stacking them on AgX produced compound hue errors.
