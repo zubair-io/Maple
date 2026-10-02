@@ -71,6 +71,15 @@ final class RemovalPersonRefinementTests: XCTestCase {
     XCTAssertEqual(removal.selection, confirmedSelection)
     XCTAssertEqual(removal.personGestures.count, confirmedGestures)
     XCTAssertEqual(removal.redoPersonGestures.count, confirmedRedo)
+    removal.personBases = [
+      RemovalPersonSelection(id: 1, mask: left), RemovalPersonSelection(id: 2, mask: right),
+    ]
+    await removal.redoSelection()
+    XCTAssertTrue(removal.message.isEmpty)
+    XCTAssertEqual(removal.personMasks.count, 1)
+    await removal.undoSelection()
+    XCTAssertTrue(removal.message.isEmpty)
+    XCTAssertEqual(removal.selection, confirmedSelection)
     removal.refinePerson(nil)
     XCTAssertFalse(removal.canPaint)
     XCTAssertTrue(removal.canUndoSelection)
