@@ -31,7 +31,7 @@ import { clampInt, extractDatesFromQuery, peopleNames } from './search/query.ts'
 import { personIdsToDrop } from '../db/repos/people.visibility.ts';
 import { personIdsForNames } from '../db/repos/people.search-filter.ts';
 import { meiliPage } from './search/list-meili.ts';
-import { projectAsset } from './search/project.ts';
+import { projectAssets } from './search/project.ts';
 
 /** Wire shape for a collection card. The stored `query` rides along so a
  * client can deep-link into `/search` with the same filters. */
@@ -117,7 +117,7 @@ export const generatedSearchesRoutes = new Elysia({ prefix: '/api/generated-sear
 
       return {
         total,
-        results: docs.map((d) => projectAsset(d as never, libs, idToSlug)),
+        results: await projectAssets(docs, libs, idToSlug),
       };
     },
     { query: t.Object({ limit: t.Optional(t.String()), offset: t.Optional(t.String()) }) },
