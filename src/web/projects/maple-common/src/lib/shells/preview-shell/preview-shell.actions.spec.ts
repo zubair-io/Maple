@@ -56,3 +56,13 @@ it('focused Preview actions own their keys while surface navigation still works'
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   expect(state.focusNext).toHaveBeenCalledOnce();
 });
+
+it('the filmstrip collapse control owns keys without paging photos', () => {
+  const { fixture, state } = setupFixture();
+  const toggle = fixture.nativeElement.querySelector(
+    'editor-filmstrip .strip-toggle',
+  ) as HTMLButtonElement;
+  expect(toggle).not.toBeNull();
+  toggle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  expect(state.focusNext).not.toHaveBeenCalled();
+});
