@@ -202,6 +202,7 @@ describe('findListItems', () => {
         'id',
         'mtime',
         'owner_id',
+        'owner',
         'rating',
       ].sort(),
     );

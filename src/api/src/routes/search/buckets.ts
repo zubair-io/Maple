@@ -76,6 +76,7 @@ const BUCKETS_CACHE_KEY_FIELDS = [
   'hidden',
   'ownerId',
   'owner_id',
+  'owner',
 ] as const satisfies readonly (keyof SearchQuery)[];
 
 /** Stable JSON serialisation of a SearchQuery. Field order is fixed
@@ -105,7 +106,7 @@ export function makeBucketsCacheKey(q: SearchQuery): string {
         ? canonicalScope(q.scope)
         : field === 'hidden'
           ? canonicalHidden(q.hidden)
-          : field === 'ownerId' || field === 'owner_id'
+          : field === 'owner' || field === 'ownerId' || field === 'owner_id'
             ? canonicalOwner(q)
             : (q[field] ?? null),
     ]),

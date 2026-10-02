@@ -106,6 +106,7 @@ const FILTER_AFFECTING_FIELD_VALUES: Record<string, [string, string]> = {
   excludeHiddenPeople: ['true', 'false'],
   ownerId: ['664000000000000000000001', '664000000000000000000002'],
   owner_id: ['664000000000000000000001', '664000000000000000000002'],
+  owner: ['664000000000000000000001', '664000000000000000000002'],
 };
 
 const NON_FILTER_FIELDS = new Set(['page', 'limit', 'sort', 'cursor']);
@@ -142,6 +143,7 @@ const ALL_SEARCH_QUERY_FIELDS: Record<keyof SearchQuery, true> = {
   excludeHiddenPeople: true,
   ownerId: true,
   owner_id: true,
+  owner: true,
   page: true,
   limit: true,
   sort: true,

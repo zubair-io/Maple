@@ -22,6 +22,11 @@ import { findListItems, type ListFilter } from '../db/assets.repo.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 
 // The File Provider working-set list is a filesystem surface (#2893).
+function parsedOwnerId(query: { owner?: string; ownerId?: string; owner_id?: string }) {
+  const raw = query.owner ?? query.ownerId ?? query.owner_id;
+  return raw === undefined ? undefined : normaliseObjectIdHex(raw);
+}
+
 export const assetsListRoutes = new Elysia({ prefix: '/api/assets' }).use(requireFileAccess).get(
   '/',
   async ({ query, set }) => {
@@ -46,15 +51,12 @@ export const assetsListRoutes = new Elysia({ prefix: '/api/assets' }).use(requir
       }
       filter.capturedAfterIso = d.toISOString();
     }
-    const rawOwnerId = query.owner_id;
-    if (rawOwnerId !== undefined) {
-      const ownerId = normaliseObjectIdHex(rawOwnerId);
-      if (ownerId === null) {
-        set.status = 400;
-        return { error: 'owner_id must be a valid ObjectId' };
-      }
-      filter.ownerId = ownerId;
+    const ownerId = parsedOwnerId(query);
+    if (ownerId === null) {
+      set.status = 400;
+      return { error: 'owner_id must be a valid ObjectId' };
     }
+    if (ownerId !== undefined) filter.ownerId = ownerId;
     // Validate `limit` here rather than letting `Number.parseInt` pass
     // `NaN` through to the repo's `Math.min(Math.max(NaN, 1), 20000)`
     // (which propagates NaN, then turns into an unbounded find). Reject
@@ -80,6 +82,8 @@ export const assetsListRoutes = new Elysia({ prefix: '/api/assets' }).use(requir
       captured_after: t.Optional(t.String()),
       limit: t.Optional(t.String()),
       owner_id: t.Optional(t.String()),
+      ownerId: t.Optional(t.String()),
+      owner: t.Optional(t.String()),
     }),
   },
 );

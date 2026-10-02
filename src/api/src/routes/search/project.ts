@@ -6,6 +6,8 @@
  */
 
 import type { ObjectId } from '../../db/object-id.ts';
+import type { AssetOwnerSummary } from '../../db/assets.transform.ts';
+import { ownerSummariesForIds } from '../../db/repos/assets.owners.ts';
 import type { AssetDoc, FileInfo, Place } from '../../db/schema.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 
@@ -57,6 +59,7 @@ export interface SearchResult {
   has_xmp?: boolean;
   hidden?: boolean;
   owner_id: string | null;
+  owner: AssetOwnerSummary | null;
 }
 
 /**
@@ -82,6 +85,7 @@ export function projectAsset(
   d: AssetDoc & { _id: ObjectId },
   libraries: ReadonlyMap<string, string>,
   idToSlug: ReadonlyMap<string, string>,
+  owner: AssetOwnerSummary | null,
 ): SearchResult {
   const exif = d.exif ?? null;
   const camera =
@@ -125,6 +129,7 @@ export function projectAsset(
     has_xmp: d.has_xmp ?? false,
     hidden: d.hidden,
     owner_id: ownerIdString(d.owner_id),
+    owner,
   };
   if (d.phasset_links && d.phasset_links.length > 0) {
     // Strip `device_id` and `first_seen` from the wire shape — the merged
@@ -136,4 +141,16 @@ export function projectAsset(
     });
   }
   return result;
+}
+
+/** Populate the page's unique owners once for either Search backend. */
+export async function projectAssets(
+  docs: readonly (AssetDoc & { _id: ObjectId })[],
+  libraries: ReadonlyMap<string, string>,
+  idToSlug: ReadonlyMap<string, string>,
+): Promise<SearchResult[]> {
+  const owners = await ownerSummariesForIds(docs.map((doc) => ownerIdString(doc.owner_id)));
+  return docs.map((doc) =>
+    projectAsset(doc, libraries, idToSlug, owners.get(ownerIdString(doc.owner_id) ?? '') ?? null),
+  );
 }

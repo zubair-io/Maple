@@ -129,6 +129,9 @@ describe('unpushableFilters — which filters force the database path', () => {
     ['q', { q: 'DJI' }],
     ['scope', { scope: 'people' }],
     ['excludeHiddenPeople', { excludeHiddenPeople: 'true' }],
+    ['owner', { owner: '1'.repeat(24) }],
+    ['ownerId', { ownerId: '1'.repeat(24) }],
+    ['owner_id', { owner_id: '1'.repeat(24) }],
   ])('reports %s as unpushable', (key, extra) => {
     expect(unpushableFilters({ placeQuery: 'greyson', ...extra })).toContain(key);
   });

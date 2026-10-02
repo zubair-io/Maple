@@ -90,6 +90,7 @@ export interface SearchQuery {
   excludeHiddenPeople?: string;
   ownerId?: string;
   owner_id?: string;
+  owner?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -132,6 +133,7 @@ export const SearchQueryT = t.Object({
   excludeHiddenPeople: t.Optional(t.String()),
   ownerId: t.Optional(t.String()),
   owner_id: t.Optional(t.String()),
+  owner: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),

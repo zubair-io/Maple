@@ -35,6 +35,7 @@ import { ObjectId } from '../object-id.ts';
 import { toHex } from './values.ts';
 import { toCoreInfo, toDetailDto, toListItemDto, EMPTY_BUNDLE } from './assets.dto.ts';
 import { loadBundles, loadCoreBundle, loadLibraries, loadLocations } from './assets.read.ts';
+import { ownerSummariesForIds } from './assets.owners.ts';
 import type { AssetCoreRow, ListItemRow } from './assets.rows.ts';
 import {
   ASSET_CORE_BY_ID_SQL,
@@ -86,8 +87,17 @@ export async function findDetailById(
   const hex = id.toHexString();
   const row = await readCoreRow(db, hex);
   if (!row) return null;
-  const [libraries, bundles] = await Promise.all([loadLibraries(db), loadBundles(db, [hex])]);
-  return toDetailDto(row, bundles.get(hex) ?? EMPTY_BUNDLE, libraries);
+  const [libraries, bundles, owners] = await Promise.all([
+    loadLibraries(db),
+    loadBundles(db, [hex]),
+    ownerSummariesForIds([row.owner_id], db),
+  ]);
+  return toDetailDto(
+    row,
+    bundles.get(hex) ?? EMPTY_BUNDLE,
+    libraries,
+    owners.get(row.owner_id ?? '') ?? null,
+  );
 }
 
 /**
@@ -106,8 +116,22 @@ export async function findDetailsByIds(
   const rows = await db.read<AssetCoreRow>(assetCoreByIdsSql(hexes.length), hexes);
   if (rows.length === 0) return [];
   const found = rows.map((row) => row.id);
-  const [libraries, bundles] = await Promise.all([loadLibraries(db), loadBundles(db, found)]);
-  return rows.map((row) => toDetailDto(row, bundles.get(row.id) ?? EMPTY_BUNDLE, libraries));
+  const [libraries, bundles, owners] = await Promise.all([
+    loadLibraries(db),
+    loadBundles(db, found),
+    ownerSummariesForIds(
+      rows.map((row) => row.owner_id),
+      db,
+    ),
+  ]);
+  return rows.map((row) =>
+    toDetailDto(
+      row,
+      bundles.get(row.id) ?? EMPTY_BUNDLE,
+      libraries,
+      owners.get(row.owner_id ?? '') ?? null,
+    ),
+  );
 }
 
 /**
@@ -283,8 +307,22 @@ export async function findListItems(
   const rows = await db.read<ListItemRow>(sql, [...params, clamped]);
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
-  const [libraries, locations] = await Promise.all([loadLibraries(db), loadLocations(db, ids)]);
-  return rows.map((row) => toListItemDto(row, locations.get(row.id) ?? [], libraries));
+  const [libraries, locations, owners] = await Promise.all([
+    loadLibraries(db),
+    loadLocations(db, ids),
+    ownerSummariesForIds(
+      rows.map((row) => row.owner_id),
+      db,
+    ),
+  ]);
+  return rows.map((row) =>
+    toListItemDto(
+      row,
+      locations.get(row.id) ?? [],
+      libraries,
+      owners.get(row.owner_id ?? '') ?? null,
+    ),
+  );
 }
 
 /**

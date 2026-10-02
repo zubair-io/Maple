@@ -35,6 +35,13 @@ import {
   type VisionMeta,
 } from './schema.ts';
 
+/** A populated account reference on public asset responses. */
+export interface AssetOwnerSummary {
+  id: string;
+  /** Email-free accounts are valid users. */
+  email: string | null;
+}
+
 /**
  * Full single-asset DTO returned by `GET /api/assets/:id`.
  *
@@ -95,6 +102,7 @@ export interface AssetDetailDto {
   hidden_ack?: boolean;
   enrichment: Enrichment;
   owner_id?: string | null;
+  owner?: AssetOwnerSummary | null;
 }
 
 /** A detected face plus its resolved person display name. `name` is the
@@ -136,6 +144,7 @@ export interface AssetListItemDto {
   hidden_reason?: 'manual' | 'nudity' | 'nudity-burst' | 'folder' | null;
   hidden_ack?: boolean;
   owner_id?: string | null;
+  owner?: AssetOwnerSummary | null;
 }
 
 /** Minimal shape used by routes that need to drive FS / change-feed
