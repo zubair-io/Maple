@@ -53,13 +53,13 @@
         Sent {{ summary.trashed }} item(s) to Trash.
       }
     </span>
-    <button
-      type="button"
-      class="dlg-toast-dismiss"
-      (click)="trash.dismissSummary()"
-      aria-label="Dismiss"
-    >
-      ✕
-    </button>
+    <mui-button
+      variant="ghost"
+      size="sm"
+      [iconOnly]="true"
+      iconLeading="x"
+      ariaLabel="Dismiss"
+      (pressed)="trash.dismissSummary()"
+    />
   </div>
 }

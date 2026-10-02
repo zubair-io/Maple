@@ -3,6 +3,7 @@ import {
   BATCH_RENAME_ENABLED,
   DRAG_MOVE_CAPABILITY,
   LibraryStateService,
+  MuiButtonComponent,
   TRASH_CAPABILITY,
 } from '@maple-common';
 import { SelfHostedBrowseController } from '../self-hosted-browse/self-hosted-browse.controller';
@@ -11,8 +12,9 @@ import { BrowseActionButtonComponent } from './browse-action-button.component';
 @Component({
   selector: 'app-self-hosted-browse-actions',
   standalone: true,
-  imports: [BrowseActionButtonComponent],
+  imports: [BrowseActionButtonComponent, MuiButtonComponent],
   templateUrl: './self-hosted-browse-actions.component.html',
+  styleUrl: './self-hosted-browse-actions.component.scss',
   host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
