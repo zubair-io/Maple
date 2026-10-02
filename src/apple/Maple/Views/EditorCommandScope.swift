@@ -39,7 +39,11 @@ struct EditorCommandScope: ViewModifier {
       .focusable().focused($canvasFocused).focusEffectDisabled()
       .onAppear {
         if router?.isActive != true { router = EditorCommandRouter(state: state) }
-        canvasFocused = true
+        // Forcing key-input focus on iOS summons the software keyboard when
+        // a native menu opens. Let touch/hardware focus choose its responder.
+        #if os(macOS)
+          canvasFocused = true
+        #endif
       }
       .onKeyPress(phases: [.down, .repeat, .up]) { press in handle(press) }
       .onChange(of: canvasFocused) { _, hasFocus in

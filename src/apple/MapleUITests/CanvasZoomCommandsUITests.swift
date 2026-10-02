@@ -40,7 +40,8 @@ import XCTest
 
       app.typeKey("1", modifierFlags: .command)
       assertValue("Zoom 100 percent", on: badge)
-      app.buttons["editor-pill-zoom"].click()
+      app.descendants(matching: .any).matching(identifier: "editor-more").firstMatch.click()
+      app.menuItems["Zoom to Fit"].click()
       assertValue(fitValue, on: badge)
 
       let slider = app.descendants(matching: .any)

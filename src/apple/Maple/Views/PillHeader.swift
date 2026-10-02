@@ -1,24 +1,7 @@
-// PillHeader.swift — Pro Editor Canvas-first (A2, #1555).
-//
-// Frosted-glass pill at the top of the canvas.  Contains, left → right:
-// back chevron, filename, live RGB histogram chip, AUTO, before/after toggle
-// (only while the session is dirty), undo (tap) / redo (long-press), info,
-// share, zoom-percent readout, GPU/CPU render-path indicator.
-//
-// Replaces the full-width `EditorHeader` treatment from the old vertical
-// editor.  The Info button plumbs the editor's `onInfo` closure (the
-// iPhone Info sheet via EditorDestination, the desktop/iPad inspector
-// reveal via EditorSessionHost) — without it the info affordance would be
-// unreachable in the canvas-first shell.
-//
-// On compact width the trailing controls scroll horizontally so the pill
-// always fits the screen and the back chevron + filename stay pinned and
-// visible (`FloatingImageHeader`).
-
 import MapleCore
-import MapleUI
 import SwiftUI
 
+/// Native floating photo controls. Secondary commands remain available in More.
 struct PillHeader: View {
   @Bindable var state: EditorState
   @Environment(\.editorCommandRouter) private var router
@@ -26,159 +9,117 @@ struct PillHeader: View {
   let onShare: () -> Void
   let onInfo: () -> Void
   @Binding var showsScope: Bool
-  /// Four-up scopes panel toggle (#3251); the button only renders when
-  /// `scopesPanelAvailable` (regular width — the panel has no compact home).
   @Binding var showsScopesPanel: Bool
   let scopesPanelAvailable: Bool
 
   var body: some View {
-    FloatingImageHeader(
-      displayName: state.session.asset.displayName,
-      identifierPrefix: "editor",
-      onBack: onBack
-    ) {
-      // Live RGB histogram chip (#1583) — 70×30, between the filename and
-      // the before/after toggle, per the canvas-first design pill. Shares
-      // `MiniHistogram` with the 56pt inspector block, so the curves and
-      // the (debounced, off-render-path) data loading cannot drift; only
-      // the chrome below is editor-specific.
+    FloatingImageHeader(identifierPrefix: "editor", onBack: onBack) {
       MiniHistogram(session: state.session)
-        .frame(width: 70, height: 30)
-        .clipShape(RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
-        .background(ProTokens.panel, in: RoundedRectangle(cornerRadius: MapleTokens.Radius.sm))
-        .overlay(
-          RoundedRectangle(cornerRadius: MapleTokens.Radius.sm)
-            .stroke(ProTokens.border, lineWidth: 0.5)
-        )
+        .frame(maxWidth: 140)
+        .frame(height: 26)
+        .padding(.horizontal, 12)
         .allowsHitTesting(false)
+        .accessibilityLabel("RGB histogram")
         .accessibilityIdentifier("editor-pill-histogram")
-
+    } trailing: {
       EditorAutoButton(state: state)
         .id(ObjectIdentifier(state.session))
 
-      // Before/after toggle — shown only when there are edits
-      if state.isDirty {
-        EditorCompareButton(state: state)
-          .id(ObjectIdentifier(state.session))
-      }
-
-      // Undo (tap) / Redo (long-press)
-      Button(action: { history(redo: false) }) {
-        MuiIcon(name: "undo", size: .xs)
-          .font(.system(size: 14, weight: .regular))
-          .foregroundStyle(
-            (state.canUndo || state.canRedo)
-              ? ProTokens.text
-              : ProTokens.textDim
-          )
-          .frame(minWidth: 44, minHeight: 44)
-      }
-      .buttonStyle(.plain)
-      .disabled(!state.canUndo && !state.canRedo)
-      .highPriorityGesture(
-        LongPressGesture(minimumDuration: 0.5).onEnded { _ in history(redo: true) }
-      )
-      .accessibilityLabel("Undo")
-      .accessibilityHint("Tap to undo; hold to redo.")
-      .accessibilityAction(named: "Redo") { history(redo: true) }
-      .accessibilityIdentifier("editor-undo")
-      .help("Undo (⌘Z); hold to Redo (⌘⇧Z)")
-
-      // Info — opens the iPhone Info sheet / reveals the desktop
-      // inspector via the editor's `onInfo` closure.
-      Button(action: onInfo) {
-        MuiIcon(name: "info", size: .xs)
-          .font(.system(size: 14, weight: .regular))
-          .foregroundStyle(ProTokens.text)
-          .frame(minWidth: 44, minHeight: 44)
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Info")
-      .accessibilityIdentifier("editor-info")
-
-      // Share / export
-      Button(action: onShare) {
-        MuiIcon(name: "ios_share", size: .xs)
-          .font(.system(size: 14, weight: .regular))
-          .foregroundStyle(ProTokens.text)
-          .frame(minWidth: 44, minHeight: 44)
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Share")
-      .accessibilityIdentifier("editor-share")
-
-      // Vectorscope HUD toggle (#3277) — shows/hides the canvas-corner
-      // scope; the HUD itself arms `session.scopeEnabled` on appear.
       Button {
-        showsScope.toggle()
+        perform(.undo)
       } label: {
-        MuiIcon(name: "filter_vintage", size: .xs)
-          .font(.system(size: 14, weight: .regular))
-          .foregroundStyle(showsScope ? ProTokens.accent : ProTokens.text)
-          .frame(minWidth: 44, minHeight: 44)
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel(showsScope ? "Hide vectorscope" : "Show vectorscope")
-      .accessibilityIdentifier("editor-pill-scope")
-
-      // Scopes panel toggle (#3251) — histogram + waveform + parade +
-      // vectorscope, mounted by EditorView beside the filmstrip rail.
-      if scopesPanelAvailable {
-        Button {
-          showsScopesPanel.toggle()
-        } label: {
-          MuiIcon(name: "monitoring", size: .xs)
-            .font(.system(size: 14, weight: .regular))
-            .foregroundStyle(showsScopesPanel ? ProTokens.accent : ProTokens.text)
-            .frame(minWidth: 44, minHeight: 44)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(showsScopesPanel ? "Hide scopes" : "Show scopes")
-        .accessibilityIdentifier("editor-pill-scopes")
-      }
-
-      // Divider between action buttons and status indicators
-      Rectangle()
-        .fill(ProTokens.border)
-        .frame(width: 1, height: 18)
-
-      // Both zoom readouts return to fit through the same controller.
-      Button(action: state.zoom.resetToFit) {
-        Text(FullImageViewVM.zoomPercentLabel(for: state.zoom.effectivePixelScale))
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(ProTokens.textMuted)
-          .monospacedDigit()
-          .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+        Image(systemName: "arrow.uturn.backward")
+          .font(.system(size: 22))
+          .frame(width: 44, height: 44)
           .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
-      .disabled(state.zoom.displayFrameInPoints == nil)
-      .help("Zoom to Fit (⌘0)")
-      .accessibilityLabel("Zoom to Fit")
-      .accessibilityValue(
-        FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
-      )
-      .accessibilityIdentifier("editor-pill-zoom")
+      .disabled(!state.canUndo)
+      .accessibilityLabel("Undo")
+      .accessibilityIdentifier("editor-undo")
+      .help("Undo (⌘Z)")
 
-      // GPU / CPU render-path indicator — mirrors the removed bottom-
-      // trailing badge in EditorView.canvasLayer, same pill style.
-      Text(state.session.gpuFramePresented ? "GPU" : "CPU")
-        .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(ProTokens.textDim)
-        .allowsHitTesting(false)
-        .accessibilityIdentifier("editor-pill-render-path")
+      overflowMenu
     }
+    .buttonStyle(.plain)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-pill-header")
   }
 
-  private func history(redo: Bool) {
-    if let router {
-      router.perform(redo ? .redo : .undo, assetID: state.session.asset.id)
-    } else if redo {
-      state.redo()
-    } else {
-      state.undo()
+  private var overflowMenu: some View {
+    Menu {
+      Section {
+        Button {
+          perform(.compareToggle)
+        } label: {
+          Label(
+            state.session.showingOriginal ? "Show Edited" : "Compare with Original",
+            systemImage: "circle.lefthalf.filled"
+          )
+        }
+        .disabled(!state.isDirty && !state.session.showingOriginal)
+        .accessibilityIdentifier("editor-before-after")
+        .accessibilityValue(state.session.showingOriginal ? "Original" : "Edited")
+
+        Button {
+          perform(.redo)
+        } label: {
+          Label("Redo", systemImage: "arrow.uturn.forward")
+        }
+        .disabled(!state.canRedo)
+        .accessibilityIdentifier("editor-redo")
+      }
+
+      Section {
+        Button(action: onInfo) {
+          Label("Photo Info", systemImage: "info.circle")
+        }
+        .accessibilityIdentifier("editor-info")
+
+        Button(action: onShare) {
+          Label("Share / Export…", systemImage: "square.and.arrow.up")
+        }
+        .accessibilityIdentifier("editor-share")
+
+        Toggle(isOn: $showsScope) {
+          Label("Show Vectorscope", systemImage: "circle.hexagongrid")
+        }
+        .accessibilityIdentifier("editor-pill-scope")
+
+        if scopesPanelAvailable {
+          Toggle(isOn: $showsScopesPanel) {
+            Label("Show Scopes", systemImage: "waveform.path.ecg.rectangle")
+          }
+          .accessibilityIdentifier("editor-pill-scopes")
+        }
+      }
+
+      Section {
+        Button {
+          perform(.fit)
+        } label: {
+          Label("Zoom to Fit", systemImage: "arrow.up.left.and.arrow.down.right")
+        }
+        .disabled(state.zoom.displayFrameInPoints == nil)
+        .accessibilityValue(
+          FullImageViewVM.zoomAccessibilityLabel(for: state.zoom.effectivePixelScale)
+        )
+        .accessibilityIdentifier("editor-pill-zoom")
+      }
+    } label: {
+      Image(systemName: "ellipsis")
+        .font(.system(size: 22))
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
     }
+    #if os(macOS)
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+    #endif
+    .accessibilityLabel("More photo actions")
+    .accessibilityIdentifier("editor-more")
+  }
+
+  private func perform(_ command: EditorCommandRouter.Command) {
+    router?.perform(command, assetID: state.session.asset.id)
   }
 }
