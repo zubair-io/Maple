@@ -3,12 +3,10 @@
  *
  * `moveToTrash` and `moveOutOfTrash` are *pure* file-move logic — no
  * database, no auth. The route handlers compose them with asset-doc
- * updates and HTTP plumbing. Both are now thin wrappers around the
- * generic crash-safe `relocateFile` primitive (`fs/relocate.ts`, #2629):
- * copy the primary + every paired sidecar (canonical + conflict variants),
- * verify, then delete the originals — never a bare rename. Sidecar copy
- * errors are logged but never block the primary move (originals are sacred
- * but losing a sidecar copy is recoverable from search history).
+ * updates and HTTP plumbing. Trash uses the generic crash-safe relocate
+ * primitive; restore publishes the verified primary and every paired XMP
+ * exclusively, retrying collisions. Both copy and verify before deleting
+ * originals. Restore requires the complete pair to preserve edits (#3998).
  *
  * `pickFreePath` now lives in `fs/relocate.ts` (the collision-resolution
  * half of the generic primitive) and is re-exported here so existing
@@ -25,6 +23,8 @@ import * as path from 'node:path';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { child as childLogger } from '../log.ts';
 import { relocateFile, pickFreePath, sidecarRenameTarget } from './relocate.ts';
+import { classifySameFile } from './relocate-case-only-rename.ts';
+import { restoreDestinationOccupied, restoreFilePair } from './trash-restore-pair.ts';
 
 const log = childLogger('fs/trash');
 
@@ -81,18 +81,6 @@ export function computeTrashPath(absPath: string, folderRoot: string): string {
   return path.join(root, '.maple', 'trash', rel);
 }
 
-/** A dangling symlink still occupies its directory entry. Only ENOENT means
- * absence; permission and other lookup failures must stop restore. */
-async function restorePathOccupied(candidate: string): Promise<boolean> {
-  try {
-    await fs.lstat(candidate);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false;
-    throw error;
-  }
-}
-
 /** Append `.restored[.N]<ext>` until the path is free. Bounded to 1000 attempts.
  *
  * Throws after exhausting all candidates rather than returning the last
@@ -104,10 +92,10 @@ export async function pickFreeRestoredPath(basePath: string): Promise<string> {
   const ext = path.extname(basePath);
   const stem = ext ? basePath.slice(0, -ext.length) : basePath;
   const first = `${stem}.restored${ext}`;
-  if (!(await restorePathOccupied(first))) return first;
+  if (!(await restoreDestinationOccupied(first))) return first;
   for (let n = 1; n <= 1000; n++) {
     const cand = `${stem}.restored.${n}${ext}`;
-    if (!(await restorePathOccupied(cand))) return cand;
+    if (!(await restoreDestinationOccupied(cand))) return cand;
   }
   throw new Error(
     `pickFreeRestoredPath: restore collision — exceeded 1000 candidate paths for ${basePath}`,
@@ -115,10 +103,8 @@ export async function pickFreeRestoredPath(basePath: string): Promise<string> {
 }
 
 /** Map a `relocateFile` outcome onto the trash module's `MoveResult`
- * contract. `'skipped'` cannot happen for either trash caller below — one
- * uses `'auto-suffix'` (never occupied-and-declines) and the other
- * pre-resolves a guaranteed-free path before calling in — so it maps to an
- * error rather than being silently swallowed. */
+ * contract. moveToTrash uses `'auto-suffix'`, so an unexpected `'skipped'`
+ * outcome maps to an error rather than being silently swallowed. */
 function toMoveResult(outcome: Awaited<ReturnType<typeof relocateFile>>): MoveResult {
   switch (outcome.kind) {
     case 'relocated':
@@ -166,35 +152,32 @@ export async function moveToTrash(absPath: string, folderRoot: string): Promise<
 /**
  * Move a trashed RAW (and its paired sidecars) from `trashAbsPath` back
  * to `targetAbsPath`. If the target collides, a `.restored[.N]` suffix is
- * appended to the basename (computed here — `pickFreeRestoredPath` is
- * restore's own naming scheme, distinct from `relocateFile`'s generic
- * `.N` auto-suffix, so the free path is resolved before handing off).
- * Sidecar names follow the new RAW base.
- *
- * Built on the generic `relocateFile` primitive (#2629), collision policy
- * `'replace'`: the destination was already resolved to be free above, so
- * `relocateFile` is told to use it as-is (a same-instant race lands on the
- * same overwrite-on-rename semantics the prior bare `fs.rename` had).
+ * appended to the basename. Orphan XMPs also occupy a candidate. Copy and
+ * verify every member before exclusive publication; a concurrent writer
+ * winning the name causes a retry, never replacement (#3998). Sidecar
+ * failures retain the entire source pair instead of losing its edits.
  */
 export async function moveOutOfTrash(
   trashAbsPath: string,
   targetAbsPath: string,
 ): Promise<MoveResult> {
   try {
-    // Allocation must succeed before relocation. In particular, exhausted
-    // suffixes must not be treated as absence and replace the original target.
-    const freeTarget = (await restorePathOccupied(targetAbsPath))
-      ? await pickFreeRestoredPath(targetAbsPath)
-      : targetAbsPath;
-    const outcome = await relocateFile({
-      sourceAbsPath: trashAbsPath,
-      destAbsPath: freeTarget,
-      mode: 'move',
-      collision: 'replace',
-      callerTag: 'moveOutOfTrash',
-    });
-    return toMoveResult(outcome);
+    if ((await classifySameFile(trashAbsPath, targetAbsPath)) !== 'different') {
+      throw new Error('restore: destination resolves to the same file as the source');
+    }
+    for (let attempt = 0; attempt < 1002; attempt++) {
+      const freeTarget = (await restoreDestinationOccupied(targetAbsPath))
+        ? await pickFreeRestoredPath(targetAbsPath)
+        : targetAbsPath;
+      if (await restoreFilePair(trashAbsPath, freeTarget)) {
+        return { kind: 'ok', newAbsPath: freeTarget };
+      }
+    }
+    throw new Error(`restore collision — exceeded 1000 candidate paths for ${targetAbsPath}`);
   } catch (error) {
-    return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
+    return {
+      kind: 'error',
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
