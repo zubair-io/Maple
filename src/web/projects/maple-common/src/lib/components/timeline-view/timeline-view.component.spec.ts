@@ -18,6 +18,7 @@ import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { API_BASE_URL } from '../../api/api-base-url.token';
 import { provideSelfHostedWorkspace } from '../../workspace/self-hosted-workspace.providers';
+import { AuthService } from '../../auth/auth.service';
 import { FsBrowseStub, SearchStub, clearPrefKeys, makeResult } from './timeline-view.test-helpers';
 
 beforeEach(clearPrefKeys);
@@ -93,6 +94,39 @@ describe('TimelineViewComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Pick a library or folder');
     expect(searchStub.search).not.toHaveBeenCalled();
+  });
+
+  it('restarts page zero when the owner picker changes and Clear returns to all owners', async () => {
+    const owner = '111111111111111111111111';
+    TestBed.inject(AuthService).user.set({ id: owner, email: 'me@example.com', role: 'owner' });
+    library.selectedSourceId.set('lib:');
+    const fixture = TestBed.createComponent(TimelineViewComponent);
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    fixture.detectChanges();
+    const picker = fixture.nativeElement.querySelector(
+      'select[aria-label="Asset owner"]',
+    ) as HTMLSelectElement;
+    picker.value = owner;
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    fixture.detectChanges();
+    expect(searchStub.searchCalls.at(-1)).toMatchObject({
+      ownerId: owner,
+      page: 0,
+      sort: 'captured_desc',
+      libraryId: 'lib-1',
+    });
+    const clear = Array.from(
+      fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+    ).find((button) => button.textContent?.trim() === 'Clear');
+    clear!.click();
+    fixture.detectChanges();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    fixture.detectChanges();
+    expect(searchStub.searchCalls.at(-1)?.ownerId).toBeUndefined();
+    expect(searchStub.searchCalls.at(-1)?.page).toBe(0);
   });
 
   it('renders Year + Month headers from page 0 with a single sorted query, no buckets call', async () => {

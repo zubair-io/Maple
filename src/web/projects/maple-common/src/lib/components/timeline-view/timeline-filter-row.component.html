@@ -1,6 +1,7 @@
 <div
-  class="flex h-8 flex-shrink-0 items-center gap-3 border-b-[0.5px] border-border bg-surface px-3"
+  class="flex min-h-8 flex-shrink-0 flex-wrap items-center gap-3 border-b-[0.5px] border-border bg-surface px-3 py-2"
 >
+  <app-timeline-owner-filter />
   <!-- Rating pills -->
   <div class="flex items-center gap-1" role="group" aria-label="Minimum rating">
     @for (i of STAR_INDICES; track i) {

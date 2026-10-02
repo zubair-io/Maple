@@ -1,0 +1,23 @@
+<mui-select
+  ariaLabel="Asset owner"
+  [value]="state.ownerId()"
+  [options]="options()"
+  [disabled]="state.params() === null"
+  (valueChange)="selectOwner($event)"
+/>
+@if (vm().loading) {
+  <span class="text-[11px] text-text-muted" role="status">Loading owners…</span>
+}
+@if (vm().error; as error) {
+  <div class="flex items-center gap-2 text-[11px] text-text-muted">
+    <span role="status">{{ error }}</span>
+    <button
+      type="button"
+      class="min-h-11 cursor-pointer rounded border border-border px-2 text-text-main hover:bg-surface-hover focus-visible:outline-primary"
+      aria-label="Retry loading owners"
+      (click)="retry()"
+    >
+      Retry
+    </button>
+  </div>
+}

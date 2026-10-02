@@ -154,6 +154,21 @@ describe('BrowseShellComponent capability boundary', () => {
     expect(state.selectedAssetIds().has('asset-1' as never)).toBe(true);
   });
 
+  it('leaves native select navigation and Escape to the focused control', () => {
+    const fixture = TestBed.createComponent(BrowseShellComponent);
+    fixture.detectChanges();
+    const state = fixture.componentInstance.state;
+    state.toggleSelectMode();
+    const picker = document.createElement('select');
+    fixture.nativeElement.append(picker);
+    for (const key of ['ArrowDown', 'ArrowUp', 'Escape']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      picker.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(state.isSelecting()).toBe(true);
+  });
+
   it('F2 opens the inline-rename field for the focused asset (#2637)', async () => {
     // Provides a local fake for ASSET_RENAME_CAPABILITY rather than spying
     // on the shared NOOP_CAPABILITY singleton the token's default factory
