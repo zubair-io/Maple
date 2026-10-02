@@ -16,6 +16,29 @@ final class WorkflowSidecarTests: XCTestCase {
         "local-adjustments/lightroom-group-add.xmp"),
       encoding: .utf8)
   }
+  func testForeignPartialAndCompleteWhiteBalanceIsUnchangedByWorkflowNamespace() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let original = dir.appendingPathComponent("photo.dng")
+    let sidecar = dir.appendingPathComponent("photo.xmp")
+    try Data([1, 0, 255, 42]).write(to: original)
+    for attrs in [
+      #"crs:Temperature="5100""#, #"crs:Tint="-7""#, #"crs:Temperature="5100" crs:Tint="-7""#,
+    ] {
+      let source =
+        #"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" "#
+        + attrs + #"/></rdf:RDF></x:xmpmeta>"#
+      let before = try XMPParser.parse(source).0
+      XCTAssertEqual(before.wbScaleVersion, 5)
+      let embedded = try WorkflowSidecarCore.embed(record(), in: source)
+      try Data(embedded.utf8).write(to: sidecar, options: .atomic)
+      let reopened = try String(contentsOf: sidecar, encoding: .utf8)
+      XCTAssertEqual(try XMPParser.parse(reopened).0, before)
+      XCTAssertEqual(try WorkflowSidecarCore.read(xmp: reopened), try record())
+    }
+    XCTAssertEqual(try Data(contentsOf: original), Data([1, 0, 255, 42]))
+  }
   func testSharedSiblingPathsAndCapturedCheckpointsSurviveRealFiles() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

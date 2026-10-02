@@ -103,6 +103,32 @@ Object.assign(window, {
         await root.removeEntry(name, { recursive: true });
       }
     },
+    async foreignWb(row: unknown, input: string) {
+      const environment = injector();
+      const root = await navigator.storage.getDirectory();
+      const name = 'maple-foreign-wb-' + crypto.randomUUID();
+      const native = await root.getDirectoryHandle(name, { create: true });
+      const folder = { native, name, read: true, write: true };
+      try {
+        const access = environment.get(FolderAccessService);
+        const parser = environment.get(XmpParserService);
+        const core: WorkflowXmpService = environment.get(WorkflowXmpService);
+        await access.writeFile(folder, 'photo.dng', new Uint8Array([1, 0, 255, 42]));
+        const before = parser.parseAdjustmentModel(input).model;
+        const embedded = await core.embed(parseSidecarWorkflow(row), input);
+        await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(embedded));
+        const reopened = new TextDecoder().decode(await access.readFile(folder, 'photo.xmp'));
+        return {
+          before,
+          after: parser.parseAdjustmentModel(reopened).model,
+          workflow: await core.read(reopened),
+          original: Array.from(await access.readFile(folder, 'photo.dng')),
+        };
+      } finally {
+        environment.destroy();
+        await root.removeEntry(name, { recursive: true });
+      }
+    },
     async variants(row: unknown, input: string) {
       let environment = injector();
       const root = await navigator.storage.getDirectory();

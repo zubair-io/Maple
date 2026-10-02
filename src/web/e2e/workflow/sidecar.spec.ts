@@ -111,3 +111,22 @@ test('real browser storage discovers, branches, edits and reopens independent va
     expect(result[key]).toBe(true);
   expect(result.original).toEqual([1, 0, 255, 42]);
 });
+
+for (const [index, attrs] of [
+  'crs:Temperature="5100"',
+  'crs:Tint="-7"',
+  'crs:Temperature="5100" crs:Tint="-7"',
+].entries())
+  test(`workflow namespace preserves foreign unstamped WB ${index} through actual WASM and storage`, async ({
+    page,
+  }) => {
+    const input = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" ${attrs}/></rdf:RDF></x:xmpmeta>`;
+    const result = await page.evaluate(
+      async ({ row, input }) => Reflect.get(window, 'workflowTest').foreignWb(row, input),
+      { row: corpus[0], input },
+    );
+    expect(result.before.wbScaleVersion).toBe(5);
+    expect(result.after).toEqual(result.before);
+    expect(result.workflow).toEqual(corpus[0]);
+    expect(result.original).toEqual([1, 0, 255, 42]);
+  });

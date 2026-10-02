@@ -145,6 +145,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   /// Namespace aliases identify Maple provenance without changing the
   /// historical prefix-based WB-scale migration above.
   var sawMapleNamespaceURI: Bool = false
+  private var workflowDepth = 0
 
   /// `dc:subject` is the only XMP element that isn't an attribute on
   /// `rdf:Description` — it's a nested bag of `rdf:li` children:
@@ -193,6 +194,11 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     qualifiedName qName: String?,
     attributes attributeDict: [String: String]
   ) {
+    // #4043: scoped workflow namespaces/checkpoints cannot alter current WB.
+    if workflowDepth > 0 || (qName ?? elementName) == "papp:Workflow" {
+      workflowDepth += 1
+      return
+    }
     // dc:subject — nested keyword bag. Enter the subtree on the opening
     // `<dc:subject>` tag; track `<rdf:li>` children inside it. The XML
     // namespace *prefix* the sidecar binds to Dublin Core / RDF isn't
@@ -297,6 +303,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   }
 
   func parser(_ parser: XMLParser, foundCharacters string: String) {
+    guard workflowDepth == 0 else { return }
     toneCurves.characters(string)
     retouch.characters(string)
     guard inDCSubject, currentLi != nil else { return }
@@ -309,6 +316,10 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     namespaceURI: String?,
     qualifiedName qName: String?
   ) {
+    if workflowDepth > 0 {
+      workflowDepth -= 1
+      return
+    }
     let qual = qName ?? elementName
     localAdjustments.end(qual)
     retouch.end(qual)
