@@ -65,8 +65,8 @@ extension EditSession {
     // Same WB anchor as the live present; readback reruns that chain.
     let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
     let anchor = wbDeltaAnchor
-    let cct = resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0
-    let tint = resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0
+    let cct = resolvedIsRaw ? anchor?.temperature : 6500.0
+    let tint = resolvedIsRaw ? anchor?.tint : 0.0
     guard
       let frame = await driver.renderCurrentFrameBytes(
         model: capturedModel,

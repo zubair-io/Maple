@@ -73,7 +73,10 @@ extension EditSession {
   }
 
   /// Bake the current model against a fresh full-quality decode for export.
-  public func renderForExport(sizeOption: ExportSizeOption = .full) async throws -> CIImage {
+  public func renderForExport(
+    sizeOption: ExportSizeOption = .full,
+    targetPrimariesOverride: CanvasColorSpace? = nil
+  ) async throws -> CIImage {
     let exportModel = try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: model)
     let isFast = sizeOption == .fast
     let qualityOverride: PipelineRenderer.Quality? = isFast ? .preview : nil
@@ -115,7 +118,7 @@ extension EditSession {
       asset: asset, model: exportModel, asShot: wbDeltaAnchor,
       targetSize: targetSize,
       qualityOverride: qualityOverride,
-      targetPrimariesOverride: filmActive ? .srgb : nil
+      targetPrimariesOverride: filmActive ? .srgb : targetPrimariesOverride
     )
     // Non-RAW (and fast RAW) film-look export (#2713): the CIImage-graph
     // path above has no FFI film-look stage (`maple_render_file_with_film`
