@@ -22,6 +22,7 @@ import { readFileWithFailover } from './mirror-read.ts';
 import { deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
+import { workflowSidecarBase } from './workflow-sidecar-pairing';
 
 /** Sanitize a device name for use in a conflict-copy filename. */
 function sanitizeDeviceName(raw: string | undefined): string {
@@ -165,7 +166,8 @@ export async function writeConflictSidecarAtomic(
 
 /**
  * Return absolute paths of every XMP sidecar paired to the given RAW —
- * the canonical `<base>.xmp` plus every `<base> (conflict from <device>).xmp`
+ * the canonical `<base>.xmp`, UUID variants (`<base>.v<UUID>.xmp`),
+ * and every `<base> (conflict from <device>).xmp`
  * (with optional ` (N)` numeric suffix). Order is unspecified; callers that
  * care about ordering must sort.
  *
@@ -190,7 +192,8 @@ export async function listPairedSidecarsStrict(rawAbsPath: string): Promise<stri
   // Anchored: name is either `<rawBase>.xmp` (canonical) or
   // `<rawBase> (conflict from <device>)[ (N)].xmp` (variant). The
   // numeric `(N)` suffix is only valid AFTER a conflict-from suffix —
-  // a bare `<rawBase> (N).xmp` (e.g. `IMG_1 (2).xmp`) is NOT a paired
+  // UUID variants use the generated identity pattern separately (#4044).
+  // A bare `<rawBase> (N).xmp` (e.g. `IMG_1 (2).xmp`) is NOT a paired
   // sidecar and must not match, otherwise trash/purge would move
   // unrelated XMP files with that name.
   const escaped = escapeRegex(rawBase);
@@ -198,7 +201,12 @@ export async function listPairedSidecarsStrict(rawAbsPath: string): Promise<stri
     `^${escaped}(?:\\.xmp| \\(conflict from [^)]+\\)(?: \\(\\d+\\))?\\.xmp)$`,
     'i',
   );
-  return entries.filter((name) => pattern.test(name)).map((name) => path.join(dir, name));
+  return entries
+    .filter(
+      (name) =>
+        pattern.test(name) || workflowSidecarBase(name)?.toLowerCase() === rawBase.toLowerCase(),
+    )
+    .map((name) => path.join(dir, name));
 }
 
 /**

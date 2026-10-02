@@ -22,6 +22,9 @@ mod xml_tests;
 mod xml_tree;
 
 pub const WORKFLOW_VERSION: u32 = 1;
+/// Canonical lowercase identity vocabulary, emitted to host wire validators.
+pub const WORKFLOW_UUID_PATTERN: &str =
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 /// Cheap host dispatch guard only; Rust still resolves/validates the namespace.
 pub const WORKFLOW_MARKUP_PATTERN: &str = r"<(?:[^<\s:]+:)?Workflow(?=[\s/>])";
 /// Matches the existing 32-commit Apple/Web undo window.

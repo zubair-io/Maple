@@ -178,6 +178,9 @@ describe('runTrashGcOnce', () => {
 
     writeFileSync(join(root, 'shot.dng'), 'x');
     writeFileSync(join(root, 'shot.xmp'), '<xmp/>');
+    const variant = 'shot.v00000000-0000-0000-0000-000000000064.xmp';
+    writeFileSync(join(root, variant), '<xmp/>');
+    writeFileSync(join(root, 'shot.v2.xmp'), '<xmp>foreign version</xmp>');
     // A neighbour that merely starts with the same stem is not a paired
     // sidecar and must survive the purge.
     writeFileSync(join(root, 'shot (2).xmp'), '<xmp/>');
@@ -193,6 +196,8 @@ describe('runTrashGcOnce', () => {
 
     expect(existsSync(join(root, 'shot.dng'))).toBe(false);
     expect(existsSync(join(root, 'shot.xmp'))).toBe(false);
+    expect(existsSync(join(root, variant))).toBe(false);
+    expect(existsSync(join(root, 'shot.v2.xmp'))).toBe(true);
     expect(existsSync(join(root, 'shot (2).xmp'))).toBe(true);
   });
 
