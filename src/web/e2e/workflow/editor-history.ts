@@ -2,6 +2,8 @@ import { createEnvironmentInjector, Injector, type EnvironmentInjector } from '@
 import { LiveAnnouncer } from '@angular/cdk/a11y';
 import { EditorStateService } from '../../projects/maple-common/src/lib/editor/editor-state.service';
 import { EditorWorkflowHistoryService } from '../../projects/maple-common/src/lib/editor/editor-workflow-history.service';
+import { EditorWorkflowCommandsService } from '../../projects/maple-common/src/lib/editor/editor-workflow-commands.service';
+import { WorkflowVariantStoreService } from '../../projects/maple-common/src/lib/xmp/workflow-variant-store.service';
 import { LibraryStore } from '../../projects/maple-common/src/lib/state/library-store.service';
 import { LibraryStateService } from '../../projects/maple-common/src/lib/state/library-state.service';
 import { LIBRARY_BACKEND } from '../../projects/maple-common/src/lib/api/library-backend.token';
@@ -23,6 +25,8 @@ const environment = () =>
     [
       EditorStateService,
       EditorWorkflowHistoryService,
+      EditorWorkflowCommandsService,
+      WorkflowVariantStoreService,
       LibraryStore,
       FolderAccessService,
       XmpStoreService,

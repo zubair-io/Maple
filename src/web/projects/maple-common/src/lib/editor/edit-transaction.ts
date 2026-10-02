@@ -18,7 +18,8 @@ export const EDIT_TRANSACTION_VERSION = 1;
 
 /** The action classes the contract covers. `mask` and `variant` are
  * declared so the surfaces that ship them route through the same object;
- * nothing constructs those two on Web today. `repair` is what the clone /
+ * primary snapshot/history restores construct `variant` with complete-XMP
+ * Undo payloads (#4060). `repair` is what the clone /
  * heal brush commits (#3409). */
 export type EditTransactionKind =
   | 'adjustment'
@@ -52,6 +53,9 @@ export interface EditTransaction {
   /** Sorted by key; deterministic for a given (before, after). */
   readonly diff: readonly SidecarFieldChange[];
   readonly invalidation: InvalidationScope;
+  /** Local Undo payload; workflow/checkpoint XML is already versioned by raw-core.
+   * Kept out of the cross-platform diff wire form. Never recursively embeds history. */
+  readonly checkpoint?: { readonly before: string; readonly after: string };
 }
 
 /** The fields whose change forces a re-decode (the decode-product family). */

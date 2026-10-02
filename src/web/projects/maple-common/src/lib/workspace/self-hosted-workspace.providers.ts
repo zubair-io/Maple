@@ -29,6 +29,9 @@ function serverPersistenceFactory(): ServerWorkspacePersistence {
   return {
     readSidecar: (path) => api.getXmp(path),
     writeSidecar: (path, xml) => api.putXmp(path, xml),
+    restoreSidecar: (path, expectedXmp, entry) => workflow.restore(path, expectedXmp, entry),
+    snapshotSidecar: (path, expectedXmp, snapshot, initialXmp) =>
+      workflow.snapshot(path, expectedXmp, snapshot, initialXmp),
     commitSidecar: (path, expectedXmp, xml, entry) =>
       workflow.commit(path, expectedXmp, xml, entry),
     writePreview: (path, bytes, contentType) =>

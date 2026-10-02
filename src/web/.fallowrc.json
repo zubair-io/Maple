@@ -5,7 +5,8 @@
     "scripts/export-recipe-storage.entry.ts",
     "playwright.partial-white-balance.config.ts",
     "playwright.workflow.config.ts",
-    "e2e/workflow/main.ts"
+    "e2e/workflow/main.ts",
+    "e2e/workflow/ui-main.ts"
   ],
   // Generated mirrors (tools/codegen.sh, #2683) are drift-gated against
   // their Rust source by the codegen-drift CI job, not usage-gated — a

@@ -164,16 +164,18 @@ export function commitWorkflowVariant(
 export function snapshotWorkflowVariant(
   rawPath: string,
   id: string,
-  expectedXmp: string,
+  expectedXmp: string | null,
   snapshot: WorkflowSnapshot,
+  initialXmp?: string,
 ): Promise<string> {
   return mutateVariant(rawPath, id, expectedXmp, async (current) => {
-    if (current === null)
+    const source = current ?? initialXmp;
+    if (source === undefined)
       throw new WorkflowVariantError(
         409,
         'Commit the source adjustments before creating a snapshot.',
       );
-    return nativeValue('workflowSnapshotXmp', [current, JSON.stringify(snapshot)]);
+    return nativeValue('workflowSnapshotXmp', [source, JSON.stringify(snapshot)]);
   });
 }
 export function restoreWorkflowVariant(

@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../out-tsc/workflow-qualification",
+    "types": []
+  },
+  "files": ["ui-main.ts"]
+}

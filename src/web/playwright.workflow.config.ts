@@ -13,6 +13,12 @@ export default defineConfig({
   },
   webServer: [
     {
+      command: './node_modules/.bin/ng serve workflow-qualification',
+      port: 4520,
+      reuseExistingServer: false,
+      timeout: 60000,
+    },
+    {
       command: './node_modules/.bin/vite --config e2e/workflow/vite.config.ts',
       port: 4518,
       reuseExistingServer: false,
