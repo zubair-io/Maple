@@ -1,6 +1,6 @@
 // SourcePickerDrawerComponent — Library-tab-scoped source picker drawer.
 // Part of S1b of the responsive-program epic (#577 / ticket #598). Spec:
-// docs/spec/responsive-program-s1-phone-shell.md §3.
+// docs/design/responsive-program/s1-phone-shell.md §3.
 //
 // The drawer overlays the Library tab content on phone-tier viewports
 // (<768px). Header chrome (LIBRARY eyebrow, close X, connection identity,
@@ -37,11 +37,12 @@ import {
 
 import { SidebarEntry } from '../../models/folder';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
+import { CdkTrapFocus } from '@angular/cdk/a11y';
 
 @Component({
   selector: 'app-source-picker-drawer',
   standalone: true,
-  imports: [MapleIconComponent],
+  imports: [MapleIconComponent, CdkTrapFocus],
   templateUrl: './source-picker-drawer.component.html',
   host: { class: 'contents' },
   changeDetection: ChangeDetectionStrategy.OnPush,
