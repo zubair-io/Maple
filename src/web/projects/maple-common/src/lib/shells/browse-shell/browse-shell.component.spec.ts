@@ -169,6 +169,40 @@ describe('BrowseShellComponent capability boundary', () => {
     expect(state.isSelecting()).toBe(true);
   });
 
+  it('preserves native Enter activation on controls with a focused photo (#4021)', () => {
+    const fixture = TestBed.createComponent(BrowseShellComponent);
+    fixture.detectChanges();
+    vi.spyOn(fixture.componentInstance.state, 'focusedAssetId').mockReturnValue('library:one.dng');
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    for (const element of [
+      document.createElement('button'),
+      document.createElement('a'),
+      document.createElement('div'),
+    ]) {
+      if (element instanceof HTMLAnchorElement) element.href = '/settings';
+      if (element instanceof HTMLDivElement) element.setAttribute('role', 'button');
+      const label = document.createElement('span');
+      element.append(label);
+      fixture.nativeElement.append(element);
+      const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      label.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(navigate).not.toHaveBeenCalled();
+      element.remove();
+    }
+  });
+
+  it('keeps Enter-to-Preview from the Browse surface (#4021)', () => {
+    const fixture = TestBed.createComponent(BrowseShellComponent);
+    fixture.detectChanges();
+    vi.spyOn(fixture.componentInstance.state, 'focusedAssetId').mockReturnValue('library:one.dng');
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    document.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenCalledWith(['/view', 'library', 'one.dng']);
+  });
+
   it('F2 opens the inline-rename field for the focused asset (#2637)', async () => {
     // Provides a local fake for ASSET_RENAME_CAPABILITY rather than spying
     // on the shared NOOP_CAPABILITY singleton the token's default factory

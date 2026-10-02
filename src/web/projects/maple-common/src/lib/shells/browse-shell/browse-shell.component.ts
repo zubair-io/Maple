@@ -475,6 +475,8 @@ export class BrowseShellComponent {
 
     // Enter on focused asset — navigate to Preview
     if (e.key === 'Enter' && fid) {
+      // Controls own native Enter activation, including the grid's tile buttons.
+      if (target instanceof Element && target.closest('button, [role="button"], a[href]')) return;
       void this.router.navigate(viewRouteCommands(fid));
       e.preventDefault();
       return;
