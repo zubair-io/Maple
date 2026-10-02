@@ -267,6 +267,48 @@ export class XmpStoreService {
     );
   }
 
+  async settleAsset(id: AssetId): Promise<void> {
+    if (this._pendingWrites.has(id) || this._inFlightWrites.has(id) || this.retryWrites.has(id))
+      await this.flushAsset(id);
+  }
+
+  /** Confirmed complete-document actions use the same asset write queue. */
+  async publishWorkflow(
+    assetId: AssetId,
+    publish: () => Promise<string>,
+    currentSource: () => boolean,
+  ): Promise<string> {
+    await this.settleAsset(assetId);
+    const revision = this.saveState.queued(assetId);
+    const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
+    const write = prior.then(async () => {
+      this.saveState.saving(assetId, revision);
+      try {
+        const output = await publish();
+        if (currentSource()) {
+          const parsed = this.parser.parseAdjustmentModel(output);
+          this.rememberPassthrough(assetId, parsed.passthrough);
+          this.rememberMetadata(assetId, parsed.metadata);
+        }
+        this.saveState.saved(assetId, revision);
+        return output;
+      } catch (error) {
+        this.saveState.failed(assetId, revision, error);
+        throw error;
+      }
+    });
+    const barrier = write.then(
+      () => undefined,
+      () => undefined,
+    );
+    this._inFlightWrites.set(assetId, barrier);
+    try {
+      return await write;
+    } finally {
+      if (this._inFlightWrites.get(assetId) === barrier) this._inFlightWrites.delete(assetId);
+    }
+  }
+
   // ── Flush all (beforeunload) ────────────────────────────────────────────────
 
   /**

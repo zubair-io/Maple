@@ -290,8 +290,7 @@ describe('XmpAdjustmentRestoreService (#2406)', () => {
     deferred.next(SIDECAR_XML);
     deferred.complete();
     await flushAsync();
-
-    expect(api.putXmp).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(api.putXmp).toHaveBeenCalledTimes(1));
     const [, xml] = api.putXmp.mock.calls[0]!;
     expect(xml).toContain('crs:Exposure2012="1.05"');
     expect(xml).toContain('crs:Contrast2012="14"');

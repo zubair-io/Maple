@@ -684,9 +684,24 @@ for retry after the sidecar is repaired. Legacy sidecars without Workflow markup
 retain their existing read/write behavior. SMB native editor history still needs
 connected-share qualification under #2437.
 
-Cache-aware switching, snapshots/history UI, one-step
-Undo for restore, and deletion/recovery remain acceptance requirements under
-#2437.
+Web primary-branch snapshots/history controls use the same real filesystem/API
+stores (#4060). Named snapshots, saved history, restore confirmation and retry
+work in writable Hosted folders and Self Hosted libraries. A confirmed restore
+enters the existing 32-action Undo ring with two complete checkpoint documents,
+including foreign XML and culling/metadata. Undo/Redo publish those documents
+through current-source CAS before moving the ring; a failed publication retains
+the action and its retry identity. Checkpoints omit Workflow markup, so Undo never
+recursively captures history. The adjustment-diff wire version remains unchanged;
+complete XML is a local ring payload backed by the shared versioned Workflow schema.
+Reopening the editor reloads portable history and snapshots; its local Undo ring
+starts empty, as it does on every image binding. Copied single-file imports need
+their writable source to use these controls. A first snapshot uses a null-XMP
+precondition plus its captured initial checkpoint; the initial primary and snapshot
+publish together, without a separate baseline write or invented history entry.
+Concurrent first writers have one winner and stale commands cannot replace it.
+Native controls, cache-aware named
+variant switching, deletion/recovery and connected SMB qualification remain
+acceptance requirements under #2437.
 `tools/qualification/workflow-roundtrip.sh` runs the committed XMP corpus through
 Rust → generated Swift → generated Web/API TypeScript → Rust and checks identical
 final serialization. It writes only its own temporary files.

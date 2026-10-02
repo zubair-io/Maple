@@ -1310,6 +1310,22 @@ export class LibraryFetch {
   }
 
   /** Await only the selected asset, retaining per-asset batch failures. */
+  async settleSidecar(id: AssetId): Promise<void> {
+    const path = this.store.absPathFor(id);
+    if (
+      this._apiXmpPending.has(id) ||
+      this._apiXmpInFlight.has(id) ||
+      (path && this.sidecarStore.hasPendingSemantic(path))
+    )
+      await this.flushSidecarWrite(id);
+  }
+
+  rememberWorkflowRestore(id: AssetId, xml: string, model: AdjustmentModel): void {
+    this._apiAdjustmentPatches.set(id, structuredClone(model));
+    this.xmpRestore.rememberConfirmed(id, xml);
+  }
+
+  /** Await only the selected asset, retaining per-asset batch failures. */
   flushSidecarWrite(id: AssetId): Promise<void> {
     if (this.store.backend !== 'self-hosted') return this.xmpStore.flushAsset(id);
     const timer = this._apiXmpTimers.get(id);

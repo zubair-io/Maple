@@ -1,4 +1,5 @@
 <!-- EditorShell — canvas-first layered layout (#1535) -->
+<editor-workflow-controls #workflowControls />
 <!-- Chrome opacity controlled by chromeState signal -->
 
 <!-- Shared `pro-control-card` projected-content bodies (#1807 Task 4/5) —
@@ -72,6 +73,7 @@
 <div
   class="relative h-full w-full touch-none bg-[color:var(--pro-canvas)]"
   [class.shell--desktop]="isDesktop()"
+  [attr.inert]="editorState.workflowBusy() ? '' : null"
 >
   <!-- ── Full-bleed canvas (back layer) ──────────────────────────────── -->
   <div
@@ -140,6 +142,7 @@
       </div>
 
       <!-- Center spacer -->
+      <ng-container [ngTemplateOutlet]="workflowControls.triggerTemplate() ?? null" />
       <div class="shrink-0 grow-0 basis-1"></div>
 
       <!-- Histogram / scopes (#2449) — the one stable scopes location on

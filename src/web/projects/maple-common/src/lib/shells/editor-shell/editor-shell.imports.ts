@@ -38,6 +38,7 @@ import { InfoPanelComponent } from '../../info/info-panel.component';
 import { MuiSheetShellComponent } from '../../ui/sheet-shell/mui-sheet-shell.component';
 import { ExportDialogComponent } from '../../export/export-dialog.component';
 import { MuiCommandMenuComponent } from '../../ui/command-menu/mui-command-menu.component';
+import { WorkflowControlsComponent } from '../../editor/workflow-controls.component';
 
 /** Template-only standalone imports for `EditorShellComponent`. */
 export const EDITOR_SHELL_IMPORTS = [
@@ -67,4 +68,5 @@ export const EDITOR_SHELL_IMPORTS = [
   MuiSheetShellComponent,
   ExportDialogComponent,
   MuiCommandMenuComponent,
+  WorkflowControlsComponent,
 ] as const;

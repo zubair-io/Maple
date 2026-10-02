@@ -123,12 +123,17 @@ export const xmpVariantRoutes = new Elysia()
         query.variantId,
         body.expectedXmp,
         body.snapshot,
+        body.initialXmp,
       );
       return publishedVariant(rawPath, query.variantId, output);
     },
     {
       query: t.Object({ path: t.String(), variantId: t.String() }),
-      body: t.Object({ expectedXmp: t.String(), snapshot: t.Any() }),
+      body: t.Object({
+        expectedXmp: t.Union([t.String(), t.Null()]),
+        snapshot: t.Any(),
+        initialXmp: t.Optional(t.String()),
+      }),
       detail: {
         tags: ['xmp'],
         summary: 'Confirm an immutable named snapshot in the selected variant',

@@ -55,7 +55,13 @@ function fixtureSchema(xml: string, future: boolean | undefined): string {
 }
 function dropAcceptedResponse(request: Request) {
   const url = new URL(request.url);
-  if (`${request.method} ${url.pathname}` !== 'POST /api/xmp/variant/commit') return;
+  if (
+    request.method !== 'POST' ||
+    !['/api/xmp/variant/commit', '/api/xmp/variant/snapshot', '/api/xmp/variant/restore'].includes(
+      url.pathname,
+    )
+  )
+    return;
   if (!lostResponses.delete(String(url.searchParams.get('path')))) return;
   // Runs after the real route publishes its file/SQLite change. The client
   // receives a gateway failure instead of the acknowledgement, once (#4056).

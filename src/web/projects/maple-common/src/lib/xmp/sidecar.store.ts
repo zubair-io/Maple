@@ -161,6 +161,28 @@ export class SidecarStore {
     return this.workflow.hasPending(path);
   }
 
+  /** Snapshot/restore publication shares the ordinary and semantic write barrier. */
+  async publishWorkflow(
+    id: AssetId,
+    path: string,
+    publish: () => Promise<string>,
+  ): Promise<string> {
+    const revision = this.saveState.queued(id);
+    return this.serializeWrite(path, async () => {
+      this.saveState.saving(id, revision);
+      try {
+        if (this.workflow.hasPending(path)) await firstValueFrom(this.workflow.flush(path));
+        const output = await publish();
+        await this._ingest(path, output, true);
+        this.saveState.saved(id, revision);
+        return output;
+      } catch (error) {
+        this.saveState.failed(id, revision, error);
+        throw error;
+      }
+    });
+  }
+
   retrySemantic(path: string): Promise<void> {
     const id = this.semanticAssets.get(path);
     if (!id) return Promise.reject(Error('No captured semantic action for this source.'));
@@ -185,10 +207,13 @@ export class SidecarStore {
     await Promise.all(this.writes.values());
   }
 
-  private serializeWrite(path: string, write: () => Promise<void>): Promise<void> {
+  private serializeWrite<T>(path: string, write: () => Promise<T>): Promise<T> {
     const previous = this.writes.get(path) ?? Promise.resolve();
     const next = previous.catch(() => undefined).then(write);
-    const settled = next.catch(() => undefined);
+    const settled = next.then(
+      () => undefined,
+      () => undefined,
+    );
     this.writes.set(path, settled);
     return next.finally(() => {
       if (this.writes.get(path) === settled) this.writes.delete(path);

@@ -122,13 +122,15 @@ export class WorkflowVariantStoreService {
     folder: MapleFolderHandle,
     primaryName: string,
     variantId: string,
-    expectedXmp: string,
+    expectedXmp: string | null,
     snapshot: WorkflowSnapshot,
+    initialXmp?: string,
   ): Promise<string> {
     return this.mutate(folder, primaryName, variantId, expectedXmp, async (current) => {
-      if (current === null)
+      const source = current ?? initialXmp;
+      if (source === undefined)
         throw Error('Commit the source adjustments before creating a snapshot.');
-      return this.core.snapshot(snapshot, current);
+      return this.core.snapshot(snapshot, source);
     });
   }
 

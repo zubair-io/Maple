@@ -13,6 +13,8 @@ import {
   type EditTransaction,
   type EditTransactionKind,
   makeEditTransaction,
+  sidecarDiff,
+  classifyInvalidation,
   stableStringify,
 } from './edit-transaction';
 
@@ -83,6 +85,36 @@ export class EditTransactionRing {
   /** Abandon the open transaction without recording it. */
   cancel(): void {
     this._pending = null;
+  }
+
+  recordCheckpoint(
+    serializer: XmpSerializerService,
+    before: AdjustmentModel,
+    after: AdjustmentModel,
+    checkpoint: NonNullable<EditTransaction['checkpoint']>,
+    description: string,
+  ): EditTransaction | null {
+    if (checkpoint.before === checkpoint.after) return null;
+    this._nextId += 1;
+    const tx: EditTransaction = {
+      id: this._nextId,
+      kind: 'variant',
+      description,
+      before: structuredClone(before),
+      after: structuredClone(after),
+      checkpoint,
+      diff: sidecarDiff(serializer, before, after),
+      invalidation: classifyInvalidation(before, after),
+    };
+    this._undo.update((stack) => pushCapped(stack, tx));
+    this._redo.set([]);
+    this.lastCommitted.set(tx);
+    return tx;
+  }
+
+  peek(direction: 'undo' | 'redo'): EditTransaction | null {
+    const stack = direction === 'undo' ? this._undo() : this._redo();
+    return stack.at(-1) ?? null;
   }
 
   /** Move the newest undo entry to the redo side and return it. */

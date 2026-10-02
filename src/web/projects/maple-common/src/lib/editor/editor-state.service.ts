@@ -26,6 +26,11 @@ import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { type EditTransaction, type EditTransactionKind } from './edit-transaction';
 import { EditTransactionRing, UNDO_STACK_CAP } from './edit-transaction-ring';
 import { EditorWorkflowHistoryService, type WorkflowEdit } from './editor-workflow-history.service';
+import {
+  EditorWorkflowCommandsService,
+  type RestoreCommand,
+} from './editor-workflow-commands.service';
+import { replayWorkflow, restoreWorkflow } from './editor-state.workflow';
 import type { AssetId } from '../models/asset';
 import { applyAutoInto } from './editor-state.auto';
 import { applyWhiteBalancePresetInto } from './editor-state.wb-preset';
@@ -83,7 +88,7 @@ export class EditorStateService {
   readonly library = inject(LibraryStateService);
   readonly pipeline = inject(RawPipelineService);
   readonly serializer = inject(XmpSerializerService); // read via WbSampleHost
-  private announcer = inject(LiveAnnouncer);
+  readonly announcer = inject(LiveAnnouncer);
 
   // ── Identity / arming ────────────────────────────────────────────────────
   readonly imageId = signal<AssetId | null>(null);
@@ -112,7 +117,12 @@ export class EditorStateService {
   // knows the START of a gesture still produces exactly one entry. Mirrors
   // Apple's `EditSession+UndoRedo.swift`; the bookkeeping lives in
   // `EditTransactionRing`.
-  private readonly ring = new EditTransactionRing();
+  readonly ring = new EditTransactionRing();
+  readonly workflowCommands: EditorWorkflowCommandsService = inject(EditorWorkflowCommandsService);
+  readonly workflowBusy = signal(false);
+  readonly workflowError = signal<string | null>(null);
+  bindingGeneration = 0;
+  workflowReplay: { direction: 'undo' | 'redo'; command: RestoreCommand } | null = null;
   private readonly workflowHistory = inject(EditorWorkflowHistoryService);
   private workflowEdit: WorkflowEdit | null = null;
 
@@ -203,6 +213,8 @@ export class EditorStateService {
    * state, so an image switch keeps the selection). */
   bind(id: AssetId, armed?: { group: ToolGroup; tool: ToolId }): void {
     untracked(() => this.endEdit());
+    this.bindingGeneration += 1;
+    this.workflowReplay = null;
     this.imageId.set(id);
     this.autoResult.set(null);
     this.ring.reset();
@@ -220,6 +232,7 @@ export class EditorStateService {
    * consecutive gestures never merge. The default description names the
    * armed tool so the announcement says what moved. */
   commit(kind: EditTransactionKind = 'adjustment', description?: string): void {
+    if (this.workflowBusy()) return;
     const adj = this.currentAdjustment();
     if (!adj) return;
     this.endEdit();
@@ -242,6 +255,7 @@ export class EditorStateService {
       this.workflowHistory.release(edit);
       return;
     }
+    this.workflowReplay = null;
     // The transaction IS what the sidecar persists (coalesces with the
     // per-tick writes through the same debounce).
     if (!edit || this.workflowHistory.isCurrent(edit)) this.library.updateAdjustment(id, tx.after);
@@ -258,9 +272,15 @@ export class EditorStateService {
   }
 
   undo(): void {
+    if (this.workflowBusy()) return;
     const id = this.imageId();
     if (id == null) return;
     this.endEdit();
+    if (this.ring.peek('undo')?.checkpoint) {
+      void replayWorkflow(this, 'undo');
+      return;
+    }
+    this.workflowReplay = null;
     const tx = this.ring.popUndo();
     if (!tx) return;
     const edit = this.workflowHistory.capture(id, this.currentAdjustment() ?? tx.after);
@@ -270,9 +290,15 @@ export class EditorStateService {
   }
 
   redo(): void {
+    if (this.workflowBusy()) return;
     const id = this.imageId();
     if (id == null) return;
     this.endEdit();
+    if (this.ring.peek('redo')?.checkpoint) {
+      void replayWorkflow(this, 'redo');
+      return;
+    }
+    this.workflowReplay = null;
     const tx = this.ring.popRedo();
     if (!tx) return;
     const edit = this.workflowHistory.capture(id, this.currentAdjustment() ?? tx.before);
@@ -282,6 +308,11 @@ export class EditorStateService {
   }
 
   // ── Arming ──────────────────────────────────────────────────────────────
+
+  restoreWorkflow(command: RestoreCommand): Promise<void> {
+    this.endEdit();
+    return restoreWorkflow(this, command);
+  }
 
   armTool(tool: ToolId): void {
     this._discardDeferred();
@@ -361,6 +392,7 @@ export class EditorStateService {
    * coalescer). A commit-on-release sub-param under an active gesture parks
    * the value instead — `endGesture()` writes it once. */
   setArmedDisplayValue(value: number): void {
+    if (this.workflowBusy()) return;
     const id = this.imageId();
     if (id == null || !this.armedToolAcceptsValueEdits()) return;
     if (this.gestureActive() && this.armedCommitsOnRelease()) {
@@ -418,6 +450,7 @@ export class EditorStateService {
    * or panel.
    */
   setBlackWhite(mode: BlackWhiteMode): void {
+    if (this.workflowBusy()) return;
     const id = this.imageId();
     const adj = this.currentAdjustment();
     if (id == null || !adj || adj.blackWhite === mode) return;
@@ -437,6 +470,7 @@ export class EditorStateService {
    * model as ONE undo-ring entry.
    */
   applyPreset(preset: Preset): boolean {
+    if (this.workflowBusy()) return false;
     const id = this.imageId();
     if (id == null || this.currentAdjustment() == null) return false;
     const patch = buildApplyPatch(preset.fields);
@@ -458,6 +492,7 @@ export class EditorStateService {
    * develop adjustments, never the user's framing.
    */
   resetAll(): boolean {
+    if (this.workflowBusy()) return false;
     const id = this.imageId();
     if (id == null || this.currentAdjustment() == null) return false;
 
@@ -483,10 +518,12 @@ export class EditorStateService {
   readonly autoResult = signal<string | null>(null);
 
   applyAuto(id: AssetId, whiteBalanceOnly = false): Promise<boolean> {
+    if (this.workflowBusy()) return Promise.resolve(false);
     return applyAutoInto(this, id, whiteBalanceOnly);
   }
 
   applyWhiteBalancePreset(id: AssetId, preset: WhiteBalancePreset): Promise<boolean> {
+    if (this.workflowBusy()) return Promise.resolve(false);
     return applyWhiteBalancePresetInto(this, id, preset);
   }
 

@@ -28,7 +28,7 @@ interface Source {
   id: string;
   library: ApiFolder;
 }
-interface Fixture {
+export interface Fixture {
   app: ApplicationRef;
   source: Source;
   id: string;
@@ -40,7 +40,7 @@ interface Fixture {
   parser: XmpParserService;
   gesture: (value: number) => void;
 }
-async function control<T>(path: string, body?: unknown): Promise<T> {
+export async function control<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(
     path,
     body === undefined
@@ -110,11 +110,13 @@ function bind(fixture: Omit<Fixture, 'id' | 'gesture'>, source: Source, input: s
   editor.armTool('exposure');
   return id;
 }
-async function stage(
+export async function stage(
   input: string | null,
   options: { workflow?: SidecarWorkflow; futureSchema?: boolean } = {},
+  existingSource?: Source,
 ): Promise<Fixture> {
-  const source = await control<Source>('/workflow-fixture', { xml: input, ...options });
+  const source =
+    existingSource ?? (await control<Source>('/workflow-fixture', { xml: input, ...options }));
   const app = await environment();
   const base = {
     app,
@@ -126,7 +128,7 @@ async function stage(
     core: app.injector.get(WorkflowXmpService),
     parser: app.injector.get(XmpParserService),
   };
-  const id = bind(base, source, source.input);
+  const id = bind(base, source, existingSource ? input : source.input);
   return {
     ...base,
     id,

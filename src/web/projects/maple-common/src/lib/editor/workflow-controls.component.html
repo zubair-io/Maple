@@ -1,0 +1,92 @@
+<ng-template #triggerTemplate>
+  <mui-button
+    #trigger
+    variant="ghost"
+    size="sm"
+    iconLeading="history"
+    [iconOnly]="true"
+    ariaLabel="Snapshots and history"
+    testId="editor-workflow"
+    [disabled]="busy() || !editor.imageId()"
+    [ariaExpanded]="view() !== 'closed'"
+    (pressed)="open()"
+  />
+</ng-template>
+
+<mui-overlay-shell
+  [open]="view() === 'list'"
+  ariaLabel="Snapshots and history"
+  size="md"
+  (dismissed)="close()"
+>
+  <div slot="header" class="flex items-center justify-between gap-2 border-b border-border p-4">
+    <mui-text variant="row-label">Snapshots and history</mui-text>
+    <mui-button variant="ghost" [disabled]="busy()" (pressed)="close()">Close</mui-button>
+  </div>
+  <div class="flex flex-col gap-3" [attr.aria-busy]="busy()">
+    @if (busy()) {
+      <mui-spinner placement="centered" />
+    }
+    @if (error() || editor.workflowError()) {
+      <div role="alert">
+        <mui-text color="error">{{ error() || editor.workflowError() }}</mui-text>
+      </div>
+      <mui-button variant="secondary" [disabled]="busy()" (pressed)="reload()"
+        >Reload history</mui-button
+      >
+    }
+    @if (!busy() && document()) {
+      @if (versions().length === 0) {
+        <mui-empty-state icon="history" title="No saved history yet" />
+      }
+      @for (version of versions(); track version.id) {
+        <mui-list-row icon="history" [label]="version.label" [timestampValue]="version.timestamp">
+          <mui-button
+            trailing
+            variant="ghost"
+            size="sm"
+            [disabled]="busy()"
+            [ariaLabel]="'Restore ' + version.label"
+            (pressed)="selectRestore(version.id)"
+            >Restore</mui-button
+          >
+        </mui-list-row>
+      }
+    }
+  </div>
+  <div slot="footer" class="flex items-center justify-between gap-2 border-t border-border p-4">
+    <mui-button variant="ghost" [disabled]="busy()" (pressed)="reload()">Refresh</mui-button>
+    <mui-button
+      variant="primary"
+      [disabled]="busy() || !source() || !document() || !!error()"
+      (pressed)="newSnapshot()"
+      >Save snapshot</mui-button
+    >
+  </div>
+</mui-overlay-shell>
+
+<mui-dialog
+  [open]="view() === 'snapshot'"
+  title="Snapshot name"
+  variant="prompt"
+  message="Save the current adjustments and metadata as a named snapshot."
+  [(promptValue)]="name"
+  confirmLabel="Save snapshot"
+  [busy]="busy()"
+  [errorMessage]="error()"
+  (confirmed)="saveSnapshot()"
+  (dismissed)="back()"
+/>
+<mui-dialog
+  [open]="view() === 'restore'"
+  title="Restore this version?"
+  [message]="
+    selectedLabel() +
+    '. Current adjustments and metadata will be replaced. You can Undo this restore.'
+  "
+  confirmLabel="Restore"
+  [busy]="busy()"
+  [errorMessage]="error()"
+  (confirmed)="confirmRestore()"
+  (dismissed)="back()"
+/>

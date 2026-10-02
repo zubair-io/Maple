@@ -306,6 +306,64 @@
           }
         }
       }
+    },
+    "workflow-qualification": {
+      "projectType": "application",
+      "root": "e2e/workflow",
+      "sourceRoot": "e2e/workflow",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": "dist/workflow-qualification",
+            "browser": "e2e/workflow/ui-main.ts",
+            "index": "e2e/workflow/ui-index.html",
+            "tsConfig": "e2e/workflow/tsconfig.ui.json",
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "inlineStyleLanguage": "scss",
+            "stylePreprocessorOptions": {
+              "includePaths": ["projects/maple-common/src/lib/styles"]
+            },
+            "styles": ["projects/maple/src/styles.scss"],
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/pkg"
+              },
+              {
+                "glob": "raw_wasm_bg.wasm",
+                "input": "projects/maple-common/src/lib/raw-pipeline/pkg",
+                "output": "/"
+              },
+              {
+                "glob": "**/*.woff2",
+                "input": "projects/maple-common/src/assets/fonts",
+                "output": "/assets/fonts"
+              },
+              {
+                "glob": "favicon.ico",
+                "input": "projects/maple-common/src/assets/brand",
+                "output": "/"
+              }
+            ],
+            "optimization": false,
+            "sourceMap": true
+          }
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": {
+            "buildTarget": "workflow-qualification:build",
+            "port": 4520,
+            "proxyConfig": "e2e/workflow/ui-proxy.json",
+            "headers": {
+              "Cross-Origin-Opener-Policy": "same-origin",
+              "Cross-Origin-Embedder-Policy": "require-corp"
+            }
+          }
+        }
+      }
     }
   }
 }

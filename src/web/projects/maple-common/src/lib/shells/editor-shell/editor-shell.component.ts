@@ -505,6 +505,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   // ── Keyboard shortcuts ────────────────────────────────────────────────
   @HostListener('document:keydown', ['$event'])
   onKeydown(e: KeyboardEvent): void {
+    if (this.editorState.workflowBusy()) return;
     handleEditorKeydown(this, e);
   }
 

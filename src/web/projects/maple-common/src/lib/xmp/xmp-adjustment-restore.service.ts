@@ -95,12 +95,37 @@ export class XmpAdjustmentRestoreService {
     const existing = this._sidecars.get(id);
     if (existing) return existing;
 
-    const load = this._loadSidecar(id).catch((err: unknown) => {
-      this._sidecars.delete(id);
-      throw err;
-    });
+    const load = this._loadSidecar(id)
+      .then((sidecar) => {
+        if (this._sidecars.get(id) === load) this.rememberParsed(id, sidecar);
+        return sidecar;
+      })
+      .catch((err: unknown) => {
+        if (this._sidecars.get(id) === load) this._sidecars.delete(id);
+        throw err;
+      });
     this._sidecars.set(id, load);
     return load;
+  }
+
+  /** A confirmed restore owns the new base, even if an older GET is still in flight. */
+  rememberConfirmed(id: AssetId, xml: string): void {
+    const sidecar = {
+      ...this.parser.parseAdjustmentModel(xml),
+      culling: this.parser.parseCulling(xml),
+    };
+    this._sidecars.set(id, Promise.resolve(sidecar));
+    this._attempted.add(id);
+    this.rememberParsed(id, sidecar);
+  }
+
+  private rememberParsed(id: AssetId, sidecar: HydratedSidecar | null): void {
+    if (sidecar === null) {
+      this.xmpStore.replacePassthroughs([id], new Map());
+      return;
+    }
+    this.xmpStore.rememberPassthrough(id, sidecar.passthrough);
+    this.xmpStore.rememberMetadata(id, sidecar.metadata);
   }
 
   /** A server batch changed the sidecar outside this session's read/write cache. */
@@ -126,24 +151,16 @@ export class XmpAdjustmentRestoreService {
     if (!this.serverPersistence) return null;
     try {
       const xml = await firstValueFrom(this.serverPersistence.readSidecar(absPath));
-      if (xml === null) return this._absentSidecar(id);
+      if (xml === null) return null;
       const sidecar = {
         ...this.parser.parseAdjustmentModel(xml),
         culling: this.parser.parseCulling(xml),
       };
-      this.xmpStore.rememberPassthrough(id, sidecar.passthrough);
-      this.xmpStore.rememberMetadata(id, sidecar.metadata);
       return sidecar;
     } catch (err) {
-      if (err instanceof HttpErrorResponse && err.status === 404) return this._absentSidecar(id);
+      if (err instanceof HttpErrorResponse && err.status === 404) return null;
       throw err;
     }
-  }
-
-  /** A confirmed deletion invalidates source XML; a failed read does not. */
-  private _absentSidecar(id: AssetId): null {
-    this.xmpStore.replacePassthroughs([id], new Map());
-    return null;
   }
 
   private _applyParsedSidecar(id: AssetId, sidecar: HydratedSidecar): void {

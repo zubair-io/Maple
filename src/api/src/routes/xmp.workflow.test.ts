@@ -285,6 +285,56 @@ const nativeValue = async (method: 'workflowCheckpointXmp' | 'workflowReadXmp', 
   return result.value;
 };
 
+test('the first snapshot creates its primary atomically with one winner and no invented history', async () => {
+  await unlink(join(directory, 'photo.xmp'));
+  const checkpoint = await nativeValue('workflowCheckpointXmp', xml);
+  const attempts = await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      actionRequest('snapshot', 'primary', {
+        expectedXmp: null,
+        initialXmp: checkpoint,
+        snapshot: {
+          id: crypto.randomUUID(),
+          name: `First snapshot ${index}`,
+          createdAtMs: 1,
+          adjustmentXmp: checkpoint,
+        },
+      }),
+    ),
+  );
+  expect(attempts.filter((response) => response.status === 200)).toHaveLength(1);
+  expect(attempts.filter((response) => response.status === 409)).toHaveLength(7);
+  const saved = await readFile(join(directory, 'photo.xmp'), 'utf8');
+  const record = JSON.parse(await nativeValue('workflowReadXmp', saved));
+  expect(record.snapshots).toHaveLength(1);
+  expect(record.history).toEqual([]);
+  expect(await nativeValue('workflowCheckpointXmp', saved)).toBe(checkpoint);
+  expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
+});
+test('a rejected first snapshot cannot leave a partial initial sidecar behind', async () => {
+  await unlink(join(directory, 'photo.xmp'));
+  const snapshot = {
+    id: crypto.randomUUID(),
+    name: 'First snapshot',
+    createdAtMs: 1,
+    adjustmentXmp: xml,
+  };
+  const response = await actionRequest('snapshot', 'primary', {
+    expectedXmp: null,
+    initialXmp: '<bad/>',
+    snapshot,
+  });
+  expect(response.status).toBe(422);
+  await expect(readFile(join(directory, 'photo.xmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+  const empty = await actionRequest('snapshot', 'primary', {
+    expectedXmp: null,
+    initialXmp: xml,
+    snapshot: { ...snapshot, name: ' ' },
+  });
+  expect(empty.status).toBe(422);
+  await expect(readFile(join(directory, 'photo.xmp'))).rejects.toMatchObject({ code: 'ENOENT' });
+  expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
+});
 test('confirmed selected-variant actions retain immutable snapshots and history through reopen', async () => {
   const branch = { ...corpus[1], snapshots: [], history: [] };
   expect((await variantRequest('variants?' + variantQuery(), 'POST', branch)).status).toBe(201);
