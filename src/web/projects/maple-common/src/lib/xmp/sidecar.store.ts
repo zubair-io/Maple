@@ -21,7 +21,7 @@
 //     is rolled back to the previous bytes — IDB and the server cannot diverge
 //     silently.
 
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, Injector, inject, signal } from '@angular/core';
 
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import type { AdjustmentModel } from '../models/adjustment-model';
@@ -38,6 +38,8 @@ import {
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 import { workflowSidecarKey } from './workflow-sidecar-binding';
+import { savedRemovalRecords } from '../removal/saved-removal-records';
+import { confirmedSidecarRevision } from '../removal/removal-server-confirmation';
 
 /**
  * The store's view of a sidecar. Matches the shape returned by
@@ -76,9 +78,17 @@ export class SidecarStore {
   private readonly saveState = inject(SidecarSaveStateService);
   private readonly writes = new Map<string, Promise<void>>();
   private readonly semanticAssets = new Map<string, AssetId>();
+  private readonly injector = inject(Injector);
 
   /** Optimistic cache: parsed docs keyed by path. Populated by `write()`. */
   private readonly _docs = signal<Map<string, SidecarDoc>>(new Map());
+  private readonly removalRevisions = new Map<string, string>();
+
+  /** Cache a server-confirmed document; no optimistic XMP/ring adoption. */
+  async rememberConfirmed(path: string, xml: string, revision: string): Promise<void> {
+    await this._ingest(path, xml, true);
+    this.removalRevisions.set(path, revision);
+  }
 
   // ── Mutators (optimistic write-through) ──────────────────────────────────
 
@@ -115,12 +125,27 @@ export class SidecarStore {
       if (this.backend === 'self-hosted') {
         if (!this.serverPersistence)
           throw new Error('Self Hosted sidecar persistence is not configured');
-        if (this.workflow.hasPending(path, variantId))
-          await firstValueFrom(this.workflow.flush(path, variantId));
-        const published = await firstValueFrom(
-          this.serverPersistence.writeSidecar(path, xml, variantId),
-        );
-        await this._ingest(path, published, /* persist */ true, variantId);
+        if (this.workflow.hasPending(path, variantId)) await firstValueFrom(this.workflow.flush(path, variantId));
+        const owned = this._docs()
+          .get(key)
+          ?.passthrough.unknownAttributes.some(
+            (attribute) => attribute.name === 'papp:InpaintRemovals',
+          );
+        if (variantId === PRIMARY_VARIANT_ID && (owned || this.removalRevisions.has(path))) {
+          const { RemovalServerIoService } = await import('../removal/removal-server-io.service');
+          const io = this.injector.get(RemovalServerIoService);
+          const snapshot = await firstValueFrom(io.snapshot(path));
+          const prior = snapshot.xml ? (savedRemovalRecords(snapshot.xml) ?? '[]') : '[]';
+          if ((savedRemovalRecords(xml) ?? '[]') !== prior)
+            throw new Error('Saved removal history changed. Reopen the photo before saving edits.');
+          const saved = await firstValueFrom(
+            io.commit(path, this.removalRevisions.get(key) ?? snapshot.revision, prior, xml),
+          );
+          this.removalRevisions.set(path, await confirmedSidecarRevision(xml, saved));
+        } else {
+          const published = await firstValueFrom(this.serverPersistence.writeSidecar(path, xml, variantId));
+          await this._ingest(path, published, true, variantId);
+        }
       }
     } catch (err) {
       // 3. Rollback. We do this best-effort — if IDB write fails on rollback

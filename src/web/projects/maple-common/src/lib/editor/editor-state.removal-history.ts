@@ -1,6 +1,6 @@
 // Confirmed accepted-pixel history (#3984). Models and the editor ring move
 // only after verified companions and a source-bound XMP CAS have succeeded.
-import { inject } from '@angular/core';
+import { Injector, inject } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import type { EditorStateService } from './editor-state.service';
@@ -8,6 +8,7 @@ import { stableStringify, type EditTransactionKind } from './edit-transaction';
 
 export class EditorRemovalHistory {
   private readonly sidecars = inject(XmpStoreService);
+  private readonly injector = inject(Injector);
   private pending?: Promise<string>;
 
   constructor(private readonly editor: EditorStateService) {}
@@ -47,7 +48,8 @@ export class EditorRemovalHistory {
     const id = editor.imageId();
     const asset = editor.library.focusedAsset();
     const folder = editor.library.currentFolder();
-    if (!id || asset?.id !== id || !folder?.native || !folder.write)
+    const server = editor.library.backend === 'self-hosted';
+    if (!id || asset?.id !== id || (!server && (!folder?.native || !folder.write)))
       return this.reject('Removal history requires this photo’s writable folder.');
     if (stableStringify(editor.currentAdjustment()) !== stableStringify(expected))
       return this.reject('The photo changed before this removal could be saved.');
@@ -58,17 +60,29 @@ export class EditorRemovalHistory {
     editor.library.removalSavingAsset.set(id);
     const task = (async () => {
       try {
-        const flushed = await this.sidecars.captureRemovalRevision(id, folder, asset.filename);
-        const revision = await this.sidecars.writeRemovalConfirmed(
-          id,
-          folder,
-          asset.filename,
-          target,
-          editor.library.assets().find((item) => item.id === id) ?? asset,
-          expected.inpaintRemovals ?? '[]',
-          target.inpaintRemovals ?? '[]',
-          sidecarRevision ?? flushed,
-        );
+        const culling = editor.library.assets().find((item) => item.id === id) ?? asset;
+        const revision = server
+          ? await import('../removal/server-removal-sidecars').then(({ ServerRemovalSidecars }) =>
+              new ServerRemovalSidecars(editor.library, this.injector).write(
+                id,
+                target,
+                culling,
+                expected.inpaintRemovals ?? '[]',
+                target.inpaintRemovals ?? '[]',
+                sidecarRevision,
+              ),
+            )
+          : await this.sidecars.writeRemovalConfirmed(
+              id,
+              folder!,
+              asset.filename,
+              target,
+              culling,
+              expected.inpaintRemovals ?? '[]',
+              target.inpaintRemovals ?? '[]',
+              sidecarRevision ??
+                (await this.sidecars.captureRemovalRevision(id, folder!, asset.filename)),
+            );
         // Persistence is authoritative even if navigation retired this ring.
         editor.library.adoptConfirmedRemoval(id, target);
         if (editor.bindingRevision === binding) confirmed();

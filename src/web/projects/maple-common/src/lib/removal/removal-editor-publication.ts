@@ -148,15 +148,16 @@ export async function keep(session: RemovalEditorSession): Promise<void> {
       photo.sidecarRevision,
     );
     if (token !== session.revision) return;
+    const xml = session.recipe(photo, draft.records);
     session.photo = {
       ...photo,
       prior: draft.records,
-      xml: draft.xml,
+      xml,
       companions: companionsFor(draft.records, draft.companions),
       model: { ...photo.model, inpaintRemovals: draft.records },
       sidecarRevision,
     };
-    session.key = session.keyFor(photo.asset, draft.xml);
+    session.key = session.keyFor(photo.asset, xml);
     session.resetProxy();
     session.savedRemovals.set(savedEntries(draft.records));
     session.replacingRemoval.set(null);

@@ -335,6 +335,7 @@ export class LibraryStateService {
   readonly removalSavingAsset = signal<AssetId | null>(null);
 
   adoptConfirmedRemoval(id: AssetId, model: AdjustmentModel): void {
+    this.fetch_.confirmRemovalModel(id, model);
     this.store.setAdjustment(id, model);
     this.previewPersist.schedule(id);
   }
@@ -426,6 +427,10 @@ export class LibraryStateService {
 
   flushSidecarWrite(id: AssetId): Promise<void> {
     return this.fetch_.flushSidecarWrite(id);
+  }
+
+  settleSidecarWrites(id: AssetId): Promise<void> {
+    return this.fetch_.settleSidecarWrites(id);
   }
 
   flushPendingXmpWrites(): Promise<void> {

@@ -22,7 +22,7 @@
 // below skips gracefully. Hosted restore continues to happen in
 // `openFolder()` when the user re-picks the folder.
 
-import { Injectable, effect, inject, untracked } from '@angular/core';
+import { Injectable, Injector, effect, inject, untracked } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
@@ -36,6 +36,8 @@ import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
 import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
 import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
+import { savedRemovalRecords } from '../removal/saved-removal-records';
+import { SidecarStore } from './sidecar.store';
 
 export interface HydratedSidecar {
   readonly model: Partial<AdjustmentModel>;
@@ -52,6 +54,7 @@ export class XmpAdjustmentRestoreService {
   private readonly serverLibrary = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly parser = inject(XmpParserService);
   private readonly xmpStore = inject(XmpStoreService);
+  private readonly injector = inject(Injector);
 
   /** Asset ids already fetched (or in flight) this session. */
   private readonly _attempted = new Set<AssetId>();
@@ -137,6 +140,19 @@ export class XmpAdjustmentRestoreService {
     this._sidecars.delete(id);
   }
 
+  /** Confirmed authoring replaces the old read-before-write base atomically. */
+  rememberConfirmed(id: AssetId, xml: string): void {
+    const sidecar = {
+      ...this.parser.parseAdjustmentModel(xml),
+      culling: this.parser.parseCulling(xml),
+    };
+    this._sidecars.set(id, Promise.resolve(sidecar));
+    this._attempted.add(id);
+    this.xmpStore.rememberPassthrough(id, sidecar.passthrough);
+    this.xmpStore.rememberMetadata(id, sidecar.metadata);
+    this._markEdited(id);
+  }
+
   /** Self-Hosted `slug:relPath` assets not yet attempted this session. */
   private _eligible(id: AssetId): boolean {
     return this._addressable(id) && !this._attempted.has(id);
@@ -154,8 +170,16 @@ export class XmpAdjustmentRestoreService {
     if (!this.serverPersistence) return null;
     const variantId = this.store.workflowVariants.variantFor(id, absPath);
     try {
-      const xml = await firstValueFrom(this.serverPersistence.readSidecar(absPath, variantId));
-      if (xml === null) return null;
+      const loaded = await firstValueFrom(this.serverPersistence.readSidecar(absPath, variantId));
+      if (loaded === null) return null;
+      const snapshot = variantId === PRIMARY_VARIANT_ID && savedRemovalRecords(loaded)
+        ? await import('../removal/removal-server-io.service').then(({ RemovalServerIoService }) =>
+            firstValueFrom(this.injector.get(RemovalServerIoService).snapshot(absPath)),
+          )
+        : undefined;
+      const xml = snapshot?.xml ?? loaded;
+      if (snapshot)
+        await this.injector.get(SidecarStore).rememberConfirmed(absPath, xml, snapshot.revision);
       const sidecar = {
         ...this.parser.parseAdjustmentModel(xml),
         culling: this.parser.parseCulling(xml),

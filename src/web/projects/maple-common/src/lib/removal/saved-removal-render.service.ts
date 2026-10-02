@@ -1,7 +1,7 @@
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 // Normal local-folder rendering consumes durable sidecars and companions (#3955).
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import type { AssetId } from '../models/asset';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { LibraryStateService } from '../state/library-state.service';
@@ -19,6 +19,7 @@ export class SavedRemovalRenderService {
   private readonly files = inject(FolderAccessService);
   private readonly sidecars = inject(XmpStoreService);
   private readonly serializer = inject(XmpSerializerService);
+  private readonly injector = inject(Injector);
 
   /** Unknown record attributes are part of the render recipe, just as on disk. */
   serialize(assetId: AssetId | null, model: AdjustmentModel): string {
@@ -62,13 +63,21 @@ export class SavedRemovalRenderService {
     if (!records) return undefined;
     const asset = this.library.focusedAsset();
     const folder = this.library.currentFolder();
-    if (!asset || asset.id !== assetId || !folder) {
+    const server = this.library.backend === 'self-hosted';
+    const path = server ? this.library.absPathFor(assetId) : undefined;
+    if (!asset || asset.id !== assetId || (server ? !path : !folder)) {
       throw new Error('Reopen the photo’s containing folder to load its saved removal companions.');
     }
-    const bundle = await new LocalRemovalAssets(this.files, folder, asset.filename).readBundle(
-      records,
-    );
-    if (this.library.focusedAsset()?.id !== assetId || this.library.currentFolder() !== folder) {
+    const assets = server
+      ? await import('./server-removal-assets').then(({ openServerRemovalAssets }) =>
+          openServerRemovalAssets(this.injector, path!, () => this.library.bytesForAsset(assetId)),
+        )
+      : new LocalRemovalAssets(this.files, folder!, asset.filename);
+    const bundle = await assets.readBundle(records);
+    if (
+      this.library.focusedAsset()?.id !== assetId ||
+      (server ? this.library.absPathFor(assetId) !== path : this.library.currentFolder() !== folder)
+    ) {
       throw new DOMException('Saved removal preparation superseded', 'AbortError');
     }
     return bundle;

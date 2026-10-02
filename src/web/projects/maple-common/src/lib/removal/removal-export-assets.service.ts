@@ -1,6 +1,6 @@
 // Durable companion reads for both single-image and captured recipe export.
 // Export has no focused-photo dependency; Rust binds bytes to the recipe (#3955).
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
 import { LibrarySlugRegistry } from '../addressing/library-slug-registry';
 import { parseAddress } from '../addressing/maple-address';
@@ -14,6 +14,7 @@ export class RemovalExportAssetsService {
   private readonly library = inject(LibraryStateService);
   private readonly registry = inject(LibrarySlugRegistry);
   private readonly files = inject(FolderAccessService);
+  private readonly injector = inject(Injector);
 
   async load(
     id: string,
@@ -23,6 +24,14 @@ export class RemovalExportAssetsService {
   ): Promise<RemovalCompanionBundle | undefined> {
     const records = savedRemovalRecords(xml);
     if (!records) return undefined;
+    if (this.library.backend === 'self-hosted') {
+      const path = this.library.absPathFor(id);
+      if (!path) throw new Error('The captured server RAW path is unavailable for removal export.');
+      const { openServerRemovalAssets } = await import('./server-removal-assets');
+      return (
+        await openServerRemovalAssets(this.injector, path, () => this.library.bytesForAsset(id))
+      ).readBundle(records);
+    }
     const focused = this.library.focusedAsset();
     const folder = this.library.currentFolder();
     if (!captured && focused?.id === id && focused.filename === filename && folder)

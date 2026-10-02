@@ -5,13 +5,7 @@ import * as workerThreads from 'node:worker_threads';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  initSync,
-  NativeDetailSession,
-  RemovalGeneration,
-  removal_content_digest,
-  removal_selection,
-} from '../raw-pipeline/pkg/raw_wasm';
+import { initSync, NativeDetailSession, removal_selection } from '../raw-pipeline/pkg/raw_wasm';
 import { NativeDetailWorker } from '../raw-pipeline/raw-pipeline.native-detail-handler';
 import { runRemovalAuthoring } from '../raw-pipeline/raw-pipeline.removal-handler';
 import type {
@@ -35,38 +29,11 @@ import { RemovalEditorSession } from './removal-editor-session.service';
 import { ImageCanvasService } from '../components/image-canvas/image-canvas.service';
 import type { RemovalInferenceClient } from './removal-inference-client';
 import type { RemovalProposal } from './removal-inference.types';
+import { identityProposal } from './testing/identity-proposal';
 
 const fixtureRoot = resolve(process.cwd(), '../../test-fixtures/removal/basic');
 const raw = new Uint8Array(readFileSync(join(fixtureRoot, 'source.dng')));
 const prior = readFileSync(join(fixtureRoot, 'prior.xmp'), 'utf8');
-
-// Lifecycle/storage qualification uses an explicit identity-model fixture.
-// Actual ONNX execution/photo quality are separate browser/model gates.
-function identityProposal(
-  request: string,
-  records: string,
-  scene: Float32Array,
-  intent: Uint8Array,
-  protectedMask: Uint8Array,
-) {
-  const model = removal_content_digest(new TextEncoder().encode('test identity model fixture'));
-  const generation = new RemovalGeneration(
-    JSON.stringify({ ...JSON.parse(request), model, model_version: 'test identity fixture' }),
-    records,
-    scene,
-    intent,
-    protectedMask,
-  );
-  try {
-    return {
-      request: generation.request(),
-      mask: intent,
-      patch: generation.finish(generation.rgb()),
-    };
-  } finally {
-    generation.free();
-  }
-}
 
 describe('editor removal lifecycle with actual retained RAW and filesystem XMP', () => {
   let root: string,
@@ -391,6 +358,28 @@ describe('editor removal lifecycle with actual retained RAW and filesystem XMP',
     await paint();
     expect(session.selection().length).toBeGreaterThan(0);
     expect(session.message()).toBe('');
+  });
+  it('saved controls retain late As-Shot display values when the RAW recipe is unchanged', async () => {
+    await paint();
+    await session.remove();
+    await session.keep();
+    TestBed.tick();
+    const key = session.key;
+    const entry = session.savedRemovals()[0];
+    // Decode hydration seeds the camera's UI pair without authoring custom WB.
+    TestBed.inject(LibraryStateService).updateAdjustment('photo', { temperature: 5100, tint: 4 });
+    TestBed.tick();
+    expect(session.key).toBe(key);
+    await session.editSaved(entry.id, false);
+    TestBed.tick();
+    expect(session.message()).toBe('Removal saved.');
+    expect(session.savedRemovals()[0].active).toBe(false);
+    expect(session.editor.currentAdjustment()?.temperature).toBe(5100);
+    expect(session.editor.currentAdjustment()?.tint).toBe(4);
+    expect(await fs.readFile(join(root, 'photo.xmp'), 'utf8')).toContain(
+      '&quot;active&quot;:false',
+    );
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
   });
   it('retains an unsaved review across export and can still Keep the exact draft', async () => {
     await paint();
