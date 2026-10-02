@@ -11,9 +11,8 @@
 // identifiers). Thumbnails and previews go through the unified
 // `/api/thumb|preview/:slug/*` routes (#1325), the absolute path
 // translated to a `slug:relPath` address by `CloudAddressResolver`.
-// Original bytes deliberately stay on `/api/fs/raw`: that route carries
-// #926's mirror read-failover and `/api/image/:slug/*` does not, so
-// moving it would silently drop failover for every RAW open.
+// Original bytes use `/api/image/:slug/*`, whose replica resolver preserves
+// mirror failover when the primary volume is unavailable (#3999 / #4002).
 //
 // CloudSidecarStore routes these fs: identifiers through the path-keyed
 // XMP endpoint, so edits do not depend on the indexer catching up (#3357).
@@ -29,7 +28,7 @@ public actor CloudSource {
   /// library root; bumped by `navigate(to:)` for subfolder drill-down.
   public private(set) var currentPath: String
   private let httpClient: AuthenticatedHTTPClient
-  /// Absolute path → `slug:relPath` for the unified thumb/preview routes.
+  /// Absolute path → `slug:relPath` for unified original/thumb/preview routes.
   /// Root-matched against `/api/folders` rather than derived from
   /// `folderID`/`libraryPath`, because the timeline builds one `CloudSource`
   /// per SERVER (`libraryPath: ""`) and serves assets from every library on
@@ -129,14 +128,11 @@ extension CloudSource: ImageSource {
     return try await getOrNilWhenUnavailable(previewURL)
   }
 
-  /// Original bytes via `/api/fs/raw?path=` — kept on the legacy route on
-  /// purpose (#1325): it is the one path-addressed route that carries #926's
-  /// mirror read-failover, which `/api/image/:slug/*` lacks server-side.
+  /// Original bytes via `/api/image/:slug/*`, with server-side mirror
+  /// failover and the same cached address mapping as thumbnails/previews.
   public func rawBytes(for ref: ImageRef) async throws -> Data {
     let abs = Self.absPath(from: ref.id)
-    let rawURL = url(
-      "/api/fs/raw",
-      query: [URLQueryItem(name: "path", value: abs)])
+    let rawURL = try await addresses.url(route: "image", absPath: abs)
     let req = URLRequest(url: rawURL)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
@@ -157,7 +153,7 @@ extension CloudSource: ImageSource {
   }
 
   /// Download the full RAW bytes for `ref` while reporting byte-level
-  /// progress (#822). Routes through `session.download(for:)` on a session
+  /// progress (#822). Routes through a delegate-backed download task
   /// configured with a `DownloadProgressDelegate` — the non-buffered transport
   /// the auth client's `refreshIfNeededAndRetry` helper was built for (it
   /// streams to a temp file instead of holding the whole response in memory)
@@ -180,42 +176,18 @@ extension CloudSource: ImageSource {
     onProgress: @escaping @Sendable (_ received: Int64, _ total: Int64?) -> Void
   ) async throws -> Data {
     let abs = Self.absPath(from: ref.id)
-    let rawURL = url(
-      "/api/fs/raw",
-      query: [URLQueryItem(name: "path", value: abs)])
+    let rawURL = try await addresses.url(route: "image", absPath: abs)
     let req = URLRequest(url: rawURL)
 
-    // The progress delegate is its own URLSession's delegate (a delegate is
-    // bound to a session, not a single task), so build a one-shot session
-    // for this download. `expectedTotal` seeds the reported total so a
-    // server without a Content-Length still yields a determinate bar.
-    let delegate = DownloadProgressDelegate(
-      fallbackTotal: expectedTotal, onProgress: onProgress)
-    // Use an ephemeral configuration so a multi-hundred-MB RAW body is never
-    // persisted to the shared URLCache, cookie storage, or credential storage
-    // (mirrors `RemoteCatalog`'s download session). Auth is handled per-request
-    // by the `AuthenticatedHTTPClient.refreshIfNeededAndRetry` wrapper below,
-    // not by session-level headers, so nothing else needs to move here.
-    let cfg = URLSessionConfiguration.ephemeral
-    // `.ephemeral` already nils urlCache/cookies/credentials; the assignments
-    // below are belt-and-suspenders + intent-as-doc.
-    cfg.urlCache = nil
-    cfg.httpCookieStorage = nil
-    cfg.urlCredentialStorage = nil
-    let session = URLSession(
-      configuration: cfg,
-      delegate: delegate, delegateQueue: nil)
-    defer { session.invalidateAndCancel() }
-
-    let (fileURL, resp) = try await httpClient.refreshIfNeededAndRetry(request: req) { injected in
-      try await session.download(for: injected)
+    let (data, resp) = try await httpClient.refreshIfNeededAndRetry(request: req) { injected in
+      let delegate = DownloadProgressDelegate(fallbackTotal: expectedTotal, onProgress: onProgress)
+      let (fileURL, response) = try await delegate.download(for: injected)
+      // Consume and remove each attempt's owned temp before auth decides
+      // whether to retry a 401, so neither successful nor failed attempts leak.
+      defer { try? FileManager.default.removeItem(at: fileURL) }
+      return (try Data(contentsOf: fileURL), response)
     }
 
-    // `download` writes to a temp file the system reclaims when this scope
-    // exits — read it into memory before that happens. The pipeline wants
-    // the bytes in `Data` (it has no streaming-decode entry point), so the
-    // peak-memory cost matches the existing buffered `rawBytes` path.
-    let data = try Data(contentsOf: fileURL)
     try Self.checkOK(resp, data: data)
     return data
   }
