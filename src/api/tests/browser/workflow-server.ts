@@ -1,9 +1,11 @@
 /** Private real API/SQLite/filesystem fixture for Self Hosted editor qualification (#4053). */
-import { Elysia, t } from 'elysia';
+import { Elysia, status, t } from 'elysia';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { xmpPathRoutes } from '../../src/routes/xmp';
+import { metadataRoutes } from '../../src/routes/assets/metadata';
+import { xmpRoutes } from '../../src/routes/assets/xmp';
 import { registerRoot } from '../../src/fs/root';
 import { createLiveTestDatabase } from '../../src/db/sqlite/test-sqlite.test-helpers';
 import { registerLibrary, seedRouteAsset } from '../helpers/assets-route-fixtures';
@@ -11,6 +13,8 @@ import { listChangesSince } from '../../src/db/repos/changes.repo';
 import { callNative, shutdownMaplePool } from 'maple';
 
 const root = await realpath(await mkdtemp(join(tmpdir(), 'maple-editor-api-')));
+// The native consumer uses an ephemeral port and this ready receipt (#4056).
+const [receipt] = process.argv.slice(2);
 process.env.MAPLE_ROOTS = root;
 registerRoot(root);
 const live = await createLiveTestDatabase();
@@ -20,6 +24,7 @@ const fixtures = new Map<
   { path: string; id: string; input: string | null; cursor: number }
 >();
 const blocked = new Map<string, { promise: Promise<void>; release: () => void }>();
+const lostResponses = new Set<string>();
 function fixture(key: string) {
   const result = fixtures.get(key);
   if (!result) throw Error('Unknown owned fixture');
@@ -48,6 +53,14 @@ async function waitForRequest(request: Request) {
 function fixtureSchema(xml: string, future: boolean | undefined): string {
   return future ? xml.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2') : xml;
 }
+function dropAcceptedResponse(request: Request) {
+  const url = new URL(request.url);
+  if (`${request.method} ${url.pathname}` !== 'POST /api/xmp/variant/commit') return;
+  if (!lostResponses.delete(String(url.searchParams.get('path')))) return;
+  // Runs after the real route publishes its file/SQLite change. The client
+  // receives a gateway failure instead of the acknowledgement, once (#4056).
+  return status(502, { error: 'Owned fixture lost the accepted commit acknowledgement' });
+}
 async function fixtureXml(body: {
   xml: string | null;
   workflow?: unknown;
@@ -59,9 +72,17 @@ async function fixtureXml(body: {
   return fixtureSchema(embedded.value, body.futureSchema);
 }
 const app = new Elysia()
+  .onBeforeHandle({ as: 'global' }, ({ request }) => {
+    if (!receipt) return;
+    if (!new URL(request.url).pathname.startsWith('/api/')) return;
+    if (request.headers.get('authorization') !== 'Bearer workflow-token')
+      return status(401, { error: 'Unauthorized owned native fixture request' });
+  })
   .onBeforeHandle(({ request }) => waitForRequest(request))
+  .onAfterHandle(({ request }) => dropAcceptedResponse(request))
   .get('/workflow-fixture/health', () => ({ ready: true }))
   .use(xmpPathRoutes)
+  .group('/api/assets', (api) => api.use(metadataRoutes).use(xmpRoutes))
   .post(
     '/workflow-fixture',
     async ({ body }) => {
@@ -69,10 +90,23 @@ const app = new Elysia()
       const directory = join(root, key);
       await mkdir(directory);
       const path = join(directory, 'photo.dng');
-      await writeFile(path, new Uint8Array([1, 0, 255, 42]));
+      const original = body.synthetic
+        ? await readFile(
+            join(
+              import.meta.dir,
+              '../../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng',
+            ),
+          )
+        : new Uint8Array([1, 0, 255, 42]);
+      await writeFile(path, original);
       const input = await fixtureXml(body);
       if (input !== null) await writeFile(join(directory, 'photo.xmp'), input);
-      const id = seedRouteAsset(live.db, { libraryId, path: key, filename: 'photo.dng', size: 4 });
+      const id = seedRouteAsset(live.db, {
+        libraryId,
+        path: key,
+        filename: 'photo.dng',
+        size: original.length,
+      });
       const cursor = live.db
         .query('SELECT COALESCE(MAX(cursor), 0) AS cursor FROM asset_changes')
         .get() as { cursor: number };
@@ -98,6 +132,7 @@ const app = new Elysia()
         xml: t.Union([t.String(), t.Null()]),
         workflow: t.Optional(t.Unknown()),
         futureSchema: t.Optional(t.Boolean()),
+        synthetic: t.Optional(t.Boolean()),
       }),
     },
   )
@@ -137,6 +172,10 @@ const app = new Elysia()
     });
     return { ready: true };
   })
+  .post('/workflow-fixture/:key/lose-response', ({ params }) => {
+    lostResponses.add(fixture(params.key).path);
+    return { armed: true };
+  })
   .post('/workflow-fixture/:key/end-race', ({ params }) => {
     const source = fixture(params.key);
     races.get(source.path)?.release();
@@ -158,7 +197,9 @@ const app = new Elysia()
       ),
     };
   })
-  .listen({ port: 4519, hostname: '127.0.0.1' });
+  .listen({ port: receipt ? 0 : 4519, hostname: '127.0.0.1' });
+if (receipt)
+  await writeFile(receipt, JSON.stringify({ url: `http://127.0.0.1:${app.server!.port}` }));
 async function close() {
   for (const latch of [...blocked.values(), ...races.values()]) latch.release();
   await app.stop(true);

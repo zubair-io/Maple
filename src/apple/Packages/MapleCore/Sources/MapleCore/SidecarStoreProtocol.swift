@@ -30,7 +30,7 @@ public protocol SidecarStoreProtocol: Actor {
 }
 
 /// Concrete capability of stores whose actual editor boundary persists
-/// portable semantic history. SMB/API hosts follow under #2437 (#4047).
+/// portable semantic history. SMB hosts follow under #2437 (#4056).
 public protocol SemanticSidecarStoreProtocol: SidecarStoreProtocol {
   func commitSemantic(
     model: AdjustmentModel, culling: CullingState, action: String, label: String
