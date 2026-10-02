@@ -1,3 +1,4 @@
+import { PIPELINE_OUTPUT_VERSION } from '../../projects/maple-common/src/lib/generated/adjustment-model.generated';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import {
@@ -118,10 +119,23 @@ export async function stageProductionFixtures(
     await Promise.all([
       copyFile(baselineXmp, join(populatedFolder, 'test_0017.xmp')),
       writeFile(
-        join(populatedFolder, '.maple', 'thumbs', '5170a2440f3250ea.avif'),
+        join(
+          populatedFolder,
+          '.maple',
+          'thumbs',
+          `5170a2440f3250ea.v${PIPELINE_OUTPUT_VERSION}.avif`,
+        ),
         WARM_CACHE_AVIF,
       ),
-      writeFile(join(populatedFolder, '.maple', 'previews', 'test_0017.dng.avif'), WARM_CACHE_AVIF),
+      writeFile(
+        join(
+          populatedFolder,
+          '.maple',
+          'previews',
+          `test_0017.dng.v${PIPELINE_OUTPUT_VERSION}.avif`,
+        ),
+        WARM_CACHE_AVIF,
+      ),
     ]);
   } catch {
     await cleanupProductionFixtures({ root } as ProductionFixtureManifest);
