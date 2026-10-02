@@ -2,7 +2,7 @@ use super::{
     SidecarWorkflow, WorkflowHistoryEntry, WorkflowSnapshot, HISTORY_LIMIT, MAX_TIMESTAMP_MS,
     PRIMARY_VARIANT_ID, WORKFLOW_ACTIONS, WORKFLOW_MAX_BYTES, WORKFLOW_VERSION,
 };
-use quick_xml::{events::Event, Reader};
+use quick_xml::{events::Event, name::ResolveResult, reader::NsReader};
 use std::collections::HashSet;
 
 pub(super) fn size(value: &str) -> Result<(), String> {
@@ -45,9 +45,18 @@ fn timestamp(value: u64) -> Result<(), String> {
     Ok(())
 }
 
+pub(super) fn xml_characters(xml: &str) -> Result<(), String> {
+    if xml.chars().any(|c| {
+        (c < ' ' && !matches!(c, '\t' | '\n' | '\r')) || matches!(c, '\u{fffe}' | '\u{ffff}')
+    }) {
+        return Err("invalid XML 1.0 character".into());
+    }
+    Ok(())
+}
 fn checkpoint(xml: &str) -> Result<(), String> {
     size(xml)?;
-    let mut reader = Reader::from_str(xml);
+    xml_characters(xml)?;
+    let mut reader = NsReader::from_str(xml);
     let mut path: Vec<String> = Vec::new();
     let mut roots = 0;
     let mut description = false;
@@ -57,7 +66,9 @@ fn checkpoint(xml: &str) -> Result<(), String> {
             Event::Start(ref e) | Event::Empty(ref e) => {
                 let name = e.name();
                 let name = std::str::from_utf8(name.as_ref()).map_err(|e| e.to_string())?;
-                if name == "papp:Workflow" {
+                let (namespace, local) = reader.resolve_element(e.name());
+                let owned = matches!(namespace, ResolveResult::Bound(ref ns) if ns.as_ref() == b"http://ns.justmaple.app/photo/1.0/");
+                if name == "papp:Workflow" || (owned && local.as_ref() == b"Workflow") {
                     return Err("checkpoint must exclude workflow metadata".into());
                 }
                 if path.is_empty() {

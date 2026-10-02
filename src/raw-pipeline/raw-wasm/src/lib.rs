@@ -98,6 +98,7 @@ mod render_film;
 /// `scene_linear.rs` grouping.
 pub mod scene_linear;
 pub mod white_balance_sample;
+mod workflow;
 
 // BM3D deep-denoise progress bridge (#1153) — wasm-only: it hands raw-core's
 // stage progress to a JS callback the render worker re-broadcasts, and the

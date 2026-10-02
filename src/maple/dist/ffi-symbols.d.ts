@@ -26,6 +26,18 @@ export declare function getFfiSymbols(FFIType: Record<string, string | number>):
         args: (string | number)[];
         returns: string | number;
     };
+    maple_workflow_validate_json: {
+        args: (string | number)[];
+        returns: string | number;
+    };
+    maple_workflow_read_xmp: {
+        args: (string | number)[];
+        returns: string | number;
+    };
+    maple_workflow_embed_xmp: {
+        args: (string | number)[];
+        returns: string | number;
+    };
     maple_validate_filename: {
         args: (string | number)[];
         returns: string | number;

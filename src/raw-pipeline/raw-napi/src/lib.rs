@@ -48,6 +48,7 @@ mod raster_render;
 #[cfg(test)]
 mod raster_render_tests;
 mod raster_resize;
+mod workflow;
 
 pub use develop_export::{export_developed_to_file, export_recipe_to_file};
 pub use develop_preview::{

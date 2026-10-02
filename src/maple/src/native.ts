@@ -6,6 +6,7 @@ import { NativeBindingError } from './native-errors';
 import { findNativeLib, nativeLibFilename } from './native-library';
 export { findNativeLib, nativeLibFilename } from './native-library';
 import { getFfiSymbols } from './ffi-symbols';
+import { createWorkflowBinding, type WorkflowBinding } from './native-workflow';
 import { createRasterAnalyzeBinding } from './native-raster-analyze';
 import type { RasterAnalyzeBinding } from './native-raster-analyze';
 import { createRasterPipelineBinding } from './native-raster-pipeline';
@@ -18,7 +19,7 @@ import type { FilenameResult, FilenameTemplateArgs } from './types';
 const RENDER_OUT_CAP = 1024;
 
 export interface NativeBinding
-  extends RasterV2Binding, RasterPipelineBinding, RasterAnalyzeBinding {
+  extends RasterV2Binding, RasterPipelineBinding, RasterAnalyzeBinding, WorkflowBinding {
   exportDevelopedToFile(
     rawPath: string,
     xmpPath: string | null,
@@ -158,6 +159,7 @@ export function loadNativeBinding(): NativeBinding {
   }
 
   const binding: NativeBinding = {
+    ...createWorkflowBinding(lib, ptr, getLastError),
     exportDevelopedToFile(rawPath, xmpPath, format, quality, colorSpace, maxLongEdge, outPath) {
       const rawBuf = Buffer.from(rawPath + '\0', 'utf-8');
       const xmpBuf = xmpPath ? Buffer.from(xmpPath + '\0', 'utf-8') : null;

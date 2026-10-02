@@ -69,6 +69,26 @@ export function getFfiSymbols(FFIType: Record<string, string | number>) {
       ],
       returns: FFIType.i32,
     },
+    maple_workflow_validate_json: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    maple_workflow_read_xmp: {
+      args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    maple_workflow_embed_xmp: {
+      args: [
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+        FFIType.u64,
+        FFIType.ptr,
+      ],
+      returns: FFIType.i32,
+    },
     maple_validate_filename: {
       args: [FFIType.cstring],
       returns: FFIType.i32,

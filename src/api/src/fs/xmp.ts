@@ -15,11 +15,12 @@ import { deleteSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sid
 // own module; the precondition write below is their only producer here.
 import { pickFreeConflictPath } from './xmp-conflict.ts';
 import { createHash } from 'node:crypto';
-import type { OpResult } from './root.ts';
+import { safeWriteAllowed, type OpResult } from './root.ts';
 import type { AssetDoc } from '../db/schema.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
+import { prepareWorkflowWrite } from '../xmp/workflow-write.ts';
 
 /**
  * First 16 hex chars of sha256(text) — the cache-key stem used for
@@ -68,11 +69,32 @@ export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
   }
 }
 
-/** Atomically write (or overwrite) an XMP sidecar — jail check, temp, fsync,
- * rename. See `sidecar-io.ts` for the mechanics every sidecar write shares. */
+/** Validate existing authoring records before an edit can replace the sidecar. */
+async function preparePrimarySidecarWrite(
+  sidecar: string,
+  xmlContent: string,
+): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
+  const allowed = await safeWriteAllowed(sidecar);
+  if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
+  try {
+    const existing = await fs.readFile(sidecar, 'utf8').catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+        return null;
+      throw error;
+    });
+    return { ok: true, data: await prepareWorkflowWrite(existing, xmlContent) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Atomic primary-sidecar publication with workflow preservation and a root jail. */
 export async function writeXmpAtomic(rawAbsPath: string, xmlContent: string): Promise<OpResult> {
-  const res = await writeSidecarAtomic(xmpSidecarPath(rawAbsPath), xmlContent, 'XMP write failed');
-  return res.ok ? { ok: true } : { ok: false, error: res.error };
+  const sidecar = xmpSidecarPath(rawAbsPath);
+  const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
+  if (!prepared.ok) return prepared;
+  const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
 /**
@@ -296,7 +318,9 @@ export async function writeXmpWithPrecondition(
     if (onDiskEpoch !== ifMtimeMatchesEpoch) return writeConflictCopy();
   }
 
-  const result = await writeSidecarAtomic(sidecar, xmlContent, 'XMP write failed');
+  const prepared = await preparePrimarySidecarWrite(sidecar, xmlContent);
+  if (!prepared.ok) return { kind: 'error', error: prepared.error ?? 'Workflow validation failed' };
+  const result = await writeSidecarAtomic(sidecar, prepared.data, 'XMP write failed');
   return result.ok ? { kind: 'ok', mtime: result.mtime } : { kind: 'error', error: result.error };
 }
 

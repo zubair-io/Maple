@@ -11,8 +11,14 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 mod tests;
 mod validation;
+mod xml;
+#[cfg(test)]
+mod xml_tests;
+mod xml_tree;
 
 pub const WORKFLOW_VERSION: u32 = 1;
+/// Cheap host dispatch guard only; Rust still resolves/validates the namespace.
+pub const WORKFLOW_MARKUP_PATTERN: &str = r"<(?:[^<\s:]+:)?Workflow(?=[\s/>])";
 /// Matches the existing 32-commit Apple/Web undo window.
 pub const HISTORY_LIMIT: usize = 32;
 /// Matches the existing backup-sidecar ingress bound; embedding also checks

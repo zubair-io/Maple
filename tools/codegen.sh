@@ -127,6 +127,7 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema workflow --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/Workflow+Generated.swift"
 "$BIN" --schema workflow --target ts --out "src/web/projects/maple-common/src/lib/generated/workflow.generated.ts"
 "$BIN" --schema workflow --target ts --out "src/api/src/generated/workflow.generated.ts"
+"$BIN" --schema workflow --target ts --out "src/maple/src/generated/workflow.generated.ts"
 
 # --- Named white-balance presets (#3307) ----------------------------------
 

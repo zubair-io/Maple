@@ -17,12 +17,17 @@ import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { XmpSerializerService } from './xmp-serializer.service';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
+import { WorkflowXmpService } from './workflow-xmp.service';
+import { XmpParserService } from './xmp-parser.service';
+import { WORKFLOW_MARKUP_PATTERN, type SidecarWorkflow } from '../generated/workflow.generated';
 
 @Injectable({ providedIn: 'root' })
 export class XmpStoreService {
   private folderAccess = inject(FolderAccessService);
   private serializer = inject(XmpSerializerService);
   private saveState = inject(SidecarSaveStateService);
+  private readonly workflowCore = inject(WorkflowXmpService);
+  private readonly parser = inject(XmpParserService);
 
   // Leave 100ms for browser scheduling and File System Access dispatch while
   // meeting the 250ms edit-to-sidecar contract in installed Chrome.
@@ -40,6 +45,34 @@ export class XmpStoreService {
       revision: number;
     }
   >();
+  /** Publish workflow metadata through the same per-asset atomic write chain.
+   * Requires an existing sidecar; the caller commits initial adjustments first. */
+  async writeWorkflow(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+    workflow: SidecarWorkflow,
+  ): Promise<void> {
+    if (!folder.write) throw new Error('Reopen this folder with write access.');
+    if (this._pendingWrites.has(assetId)) await this.flushAsset(assetId);
+    const prior = this._inFlightWrites.get(assetId) ?? Promise.resolve();
+    const write = prior
+      .then(async () => {
+        const name = this._sidecarFilename(rawFilename);
+        const xml = new TextDecoder('utf-8', { fatal: true }).decode(
+          await this.folderAccess.readFile(folder, name),
+        );
+        const output = await this.workflowCore.embed(workflow, xml);
+        await this.folderAccess.writeFile(folder, name, new TextEncoder().encode(output));
+        this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
+      })
+      .finally(() => {
+        if (this._inFlightWrites.get(assetId) === write) this._inFlightWrites.delete(assetId);
+      });
+    this._inFlightWrites.set(assetId, write);
+    await write;
+  }
+
   /** Latest serialized write chain for each asset. */
   private readonly _inFlightWrites = new Map<AssetId, Promise<void>>();
 
@@ -234,11 +267,14 @@ export class XmpStoreService {
     this.saveState.saving(assetId, revision);
     // Source XML retains language alternatives and multiple creators that the
     // typed cache cannot represent. Use cached metadata only without source XML.
-    const metadata = passthrough ? undefined : this._metadata.get(assetId);
-    const xml = this.serializer.serialize(model, passthrough, culling, metadata);
+    // A workflow save may have completed while this edit waited in the chain.
+    const currentPassthrough = this._passthroughs.get(assetId) ?? passthrough;
+    const metadata = currentPassthrough ? undefined : this._metadata.get(assetId);
+    const xml = this.serializer.serialize(model, currentPassthrough, culling, metadata);
     const bytes = new TextEncoder().encode(xml);
     const sidecarName = this._sidecarFilename(rawFilename);
     try {
+      if (new RegExp(WORKFLOW_MARKUP_PATTERN, 'u').test(xml)) await this.workflowCore.read(xml);
       // FolderAccessService.writeFile uses FS Access writable-stream on Chromium,
       // whose close() is atomic at the OS level.  The fallback backend writes to
       // IndexedDB which is also atomic.

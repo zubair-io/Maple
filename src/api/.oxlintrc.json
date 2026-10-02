@@ -55,6 +55,8 @@
         // #3780: disposable coverage artifacts and isolated test scratch files, never library writes.
         // #4035: wire round trips use only disposable temp checkpoints and read committed fixtures.
         "src/generated/workflow.contract.test.ts",
+        // #4036: real-file transaction tests write only their own disposable fixture directory.
+        "src/routes/xmp.workflow.test.ts",
         "tests/coverage.instrument.ts",
         "tests/coverage.preload.ts",
         "tests/coverage.preload.test.ts",

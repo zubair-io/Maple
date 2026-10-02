@@ -67,6 +67,9 @@ mod imported_white_balance;
 // `raw_core::filename` — no worker-thread dispatch, no GPU gate.
 mod filename;
 mod lens_profile;
+mod workflow;
+#[cfg(test)]
+mod workflow_tests;
 // `.mlut` film-look LUT decode FFI (epic #2683, Task 8) — pure marshalling
 // over `raw_core::film::decode_mlut`. No worker-thread dispatch, no GPU gate
 // (the decode is a cheap byte-parse; only the GPU-gated per-tick params and
@@ -173,6 +176,9 @@ pub use deep_denoise_progress::{maple_set_deep_denoise_progress, MapleDeepDenois
 pub use filename::MapleFilenameResult;
 pub use handle::MapleRawHandle;
 pub use id::MapleFallbackIdHasher;
+pub use workflow::{
+    maple_workflow_embed_xmp, maple_workflow_read_xmp, maple_workflow_validate_json,
+};
 // #3271: cbindgen needs no extra visibility here (both entries are plain
 // scalar-argument externs), but `pub use` keeps them reachable from Rust
 // integration tests the same way `maple_last_error` is below.
