@@ -317,6 +317,7 @@
           "options": {
             "outputPath": "dist/workflow-qualification",
             "browser": "e2e/workflow/ui-main.ts",
+            "styles": ["projects/maple-syrup/src/styles.scss"],
             "index": "e2e/workflow/ui-index.html",
             "tsConfig": "e2e/workflow/tsconfig.ui.json",
             "webWorkerTsConfig": "tsconfig.worker.json",

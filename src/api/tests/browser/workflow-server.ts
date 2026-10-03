@@ -122,14 +122,16 @@ const app = new Elysia()
       const directory = join(root, key);
       await mkdir(directory);
       const path = join(directory, 'photo.dng');
-      const original = body.synthetic
-        ? await readFile(
-            join(
-              import.meta.dir,
-              '../../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng',
-            ),
-          )
-        : new Uint8Array([1, 0, 255, 42]);
+      const original = body.camera
+        ? await readFile(join(import.meta.dir, '../../../../test-fixtures/raws/test_0017.dng'))
+        : body.synthetic
+          ? await readFile(
+              join(
+                import.meta.dir,
+                '../../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng',
+              ),
+            )
+          : new Uint8Array([1, 0, 255, 42]);
       await writeFile(path, original);
       const input = await fixtureXml(body);
       if (input !== null) await writeFile(join(directory, 'photo.xmp'), input);
@@ -165,6 +167,7 @@ const app = new Elysia()
         workflow: t.Optional(t.Unknown()),
         futureSchema: t.Optional(t.Boolean()),
         synthetic: t.Optional(t.Boolean()),
+        camera: t.Optional(t.Boolean()),
       }),
     },
   )

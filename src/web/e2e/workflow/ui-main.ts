@@ -1,3 +1,4 @@
+import { comparisonWorkflow } from './comparison';
 import { Component, createComponent, inject, type ApplicationRef } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { createApplication } from '@angular/platform-browser';
@@ -189,6 +190,7 @@ function attach(app: ApplicationRef, local: HostedFixture | null, server: Fixtur
   app.tick();
 }
 Reflect.set(window, 'workflowUI', {
+  comparisonWorkflow,
   async mount(input: string | null, backend: 'hosted' | 'self-hosted') {
     await dispose();
     const server = backend === 'self-hosted' ? await stage(input) : null;
