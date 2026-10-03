@@ -143,12 +143,6 @@ pub(crate) fn container_supports_alpha(format: ExportFormat) -> bool {
 /// [`JPEG_FLATTEN_BACKGROUND`] first when it does not (JPEG, TIFF) or the
 /// raster has no alpha to begin with.
 pub fn encode_raster_opts(raster: &RasterImage, opts: &RasterEncodeOptions) -> Result<Vec<u8>> {
-    // Single source of truth for the AVIF+P3 rejection — see
-    // `export::reject_untagged_avif_p3`'s doc comment. `encode_raster_rgb`
-    // (below, via the flatten path) runs the same check again, so this call
-    // is what makes the RGBA/alpha-keeping branch reject the combination too,
-    // before it ever reaches `encode_avif_rgba_with_speed`.
-    crate::export::reject_untagged_avif_p3(opts.format, opts.primaries)?;
     let keeps_alpha = raster.channels == 4 && container_supports_alpha(opts.format);
     let quality = if opts.quality == 0 {
         85
@@ -168,12 +162,14 @@ pub fn encode_raster_opts(raster: &RasterImage, opts: &RasterEncodeOptions) -> R
     match opts.format {
         ExportFormat::Png => encode_png_rgba(raster, icc::profile_for(opts.primaries)),
         ExportFormat::Webp => encode_webp_rgba(raster, opts.primaries),
-        ExportFormat::Avif => crate::export::encode_avif_rgba_with_speed(
+        ExportFormat::Avif => crate::export::encode_avif_tagged(
             raster.width,
             raster.height,
             &raster.data,
+            4,
             quality,
             opts.avif_speed,
+            opts.primaries,
         ),
         // `container_supports_alpha` gated the arms above; anything else took
         // the flatten path already.
@@ -388,20 +384,23 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "avif")]
     #[test]
-    fn avif_rejects_display_p3_by_name_rather_than_shipping_it_untagged() {
-        let img = RasterImage::new_rgb(2, 2, vec![10; 12]);
-        let err = encode_raster_opts(
+    fn avif_display_p3_carries_its_actual_profile() {
+        let img = RasterImage::new_rgba(2, 2, vec![10; 16]);
+        let bytes = encode_raster_opts(
             &img,
             &RasterEncodeOptions {
                 primaries: crate::view::encode::TargetPrimaries::P3,
                 ..opts(ExportFormat::Avif)
             },
         )
-        .unwrap_err();
-        assert!(
-            format!("{err}").to_lowercase().contains("avif"),
-            "expected the AVIF/P3 combination to be named in the error, got: {err}"
+        .unwrap();
+        assert_eq!(
+            crate::raster_meta::read_sidecars(&bytes).icc,
+            Some(crate::icc::profile_for(
+                crate::view::encode::TargetPrimaries::P3
+            ))
         );
     }
 

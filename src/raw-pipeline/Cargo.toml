@@ -118,3 +118,5 @@ toml = "0.8"
 rav1d = { path = "third_party/rav1d" }
 zune-jpeg = { path = "third_party/zune-jpeg" }
 avif-parse = { path = "third_party/avif-parse" }
+ravif = { path = "third_party/ravif" }
+avif-serialize = { path = "third_party/avif-serialize" }

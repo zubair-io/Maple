@@ -1,0 +1,104 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -22,6 +22,7 @@
+ pub struct Aviffy {
+     premultiplied_alpha: bool,
+     colr: ColrBox,
++    icc_profile: Option<Vec<u8>>,
+     clli: Option<ClliBox>,
+     mdcv: Option<MdcvBox>,
+     min_seq_profile: u8,
+@@ -74,10 +75,17 @@
+             height: 0,
+             bit_depth: 0,
+             colr: ColrBox::default(),
++            icc_profile: None,
+             clli: None,
+             mdcv: None,
+             exif: None,
+         }
++    }
++
++    /// Attach an ICC profile to the colour image only; alpha has no colour space.
++    pub fn set_icc_profile(&mut self, profile: Vec<u8>) -> &mut Self {
++        self.icc_profile = Some(profile);
++        self
+     }
+
+     /// If set, must match the AV1 color payload, and will result in `colr` box added to AVIF.
+@@ -249,6 +257,10 @@
+             let colr_color_prop = ipco.push(IpcoProp::Colr(self.colr)).ok_or(io::ErrorKind::InvalidInput)?;
+             ipma.prop_ids.push(colr_color_prop);
+         }
++        if let Some(profile) = &self.icc_profile {
++            let prop = ipco.push(IpcoProp::Icc(IccBox(profile.clone()))).ok_or(io::ErrorKind::InvalidInput)?;
++            ipma.prop_ids.push(prop);
++        }
+
+         if let Some(clli) = self.clli {
+             let clli_prop = ipco.push(IpcoProp::Clli(clli)).ok_or(io::ErrorKind::InvalidInput)?;
+--- a/src/boxes.rs
++++ b/src/boxes.rs
+@@ -257,6 +257,7 @@
+     Ispe(IspeBox),
+     AuxC(AuxCBox),
+     Colr(ColrBox),
++    Icc(IccBox),
+     Clli(ClliBox),
+     Mdcv(MdcvBox),
+ }
+@@ -269,6 +270,7 @@
+             Self::Ispe(p) => p.len(),
+             Self::AuxC(p) => p.len(),
+             Self::Colr(p) => p.len(),
++            Self::Icc(p) => p.len(),
+             Self::Clli(p) => p.len(),
+             Self::Mdcv(p) => p.len(),
+         }
+@@ -281,6 +283,7 @@
+             Self::Ispe(p) => p.write(w),
+             Self::AuxC(p) => p.write(w),
+             Self::Colr(p) => p.write(w),
++            Self::Icc(p) => p.write(w),
+             Self::Clli(p) => p.write(w),
+             Self::Mdcv(p) => p.write(w),
+         }
+@@ -290,7 +293,7 @@
+ /// Item Property Container box
+ #[derive(Debug, Clone)]
+ pub struct IpcoBox {
+-    props: ArrayVec<IpcoProp, 9>,
++    props: ArrayVec<IpcoProp, 11>,
+ }
+
+ impl IpcoBox {
+@@ -392,7 +395,7 @@
+ #[derive(Debug, Clone)]
+ pub struct IpmaEntry {
+     pub item_id: u16,
+-    pub prop_ids: ArrayVec<u8, 7>,
++    pub prop_ids: ArrayVec<u8, 8>,
+ }
+
+ #[derive(Debug, Clone)]
+@@ -525,6 +528,20 @@
+     }
+ }
+
++#[derive(Debug, Clone)]
++pub struct IccBox(pub Vec<u8>);
++
++impl MpegBox for IccBox {
++    fn len(&self) -> usize {
++        BASIC_BOX_SIZE + 4 + self.0.len()
++    }
++    fn write<B: WriterBackend>(&self, w: &mut Writer<B>) -> Result<(), B::Error> {
++        let mut b = w.basic_box(self.len(), *b"colr")?;
++        b.u32(u32::from_be_bytes(*b"prof"))?;
++        b.push(&self.0)
++    }
++}
++
+ /// Content Light Level Information box (`clli`), per ISOBMFF § 12.1.5 / CEA-861.3.
+ ///
+ /// Signals the content light level of HDR content to the display.

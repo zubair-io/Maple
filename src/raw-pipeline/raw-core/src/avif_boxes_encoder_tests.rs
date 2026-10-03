@@ -328,7 +328,7 @@ fn read_sidecars_returns_both_exif_and_xmp_items_from_a_real_avif() {
     assert_eq!(sidecars.xmp.as_deref(), Some(xmp.as_slice()));
     assert_eq!(
         sidecars.icc, None,
-        "avif-serialize writes no colr box for this fixture"
+        "default sRGB derivatives retain their original implicit colour description"
     );
 }
 

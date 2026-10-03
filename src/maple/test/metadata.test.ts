@@ -299,17 +299,14 @@ describe('Metadata and stats', () => {
     await expect(
       maple(ramp(8, 8)).withExif(exifBlock(1)).toFormat('tiff').toBuffer(),
     ).rejects.toThrow(/TIFF cannot embed EXIF/);
-    await expect(
-      maple(ramp(8, 8)).withIccProfile(Buffer.from('fake-icc')).avif().toBuffer(),
-    ).rejects.toThrow(/AVIF cannot embed an ICC profile/);
   });
 
-  it('keepMetadata()s default ICC fill is silently skipped, not an error, on AVIF', async () => {
-    // The default sRGB fill keepMetadata() adds for an input with no ICC of
-    // its own is a convenience, not a caller request — it must not error on
-    // a format that cannot carry ICC at all (task-G5-fix1-report.md, round 2).
+  it('AVIF carries explicit ICC and keepMetadata fills a valid sRGB profile', async () => {
     const avif = await maple(ramp(8, 8)).keepMetadata().avif().toBuffer();
-    expect((await maple(avif).metadata()).icc).toBeUndefined();
+    const profile = (await maple(avif).metadata()).icc!;
+    expect(profile.toString('latin1')).toContain('sRGB');
+    const explicit = await maple(ramp(8, 8)).withIccProfile(profile).avif().toBuffer();
+    expect((await maple(explicit).metadata()).icc!.equals(profile)).toBe(true);
   });
 
   it('AVIF: the embedded EXIF block carries the requested orientation', async () => {

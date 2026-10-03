@@ -136,22 +136,14 @@ fn the_two_colour_spaces_tag_differently() {
     assert_ne!(srgb, p3);
 }
 
+#[cfg(feature = "avif")]
 #[test]
-fn avif_plus_display_p3_is_rejected_as_a_bitmap_encode_error() {
-    // The message must NOT open with "unsupported RAW format" — this is a
-    // bitmap encode path, where the only RAW in sight is the caller's own
-    // pixel buffer (#3503 review I3).
-    let err = reject_untagged_avif_p3(ExportFormat::Avif, TargetPrimaries::P3)
-        .expect_err("AVIF + P3 must be rejected");
-    let text = format!("{err}");
-    assert!(
-        text.starts_with("bitmap encode unsupported:"),
-        "got: {text}"
+fn avif_plus_display_p3_carries_its_actual_profile() {
+    let bytes = encode_avif_tagged(8, 8, &ramp_u8(8, 8), 3, 100, 10, TargetPrimaries::P3).unwrap();
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&bytes).icc,
+        Some(icc::profile_for(TargetPrimaries::P3))
     );
-    assert!(text.contains("Display P3"), "got: {text}");
-    // Every other combination still encodes.
-    assert!(reject_untagged_avif_p3(ExportFormat::Avif, TargetPrimaries::Srgb).is_ok());
-    assert!(reject_untagged_avif_p3(ExportFormat::Jpeg, TargetPrimaries::P3).is_ok());
 }
 
 #[test]

@@ -322,7 +322,16 @@ pub fn resolve_metadata(
     let rotated = primaries != TargetPrimaries::Srgb;
     let icc = supplied_icc
         .or_else(|| rotated.then(|| crate::icc::profile_for(primaries)))
-        .or_else(|| kept.icc.clone())
+        .or_else(|| {
+            // AVIF decoding normalizes our Display P3 exports to sRGB.
+            // Keeping their source profile would mislabel those samples.
+            let p3 = crate::icc::profile_for(TargetPrimaries::P3);
+            if crate::raster::is_avif(input) && kept.icc.as_deref() == Some(p3.as_slice()) {
+                Some(default_icc(TargetPrimaries::Srgb))
+            } else {
+                kept.icc.clone()
+            }
+        })
         .or_else(|| metadata.keep.then(|| default_icc(primaries)));
     let supplied_xmp = supplied("xmp", metadata.xmp)?;
     let xmp_requested = supplied_xmp.is_some();
