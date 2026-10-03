@@ -1,0 +1,1455 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "78c90f6bd0d107f1ef11b3e97e2d2d99ff902555",
+  "scope": "Mac generation-correlated editor admission, callback, GPU wait and native preparation diagnostics; no scheduler/color policy change",
+  "changes": [
+    "Existing EditSession signposts now use PointsOfInterest, which the standard Time Profiler template actually records; the previous EditSession category was absent from its export.",
+    "RenderAdmission spans the actual forwarding task through its resumed actor return; end metadata identifies the admitted generation.",
+    "FastCallback includes the whole scheduled callback, including the snapshot wait; existing fast/refine intervals also carry generations.",
+    "GpuDriverAwait encloses the actual driver call, and GpuPublished marks current-generation acknowledged submission after all existing guards.",
+    "NativeAutoPrepare covers native worker execution; BenchmarkDrag labels the opt-in benchmark arm.",
+    "No new settings, thread pool, task priority, image buffer, math, model, Rust/WGSL/ABI or XMP schema changes. Scheduling, cancellation and source ownership behavior stays the same."
+  ],
+  "sourceHashes": {
+    "docs/apple.md": "20043495324c044d322f9e06536d6de64fc744f00f73dc425540d079b1e86e8c",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderTypes.swift": "3bd95a1ecea1047d0e43703969f631c0542a3b399179b4065ec62308c595bbb3",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+RenderScheduling.swift": "66d4f17376e5ac912654f00ccae0c8656bb03346b1c0a99673f1eb07d0b396b3",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+Render.swift": "7629c272503501bfce0fc060d449d12272d3d51e7bc320eff0a133bf5c2d508a",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+GpuLive.swift": "f7433ef3c47c327a93c2aabb5f85e5d7f53dd4144ff9f4829744ea60c04ed3ef",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/NativeAutoProfile.swift": "b415989bbc1831b68a72a22437b6f97e43839078fbc0f1166c8321d4feb3bf44",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/Performance/EditorWorkflowPerfTests.swift": "d5a912ef560a46db496886ea7e482f393abfed4c8605e490afdf815b37f5cefe"
+  },
+  "releaseTestBinary": {
+    "path": "src/apple/Packages/MapleCore/.build/out/Products/Release/MapleCoreTests.xctest/Contents/MacOS/MapleCoreTests",
+    "sha256": "799fcb5bb411d9812372e78a9e756ca8a40f2b3bd6e20ce2dbd264c7d4b0b9c7"
+  },
+  "trace": {
+    "command": "xcrun xctrace record --template \"Time Profiler\" --time-limit 60s --env MAPLE_PERF=1 --env MAPLE_GPU_LIVE=1 --launch -- /Applications/Xcode.app/Contents/Developer/usr/bin/xctest -XCTest MapleCoreTests.EditorWorkflowPerfTests/test100MPAcceptedRemovalStacksAt60Hz <release MapleCoreTests.xctest>",
+    "path": "/tmp/maple-native-auto-admission-time-20261002.trace",
+    "durationSeconds": 30.159927,
+    "recordLog": {
+      "path": "/tmp/maple-native-auto-admission-time-20261002.log",
+      "sha256": "de60480e21f90b0e67f302a8a06649b03bb6bcda27b23e3e5f18d73d6fdb4fc6"
+    },
+    "targetLog": {
+      "path": "/tmp/maple-native-auto-admission-time-20261002-target.log",
+      "sha256": "330e636d50abf57953adf3cbf8babd4f1d4a2fa70be9f5615b6a3d4ea81602ba"
+    },
+    "toc": {
+      "path": "/tmp/maple-native-auto-admission-time-20261002-toc.xml",
+      "sha256": "8312de0d9d373cb0836a6b1426d5403cd9a1513f9582e226fb7242fbfa6f68b7"
+    },
+    "signpostExport": {
+      "path": "/tmp/maple-native-auto-admission-time-20261002-signposts.xml",
+      "sha256": "d817595ef9ff72f4cbfb9df0dc0f606c6d530226f9703b9c9d2bf000ed7948ec"
+    },
+    "exportXPath": "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"os-signpost\" and @category=\"PointsOfInterest\"]",
+    "duplicateRows": "Two equivalent template tables exported identical events; exact time/type/identifier/name/message tuples were deduplicated before pairing.",
+    "targetExit": 0,
+    "benchmarkPassed": 1,
+    "benchmarkFailed": 0,
+    "benchmarkSkipped": 0,
+    "instrumented": true,
+    "aggregates": {
+      "immediate": {
+        "inputs": 360,
+        "published": 280,
+        "over16ms": 9,
+        "maxMs": 32.193334
+      },
+      "native": {
+        "inputs": 360,
+        "published": 360,
+        "over16ms": 0,
+        "maxMs": 10.404125
+      }
+    },
+    "rows": [
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 993.083792,
+        "commitSha": "78c90f6bd0d107f1ef11b3e97e2d2d99ff902555",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "firstGPUMs": 993.077292,
+        "firstSeedMs": 139.70675,
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:1ac222350decd802f4cc045a72212b94b0efa00e914f698b3a254794841b576a",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "nativeFrameDigest": "blake3:f530d28dbe37f8214fd7acf541f2b83f84cdfe9319ee2acb6f8d2c7631c415d8",
+        "nativeReadyAtImmediateEnd": false,
+        "nativeSettledMs": 6549.019209,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 0,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "fair",
+        "tickContrast": {
+          "maxMs": 12.531291,
+          "over16": 0,
+          "p50Ms": 3.371834,
+          "p95Ms": 12.268209,
+          "published": 47
+        },
+        "tickExposure": {
+          "maxMs": 16.544917,
+          "over16": 2,
+          "p50Ms": 2.060875,
+          "p95Ms": 15.854291,
+          "published": 53
+        },
+        "tickNativeContrast": {
+          "maxMs": 6.335,
+          "over16": 0,
+          "p50Ms": 2.437083,
+          "p95Ms": 5.018375,
+          "published": 60
+        },
+        "tickNativeExposure": {
+          "maxMs": 7.024667,
+          "over16": 0,
+          "p50Ms": 1.804667,
+          "p95Ms": 3.93175,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      },
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 1185.885834,
+        "commitSha": "78c90f6bd0d107f1ef11b3e97e2d2d99ff902555",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "firstGPUMs": 1185.8845000000001,
+        "firstSeedMs": 41.083875,
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:927ee2ff25acefae518fc67bddd9ac07d1f7862bb607364317f382c2a0598792",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "nativeFrameDigest": "blake3:d3d69e422dc452b858a070fce0e7f5a1485cb936ace5c59f3414cc385579055f",
+        "nativeReadyAtImmediateEnd": false,
+        "nativeSettledMs": 6685.562042,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 1,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "fair",
+        "tickContrast": {
+          "maxMs": 15.154166,
+          "over16": 0,
+          "p50Ms": 2.988792,
+          "p95Ms": 14.553041,
+          "published": 43
+        },
+        "tickExposure": {
+          "maxMs": 15.759416,
+          "over16": 0,
+          "p50Ms": 1.757542,
+          "p95Ms": 12.185416,
+          "published": 46
+        },
+        "tickNativeContrast": {
+          "maxMs": 4.613,
+          "over16": 0,
+          "p50Ms": 2.209417,
+          "p95Ms": 4.231292,
+          "published": 60
+        },
+        "tickNativeExposure": {
+          "maxMs": 6.295625,
+          "over16": 0,
+          "p50Ms": 1.098916,
+          "p95Ms": 3.054917,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      },
+      {
+        "case": "100MP-accepted-removals",
+        "chip": "Apple M5 Max",
+        "coldOpenMs": 1535.229458,
+        "commitSha": "78c90f6bd0d107f1ef11b3e97e2d2d99ff902555",
+        "deviceModel": "Mac17,6",
+        "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+        "firstGPUMs": 1535.228417,
+        "firstSeedMs": 44.216417,
+        "fixture": "dji-mavic3pro-100mp.dng",
+        "frameDigest": "blake3:be3f4249c38a72b7e74033981515157b043afe0e553ff4a3ae4da26f22eba97a",
+        "gpu": "Apple M5 Max",
+        "hardLimitMs": 50,
+        "nativeFrameDigest": "blake3:ff77997720694e20ee1e2396cb4c6adc15b974cee4ff20f2436e675fef448121",
+        "nativeReadyAtImmediateEnd": false,
+        "nativeSettledMs": 7318.378625,
+        "osVersion": "Version 27.0 (Build 26A428)",
+        "patchCount": 10,
+        "patchHeight": 512,
+        "patchWidth": 512,
+        "profile": "auto",
+        "refreshRateHz": 60,
+        "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+        "targetMs": 16,
+        "thermalState": "fair",
+        "tickContrast": {
+          "maxMs": 19.062333,
+          "over16": 2,
+          "p50Ms": 4.687375,
+          "p95Ms": 12.218459,
+          "published": 46
+        },
+        "tickExposure": {
+          "maxMs": 32.193334,
+          "over16": 5,
+          "p50Ms": 4.08975,
+          "p95Ms": 21.231583,
+          "published": 45
+        },
+        "tickNativeContrast": {
+          "maxMs": 6.807875,
+          "over16": 0,
+          "p50Ms": 2.037625,
+          "p95Ms": 4.321416,
+          "published": 60
+        },
+        "tickNativeExposure": {
+          "maxMs": 10.404125,
+          "over16": 0,
+          "p50Ms": 5.678333,
+          "p95Ms": 7.293292,
+          "published": 60
+        },
+        "viewportHeight": 1280,
+        "viewportWidth": 1920
+      }
+    ]
+  },
+  "analysis": {
+    "method": [
+      "Pair Begin/End by exact interval identifier and name; deduplicate identical exported rows.",
+      "Match published generations inside each labeled drag to their scheduler, callback and driver intervals; generation counters are scoped by the separate drag windows.",
+      "Schedule start excludes preceding model observer work and gesture dispatch; publication is the actual current GPU acknowledgement event, not monitor observation or scanout.",
+      "RenderAdmission ends on forwarding-task resumption. A callback can already be running before that return: this interval alone cannot isolate actor queue delay.",
+      "Only successfully correlated publications get the partition; canceled/coalesced callbacks are not counted as zero-latency samples.",
+      "NativeAutoPrepare begins at worker entry and excludes prior admission queue wait.",
+      "This is one instrumented shared-host run, not performance qualification or a causal proof of Rayon starvation."
+    ],
+    "intervalStats": {
+      "XCTestCase": {
+        "samples": 1,
+        "p50Ms": 29167.889499999997,
+        "p95Ms": 29167.889499999997,
+        "maxMs": 29167.889499999997
+      },
+      "RenderAdmission": {
+        "samples": 738,
+        "p50Ms": 0.0727500000011787,
+        "p95Ms": 3.2057909999984986,
+        "maxMs": 9.545999999998457
+      },
+      "FastCallback": {
+        "samples": 738,
+        "p50Ms": 1.8574160000025586,
+        "p95Ms": 19.913415999999415,
+        "maxMs": 1071.3425420000021
+      },
+      "fast": {
+        "samples": 735,
+        "p50Ms": 1.4967909999977564,
+        "p95Ms": 17.21349999999984,
+        "maxMs": 1071.2915840000023
+      },
+      "decode": {
+        "samples": 3,
+        "p50Ms": 740.2452090000006,
+        "p95Ms": 1067.614125,
+        "maxMs": 1067.614125
+      },
+      "GpuDriverAwait": {
+        "samples": 662,
+        "p50Ms": 0.9367500000007567,
+        "p95Ms": 12.791708999999173,
+        "maxMs": 83.98808299999973
+      },
+      "GpuPresentRequest": {
+        "samples": 662,
+        "p50Ms": 0.9259170000000267,
+        "p95Ms": 12.778874999999971,
+        "maxMs": 83.959292
+      },
+      "GpuPresentExecution": {
+        "samples": 662,
+        "p50Ms": 0.7781250000007276,
+        "p95Ms": 12.35741699999926,
+        "maxMs": 82.08137500000021
+      },
+      "NativeAutoPrepare": {
+        "samples": 3,
+        "p50Ms": 5544.291083,
+        "p95Ms": 5781.388749999998,
+        "maxMs": 5781.388749999998
+      },
+      "GpuFrameReadback": {
+        "samples": 6,
+        "p50Ms": 29.24050000000034,
+        "p95Ms": 31.510792000000038,
+        "maxMs": 31.510792000000038
+      },
+      "BenchmarkDrag": {
+        "samples": 12,
+        "p50Ms": 1266.4077080000006,
+        "p95Ms": 1292.5715409999975,
+        "maxMs": 1292.5715409999975
+      }
+    },
+    "arms": [
+      {
+        "case": "removal-0-exposure",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 53,
+        "correlatedPublished": 53,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.062458999999762455,
+          "p95Ms": 4.649499999999989,
+          "maxMs": 6.260000000000218
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 53,
+            "p50Ms": 1.5420830000002752,
+            "p95Ms": 14.770833000000039,
+            "maxMs": 15.002334000000246
+          },
+          "scheduleToCallbackMs": {
+            "samples": 53,
+            "p50Ms": 0.06733299999996234,
+            "p95Ms": 1.222208000000137,
+            "maxMs": 4.661833999999999
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 53,
+            "p50Ms": 0.5794999999998254,
+            "p95Ms": 6.217541000000438,
+            "maxMs": 10.711207999999715
+          },
+          "driverAwaitMs": {
+            "samples": 53,
+            "p50Ms": 0.7561249999998836,
+            "p95Ms": 14.090791000000081,
+            "maxMs": 14.386833999999908
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 53,
+            "p50Ms": 0.040500000000065484,
+            "p95Ms": 0.7241250000001855,
+            "maxMs": 1.5333749999999782
+          },
+          "forwarderReturnMs": {
+            "samples": 53,
+            "p50Ms": 0.059333000000151515,
+            "p95Ms": 1.216707999999926,
+            "maxMs": 4.649499999999989
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 9,
+            "scheduleToPublicationMs": 15.002334000000246,
+            "scheduleToCallbackMs": 0.06500000000005457,
+            "callbackBeforeDriverMs": 0.5100000000002183,
+            "driverAwaitMs": 14.386833999999908,
+            "driverReturnToPublicationMs": 0.040500000000065484,
+            "forwarderReturnMs": 0.05441700000028504,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 12,
+            "scheduleToPublicationMs": 14.908167000000049,
+            "scheduleToCallbackMs": 0.056041999999706604,
+            "callbackBeforeDriverMs": 0.5242080000002716,
+            "driverAwaitMs": 14.290541999999732,
+            "driverReturnToPublicationMs": 0.03737500000033833,
+            "forwarderReturnMs": 0.05466699999988123,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 11,
+            "scheduleToPublicationMs": 14.770833000000039,
+            "scheduleToCallbackMs": 0.05875000000014552,
+            "callbackBeforeDriverMs": 0.5881669999998849,
+            "driverAwaitMs": 14.090791000000081,
+            "driverReturnToPublicationMs": 0.03312499999992724,
+            "forwarderReturnMs": 0.0571669999999358,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": [
+          {
+            "name": "NativeAutoPrepare",
+            "id": "22",
+            "startMs": 2436.233458,
+            "endMs": 7980.524541,
+            "durationMs": 5544.291083,
+            "message": "quality 2"
+          }
+        ]
+      },
+      {
+        "case": "removal-0-contrast",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 47,
+        "correlatedPublished": 47,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.08779199999980847,
+          "p95Ms": 3.0439580000002024,
+          "maxMs": 8.65454200000022
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 47,
+            "p50Ms": 1.92908400000033,
+            "p95Ms": 10.7934580000001,
+            "maxMs": 12.339166000000205
+          },
+          "scheduleToCallbackMs": {
+            "samples": 47,
+            "p50Ms": 0.07983300000023519,
+            "p95Ms": 1.4307089999992968,
+            "maxMs": 2.9015830000003007
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 47,
+            "p50Ms": 0.6362079999998969,
+            "p95Ms": 3.1192909999999756,
+            "maxMs": 11.431250000000091
+          },
+          "driverAwaitMs": {
+            "samples": 47,
+            "p50Ms": 1.091707999999926,
+            "p95Ms": 9.908625000000029,
+            "maxMs": 10.096833999999944
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 47,
+            "p50Ms": 0.043166999999812106,
+            "p95Ms": 1.9851250000001528,
+            "maxMs": 7.471250000000509
+          },
+          "forwarderReturnMs": {
+            "samples": 47,
+            "p50Ms": 0.07275000000026921,
+            "p95Ms": 1.4268749999991996,
+            "maxMs": 2.897625000000062
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 66,
+            "scheduleToPublicationMs": 12.339166000000205,
+            "scheduleToCallbackMs": 0.1281659999999647,
+            "callbackBeforeDriverMs": 11.431250000000091,
+            "driverAwaitMs": 0.7424590000000535,
+            "driverReturnToPublicationMs": 0.037291000000095664,
+            "forwarderReturnMs": 0.12683300000026065,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 80,
+            "scheduleToPublicationMs": 11.702708000000257,
+            "scheduleToCallbackMs": 2.9015830000003007,
+            "callbackBeforeDriverMs": 1.9168749999998909,
+            "driverAwaitMs": 3.9609169999998812,
+            "driverReturnToPublicationMs": 2.9233330000001843,
+            "forwarderReturnMs": 2.897625000000062,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 72,
+            "scheduleToPublicationMs": 10.7934580000001,
+            "scheduleToCallbackMs": 0.0647079999998823,
+            "callbackBeforeDriverMs": 0.5985830000004171,
+            "driverAwaitMs": 10.096833999999944,
+            "driverReturnToPublicationMs": 0.03333299999985684,
+            "forwarderReturnMs": 0.05454099999997197,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": [
+          {
+            "name": "NativeAutoPrepare",
+            "id": "22",
+            "startMs": 2436.233458,
+            "endMs": 7980.524541,
+            "durationMs": 5544.291083,
+            "message": "quality 2"
+          }
+        ]
+      },
+      {
+        "case": "removal-0-native-exposure",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 60,
+        "correlatedPublished": 60,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.07629199999973935,
+          "p95Ms": 0.12195799999972223,
+          "maxMs": 0.13624999999956344
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 1.650792000000365,
+            "p95Ms": 2.617667000000438,
+            "maxMs": 6.617999999998574
+          },
+          "scheduleToCallbackMs": {
+            "samples": 60,
+            "p50Ms": 0.08862500000032014,
+            "p95Ms": 0.13387499999953434,
+            "maxMs": 0.13841599999977916
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 60,
+            "p50Ms": 0.5914589999993041,
+            "p95Ms": 1.037292000000889,
+            "maxMs": 1.2507079999995767
+          },
+          "driverAwaitMs": {
+            "samples": 60,
+            "p50Ms": 0.8492499999993015,
+            "p95Ms": 1.4552920000005543,
+            "maxMs": 4.932875000000422
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 0.0504159999991316,
+            "p95Ms": 0.10499999999956344,
+            "maxMs": 0.3076249999994616
+          },
+          "forwarderReturnMs": {
+            "samples": 60,
+            "p50Ms": 0.07629199999973935,
+            "p95Ms": 0.12195799999972223,
+            "maxMs": 0.13624999999956344
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 165,
+            "scheduleToPublicationMs": 6.617999999998574,
+            "scheduleToCallbackMs": 0.1267919999991136,
+            "callbackBeforeDriverMs": 1.2507079999995767,
+            "driverAwaitMs": 4.932875000000422,
+            "driverReturnToPublicationMs": 0.3076249999994616,
+            "forwarderReturnMs": 0.12158300000010058,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 166,
+            "scheduleToPublicationMs": 2.6517079999994166,
+            "scheduleToCallbackMs": 0.1361670000005688,
+            "callbackBeforeDriverMs": 0.9902499999989232,
+            "driverAwaitMs": 1.4750409999996918,
+            "driverReturnToPublicationMs": 0.05025000000023283,
+            "forwarderReturnMs": 0.10341700000026322,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 175,
+            "scheduleToPublicationMs": 2.617667000000438,
+            "scheduleToCallbackMs": 0.11812499999905413,
+            "callbackBeforeDriverMs": 1.037292000000889,
+            "driverAwaitMs": 1.3875410000000556,
+            "driverReturnToPublicationMs": 0.07470900000043912,
+            "forwarderReturnMs": 0.11166699999921548,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": []
+      },
+      {
+        "case": "removal-0-native-contrast",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 60,
+        "correlatedPublished": 60,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.08566700000119454,
+          "p95Ms": 0.13937500000065484,
+          "maxMs": 0.22249999999985448
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 2.036082999999053,
+            "p95Ms": 3.5855830000000424,
+            "maxMs": 4.848416999999245
+          },
+          "scheduleToCallbackMs": {
+            "samples": 60,
+            "p50Ms": 0.10012499999902502,
+            "p95Ms": 0.1610000000000582,
+            "maxMs": 0.24454200000036508
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 60,
+            "p50Ms": 0.7400409999991098,
+            "p95Ms": 0.9469579999986308,
+            "maxMs": 1.0579580000012356
+          },
+          "driverAwaitMs": {
+            "samples": 60,
+            "p50Ms": 1.174417000000176,
+            "p95Ms": 2.1907499999997526,
+            "maxMs": 2.966207999999824
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 0.05754099999830942,
+            "p95Ms": 0.14845799999966403,
+            "maxMs": 0.9100419999995211
+          },
+          "forwarderReturnMs": {
+            "samples": 60,
+            "p50Ms": 0.08566700000119454,
+            "p95Ms": 0.13937500000065484,
+            "maxMs": 0.22249999999985448
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 191,
+            "scheduleToPublicationMs": 4.848416999999245,
+            "scheduleToCallbackMs": 0.09766700000000128,
+            "callbackBeforeDriverMs": 0.8744999999998981,
+            "driverAwaitMs": 2.966207999999824,
+            "driverReturnToPublicationMs": 0.9100419999995211,
+            "forwarderReturnMs": 0.07300000000032014,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 233,
+            "scheduleToPublicationMs": 3.6007079999999405,
+            "scheduleToCallbackMs": 0.13870799999858718,
+            "callbackBeforeDriverMs": 1.0579580000012356,
+            "driverAwaitMs": 2.1907499999997526,
+            "driverReturnToPublicationMs": 0.21329200000036508,
+            "forwarderReturnMs": 0.10999999999876309,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 229,
+            "scheduleToPublicationMs": 3.5855830000000424,
+            "scheduleToCallbackMs": 0.08579099999951723,
+            "callbackBeforeDriverMs": 0.9323340000009921,
+            "driverAwaitMs": 2.503832999998849,
+            "driverReturnToPublicationMs": 0.06362500000068394,
+            "forwarderReturnMs": 0.08262499999909778,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": []
+      },
+      {
+        "case": "removal-1-exposure",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 46,
+        "correlatedPublished": 46,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.1156250000003638,
+          "p95Ms": 4.9635419999995065,
+          "maxMs": 7.649166999999579
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 46,
+            "p50Ms": 1.7089169999999285,
+            "p95Ms": 11.755708000000595,
+            "maxMs": 15.102000000000771
+          },
+          "scheduleToCallbackMs": {
+            "samples": 46,
+            "p50Ms": 0.10337500000059663,
+            "p95Ms": 1.5710409999992407,
+            "maxMs": 7.582291999999143
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 46,
+            "p50Ms": 0.6773339999999735,
+            "p95Ms": 7.302165999999488,
+            "maxMs": 12.700042000000394
+          },
+          "driverAwaitMs": {
+            "samples": 46,
+            "p50Ms": 0.7332920000008016,
+            "p95Ms": 2.195499999999811,
+            "maxMs": 3.8155420000002778
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 46,
+            "p50Ms": 0.054958999999144,
+            "p95Ms": 1.1253340000002936,
+            "maxMs": 1.6259590000008757
+          },
+          "forwarderReturnMs": {
+            "samples": 46,
+            "p50Ms": 0.10066600000027393,
+            "p95Ms": 1.567166000000725,
+            "maxMs": 7.579208999999537
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 27,
+            "scheduleToPublicationMs": 15.102000000000771,
+            "scheduleToCallbackMs": 1.5710409999992407,
+            "callbackBeforeDriverMs": 12.700042000000394,
+            "driverAwaitMs": 0.7219999999997526,
+            "driverReturnToPublicationMs": 0.10891700000138371,
+            "forwarderReturnMs": 1.567166000000725,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 38,
+            "scheduleToPublicationMs": 13.346084000000701,
+            "scheduleToCallbackMs": 0.5292919999992591,
+            "callbackBeforeDriverMs": 10.370500000000902,
+            "driverAwaitMs": 0.820332999999664,
+            "driverReturnToPublicationMs": 1.6259590000008757,
+            "forwarderReturnMs": 0.5233750000006694,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 14,
+            "scheduleToPublicationMs": 11.755708000000595,
+            "scheduleToCallbackMs": 0.3897919999999431,
+            "callbackBeforeDriverMs": 7.302165999999488,
+            "driverAwaitMs": 2.603500000001077,
+            "driverReturnToPublicationMs": 1.4602500000000873,
+            "forwarderReturnMs": 0.38579199999912817,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": [
+          {
+            "name": "NativeAutoPrepare",
+            "id": "1451",
+            "startMs": 11862.368083,
+            "endMs": 17356.918291,
+            "durationMs": 5494.550208000002,
+            "message": "quality 2"
+          }
+        ]
+      },
+      {
+        "case": "removal-1-contrast",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 43,
+        "correlatedPublished": 43,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.06754200000068522,
+          "p95Ms": 4.672834000000876,
+          "maxMs": 5.6027089999988675
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 43,
+            "p50Ms": 1.5724579999987327,
+            "p95Ms": 13.565749999999753,
+            "maxMs": 14.57837500000096
+          },
+          "scheduleToCallbackMs": {
+            "samples": 43,
+            "p50Ms": 0.06908300000031886,
+            "p95Ms": 0.616582999999082,
+            "maxMs": 4.678667000000132
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 43,
+            "p50Ms": 0.5872499999986758,
+            "p95Ms": 1.6748329999991256,
+            "maxMs": 6.764500000001135
+          },
+          "driverAwaitMs": {
+            "samples": 43,
+            "p50Ms": 0.7775000000001455,
+            "p95Ms": 12.806667000000743,
+            "maxMs": 13.815875000000233
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 43,
+            "p50Ms": 0.035916000000725035,
+            "p95Ms": 0.0864160000000993,
+            "maxMs": 1.8355420000007143
+          },
+          "forwarderReturnMs": {
+            "samples": 43,
+            "p50Ms": 0.061833000001570326,
+            "p95Ms": 0.6137920000001031,
+            "maxMs": 4.672834000000876
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 123,
+            "scheduleToPublicationMs": 14.57837500000096,
+            "scheduleToCallbackMs": 0.06358300000101735,
+            "callbackBeforeDriverMs": 0.6222500000003492,
+            "driverAwaitMs": 13.815875000000233,
+            "driverReturnToPublicationMs": 0.076666999999361,
+            "forwarderReturnMs": 0.061833000001570326,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 111,
+            "scheduleToPublicationMs": 14.130707999998776,
+            "scheduleToCallbackMs": 0.05704199999854609,
+            "callbackBeforeDriverMs": 0.5995000000002619,
+            "driverAwaitMs": 13.418625000000247,
+            "driverReturnToPublicationMs": 0.05554099999972095,
+            "forwarderReturnMs": 0.05549999999857391,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 112,
+            "scheduleToPublicationMs": 13.565749999999753,
+            "scheduleToCallbackMs": 0.07362499999908323,
+            "callbackBeforeDriverMs": 0.6652910000011616,
+            "driverAwaitMs": 12.791708999999173,
+            "driverReturnToPublicationMs": 0.035125000000334694,
+            "forwarderReturnMs": 0.06199999999989814,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": [
+          {
+            "name": "NativeAutoPrepare",
+            "id": "1451",
+            "startMs": 11862.368083,
+            "endMs": 17356.918291,
+            "durationMs": 5494.550208000002,
+            "message": "quality 2"
+          }
+        ]
+      },
+      {
+        "case": "removal-1-native-exposure",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 60,
+        "correlatedPublished": 60,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.04500000000189175,
+          "p95Ms": 0.09500000000116415,
+          "maxMs": 5.043541999999434
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 0.9969579999997222,
+            "p95Ms": 1.3201660000013362,
+            "maxMs": 6.268332999999984
+          },
+          "scheduleToCallbackMs": {
+            "samples": 60,
+            "p50Ms": 0.0544579999987036,
+            "p95Ms": 0.09850000000005821,
+            "maxMs": 5.047249999999622
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 60,
+            "p50Ms": 0.42162500000267755,
+            "p95Ms": 0.5797500000007858,
+            "maxMs": 0.6312499999985448
+          },
+          "driverAwaitMs": {
+            "samples": 60,
+            "p50Ms": 0.47612500000104774,
+            "p95Ms": 0.6613330000000133,
+            "maxMs": 0.7136659999996482
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 0.041124999999738066,
+            "p95Ms": 0.0870420000028389,
+            "maxMs": 0.10733299999992596
+          },
+          "forwarderReturnMs": {
+            "samples": 60,
+            "p50Ms": 0.04500000000189175,
+            "p95Ms": 0.09500000000116415,
+            "maxMs": 5.043541999999434
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 161,
+            "scheduleToPublicationMs": 6.268332999999984,
+            "scheduleToCallbackMs": 5.047249999999622,
+            "callbackBeforeDriverMs": 0.5218330000025162,
+            "driverAwaitMs": 0.6286669999972219,
+            "driverReturnToPublicationMs": 0.07058300000062445,
+            "forwarderReturnMs": 5.043541999999434,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 175,
+            "scheduleToPublicationMs": 1.3599169999979495,
+            "scheduleToCallbackMs": 0.09270800000012969,
+            "callbackBeforeDriverMs": 0.5381669999987935,
+            "driverAwaitMs": 0.6871250000003783,
+            "driverReturnToPublicationMs": 0.04191699999864795,
+            "forwarderReturnMs": 0.07912500000020373,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 144,
+            "scheduleToPublicationMs": 1.3201660000013362,
+            "scheduleToCallbackMs": 0.08241600000110338,
+            "callbackBeforeDriverMs": 0.6312499999985448,
+            "driverAwaitMs": 0.5456670000021404,
+            "driverReturnToPublicationMs": 0.06083299999954761,
+            "forwarderReturnMs": 0.08025000000270666,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": []
+      },
+      {
+        "case": "removal-1-native-contrast",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 60,
+        "correlatedPublished": 60,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.07412500000282307,
+          "p95Ms": 0.14787500000238651,
+          "maxMs": 0.17075000000113505
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 2.0129999999990105,
+            "p95Ms": 2.871167000001151,
+            "maxMs": 2.9077500000021246
+          },
+          "scheduleToCallbackMs": {
+            "samples": 60,
+            "p50Ms": 0.09066700000039418,
+            "p95Ms": 0.15116600000328617,
+            "maxMs": 0.20583299999998417
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 60,
+            "p50Ms": 0.6961669999982405,
+            "p95Ms": 1.1497500000004948,
+            "maxMs": 1.4482500000012806
+          },
+          "driverAwaitMs": {
+            "samples": 60,
+            "p50Ms": 1.131374999997206,
+            "p95Ms": 1.8317920000008598,
+            "maxMs": 2.011000000002241
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 0.04308300000047893,
+            "p95Ms": 0.08075000000098953,
+            "maxMs": 0.09937500000160071
+          },
+          "forwarderReturnMs": {
+            "samples": 60,
+            "p50Ms": 0.07412500000282307,
+            "p95Ms": 0.14787500000238651,
+            "maxMs": 0.17075000000113505
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 190,
+            "scheduleToPublicationMs": 2.9077500000021246,
+            "scheduleToCallbackMs": 0.13979100000142353,
+            "callbackBeforeDriverMs": 1.4482500000012806,
+            "driverAwaitMs": 1.2758340000000317,
+            "driverReturnToPublicationMs": 0.04387499999938882,
+            "forwarderReturnMs": 0.13516600000002654,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 188,
+            "scheduleToPublicationMs": 2.9056669999990845,
+            "scheduleToCallbackMs": 0.1459999999970023,
+            "callbackBeforeDriverMs": 1.0124590000013995,
+            "driverAwaitMs": 1.689582999999402,
+            "driverReturnToPublicationMs": 0.05762500000128057,
+            "forwarderReturnMs": 0.11920899999677204,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 208,
+            "scheduleToPublicationMs": 2.871167000001151,
+            "scheduleToCallbackMs": 0.16420900000230176,
+            "callbackBeforeDriverMs": 1.2828329999974812,
+            "driverAwaitMs": 1.3632920000018203,
+            "driverReturnToPublicationMs": 0.06083299999954761,
+            "forwarderReturnMs": 0.1602500000008149,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": []
+      },
+      {
+        "case": "removal-10-exposure",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 45,
+        "correlatedPublished": 45,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.07295800000065356,
+          "p95Ms": 6.876125000002503,
+          "maxMs": 8.006375000000844
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 45,
+            "p50Ms": 2.989207999999053,
+            "p95Ms": 21.189915999999357,
+            "maxMs": 31.31962499999645
+          },
+          "scheduleToCallbackMs": {
+            "samples": 45,
+            "p50Ms": 0.0729170000013255,
+            "p95Ms": 1.3607080000001588,
+            "maxMs": 3.5599999999976717
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 45,
+            "p50Ms": 0.5619579999984126,
+            "p95Ms": 8.493416999997862,
+            "maxMs": 20.385666000001947
+          },
+          "driverAwaitMs": {
+            "samples": 45,
+            "p50Ms": 1.1905839999999444,
+            "p95Ms": 14.991415999997116,
+            "maxMs": 21.043250000002445
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 45,
+            "p50Ms": 0.04562499999883585,
+            "p95Ms": 3.2848330000015267,
+            "maxMs": 8.809957999998005
+          },
+          "forwarderReturnMs": {
+            "samples": 45,
+            "p50Ms": 0.06533399999898393,
+            "p95Ms": 1.3575000000018917,
+            "maxMs": 3.5532079999975394
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 35,
+            "scheduleToPublicationMs": 31.31962499999645,
+            "scheduleToCallbackMs": 0.1055419999975129,
+            "callbackBeforeDriverMs": 20.385666000001947,
+            "driverAwaitMs": 2.8076249999976426,
+            "driverReturnToPublicationMs": 8.020791999999346,
+            "forwarderReturnMs": 0.09779199999684351,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 60,
+            "scheduleToPublicationMs": 24.37041600000157,
+            "scheduleToCallbackMs": 0.05474999999933061,
+            "callbackBeforeDriverMs": 0.501749999999447,
+            "driverAwaitMs": 21.043250000002445,
+            "driverReturnToPublicationMs": 2.7706660000003467,
+            "forwarderReturnMs": 0.044708000001264736,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 50,
+            "scheduleToPublicationMs": 21.189915999999357,
+            "scheduleToCallbackMs": 0.06437500000174623,
+            "callbackBeforeDriverMs": 1.366874999999709,
+            "driverAwaitMs": 10.948707999999897,
+            "driverReturnToPublicationMs": 8.809957999998005,
+            "forwarderReturnMs": 0.047333000002254266,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": [
+          {
+            "name": "NativeAutoPrepare",
+            "id": "2838",
+            "startMs": 21561.296875,
+            "endMs": 27342.685625,
+            "durationMs": 5781.388749999998,
+            "message": "quality 2"
+          }
+        ]
+      },
+      {
+        "case": "removal-10-contrast",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 46,
+        "correlatedPublished": 46,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.10154200000033597,
+          "p95Ms": 5.844499999999243,
+          "maxMs": 9.545999999998457
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 46,
+            "p50Ms": 3.8569159999969997,
+            "p95Ms": 10.911208999998053,
+            "maxMs": 18.895417000003363
+          },
+          "scheduleToCallbackMs": {
+            "samples": 46,
+            "p50Ms": 0.08508399999846006,
+            "p95Ms": 2.5237919999999576,
+            "maxMs": 3.523583999998664
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 46,
+            "p50Ms": 0.7104159999980766,
+            "p95Ms": 5.18645800000013,
+            "maxMs": 14.737083999996685
+          },
+          "driverAwaitMs": {
+            "samples": 46,
+            "p50Ms": 1.0535000000018044,
+            "p95Ms": 9.993458999997529,
+            "maxMs": 10.141124999998283
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 46,
+            "p50Ms": 0.07079199999861885,
+            "p95Ms": 2.001165999998193,
+            "maxMs": 3.0205840000016906
+          },
+          "forwarderReturnMs": {
+            "samples": 46,
+            "p50Ms": 0.07387499999822467,
+            "p95Ms": 2.515832999997656,
+            "maxMs": 3.516541999997571
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 113,
+            "scheduleToPublicationMs": 18.895417000003363,
+            "scheduleToCallbackMs": 0.5387500000033469,
+            "callbackBeforeDriverMs": 14.737083999996685,
+            "driverAwaitMs": 1.9011660000032862,
+            "driverReturnToPublicationMs": 1.718417000000045,
+            "forwarderReturnMs": 0.5323340000031749,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 117,
+            "scheduleToPublicationMs": 16.7086249999993,
+            "scheduleToCallbackMs": 0.6476670000010927,
+            "callbackBeforeDriverMs": 10.636624999999185,
+            "driverAwaitMs": 3.4231670000008307,
+            "driverReturnToPublicationMs": 2.001165999998193,
+            "forwarderReturnMs": 0.644083999999566,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 68,
+            "scheduleToPublicationMs": 10.911208999998053,
+            "scheduleToCallbackMs": 0.07966699999815319,
+            "callbackBeforeDriverMs": 0.7089169999999285,
+            "driverAwaitMs": 10.080708000001323,
+            "driverReturnToPublicationMs": 0.04191699999864795,
+            "forwarderReturnMs": 0.06329199999890989,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": [
+          {
+            "name": "NativeAutoPrepare",
+            "id": "2838",
+            "startMs": 21561.296875,
+            "endMs": 27342.685625,
+            "durationMs": 5781.388749999998,
+            "message": "quality 2"
+          }
+        ]
+      },
+      {
+        "case": "removal-10-native-exposure",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 60,
+        "correlatedPublished": 60,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.059542000002693385,
+          "p95Ms": 0.16495800000120653,
+          "maxMs": 8.005958000001556
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 4.995791999997891,
+            "p95Ms": 6.2064160000009,
+            "maxMs": 9.194374999999127
+          },
+          "scheduleToCallbackMs": {
+            "samples": 60,
+            "p50Ms": 0.06741599999804748,
+            "p95Ms": 0.18262500000128057,
+            "maxMs": 8.01433299999917
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 60,
+            "p50Ms": 0.5111250000009022,
+            "p95Ms": 1.201666999997542,
+            "maxMs": 1.3669999999983702
+          },
+          "driverAwaitMs": {
+            "samples": 60,
+            "p50Ms": 4.192333000002691,
+            "p95Ms": 5.206791000000521,
+            "maxMs": 5.6131249999998545
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 0.03512500000215368,
+            "p95Ms": 0.08599999999933061,
+            "maxMs": 0.09095800000068266
+          },
+          "forwarderReturnMs": {
+            "samples": 60,
+            "p50Ms": 0.059542000002693385,
+            "p95Ms": 0.16495800000120653,
+            "maxMs": 8.005958000001556
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 140,
+            "scheduleToPublicationMs": 9.194374999999127,
+            "scheduleToCallbackMs": 8.01433299999917,
+            "callbackBeforeDriverMs": 0.6687500000007276,
+            "driverAwaitMs": 0.4673750000001746,
+            "driverReturnToPublicationMs": 0.043916999999055406,
+            "forwarderReturnMs": 8.005958000001556,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 170,
+            "scheduleToPublicationMs": 6.669167000000016,
+            "scheduleToCallbackMs": 0.12037499999860302,
+            "callbackBeforeDriverMs": 0.8667920000007143,
+            "driverAwaitMs": 5.6131249999998545,
+            "driverReturnToPublicationMs": 0.06887500000084401,
+            "forwarderReturnMs": 0.10254199999690172,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 175,
+            "scheduleToPublicationMs": 6.2064160000009,
+            "scheduleToCallbackMs": 0.18204100000002654,
+            "callbackBeforeDriverMs": 1.215250000001106,
+            "driverAwaitMs": 4.722208999999566,
+            "driverReturnToPublicationMs": 0.08691600000020117,
+            "forwarderReturnMs": 0.14608299999963492,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": []
+      },
+      {
+        "case": "removal-10-native-contrast",
+        "admissions": 60,
+        "callbacks": 60,
+        "publications": 60,
+        "correlatedPublished": 60,
+        "admissionIntervals": {
+          "samples": 60,
+          "p50Ms": 0.0616249999984575,
+          "p95Ms": 0.12800000000061118,
+          "maxMs": 2.7830829999984417
+        },
+        "metrics": {
+          "scheduleToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 1.5656249999992724,
+            "p95Ms": 2.7214590000003227,
+            "maxMs": 5.0349999999998545
+          },
+          "scheduleToCallbackMs": {
+            "samples": 60,
+            "p50Ms": 0.07837500000096043,
+            "p95Ms": 0.14820899999904213,
+            "maxMs": 2.8092499999984284
+          },
+          "callbackBeforeDriverMs": {
+            "samples": 60,
+            "p50Ms": 0.5694169999987935,
+            "p95Ms": 1.0717079999994894,
+            "maxMs": 3.6883750000015425
+          },
+          "driverAwaitMs": {
+            "samples": 60,
+            "p50Ms": 0.7747500000004948,
+            "p95Ms": 1.2904170000001614,
+            "maxMs": 1.3235830000012356
+          },
+          "driverReturnToPublicationMs": {
+            "samples": 60,
+            "p50Ms": 0.06650000000081491,
+            "p95Ms": 0.14279199999873526,
+            "maxMs": 0.162333000000217
+          },
+          "forwarderReturnMs": {
+            "samples": 60,
+            "p50Ms": 0.0616249999984575,
+            "p95Ms": 0.12800000000061118,
+            "maxMs": 2.7830829999984417
+          }
+        },
+        "callbackPrecedesForwarderReturn": 0,
+        "largestSchedules": [
+          {
+            "generation": 233,
+            "scheduleToPublicationMs": 5.0349999999998545,
+            "scheduleToCallbackMs": 0.10254199999690172,
+            "callbackBeforeDriverMs": 3.6883750000015425,
+            "driverAwaitMs": 1.1860000000015134,
+            "driverReturnToPublicationMs": 0.058082999999896856,
+            "forwarderReturnMs": 0.09804199999780394,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 194,
+            "scheduleToPublicationMs": 4.502874999998312,
+            "scheduleToCallbackMs": 2.8092499999984284,
+            "callbackBeforeDriverMs": 0.7557919999999285,
+            "driverAwaitMs": 0.8834580000002461,
+            "driverReturnToPublicationMs": 0.05437499999970896,
+            "forwarderReturnMs": 2.7830829999984417,
+            "callbackPrecedesForwarderReturn": false
+          },
+          {
+            "generation": 198,
+            "scheduleToPublicationMs": 2.7214590000003227,
+            "scheduleToCallbackMs": 0.12583400000221445,
+            "callbackBeforeDriverMs": 1.2819159999999101,
+            "driverAwaitMs": 1.2399589999986347,
+            "driverReturnToPublicationMs": 0.07374999999956344,
+            "forwarderReturnMs": 0.09470900000087568,
+            "callbackPrecedesForwarderReturn": false
+          }
+        ],
+        "nativePreparationOverlaps": []
+      }
+    ]
+  },
+  "findings": {
+    "worstPublishedSchedule": {
+      "generation": 35,
+      "scheduleToPublicationMs": 31.31962499999645,
+      "scheduleToCallbackMs": 0.1055419999975129,
+      "callbackBeforeDriverMs": 20.385666000001947,
+      "driverAwaitMs": 2.8076249999976426,
+      "driverReturnToPublicationMs": 8.020791999999346,
+      "forwarderReturnMs": 0.09779199999684351,
+      "callbackPrecedesForwarderReturn": false,
+      "case": "removal-10-exposure"
+    },
+    "scheduleToCallbackMaximumMs": 8.01433299999917,
+    "meaning": "In this instrumented point, late published ticks involve several boundaries. The worst 10-patch exposure schedule spends 20.386ms before the driver and 8.021ms after its return; it cannot be explained by its 2.808ms driver await alone.",
+    "scopeOfMaximum": "Worst correlated published generation inside the labeled drags only, excluding cold opens and unacknowledged/canceled requests.",
+    "allDriverIntervalsMaximumMs": 83.98808299999973,
+    "allNativeExecutionMaximumMs": 82.08137500000021,
+    "caution": "The larger all-interval maxima include cold or unacknowledged/canceled work and must not be substituted for published-input latency. Do not sum maxima from different generations.",
+    "forwarderOrdering": "All correlated callbacks begin after forwarding return in this point; that is observed ordering, not a guaranteed contract. RenderAdmission alone does not isolate actor queue wait.",
+    "next": "Inspect and correlate source/generation awaits inside the pre-driver and post-driver regions during pending native preparation before changing admission or worker policy."
+  },
+  "validation": {
+    "focused": {
+      "path": "/tmp/maple-native-auto-admission-regressions-20261002.log",
+      "sha256": "28f45a9bcdad78f6ce7b732ee054d70cec430019aa9233ade37bf6322397162a",
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0
+    },
+    "fullCI": {
+      "path": "/tmp/maple-native-auto-admission-swift-ci-20261002.log",
+      "sha256": "acbb235b4f5d22bfec61d56d61981fa834ca2580026ec8a0bfaaa9173a2f35bc",
+      "classes": 248,
+      "passed": 2035,
+      "failed": 0,
+      "skipped": 0
+    },
+    "macBuild": {
+      "path": "/tmp/maple-native-auto-admission-mac-build-20261002.log",
+      "sha256": "e67aa2446df06bc9c93c508ea7ad2a039a2e5bb3e8cb78e8db40175bbe5e4364",
+      "scheme": "Maple",
+      "result": "BUILD SUCCEEDED"
+    },
+    "fixtures": {
+      "original100MPSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "controlledFilesUnchanged": 24,
+      "original39MPSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "portraitXmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+      "portraitCompanionsUnchanged": 4,
+      "initialAndNativeFrameDigestsUnchanged": true
+    }
+  },
+  "limits": [
+    "This is one instrumented shared M5 Max 128GB run, not a performance qualification or proof of Rayon queue starvation.",
+    "The instrumented benchmark passes its unchanged hard-50 assertion, but its observed immediate max32.193ms and coalescing leave the 16ms target open.",
+    "The final uninstrumented source before these diagnostic-only edits FAILED the hard-50 gate at73.693ms, preserved in removal-mac-native-auto-joined-fit-1472.json. This trace does not waive that failure or establish a stable improvement.",
+    "Scheduler-to-publication measurements exclude model observer work before scheduling, UI gestures, monitor observation delay and compositor scanout.",
+    "Standard Time Profiler captures running CPU samples, not waiting-thread queue attribution.",
+    "Controlled constant patches establish render correctness/cost, not semantic AI reconstruction or background-people quality.",
+    "Consented labeled photographic corpus, model provisioning/signing/licenses, low-memory devices and existing Neutral#3633 remain open. Full goal active; Mac first, ports deferred."
+  ]
+}
