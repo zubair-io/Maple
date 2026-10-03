@@ -401,6 +401,7 @@ RemovalHistoryTests
 RemovalGroupTests
 RemovalSnapshotTests
 RemovalSessionTests
+MacRemovalModelStoreTests
 RemovalProxyTensorTests
 
 RemovalPeopleBridgeTests

@@ -150,7 +150,9 @@ final class NativeRemovalSelectorTests: XCTestCase {
       let removal = RemovalSession(session: session)
       await removal.open()
       XCTAssertEqual(removal.phase, .ready, removal.message)
-      await removal.chooseModelFolder(root)
+      // Exercise the inference failure boundary directly. The user import
+      // now refuses an incomplete model set before it reaches this boundary.
+      try await removal.engine.setModelDirectory(root)
       removal.setMode(.people)
       let previous = try RemovalBridge.selection(
         width: 7216, height: 5412,

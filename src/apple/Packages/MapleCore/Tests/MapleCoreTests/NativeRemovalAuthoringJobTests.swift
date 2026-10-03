@@ -27,7 +27,9 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
       try FileManager.default.copyItem(at: fixture, to: raw)
       let original = try Data(contentsOf: raw)
       let session = EditSession(asset: AssetRef(url: raw))
-      let removal = RemovalSession(session: session)
+      let removal = RemovalSession(
+        session: session,
+        modelStore: MacRemovalModelStore(root: directory.appendingPathComponent("models")))
       await removal.open()
       await removal.chooseModelFolder(root)
       removal.setMode(.people)
@@ -99,7 +101,8 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
       let original = try Data(contentsOf: fixture)
       try original.write(to: raw)
       let session = EditSession(asset: AssetRef(url: raw))
-      let removal = RemovalSession(session: session)
+      let modelStore = MacRemovalModelStore(root: directory.appendingPathComponent("models"))
+      let removal = RemovalSession(session: session, modelStore: modelStore)
       await removal.open()
       XCTAssertEqual(removal.phase, .ready, removal.message)
       await removal.chooseModelFolder(root)
@@ -135,6 +138,17 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
       XCTAssertEqual(removal.context?.model, accepted)
       XCTAssertTrue(removal.selection.isEmpty)
       removal.close()
+      let reopened = RemovalSession(session: session, modelStore: modelStore)
+      await reopened.open()
+      XCTAssertEqual(reopened.modelFolderName, "Installed local models", reopened.message)
+      reopened.radius = 0.1
+      await reopened.paint([[0.8, 0.5]], cropInputSize: [16, 8])
+      await reopened.remove()
+      XCTAssertEqual(reopened.phase, .review, reopened.message)
+      reopened.cancel()
+      reopened.close()
+      XCTAssertEqual(try XMPParser.parse(data: Data(contentsOf: sidecar)).0, accepted)
+      XCTAssertEqual(try Data(contentsOf: raw), original)
       await session.releaseTransientMemory()
     #else
       throw XCTSkip("macOS native model corpus test")
