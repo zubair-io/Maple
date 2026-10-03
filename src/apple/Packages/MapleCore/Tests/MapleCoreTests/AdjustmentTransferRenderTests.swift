@@ -5,23 +5,13 @@ import XCTest
 
 @MainActor
 final class AdjustmentTransferRenderTests: XCTestCase {
-  private var repositoryRoot: URL {
-    URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent()
-  }
-
-  private var fixtures: URL {
-    repositoryRoot.appendingPathComponent("test-fixtures/batch-transfer")
-  }
-
   func testFramelessRawStillProvidesFiniteCameraBaselineWithoutWritingSidecar() async throws {
     let root = try SidecarContractIO.makeTempDirectory(prefix: "frameless-baseline")
     defer { try? FileManager.default.removeItem(at: root) }
     let raw = root.appendingPathComponent("grey.dng")
-    try FileManager.default.copyItem(
-      at: repositoryRoot.appendingPathComponent(
-        "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"), to: raw)
+    let fixture = try NativeWorkflowControlFixture.files()
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    try FileManager.default.copyItem(at: fixture.raw, to: raw)
     let bytes = try Data(contentsOf: raw)
     let decoded = try PipelineRenderer.renderSceneLinear(
       rawBytes: bytes, hint: "dng", quality: .full, profileOverride: .neutral)
@@ -45,6 +35,7 @@ final class AdjustmentTransferRenderTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let sourceURL = root.appendingPathComponent("source.dng")
     let targetURL = root.appendingPathComponent("target.dng")
+    let fixtures = try PartialWhiteBalanceFixture.root()
     try FileManager.default.copyItem(
       at: fixtures.appendingPathComponent("source.dng"), to: sourceURL)
     try FileManager.default.copyItem(
