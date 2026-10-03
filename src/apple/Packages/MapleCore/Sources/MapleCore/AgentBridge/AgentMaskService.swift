@@ -99,6 +99,13 @@ public enum AgentMaskService {
       return .object(result)
 
     case "person_skin":
+      let indexValue = params["person_index"] ?? .int(0)
+      guard let number = indexValue.numberValue, let personIndex = Int(exactly: number),
+        personIndex >= 0
+      else {
+        throw AgentError(
+          code: "invalid_arguments", message: "`person_index` must be a non-negative integer.")
+      }
       let candidates: [PersonCandidate]
       do {
         candidates = try await session.detectMaskPersons()
@@ -120,7 +127,6 @@ public enum AgentMaskService {
         )
       }
 
-      let personIndex = Int(params["person_index"]?.numberValue ?? 0)
       guard candidates.indices.contains(personIndex) else {
         throw AgentError(
           code: "invalid_arguments",
