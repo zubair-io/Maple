@@ -94,7 +94,11 @@ final class SMB2FileHandle: @unchecked Sendable {
     init(fileDescriptor: smb2_file_id, on client: SMB2Client) throws {
         self.client = client
         var fileDescriptor = fileDescriptor
-        self.handle = smb2_fh_from_file_id(client.context, &fileDescriptor)
+        // Maple #4093: adoption mutates context->fhs just like close callbacks.
+        // Hold the same recursive context lock used by all request servicing.
+        self.handle = try client.withThreadSafeContext { context in
+            smb2_fh_from_file_id(context, &fileDescriptor)
+        }
     }
 
     // This initializer does not support O_SYMLINK.

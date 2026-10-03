@@ -4,6 +4,53 @@ import XCTest
 @testable import MapleCore
 
 final class SMBWorkflowPublicationTests: XCTestCase {
+  func testConcurrentHandleAdoptionReadCloseAndPublicationPreservesOriginalAndXmp() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open()
+    do {
+      let ref = try await fixture.image()
+      let store = SMBSidecarStore(source: fixture.source, ref: ref)
+      let loaded = try await store.load()
+      let original = fixture.original
+      let source = fixture.source
+      let completed = try await withThrowingTaskGroup(of: Int.self) { group in
+        for _ in 0..<2 {
+          group.addTask {
+            for _ in 0..<100 {
+              let bytes = try await source.rawBytes(for: ref)
+              XCTAssertEqual(bytes, original)
+            }
+            return 100
+          }
+        }
+        group.addTask {
+          for cycle in 0..<100 {
+            var model = loaded.0
+            model.exposure = cycle.isMultiple(of: 2) ? -0.75 : 0.75
+            try await store.writeConfirmed(model: model, culling: loaded.1)
+            let xml = try await store.readWorkflowXML()
+            let confirmed = try XCTUnwrap(xml)
+            XCTAssertEqual(try XMPParser.parse(confirmed).0.exposure, model.exposure)
+            XCTAssertEqual(XMPParser.parseMetadata(confirmed).caption, "Caption A")
+            XCTAssertTrue(confirmed.contains("<foreign:Audit"))
+          }
+          return 100
+        }
+        var count = 0
+        for try await operations in group { count += operations }
+        return count
+      }
+      XCTAssertEqual(completed, 300)
+      let final = try await store.load()
+      XCTAssertEqual(final.0.exposure, 0.75)
+      XCTAssertEqual(final.1, loaded.1)
+      XCTAssertEqual(try Data(contentsOf: fixture.raw), original)
+      await fixture.close()
+    } catch {
+      await fixture.close()
+      throw error
+    }
+  }
+
   func testSemanticConflictFailsWithoutNetworkBackoff() async throws {
     let fixture = try await OwnedSMBWorkflowFixture.open()
     let ref = try await fixture.image()
