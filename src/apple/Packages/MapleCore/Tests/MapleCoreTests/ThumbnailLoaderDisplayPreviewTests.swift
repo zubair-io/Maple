@@ -95,7 +95,7 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
     try FileManager.default.createDirectory(
       at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    let staged = Data([0xFF, 0xD8, 0x01, 0x02, 0xFF, 0xD9])
+    let staged = try Data(contentsOf: assetURL)
     try staged.write(to: previewURL)
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(

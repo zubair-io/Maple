@@ -5,17 +5,17 @@
   /// Large-window Browse with cold thumbnails. Stages real RAW bytes in a
   /// disposable directory; the photographer's library is never the cache target.
   final class BrowseScrollingPerformanceTests: XCTestCase {
-    func testCold250ImageFolderScrollsWhileThumbnailsLoad() throws {
+    func testCold500ImageFolderScrollsWhileThumbnailsLoad() throws {
       let fixture = try UITestFixtureRoot.locate("test_0017.dng")
       let folder = FileManager.default.temporaryDirectory
         .appendingPathComponent("maple-browse-perf-\(UUID().uuidString)", isDirectory: true)
       try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
       defer { try? FileManager.default.removeItem(at: folder) }
-      // One copied original plus hard links keep the real 250-file browse workload
+      // One copied original plus hard links keep the real 500-file browse workload
       // without copying 250 large RAWs or modifying the fixture's original inode.
       let first = folder.appendingPathComponent("image-0000.dng")
       try FileManager.default.copyItem(at: fixture, to: first)
-      for index in 1..<250 {
+      for index in 1..<500 {
         try FileManager.default.linkItem(
           at: first, to: folder.appendingPathComponent(String(format: "image-%04d.dng", index)))
       }
@@ -29,7 +29,7 @@
       let firstCell = app.descendants(matching: .any)["thumb-image-0000"].firstMatch
       XCTAssertTrue(firstCell.waitForExistence(timeout: 20), "Cold Browse never became interactive")
       let before = XCTAttachment(screenshot: app.screenshot())
-      before.name = "Cold 250-image Browse"
+      before.name = "Cold 500-image Browse"
       before.lifetime = .keepAlways
       add(before)
 
@@ -47,6 +47,8 @@
         for _ in 0..<12 {
           scroll.scroll(byDeltaX: 0, deltaY: -600)
         }
+        let lastCell = app.descendants(matching: .any)["thumb-image-0499"].firstMatch
+        XCTAssertTrue(lastCell.isHittable, "Scrolling never reached the last image")
         for _ in 0..<12 {
           scroll.scroll(byDeltaX: 0, deltaY: 600)
         }
