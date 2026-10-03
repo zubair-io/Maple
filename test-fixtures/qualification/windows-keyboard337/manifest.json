@@ -79,7 +79,7 @@
     }
   ],
   "remainingScreenshotsLocal": "C:\\Users\\zubai\\AppData\\Local\\Temp\\maple-keyboard337-20261003/screenshots",
-  "inputMethod": "@oai/sky press_key; actual OS keystrokes, no handler invocation",
+  "inputMethod": "Real OS keyboard events delivered by the computer-use tool; no handler invocation",
   "sourceFiles": [
     {
       "sha256": "CC3BAF524B0CA544AB7A30C5FFB356F1F90C55CD442E0757364866FC04553CDE",
