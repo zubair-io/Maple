@@ -1,0 +1,103 @@
+{
+  "positive": {
+    "keyboardCases": 6,
+    "exitCode": 0,
+    "lifecyclePassed": true,
+    "skipped": 0
+  },
+  "fixture": {
+    "sha256": "B304A5F75482D0CC7F381724D72B7D4FFD5343684310DB2666C5EBC23625D725",
+    "path": "src/windows/Maple.WinUI.Tests/Fixtures/defringe.dng"
+  },
+  "hardware": {
+    "logicalProcessors": 12,
+    "gpuDriver": "32.0.101.7085",
+    "os": "Windows 11 Home Insider Preview",
+    "gpu": "Intel Iris Xe Graphics",
+    "cores": 10,
+    "cpu": "Intel Core i7-1255U",
+    "osBuild": "28120"
+  },
+  "base": "057bc604c619f2ef6e071a7ae38d25dfb1fa5d64",
+  "pipelineOutputVersion": 7,
+  "binarySha256": "AC210F1223AB7448F5BE732CC68B670DA0B4F495F785DFBB2F0F73D40CCB874E",
+  "negative": {
+    "input": "Left instead of Right",
+    "assertionRejectedWrongInput": true,
+    "actualExposure": -0.05,
+    "expectedExposure": 0.05,
+    "exitCode": 1
+  },
+  "cases": [
+    {
+      "name": "editor-to-preview",
+      "key": "Escape",
+      "exposure": 0,
+      "undoDepth": 0,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "exposure-redo",
+      "key": "Control_L+Shift_L+z",
+      "exposure": 0,
+      "undoDepth": 0,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "exposure-restore",
+      "key": "Control_L+z",
+      "exposure": 0.05,
+      "undoDepth": 1,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "exposure-right",
+      "key": "Right",
+      "exposure": 0,
+      "undoDepth": 0,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "exposure-undo",
+      "key": "Control_L+z",
+      "exposure": 0.05,
+      "undoDepth": 1,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "preview-to-editor",
+      "key": "e",
+      "exposure": 0,
+      "undoDepth": 0,
+      "mode": "Preview",
+      "scale": 1.5
+    }
+  ],
+  "remainingScreenshotsLocal": "C:\\Users\\zubai\\AppData\\Local\\Temp\\maple-keyboard337-20261003/screenshots",
+  "inputMethod": "@oai/sky press_key; actual OS keystrokes, no handler invocation",
+  "sourceFiles": [
+    {
+      "sha256": "CC3BAF524B0CA544AB7A30C5FFB356F1F90C55CD442E0757364866FC04553CDE",
+      "path": "src/windows/Maple.WinUI/MainWindow.KeyboardSmoke.cs"
+    },
+    {
+      "sha256": "8F1F0B9D664A3E9499E833D54A86AE25DFF2A2017A42A25BBF58344548BDC8D4",
+      "path": "src/windows/Maple.WinUI/MainWindow.LifecycleSmoke.cs"
+    }
+  ],
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3",
+  "issue": 4116,
+  "build": "Maple.DesignAudit337",
+  "limitations": [
+    "150% DPI only; no Narrator or all-DPI signoff.",
+    "Synthetic 64x64 fixture; no image-color or hardware-performance qualification.",
+    "Native checkpoint focuses the production control; actual edit/undo/redo/mode input comes from OS keystrokes.",
+    "Cloud lifecycle uses controlled responses; no live cloud account qualification."
+  ],
+  "backend": "cpu"
+}
