@@ -28,12 +28,13 @@ extension EditSession {
   /// True when an undo entry exists OR the open transaction has already
   /// moved the model (it will become one at the next boundary).
   public var canUndo: Bool {
+    guard !workflow.isBusy else { return false }
     if !transactions.undoStack.isEmpty { return true }
     guard let pending = transactions.pending else { return false }
     return pending.before != model
   }
 
-  public var canRedo: Bool { !transactions.redoStack.isEmpty }
+  public var canRedo: Bool { !workflow.isBusy && !transactions.redoStack.isEmpty }
 
   /// Open a transaction before a user gesture or discrete edit. Closes
   /// any transaction still open (recording it if it changed anything) so
@@ -42,6 +43,7 @@ extension EditSession {
   public func beginEdit(
     kind: EditTransaction.Kind = .adjustment, description: String = "Adjustment"
   ) {
+    guard !workflow.isBusy else { return }
     endEdit()
     transactions.nextID &+= 1
     transactions.pending = PendingEdit(
@@ -52,6 +54,7 @@ extension EditSession {
   /// Close the open transaction. A no-op transaction (model unchanged)
   /// records nothing; anything else becomes exactly one undo entry.
   public func endEdit() {
+    guard !workflow.isBusy else { return }
     guard let pending = transactions.pending else { return }
     transactions.pending = nil
     guard
@@ -73,7 +76,12 @@ extension EditSession {
   }
 
   public func undo() {
+    guard !workflow.isBusy else { return }
     endEdit()
+    if let tx = transactions.undoStack.last, tx.checkpoint != nil {
+      workflow.beginReplay(session: self, transaction: tx, undo: true)
+      return
+    }
     guard let tx = transactions.undoStack.popLast() else { return }
     transactions.redoStack.append(tx)
     trim(&transactions.redoStack)
@@ -85,7 +93,12 @@ extension EditSession {
   }
 
   public func redo() {
+    guard !workflow.isBusy else { return }
     endEdit()
+    if let tx = transactions.redoStack.last, tx.checkpoint != nil {
+      workflow.beginReplay(session: self, transaction: tx, undo: false)
+      return
+    }
     guard let tx = transactions.redoStack.popLast() else { return }
     transactions.undoStack.append(tx)
     trim(&transactions.undoStack)
@@ -97,6 +110,7 @@ extension EditSession {
   }
 
   public func resetToOriginal() {
+    guard !workflow.isBusy else { return }
     beginEdit(kind: .reset, description: "Reset to original")
     model = originalModel
     endEdit()

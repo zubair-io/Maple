@@ -62,7 +62,9 @@ struct EditorCommandScope: ViewModifier {
   }
 
   private func handle(_ press: KeyPress) -> KeyPress.Result {
-    guard !EditorTextInput.hasFocus else {
+    guard !state.session.workflow.isBusy, !state.session.workflow.isPresented,
+      !EditorTextInput.hasFocus
+    else {
       router?.cancelCompare()
       router?.finishNudge()
       return .ignored

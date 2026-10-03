@@ -342,6 +342,7 @@ public final class EditSession {
   public var showingOriginal: Bool = false
 
   // MARK: Undo / redo
+  public let workflow = EditorWorkflowState()
 
   /// Storage only — the ring behaviour (`canUndo`/`canRedo`, `beginEdit`,
   /// `undo`, `redo`, `resetToOriginal`, `undoStackCap`) lives in

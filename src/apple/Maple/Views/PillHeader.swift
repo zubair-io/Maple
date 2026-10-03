@@ -8,6 +8,7 @@ struct PillHeader: View {
   let onBack: () -> Void
   let onShare: () -> Void
   let onInfo: () -> Void
+  let onWorkflow: () -> Void
   @Binding var showsScope: Bool
   @Binding var showsScopesPanel: Bool
   let scopesPanelAvailable: Bool
@@ -70,6 +71,14 @@ struct PillHeader: View {
       }
 
       Section {
+        Button("Snapshots and history", action: onWorkflow)
+          .disabled(
+            state.session.workflow.isBusy || state.autoInProgress
+              || state.whiteBalancePicker.isSampling
+          )
+          .accessibilityLabel("Snapshots and history")
+          .accessibilityIdentifier("editor-workflow")
+
         Button(action: onInfo) {
           Label("Photo Info", systemImage: "info.circle")
         }

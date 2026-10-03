@@ -5,7 +5,7 @@
 import Foundation
 import MapleBackup
 
-public actor PhotoKitSidecarStore: SemanticSidecarStoreProtocol {
+public actor PhotoKitSidecarStore: WorkflowSidecarStoreProtocol {
   private let phassetLocalId: String
   private let sidecars: AppSupportSidecarStore
   private let writer: XMPSidecarStore
@@ -46,6 +46,14 @@ public actor PhotoKitSidecarStore: SemanticSidecarStoreProtocol {
     model: AdjustmentModel, culling: CullingState, action: String, label: String
   ) async throws {
     try await writer.commitSemantic(model: model, culling: culling, action: action, label: label)
+  }
+
+  public func readWorkflowXML() async throws -> String? {
+    try await writer.readWorkflowXML()
+  }
+
+  public func publishWorkflow(_ command: WorkflowPublication) async throws -> String {
+    try await writer.publishWorkflow(command)
   }
 
   public func errors() async -> AsyncStream<Error> { await writer.errors() }
