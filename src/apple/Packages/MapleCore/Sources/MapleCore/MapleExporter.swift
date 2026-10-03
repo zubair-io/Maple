@@ -186,8 +186,7 @@ public struct MapleExporter: Sendable {
       panel.allowedFileTypes = [options.format.fileExtension]
       guard panel.runModal() == .OK, let url = panel.url else { return }
 
-      let data = try await exportData(session: session, options: options)
-      try data.write(to: url, options: .atomic)
+      try await exportToFile(session: session, options: options, destination: url)
     }
   #endif
 
@@ -281,11 +280,14 @@ public struct MapleExporter: Sendable {
 
 public enum ExportError: Error, LocalizedError {
   case renderFailed
+  case originalDestination
   case encodeFailed(ExportFileFormat)
 
   public var errorDescription: String? {
     switch self {
     case .renderFailed: return "Failed to render image for export"
+    case .originalDestination:
+      return "Choose a different export name or folder. Original photos cannot be overwritten."
     case .encodeFailed(let fmt): return "Failed to encode image as \(fmt.displayName)"
     }
   }
