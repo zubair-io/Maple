@@ -6,10 +6,9 @@ import Foundation
 actor RawRenderSource {
   private let originalAsset: AssetRef?
   private var pending: Task<StagedFile, Error>?
-  // Keep an owner-side cleanup handle as well as the task result. A completed
-  // Task can retain its result briefly after the actor is released, so relying
-  // only on StagedFile.deinit makes session teardown nondeterministic.
-  private var stagedDirectory: URL?
+  // Cleanup belongs to one file object. The actor requests immediate cleanup;
+  // a task completing after teardown uses the same idempotent operation (#4065).
+  private var stagedFile: StagedFile?
 
   init(asset: AssetRef? = nil) { originalAsset = asset }
 
@@ -32,7 +31,7 @@ actor RawRenderSource {
     pending = task
     do {
       let file = try await task.value
-      stagedDirectory = file.directory
+      stagedFile = file
       return file.url
     } catch {
       pending = nil
@@ -60,16 +59,16 @@ actor RawRenderSource {
 
   deinit {
     pending?.cancel()
-    if let stagedDirectory {
-      try? FileManager.default.removeItem(at: stagedDirectory)
-    }
+    stagedFile?.remove()
   }
 
   /// Ownership follows the task result, including a completion after teardown.
   /// Releasing the session releases its staged copy; the original is untouched.
-  private final class StagedFile: Sendable {
+  private final class StagedFile: @unchecked Sendable {
     let directory: URL
     let url: URL
+    private let cleanup = NSLock()
+    private var removed = false
 
     init(extensionHint: String?) throws {
       directory = FileManager.default.temporaryDirectory
@@ -79,6 +78,13 @@ actor RawRenderSource {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
-    deinit { try? FileManager.default.removeItem(at: directory) }
+    func remove() {
+      cleanup.withLock {
+        guard !removed else { return }
+        removed = true
+        try? FileManager.default.removeItem(at: directory)
+      }
+    }
+    deinit { remove() }
   }
 }

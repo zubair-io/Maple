@@ -22,100 +22,101 @@
 import PackageDescription
 
 let package = Package(
-    name: "MapleCore",
-    platforms: [
-        .macOS(.v14),
-        .iOS(.v17),
-        .tvOS(.v17),
-    ],
-    products: [
-        .library(name: "MapleCore", targets: ["MapleCore"]),
-        .library(name: "MapleCloudKit", targets: ["MapleCloudKit"]),
-    ],
-    dependencies: [
-        // AMSMB2 — Swift SMB 2/3 client (MIT license; review before App Store submission).
-        .package(url: "https://github.com/amosavian/AMSMB2.git", from: "4.0.0"),
-        .package(path: "../MapleBackup"),
-        // swift-otel — OpenTelemetry SDK. Pinned to 1.2.1 (latest stable as of
-        // 2026-05-30). We enable ONLY the `OTLPHTTP` trait — Maple exports
-        // OTLP/HTTP to a self-hosted SigNoz, never OTLP/gRPC. Disabling the
-        // default traits drops the grpc-swift-2 dependency tree, which also
-        // keeps the deployment floor at macOS 14 / iOS 17 (grpc-swift-2 needs
-        // macOS 15 / iOS 18). The `Observability/` subsystem is the only
-        // consumer.
-        .package(
-            url: "https://github.com/swift-otel/swift-otel.git",
-            exact: "1.2.1",
-            traits: ["OTLPHTTP"]
-        ),
-    ],
-    targets: [
-        // Portable Cloud/Auth networking layer — consumed by the iOS/macOS app
-        // via MapleCore's re-export AND directly by the Maple TV target (tvOS),
-        // which must not link RawPipeline. Keep this target dependency-free.
-        .target(name: "MapleCloudKit"),
-        .target(
-            name: "MapleCore",
-            dependencies: [
-                "MapleCloudKit",
-                "RawPipeline",
-                .product(name: "AMSMB2", package: "AMSMB2"),
-                .product(name: "MapleBackup", package: "MapleBackup"),
-                .product(name: "OTel", package: "swift-otel"),
-            ],
-            resources: [
-                // .metal files are CoreImage CIKernel sources, NOT standard
-                // Metal libraries. They are read verbatim at runtime via
-                // Bundle.module and compiled through CIKernel(source:) —
-                // Xcode must not attempt a build-time Metal compile (would
-                // fail: these use the coreimage:: namespace). `.copy` is
-                // correct here; `.process` triggers the failing compile.
-                .copy("Metal"),
-                // Canonical built-in presets (#1115) — the SAME file the
-                // web mirrors (parity-pinned by the API-side
-                // builtin-presets-parity test). Read via Bundle.module in
-                // PresetStore.
-                .copy("Resources/builtin-presets.json"),
-            ]
-        ),
-        // Binary dependency — RawPipeline.xcframework lives outside the package
-        // so the Xcode project can link the same binary directly.
-        .binaryTarget(
-            name: "RawPipeline",
-            path: "../../Frameworks/RawPipeline.xcframework"
-        ),
-        .testTarget(
-            name: "MapleCoreTests",
-            dependencies: [
-                "MapleCore",
-                "MapleCloudKit",
-                .product(name: "MapleBackup", package: "MapleBackup"),
-            ],
-            resources: [
-                .copy("Fixtures/auth-contract.json"),
-                .copy("Fixtures/preview-path-contract.json"),
-                // Tiny 2³ `.mlut` fixture for `FilmLutStoreTests` (#2683,
-                // Task 10) — a whole-directory `.copy` lands at the bundle
-                // root as `film-luts/`, matching `FilmLutStore`'s
-                // `subdirectory: "film-luts"` lookup.
-                .copy("Fixtures/film-luts"),
-                // Portrait fixture for PersonSkinMaskServiceTests (#3273),
-                // downsized to a 1024px long edge — matching the ~1MP develop
-                // PersonSkinMaskService actually receives in production.
-                .copy("Fixtures/portrait-skin-test.png"),
-                // Shared layer-stack fixture (#3274) — the same JSON
-                // test-fixtures/local-adjustments/layer-stack.json pins
-                // raw-core's flat-record writer against; kept in this repo's
-                // copy verbatim (`cp`, not a symlink — SPM resources don't
-                // follow symlinks reliably across platforms).
-                .copy("Fixtures/layer-stack.json"),
-            ]
-        ),
-    ],
-    // Tools version is 6.1 (for swift-otel's per-dependency trait selection),
-    // but the existing MapleCore + test sources were written for Swift 5.10.
-    // Pin the language mode to v5 package-wide so the 6.1 default (Swift 6
-    // strict concurrency) doesn't break them — this change only adds the
-    // OTel wiring, it doesn't migrate the package to Swift 6.
-    swiftLanguageModes: [.v5]
+  name: "MapleCore",
+  platforms: [
+    .macOS(.v14),
+    .iOS(.v17),
+    .tvOS(.v17),
+  ],
+  products: [
+    .library(name: "MapleCore", targets: ["MapleCore"]),
+    .library(name: "MapleCloudKit", targets: ["MapleCloudKit"]),
+  ],
+  dependencies: [
+    // AMSMB2 — Swift SMB 2/3 client (MIT license; review before App Store submission).
+    .package(path: "../../third_party/AMSMB2"),
+    .package(path: "../MapleBackup"),
+    // swift-otel — OpenTelemetry SDK. Pinned to 1.2.1 (latest stable as of
+    // 2026-05-30). We enable ONLY the `OTLPHTTP` trait — Maple exports
+    // OTLP/HTTP to a self-hosted SigNoz, never OTLP/gRPC. Disabling the
+    // default traits drops the grpc-swift-2 dependency tree, which also
+    // keeps the deployment floor at macOS 14 / iOS 17 (grpc-swift-2 needs
+    // macOS 15 / iOS 18). The `Observability/` subsystem is the only
+    // consumer.
+    .package(
+      url: "https://github.com/swift-otel/swift-otel.git",
+      exact: "1.2.1",
+      traits: ["OTLPHTTP"]
+    ),
+  ],
+  targets: [
+    // Portable Cloud/Auth networking layer — consumed by the iOS/macOS app
+    // via MapleCore's re-export AND directly by the Maple TV target (tvOS),
+    // which must not link RawPipeline. Keep this target dependency-free.
+    .target(name: "MapleCloudKit"),
+    .target(
+      name: "MapleCore",
+      dependencies: [
+        "MapleCloudKit",
+        "RawPipeline",
+        .product(name: "AMSMB2", package: "AMSMB2"),
+        .product(name: "MapleBackup", package: "MapleBackup"),
+        .product(name: "OTel", package: "swift-otel"),
+      ],
+      resources: [
+        // .metal files are CoreImage CIKernel sources, NOT standard
+        // Metal libraries. They are read verbatim at runtime via
+        // Bundle.module and compiled through CIKernel(source:) —
+        // Xcode must not attempt a build-time Metal compile (would
+        // fail: these use the coreimage:: namespace). `.copy` is
+        // correct here; `.process` triggers the failing compile.
+        .copy("Metal"),
+        // Canonical built-in presets (#1115) — the SAME file the
+        // web mirrors (parity-pinned by the API-side
+        // builtin-presets-parity test). Read via Bundle.module in
+        // PresetStore.
+        .copy("Resources/builtin-presets.json"),
+      ]
+    ),
+    // Binary dependency — RawPipeline.xcframework lives outside the package
+    // so the Xcode project can link the same binary directly.
+    .binaryTarget(
+      name: "RawPipeline",
+      path: "../../Frameworks/RawPipeline.xcframework"
+    ),
+    .testTarget(
+      name: "MapleCoreTests",
+      dependencies: [
+        "MapleCore",
+        "MapleCloudKit",
+        .product(name: "MapleBackup", package: "MapleBackup"),
+      ],
+      resources: [
+        .copy("Fixtures/auth-contract.json"),
+        .copy("Fixtures/preview-path-contract.json"),
+        .copy("Fixtures/smb/publication_proxy.py"),
+        // Tiny 2³ `.mlut` fixture for `FilmLutStoreTests` (#2683,
+        // Task 10) — a whole-directory `.copy` lands at the bundle
+        // root as `film-luts/`, matching `FilmLutStore`'s
+        // `subdirectory: "film-luts"` lookup.
+        .copy("Fixtures/film-luts"),
+        // Portrait fixture for PersonSkinMaskServiceTests (#3273),
+        // downsized to a 1024px long edge — matching the ~1MP develop
+        // PersonSkinMaskService actually receives in production.
+        .copy("Fixtures/portrait-skin-test.png"),
+        // Shared layer-stack fixture (#3274) — the same JSON
+        // test-fixtures/local-adjustments/layer-stack.json pins
+        // raw-core's flat-record writer against; kept in this repo's
+        // copy verbatim (`cp`, not a symlink — SPM resources don't
+        // follow symlinks reliably across platforms).
+        .copy("Fixtures/layer-stack.json"),
+      ]
+    ),
+  ],
+  // Tools version is 6.1 (for swift-otel's per-dependency trait selection),
+  // but the existing MapleCore + test sources were written for Swift 5.10.
+  // Pin the language mode to v5 package-wide so the 6.1 default (Swift 6
+  // strict concurrency) doesn't break them — this change only adds the
+  // OTel wiring, it doesn't migrate the package to Swift 6.
+  swiftLanguageModes: [.v5]
 )

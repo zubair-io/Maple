@@ -574,3 +574,23 @@ cargo run --release -p raw-core --example raw-stats   -- <DNG>
 All of the stage-dump paths need `maple-cli` built with `--features stage-dump`; the scripts handle that themselves and exit non-zero only on a toolchain failure — a build failure, a render failure, or zero EXRs emitted (which usually means the feature flag was missing).
 
 `banding_check.py`, `stage_stats.py`, `stage_diff.py`, and `pano_metrics.py` all carry their own unit tests, and CI runs them in the `rust-tests` and `pano-pipeline` jobs — the measurement tools are gated as carefully as the thing they measure.
+
+### Connected SMB workflow regressions
+
+`SMBWorkflowPublicationTests`, `SMBWorkflowAcceptanceTests` and
+`SMBWorkflowRecoveryTests` run against an isolated, authenticated Samba process
+on an ephemeral loopback port. Install the server with `brew install samba`.
+The Apple regression job installs it and runs these classes without skipping.
+They exercise the actual `SMBSource`/AMSMB2 connection, full editor variants,
+semantic history, snapshots, restore, Undo/Redo, reopen, rendered export,
+original bytes and server-enforced competing publication ownership. A TCP relay
+drops one successful rename reply to qualify retry after a lost acknowledgement,
+including another client's subsequent save. Neither a mounted share nor a
+mock sidecar qualifies these tests.
+
+The fixture disables Samba's temporary-directory mkdir path using
+`vfs mkdir use tmp name = no`: Homebrew Samba on macOS otherwise creates mode
+`000` directories and rejects mkdir, reproduced with an independent SMB client.
+All directories, credentials and server state belong to the test; system
+Sharing and account credentials are untouched. This qualifies real SMB
+protocol behavior against the owned server, not any particular user's NAS.
