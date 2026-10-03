@@ -6,12 +6,13 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
   private let ref: ImageRef
   private let variantId: String
   private let renderSidecar = WorkflowRenderSidecar()
+  private var adoptedXML: String?
   private var cached: (AdjustmentModel, CullingState)?
   private var pendingTask: Task<Void, Never>?
   private var writeTail: Task<Void, Error>?
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
-  private var pendingEdits: [SMBSemanticPublication] = []
+  private var pendingEdits: [SMBModelPublication] = []
   private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
   private var nextSubscriberID: UInt64 = 0
   static let debounceInterval: Duration = .milliseconds(750)
@@ -31,8 +32,9 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
   }
   public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
     if pendingModel != nil, let cached { return cached }
-    guard let xml = try await readWorkflowXML() else { return nil }
-    return try XMPParser.parse(xml)
+    let xml = try await readWorkflowXML()
+    adoptedXML = xml
+    return try xml.map { try XMPParser.parse($0) }
   }
   public func update(model: AdjustmentModel, culling: CullingState) {
     pendingModel = model
@@ -75,7 +77,7 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
   public func commitSemantic(
     model: AdjustmentModel, culling: CullingState, action: String, label: String
   ) async throws {
-    let edit = try SMBSemanticPublication(
+    let edit = try SMBModelPublication(
       model: model, culling: culling, action: action, label: label)
     pendingEdits.append(edit)
     pendingTask?.cancel()
@@ -94,41 +96,39 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
     }
     pendingModel = nil
     pendingCulling = nil
+    if pendingEdits.last?.represents(model: model, culling: culling) != true {
+      pendingEdits.append(try SMBModelPublication(model: model, culling: culling))
+    }
     let edits = pendingEdits
     let previous = writeTail
     let task = Task {
       _ = await previous?.result
-      try await self.send(model: model, culling: culling, edits: edits)
+      try await self.send(edits: edits)
     }
     writeTail = task
     do { try await task.value } catch {
       if pendingModel == nil {
-        pendingModel = model
-        pendingCulling = culling
+        pendingModel = cached?.0 ?? model
+        pendingCulling = cached?.1 ?? culling
       }
       throw error
     }
   }
-  private func send(
-    model: AdjustmentModel, culling: CullingState, edits: [SMBSemanticPublication]
-  ) async throws {
+  private func send(edits: [SMBModelPublication]) async throws {
     for edit in edits {
+      // A preceding queued task may already have acknowledged this publication.
+      guard pendingEdits.contains(where: { $0.id == edit.id }) else { continue }
+      let expected = adoptedXML
       let xml = try await source.mutateWorkflowSidecar(for: ref, variantId: variantId) {
-        try edit.output(current: $0, variantId: self.variantId)
+        try edit.output(current: $0, expected: expected, variantId: self.variantId)
       }
+      // The server can return a newer document when recognizing a lost reply.
+      // That document was not the model adopted by this editor: subsequent stale
+      // edits must still fail rather than silently replacing the other client.
+      adoptedXML = edit.publishedDocument
       pendingEdits.removeAll { $0.id == edit.id }
       try renderSidecar.write(xml)
     }
-    // An acknowledged semantic action already includes the model and culling.
-    // Rewriting that frozen model would erase a later client's accepted edit.
-    if edits.last?.represents(model: model, culling: culling) == true { return }
-    let xml = try await source.mutateWorkflowSidecar(for: ref, variantId: variantId) { current in
-      XMPSerializer.serialize(
-        model: model, culling: culling,
-        metadata: current.map { XMPParser.parseMetadata($0) } ?? XmpMetadata(),
-        passthrough: current.map { XMPParser.parsePassthrough($0) } ?? .empty)
-    }
-    try renderSidecar.write(xml)
   }
   private func writePending() async {
     do { try await settlePending() } catch {
@@ -158,6 +158,7 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
       } else {
         xml = try await self.source.readWorkflowSidecar(for: self.ref, variantId: self.variantId)
       }
+      if command != nil { self.adoptedXML = xml }
       if let xml {
         if self.pendingModel == nil { self.cached = try XMPParser.parse(xml) }
         try self.renderSidecar.write(xml)
@@ -181,7 +182,7 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
     _ = try await readWorkflowXML()
     _ = try WorkflowSidecarCore.variantFilename(primaryName: "photo.xmp", variantId: variantId)
     let selected = SMBSidecarStore(source: source, ref: ref, variantId: variantId)
-    _ = try await selected.readWorkflowXML()
+    _ = try await selected.loadIfPresent()
     return WorkflowVariantBinding(writer: selected, sidecarURL: selected.renderSidecar.url)
   }
 }

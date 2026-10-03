@@ -7,6 +7,7 @@ import XCTest
 final class OwnedSMBPublicationProxy {
   private let directory: URL
   private let process = Process()
+  private var termination: Task<Void, Never>?
   private let output: FileHandle
   private(set) var credentials: SMBSource.Credentials
 
@@ -29,7 +30,13 @@ final class OwnedSMBPublicationProxy {
   }
   static func open(_ fixture: OwnedSMBWorkflowFixture) async throws -> OwnedSMBPublicationProxy {
     let proxy = try OwnedSMBPublicationProxy(fixture)
-    try proxy.process.run()
+    let exit = AsyncStream<Void>.makeStream()
+    proxy.process.terminationHandler = { _ in exit.continuation.finish() }
+    proxy.termination = Task { for await _ in exit.stream {} }
+    do { try proxy.process.run() } catch {
+      exit.continuation.finish()
+      throw error
+    }
     let receipt = proxy.directory.appendingPathComponent("proxy.json")
     let deadline = Date().addingTimeInterval(10)
     while !FileManager.default.fileExists(atPath: receipt.path) {
@@ -53,10 +60,14 @@ final class OwnedSMBPublicationProxy {
   var droppedAcknowledgement: Bool {
     FileManager.default.fileExists(atPath: directory.appendingPathComponent("dropped-rename").path)
   }
+  func close() async {
+    if process.isRunning { process.terminate() }
+    await termination?.value
+    try? output.close()
+  }
   deinit {
     if process.isRunning {
       process.terminate()
-      process.waitUntilExit()
     }
     try? output.close()
   }

@@ -14,6 +14,7 @@ final class OwnedSMBWorkflowFixture {
   let credentials: SMBSource.Credentials
   private let process = Process()
   private let input = Pipe()
+  private var termination: Task<Void, Never>?
   private let output: FileHandle
 
   private init(initialXML: String?) throws {
@@ -39,7 +40,8 @@ final class OwnedSMBWorkflowFixture {
     credentials = .init(
       host: "127.0.0.1:\(port)", share: "WORKFLOW", username: username,
       password: "owned-loopback-fixture")
-    let passwordFile = directory.appendingPathComponent("private/smbpasswd")
+    let passwordFile = directory.appendingPathComponent("private", isDirectory: true)
+      .appendingPathComponent("smbpasswd")
     // Synthetic fixture password's NT hash. This private database is owned by this test.
     let timestamp = String(format: "%08X", UInt32(Date().timeIntervalSince1970))
     let account =
@@ -104,7 +106,13 @@ final class OwnedSMBWorkflowFixture {
     -> OwnedSMBWorkflowFixture
   {
     let fixture = try OwnedSMBWorkflowFixture(initialXML: initialXML)
-    try fixture.process.run()
+    let exit = AsyncStream<Void>.makeStream()
+    fixture.process.terminationHandler = { _ in exit.continuation.finish() }
+    fixture.termination = Task { for await _ in exit.stream {} }
+    do { try fixture.process.run() } catch {
+      exit.continuation.finish()
+      throw error
+    }
     let deadline = Date().addingTimeInterval(15)
     while fixture.process.isRunning {
       do {
@@ -129,15 +137,14 @@ final class OwnedSMBWorkflowFixture {
     await source.disconnect()
     if process.isRunning {
       process.terminate()
-      process.waitUntilExit()
     }
+    await termination?.value
     try? output.close()
     try? FileManager.default.removeItem(at: directory)
   }
   deinit {
     if process.isRunning {
       process.terminate()
-      process.waitUntilExit()
     }
     try? output.close()
     try? FileManager.default.removeItem(at: directory)
