@@ -4,14 +4,24 @@ extension BrowseViewModel {
   /// Enumerate and construct refs off MainActor, including NAS metadata reads.
   /// Publish only if this request still owns the current folder generation.
   public func loadFolder(url: URL) async {
+    guard !Task.isCancelled else { return }
     loadGeneration &+= 1
     let gen = loadGeneration
 
     isLoading = true
-    defer { if gen == loadGeneration { isLoading = false } }
+    defer {
+      if gen == loadGeneration {
+        isLoading = false
+        folderEnumerationTask = nil
+      }
+    }
     let scope = currentScopeRoot ?? url
-    do {
-      let (refs, subs) = try await Task.detached(priority: .utility) {
+    let checkpoint = folderEnumerationCheckpoint
+    let slots = folderEnumerationSlots
+    let task = Task.detached(priority: .utility) { () throws -> ([AssetRef], [URL]) in
+      try await slots.acquire()
+      do {
+        try Task.checkCancellation()
         let accessing = scope.startAccessingSecurityScopedResource()
         defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
         let fm = FileManager.default
@@ -29,9 +39,13 @@ extension BrowseViewModel {
         // files at this depth only. Grandchildren are NOT walked — the user
         // drills down by clicking a sub-folder which triggers another
         // `loadFolder(url:)`.
+        try Task.checkCancellation()
+        await checkpoint?()
+        try Task.checkCancellation()
         var subs: [URL] = []
         var raws: [URL] = []
         for entry in contents {
+          try Task.checkCancellation()
           if entry.lastPathComponent.hasPrefix(".") { continue }
           let isDir =
             (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
@@ -51,8 +65,22 @@ extension BrowseViewModel {
         // is already scope-backed.
         let refs = raws.map { AssetRef(url: $0, scopeParentURL: scope) }
 
+        try Task.checkCancellation()
+        await slots.release()
         return (refs, subs)
-      }.value
+      } catch {
+        await slots.release()
+        throw error
+      }
+    }
+    folderEnumerationTask = task
+    do {
+      let (refs, subs) = try await withTaskCancellationHandler {
+        try await task.value
+      } onCancel: {
+        task.cancel()
+      }
+      try Task.checkCancellation()
       guard gen == loadGeneration else { return }
       assets = refs
       subfolders = subs
@@ -63,7 +91,7 @@ extension BrowseViewModel {
       loadError = nil
       photosAuthNeeded = false  // a folder is never the Photos-permission state (#3536)
     } catch {
-      guard gen == loadGeneration else { return }
+      guard !(error is CancellationError), !Task.isCancelled, gen == loadGeneration else { return }
       loadError = error
     }
   }
