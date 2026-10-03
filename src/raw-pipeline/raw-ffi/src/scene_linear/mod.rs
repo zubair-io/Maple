@@ -124,7 +124,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
             raw_core::CancelToken::never(),
         )
         .map(|rendered| {
-            rendered.map(|(w, h, rgba, _, _)| {
+            rendered.map(|(w, h, rgba, _, _, _)| {
                 (
                     w,
                     h,
@@ -222,7 +222,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
             raw_core::CancelToken::never(),
         )
         .map(|rendered| {
-            rendered.map(|(w, h, rgba, _, _)| {
+            rendered.map(|(w, h, rgba, _, _, _)| {
                 (
                     w,
                     h,
@@ -335,7 +335,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
             raw_core::CancelToken::never(),
         )
         .map(|rendered| {
-            rendered.map(|(w, h, rgba, _, _)| {
+            rendered.map(|(w, h, rgba, _, _, _)| {
                 (
                     w,
                     h,
@@ -443,7 +443,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
             raw_core::CancelToken::never(),
         )
         .map(|rendered| {
-            rendered.map(|(w, h, rgba, _, _)| {
+            rendered.map(|(w, h, rgba, _, _, _)| {
                 (
                     w,
                     h,

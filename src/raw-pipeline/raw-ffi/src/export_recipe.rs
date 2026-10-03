@@ -89,30 +89,30 @@ pub unsafe extern "C" fn maple_export_recipe_to_file(
             let exported = if model.inpaint_removals.is_empty() {
                 export_bytes_with_recipe(&bytes, ext, &model, &recipe, film.as_ref())?
             } else {
-            let raw =
-                raw_core::decode::decode_bytes(&bytes, ext).map_err(|e| format!("decode: {e}"))?;
-            let input = Some(RawInput::Bytes { bytes: &bytes, ext });
-            match crate::removal_file::prepare_saved(
-                &raw,
-                &bytes,
-                &model,
-                Path::new(&source).parent(),
-            ) {
-                Some(saved) => {
-                    let (saved, original) = saved.map_err(|error| error.to_string())?;
-                    saved
-                        .export_encoded(
-                            &raw,
-                            &original,
-                            &model,
-                            input,
-                            &recipe.options()?,
-                            film.as_ref(),
-                        )
-                        .map_err(|error| error.to_string())?
+                let raw = raw_core::decode::decode_bytes(&bytes, ext)
+                    .map_err(|e| format!("decode: {e}"))?;
+                let input = Some(RawInput::Bytes { bytes: &bytes, ext });
+                match crate::removal_file::prepare_saved(
+                    &raw,
+                    &bytes,
+                    &model,
+                    Path::new(&source).parent(),
+                ) {
+                    Some(saved) => {
+                        let (saved, original) = saved.map_err(|error| error.to_string())?;
+                        saved
+                            .export_encoded(
+                                &raw,
+                                &original,
+                                &model,
+                                input,
+                                &recipe.options()?,
+                                film.as_ref(),
+                            )
+                            .map_err(|error| error.to_string())?
+                    }
+                    None => export_with_recipe(&raw, &model, input, &recipe, film.as_ref())?,
                 }
-                None => export_with_recipe(&raw, &model, input, &recipe, film.as_ref())?,
-            }
             };
             let mut file = std::fs::OpenOptions::new()
                 .write(true)

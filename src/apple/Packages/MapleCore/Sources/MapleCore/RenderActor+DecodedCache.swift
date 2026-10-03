@@ -199,7 +199,8 @@ extension RenderActor {
             }
             guard let nonRawImage else { return nil }
             return (
-              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0), Float.nan, Float(1.0),
+              nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0), Float.nan,
+              Float(1.0),
               false, true, true, nil, nil
             )
           }
@@ -247,7 +248,8 @@ extension RenderActor {
             guard let sizedResult else { return nil }
             return (
               sizedResult.image, sizedResult.noiseProfile, sizedResult.iso,
-              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.whitesAnchorEv, sizedResult.nrSamplingScale,
+              sizedResult.wbFrame, sizedResult.aeGain, sizedResult.whitesAnchorEv,
+              sizedResult.nrSamplingScale,
               sizedResult.hasLensCorrections,
               sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert,
               sizedResult.cameraSupport, decodeQuality
@@ -268,7 +270,8 @@ extension RenderActor {
           guard let refineResult else { return nil }
           return (
             refineResult.image, refineResult.noiseProfile, refineResult.iso,
-            refineResult.wbFrame, refineResult.aeGain, refineResult.whitesAnchorEv, refineResult.nrSamplingScale,
+            refineResult.wbFrame, refineResult.aeGain, refineResult.whitesAnchorEv,
+            refineResult.nrSamplingScale,
             refineResult.hasLensCorrections,
             refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert,
             refineResult.cameraSupport, decodeQuality

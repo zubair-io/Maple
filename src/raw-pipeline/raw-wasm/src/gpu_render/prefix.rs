@@ -114,5 +114,12 @@ fn pack(
     for p in &scene.pixels {
         rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
     }
-    Ok((rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale))
+    Ok((
+        rgba,
+        w,
+        h,
+        prefix_model,
+        whites_anchor_ev,
+        nr_sampling_scale,
+    ))
 }

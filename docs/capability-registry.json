@@ -919,7 +919,7 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:7c4fea6df79a0e348ac25eb3846193716db8d2e28b4de5d43c1936e4f95e9a95",
+      "corpus_hash": "blake3:75b04c2f98bd4835b7f28122c899ae78e3deeaa6a33b1dc8f8a6d29cfe967fda",
       "status": "stale_corpus",
       "record": {
         "backend": "metal",
