@@ -64,7 +64,7 @@ extension AppShell {
       await RenderedPreviewCache.shared.configure(folderURL: folderURL)
       librarySelection = .folder(path: folderURL.path)
       libraryTitle = folderURL.lastPathComponent
-      browseVM.loadFolder(url: folderURL)
+      await browseVM.loadFolder(url: folderURL)
       pruneSessionsForNewAssetList()
     case .photoKit, .photoKitFilter:
       // Do NOT auto-load Photos on cold start. The user opted into

@@ -212,7 +212,11 @@ public actor ImageEditPipeline {
   // `internal` (not `private`) so the gpu-gated `ImageEditPipeline+GpuLive`
   // extension (a sibling file) can materialise a decoded CIImage to f32 via
   // this shared Metal-backed context. Same-module access only.
-  let context: CIContext
+  // The context is also used by the nonisolated GPU readback bridge. Its
+  // synchronized lazy store preserves that access without allocating Metal
+  // resources on MainActor for every Browse session.
+  nonisolated let contextStorage = PipelineContext()
+  nonisolated var context: CIContext { contextStorage.value }
 
   /// Single-entry LRU cache around `applySceneLinearChainViaFFI`. When
   /// the user drags a post-FFI slider (sharpen* / nrColor / capture
@@ -278,28 +282,7 @@ public actor ImageEditPipeline {
     fusedChainEncodeTestOverride = enabled
   }
 
-  public init() {
-    // Metal-backed context where available; `cacheIntermediates: false`
-    // + f32 working format (#487) keeps memory bounded enough that
-    // CoreImage can tile internally on a 100MP input while preserving
-    // full scene-buffer precision through the chain. Migrated from
-    // fp16 in #487 — see PipelineRenderer.applySceneLinearChain.
-    if let device = MTLCreateSystemDefaultDevice() {
-      self.context = CIContext(
-        mtlDevice: device,
-        options: [
-          .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
-          .workingFormat: CIFormat.RGBAf,
-          .cacheIntermediates: false,
-        ])
-    } else {
-      self.context = CIContext(options: [
-        .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
-        .workingFormat: CIFormat.RGBAf,
-        .cacheIntermediates: false,
-      ])
-    }
-  }
+  public init() {}
 
   // MARK: Decode (cached path)
 

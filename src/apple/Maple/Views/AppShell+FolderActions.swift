@@ -23,404 +23,402 @@
 // kept the per-method annotations on the spot for now to minimise diff
 // noise; they're redundant-but-harmless inside a MainActor extension.
 
-import SwiftUI
 import MapleCore
+import SwiftUI
 
 @MainActor
 extension AppShell {
-    // MARK: - Folder flows
+  // MARK: - Folder flows
 
-    @MainActor
-    func loadFolder(url: URL) {
-        // Cancel any in-flight thumbnail decodes from the previous folder so
-        // they don't keep burning CPU against files the user no longer sees.
-        Task.detached { await ThumbnailLoader.shared.cancelAll() }
-        // Configure folder-scoped caches so thumbnails land in the folder's
-        // .maple/ directory (matches Maple Hosted).
-        Task.detached {
-            await ThumbnailDiskCache.shared.configure(folderURL: url)
-            await RenderedPreviewCache.shared.configure(folderURL: url)
-        }
+  @MainActor
+  func loadFolder(url: URL) {
+    // Claim scope on the picker URL FIRST, before any filesystem read.
+    // The picker returns a scope-backed URL; claim it before enumeration
+    // so the sandbox grants both the listing and later background reads.
+    claimScope(for: url)
+    // Invalidate the OLD folder's bookmark in the SAME synchronous
+    // prefix as the `claimScope` call above — `activeScopeURL` just
+    // flipped to `url`, but the real bookmark for `url` isn't known
+    // until `FilesystemSource.open` resolves inside the `Task` below.
+    // Leaving the previous folder's (real, but now-mismatched) bookmark
+    // in place until then would let a drop-to-mount read (#2649 review
+    // finding I2) pair the NEW `activeScopeURL` with the OLD bookmark.
+    currentRootBookmark = nil
 
-        // Claim scope on the picker URL FIRST, before any filesystem read.
-        // The URL from `.fileImporter` is scope-backed but sandboxed reads
-        // require `startAccessingSecurityScopedResource()` to be active at
-        // the moment the read happens — otherwise the sync listing below
-        // fails with `fileReadUnknown`, `loadError` pops the red banner,
-        // and yet the later `FilesystemSource.open` + `SavedFolderStore`
-        // upsert still succeed (because those paths re-claim scope on
-        // their own), so the folder ends up in the sidebar and usable —
-        // but the user just saw a spurious "can't open folder" error.
-        claimScope(for: url)
-        // Invalidate the OLD folder's bookmark in the SAME synchronous
-        // prefix as the `claimScope` call above — `activeScopeURL` just
-        // flipped to `url`, but the real bookmark for `url` isn't known
-        // until `FilesystemSource.open` resolves inside the `Task` below.
-        // Leaving the previous folder's (real, but now-mismatched) bookmark
-        // in place until then would let a drop-to-mount read (#2649 review
-        // finding I2) pair the NEW `activeScopeURL` with the OLD bookmark.
-        currentRootBookmark = nil
-
-        // `url` here came from `.fileImporter` which returns a scope-backed
-        // URL — propagate it to the VM so each synthesised AssetRef carries
-        // the scope reference through to the pipeline / loader.
-        browseVM.currentScopeRoot = url
-        browseVM.loadFolder(url: url)
-        librarySelection = .folder(path: url.path)
-        libraryTitle = url.lastPathComponent
-        mode = .browse
-        // The asset list above just got replaced wholesale — drop any
-        // session left over from whatever folder was open before (#2038).
-        pruneSessionsForNewAssetList()
-
-        for asset in browseVM.assets where sessions[asset.id] == nil {
-            // FileProvider observer (see EditSession+Hydration) drives this
-            // when the URL is a Files-app / iCloud sidebar asset; local files
-            // never call begin() so the overlay stays hidden.
-            let session = EditSession(asset: asset,
-                                      downloadProgress: DownloadProgress())
-            sessions[asset.id] = session
-            Task { await session.loadSidecar() }
-        }
-        Task { @MainActor in
-            let fs = FilesystemSource()
-            do {
-                try await fs.open(folderURL: url)
-                if let data = await fs.persistableBookmark {
-                    currentRootBookmark = data
-                    SourceSelectionStore.save(.filesystem(bookmark: data))
-                    SavedFolderStore.upsert(SavedFolder(
-                        path: url.path,
-                        displayName: url.lastPathComponent,
-                        bookmark: data,
-                        lastOpened: Date()
-                    ))
-                }
-            } catch {
-                // Non-fatal — next launch simply lands on the empty state.
-            }
-        }
-    }
-
-    /// Single-click on a sub-folder cell in the explorer grid. Navigates into
-    /// the sub-folder using the currently-active root bookmark for security
-    /// scope.
-    @MainActor
-    func navigateFolder(_ url: URL) {
-        // Cloud-library context: drill into the subfolder via /api/fs/dir
-        // instead of the filesystem-bookmark path. URL.path carries the
-        // server-side absolute path. We don't update LibrarySelection
-        // because the drilled-in path is browser state, not a sidebar
-        // selection — the user is still on the same library row.
-        if case .cloudLibrary(let serverID, let folderID) = librarySelection,
-           let source = browseVM.currentSource as? CloudSource {
-            cloudCurrentPath = url.path
-            // Persist the drilled-in path so cold start restores at the
-            // current depth (and the sidebar auto-expands the ancestor
-            // chain to match).
-            SourceSelectionStore.save(.cloudLibrary(serverID: serverID,
-                                                    folderID: folderID,
-                                                    libraryPath: url.path))
-            Task { @MainActor in
-                await browseVM.loadCloudDir(source, absPath: url.path)
-                libraryTitle = url.lastPathComponent
-                pruneSessionsForNewAssetList()
-            }
-            return
-        }
-
-        guard let bookmark = currentRootBookmark else {
-            // Fall back to a plain loadFolder — works for folders inside the
-            // user's security-scope, fails silently for sandboxed reads.
-            // Keep whatever scope root is already active.
-            Task.detached { await ThumbnailLoader.shared.cancelAll() }
-            browseVM.loadFolder(url: url)
-            librarySelection = .folder(path: url.path)
-            libraryTitle = url.lastPathComponent
-            pruneSessionsForNewAssetList()
-            return
-        }
-        openSubFolder(url: url, rootBookmark: bookmark)
-    }
-
-    /// Open an image from a NON-tap path (deep link, document open). Grid taps
-    /// don't route through here — the grids call the shell-provided open
-    /// callback directly (iPhone pushes `.preview` onto its NavigationStack;
-    /// the pane shell flips `mode`). This method mirrors that split so a
-    /// deep-link / document-open lands the photo the same way a tap would.
-    ///
-    /// Fast Preview §1: opening now targets the fast static Preview surface
-    /// (`.preview`), not the editor directly.
-    @MainActor
-    func openEditor(for asset: AssetRef) {
-        // Make sure the session exists (usually pre-created by primeSessions…).
-        // Same bookkeeping the editor's filmstrip sibling switch uses
-        // (`selectFilmstripSibling`, #3402) — only the landing `mode` differs.
-        let ensured = AppShellVM.ensureSession(for: asset, in: &sessions)
-        if ensured.created {
-            Task { await ensured.session.loadSidecar() }
-        }
-        browseVM.selectedID = asset.id
-        #if os(iOS)
-        // iPhone: the shell renders images via the Library tab's
-        // NavigationStack, NOT the pane-shell `mode`. Push `.preview` onto that
-        // stack (same target as a grid tap) so deep-link / document-open
-        // actually surface the photo — `mode = .preview` alone would leave the
-        // grid on screen because `AppShellIPhoneShell` never consumes `mode`
-        // to pick the center surface; only the `libraryPath` push does. Reset
-        // the stack first so an in-flight editor push is replaced, not
-        // stacked under, the new open.
-        if MapleShellKind.current == .phoneTab {
-            libraryPath = [.preview(asset)]
-            return
-        }
-        #endif
-        // Mac/iPad pane shell: flip the center column to the Preview surface.
-        mode = imageOpenMode
-    }
-
-    /// Open a sub-folder inside a previously-saved top-level folder. Uses the
-    /// root's bookmark to claim security scope (child URLs inherit it), loads
-    /// the sub-folder's immediate children into the grid, and marks the
-    /// sub-folder as the current library selection. Does NOT persist to
-    /// `SavedFolderStore` — only top-level folders live in the recent list.
-    ///
-    /// `onComplete` runs after `browseVM.assets` has actually been replaced
-    /// (the load happens inside this method's own `Task`) — the drop-to-mount
-    /// flow (#2649) uses it to select specific dropped files only once
-    /// they're guaranteed to exist in `browseVM.assets`.
-    @MainActor
-    func openSubFolder(url: URL, rootBookmark: Data, onComplete: (@MainActor () -> Void)? = nil) {
-        librarySelection = .folder(path: url.path)
-        libraryTitle = url.lastPathComponent
-        currentRootBookmark = rootBookmark
-        mode = .browse
-        Task.detached { await ThumbnailLoader.shared.cancelAll() }
-        Task.detached {
-            await ThumbnailDiskCache.shared.configure(folderURL: url)
-            await RenderedPreviewCache.shared.configure(folderURL: url)
-        }
-        Task { @MainActor in
-            // Claim security scope via the root's bookmark. Child URLs live
-            // inside the same scope on macOS, so a sandboxed read works.
-            var isStale = false
-            let rootURL: URL?
-            #if os(macOS)
-            rootURL = try? URL(
-                resolvingBookmarkData: rootBookmark,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #else
-            rootURL = try? URL(
-                resolvingBookmarkData: rootBookmark,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #endif
-            // Hold scope open for the whole browse session — the URL must be
-            // bookmark-resolved (not built from `URL(fileURLWithPath:)`), so
-            // we claim on `rootURL`. Sub-folder URLs inherit the scope.
-            if let rootURL { claimScope(for: rootURL) }
-            // Propagate the scope-backed root to the VM so synthesised
-            // AssetRefs carry it (enables sandboxed Rust FFI reads).
-            browseVM.currentScopeRoot = rootURL
-            // Non-recursive walk of the sub-folder — the grid shows only
-            // RAWs directly inside it, matching Finder-style drill-down.
-            browseVM.loadFolder(url: url)
-            pruneSessionsForNewAssetList()
-            onComplete?()
-        }
-    }
-
-    /// Re-open a folder the user previously picked, using its stored bookmark
-    /// so we don't retrigger the system picker.
-    @MainActor
-    func openSavedFolder(_ folder: SavedFolder) {
-        librarySelection = .folder(path: folder.path)
-        libraryTitle = folder.displayName
-        // Invalidate (not "set to the new value") synchronously — `folder.
-        // bookmark` only becomes a TRUE pairing with `activeScopeURL` once
-        // `claimScope(for:)` below actually runs, which happens later
-        // inside the `Task`. Setting the real value here would let a
-        // drop-to-mount read (#2649 review finding I2) observe
-        // `librarySelection`/`currentRootBookmark` already pointing at this
-        // folder while `activeScopeURL` still names the PREVIOUS one — a
-        // torn pairing that resolves a stale/wrong root's bookmark. `nil`
-        // is a safe degraded state: a reader mid-transition just sees "no
-        // settled bookmark yet" and falls through to a fresh mount.
-        currentRootBookmark = nil
-        mode = .browse
-        Task.detached { await ThumbnailLoader.shared.cancelAll() }
-        // Resolve the bookmark, claim security scope, then run the native
-        // filesystem walker (which populates `subfolders` + `assets`). We
-        // deliberately avoid `loadSource(fs)` here — that path is for sources
-        // without a URL model (PhotoKit / SelfHosted) and doesn't surface
-        // sub-folders.
-        Task { @MainActor in
-            var isStale = false
-            let url: URL?
-            #if os(macOS)
-            url = try? URL(
-                resolvingBookmarkData: folder.bookmark,
-                options: .withSecurityScope,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #else
-            url = try? URL(
-                resolvingBookmarkData: folder.bookmark,
-                options: [],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            )
-            #endif
-            guard let folderURL = url else {
-                browseVM.loadError = CocoaError(.fileReadNoPermission)
-                return
-            }
-            // Hold scope open for the whole browse session — detached render
-            // tasks (thumbnails, editor) need process-wide scope when they
-            // eventually call into Rust. The previous `defer { stop }` released
-            // before any of them ran, which is why Rust saw EPERM.
-            claimScope(for: folderURL)
-            // Same synchronous prefix as `claimScope` above (no `await`
-            // between them) — `activeScopeURL` and `currentRootBookmark`
-            // become consistent in the same tick, closing the I2 gap.
-            currentRootBookmark = folder.bookmark
-            // Scope-backed root for the VM so AssetRefs carry the token.
-            browseVM.currentScopeRoot = folderURL
-            await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
-            await RenderedPreviewCache.shared.configure(folderURL: folderURL)
-            browseVM.loadFolder(url: folderURL)
-            pruneSessionsForNewAssetList()
-            SourceSelectionStore.save(.filesystem(bookmark: folder.bookmark))
-            SavedFolderStore.upsert(SavedFolder(
-                path: folder.path,
-                displayName: folder.displayName,
-                bookmark: folder.bookmark,
-                lastOpened: Date()
+    // `url` here came from `.fileImporter` which returns a scope-backed
+    // URL — propagate it to the VM so each synthesised AssetRef carries
+    // the scope reference through to the pipeline / loader.
+    browseVM.currentScopeRoot = url
+    librarySelection = .folder(path: url.path)
+    libraryTitle = url.lastPathComponent
+    mode = .browse
+    Task { @MainActor in
+      await ThumbnailLoader.shared.cancelAll()
+      await ThumbnailDiskCache.shared.configure(folderURL: url)
+      await RenderedPreviewCache.shared.configure(folderURL: url)
+      guard librarySelection == .folder(path: url.path) else { return }
+      await browseVM.loadFolder(url: url)
+      guard librarySelection == .folder(path: url.path) else { return }
+      pruneSessionsForNewAssetList()
+      #if DEBUG
+        // Staged performance fixtures must not become user recent folders.
+        if ProcessInfo.processInfo.arguments.contains("--uitest-browse") { return }
+      #endif
+      let fs = FilesystemSource()
+      do {
+        try await fs.open(folderURL: url)
+        guard librarySelection == .folder(path: url.path) else { return }
+        if let data = await fs.persistableBookmark {
+          currentRootBookmark = data
+          SourceSelectionStore.save(.filesystem(bookmark: data))
+          SavedFolderStore.upsert(
+            SavedFolder(
+              path: url.path,
+              displayName: url.lastPathComponent,
+              bookmark: data,
+              lastOpened: Date()
             ))
         }
+      } catch {
+        // Non-fatal — next launch simply lands on the empty state.
+      }
+    }
+  }
+
+  /// Single-click on a sub-folder cell in the explorer grid. Navigates into
+  /// the sub-folder using the currently-active root bookmark for security
+  /// scope.
+  @MainActor
+  func navigateFolder(_ url: URL) {
+    // Cloud-library context: drill into the subfolder via /api/fs/dir
+    // instead of the filesystem-bookmark path. URL.path carries the
+    // server-side absolute path. We don't update LibrarySelection
+    // because the drilled-in path is browser state, not a sidebar
+    // selection — the user is still on the same library row.
+    if case .cloudLibrary(let serverID, let folderID) = librarySelection,
+      let source = browseVM.currentSource as? CloudSource
+    {
+      cloudCurrentPath = url.path
+      // Persist the drilled-in path so cold start restores at the
+      // current depth (and the sidebar auto-expands the ancestor
+      // chain to match).
+      SourceSelectionStore.save(
+        .cloudLibrary(
+          serverID: serverID,
+          folderID: folderID,
+          libraryPath: url.path))
+      Task { @MainActor in
+        await browseVM.loadCloudDir(source, absPath: url.path)
+        libraryTitle = url.lastPathComponent
+        pruneSessionsForNewAssetList()
+      }
+      return
     }
 
-    // MARK: - Sessions
-
-    @MainActor
-    /// Lazy per-asset session creation. Called from `BrowseGrid`'s
-    /// thumbnail-cell `.onAppear` so a session is built only when the
-    /// cell scrolls into view, NOT eagerly across the entire folder.
-    /// User reported on iPad: opening a 70-asset folder fired 70+
-    /// `loadSidecar()` calls — every one a `CIRAWFilter` instantiation
-    /// and an XMP store read for an asset the user might never tap.
-    /// SwiftUI's `LazyVGrid` already defers cell instantiation; this
-    /// closes the matching gap on the session model.
-    func ensureSession(for asset: AssetRef) {
-        guard sessions[asset.id] == nil else { return }
-        let remoteStore: (any SidecarStoreProtocol)? = {
-            guard let assetID = asset.stableID else { return nil }
-            switch asset.thumbnailProvenance {
-            case .cloud(let server):
-                // Timeline-sourced cloud asset (#2299): the ref itself
-                // carries its owning server — set by the lazy sibling
-                // builder for the unified/single-library Timeline's iPhone
-                // Preview swipe domain, where there's no single
-                // `librarySelection` to fall back on (the unified Timeline
-                // can span several servers at once). Checked FIRST so it
-                // takes priority over the ambient gate below.
-                return CloudSidecarStore(
-                    server: LocalNetworkResolver.shared.effectiveURL(for: server),
-                    assetID: assetID,
-                    httpClient: makeAuthenticatedHTTPClient(server: server))
-            case .photoKit:
-                // PhotoKit-backed asset — NEVER cloud-backed, regardless of
-                // `librarySelection`. Load-bearing: `loadCloudLibrary` sets
-                // `librarySelection = .cloudLibrary(...)` for BOTH its
-                // folder AND timeline view modes, so a PhotoKit-local
-                // sibling swiped to from a single-library cloud Timeline
-                // would otherwise match the ambient gate below and be handed
-                // a bogus `CloudSidecarStore` keyed on its PHAsset
-                // localIdentifier instead of a real server asset id.
-                //
-                // #2555: route through PhotoKitSidecarStore instead of nil
-                // so edits persist into AppSupportSidecarStore (keyed by
-                // this PHAsset's localIdentifier, i.e. `assetID` here — see
-                // AssetRef's PhotoKit init doc). Without this, edits to
-                // Photos-library photos lived only in this session's
-                // in-memory EditSession and BackupEngine's
-                // local-edit-preferred sidecar upload never found anything
-                // to upload. `try?` degrades to session-local (the pre-fix
-                // behaviour) on the same rare failure `PhotoKitSource.init`
-                // already tolerates — an unavailable Application Support
-                // directory.
-                return try? PhotoKitSidecarStore(phassetLocalId: assetID)
-            case .smb:
-                // SMB (network share)-backed asset (#2674). Resolve the
-                // sidecar store via the CONNECTED `SMBSource` actor the
-                // browse session already holds — `connectSMB` sets
-                // `browseVM.currentSource` to the same instance that
-                // enumerated this asset (`images()` populated its
-                // `pathByMapleId` map), so `assetID` (the maple_id) resolves
-                // back to the real share-relative path without a second
-                // connect/re-walk. If the source has since been replaced
-                // (browsed to a different share/folder before this cell's
-                // `.onAppear` fired) there is no live connection to use and
-                // the edit stays session-local — same degrade-to-nil
-                // contract `PhotoKit`'s `try?` above already accepts on its
-                // own rare failure path.
-                guard let smb = browseVM.currentSource as? SMBSource else { return nil }
-                return SMBSidecarStore(
-                    source: smb,
-                    ref: ImageRef(id: assetID, displayName: asset.displayName))
-            case nil:
-                // No explicit provenance — only the Timeline sibling builder
-                // and the PhotoKit/SMB construction sites set it. Fall back
-                // to the pre-#2299 ambient-selection gate: cloud-backed
-                // asset routes XMP through CloudSidecarStore so edits
-                // round-trip via PUT /api/assets/<id>/xmp; local files keep
-                // using XMPSidecarStore via EditSession's primaryURL branch.
-                // Cloud refs carry the upstream asset id in stableID (set by
-                // BrowseViewModel.loadSource).
-                guard case .cloudLibrary(let serverID, _) = librarySelection
-                else { return nil }
-                return CloudSidecarStore(
-                    server: serverID,
-                    assetID: assetID,
-                    httpClient: makeAuthenticatedHTTPClient(server: serverID))
-            }
-        }()
-        // FileProvider observer is no-op for cloud-library assets (sourceless
-        // — no primaryURL), so passing DownloadProgress here is safe; the
-        // overlay only fires when the observer's begin() runs.
-        let session = EditSession(asset: asset,
-                                  remoteSidecarStore: remoteStore,
-                                  downloadProgress: DownloadProgress())
-        sessions[asset.id] = session
-        Task { await session.loadSidecar() }
+    guard let bookmark = currentRootBookmark else {
+      // Fall back to a plain loadFolder — works for folders inside the
+      // user's security-scope, fails silently for sandboxed reads.
+      // Keep whatever scope root is already active.
+      Task.detached { await ThumbnailLoader.shared.cancelAll() }
+      librarySelection = .folder(path: url.path)
+      libraryTitle = url.lastPathComponent
+      Task { @MainActor in
+        guard librarySelection == .folder(path: url.path) else { return }
+        await browseVM.loadFolder(url: url)
+        guard librarySelection == .folder(path: url.path) else { return }
+        pruneSessionsForNewAssetList()
+      }
+      return
     }
+    openSubFolder(url: url, rootBookmark: bookmark)
+  }
 
-    // MARK: - Security scope lifecycle
+  /// Open an image from a NON-tap path (deep link, document open). Grid taps
+  /// don't route through here — the grids call the shell-provided open
+  /// callback directly (iPhone pushes `.preview` onto its NavigationStack;
+  /// the pane shell flips `mode`). This method mirrors that split so a
+  /// deep-link / document-open lands the photo the same way a tap would.
+  ///
+  /// Fast Preview §1: opening now targets the fast static Preview surface
+  /// (`.preview`), not the editor directly.
+  @MainActor
+  func openEditor(for asset: AssetRef) {
+    // Make sure the session exists (usually pre-created by primeSessions…).
+    // Same bookkeeping the editor's filmstrip sibling switch uses
+    // (`selectFilmstripSibling`, #3402) — only the landing `mode` differs.
+    let ensured = AppShellVM.ensureSession(for: asset, in: &sessions)
+    Task { await ensured.session.loadSidecar() }
+    browseVM.selectedID = asset.id
+    #if os(iOS)
+      // iPhone: the shell renders images via the Library tab's
+      // NavigationStack, NOT the pane-shell `mode`. Push `.preview` onto that
+      // stack (same target as a grid tap) so deep-link / document-open
+      // actually surface the photo — `mode = .preview` alone would leave the
+      // grid on screen because `AppShellIPhoneShell` never consumes `mode`
+      // to pick the center surface; only the `libraryPath` push does. Reset
+      // the stack first so an in-flight editor push is replaced, not
+      // stacked under, the new open.
+      if MapleShellKind.current == .phoneTab {
+        libraryPath = [.preview(asset)]
+        return
+      }
+    #endif
+    // Mac/iPad pane shell: flip the center column to the Preview surface.
+    mode = imageOpenMode
+  }
 
-    /// Claim security scope on the given URL for the whole current browse
-    /// session. Releases any prior claim. `url` MUST be a bookmark-resolved
-    /// URL (from `URL(resolvingBookmarkData:)`) — plain `URL(fileURLWithPath:)`
-    /// is NOT scope-backed on macOS and the start call silently no-ops.
-    @MainActor
-    func claimScope(for url: URL) {
-        // Drop the prior claim first — reclaiming on the same URL is fine,
-        // but we must release the old one before switching folders.
-        releaseScope()
-        let ok = url.startAccessingSecurityScopedResource()
-        if ok { activeScopeURL = url }
+  /// Open a sub-folder inside a previously-saved top-level folder. Uses the
+  /// root's bookmark to claim security scope (child URLs inherit it), loads
+  /// the sub-folder's immediate children into the grid, and marks the
+  /// sub-folder as the current library selection. Does NOT persist to
+  /// `SavedFolderStore` — only top-level folders live in the recent list.
+  ///
+  /// `onComplete` runs after `browseVM.assets` has actually been replaced
+  /// (the load happens inside this method's own `Task`) — the drop-to-mount
+  /// flow (#2649) uses it to select specific dropped files only once
+  /// they're guaranteed to exist in `browseVM.assets`.
+  @MainActor
+  func openSubFolder(url: URL, rootBookmark: Data, onComplete: (@MainActor () -> Void)? = nil) {
+    librarySelection = .folder(path: url.path)
+    libraryTitle = url.lastPathComponent
+    currentRootBookmark = rootBookmark
+    mode = .browse
+    Task.detached { await ThumbnailLoader.shared.cancelAll() }
+    Task.detached {
+      await ThumbnailDiskCache.shared.configure(folderURL: url)
+      await RenderedPreviewCache.shared.configure(folderURL: url)
     }
-
-    @MainActor
-    func releaseScope() {
-        if let prev = activeScopeURL {
-            prev.stopAccessingSecurityScopedResource()
-            activeScopeURL = nil
-        }
+    Task { @MainActor in
+      // Claim security scope via the root's bookmark. Child URLs live
+      // inside the same scope on macOS, so a sandboxed read works.
+      var isStale = false
+      let rootURL: URL?
+      #if os(macOS)
+        rootURL = try? URL(
+          resolvingBookmarkData: rootBookmark,
+          options: .withSecurityScope,
+          relativeTo: nil,
+          bookmarkDataIsStale: &isStale
+        )
+      #else
+        rootURL = try? URL(
+          resolvingBookmarkData: rootBookmark,
+          options: [],
+          relativeTo: nil,
+          bookmarkDataIsStale: &isStale
+        )
+      #endif
+      // Hold scope open for the whole browse session — the URL must be
+      // bookmark-resolved (not built from `URL(fileURLWithPath:)`), so
+      // we claim on `rootURL`. Sub-folder URLs inherit the scope.
+      if let rootURL { claimScope(for: rootURL) }
+      // Propagate the scope-backed root to the VM so synthesised
+      // AssetRefs carry it (enables sandboxed Rust FFI reads).
+      browseVM.currentScopeRoot = rootURL
+      // Non-recursive walk of the sub-folder — the grid shows only
+      // RAWs directly inside it, matching Finder-style drill-down.
+      guard librarySelection == .folder(path: url.path) else { return }
+      await browseVM.loadFolder(url: url)
+      guard librarySelection == .folder(path: url.path) else { return }
+      pruneSessionsForNewAssetList()
+      onComplete?()
     }
+  }
+
+  /// Re-open a folder the user previously picked, using its stored bookmark
+  /// so we don't retrigger the system picker.
+  @MainActor
+  func openSavedFolder(_ folder: SavedFolder) {
+    librarySelection = .folder(path: folder.path)
+    libraryTitle = folder.displayName
+    // Invalidate (not "set to the new value") synchronously — `folder.
+    // bookmark` only becomes a TRUE pairing with `activeScopeURL` once
+    // `claimScope(for:)` below actually runs, which happens later
+    // inside the `Task`. Setting the real value here would let a
+    // drop-to-mount read (#2649 review finding I2) observe
+    // `librarySelection`/`currentRootBookmark` already pointing at this
+    // folder while `activeScopeURL` still names the PREVIOUS one — a
+    // torn pairing that resolves a stale/wrong root's bookmark. `nil`
+    // is a safe degraded state: a reader mid-transition just sees "no
+    // settled bookmark yet" and falls through to a fresh mount.
+    currentRootBookmark = nil
+    mode = .browse
+    Task.detached { await ThumbnailLoader.shared.cancelAll() }
+    // Resolve the bookmark, claim security scope, then run the native
+    // filesystem walker (which populates `subfolders` + `assets`). We
+    // deliberately avoid `loadSource(fs)` here — that path is for sources
+    // without a URL model (PhotoKit / SelfHosted) and doesn't surface
+    // sub-folders.
+    Task { @MainActor in
+      var isStale = false
+      let url: URL?
+      #if os(macOS)
+        url = try? URL(
+          resolvingBookmarkData: folder.bookmark,
+          options: .withSecurityScope,
+          relativeTo: nil,
+          bookmarkDataIsStale: &isStale
+        )
+      #else
+        url = try? URL(
+          resolvingBookmarkData: folder.bookmark,
+          options: [],
+          relativeTo: nil,
+          bookmarkDataIsStale: &isStale
+        )
+      #endif
+      guard let folderURL = url else {
+        browseVM.loadError = CocoaError(.fileReadNoPermission)
+        return
+      }
+      // Hold scope open for the whole browse session — detached render
+      // tasks (thumbnails, editor) need process-wide scope when they
+      // eventually call into Rust. The previous `defer { stop }` released
+      // before any of them ran, which is why Rust saw EPERM.
+      claimScope(for: folderURL)
+      // Same synchronous prefix as `claimScope` above (no `await`
+      // between them) — `activeScopeURL` and `currentRootBookmark`
+      // become consistent in the same tick, closing the I2 gap.
+      currentRootBookmark = folder.bookmark
+      // Scope-backed root for the VM so AssetRefs carry the token.
+      browseVM.currentScopeRoot = folderURL
+      await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
+      await RenderedPreviewCache.shared.configure(folderURL: folderURL)
+      guard librarySelection == .folder(path: folderURL.path) else { return }
+      await browseVM.loadFolder(url: folderURL)
+      guard librarySelection == .folder(path: folderURL.path) else { return }
+      pruneSessionsForNewAssetList()
+      SourceSelectionStore.save(.filesystem(bookmark: folder.bookmark))
+      SavedFolderStore.upsert(
+        SavedFolder(
+          path: folder.path,
+          displayName: folder.displayName,
+          bookmark: folder.bookmark,
+          lastOpened: Date()
+        ))
+    }
+  }
+
+  // MARK: - Sessions
+
+  @MainActor
+  /// Create sessions only for realized cells. Browse's cancellable task
+  /// owns hydration; explicit image opens retry it if scrolling cancelled it.
+  func ensureSession(for asset: AssetRef) {
+    let session = browseSession(for: asset)
+    Task { await session.loadSidecar() }
+  }
+
+  func primeBrowseSession(for asset: AssetRef) async {
+    let session = browseSession(for: asset)
+    await session.loadSidecar()
+  }
+
+  private func browseSession(for asset: AssetRef) -> EditSession {
+    if let existing = sessions[asset.id] { return existing }
+    let remoteStore: (any SidecarStoreProtocol)? = {
+      guard let assetID = asset.stableID else { return nil }
+      switch asset.thumbnailProvenance {
+      case .cloud(let server):
+        // Timeline-sourced cloud asset (#2299): the ref itself
+        // carries its owning server — set by the lazy sibling
+        // builder for the unified/single-library Timeline's iPhone
+        // Preview swipe domain, where there's no single
+        // `librarySelection` to fall back on (the unified Timeline
+        // can span several servers at once). Checked FIRST so it
+        // takes priority over the ambient gate below.
+        return CloudSidecarStore(
+          server: LocalNetworkResolver.shared.effectiveURL(for: server),
+          assetID: assetID,
+          httpClient: makeAuthenticatedHTTPClient(server: server))
+      case .photoKit:
+        // PhotoKit-backed asset — NEVER cloud-backed, regardless of
+        // `librarySelection`. Load-bearing: `loadCloudLibrary` sets
+        // `librarySelection = .cloudLibrary(...)` for BOTH its
+        // folder AND timeline view modes, so a PhotoKit-local
+        // sibling swiped to from a single-library cloud Timeline
+        // would otherwise match the ambient gate below and be handed
+        // a bogus `CloudSidecarStore` keyed on its PHAsset
+        // localIdentifier instead of a real server asset id.
+        //
+        // #2555: route through PhotoKitSidecarStore instead of nil
+        // so edits persist into AppSupportSidecarStore (keyed by
+        // this PHAsset's localIdentifier, i.e. `assetID` here — see
+        // AssetRef's PhotoKit init doc). Without this, edits to
+        // Photos-library photos lived only in this session's
+        // in-memory EditSession and BackupEngine's
+        // local-edit-preferred sidecar upload never found anything
+        // to upload. `try?` degrades to session-local (the pre-fix
+        // behaviour) on the same rare failure `PhotoKitSource.init`
+        // already tolerates — an unavailable Application Support
+        // directory.
+        return try? PhotoKitSidecarStore(phassetLocalId: assetID)
+      case .smb:
+        // SMB (network share)-backed asset (#2674). Resolve the
+        // sidecar store via the CONNECTED `SMBSource` actor the
+        // browse session already holds — `connectSMB` sets
+        // `browseVM.currentSource` to the same instance that
+        // enumerated this asset (`images()` populated its
+        // `pathByMapleId` map), so `assetID` (the maple_id) resolves
+        // back to the real share-relative path without a second
+        // connect/re-walk. If the source has since been replaced
+        // (browsed to a different share/folder before this cell's
+        // `.onAppear` fired) there is no live connection to use and
+        // the edit stays session-local — same degrade-to-nil
+        // contract `PhotoKit`'s `try?` above already accepts on its
+        // own rare failure path.
+        guard let smb = browseVM.currentSource as? SMBSource else { return nil }
+        return SMBSidecarStore(
+          source: smb,
+          ref: ImageRef(id: assetID, displayName: asset.displayName))
+      case nil:
+        // No explicit provenance — only the Timeline sibling builder
+        // and the PhotoKit/SMB construction sites set it. Fall back
+        // to the pre-#2299 ambient-selection gate: cloud-backed
+        // asset routes XMP through CloudSidecarStore so edits
+        // round-trip via PUT /api/assets/<id>/xmp; local files keep
+        // using XMPSidecarStore via EditSession's primaryURL branch.
+        // Cloud refs carry the upstream asset id in stableID (set by
+        // BrowseViewModel.loadSource).
+        guard case .cloudLibrary(let serverID, _) = librarySelection
+        else { return nil }
+        return CloudSidecarStore(
+          server: serverID,
+          assetID: assetID,
+          httpClient: makeAuthenticatedHTTPClient(server: serverID))
+      }
+    }()
+    // FileProvider observer is no-op for cloud-library assets (sourceless
+    // — no primaryURL), so passing DownloadProgress here is safe; the
+    // overlay only fires when the observer's begin() runs.
+    let session = EditSession(
+      asset: asset,
+      remoteSidecarStore: remoteStore,
+      downloadProgress: DownloadProgress())
+    sessions[asset.id] = session
+    return session
+  }
+
+  // MARK: - Security scope lifecycle
+
+  /// Claim security scope on the given URL for the whole current browse
+  /// session. Releases any prior claim. `url` MUST be a bookmark-resolved
+  /// URL (from `URL(resolvingBookmarkData:)`) — plain `URL(fileURLWithPath:)`
+  /// is NOT scope-backed on macOS and the start call silently no-ops.
+  @MainActor
+  func claimScope(for url: URL) {
+    // Drop the prior claim first — reclaiming on the same URL is fine,
+    // but we must release the old one before switching folders.
+    releaseScope()
+    let ok = url.startAccessingSecurityScopedResource()
+    if ok { activeScopeURL = url }
+  }
+
+  @MainActor
+  func releaseScope() {
+    if let prev = activeScopeURL {
+      prev.stopAccessingSecurityScopedResource()
+      activeScopeURL = nil
+    }
+  }
 }

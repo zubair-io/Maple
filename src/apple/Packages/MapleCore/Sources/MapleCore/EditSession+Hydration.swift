@@ -18,6 +18,11 @@ import ImageIO
 
 @MainActor
 extension EditSession {
+  // Browse can realize dozens of tiles at once. RAW metadata reads share a
+  // small background budget instead of spawning one user-initiated reader per
+  // cell and competing with scrolling and thumbnail decode.
+  private static let metadataReadSlots = BoundedAsyncSemaphore(value: 2)
+
   // MARK: - Sidecar / model hydration
 
   /// Load model + culling from disk; call once after init.
@@ -49,17 +54,27 @@ extension EditSession {
     // actually opens the asset.
     if let url = asset.primaryURL {
       let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-      let asShot = await Task.detached(priority: .userInitiated) {
+      let metadataTask = Task.detached(priority: .utility) { () -> ImageMetadataReader.AsShotWB? in
+        do { try await Self.metadataReadSlots.acquire() } catch { return nil }
         let accessing = scope.startAccessingSecurityScopedResource()
         defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-        return autoreleasepool { ImageMetadataReader.readAsShotWB(from: url) }
-      }.value
+        let result = autoreleasepool { ImageMetadataReader.readAsShotWB(from: url) }
+        await Self.metadataReadSlots.release()
+        return result
+      }
+      let asShot = await withTaskCancellationHandler {
+        await metadataTask.value
+      } onCancel: {
+        metadataTask.cancel()
+      }
       guard !Task.isCancelled else { return }
       if let asShot {
         self.asShotCCT = asShot.temperature
         self.asShotTint = asShot.tint
       }
     }
+
+    guard !Task.isCancelled else { return }
 
     // (2) XMP sidecar — absent for fresh images. The store reports
     // its own presence (file existence for local; 404 vs 200 for

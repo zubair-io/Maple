@@ -92,7 +92,7 @@
     let onOpenEditor: (AssetRef) -> Void
     /// A Library tile tap with the tile's window-space frame (Preview hero).
     var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
-    let onPrimeSession: (AssetRef) -> Void
+    let onPrimeSession: (AssetRef) async -> Void
     let onFullImageFallback: () -> Void
     /// Live window-space frame of the grid's selected tile (Preview hero).
     var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil

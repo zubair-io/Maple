@@ -897,7 +897,7 @@ struct AppShell: View {
           ids: ids, destination: .local(folderURL: url, rootBookmark: bookmark), copy: isCopy)
       },
       onOpenEditor: { asset in openEditor(for: asset) },
-      onPrimeSession: { asset in ensureSession(for: asset) },
+      onPrimeSession: { asset in await primeBrowseSession(for: asset) },
       onFullImageFallback: { mode = .browse },
       // S5 EditorView callbacks (#815). Dismiss returns to the browse
       // grid. Share (the export panel) is owned by `EditorView` itself
@@ -1323,7 +1323,7 @@ struct AppShell: View {
         onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
         onNavigateFolder: { url in navigateFolder(url) },
         onOpenEditor: { asset in openEditor(for: asset) },
-        onPrimeSession: { asset in ensureSession(for: asset) },
+        onPrimeSession: { asset in await primeBrowseSession(for: asset) },
         onFullImageFallback: { mode = .browse },
         timelinePreviewSiblingAssets: { ref in timelinePreviewSiblingAssets(for: ref) },
         searchPreviewSiblingAssets: { ref, server in

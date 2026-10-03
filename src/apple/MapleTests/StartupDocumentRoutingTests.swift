@@ -18,7 +18,7 @@ final class StartupDocumentRoutingTests: XCTestCase {
     let (releaseRestore, continuation) = AsyncStream<Void>.makeStream()
     let restoration = Task { @MainActor in
       for await _ in releaseRestore { break }
-      browser.loadFolder(url: folder)
+      await browser.loadFolder(url: folder)
     }
 
     // The warm observer fires while the cold-start task is still suspended.

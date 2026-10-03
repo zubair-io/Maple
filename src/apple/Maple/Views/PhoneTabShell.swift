@@ -166,7 +166,7 @@
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
     let onOpenEditor: (AssetRef) -> Void
-    let onPrimeSession: (AssetRef) -> Void
+    let onPrimeSession: (AssetRef) async -> Void
     let onFullImageFallback: () -> Void
     /// #2299: resolves the iPhone Preview sibling list for a Timeline-opened
     /// asset — forwarded straight through to `PhoneLibraryView`.
@@ -459,7 +459,7 @@
           // Prime the real session the moment a lazily-built sibling
           // becomes the shown asset, so a later Edit tap reuses it
           // (idempotent, matches `onPrimeSession`'s BrowseGrid contract).
-          onPrimeSession(asset)
+          Task { await onPrimeSession(asset) }
         }
       )
     }

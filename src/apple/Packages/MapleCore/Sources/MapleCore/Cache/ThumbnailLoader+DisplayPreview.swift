@@ -96,20 +96,20 @@ extension ThumbnailLoader {
     // suspend the actor mid-registration and reopen the race — Jules
     // review, PR #1907).
     let coalescingKey = "display-preview:" + ThumbnailDiskCache.cacheKey(for: url)
-    if let existing = inFlight[coalescingKey] {
-      return await existing.value
+    if let existing = inFlight[coalescingKey], !existing.isCancelled {
+      return await awaitThumbnail(existing)
     }
 
     let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
     let isRaw = asset.isRaw
     let task = Task.detached(priority: .utility) { () -> Data? in
-      await self.acquireDecodeSlot()
+      do { try await self.acquireDecodeSlot() } catch { return nil }
       let result = Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
       await self.releaseDecodeSlot()
       return result
     }
     inFlight[coalescingKey] = task
-    let result = await task.value
+    let result = await awaitThumbnail(task)
     // Conditional removal — same `cancelAll()` re-registration edge as
     // the two `load` paths in ThumbnailLoader.swift (Jules, PR #1911).
     if inFlight[coalescingKey] == task {

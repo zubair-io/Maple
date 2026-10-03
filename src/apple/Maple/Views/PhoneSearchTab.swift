@@ -56,7 +56,7 @@
     /// Prime a real `EditSession` (with a `CloudSidecarStore`) for a sibling
     /// the moment it becomes the shown asset, so a later Edit tap on it
     /// doesn't fall back to `EditorDestination`'s no-remote-store session.
-    let onPrimeSession: (AssetRef) -> Void
+    let onPrimeSession: (AssetRef) async -> Void
 
     @State private var session: PhoneSearchSession?
     @State private var didLoad = false
@@ -103,7 +103,7 @@
                   // real session so Edit on it persists to the
                   // server. The search grid keeps its own
                   // selection state.
-                  onSelectionChanged: onPrimeSession
+                  onSelectionChanged: { asset in Task { await onPrimeSession(asset) } }
                 )
                 .toolbar(.hidden, for: .navigationBar)
               case .edit(let ref):
@@ -113,7 +113,7 @@
                   filmstripSource: previewSource,
                   onSelectAsset: { sibling in
                     guard sibling.id != ref.id else { return }
-                    onPrimeSession(sibling)
+                    Task { await onPrimeSession(sibling) }
                     path = LibraryDestination.replacingAsset(in: path, with: sibling)
                   },
                   sessions: $sessions

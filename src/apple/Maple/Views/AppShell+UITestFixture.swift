@@ -47,6 +47,12 @@
     /// Returns `false` when no fixture is configured (the normal app path).
     func loadUITestFixtureIfPresent() async -> Bool {
       guard let fixtureURL = MapleApp.uitestFixtureURL else { return false }
+      // Exercise the production folder-open path for the large-grid scroll
+      // harness, using the same staged fixture directory as canvas tests.
+      if ProcessInfo.processInfo.arguments.contains("--uitest-browse") {
+        loadFolder(url: fixtureURL.deletingLastPathComponent())
+        return true
+      }
       // The fixture path deliberately skips `restoreLastSource()`, and with
       // it the `RenderedPreviewCache.configure(folderURL:)` call every real
       // folder-open path in `AppShell+FolderActions` makes. So the harness

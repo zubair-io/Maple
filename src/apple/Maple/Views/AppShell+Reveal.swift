@@ -17,12 +17,12 @@ extension AppShell {
   @MainActor
   func revealContainingFolder(of asset: AssetRef) {
     switch asset.revealTarget {
-    case let .cloud(serverID, folderID, libraryPath):
+    case .cloud(let serverID, let folderID, let libraryPath):
       // Re-establishes librarySelection / cloudCurrentPath / persistence /
       // auth bootstrap / dir load / mode. Robust even from a foreign context.
       loadCloudLibrary(serverID: serverID, folderID: folderID, libraryPath: libraryPath)
 
-    case let .local(parent):
+    case .local(let parent):
       if let bookmark = currentRootBookmark {
         // Claims scope on the root and sets `mode = .browse` itself.
         openSubFolder(url: parent, rootBookmark: bookmark)
@@ -30,10 +30,13 @@ extension AppShell {
         // No active bookmark — best-effort plain load, matching the
         // no-bookmark branch of `navigateFolder`.
         Task.detached { await ThumbnailLoader.shared.cancelAll() }
-        browseVM.loadFolder(url: parent)
         librarySelection = .folder(path: parent.path)
         libraryTitle = parent.lastPathComponent
-        pruneSessionsForNewAssetList()
+        Task { @MainActor in
+          await browseVM.loadFolder(url: parent)
+          guard librarySelection == .folder(path: parent.path) else { return }
+          pruneSessionsForNewAssetList()
+        }
       }
 
     case .none:
@@ -45,9 +48,9 @@ extension AppShell {
     // the Library tab's NavigationStack, so clear that stack instead.
     mode = .browse
     #if os(iOS)
-    if MapleShellKind.current == .phoneTab {
-      libraryPath = []
-    }
+      if MapleShellKind.current == .phoneTab {
+        libraryPath = []
+      }
     #endif
   }
 }

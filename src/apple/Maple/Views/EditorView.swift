@@ -260,6 +260,10 @@ struct EditorSurface: View {
     // on `renderedPreview == nil`) and re-runs when the asset id
     // changes (filmstrip sibling switch).
     .task(id: state.session.asset.id) {
+      // Browse hydration may have been cancelled as its cell disappeared.
+      // Restore the complete sidecar before the editor requests real pixels.
+      await state.session.loadSidecar()
+      guard !Task.isCancelled else { return }
       state.session.ensureRenderStarted()
     }
     #if os(macOS)

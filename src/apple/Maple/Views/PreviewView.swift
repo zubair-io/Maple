@@ -386,7 +386,10 @@ struct PreviewView: View {
   /// back into `sessions` so the grid badges + a later editor open share
   /// the same instance.
   private func ensureInfoSession() async -> EditSession? {
-    if let existing = sessions[asset.id] { return existing }
+    if let existing = sessions[asset.id] {
+      await existing.loadSidecar()
+      return existing
+    }
     // A sourceless asset needs the host's injected remote sidecar store.
     // Do not create a new session-local fallback with enabled controls.
     guard asset.primaryURL != nil else { return nil }

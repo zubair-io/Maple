@@ -66,6 +66,7 @@ struct PhotoThumbnailCell: View {
   /// it for session priming or page-load triggers, not exactly-once side effects.
   /// The thumbnail `.task(id:)` runs independently; this is a supplemental hook.
   var onAppear: (() -> Void)? = nil
+  var onLoad: (() async -> Void)? = nil
   /// Right-click / long-press context menu content (#2653 — grid "Move to
   /// Trash"). `nil` disables the context menu entirely for this cell (the
   /// default — merged-timeline/PhotoKit surfaces don't opt in).
@@ -186,9 +187,12 @@ struct PhotoThumbnailCell: View {
     // Accessibility: UITest harness resolves cells by displayName via
     // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
     // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
+    .accessibilityElement(children: .ignore)
+    .accessibilityAddTraits(.isButton)
     .accessibilityIdentifier("thumb-\(item.displayName)")
     .accessibilityLabel(accessibilityLabelText)
     .accessibilityHint(accessibilityHintText)
+    .task(id: item.id) { await onLoad?() }
     .task(id: decodedKey) {
       let key = decodedKey
       decoded = nil

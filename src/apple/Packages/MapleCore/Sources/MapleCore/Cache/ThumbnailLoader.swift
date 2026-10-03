@@ -46,12 +46,11 @@ public actor ThumbnailLoader {
   /// M1 (8 cores) it's 4. The Rust fallback slow path piggy-backs on the
   /// same gate but runs rarely enough (only for RAWs without embedded
   /// previews) that it doesn't need a separate cap.
-  private static let maxConcurrentDecodes: Int = {
+  static let maxConcurrentDecodes: Int = {
     let cores = ProcessInfo.processInfo.activeProcessorCount
     return max(4, min(12, cores / 2))
   }()
-  private var activeDecodes = 0
-  private var waiters: [CheckedContinuation<Void, Never>] = []
+  let decodeSlots = BoundedAsyncSemaphore(value: maxConcurrentDecodes)
 
   /// In-flight loads, keyed by `cacheKey(for: assetURL)`. When two grid
   /// cells request the same thumbnail simultaneously (happens on scroll /
@@ -71,35 +70,23 @@ public actor ThumbnailLoader {
 
   // MARK: - Concurrency gate
 
-  /// Wait until a decode slot is available; call `releaseDecodeSlot()`
-  /// exactly once after the FFI call completes. (Internal, not fileprivate:
-  /// the display-preview tier in `ThumbnailLoader+DisplayPreview.swift`
-  /// shares the same gate.)
-  func acquireDecodeSlot() async {
-    if activeDecodes < Self.maxConcurrentDecodes {
-      activeDecodes += 1
-      return
-    }
-    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-      waiters.append(cont)
-    }
-    activeDecodes += 1
+  /// Cancellation-aware permits with atomic handoff. Never reset the held
+  /// count on folder switches: already-running decodes still owe a release.
+  func acquireDecodeSlot() async throws {
+    try await decodeSlots.acquire()
   }
 
-  func releaseDecodeSlot() {
-    activeDecodes -= 1
-    if !waiters.isEmpty {
-      // LIFO — serve the MOST-recently-parked waiter first. Grid cells
-      // request thumbnails as they scroll into view, so the newest waiter
-      // is the tile nearest the current viewport; the oldest waiters are
-      // rows the user has already scrolled past. Serving newest-first
-      // makes on-screen thumbnails load ahead of ones that are no longer
-      // visible, instead of the viewport waiting behind a FIFO backlog of
-      // scrolled-past rows. (Off-screen waiters aren't dropped here — that
-      // is the separate cancel-on-disappear work; this just reorders who
-      // gets the freed slot next.)
-      let next = waiters.removeLast()
-      next.resume()
+  func releaseDecodeSlot() async {
+    await decodeSlots.release()
+  }
+
+  /// SwiftUI cancellation must reach the detached producer, including while
+  /// it is queued. Awaiting `task.value` alone does not propagate it.
+  func awaitThumbnail(_ task: Task<Data?, Never>) async -> Data? {
+    await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      task.cancel()
     }
   }
 
@@ -118,6 +105,7 @@ public actor ThumbnailLoader {
   /// no-op because that URL carries no scope token, so the Rust FFI read
   /// fails with EPERM under the sandbox.
   public func load(for assetURL: URL, scopeParentURL: URL?) async -> Data? {
+    guard !Task.isCancelled else { return nil }
     // 1. Fast path: cached AVIF bytes.
     if let cached = await ThumbnailDiskCache.shared.thumbnailData(for: assetURL) {
       if Self.isUsableImageData(cached) { return cached }
@@ -126,6 +114,8 @@ public actor ThumbnailLoader {
       )
       await ThumbnailDiskCache.shared.removeThumbnail(for: assetURL)
     }
+
+    guard !Task.isCancelled else { return nil }
 
     // 2. Coalesce duplicate requests. If a prior call for the same URL
     //    is still in-flight, await its Task instead of starting a new
@@ -138,8 +128,8 @@ public actor ThumbnailLoader {
     //    mid-registration and reopen the race — the Jules finding on
     //    PR #1907's display-preview path, same fix).
     let coalescingKey = ThumbnailDiskCache.cacheKey(for: assetURL)
-    if let existing = inFlight[coalescingKey] {
-      return await existing.value
+    if let existing = inFlight[coalescingKey], !existing.isCancelled {
+      return await awaitThumbnail(existing)
     }
 
     // 3. Miss: invoke the Rust pipeline on a background-priority task.
@@ -151,13 +141,13 @@ public actor ThumbnailLoader {
     let task = Task.detached(priority: .utility) { () -> Data? in
       // Gate concurrent thumbs so the browse grid doesn't fire N
       // decodes in parallel when the user opens a big folder.
-      await self.acquireDecodeSlot()
+      do { try await self.acquireDecodeSlot() } catch { return nil }
       let result = await Self.produceThumbnail(assetURL: assetURL, scope: scope)
       await self.releaseDecodeSlot()
       return result
     }
     inFlight[coalescingKey] = task
-    let result = await task.value
+    let result = await awaitThumbnail(task)
     // Conditional removal: `cancelAll()` may have cleared the map and a
     // NEWER task may already be registered under this key — evicting it
     // here would silently break coalescing for that asset until the new
@@ -196,6 +186,7 @@ public actor ThumbnailLoader {
   /// path, Rust-develop slow path. Runs on a detached task under the
   /// decode-slot gate, with the security scope claimed for its full span.
   private nonisolated static func produceThumbnail(assetURL: URL, scope: URL) async -> Data? {
+    guard !Task.isCancelled else { return nil }
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
@@ -207,6 +198,7 @@ public actor ThumbnailLoader {
     let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
     if FileManager.default.fileExists(atPath: relThumb.path) {
       if let data = try? Data(contentsOf: relThumb), Self.isUsableImageData(data) {
+        guard !Task.isCancelled else { return nil }
         await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
         return data
       }
@@ -225,7 +217,9 @@ public actor ThumbnailLoader {
           "video poster extraction failed for \(assetURL.lastPathComponent, privacy: .public)")
         return nil
       }
-      logger.debug("video poster extracted for \(assetURL.lastPathComponent, privacy: .public)")
+      logger.debug(
+        "video poster extracted for \(assetURL.lastPathComponent, privacy: .public)")
+      guard !Task.isCancelled else { return nil }
       await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
       return data
     }
@@ -268,6 +262,7 @@ public actor ThumbnailLoader {
     if let data = embeddedPreviewAVIF(at: assetURL) {
       let ms = Int(Date().timeIntervalSince(t0) * 1000)
       logger.debug("thumb fast-path \(assetURL.lastPathComponent, privacy: .public) \(ms)ms")
+      guard !Task.isCancelled else { return nil }
       await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
       return data
     }
@@ -293,6 +288,7 @@ public actor ThumbnailLoader {
       let ms = Int(Date().timeIntervalSince(t0) * 1000)
       logger.debug(
         "thumb non-RAW slow-path \(assetURL.lastPathComponent, privacy: .public) \(ms)ms")
+      guard !Task.isCancelled else { return nil }
       await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
       return data
     }
@@ -300,9 +296,11 @@ public actor ThumbnailLoader {
     do {
       let image = try PipelineRenderer.render(rawPath: assetURL, quality: .preview)
       guard let data = encodeThumbnail(image, ctx: staticEncodeCIContext) else {
-        logger.warning("AVIF encode failed for \(assetURL.lastPathComponent, privacy: .public)")
+        logger.warning(
+          "AVIF encode failed for \(assetURL.lastPathComponent, privacy: .public)")
         return nil
       }
+      guard !Task.isCancelled else { return nil }
       await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
       return data
     } catch {
@@ -320,11 +318,6 @@ public actor ThumbnailLoader {
     for task in inFlight.values { task.cancel() }
     inFlight.removeAll()
     cameraPreviewWaiters.removeAll()
-    // Drain waiters so anyone parked on the decode slot semaphore
-    // unblocks (they'll return nil when their Task sees cancellation).
-    for waiter in waiters { waiter.resume() }
-    waiters.removeAll()
-    activeDecodes = 0
   }
 
   /// Shrink the in-memory cache to roughly 25% of capacity. Called on
@@ -370,12 +363,15 @@ public actor ThumbnailLoader {
     if let url = asset.primaryURL {
       return await load(for: url, scopeParentURL: asset.scopeParentURL)
     }
+    guard !Task.isCancelled else { return nil }
     let key = asset.stableID ?? asset.displayName
 
     // 1. Disk-cache hit.
     if let cached = await ThumbnailDiskCache.shared.thumbnailData(forKey: key) {
       return cached
     }
+
+    guard !Task.isCancelled else { return nil }
 
     // 2. Coalesce duplicate requests, same no-await-between-check-and-
     //    insert contract as the URL-keyed overload above (this path
@@ -384,8 +380,8 @@ public actor ThumbnailLoader {
     //    render). Namespaced so a stable id can never collide with the
     //    URL overload's basename-hash keys.
     let coalescingKey = "sourceless:" + key
-    if let existing = inFlight[coalescingKey] {
-      return await existing.value
+    if let existing = inFlight[coalescingKey], !existing.isCancelled {
+      return await awaitThumbnail(existing)
     }
 
     let stableID = asset.stableID
@@ -397,62 +393,71 @@ public actor ThumbnailLoader {
     // needed; URL is unused for sourceless adapters.
     let ref = stableID.map { ImageRef(id: $0, displayName: displayName) }
     let task = Task.detached(priority: .utility) { () -> Data? in
-      // Source-provided thumbnail (server-rendered / PhotoKit fast
-      // path / SMB on-share cache, #2690). Network-bound, so not
-      // decode-slot gated.
-      if let source, let ref {
-        if let bytes = (try? await source.thumb(for: ref)) ?? nil {
-          await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key)
-          return bytes
-        }
-      }
-
-      // Fallback: pull RAW bytes through the asset's provider, render
-      // via the Rust pipeline, encode AVIF, persist — under the
-      // decode-slot gate (acquired INSIDE the task; see the URL-keyed
-      // overload for why).
-      guard let provider else { return nil }
-      await self.acquireDecodeSlot()
-      let result: Data? = await {
-        do {
-          let bytes = try await provider()
-          let image = try PipelineRenderer.render(
-            rawBytes: bytes, hint: hint, quality: .preview)
-          guard let data = Self.encodeThumbnail(image, ctx: Self.staticEncodeCIContext) else {
-            return nil
-          }
-          // On-share write-back candidate (#2690), re-encoded from
-          // the SAME already-decoded `image` at the CANONICAL
-          // contract size/quality — 512px/q0.55, matching the
-          // API's `THUMB_LONG_EDGE_PX`/`THUMB_AVIF_QUALITY`
-          // (`MapleThumbCacheKey`'s doc comment) — NOT `data`
-          // above, which is the smaller 256px/q0.5 local-grid
-          // render. Persisting the local-grid size to the shared
-          // path would permanently downgrade that entry for every
-          // other client, since the API's mtime-freshness guard
-          // never re-renders over a fresher file once one exists.
-          let onShareData = Self.encodeThumbnail(
-            image, ctx: Self.staticEncodeCIContext,
-            targetLongEdge: MapleThumbCacheKey.onShareThumbLongEdgePx,
-            quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
-          await Self.persistFallbackRender(
-            localData: data, onShareData: onShareData,
-            key: key, source: source, ref: ref)
-          return data
-        } catch {
-          return nil
-        }
-      }()
+      do { try await self.acquireDecodeSlot() } catch { return nil }
+      let result = await self.produceSourcelessThumbnail(
+        source: source, ref: ref, key: key, provider: provider, hint: hint)
       await self.releaseDecodeSlot()
       return result
     }
     inFlight[coalescingKey] = task
-    let result = await task.value
-    // Conditional removal — same `cancelAll()` re-registration edge as
-    // the URL-keyed overload above.
+    let result = await awaitThumbnail(task)
     if inFlight[coalescingKey] == task {
       inFlight.removeValue(forKey: coalescingKey)
     }
+    return result
+  }
+
+  private nonisolated func produceSourcelessThumbnail(
+    source: (any ImageSource)?, ref: ImageRef?, key: String,
+    provider: (@Sendable () async throws -> Data)?, hint: String
+  ) async -> Data? {
+    // Source-provided thumbnail (server-rendered / PhotoKit fast
+    // path / SMB on-share cache, #2690), bounded along with the
+    // fallback so scrolling cannot flood a NAS with parallel reads.
+    if let source, let ref {
+      if let bytes = (try? await source.thumb(for: ref)) ?? nil {
+        guard !Task.isCancelled else { return nil }
+        await ThumbnailDiskCache.shared.storeThumbnailData(bytes, forKey: key)
+        return bytes
+      }
+    }
+
+    // Fallback: pull RAW bytes through the asset's provider, render
+    // via the Rust pipeline, encode AVIF, persist — under the
+    // decode-slot gate (acquired INSIDE the task; see the URL-keyed
+    // overload for why).
+    guard let provider else { return nil }
+    let result: Data? = await {
+      do {
+        let bytes = try await provider()
+        try Task.checkCancellation()
+        let image = try PipelineRenderer.render(
+          rawBytes: bytes, hint: hint, quality: .preview)
+        guard let data = Self.encodeThumbnail(image, ctx: Self.staticEncodeCIContext) else {
+          return nil
+        }
+        // On-share write-back candidate (#2690), re-encoded from
+        // the SAME already-decoded `image` at the CANONICAL
+        // contract size/quality — 512px/q0.55, matching the
+        // API's `THUMB_LONG_EDGE_PX`/`THUMB_AVIF_QUALITY`
+        // (`MapleThumbCacheKey`'s doc comment) — NOT `data`
+        // above, which is the smaller 256px/q0.5 local-grid
+        // render. Persisting the local-grid size to the shared
+        // path would permanently downgrade that entry for every
+        // other client, since the API's mtime-freshness guard
+        // never re-renders over a fresher file once one exists.
+        let onShareData = Self.encodeThumbnail(
+          image, ctx: Self.staticEncodeCIContext,
+          targetLongEdge: MapleThumbCacheKey.onShareThumbLongEdgePx,
+          quality: MapleThumbCacheKey.onShareThumbAVIFQuality)
+        await Self.persistFallbackRender(
+          localData: data, onShareData: onShareData,
+          key: key, source: source, ref: ref)
+        return data
+      } catch {
+        return nil
+      }
+    }()
     return result
   }
 

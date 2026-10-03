@@ -74,7 +74,7 @@
     var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil
     /// The photo whose tile is blanked while the Preview hero carries it.
     var hiddenTileID: AssetRef.ID? = nil
-    let onPrimeSession: (AssetRef) -> Void
+    let onPrimeSession: (AssetRef) async -> Void
     let onFullImageFallback: () -> Void
     /// Resolves the iPhone Preview sibling list for a Timeline-opened asset
     /// (#2299) — the currently-loaded Timeline VM's ordered cells, with the
@@ -156,7 +156,7 @@
               onSelectAsset: { sibling in
                 guard sibling.id != ref.id else { return }
                 browseVM.selectedID = sibling.id
-                onPrimeSession(sibling)
+                Task { await onPrimeSession(sibling) }
                 libraryPath = LibraryDestination.replacingAsset(in: libraryPath, with: sibling)
               },
               sessions: $sessions
