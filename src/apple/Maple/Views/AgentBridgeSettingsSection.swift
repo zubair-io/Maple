@@ -36,13 +36,21 @@
     @ViewBuilder
     private var status: some View {
       if let error = controller.lastError {
-        Label(error, systemImage: "exclamationmark.triangle")
-          .font(.caption)
-          .foregroundStyle(.orange)
+        Label {
+          Text(error)
+        } icon: {
+          MuiIcon(name: "warning", size: .xs)
+        }
+        .font(.caption)
+        .foregroundStyle(.orange)
       } else if controller.isListening {
-        Label("Listening for local agents", systemImage: "checkmark.circle")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        Label {
+          Text("Listening for local agents")
+        } icon: {
+          MuiIcon(name: "check_circle", size: .xs)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
     }
   }
