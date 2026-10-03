@@ -14,6 +14,7 @@ from native_probe_pixels import digest, save_result
 from PIL import Image
 from probe_klein_memory import PhaseMemory
 from probe_klein_native import run
+from klein_erased_conditioning import erase
 
 PAINT_PROMPT = (
     "Remove the object inside the selected region. "
@@ -22,7 +23,15 @@ PAINT_PROMPT = (
 )
 
 
-def probe(upstream, model, context_path, orientation, orientation_probe, output):
+def probe(
+    upstream,
+    model,
+    context_path,
+    orientation,
+    orientation_probe,
+    output,
+    erase_selected=False,
+):
     if output.exists():
         raise ValueError("Choose a fresh diagnostic output directory")
     context = json.loads((context_path / "context.json").read_text())
@@ -76,13 +85,20 @@ def probe(upstream, model, context_path, orientation, orientation_probe, output)
     if upright.shape != upright_mask.shape or not np.isin(upright_mask, [0, 1]).all():
         raise ValueError("Upright source and selection geometry differ")
     upright_height, upright_width = upright.shape[:2]
-    Image.fromarray(np.floor(upright * 255 + 0.5).astype(np.uint8)).save(
+    conditioned, conditioning = (
+        erase(upright, upright_mask[:, :, 0] > 0)
+        if erase_selected
+        else (upright, {"method": "unaltered-native-source"})
+    )
+    Image.fromarray(np.floor(conditioned * 255 + 0.5).astype(np.uint8)).save(
         output / "upright.png"
     )
     Image.fromarray((upright_mask[:, :, 0] * 255).astype(np.uint8)).save(
         output / "upright-hole.png"
     )
-    upright.transpose(2, 0, 1).copy().astype("<f4").tofile(output / "upright-nchw.f32")
+    conditioned.transpose(2, 0, 1).copy().astype("<f4").tofile(
+        output / "upright-nchw.f32"
+    )
     generated = output / "generated"
     run(
         upstream,
@@ -124,6 +140,8 @@ def probe(upstream, model, context_path, orientation, orientation_probe, output)
         raise ValueError("Canonical composite changed known source samples")
     report = {
         "orientation": orientation,
+        "conditioning": conditioning,
+        "conditioned_input_sha256": digest(output / "upright-nchw.f32"),
         "orientation_metadata": metadata,
         "preparation_sha256": digest(context_path / "preparation.json"),
         "context": context,
@@ -154,6 +172,7 @@ if __name__ == "__main__":
     for name in ["upstream", "model", "context", "orientation-probe", "output"]:
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--orientation", type=int, choices=range(1, 9), required=True)
+    parser.add_argument("--erase-selected", action="store_true")
     args = parser.parse_args()
     probe(
         args.upstream,
@@ -162,4 +181,5 @@ if __name__ == "__main__":
         args.orientation,
         args.orientation_probe,
         args.output,
+        args.erase_selected,
     )
