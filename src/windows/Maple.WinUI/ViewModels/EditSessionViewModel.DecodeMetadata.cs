@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Maple.WinUI.Models;
 using Maple.WinUI.Services;
 
@@ -24,21 +25,7 @@ namespace Maple.WinUI.ViewModels
             {
                 _asShotTemperature = decoded.DecodedTemperature;
                 _asShotTint = decoded.DecodedTint;
-            }
-            // Untouched WB must use the decode-exported identity, otherwise
-            // the delta-WB chain applies an unintended shift.
-            if (UntouchedWhiteBalance(Adjustments) && decoded.DecodedTemperature > 0)
-            {
-                // As-shot normalization is file metadata, not an adjustment.
-                // Keep untouched opening/undo snapshots at the same identity
-                // so the first real edit cannot create a spurious WB boundary.
-                foreach (var snapshot in new[] { Adjustments, _undoBaseline, _originalModel })
-                {
-                    if (snapshot == null || !UntouchedWhiteBalance(snapshot)) continue;
-                    snapshot.Temperature = decoded.DecodedTemperature;
-                    snapshot.Tint = decoded.DecodedTint;
-                }
-                SyncSlidersFromModel();
+                NormalizeWhiteBalanceHistory();
             }
             foreach (var section in Sections)
                 foreach (var slider in section.Sliders) slider.RefreshDefaultValue();
@@ -48,6 +35,20 @@ namespace Maple.WinUI.ViewModels
         }
 
         private static bool UntouchedWhiteBalance(AdjustmentState state) =>
-            Math.Abs(state.Temperature - 6500.0) < 1e-6 && Math.Abs(state.Tint) < 1e-6;
+            state.WbSource == WbSource.AsShot && Math.Abs(state.Temperature - 6500.0) < 1e-6 && Math.Abs(state.Tint) < 1e-6;
+
+        private void NormalizeWhiteBalanceHistory()
+        {
+            var syncNeeded = UntouchedWhiteBalance(Adjustments);
+            // Decode can finish after an edit has already entered either history stack.
+            foreach (var snapshot in new[] { Adjustments, _undoBaseline, _originalModel }
+                .Concat(_undoStack).Concat(_redoStack))
+            {
+                if (snapshot == null || !UntouchedWhiteBalance(snapshot)) continue;
+                snapshot.Temperature = _asShotTemperature;
+                snapshot.Tint = _asShotTint;
+            }
+            if (syncNeeded) SyncSlidersFromModel();
+        }
     }
 }

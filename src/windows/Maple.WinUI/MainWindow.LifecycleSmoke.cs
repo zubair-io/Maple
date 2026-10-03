@@ -99,6 +99,10 @@ namespace Maple.WinUI
                     await VerifyScopesAsync();
                     RecordSmokeStage(output, "preset-undo");
                     await VerifyPresetUndoAsync();
+                    var earlyWbCases = ViewModel.VerifyEarlyWhiteBalanceHistory();
+                    await File.WriteAllTextAsync(Path.Combine(output, "early-white-balance-history.json"),
+                        JsonSerializer.Serialize(new { casesExecuted = earlyWbCases, casesSkipped = 4 - earlyWbCases,
+                            passed = earlyWbCases == 4, skipReason = earlyWbCases == 0 ? "Fixture has schema-default as-shot identity" : null }));
                     RecordSmokeStage(output, "adjustment-gesture");
                     await VerifyAdjustmentGestureUndoAsync();
                     RecordSmokeStage(output, "retouch-undo");

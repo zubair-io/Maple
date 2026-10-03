@@ -136,7 +136,6 @@ namespace Maple.WinUI.ViewModels
             _deferred?.Discard();
             RefreshDefaultValue();
             Value = _get(_session.Adjustments);
-            OnPropertyChanged(nameof(IsModified));
             _suppress = false;
         }
 
