@@ -11,7 +11,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 JOBS = yaml.safe_load((ROOT / ".github/workflows/web.yml").read_text())["jobs"]
-CONSUMERS = ("web-build", "web-test", "web-test-common", "web-webgpu-smoke")
+CONSUMERS = (
+    "web-build",
+    "web-test",
+    "web-test-common",
+    "web-webgpu-smoke",
+    "web-workflow-acceptance",
+)
 
 
 def step(job, name):
@@ -20,7 +26,7 @@ def step(job, name):
 
 class WebWorkflowTests(unittest.TestCase):
     def test_only_producer_provisions_wasm_and_artifact_is_same_run(self):
-        for action in ("dtolnay/rust-toolchain@", "jetli/wasm-pack-action@"):
+        for action in ("dtolnay/rust-toolchain@nightly", "jetli/wasm-pack-action@"):
             owners = [
                 job
                 for job, config in JOBS.items()

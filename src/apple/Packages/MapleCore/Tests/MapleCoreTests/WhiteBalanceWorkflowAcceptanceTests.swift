@@ -21,7 +21,17 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
     try await qualify(preset: nil, photos: true)
   }
 
-  private func qualify(preset: WhiteBalancePreset?, photos: Bool = false) async throws {
+  func testAutoTonePersistsAsOneUndoActionOnLocalAndPhotoKitSidecars() async throws {
+    for profile in [Profile.auto, .neutral] {
+      try await qualify(preset: .auto, autoTone: true, profile: profile)
+      try await qualify(preset: .auto, photos: true, autoTone: true, profile: profile)
+    }
+  }
+
+  private func qualify(
+    preset: WhiteBalancePreset?, photos: Bool = false, autoTone: Bool = false,
+    profile: Profile = .auto
+  ) async throws {
     let files = try NativeWorkflowControlFixture.files()
     defer { try? FileManager.default.removeItem(at: files.directory) }
     let backing = AppSupportSidecarStore(root: files.directory.appendingPathComponent("sidecars"))
@@ -31,11 +41,12 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
       : SidecarPath.sidecarURL(for: files.raw)
     try FileManager.default.createDirectory(
       at: primary.deletingLastPathComponent(), withIntermediateDirectories: true)
-    let input = NativeWorkflowControlFixture.input()
+    let input = NativeWorkflowControlFixture.input().replacingOccurrences(
+      of: "papp:Profile=\"Auto\"", with: "papp:Profile=\"\(profile.rawValue)\"")
     try Data(input.utf8).write(to: primary)
     let session = makeSession(files.raw, photos: photos, backing: backing, id: "PHOTO/WB/SOURCE")
     await session.loadSidecar()
-    await session.latestRenderSchedule?.value
+    _ = await session.latestRenderSchedule?.value
     await session.renderActor.awaitCurrentRenderIfInFlight()
     if preset == .custom {
       // A real camera may seed tint beyond the manual slider bounds. Custom
@@ -44,7 +55,9 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
       await session.flushPendingSidecarWrite()
     }
     let before = session.model
-    if let preset {
+    if autoTone {
+      try await AutoToneWorkflowAssertions.apply(session)
+    } else if let preset {
       await EditorState(session: session).applyWhiteBalancePreset(preset)
     } else {
       let picker = WhiteBalancePicker(session: session)
@@ -55,7 +68,7 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
       XCTAssertGreaterThan(session.model.wbAlgorithmVersion, 0)
     }
     let applied = session.model
-    let label = preset?.rawValue ?? "Sampled"
+    let label = autoTone ? "Auto Tone" : preset?.rawValue ?? "Sampled"
     await session.flushPendingSidecarWrite()
     XCTAssertNil(session.sidecarError, label)
     let confirmed = try NativeWorkflowControlFixture.xml(primary)
@@ -88,7 +101,8 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
     let target = makeSession(targetURL, photos: photos, backing: backing, id: "PHOTO/WB/TARGET")
     await target.loadSidecar()
     let patch = try AdjustmentTransfer.prepare(
-      source: applied, groups: [.whiteBalance], relativeWhiteBalance: false)
+      source: applied, groups: autoTone ? [.whiteBalance, .tone, .color] : [.whiteBalance],
+      relativeWhiteBalance: false)
     try await target.applyAdjustmentTransfer(patch)
     let copied = try XMPParser.parse(
       NativeWorkflowControlFixture.xml(
@@ -106,7 +120,7 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
     XCTAssertEqual(try Data(contentsOf: files.raw), files.original, label)
     XCTAssertEqual(try Data(contentsOf: targetURL), files.original, label)
     for current in [session, reopened, target] {
-      await current.latestRenderSchedule?.value
+      _ = await current.latestRenderSchedule?.value
       await current.renderActor.cancelAll()
       await current.releaseTransientMemory()
     }

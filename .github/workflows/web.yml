@@ -381,15 +381,87 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  web-workflow-acceptance:
+    name: web-workflow-acceptance (WB and Auto Tone persistence + export)
+    needs: [changes, build-wasm]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install web deps
+        working-directory: src/web
+        run: bun install --frozen-lockfile
+      - name: Install API deps
+        working-directory: src/api
+        run: bun install --frozen-lockfile
+      - name: Download raw-wasm package
+        uses: actions/download-artifact@v4
+        with:
+          name: web-raw-wasm
+          path: src/raw-pipeline/raw-wasm/pkg/
+      - name: Sync raw-wasm package without compiling
+        run: |
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm_bg.wasm
+          test -s src/raw-pipeline/raw-wasm/pkg/raw_wasm.js
+          touch src/raw-pipeline/raw-wasm/pkg/.build-stamp
+          bash src/web/scripts/sync-raw-wasm.sh
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache native RAW build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: web-workflow-native-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: Build real server workflow library
+        run: bash src/api/scripts/build-raw-ffi.sh
+      - name: Install Playwright Chrome
+        working-directory: src/web
+        run: bun x playwright install --with-deps chrome
+      # Committed synthetic RAWs: no external fixture download or skip path.
+      - name: Qualify white balance and Auto Tone
+        working-directory: src/web
+        run: |
+          bun x playwright test --config playwright.workflow.config.ts white-balance-workflow.spec.ts
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          stats = json.loads(Path('test-results/workflow/results.json').read_text())['stats']
+          assert stats['expected'] == 24, stats
+          assert stats['unexpected'] == stats['skipped'] == stats['flaky'] == 0, stats
+          PYCODE
+      - name: Upload workflow acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-workflow-acceptance
+          path: src/web/test-results/
+          if-no-files-found: error
+          retention-days: 7
+
   result:
     name: Web result
-    needs: [changes, build-wasm, web-build, web-test, web-test-common, web-webgpu-smoke]
+    needs:
+      [
+        changes,
+        build-wasm,
+        web-build,
+        web-test,
+        web-test-common,
+        web-webgpu-smoke,
+        web-workflow-acceptance,
+      ]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: >-
           python3 tools/ci_result.py build-wasm=web web-build=web
-          web-test=web web-test-common=web web-webgpu-smoke=web
+          web-test=web web-test-common=web web-webgpu-smoke=web web-workflow-acceptance=web
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
