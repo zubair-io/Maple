@@ -34,12 +34,12 @@ If Maple isn't running or AI Agents is off, every tool call returns an `isError`
 
 ## Tools
 
-| Tool | What it does |
-| --- | --- |
-| `maple_get_active_photo` | Returns the photo id, a `revision` token, and each slider's `{value, min, max}`. |
-| `maple_set_adjustments` | Sets absolute slider values as one undo step. Needs `expected_revision`. Out-of-range values are rejected, not clamped. |
-| `maple_render_and_inspect` | Returns a JPEG of the on-screen render plus display-referred metrics computed from the same pixels. Accepts an optional normalized `region`. |
-| `maple_undo` / `maple_reset` | Undo one step, or reset the photo to its original state. Both need `expected_revision`. |
+| Tool                         | What it does                                                                                                                                 |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maple_get_active_photo`     | Returns the photo id, a `revision` token, and each slider's `{value, min, max}`.                                                             |
+| `maple_set_adjustments`      | Sets absolute slider values as one undo step. Needs `expected_revision`. Out-of-range values are rejected, not clamped.                      |
+| `maple_render_and_inspect`   | Returns a JPEG of the on-screen render plus display-referred metrics computed from the same pixels. Accepts an optional normalized `region`. |
+| `maple_undo` / `maple_reset` | Undo one step, or reset the photo to its original state. Both need `expected_revision`.                                                      |
 
 The `revision` is derived from the photo identity and its full adjustment state. Switching photos, a manual edit, or an undo all invalidate it. When that happens the agent gets `stale_revision` along with the current state, and nothing is applied.
 
