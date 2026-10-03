@@ -1,0 +1,116 @@
+{
+  "sourceBase": "53587cc4f4980031358b6def3275917886b5bc50",
+  "originalFixtureSha256After": "B304A5F75482D0CC7F381724D72B7D4FFD5343684310DB2666C5EBC23625D725",
+  "backend": "cpu",
+  "process": {
+    "pid": 25376,
+    "exitCode": 0
+  },
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3",
+  "keyboard": {
+    "passed": true,
+    "casesExecuted": 6,
+    "casesSkipped": 0,
+    "originalRawSha256": "B304A5F75482D0CC7F381724D72B7D4FFD5343684310DB2666C5EBC23625D725",
+    "initialExposure": 0,
+    "changedExposure": 0.05,
+    "initialUndoDepth": 0,
+    "finalUndoDepth": 0,
+    "documentRestored": true,
+    "scale": 1.5
+  },
+  "binarySha256": "8D173DA2F556598F1AA69D6BB1637B33BC8304F1E66AC75C4C31B9D0131E3B30",
+  "build": "Maple.DesignAudit342",
+  "changedSource": {
+    "sha256": "B154035B344B0ABC723FD8A8404BAC40051F9C6401F04C31879079A54D5E848B",
+    "path": "src/windows/Maple.WinUI/MainWindow.KeyboardSmoke.cs"
+  },
+  "base": "a1c76ae31e299600d265dc6d2acb5610988eaa09",
+  "lifecycle": {
+    "passed": true,
+    "exportRecipeEditorRoundTrip": true,
+    "hwnd": 1313140,
+    "renderPath": "cpu",
+    "panelReleases": 1,
+    "rendererStopped": true,
+    "droppedClosingPresents": 0,
+    "viewerDesignNavigation": true,
+    "localSaveFailureRecovery": true,
+    "nativeDetailActualSize": true,
+    "presetUndoRedoAndReset": true,
+    "adjustmentGestureUndoRedo": true,
+    "repairControlsUndoRedo": true,
+    "scopesLifecycle": true,
+    "transferWatcherUndoRedo": true,
+    "comparisonPreservesDocument": true,
+    "cloudOpeningReadiness": true,
+    "cloudSearchPagination": true,
+    "cloudMapHost": true,
+    "responsiveDesign": true,
+    "browseSelectionAndSort": true,
+    "browseScrolling": true,
+    "immediateUndo": true
+  },
+  "skippedWhiteBalanceHistory": {
+    "casesExecuted": 0,
+    "casesSkipped": 4,
+    "passed": false,
+    "skipReason": "Fixture has schema-default as-shot identity"
+  },
+  "screenshotsLocal": "C:\\Users\\zubai\\AppData\\Local\\Temp\\maple-keyboard342-20261003/screenshots",
+  "cases": [
+    {
+      "name": "editor-to-preview",
+      "key": "Escape",
+      "exposure": 0,
+      "undoDepth": 0,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "exposure-redo",
+      "key": "Control_L+Shift_L+z",
+      "exposure": 0,
+      "undoDepth": 0,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "exposure-restore",
+      "key": "Control_L+z",
+      "exposure": 0.05,
+      "undoDepth": 1,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "exposure-right",
+      "key": "Right",
+      "exposure": 0,
+      "undoDepth": 0,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "exposure-undo",
+      "key": "Control_L+z",
+      "exposure": 0.05,
+      "undoDepth": 1,
+      "mode": "Edit",
+      "scale": 1.5
+    },
+    {
+      "name": "preview-to-editor",
+      "key": "e",
+      "exposure": 0,
+      "undoDepth": 0,
+      "mode": "Preview",
+      "scale": 1.5
+    }
+  ],
+  "limitations": [
+    "Real OS keyboard qualification at 150% DPI on the synthetic 64x64 fixture.",
+    "No Narrator, other DPI, perceptual or reference-hardware performance sign-off.",
+    "Four as-shot metadata-history cases explicitly skipped on this schema-default fixture; their separate non-default fixture evidence remains in PR #4115."
+  ]
+}
