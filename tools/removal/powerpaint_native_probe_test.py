@@ -19,8 +19,9 @@ from transformers import CLIPTextConfig, CLIPTextModel
 PINS = json.loads(
     Path(__file__).with_name("powerpaint-research-models.json").read_text()
 )
-SOURCE = Path("/tmp/maple-removal-powerpaint-source")
-MODEL = Path("/tmp/maple-removal-models/powerpaint-v2-1-native")
+RESEARCH = Path.home() / ".cache/maple-removal-research"
+SOURCE = RESEARCH / "powerpaint-source"
+MODEL = RESEARCH / "powerpaint-model"
 
 
 class PowerPaintNativeProbeTests(unittest.TestCase):
@@ -104,10 +105,10 @@ class PowerPaintNativeProbeTests(unittest.TestCase):
         )
         namespace = {}
         # Execute only this reviewed function from the digest-verified controller.
-        exec(
+        exec(  # noqa: S102 — only the digest-verified upstream task function
             compile(ast.Module(body=[function], type_ignores=[]), str(app), "exec"),
             namespace,
-        )  # noqa: S102
+        )
         self.assertEqual(
             namespace["add_task"](" empty scene blur", "", "object-removal", "ppt-v2"),
             (POSITIVE, POSITIVE, NEGATIVE, NEGATIVE),

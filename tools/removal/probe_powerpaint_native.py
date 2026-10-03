@@ -79,7 +79,7 @@ def load_bin(model, path):
     return model.to(dtype=torch.float32).eval().requires_grad_(False)
 
 
-def open_pipeline(model_path, source_path):
+def open_pipeline(model_path, source_path, attention="sliced"):
     sys.path.insert(0, str(source_path))
     from powerpaint.models import BrushNetModel, UNet2DConditionModel
     from powerpaint.pipelines.pipeline_PowerPaint_Brushnet_CA import (
@@ -134,11 +134,32 @@ def open_pipeline(model_path, source_path):
         feature_extractor=None,
         requires_safety_checker=False,
     ).to("mps")
-    pipe.enable_attention_slicing("auto")
+    if attention == "sliced":
+        pipe.enable_attention_slicing("auto")
+    elif attention == "sdpa":
+        pipe.disable_attention_slicing()
+        for model in (pipe.unet, pipe.brushnet):
+            processors = model.attn_processors
+            if not processors or any(
+                type(p).__name__ != "AttnProcessor2_0" for p in processors.values()
+            ):
+                raise ValueError("Actual PowerPaint denoiser did not select SDPA")
+    else:
+        raise ValueError("Unsupported research attention comparison")
     return pipe
 
 
-def run(model_path, source_path, image_path, mask_path, crop, output, float_input=None):
+def run(
+    model_path,
+    source_path,
+    image_path,
+    mask_path,
+    crop,
+    output,
+    float_input=None,
+    *,
+    attention="sliced",
+):
     source_u8, hole = native_context(image_path, mask_path, crop)
     source = float_source(float_input, source_u8)
     if output.exists():
@@ -150,7 +171,7 @@ def run(model_path, source_path, image_path, mask_path, crop, output, float_inpu
     pins = verify_artifacts(model_path, source_path)
     verification_ms = (time.perf_counter() - verify_started) * 1000
     started = time.perf_counter()
-    pipe = open_pipeline(model_path, source_path)
+    pipe = open_pipeline(model_path, source_path, attention)
     torch.mps.synchronize()
     model_open_ms = (time.perf_counter() - started) * 1000
     height, width = hole.shape
@@ -264,7 +285,19 @@ def run(model_path, source_path, image_path, mask_path, crop, output, float_inpu
         "requested_steps": STEPS,
         "actual_steps": len(steps),
         "guidance": GUIDANCE,
-        "attention_slicing": "auto",
+        "attention_slicing": "auto" if attention == "sliced" else None,
+        "attention_backend": attention,
+        "actual_attention_processors": {
+            name: {
+                key: type(value).__name__
+                for key, value in model.attn_processors.items()
+            }
+            for name, model in (
+                ("unet", pipe.unet),
+                ("brushnet", pipe.brushnet),
+                ("vae", pipe.vae),
+            )
+        },
         "numeric_dtype": "float32",
         "verification_ms": verification_ms,
         "model_open_ms": model_open_ms,

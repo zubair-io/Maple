@@ -140,7 +140,9 @@ def restore(generated, source, hole, orientation, orientation_probe, output):
     return results
 
 
-def probe(model, upstream, context, orientation, orientation_probe, output):
+def probe(
+    model, upstream, context, orientation, orientation_probe, output, attention="sliced"
+):
     # Loading the actual runtime is deferred so source/provenance guards can be
     # tested without loading several GB of model weights or allocating a GPU.
     from probe_powerpaint_native import run
@@ -156,6 +158,7 @@ def probe(model, upstream, context, orientation, orientation_probe, output):
         (0, 0, upright_width, upright_height),
         generated,
         output / "upright-nchw.f32",
+        attention=attention,
     )
     report["outputs"] = restore(
         generated, source, hole, orientation, orientation_probe, output
@@ -176,6 +179,7 @@ if __name__ == "__main__":
     for name in ("model", "upstream", "context", "orientation-probe", "output"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--orientation", type=int, choices=range(1, 9), required=True)
+    parser.add_argument("--attention", choices=("sliced", "sdpa"), default="sliced")
     args = parser.parse_args()
     probe(
         args.model,
@@ -184,4 +188,5 @@ if __name__ == "__main__":
         args.orientation,
         args.orientation_probe,
         args.output,
+        args.attention,
     )

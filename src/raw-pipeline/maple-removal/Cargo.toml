@@ -25,3 +25,7 @@ image.workspace = true
 [[example]]
 name = "native-removal-probe"
 required-features = ["ml"]
+
+[[example]]
+name = "native-reconstruction-probe"
+required-features = ["ml"]
