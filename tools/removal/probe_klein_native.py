@@ -12,6 +12,7 @@ import resource
 import subprocess
 import sys
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import mlx.core as mx
@@ -211,8 +212,10 @@ def run(
     def checked_decode(latents):
         if memory_experiment is not None:
             memory_experiment.snapshot("before_decode")
-        raw = original_decode(latents)
-        mx.eval(raw)
+        scope = memory_experiment.decode_scope() if memory_experiment else nullcontext()
+        with scope:
+            raw = original_decode(latents)
+            mx.eval(raw)
         if memory_experiment is not None:
             memory_experiment.snapshot("after_decode")
         array = np.asarray(raw.astype(mx.float32))

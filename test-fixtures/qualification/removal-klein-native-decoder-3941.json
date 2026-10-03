@@ -1,0 +1,2031 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T09:57:06.414557+00:00",
+  "parent_commit": "527d4e4b9c60ed34a225006e35537ec80136ba18",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "model_catalog_changed": false,
+  "purpose": "Qualify exact whole-frame MLX VAE graph materialization at21decoder block boundaries, on top of actual one-shot phase release and1GB cache control. Research tool only.",
+  "algorithm_scope": "Wrap only specific verified decoder object instances. Evaluate each original block output with mx.eval, check finite NCHW, record synchronized evaluation memory, preserve original model operations and precision, restore all class methods in finally. Full-image attention and global normalization remain full-image. No tiled/independent cropped decoding, source resizing, changed learned tensors, quantization, guidance, prompt or seed. Intrinsic pretrained latent-to-image VAE upsampling remains unchanged.",
+  "metric_scope": "Global MLX active high-water includes load and denoising, with no inference-time resets; decoder block observations show it never exceeds prior denoising peak. This bounds decoder peak but does not separately quantify its own isolated high-water. OS process-footprint and RSS are distinct; never sum them or claim total device peak. No latency percentiles or speedup claim; shared M5 Max128GiB/macOS27, no physical16/24/32GiB test.",
+  "input_scope": "Paint manual990Kcombined-person rectangle on native AutoSDR1024x1536; canonical RAW signed-asinh encodedf32 native1024square has5367source channels>1 and0negative source channels. Same prior cases, not broader photographic/automatic People policy qualification.",
+  "cases": [
+    {
+      "name": "paint",
+      "run": "paint",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "float_input_sha256": null,
+        "model_input_quantized_to_u8": true,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57",
+        "crop_xywh": [
+          384,
+          384,
+          1024,
+          1536
+        ],
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 990000,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 3111.88037507236,
+        "model_open_ms": 1538.091833004728,
+        "inference_ms": 16688.27566714026,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 4191.856709076092,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 876359686
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 7429.042625008151,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 879505430
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 10956.925000064075,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 879505430
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 14515.988874947652,
+            "mlx_allocated_bytes": 4302223642,
+            "mlx_cache_bytes": 873213958
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.0546875,
+          1.0625
+        ],
+        "decoder_unclipped_sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963",
+        "prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "result": {
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 12806296996,
+        "process_peak_resident_bytes": 9010626560,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Public-RAW Auto SDR PNG; native geometry but source values quantized to u8.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "release-blocks-small-cache",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 4832.267291843891,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382,
+              "runtime_memory": {
+                "phase": "loaded",
+                "timestamp": 1791021020.667823,
+                "pid": 39444,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8559746382,
+                "mlx_peak_memory_bytes": 8559746382,
+                "mlx_cache_memory_bytes": 8616,
+                "process_rss_bytes": 8994095104,
+                "process_peak_rss_bytes": 8996421632,
+                "darwin_physical_footprint_bytes": 8973196248,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 8973196248
+              }
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 5066.378791816533,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960850360,
+              "mlx_peak_active_bytes": 9501220442,
+              "runtime_memory": {
+                "phase": "prompt_encoded",
+                "timestamp": 1791021020.890871,
+                "pid": 39444,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8567620942,
+                "mlx_peak_memory_bytes": 9501220442,
+                "mlx_cache_memory_bytes": 960850360,
+                "process_rss_bytes": 9010626560,
+                "process_peak_rss_bytes": 9010626560,
+                "darwin_physical_footprint_bytes": 10110262712,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10110262712
+              }
+            },
+            {
+              "phase": "text_encoder_released",
+              "elapsed_ms": 5121.664291946217,
+              "mlx_active_bytes": 4291790926,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9501220442,
+              "runtime_memory": {
+                "phase": "text_encoder_released",
+                "timestamp": 1791021020.9452128,
+                "pid": 39444,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4291790926,
+                "mlx_peak_memory_bytes": 9501220442,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 5123883008,
+                "process_peak_rss_bytes": 9010626560,
+                "darwin_physical_footprint_bytes": 5388948352,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10110262712
+              }
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 19472.532249987125,
+              "mlx_active_bytes": 4299864210,
+              "mlx_cache_bytes": 875573390,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "denoised",
+                "timestamp": 1791021035.2979908,
+                "pid": 39444,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4299864210,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 875573390,
+                "process_rss_bytes": 4753850368,
+                "process_peak_rss_bytes": 9010626560,
+                "darwin_physical_footprint_bytes": 6084842128,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12413817464
+              }
+            },
+            {
+              "phase": "transformer_released",
+              "elapsed_ms": 19534.264624817297,
+              "mlx_active_bytes": 182074482,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "transformer_released",
+                "timestamp": 1791021035.3569138,
+                "pid": 39444,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 182074482,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 832208896,
+                "process_peak_rss_bytes": 9010626560,
+                "darwin_physical_footprint_bytes": 1846790160,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12413817464
+              }
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 19558.623374905437,
+              "mlx_active_bytes": 182074482,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "before_decode",
+                "timestamp": 1791021035.379967,
+                "pid": 39444,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 182074482,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 832208896,
+                "process_peak_rss_bytes": 9010626560,
+                "darwin_physical_footprint_bytes": 1846790160,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12413817464
+              }
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 21608.08787494898,
+              "mlx_active_bytes": 191511666,
+              "mlx_cache_bytes": 626000264,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "after_decode",
+                "timestamp": 1791021037.431821,
+                "pid": 39444,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 191511666,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 626000264,
+                "process_rss_bytes": 636108800,
+                "process_peak_rss_bytes": 9010626560,
+                "darwin_physical_footprint_bytes": 1410615168,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12413817464
+              }
+            }
+          ],
+          "cache_limit_changed": true,
+          "explicit_cache_limit_bytes": 1000000000,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": true,
+          "decoder_barriers": {
+            "rows": [
+              {
+                "block": "conv_in",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 6.561207817867398,
+                "mlx_active_bytes": 210386290,
+                "mlx_cache_bytes": 107839628,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "mid.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 14.242874924093485,
+                "mlx_active_bytes": 235552114,
+                "mlx_cache_bytes": 744104088,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "mid.attention",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 60.81849988549948,
+                "mlx_active_bytes": 260717938,
+                "mlx_cache_bytes": 75497608,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "mid.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 13.694375054910779,
+                "mlx_active_bytes": 260717938,
+                "mlx_cache_bytes": 732733588,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up0.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 6.150458939373493,
+                "mlx_active_bytes": 235552114,
+                "mlx_cache_bytes": 757899412,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up0.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 6.064083892852068,
+                "mlx_active_bytes": 260717938,
+                "mlx_cache_bytes": 732733588,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up0.resnet2",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 6.044416921213269,
+                "mlx_active_bytes": 260717938,
+                "mlx_cache_bytes": 732733588,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up0.sample0",
+                "output_nchw": [
+                  1,
+                  512,
+                  384,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 21.3302921038121,
+                "mlx_active_bytes": 336215410,
+                "mlx_cache_bytes": 957145232,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up1.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  384,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 61.2955829128623,
+                "mlx_active_bytes": 386547058,
+                "mlx_cache_bytes": 974536844,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up1.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  384,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 58.985000010579824,
+                "mlx_active_bytes": 487210354,
+                "mlx_cache_bytes": 981471372,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up1.resnet2",
+                "output_nchw": [
+                  1,
+                  512,
+                  384,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 57.56304110400379,
+                "mlx_active_bytes": 487210482,
+                "mlx_cache_bytes": 1038110728,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up1.sample0",
+                "output_nchw": [
+                  1,
+                  512,
+                  768,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 94.26816715858877,
+                "mlx_active_bytes": 789200246,
+                "mlx_cache_bytes": 1038110724,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up2.resnet0",
+                "output_nchw": [
+                  1,
+                  256,
+                  768,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 193.3575829025358,
+                "mlx_active_bytes": 789200242,
+                "mlx_cache_bytes": 1006637060,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up2.resnet1",
+                "output_nchw": [
+                  1,
+                  256,
+                  768,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 120.9380840882659,
+                "mlx_active_bytes": 990526834,
+                "mlx_cache_bytes": 1009539076,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up2.resnet2",
+                "output_nchw": [
+                  1,
+                  256,
+                  768,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 129.28762496449053,
+                "mlx_active_bytes": 990526834,
+                "mlx_cache_bytes": 1009539076,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up2.sample0",
+                "output_nchw": [
+                  1,
+                  256,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 189.77900012396276,
+                "mlx_active_bytes": 1997159798,
+                "mlx_cache_bytes": 1207959556,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up3.resnet0",
+                "output_nchw": [
+                  1,
+                  128,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 363.24700014665723,
+                "mlx_active_bytes": 1393180018,
+                "mlx_cache_bytes": 1006632964,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up3.resnet1",
+                "output_nchw": [
+                  1,
+                  128,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 265.34633385017514,
+                "mlx_active_bytes": 1997159798,
+                "mlx_cache_bytes": 1008746500,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up3.resnet2",
+                "output_nchw": [
+                  1,
+                  128,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 254.99937497079372,
+                "mlx_active_bytes": 1795833206,
+                "mlx_cache_bytes": 1008746500,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "conv_norm_out",
+                "output_nchw": [
+                  1,
+                  128,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 92.3844170756638,
+                "mlx_active_bytes": 990526838,
+                "mlx_cache_bytes": 1006632964,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "conv_out",
+                "output_nchw": [
+                  1,
+                  3,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 8.300584042444825,
+                "mlx_active_bytes": 597310834,
+                "mlx_cache_bytes": 220201096,
+                "mlx_peak_active_bytes": 12806296996
+              }
+            ],
+            "class_methods_restored": true,
+            "resized": false,
+            "tiled": false,
+            "precision_changed": false,
+            "equality_scope": "Graph materialization control only; compare actual pre-clipped native output bytes before claiming pixel equality."
+          },
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-decoder-blocks-paint-20261003/report.json",
+        "bytes": 18061,
+        "sha256": "874b9c10127aa58d63d446ae5e160d05ea82e0d9e295a6cbf2fe51c8e6ea7b0e"
+      },
+      "control_report_record": {
+        "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/report.json",
+        "bytes": 9607,
+        "sha256": "868955d7f199e724aec6f83566ba8da0cb38bfa10da6fb13be40210ec040e47d"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-decoder-blocks-paint-20261003.log",
+        "bytes": 23412,
+        "sha256": "09381401e1aa0200b2a6470bffae4e0e24ab6192f3fd913b22f8db7059a09179"
+      },
+      "output_records": [
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-paint-20261003/decoder-unclipped.f32",
+          "bytes": 18874368,
+          "sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-paint-20261003/prediction.f32",
+          "bytes": 18874368,
+          "sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-paint-20261003/result.f32",
+          "bytes": 18874368,
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-paint-20261003/result.png",
+          "bytes": 2450718,
+          "sha256": "cfff041c0354678d1ac5a46daf6632627ac9020f488cea6789585e770c6ca3f3"
+        }
+      ],
+      "independent_checks": {
+        "preclipped_decoder_prediction_composite_byte_identical": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "decoder_finite": true,
+        "native_full_extent_matches": true,
+        "barriers_call_count": 21,
+        "denoising_peak_not_exceeded_by_decoder": true
+      },
+      "comparison": {
+        "prior_phase_release_peak_active_bytes": 15289992366,
+        "block_materialization_peak_active_bytes": 12806296996,
+        "active_peak_reduction_percent": 16.24392812335823,
+        "OS_process_peak_footprint_bytes": 12413817464
+      }
+    },
+    {
+      "name": "scene",
+      "run": "scene",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "dafffed28c809b0b6b80426b5a2315a30d3098c217c3a3ecd98c60da7dd65f41",
+        "float_input_sha256": "2204ecb9ed54ff0e9f858ed9c22b81a978e71f67b046359ce6f93133f17f6e32",
+        "model_input_quantized_to_u8": false,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3",
+        "crop_xywh": [
+          0,
+          0,
+          1024,
+          1024
+        ],
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 22753,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 2955.9604169335216,
+        "model_open_ms": 1237.735457951203,
+        "inference_ms": 9886.88770798035,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 2546.7938750516623,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 599008260
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 4319.464165950194,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 651437078
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 6384.251916082576,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 721789954
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 8439.039041055366,
+            "mlx_allocated_bytes": 4298746136,
+            "mlx_cache_bytes": 719692802
+          }
+        ],
+        "decoder_unclipped_range": [
+          -0.9375,
+          0.875
+        ],
+        "decoder_unclipped_sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563",
+        "prediction_sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3",
+        "result": {
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 9974666660,
+        "process_peak_resident_bytes": 8973942784,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "release-blocks-small-cache",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 4261.908249929547,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382,
+              "runtime_memory": {
+                "phase": "loaded",
+                "timestamp": 1791021102.7106931,
+                "pid": 39959,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8559746382,
+                "mlx_peak_memory_bytes": 8559746382,
+                "mlx_cache_memory_bytes": 8616,
+                "process_rss_bytes": 8956329984,
+                "process_peak_rss_bytes": 8957018112,
+                "darwin_physical_footprint_bytes": 8932924328,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 8932924328
+              }
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 4463.727749884129,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960848824,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "prompt_encoded",
+                "timestamp": 1791021102.911229,
+                "pid": 39959,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8567620942,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 960848824,
+                "process_rss_bytes": 8973942784,
+                "process_peak_rss_bytes": 8973942784,
+                "darwin_physical_footprint_bytes": 10071400008,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10071400008
+              }
+            },
+            {
+              "phase": "text_encoder_released",
+              "elapsed_ms": 4517.277374863625,
+              "mlx_active_bytes": 4291790926,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "text_encoder_released",
+                "timestamp": 1791021102.966696,
+                "pid": 39959,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4291790926,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 5087199232,
+                "process_peak_rss_bytes": 8973942784,
+                "darwin_physical_footprint_bytes": 5341664200,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10071400008
+              }
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 12796.063042012975,
+              "mlx_active_bytes": 4297173138,
+              "mlx_cache_bytes": 721265800,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "denoised",
+                "timestamp": 1791021111.24452,
+                "pid": 39959,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4297173138,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 721265800,
+                "process_rss_bytes": 4708237312,
+                "process_peak_rss_bytes": 8973942784,
+                "darwin_physical_footprint_bytes": 5567763208,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10071400008
+              }
+            },
+            {
+              "phase": "transformer_released",
+              "elapsed_ms": 12855.681624962017,
+              "mlx_active_bytes": 179383410,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "transformer_released",
+                "timestamp": 1791021111.3027341,
+                "pid": 39959,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 179383410,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 781287424,
+                "process_peak_rss_bytes": 8973942784,
+                "darwin_physical_footprint_bytes": 1352583256,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10071400008
+              }
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 12879.713041940704,
+              "mlx_active_bytes": 179383410,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "before_decode",
+                "timestamp": 1791021111.326787,
+                "pid": 39959,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 179383410,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 781287424,
+                "process_peak_rss_bytes": 8973942784,
+                "darwin_physical_footprint_bytes": 1352583256,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10071400008
+              }
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 14208.452832885087,
+              "mlx_active_bytes": 185674866,
+              "mlx_cache_bytes": 819990920,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "after_decode",
+                "timestamp": 1791021112.6582248,
+                "pid": 39959,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 185674866,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 819990920,
+                "process_rss_bytes": 590495744,
+                "process_peak_rss_bytes": 8973942784,
+                "darwin_physical_footprint_bytes": 1553074120,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10071400008
+              }
+            }
+          ],
+          "cache_limit_changed": true,
+          "explicit_cache_limit_bytes": 1000000000,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": true,
+          "decoder_barriers": {
+            "rows": [
+              {
+                "block": "conv_in",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 4.716207971796393,
+                "mlx_active_bytes": 198258034,
+                "mlx_cache_bytes": 73662606,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "mid.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 11.090416926890612,
+                "mlx_active_bytes": 248589818,
+                "mlx_cache_bytes": 490840082,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "mid.attention",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 24.437875021249056,
+                "mlx_active_bytes": 265367034,
+                "mlx_cache_bytes": 937484310,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "mid.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 4.868916003033519,
+                "mlx_active_bytes": 265367034,
+                "mlx_cache_bytes": 432119830,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up0.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 5.323625169694424,
+                "mlx_active_bytes": 248589818,
+                "mlx_cache_bytes": 482451478,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up0.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 4.385249922052026,
+                "mlx_active_bytes": 265367034,
+                "mlx_cache_bytes": 482451478,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up0.resnet2",
+                "output_nchw": [
+                  1,
+                  512,
+                  128,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 4.3971671257168055,
+                "mlx_active_bytes": 265367034,
+                "mlx_cache_bytes": 482451478,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up0.sample0",
+                "output_nchw": [
+                  1,
+                  512,
+                  256,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 14.165667118504643,
+                "mlx_active_bytes": 282144114,
+                "mlx_cache_bytes": 978575518,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up1.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  256,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 34.355750074610114,
+                "mlx_active_bytes": 315698546,
+                "mlx_cache_bytes": 993661076,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up1.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  256,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 32.93904196470976,
+                "mlx_active_bytes": 382807538,
+                "mlx_cache_bytes": 980832270,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up1.resnet2",
+                "output_nchw": [
+                  1,
+                  512,
+                  256,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 30.44687514193356,
+                "mlx_active_bytes": 382807538,
+                "mlx_cache_bytes": 1032998920,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up1.sample0",
+                "output_nchw": [
+                  1,
+                  512,
+                  512,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 66.92954199388623,
+                "mlx_active_bytes": 584134006,
+                "mlx_cache_bytes": 1089667076,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up2.resnet0",
+                "output_nchw": [
+                  1,
+                  256,
+                  512,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 114.2516250256449,
+                "mlx_active_bytes": 584134002,
+                "mlx_cache_bytes": 1006635016,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up2.resnet1",
+                "output_nchw": [
+                  1,
+                  256,
+                  512,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 69.31633315980434,
+                "mlx_active_bytes": 718351730,
+                "mlx_cache_bytes": 1024755716,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up2.resnet2",
+                "output_nchw": [
+                  1,
+                  256,
+                  512,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 74.33800003491342,
+                "mlx_active_bytes": 718351730,
+                "mlx_cache_bytes": 1050839048,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up2.sample0",
+                "output_nchw": [
+                  1,
+                  256,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 132.13879219256341,
+                "mlx_active_bytes": 1389444470,
+                "mlx_cache_bytes": 1050836996,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up3.resnet0",
+                "output_nchw": [
+                  1,
+                  128,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 261.3396670203656,
+                "mlx_active_bytes": 986787186,
+                "mlx_cache_bytes": 1073745928,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up3.resnet1",
+                "output_nchw": [
+                  1,
+                  128,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 182.24595813080668,
+                "mlx_active_bytes": 1255222642,
+                "mlx_cache_bytes": 1018068996,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "up3.resnet2",
+                "output_nchw": [
+                  1,
+                  128,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 165.64437514171004,
+                "mlx_active_bytes": 1255222642,
+                "mlx_cache_bytes": 1018068996,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "conv_norm_out",
+                "output_nchw": [
+                  1,
+                  128,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 60.70762500166893,
+                "mlx_active_bytes": 718351730,
+                "mlx_cache_bytes": 1073745924,
+                "mlx_peak_active_bytes": 9974666660
+              },
+              {
+                "block": "conv_out",
+                "output_nchw": [
+                  1,
+                  3,
+                  1024,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 5.159999942407012,
+                "mlx_active_bytes": 456207730,
+                "mlx_cache_bytes": 549458056,
+                "mlx_peak_active_bytes": 9974666660
+              }
+            ],
+            "class_methods_restored": true,
+            "resized": false,
+            "tiled": false,
+            "precision_changed": false,
+            "equality_scope": "Graph materialization control only; compare actual pre-clipped native output bytes before claiming pixel equality."
+          },
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-decoder-blocks-scene-20261003/report.json",
+        "bytes": 18173,
+        "sha256": "be11490a84ebbc8c5d845478c8517cd3439eed22a57ec95257c22e4ad4b9c085"
+      },
+      "control_report_record": {
+        "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003/report.json",
+        "bytes": 9740,
+        "sha256": "f4278b4629669312a4ca676701cd024ec272b8bbec5d09b93f45a7cee9f67552"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-decoder-blocks-scene-20261003.log",
+        "bytes": 23515,
+        "sha256": "69bd3311458b345a45ec61480e6e541d455d920435601fe24c140e73ae396f45"
+      },
+      "output_records": [
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-scene-20261003/decoder-unclipped.f32",
+          "bytes": 12582912,
+          "sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-scene-20261003/prediction.f32",
+          "bytes": 12582912,
+          "sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-scene-20261003/result.f32",
+          "bytes": 12582912,
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-scene-20261003/result.png",
+          "bytes": 1195733,
+          "sha256": "3201dfc09ea2524f19ec22b3b1d6b37b1b74cd174aafe2ff8a2a130ca06e613d"
+        }
+      ],
+      "independent_checks": {
+        "preclipped_decoder_prediction_composite_byte_identical": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "decoder_finite": true,
+        "native_full_extent_matches": true,
+        "barriers_call_count": 21,
+        "denoising_peak_not_exceeded_by_decoder": true
+      },
+      "comparison": {
+        "prior_phase_release_peak_active_bytes": 10264868014,
+        "block_materialization_peak_active_bytes": 9974666660,
+        "active_peak_reduction_percent": 2.8271318598953377,
+        "OS_process_peak_footprint_bytes": 10071400008
+      }
+    },
+    {
+      "name": "paint",
+      "run": "paint-replay",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "float_input_sha256": null,
+        "model_input_quantized_to_u8": true,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57",
+        "crop_xywh": [
+          384,
+          384,
+          1024,
+          1536
+        ],
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 990000,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 3152.81929099001,
+        "model_open_ms": 1493.9445829950273,
+        "inference_ms": 17772.174417041242,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 4211.302167037502,
+            "mlx_allocated_bytes": 4301437074,
+            "mlx_cache_bytes": 875561096
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 7664.419292006642,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 879505422
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 11322.010125033557,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 871628800
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 15040.998124983162,
+            "mlx_allocated_bytes": 4302223640,
+            "mlx_cache_bytes": 871628804
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.0546875,
+          1.0625
+        ],
+        "decoder_unclipped_sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963",
+        "prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "result": {
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 12806296996,
+        "process_peak_resident_bytes": 9012985856,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Public-RAW Auto SDR PNG; native geometry but source values quantized to u8.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "release-blocks-small-cache",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 4818.097708048299,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382,
+              "runtime_memory": {
+                "phase": "loaded",
+                "timestamp": 1791021214.1724212,
+                "pid": 40790,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8559746382,
+                "mlx_peak_memory_bytes": 8559746382,
+                "mlx_cache_memory_bytes": 8616,
+                "process_rss_bytes": 8996356096,
+                "process_peak_rss_bytes": 8997044224,
+                "darwin_physical_footprint_bytes": 8972753880,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 8972753880
+              }
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 5037.235999945551,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960846776,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "prompt_encoded",
+                "timestamp": 1791021214.389778,
+                "pid": 40790,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8567620942,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 960846776,
+                "process_rss_bytes": 9012985856,
+                "process_peak_rss_bytes": 9012985856,
+                "darwin_physical_footprint_bytes": 10110213704,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10110213704
+              }
+            },
+            {
+              "phase": "text_encoder_released",
+              "elapsed_ms": 5087.641749996692,
+              "mlx_active_bytes": 4291790926,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "text_encoder_released",
+                "timestamp": 1791021214.440939,
+                "pid": 40790,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4291790926,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 4737286144,
+                "process_peak_rss_bytes": 9012985856,
+                "darwin_physical_footprint_bytes": 5952508920,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10110213704
+              }
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 19968.522416893393,
+              "mlx_active_bytes": 4299864210,
+              "mlx_cache_bytes": 873988232,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "denoised",
+                "timestamp": 1791021229.33621,
+                "pid": 40790,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4299864210,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 873988232,
+                "process_rss_bytes": 4756127744,
+                "process_peak_rss_bytes": 9012985856,
+                "darwin_physical_footprint_bytes": 5768565512,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12411196144
+              }
+            },
+            {
+              "phase": "transformer_released",
+              "elapsed_ms": 20062.99770786427,
+              "mlx_active_bytes": 182074482,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "transformer_released",
+                "timestamp": 1791021229.419328,
+                "pid": 40790,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 182074482,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 834486272,
+                "process_peak_rss_bytes": 9012985856,
+                "darwin_physical_footprint_bytes": 1845086344,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12411196144
+              }
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 20090.93983285129,
+              "mlx_active_bytes": 182074482,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "before_decode",
+                "timestamp": 1791021229.446348,
+                "pid": 40790,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 182074482,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 834486272,
+                "process_peak_rss_bytes": 9012985856,
+                "darwin_physical_footprint_bytes": 1845086344,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12411196144
+              }
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 22654.355332953855,
+              "mlx_active_bytes": 191511666,
+              "mlx_cache_bytes": 626000264,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "after_decode",
+                "timestamp": 1791021232.011997,
+                "pid": 40790,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 191511666,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 626000264,
+                "process_rss_bytes": 638386176,
+                "process_peak_rss_bytes": 9012985856,
+                "darwin_physical_footprint_bytes": 1410271200,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12411196144
+              }
+            }
+          ],
+          "cache_limit_changed": true,
+          "explicit_cache_limit_bytes": 1000000000,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": true,
+          "decoder_barriers": {
+            "rows": [
+              {
+                "block": "conv_in",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 7.862792117521167,
+                "mlx_active_bytes": 210386290,
+                "mlx_cache_bytes": 107839630,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "mid.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 18.373250029981136,
+                "mlx_active_bytes": 235552114,
+                "mlx_cache_bytes": 744104090,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "mid.attention",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 66.94541685283184,
+                "mlx_active_bytes": 260717938,
+                "mlx_cache_bytes": 50331784,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "mid.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 17.574833938851953,
+                "mlx_active_bytes": 260717938,
+                "mlx_cache_bytes": 732733588,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up0.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 6.263416027650237,
+                "mlx_active_bytes": 235552114,
+                "mlx_cache_bytes": 757899412,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up0.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 6.438916781917214,
+                "mlx_active_bytes": 260717938,
+                "mlx_cache_bytes": 732733588,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up0.resnet2",
+                "output_nchw": [
+                  1,
+                  512,
+                  192,
+                  128
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 6.276415893808007,
+                "mlx_active_bytes": 260717938,
+                "mlx_cache_bytes": 732733588,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up0.sample0",
+                "output_nchw": [
+                  1,
+                  512,
+                  384,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 25.834834203124046,
+                "mlx_active_bytes": 336215410,
+                "mlx_cache_bytes": 957145232,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up1.resnet0",
+                "output_nchw": [
+                  1,
+                  512,
+                  384,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 75.02995803952217,
+                "mlx_active_bytes": 386547058,
+                "mlx_cache_bytes": 974536844,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up1.resnet1",
+                "output_nchw": [
+                  1,
+                  512,
+                  384,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 72.63637497089803,
+                "mlx_active_bytes": 487210354,
+                "mlx_cache_bytes": 981471372,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up1.resnet2",
+                "output_nchw": [
+                  1,
+                  512,
+                  384,
+                  256
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 72.52270798198879,
+                "mlx_active_bytes": 487210486,
+                "mlx_cache_bytes": 1038110728,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up1.sample0",
+                "output_nchw": [
+                  1,
+                  512,
+                  768,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 123.29775001853704,
+                "mlx_active_bytes": 789200242,
+                "mlx_cache_bytes": 1038110724,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up2.resnet0",
+                "output_nchw": [
+                  1,
+                  256,
+                  768,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 244.52524981461465,
+                "mlx_active_bytes": 789200242,
+                "mlx_cache_bytes": 1006637060,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up2.resnet1",
+                "output_nchw": [
+                  1,
+                  256,
+                  768,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 150.03316686488688,
+                "mlx_active_bytes": 990526834,
+                "mlx_cache_bytes": 1009539076,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up2.resnet2",
+                "output_nchw": [
+                  1,
+                  256,
+                  768,
+                  512
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 156.40579210594296,
+                "mlx_active_bytes": 990526834,
+                "mlx_cache_bytes": 1009539076,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up2.sample0",
+                "output_nchw": [
+                  1,
+                  256,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 229.15612487122416,
+                "mlx_active_bytes": 1997159798,
+                "mlx_cache_bytes": 1207959556,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up3.resnet0",
+                "output_nchw": [
+                  1,
+                  128,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 465.33333393745124,
+                "mlx_active_bytes": 1594510710,
+                "mlx_cache_bytes": 1006632964,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up3.resnet1",
+                "output_nchw": [
+                  1,
+                  128,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 334.7506250720471,
+                "mlx_active_bytes": 1997159798,
+                "mlx_cache_bytes": 1008746500,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "up3.resnet2",
+                "output_nchw": [
+                  1,
+                  128,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 324.6461250819266,
+                "mlx_active_bytes": 1997159798,
+                "mlx_cache_bytes": 1008746500,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "conv_norm_out",
+                "output_nchw": [
+                  1,
+                  128,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 119.15620788931847,
+                "mlx_active_bytes": 990526838,
+                "mlx_cache_bytes": 1006632964,
+                "mlx_peak_active_bytes": 12806296996
+              },
+              {
+                "block": "conv_out",
+                "output_nchw": [
+                  1,
+                  3,
+                  1536,
+                  1024
+                ],
+                "output_dtype": "mlx.core.bfloat16",
+                "materialization_ms": 10.454125003889203,
+                "mlx_active_bytes": 597310834,
+                "mlx_cache_bytes": 220201096,
+                "mlx_peak_active_bytes": 12806296996
+              }
+            ],
+            "class_methods_restored": true,
+            "resized": false,
+            "tiled": false,
+            "precision_changed": false,
+            "equality_scope": "Graph materialization control only; compare actual pre-clipped native output bytes before claiming pixel equality."
+          },
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-decoder-blocks-paint-replay-20261003/report.json",
+        "bytes": 18065,
+        "sha256": "b5b59c5b9d71688e2cba9be111b9886759a33cf426ea7e61376e5adc19c0115d"
+      },
+      "control_report_record": {
+        "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/report.json",
+        "bytes": 9607,
+        "sha256": "868955d7f199e724aec6f83566ba8da0cb38bfa10da6fb13be40210ec040e47d"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-decoder-blocks-paint-replay-20261003.log",
+        "bytes": 23412,
+        "sha256": "4ea48c724f4934816fb28244c0cf4cbea03673210e5b8357658afa44b79b6dd8"
+      },
+      "output_records": [
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-paint-replay-20261003/decoder-unclipped.f32",
+          "bytes": 18874368,
+          "sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-paint-replay-20261003/prediction.f32",
+          "bytes": 18874368,
+          "sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-paint-replay-20261003/result.f32",
+          "bytes": 18874368,
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-decoder-blocks-paint-replay-20261003/result.png",
+          "bytes": 2450718,
+          "sha256": "cfff041c0354678d1ac5a46daf6632627ac9020f488cea6789585e770c6ca3f3"
+        }
+      ],
+      "independent_checks": {
+        "preclipped_decoder_prediction_composite_byte_identical": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "decoder_finite": true,
+        "native_full_extent_matches": true,
+        "barriers_call_count": 21,
+        "denoising_peak_not_exceeded_by_decoder": true
+      },
+      "comparison": {
+        "prior_phase_release_peak_active_bytes": 15289992366,
+        "block_materialization_peak_active_bytes": 12806296996,
+        "active_peak_reduction_percent": 16.24392812335823,
+        "OS_process_peak_footprint_bytes": 12411196144
+      }
+    }
+  ],
+  "parent_evidence": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/qualification/removal-klein-native-memory-3941.json",
+    "bytes": 95718,
+    "sha256": "2709062bc132035d4b01f7363db77a2f6cbeecd9a18aee07cc0df1e8b6957382"
+  },
+  "parent_source_archive": {
+    "commit": "527d4e4b9",
+    "records": [
+      {
+        "path": "/tmp/maple-removal-klein-memory-executed-v2-20261003/probe_klein_native.py",
+        "bytes": 13472,
+        "sha256": "51215961496b5236b4e42e6d396d57d497af6a62a0440c6c47ba1ae46a8b37a4"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-memory-executed-v2-20261003/probe_klein_memory.py",
+        "bytes": 5830,
+        "sha256": "80165d029e5a4f6158e2dad3958869eb1ecb0f4990dcffffee109f30e12bd9a8"
+      }
+    ],
+    "scope": "Byte-exact Git recovery of prior executedv2sources. Prior evidence paths refer working-tree paths at capture time; these archives match recorded hashes even though current tools evolve."
+  },
+  "source_records": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_klein_native.py",
+      "bytes": 13624,
+      "sha256": "de7d8bad86949e9ba117f5af17b258d728db6239a00bb678d64453f32d426876"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_klein_memory.py",
+      "bytes": 6941,
+      "sha256": "e8ced891fa2dcd290074cab5e76fe5c877a6869070ad14044f05b53a98212fa5"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/klein_decoder_barriers.py",
+      "bytes": 3902,
+      "sha256": "5b07073913a8c4319309b623084e82ebccd912c50db28a0c7052998724a16436"
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/klein_decoder_barriers_test.py",
+      "bytes": 2744,
+      "sha256": "f614a080ef4237b2abd6b0c6ba4b5d8300f97c5af2b880f60d7ffffc37774392"
+    }
+  ],
+  "tests": {
+    "tests": 9,
+    "failures": 0,
+    "skips": 0,
+    "log": {
+      "path": "/tmp/maple-removal-klein-decoder-combined-tests-20261003.log",
+      "bytes": 107,
+      "sha256": "664b811813bc6c051045c320832df4e84e1fd0133838c17f1df8d7dffcafe01b"
+    },
+    "scope": "Seven previous float/identity/compiled ownership guards plus real upstream decoder operator equality on a small randombf16input and scope restoration on interruption/unrelated-instance isolation. Actual pinned learned-weight native runs are recorded separately above."
+  },
+  "RAW_integrity": {
+    "path": "/tmp/maple-removal-corpus/public-raws/P1010153.RW2",
+    "bytes": 19678208,
+    "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82"
+  },
+  "RAW_bake_scope": "No redundant18-grade bake rerun this checkpoint: pre-clipped/model/composited bytes match prior actual canonical run exactly. Prior shared inverse/fp16/WB-DCP/Auto-Neutral bake evidence retained in parent record. No new live GPU/XMP/Keep/export/ACR/portable consumer gate claim.",
+  "remaining_requirements": [
+    "Physical lower-memory Mac/repeated-authoring reload/app-render residency and supported-tier performance.",
+    "Overlap/protection/automatic selection closure and photographic quality with larger/native masks, noise, HDR, crowd, fine detail and seams.",
+    "Conversion/transitive rights and signed production model/runtime distribution.",
+    "Canonical accepted asset/XMP/history/render/export/recovery and full Apple/Web authoring/consumer release gates."
+  ]
+}

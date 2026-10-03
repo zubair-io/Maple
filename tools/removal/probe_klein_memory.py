@@ -10,6 +10,7 @@ import argparse
 import gc
 import json
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import mlx.core as mx
@@ -30,11 +31,15 @@ class PredictLease:
 
 
 class PhaseMemory:
-    def __init__(self, release, small_cache=False):
+    def __init__(self, release, small_cache=False, decoder_blocks=False):
         if small_cache and not release:
             raise ValueError("Small-cache experiment requires phase release")
+        if decoder_blocks and not small_cache:
+            raise ValueError("Decoder-block experiment requires bounded cache release")
         self.release = release
         self.small_cache = small_cache
+        self.decoder_blocks = decoder_blocks
+        self.decoder_barriers = None
         self.rows = []
         self.steps = 0
         self.pipe = None
@@ -67,6 +72,10 @@ class PhaseMemory:
         if self.pipe is not None:
             raise RuntimeError("Memory experiment requires one fresh model instance")
         self.pipe = pipe
+        if self.decoder_blocks:
+            from klein_decoder_barriers import DecoderBarriers
+
+            self.decoder_barriers = DecoderBarriers(pipe.vae.decoder)
         self.snapshot("loaded")
         encode = pipe._encode_prompt_pair
 
@@ -113,6 +122,13 @@ class PhaseMemory:
             mx.clear_cache()
             self.snapshot("transformer_released")
 
+    def decode_scope(self):
+        return (
+            self.decoder_barriers.active()
+            if self.decoder_barriers is not None
+            else nullcontext()
+        )
+
     def report(self):
         expected = ["loaded", "prompt_encoded"]
         if self.release:
@@ -125,7 +141,9 @@ class PhaseMemory:
             raise RuntimeError("Missing ordered phase memory evidence")
         return {
             "mode": (
-                "release-small-cache"
+                "release-blocks-small-cache"
+                if self.decoder_blocks
+                else "release-small-cache"
                 if self.small_cache
                 else "release"
                 if self.release
@@ -137,6 +155,11 @@ class PhaseMemory:
             "peak_reset_during_inference": False,
             "native_math_changed": False,
             "instance_consumed": self.release,
+            "decoder_barriers": (
+                self.decoder_barriers.report()
+                if self.decoder_barriers is not None
+                else None
+            ),
             "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification.",
         }
 
@@ -148,7 +171,14 @@ if __name__ == "__main__":
     parser.add_argument("--crop", type=int, nargs=4, required=True)
     parser.add_argument("--float-input", type=Path)
     parser.add_argument(
-        "--mode", choices=["resident", "release", "release-small-cache"], required=True
+        "--mode",
+        choices=[
+            "resident",
+            "release",
+            "release-small-cache",
+            "release-blocks-small-cache",
+        ],
+        required=True,
     )
     args = parser.parse_args()
     run(
@@ -159,5 +189,9 @@ if __name__ == "__main__":
         tuple(args.crop),
         args.output,
         args.float_input,
-        PhaseMemory(args.mode != "resident", args.mode == "release-small-cache"),
+        PhaseMemory(
+            args.mode != "resident",
+            args.mode in ["release-small-cache", "release-blocks-small-cache"],
+            args.mode == "release-blocks-small-cache",
+        ),
     )
