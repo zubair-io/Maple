@@ -1,4 +1,4 @@
-"""#3941: exact native SDR diagnostic crops and selected-only composites."""
+"""#3941: exact native model-RGB inputs and selected-only composites."""
 
 import hashlib
 
@@ -61,3 +61,25 @@ def save_result(output, name, result, source, hole):
             )
         ),
     }
+
+
+def float_source(path, source_u8):
+    if path is None:
+        return source_u8.astype(np.float32) / np.float32(255)
+    # The existing Rust scene probe emits channel-first f32, never a display JPEG.
+    height, width = source_u8.shape[:2]
+    if path.stat().st_size != height * width * 3 * 4:
+        raise ValueError("Float model input differs from native context geometry")
+    values = np.fromfile(path, dtype="<f4")
+    if values.size != height * width * 3:
+        raise ValueError("Float model input differs from native context geometry")
+    source = values.reshape(3, height, width).transpose(1, 2, 0).copy()
+    if (
+        not np.isfinite(source).all()
+        or source.min() < 0
+        or source.max() > 1
+        # Match Rust f32::round for the diagnostic PNG, including positive ties.
+        or not np.array_equal(np.floor(source * 255 + 0.5).astype(np.uint8), source_u8)
+    ):
+        raise ValueError("Float input is invalid or differs from its native proxy")
+    return source

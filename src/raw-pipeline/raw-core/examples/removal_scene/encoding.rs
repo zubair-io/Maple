@@ -78,6 +78,7 @@ impl ProbeEncoding {
                     pixels: scene.to_vec(),
                     space: ColorSpace::SceneLinearRec2020,
                     whites_anchor_ev: None,
+                    nr_sampling_scale: 1.0,
                 };
                 agx::apply_with_resolved_whites(&mut image, 0.0, 0.0);
                 encode::rec2020_to_srgb(&mut image);
