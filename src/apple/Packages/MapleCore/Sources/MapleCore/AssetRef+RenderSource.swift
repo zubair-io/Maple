@@ -13,6 +13,7 @@ extension AssetRef {
     }
     displayPreviewProvider = asset.displayPreviewProvider
     stableID = asset.stableID
+    captureDate = asset.captureDate
     scopeParentURL = asset.scopeParentURL
     explicitIsRaw = asset.explicitIsRaw
     thumbnailProvenance = asset.thumbnailProvenance

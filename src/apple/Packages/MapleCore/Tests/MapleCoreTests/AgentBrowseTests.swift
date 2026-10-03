@@ -195,10 +195,93 @@ final class AgentBrowseTests: XCTestCase {
     }.value.outcome
     guard case .failure(let error) = rejectedRating else { return XCTFail("expected rejection") }
     XCTAssertEqual(error.code, "invalid_arguments")
+    let flagged = try await Task.detached {
+      try client.send(
+        AgentRequest(
+          id: 3, tool: "maple_set_flag",
+          arguments: [
+            "asset_id": .string(asset.id.uuidString), "flag": "pick",
+          ]))
+    }.value.outcome.get()
+    XCTAssertEqual(flagged.result["flag"], "pick")
     let reopened = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
     await reopened.loadSidecar()
     XCTAssertEqual(reopened.culling.stars, 4)
+    XCTAssertEqual(reopened.culling.flag, .pick)
     XCTAssertEqual(try Data(contentsOf: raw), original)
+  }
+
+  func testListPhotosReturnsCaptureExifInsteadOfFilesystemCreationDate() async throws {
+    let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-capture-date")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appendingPathComponent("captured.jpg")
+    let provider = try XCTUnwrap(CGDataProvider(data: Data([255, 100, 50, 255]) as CFData))
+    let image = try XCTUnwrap(
+      CGImage(
+        width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+    let destination = try XCTUnwrap(
+      CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil))
+    CGImageDestinationAddImage(
+      destination, image,
+      [
+        kCGImagePropertyExifDictionary: [
+          kCGImagePropertyExifDateTimeOriginal: "2004:05:06 07:08:09"
+        ]
+      ] as CFDictionary)
+    XCTAssertTrue(CGImageDestinationFinalize(destination))
+    XCTAssertEqual(
+      ImageMetadataReader.readRawCaptureDateStrings(from: url).dateTimeOriginal,
+      "2004:05:06 07:08:09")
+    let service = AgentEditService()
+    let delegate = MockBrowseDelegate()
+    delegate.browseAssets = [AssetRef(url: url)]
+    service.browseDelegate = delegate
+    let result = try await call(service, "maple_list_photos").get().result
+    let photo = try XCTUnwrap(result["photos"]?.arrayValue?.first)
+    XCTAssertEqual(
+      photo["capture_time"]?.stringValue,
+      ExifCaptureDate.iso8601UTC(fromExifString: "2004:05:06 07:08:09"))
+  }
+
+  func testSourceCaptureDateDoesNotReadOriginalBytes() async throws {
+    let date = Date(timeIntervalSince1970: 0)
+    let asset = AssetRef(displayName: "remote.dng", hintExtension: "dng", captureDate: date) {
+      throw CocoaError(.fileReadNoPermission)
+    }
+    let service = AgentEditService()
+    let delegate = MockBrowseDelegate()
+    delegate.browseAssets = [asset]
+    service.browseDelegate = delegate
+    let result = try await call(service, "maple_list_photos").get().result
+    let photo = try XCTUnwrap(result["photos"]?.arrayValue?.first)
+    XCTAssertEqual(photo["capture_time"], "1970-01-01T00:00:00.000Z")
+  }
+
+  func testMissingCaptureExifRemainsUnknown() async throws {
+    let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-unknown-date")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appendingPathComponent("no-exif.jpg")
+    let provider = try XCTUnwrap(CGDataProvider(data: Data([255, 100, 50, 255]) as CFData))
+    let image = try XCTUnwrap(
+      CGImage(
+        width: 1, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+    let destination = try XCTUnwrap(
+      CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, image, nil)
+    XCTAssertTrue(CGImageDestinationFinalize(destination))
+    let service = AgentEditService()
+    let delegate = MockBrowseDelegate()
+    delegate.browseAssets = [AssetRef(url: url)]
+    service.browseDelegate = delegate
+    let result = try await call(service, "maple_list_photos").get().result
+    let photo = try XCTUnwrap(result["photos"]?.arrayValue?.first)
+    XCTAssertNil(photo["capture_time"])
   }
 
   func testListPhotosOffsetAndLimitValidation() async {

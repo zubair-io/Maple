@@ -125,7 +125,8 @@ extension AppShell {
     let outcome = try await LocalFileOperations.relocate(
       url, to: destinationDir, newBasename: newFilename, mode: .move, collision: .fail)
     let newURL = URL(fileURLWithPath: outcome.primaryPath)
-    return AssetRef(url: newURL, scopeParentURL: asset.scopeParentURL)
+    return AssetRef(
+      url: newURL, scopeParentURL: asset.scopeParentURL, captureDate: asset.captureDate)
   }
 
   // MARK: - SMB
@@ -149,6 +150,7 @@ extension AppShell {
       displayName: newFilename,
       hintExtension: ext.isEmpty ? nil : ext,
       stableID: mapleID,
+      captureDate: asset.captureDate,
       explicitIsRaw: asset.explicitIsRaw,
       thumbnailProvenance: asset.thumbnailProvenance,
       displayPreviewProvider: asset.displayPreviewProvider,
@@ -178,6 +180,7 @@ extension AppShell {
         displayName: newFilename,
         hintExtension: ext.isEmpty ? nil : ext,
         stableID: assetID,
+        captureDate: asset.captureDate,
         explicitIsRaw: asset.explicitIsRaw,
         thumbnailProvenance: asset.thumbnailProvenance,
         displayPreviewProvider: asset.displayPreviewProvider,

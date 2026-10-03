@@ -147,7 +147,8 @@ public final class BrowseViewModel {
 
       let assetRefs = refs.map { ref -> AssetRef in
         if let url = ref.url {
-          return AssetRef(url: url, scopeParentURL: ref.scopeParentURL)
+          return AssetRef(
+            url: url, scopeParentURL: ref.scopeParentURL, captureDate: ref.captureDate)
         }
         // Sourceless asset — build a bytes-backed ref. The closure
         // captures the source actor and the stable ref so the Rust
@@ -172,6 +173,7 @@ public final class BrowseViewModel {
           displayName: displayName,
           hintExtension: ext.isEmpty ? nil : ext,
           stableID: capturedRef.id,
+          captureDate: capturedRef.captureDate,
           thumbnailProvenance: provenance,
           bytesProvider: { [capturedSource, capturedRef] in
             try await capturedSource.rawBytes(for: capturedRef)
@@ -245,23 +247,6 @@ public final class BrowseViewModel {
       guard gen == loadGeneration else { return }
       loadError = error
     }
-  }
-
-  /// Only called from the PhotoKit paging loaders (`loadPhotoKitSource`,
-  /// `loadMorePhotoKitIfNeeded`) — every ref built here IS PhotoKit-backed,
-  /// so `thumbnailProvenance` is tagged unconditionally (#2299).
-  private func makeAssetRef(_ ref: ImageRef, source: any ImageSource) -> AssetRef {
-    if let url = ref.url {
-      return AssetRef(url: url, scopeParentURL: ref.scopeParentURL)
-    }
-    let ext = (ref.displayName as NSString).pathExtension.lowercased()
-    return AssetRef(
-      displayName: ref.displayName,
-      hintExtension: ext.isEmpty ? nil : ext,
-      stableID: ref.id,
-      thumbnailProvenance: .photoKit,
-      bytesProvider: { [source, ref] in try await source.rawBytes(for: ref) }
-    )
   }
 
   // MARK: - Merged PhotoKit + Cloud timeline
@@ -457,6 +442,7 @@ public final class BrowseViewModel {
           displayName: displayName,
           hintExtension: ext.isEmpty ? nil : ext,
           stableID: id,
+          captureDate: img.exif?.capturedAt.flatMap { ISO8601FlexibleDateDecoding.date(from: $0) },
           // Cloud catalog identity so the info pane can fetch the
           // rich detail (by abs path — no `slug:relPath` address up
           // front) and reveal the containing folder (#2518). Address
