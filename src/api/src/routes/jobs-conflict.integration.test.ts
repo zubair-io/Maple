@@ -104,6 +104,26 @@ async function failedBatch() {
 }
 
 describe('job creation conflicts', () => {
+  isolatedIt('retains JSON errors and HTTP statuses for list and detail queries', async () => {
+    for (const [path, code, error] of [
+      ['?status=unknown', 400, 'Unknown status: unknown'],
+      ['?kind=unknown', 400, 'Unknown kind: unknown'],
+      ['?limit=0', 400, 'Invalid limit: 0'],
+      ['/invalid', 400, 'Invalid job id'],
+      [`/${new ObjectId().toHexString()}`, 404, 'Job not found'],
+    ] as const) {
+      const response = await app.handle(new Request(`http://localhost/api/jobs${path}`));
+      expect(response.status).toBe(code);
+      expect(await response.json()).toEqual({ error });
+    }
+  });
+
+  isolatedIt('lists jobs with the existing public response shape', async () => {
+    const response = await app.handle(new Request('http://localhost/api/jobs?limit=1'));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ jobs: [] });
+  });
+
   isolatedIt('rejects a malformed batch target before path authorization', async () => {
     const response = await post('', {
       kind: 'batch_adjustment_sync',

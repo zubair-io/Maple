@@ -26,8 +26,7 @@ export async function exportOriginals(
     paths.add(resolve(path));
     paths.add(resolve(allowed.data));
     const canonical = await realpath(allowed.data).catch((error) => {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
-        return null;
+      if ((error as NodeJS.ErrnoException | null | undefined)?.code === 'ENOENT') return null;
       throw error;
     });
     if (canonical) paths.add(canonical);
