@@ -230,9 +230,9 @@ Zoom on Apple is a native-detail patch path (`MapleCore/NativeDetailRenderer.swi
 - **Size**: full resolution, or a long-edge cap of 4096 / 2560 / 2048 / 1024. Export never upscales.
 - **Quality**: JPEG only, default 92.
 
-Web presents these options in `lib/export/export-dialog.component.ts`. Windows uses the saved recipe editor in `MainWindow.ExportRecipes.cs` and `Views/ExportRecipeEditor.cs`. Apple has its own encoder (`MapleCore/MapleExporter.swift`) offering JPEG sRGB, JPEG P3, **HEIC P3**, TIFF 16-bit, and PNG with a quality slider — but no size control, even though the option exists in its `ExportOptions` struct.
+Web presents these options in `lib/export/export-dialog.component.ts`. Windows uses the saved recipe editor in `MainWindow.ExportRecipes.cs` and `Views/ExportRecipeEditor.cs`. Apple's single-photo panel (`MapleCore/MapleExporter.swift`) offers JPEG sRGB, JPEG P3, **HEIC P3**, TIFF 16-bit and PNG, with quality and size controls. macOS also exposes the shared saved recipe editor and durable queue, including generated encoder capabilities, destination bookmarks and per-photo recovery. Shared HEIC recipes remain unsupported.
 
-Web adds saved versioned recipes and a durable batch queue from Browse or the focused image’s Export dialog. Browser workspaces deliver to Downloads or a chosen writable folder; Self Hosted submits a persisted native export job to a server directory. Windows provides named recipes and a persistent queue from Photo → Export. These queues preserve captured edits and support cancel, resume and retry-failed. See [export recipes](export-recipes.md) for capabilities, collision policies and recovery semantics.
+Web adds saved versioned recipes and a durable batch queue from Browse or the focused image’s Export dialog. Browser workspaces deliver to Downloads or a chosen writable folder; Self Hosted submits a persisted native export job to a server directory. Windows provides named recipes and a persistent queue from Photo → Export. macOS provides saved recipes and its serial native queue from Browse or the focused Export panel. These queues preserve captured edits and support cancel, resume and retry-failed. See [export recipes](export-recipes.md) for capabilities, collision policies and recovery semantics.
 
 ---
 
@@ -326,7 +326,7 @@ Web is split into its two deployments because they differ substantially. Every c
 | Before/after                       | yes                                              | yes               | yes                | no                        | no        |
 | Histogram                          | yes                                              | yes               | yes                | yes (+ clipping dots)     | no        |
 | Deep-zoom tiles                    | yes                                              | no                | no                 | no                        | no        |
-| Export                             | yes (+HEIC, no resize)                           | yes               | yes                | yes                       | no        |
+| Export                             | yes (+HEIC, resize, Mac recipes)                 | yes               | yes                | yes                       | no        |
 | Batch export                       | no                                               | yes               | yes                | yes                       | no        |
 | Panorama stitch                    | yes                                              | yes               | no                 | yes                       | no        |
 | Rename / batch rename              | yes                                              | yes               | no                 | yes                       | no        |

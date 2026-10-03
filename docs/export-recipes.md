@@ -4,15 +4,15 @@ Export recipes are versioned JSON documents separate from development XMP. The s
 
 ## Supported output
 
-| Setting           | Supported values                                                               |
-| ----------------- | ------------------------------------------------------------------------------ |
-| Format and depth  | JPEG 8-bit, TIFF 16-bit, PNG 8-bit                                             |
-| JPEG quality      | Integer 1–100; lossless formats require `null`                                 |
-| Maximum long edge | Positive integer or `null` for full resolution; never upscales                 |
-| Output profile    | `srgb`, `display-p3`; an exact output ICC profile is embedded                  |
-| Rendering intent  | `maple-display`, the existing Maple display transform and gamut conversion     |
-| Source metadata   | `strip`; camera, GPS and authored metadata are removed, output ICC is retained |
-| Watermark         | `null`; watermark rendering is unsupported                                     |
+| Setting           | Supported values                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| Format and depth  | JPEG 8-bit, TIFF 16-bit, PNG 8-bit, AVIF 8-bit, WebP 8-bit                                 |
+| Lossy quality     | Integer 1–100; lossless formats require `null`                                             |
+| Maximum long edge | Positive integer or `null` for full resolution; never upscales                             |
+| Output profile    | `srgb`, `display-p3`; use the encoder's canonical color signaling                          |
+| Rendering intent  | `maple-display`, the existing Maple display transform and gamut conversion                 |
+| Source metadata   | `strip`; camera, GPS and authored metadata are removed, output color signaling is retained |
+| Watermark         | `null`; watermark rendering is unsupported                                                 |
 
 Standard ICC CMS rendering intents, HEIC, other profiles and metadata-copy policies are rejected. The engine does not silently substitute a supported choice. An active film look whose LUT cannot be resolved also fails explicitly.
 
@@ -29,6 +29,16 @@ Open **Export recipes** from Browse, or **Saved recipes and export queue** from 
 **Server directory** in Self Hosted submits a durable `batch_recipe_export` job to the API. The destination must be an existing absolute directory inside an authorized library root. It continues when the browser closes. Reopening the dialog reconnects to the saved job identity; repeating a lost enqueue request is idempotent.
 
 Directory recipes use explicit **error**, **skip**, or **replace** collision policies. Originals are never replaced. Cancellation stops between photos; **Resume remaining** retains completed work, and **Retry failed** creates a run containing only failed photos with their original edits and indices. Summaries retain every failure but display at most five details at once.
+
+## macOS
+
+Open **Export recipes…** from Browse, or **Saved recipes and export queue…** in the focused image's Export panel. Named recipes support save, delete, JSON import/export and every generated recipe field. Unsupported imported settings remain visible and fail validation. macOS recipe delivery requires a chosen directory; its security-scoped bookmark is saved locally with the recipe. Shared recipes support JPEG, TIFF, PNG, AVIF and WebP through the existing native encoder ABI; shared HEIC remains unsupported. The existing single-photo HEIC export and iOS export flow are unchanged.
+
+Enqueue freezes each selected session's semantic XMP, active variant, original sequence index, original identity and resolved film LUT bytes before starting. Opaque sources are copied into private queue storage. Such copies cannot establish the original's destination namespace, so an existing destination fails closed rather than allowing replacement. Local sources retain bookmarks and device/inode identities for every initially selected original, including completed items retained across failed-only retry.
+
+The queue in Application Support `Maple/Exports` renders one photo at a time and records rendering, prepared and completed states durably. Closing the sheet leaves an active export running. Reopening exposes per-photo results, cancellation, explicit resume, failed-only retry and renewed source/destination grants. Cancellation prevents publication after the current synchronous encoder finishes. Originals and externally changed staging files are preserved. A saved unreadable queue can be explicitly archived into private `Rejected` storage without resolving or deleting its referenced files.
+
+Publication uses exclusive staging, SHA-256 and device/inode ownership checks, atomic rename for replacement or exclusive hard-link publication for error/skip. The output directory is synchronized before acknowledging completion. After a process interruption, an existing final file is acknowledged only when both its bytes and inode match the recorded prepared file. Interrupted staging without completed proof requires review and a new attempt. The macOS acceptance gate still requires the shared P3 AVIF color-signaling correction tracked in #3580; an older native library cannot qualify that profile.
 
 ## Windows
 
@@ -79,3 +89,5 @@ Core tests render synthetic DNG data through all three encoders and both profile
 A native Windows release C ABI run exported that 12288×8192 source at full resolution with exposure +0.70, contrast +12, JPEG quality 92 and Display P3. On an Intel Core i7-1255U (12 logical CPUs, default Rayon pool), source read/decode/render/encode/fsync took 95.05 seconds. Peak process working set was 8.424 GiB; at least 4.636 GiB of system RAM remained available, and process residency fell to 31.33 MiB afterward. Pillow fully decoded the 2,805,163-byte JPEG, matched its 6,688-byte ICC to the fixed Display P3 golden, and confirmed 12288×8192 dimensions and no EXIF. The source SHA-256 remained unchanged. Source hashing warmed the filesystem cache; DLL loading and post-export validation are excluded from the timing. This is a single synthetic native feasibility measurement, not a cold-storage or real-camera performance qualification.
 
 Synthetic tests do not establish physical-camera RAW color quality, paired ACR parity, or a native performance budget across the reference scene set. Those remain fixture-dependent acceptance gates under #2438.
+
+A macOS release native queue run for #4113 exported two serial copies of the committed physical 12288×8192 qualification frame (`browser-100mp-3669.json` identity) at full resolution, JPEG quality 92 and Display P3. Both 29,092,231-byte files decoded at the requested dimensions, had identical SHA-256 hashes, and retained the original hash. The queue took 38.96 seconds total and the test process peaked at 14,503,411,712 bytes RSS. Concurrent builds and color qualification were active; these numbers establish loaded-machine feasibility, not a quiet-machine memory limit, slider budget or physical-camera color-parity acceptance. The test stages an owned copy and never writes beside the shared source. A separate real 16 MiB mounted-volume gate exhausted only private storage, verified the native queue's actionable out-of-space failure, freed its owned filler and completed failed-only retry with the original unchanged. macOS and iPhone simulator app builds passed. The staged-fixture UI test compiled, but the local UI runner timed out enabling automation mode before executing; native picker-to-queue UI completion remains an explicit local qualification gap.

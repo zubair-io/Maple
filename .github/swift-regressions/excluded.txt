@@ -189,3 +189,4 @@ WorkersFeedTests host talks to a host service (keychain, FileProvider, network, 
 WorkingSetListCacheTests slow render or decode workload that costs minutes on the runner
 
 PartialWhiteBalanceRenderTests gpu compares real Metal live pixels with core on committed calibrated RAW fixtures
+NativeExportMemoryTests slow Requires explicitly staged owned 100MP fixture; records native serial export memory under #4113.
