@@ -11,7 +11,7 @@ import {
 import { DEFAULT_EXPORT_RECIPE } from '../../projects/maple-common/src/lib/generated/export-recipe.generated';
 import type { Asset } from '../../projects/maple-common/src/lib/models/asset';
 
-async function regression(scenario: string) {
+async function originalFixtures() {
   const root = await navigator.storage.getDirectory();
   const name = 'export-originals-' + crypto.randomUUID();
   const folder = await root.getDirectoryHandle(name, { create: true });
@@ -36,6 +36,39 @@ async function regression(scenario: string) {
     index,
     sourceHandle,
   }));
+  return { root, name, folder, put, a, b, sidecar, xmp, targets };
+}
+
+async function startScenario(
+  scenario: string,
+  env: EnvironmentInjector,
+  fixture: Awaited<ReturnType<typeof originalFixtures>>,
+  recipe: typeof DEFAULT_EXPORT_RECIPE,
+) {
+  const { folder, put, targets, a } = fixture;
+  if (scenario === 'unrelated') {
+    await put('3.jpg', 'previous-unrelated-output');
+    targets.splice(1);
+  }
+  if (scenario === 'legacy-filtered') targets.splice(1);
+  if (scenario === 'legacy' || scenario === 'legacy-filtered' || scenario === 'missing') {
+    await saveExportQueue({
+      id: 'legacy',
+      recipe,
+      targets,
+      entries: targets.map((target) => ({ id: target.id, status: 'pending' })),
+      cancelled: false,
+      serverJobId: null,
+      directoryHandle: folder,
+      ...(scenario === 'missing' ? { protectedOriginals: [a, null] } : {}),
+    });
+    await env.get(ExportRecipeQueueService).resume();
+  } else await env.get(ExportRecipeQueueService).start(targets as unknown as Asset[], recipe);
+}
+
+async function regression(scenario: string) {
+  const fixture = await originalFixtures();
+  const { root, name, folder, a, b, sidecar, xmp, targets } = fixture;
   const recipe = {
     ...DEFAULT_EXPORT_RECIPE,
     destination: 'directory' as const,
@@ -86,24 +119,7 @@ async function regression(scenario: string) {
   });
   let env = environment();
   try {
-    if (scenario === 'unrelated') {
-      await put('3.jpg', 'previous-unrelated-output');
-      targets.splice(1);
-    }
-    if (scenario === 'legacy-filtered') targets.splice(1);
-    if (scenario === 'legacy' || scenario === 'legacy-filtered' || scenario === 'missing') {
-      await saveExportQueue({
-        id: 'legacy',
-        recipe,
-        targets,
-        entries: targets.map((target) => ({ id: target.id, status: 'pending' })),
-        cancelled: false,
-        serverJobId: null,
-        directoryHandle: folder,
-        ...(scenario === 'missing' ? { protectedOriginals: [a, null] } : {}),
-      });
-      await env.get(ExportRecipeQueueService).resume();
-    } else await env.get(ExportRecipeQueueService).start(targets as unknown as Asset[], recipe);
+    await startScenario(scenario, env, fixture, recipe);
     const first = await readExportQueue();
     await env.get(ExportRecipeQueueService).retryFailed();
     const retried = await readExportQueue();

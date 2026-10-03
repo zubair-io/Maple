@@ -4,7 +4,7 @@ import {
   type CycleSaved,
 } from './cycle-workflow-environment';
 import { control } from './self-hosted-editor-history';
-import { LibraryStore } from '../../projects/maple-common/src/lib/state/library-store.service';
+import { seedSelfHostedFixtures } from './self-hosted-fixture-catalog';
 import { LibraryStateService } from '../../projects/maple-common/src/lib/state/library-state.service';
 import { FolderAccessService } from '../../projects/maple-common/src/lib/folder-access/folder-access.service';
 import { EditorStateService } from '../../projects/maple-common/src/lib/editor/editor-state.service';
@@ -38,21 +38,7 @@ export async function lensGestureStorage(deployment: CycleDeployment, xml: strin
       }
       await library.openFolder(folder);
     } else {
-      const store = app.injector.get(LibraryStore);
-      store.registeredFolders.set([sources[0].library]);
-      store.assets.set(
-        sources.map((source) => ({
-          id: `workflow-fixture:${source.key}/photo.dng`,
-          filename: 'photo.dng',
-          folderId: source.library.id,
-          rating: 0,
-          flag: 'unflagged',
-          colorLabel: null,
-          keywords: [],
-          thumbnailGradient: '',
-          aspectRatio: 1,
-        })),
-      );
+      seedSelfHostedFixtures(app, sources);
     }
     const ids = folder
       ? ['a.dng', 'b.dng'].map(
