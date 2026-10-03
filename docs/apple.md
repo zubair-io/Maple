@@ -212,6 +212,21 @@ Full RAW export snapshots the live model and calls `maple_render_file_display_f3
 
 Serialization lives in the `XMPSerialization+*.swift` family, with `XMPPassthrough` preserving unknown XML byte-for-byte. The schema and canonical byte form are in [xmp-canonical-format](xmp-canonical-format.md).
 
+## Experimental Remove model bundle
+
+The Mac Remove tool imports all four generated experimental ONNX pins and the current architecture's pinned runtime into versioned Application Support. It verifies the complete set on import and restoration; the original import folder can then be removed. Paint, Smart paint and Background people remain experimental: successful installation does not qualify model quality or device performance.
+
+`tools/removal/mac_model_bundle.py` creates an offline testing folder from existing export outputs and the official runtime archive. It uses `removal-models.generated.json` and compiles the actual `PanoProvisionManifest.swift` with a small manifest printer, so the builder does not duplicate model or runtime pins. It requires Python 3.11+ and Xcode tools on the target Mac architecture:
+
+```bash
+python3 tools/removal/mac_model_bundle.py \
+  --exports /path/to/removal-probe-root \
+  --ort-archive /path/to/official-onnxruntime-mac.tgz \
+  --output /path/to/new-offline-folder
+```
+
+The output contains the five importable inference files, exact export records, upstream/transitive notices, official runtime notices and a SHA-256 inventory. The builder rejects incomplete or altered inputs, unsafe archive links and an existing output path; it publishes only after the whole staging folder verifies. Choose this folder using **Remove → Import model folder**. The current app installer copies inference files only, so retain the bundle's `provenance/` directory alongside it for review. The engineering review is recorded in `tools/removal/model-distribution-review.json`; checkpoint redistribution terms and full transitive scope remain open. No downloads, package signing, notarization or public-distribution approval are implied, and all release-qualified flags remain false (#1472 / #3941).
+
 ## File Provider and Quick Look
 
 The macOS and iOS File Provider extensions are both three-line subclasses (`FileProviderExtension`, `FileProviderExtensionIOS`) whose entire behaviour is `MapleCore.FileProviderExtensionCore`, an `NSFileProviderReplicatedExtension`. Configuration crosses the process boundary as JSON files in the App Group container at `~/Library/Group Containers/group.app.justmaple.aperture/FileProviderConfig/<domain>.json` — `UserDefaults(suiteName:)` was abandoned because CFPreferences rejects `kCFPreferencesAnyUser` with a container. Missing the App Group entitlement is survivable: the config falls back to the caches directory, logs an error, and the extension boots dormant.
