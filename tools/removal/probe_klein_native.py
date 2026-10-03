@@ -122,6 +122,7 @@ def run(
     output,
     float_input=None,
     memory_experiment=None,
+    prompt=PROMPT,
 ):
     source_u8, hole = native_context(image_path, mask_path, crop)
     native_dimensions(crop)
@@ -233,7 +234,7 @@ def run(
         pipe.vae.decode_packed_latents = checked_decode
         generated = pipe.generate_image(
             seed=SEED,
-            prompt=PROMPT,
+            prompt=prompt,
             image_path=output / "source.png",
             mask_path=output / "hole.png",
             num_inference_steps=STEPS,
@@ -279,7 +280,7 @@ def run(
         "pixel_mask_preprocessor_exact": True,
         "source_resampled": False,
         "selected_pixels": int(hole.sum()),
-        "prompt": PROMPT,
+        "prompt": prompt,
         "negative_prompt": "",
         "seed": SEED,
         "requested_steps": STEPS,

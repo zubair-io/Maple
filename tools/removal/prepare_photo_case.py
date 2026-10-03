@@ -43,7 +43,7 @@ def write_mask(path, values, context):
     )
 
 
-def prepare(case_id, raw_root, output, scene_probe):
+def prepare(case_id, raw_root, output, scene_probe, orientation_probe=None):
     manifest = Path(__file__).with_name("photo-research-cases.json")
     data = json.loads(manifest.read_text())
     if data["version"] != 1 or data["releaseQualified"]:
@@ -52,6 +52,8 @@ def prepare(case_id, raw_root, output, scene_probe):
     if len(matches) != 1:
         raise ValueError("Choose one recorded photographic research case")
     case = matches[0]
+    if "orientation" in case and orientation_probe is None:
+        raise ValueError("Portrait research case requires the shared orientation probe")
     pin = data["raws"][case["raw"]]
     if Path(pin["file"]).name != pin["file"]:
         raise ValueError("RAW research pin must name one local file")
@@ -120,6 +122,31 @@ def prepare(case_id, raw_root, output, scene_probe):
     Image.fromarray((planes[1] > 0).astype(np.uint8) * 255).save(output / "domain.png")
     source = np.fromfile(output / "input.f32", dtype="<f4").reshape(3, 1024, 1024)
     source.transpose(1, 2, 0).copy().tofile(output / "source-hwc.f32")
+    orientation = None
+    if "orientation" in case:
+        completed = subprocess.run(
+            [
+                str(orientation_probe),
+                str(output / "source-hwc.f32"),
+                "1024",
+                "1024",
+                str(case["orientation"]),
+                str(output / "orientation-verified.f32"),
+                "--raw",
+                str(raw),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        orientation = json.loads(completed.stdout)
+        if (
+            "blake3:" + orientation["raw_identity"]["original_blake3"]
+            != context["original"]
+        ):
+            raise ValueError(
+                "RAW orientation check differs from canonical source identity"
+            )
     if digest(raw) != pin["sha256"]:
         raise ValueError("Original RAW changed during photographic preparation")
     report = {
@@ -131,6 +158,7 @@ def prepare(case_id, raw_root, output, scene_probe):
         "hole_pixels": int(planes[0].sum()),
         "coverage_pixels": int((planes[1] > 0).sum()),
         "protected_pixels": int((protected > 0).sum()),
+        "orientation": orientation,
         "releaseQualified": False,
     }
     (output / "preparation.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -142,5 +170,8 @@ if __name__ == "__main__":
     parser.add_argument("--case", required=True)
     for name in ["raw-root", "output", "scene-probe"]:
         parser.add_argument(f"--{name}", type=Path, required=True)
+    parser.add_argument("--orientation-probe", type=Path)
     args = parser.parse_args()
-    prepare(args.case, args.raw_root, args.output, args.scene_probe)
+    prepare(
+        args.case, args.raw_root, args.output, args.scene_probe, args.orientation_probe
+    )

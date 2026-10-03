@@ -3,7 +3,7 @@
   "issue": 3941,
   "epic": 1472,
   "releaseQualified": false,
-  "scope": "Public RAW photographic research fixtures. RAWs remain external and originals are read-only. Two native linear-calibration cases; night-tiger is acquisition/orientation triage only and has no claimed completed removal case. No photographic release acceptance budget or broad corpus claim.",
+  "scope": "Public RAW photographic research fixtures. RAWs remain external and originals are read-only. Three native linear-calibration cases including portrait Paint; night-tiger-poster requires upright EXIF8 inference and exact canonical inverse. No photographic release acceptance budget or broad corpus claim.",
   "raws": {
     "coast": {
       "file": "DSC06078.ARW",
@@ -65,6 +65,23 @@
       "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
       "annotation": "Paint rectangle over blue-coat shopper/bag and part of adjacent dark-coated shopper. Protected left foreground; partial unselected person fragments are a known annotation limit, not automatic mask truth.",
       "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy."
+    },
+    {
+      "id": "night-tiger-poster",
+      "raw": "night-tiger",
+      "orientation": 8,
+      "window_xywh": [2800, 1650, 1024, 1024],
+      "intent_rects_xywh": [[261, 267, 267, 143]],
+      "protected_rects_xywh": [
+        [0, 435, 1024, 589],
+        [610, 0, 414, 435]
+      ],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+      "expected_model_input_blake3": "blake3:79cd4e40b752cc92958c3eedd5b0fa7d444053c7fc58fedf98e8fed0907b7798",
+      "annotation": "Complete left wall portrait poster. Canonical rectangle is the exact EXIF8 inverse of upright pixel-edge rectangle [267,496,143,267]. Adjacent posters and upper scene protected.",
+      "annotation_scope": "Manual research Paint rectangle; no automatic silhouette, semantic role, text reconstruction, person model release, hidden-content ground truth or shipping mask policy claim."
     }
   ]
 }
