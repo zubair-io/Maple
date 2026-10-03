@@ -68,7 +68,9 @@ recognizing an accepted UUID does not implicitly adopt another client's newer
 model. Ordinary saves retry their identical full document. Named variants bind a
 writer to one immutable variant UUID and a session-owned confirmed XMP file for
 render/export. This temporary render file is refreshed only after confirmed
-publication or reads and is removed with its owner (#4065).
+publication or reads and is removed with its owner (#4065). Adjustment
+publications retain the adopted document's validated removal records; explicit
+workflow restores publish the complete selected snapshot (#3984).
 
 The Apple `RemovalSession` retains the actual detector/SAM source masks for all detected people during one open authoring context. The key is that immutable photo/model context plus the stable detector IDs; source/model reopening, new detection, mode change, or closing the tool drops the masks. Checkbox edits keep these raw masks and project the current selection/protection into the overlay on the editor actor; Remove or Refine then applies those choices to the authoring selection. This is one transient detection set (at most the shared detector proposal limit), not a disk cache or slider-loop allocation; accepted companion assets remain separate.
 
@@ -243,18 +245,18 @@ With `search_engine = in-process`, the search child (#4463) keeps a Tantivy keyw
 
 ### HTTP caching
 
-| Route                                         | ETag                                     | `Cache-Control`                                                                            |
-| --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `GET /api/thumb/:slug/*` (indexed)            | SHA-1 of the cached response bytes       | `private, max-age=0, must-revalidate`                                                      |
-| `GET /api/thumb/:slug/*` (pre-index fallback) | SHA-1 of the cached response bytes       | `private, max-age=0, must-revalidate`                                                      |
-| `GET /api/preview/:slug/*`                    | `"<mtimeMs>-<size>"` of the preview file | `private, max-age=0, must-revalidate`                                                      |
-| `GET /api/fs/raw` (originals)                 | `"<mtimeMs>-<size>"`                     | `private, max-age=86400`                                                                   |
-| `GET /api/assets/:id/histogram`               | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`    | `private, max-age=300`                                                                     |
-| Original streaming (`/api/image/*`)           | `"<mtimeMs>-<size>"`                     | `private, max-age=0, must-revalidate`                                                      |
-| Video streaming (`/api/video/*`)              | none                                     | `private, max-age=0, must-revalidate`                                                      |
-| Static Angular bundle                         | none                                     | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
-| `GET /api/removal/xmp`                           | none; exact revision is in the response body       | `private, no-store`                                                                        |
-| `GET /api/removal/companion`                     | none; Rust verifies the content-addressed filename | `private, no-store`                                                                        |
+| Route                                         | ETag                                               | `Cache-Control`                                                                            |
+| --------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GET /api/thumb/:slug/*` (indexed)            | SHA-1 of the cached response bytes                 | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/thumb/:slug/*` (pre-index fallback) | SHA-1 of the cached response bytes                 | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/preview/:slug/*`                    | `"<mtimeMs>-<size>"` of the preview file           | `private, max-age=0, must-revalidate`                                                      |
+| `GET /api/fs/raw` (originals)                 | `"<mtimeMs>-<size>"`                               | `private, max-age=86400`                                                                   |
+| `GET /api/assets/:id/histogram`               | `"<rawMtimeMs>-<xmpMtimeMs \| none>"`              | `private, max-age=300`                                                                     |
+| Original streaming (`/api/image/*`)           | `"<mtimeMs>-<size>"`                               | `private, max-age=0, must-revalidate`                                                      |
+| Video streaming (`/api/video/*`)              | none                                               | `private, max-age=0, must-revalidate`                                                      |
+| Static Angular bundle                         | none                                               | HTML `no-cache`; content-hashed `.js`/`.css`/`.wasm` `public, max-age=31536000, immutable` |
+| `GET /api/removal/xmp`                        | none; exact revision is in the response body       | `private, no-store`                                                                        |
+| `GET /api/removal/companion`                  | none; Rust verifies the content-addressed filename | `private, no-store`                                                                        |
 
 Folder and legacy directory listings (`/api/folders`, `/api/fs`) set no `Cache-Control` but do emit a body-hash ETag with a 304 short-circuit. Unified `/api/folder/:slug[/...]` listings likewise emit a body-hash ETag, with `private, max-age=0, must-revalidate`. The hash covers the returned page, including original size/mtime, indexed EXIF/identity, and paired sidecar size/mtime; a matching `If-None-Match` returns 304. Clients cache each page by its complete URL (including cursor/limit). The body is deterministically ordered before hashing, so filesystem enumeration order does not cause needless refreshes.
 

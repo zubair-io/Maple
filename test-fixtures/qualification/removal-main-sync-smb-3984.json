@@ -1,0 +1,88 @@
+{
+  "issue": 3984,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T10:52:57.975254+00:00",
+  "branch": "codex/ai-object-removal",
+  "rebased_onto": "e28850df710508bdff94ec8c61b8ff0b87e808a1",
+  "parent_commit": "9c6e3185366d65b36128c76c07f40fbe4ef83bfe",
+  "pre_rebase_backup": "codex/ai-object-removal-pre-main-20261003",
+  "preserved_feature_commits": 110,
+  "main_commits_integrated": 15,
+  "releaseQualified": false,
+  "goal_status": "active; incomplete",
+  "changes": [
+    "Preserved main's local SMB dependency and new publication/recovery behavior while replaying all removal commits.",
+    "Retained genuine-original comparison and GPU overlay state in the extracted web canvas drawing helper.",
+    "Adjustment publications retain source-owned removal records; complete workflow restores remain explicit.",
+    "Confirmed SMB save caches refresh from the exact adopted publication, preserving stale-document conflict protection."
+  ],
+  "checks": {
+    "native": {
+      "log": "/tmp/maple-main-sync-swift-20261003.log",
+      "sha256": "7c0f03c48bc10727292d433949f8422e3d7a4a1ab6747ecd61b903863005c4c2",
+      "passed": 99,
+      "failed": 0,
+      "skipped": 0,
+      "real_smb": true
+    },
+    "web": {
+      "log": "/tmp/maple-main-sync-web-20261003.log",
+      "sha256": "f846f1794b6838bf13f488d082a317bdff41fe28c4ec6d9f636c5703d033f93b",
+      "passed": 25,
+      "failed": 0,
+      "files": 4
+    },
+    "types": {
+      "log": "/tmp/maple-main-sync-types-20261003.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "success": true
+    },
+    "mac_build": {
+      "log": "/tmp/maple-main-sync-mac-20261003.log",
+      "sha256": "1ab7107a75621e19656787c9cf38e26e163d92d46bb26413daa782f2705323a3",
+      "success": true
+    },
+    "xcframework": {
+      "log": "/tmp/maple-main-sync-xcframework-20261003.log",
+      "sha256": "8dbe3a9e0ffd18443ff0272eb72c42d243771945d916205eb634b739838043c3",
+      "verified_symbols": 170
+    },
+    "file_budget": {
+      "log": "/tmp/maple-main-sync-budget-20261003.log",
+      "sha256": "01ce916aafac1801a8ad56aba2b47925bcf6aa7ca51ea889eaf08de6333ca763",
+      "hard_violations": 0
+    },
+    "headroom": {
+      "log": "/tmp/maple-main-sync-headroom-20261003.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+      "success": true
+    }
+  },
+  "source_sha256": {
+    ".github/swift-regressions/run.txt": "764a35db88dfe60941e9557e53cebbd87ea8521787286dac5db5a104c0b20598",
+    "src/apple/Packages/MapleCore/Package.swift": "26ba454a8e41456aa37b5412681e46340639b728692f7328121ae4a26b36185c",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/SMBModelPublication.swift": "35c732b35d6553f50f0e89a07473bf36e5ff2e59ea61ae9511288e3ece8406a1",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/SMBSidecarStore.swift": "f79e1388c9ed5a6fb5dab488f79108c4b3d1a39167038ce241b1a6a09ba76a8b",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SMBRemovalPublicationTests.swift": "7d778eb8b2e176d55203f952dd8db2af3b8cd2be0717bcad43f1e6e72f00caf3",
+    "src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.draw2d.ts": "06759347f494f7d851af98bfd12f3832176482fd427c24215081bb427b520dc5",
+    "src/web/projects/maple-common/src/lib/components/image-canvas/image-canvas.component.ts": "f06937a06f7dda3dce0055f13d5cf5d86a07730064ab9b18b76a9181c315dac5"
+  },
+  "mac_app": "/tmp/maple-main-sync-mac-20261003/Build/Products/Debug/Maple.app",
+  "maintenance": {
+    "automation_id": "keep-ai-removal-branch-current",
+    "interval": "hourly",
+    "status": "ACTIVE",
+    "dirty_work": "defer; preserve uncommitted work",
+    "push": false,
+    "merge": false
+  },
+  "limitations": [
+    "99 targeted native tests; 25 web tests; no fresh full CI, color corpus, or hardware performance qualification.",
+    "Mac app built, not launched or inspected in this checkpoint.",
+    "Library TypeScript no-emit check disabled declaration and declarationMap; declaration inference errors in existing test helpers were not changed.",
+    "Initial web test invocation used incorrect project casing; rerun with Maple-common passed.",
+    "Initial Mac invocation used the stale documented Maple Exposure name; actual Maple scheme passed.",
+    "No model admission, app generation quality, or larger native context claim.",
+    "Concurrent Xcode pre-action repeated the stale framework rebuild before its first symbol verification stamp was written; final framework check is current."
+  ]
+}

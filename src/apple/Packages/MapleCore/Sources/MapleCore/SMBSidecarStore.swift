@@ -131,6 +131,9 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
       // That document was not the model adopted by this editor: subsequent stale
       // edits must still fail rather than silently replacing the other client.
       adoptedXML = edit.publishedDocument
+      if let cached, let adoptedXML, edit.represents(model: cached.0, culling: cached.1) {
+        self.cached = try XMPParser.parse(adoptedXML)
+      }
       pendingEdits.removeAll { $0.id == edit.id }
       try renderSidecar.write(xml)
     }
