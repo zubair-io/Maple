@@ -1,0 +1,2638 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T12:37:31.744624+00:00",
+  "parent_commit": "bc731e8bf4213cb440ea406abbcc9120e375cb63",
+  "releaseQualified": false,
+  "goal_status": "active; incomplete",
+  "experiment": "Broaden only the shared-core generation hole, preserving exact refined intent, accepted blend coverage, protected instances and canonical native RAW input.",
+  "control": {
+    "record": "test-fixtures/qualification/removal-klein-person-conditioning-3941.json",
+    "sha256": "4e658a4c0c5e070b65449768d289273fb9d45f6acf99d28e4c945d283d83bd6b",
+    "route": "background-only",
+    "hole_radius": 8,
+    "hole_pixels": 101062,
+    "reconstruction": "Generated a replacement person on the original refined silhouette."
+  },
+  "protocol": {
+    "variation": "Native Euclidean hole radius64 and192 via existing shared Rust GenerationMaskRequest. Fringe remains4; accepted coverage stays95337 pixels, protected302076 pixels.",
+    "generation": "Same pinned Klein4B8bit learned tensors/runtime, background-only prompt, seed3941, four steps, guidance1, harmonic selected-source erasure, cache/phase ownership and decoder barriers.",
+    "source": "No original writes, resampling or u8 source quantization. Context/source bytes and encoding recipe identical to radius8.",
+    "scope": "Generation and conditioning regions expand together; this evaluates the combined broader-hole protocol, not separate causal attribution to erasure or latent blending."
+  },
+  "input_checks": {
+    "path": "/tmp/maple-removal-bologna-wide-hole-input-checks-20261003.json",
+    "sha256": "f92f4d405fb255ddbd1e5878baff400b6696ea72bbac0d26d0b30738d85a8b76",
+    "report": [
+      {
+        "hole_radius": 64,
+        "hole_pixels": 173966,
+        "accepted_coverage_bits_unchanged": true,
+        "intent_protection_and_source_bytes_unchanged": true,
+        "base_hole_fully_contained": true
+      },
+      {
+        "hole_radius": 192,
+        "hole_pixels": 385362,
+        "accepted_coverage_bits_unchanged": true,
+        "intent_protection_and_source_bytes_unchanged": true,
+        "base_hole_fully_contained": true
+      }
+    ]
+  },
+  "records": {
+    "64": {
+      "preparation": {
+        "path": "/tmp/maple-removal-bologna-person-hole-64-context-20261003/preparation.json",
+        "sha256": "3bb1188874cdbcef19c049d9f718490e2215ba580e7c530e8d70c762cc4be7cd",
+        "report": {
+          "case": {
+            "id": "bologna-person-hole-64",
+            "raw": "bologna",
+            "window_xywh": [
+              2850,
+              1300,
+              1024,
+              1024
+            ],
+            "hole_radius": 64,
+            "fringe_radius": 4,
+            "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+            "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 64 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+            "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+            "orientation": 1,
+            "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+            "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+            "selection_provenance": {
+              "intent_mask": {
+                "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+                "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+              },
+              "protected_mask": {
+                "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+                "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+              },
+              "detector_report": {
+                "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+                "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+              },
+              "selector_report": {
+                "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+                "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+              },
+              "protection_report": {
+                "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+                "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+              },
+              "display_proxy": {
+                "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+                "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+              }
+            }
+          },
+          "manifest_sha256": "c321a0dd4c8e8cbcff7c39bb9c2af0eb03b8be4f2afdfcf023d2f8dc6331a405",
+          "RAW_sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+          "scene_probe_sha256": "5982953c2ff10a1b578822269c7e3dc367e418fd65c4898f9bb8c1b51868fb73",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+            "encoding": {
+              "version": 1,
+              "low": -1.6838237074610694,
+              "span": 5.260952918861613
+            },
+            "release_qualified": false
+          },
+          "hole_pixels": 173966,
+          "coverage_pixels": 95337,
+          "protected_pixels": 302076,
+          "orientation": {
+            "height": 1024,
+            "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "releaseQualified": false
+        }
+      },
+      "native": {
+        "path": "/tmp/maple-removal-bologna-person-hole-64-native-20261003/report.json",
+        "sha256": "a0f0fb392de2b8e1d3d371006cef67af4f6b92bc05d8328391da707a86dff218",
+        "report": {
+          "orientation": 1,
+          "instruction": "background-only",
+          "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+          "conditioning": {
+            "method": "native-harmonic-known-boundary-v1",
+            "selected_source_samples_used": false,
+            "selected_pixels": 173966,
+            "changed_selected_samples": 521898,
+            "known_source_bits_changed": 0,
+            "resampled": false,
+            "clipped": false,
+            "range": [
+              0.014999999664723873,
+              0.9850000143051147
+            ],
+            "solver": {
+              "unknown_pixels": 173966,
+              "boundary_edges": 2266,
+              "matrix_nonzeros": 867564,
+              "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+              "channels": [
+                {
+                  "relative_residual": 1.1741481781718983e-09,
+                  "iterations": 6
+                },
+                {
+                  "relative_residual": 1.1678814608901874e-09,
+                  "iterations": 6
+                },
+                {
+                  "relative_residual": 1.1660604598325098e-09,
+                  "iterations": 6
+                }
+              ],
+              "max_absolute_correction": 0.6142457573281168,
+              "range": [
+                0.014999999664723873,
+                0.9850000143051147
+              ],
+              "outside_float_bits_changed": 0,
+              "source_inside_domain_used_for_rhs": false,
+              "clipped": false
+            },
+            "scope": "Inference conditioning only. No original, canonical anchor, coverage, protection or accepted output is changed."
+          },
+          "conditioned_input_sha256": "c49889c67c46a526271ec112b30e0df3ac91f5bca3a88516199264129ce0b1b0",
+          "orientation_metadata": {
+            "height": 1024,
+            "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "preparation_sha256": "3bb1188874cdbcef19c049d9f718490e2215ba580e7c530e8d70c762cc4be7cd",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+            "encoding": {
+              "version": 1,
+              "low": -1.6838237074610694,
+              "span": 5.260952918861613
+            },
+            "release_qualified": false
+          },
+          "context_sha256": "717cf1fe466d6a2e353c6893eacc42d4abfb84e7b82d927bfaee3e75e6657996",
+          "canonical_input_sha256": "76aa4174dc67d7175f933b73ea8966fc76640a9ff1c8192725b52e17e8eecf4c",
+          "canonical_mask_sha256": "84ac5a1f1caeba5369d657599921eab559951c9378fb1d3fb5d9961090716b9b",
+          "shared_orientation_probe_sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950",
+          "canonical_extent_hw": [
+            1024,
+            1024
+          ],
+          "upright_extent_hw": [
+            1024,
+            1024
+          ],
+          "source": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "mask": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "54e8e6e362ad0cc75d0562c66e25dd47a1f761cb9224eb9c4490c48c42acbd6c",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "54e8e6e362ad0cc75d0562c66e25dd47a1f761cb9224eb9c4490c48c42acbd6c",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "54e8e6e362ad0cc75d0562c66e25dd47a1f761cb9224eb9c4490c48c42acbd6c",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "54e8e6e362ad0cc75d0562c66e25dd47a1f761cb9224eb9c4490c48c42acbd6c",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "outputs": {
+            "prediction": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "0df67c8ee963e36bd49810d2b8b8003e7eeb2420a0b0f66ee6cff4bcd1522d24",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "0df67c8ee963e36bd49810d2b8b8003e7eeb2420a0b0f66ee6cff4bcd1522d24",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true
+            },
+            "decoder-unclipped": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "40f480669b04d3d657f2be0b41447689ad01c88af5be8bd8afa38a729f883a2e",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "40f480669b04d3d657f2be0b41447689ad01c88af5be8bd8afa38a729f883a2e",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true
+            }
+          },
+          "model_report_sha256": "4a80b58b170ad14dacfb0dff3f0283c65e9d796de53a9f7f7baee7601c37d636",
+          "result": {
+            "sha256": "8bce37612bd1243c29103ce2eb9469b3ae207430ed58dee6b485d526af341aea",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "prediction_sha256": "79a11e446b4a2d99514793b2fb9b07f8cf0d3fa1c610b764e6cda916d61a68b4",
+          "decoder_unclipped_sha256": "c02b80e7c2e8161638dfe3b27c65827b8711c0ed4cea14f6da876e5b6b655d8e",
+          "source_resampled": false,
+          "model_input_quantized_to_u8": false,
+          "releaseQualified": false,
+          "scope": "Native Paint research; selection/EXIF provenance, RAW inverse, grades, subject protection and photographic acceptance require separate evidence."
+        }
+      },
+      "model": {
+        "path": "/tmp/maple-removal-bologna-person-hole-64-native-20261003/generated/report.json",
+        "sha256": "4a80b58b170ad14dacfb0dff3f0283c65e9d796de53a9f7f7baee7601c37d636",
+        "report": {
+          "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+          "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+          "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+          "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+          "strict_loaded_tensors": [
+            {
+              "component": "vae",
+              "tensors": 266
+            },
+            {
+              "component": "transformer",
+              "tensors": 387
+            },
+            {
+              "component": "text_encoder",
+              "tensors": 905
+            }
+          ],
+          "quantization": 8,
+          "source_sha256": "04c88460e77073dd069d88d1f1afa0755e9437f67dbde1b47e77a2f5b076b955",
+          "float_input_sha256": "c49889c67c46a526271ec112b30e0df3ac91f5bca3a88516199264129ce0b1b0",
+          "model_input_quantized_to_u8": false,
+          "model_input_tensor_samples_exact": true,
+          "mask_sha256": "84ac5a1f1caeba5369d657599921eab559951c9378fb1d3fb5d9961090716b9b",
+          "crop_xywh": [
+            0,
+            0,
+            1024,
+            1024
+          ],
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_preprocessor_samples_exact": true,
+          "pixel_mask_preprocessor_exact": true,
+          "visual_mask_reference": false,
+          "visual_mask_reference_vae_verified": false,
+          "visual_mask_reference_sha256": null,
+          "source_resampled": false,
+          "selected_pixels": 173966,
+          "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+          "negative_prompt": "",
+          "seed": 3941,
+          "requested_steps": 4,
+          "actual_steps": 4,
+          "guidance": 1.0,
+          "verification_ms": 3995.379666099325,
+          "model_open_ms": 1595.4414999578148,
+          "inference_ms": 13955.11804195121,
+          "steps": [
+            {
+              "step": 1,
+              "scheduler_index": 0,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 3014.1716671641916,
+              "mlx_allocated_bytes": 4299794714,
+              "mlx_cache_bytes": 719684608
+            },
+            {
+              "step": 2,
+              "scheduler_index": 1,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 5611.478792037815,
+              "mlx_allocated_bytes": 4299794712,
+              "mlx_cache_bytes": 981793818
+            },
+            {
+              "step": 3,
+              "scheduler_index": 2,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 8517.112334026024,
+              "mlx_allocated_bytes": 4298221714,
+              "mlx_cache_bytes": 597435534
+            },
+            {
+              "step": 4,
+              "scheduler_index": 3,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 12223.846292123199,
+              "mlx_allocated_bytes": 4298746138,
+              "mlx_cache_bytes": 593765390
+            }
+          ],
+          "decoder_unclipped_range": [
+            -0.79296875,
+            0.96484375
+          ],
+          "decoder_unclipped_sha256": "c02b80e7c2e8161638dfe3b27c65827b8711c0ed4cea14f6da876e5b6b655d8e",
+          "prediction_sha256": "79a11e446b4a2d99514793b2fb9b07f8cf0d3fa1c610b764e6cda916d61a68b4",
+          "result": {
+            "sha256": "8bce37612bd1243c29103ce2eb9469b3ae207430ed58dee6b485d526af341aea",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "mlx_peak_allocated_bytes": 9974666660,
+          "process_peak_resident_bytes": 9228632064,
+          "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+          "toolchain": {
+            "mlx": "0.32.3",
+            "mlx-gen": "0.38.0",
+            "numpy": "2.4.6",
+            "pillow": "12.3.0",
+            "transformers": "5.18.0"
+          },
+          "releaseQualified": false,
+          "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+          "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+          "memory_experiment": {
+            "mode": "release-blocks-small-cache",
+            "rows": [
+              {
+                "phase": "loaded",
+                "elapsed_ms": 5709.254749817774,
+                "mlx_active_bytes": 8559746382,
+                "mlx_cache_bytes": 8616,
+                "mlx_peak_active_bytes": 8559746382,
+                "runtime_memory": {
+                  "phase": "loaded",
+                  "timestamp": 1791029837.375365,
+                  "pid": 91051,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 8559746382,
+                  "mlx_peak_memory_bytes": 8559746382,
+                  "mlx_cache_memory_bytes": 8616,
+                  "process_rss_bytes": 9220374528,
+                  "process_peak_rss_bytes": 9221586944,
+                  "darwin_physical_footprint_bytes": 9190038728,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 9190038728
+                }
+              },
+              {
+                "phase": "prompt_encoded",
+                "elapsed_ms": 5933.195249876007,
+                "mlx_active_bytes": 8567620942,
+                "mlx_cache_bytes": 960846776,
+                "mlx_peak_active_bytes": 9501214298,
+                "runtime_memory": {
+                  "phase": "prompt_encoded",
+                  "timestamp": 1791029837.604795,
+                  "pid": 91051,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 8567620942,
+                  "mlx_peak_memory_bytes": 9501214298,
+                  "mlx_cache_memory_bytes": 960846776,
+                  "process_rss_bytes": 9228632064,
+                  "process_peak_rss_bytes": 9228632064,
+                  "darwin_physical_footprint_bytes": 10319257448,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10319257448
+                }
+              },
+              {
+                "phase": "text_encoder_released",
+                "elapsed_ms": 5996.754499850795,
+                "mlx_active_bytes": 4291790926,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9501214298,
+                "runtime_memory": {
+                  "phase": "text_encoder_released",
+                  "timestamp": 1791029837.664238,
+                  "pid": 91051,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 4291790926,
+                  "mlx_peak_memory_bytes": 9501214298,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 5341888512,
+                  "process_peak_rss_bytes": 9228632064,
+                  "darwin_physical_footprint_bytes": 5614687464,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10319257448
+                }
+              },
+              {
+                "phase": "denoised",
+                "elapsed_ms": 18039.293207926676,
+                "mlx_active_bytes": 4297173138,
+                "mlx_cache_bytes": 595338390,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "denoised",
+                  "timestamp": 1791029849.7068648,
+                  "pid": 91051,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 4297173138,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 595338390,
+                  "process_rss_bytes": 4960632832,
+                  "process_peak_rss_bytes": 9228632064,
+                  "darwin_physical_footprint_bytes": 6166320120,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10319257448
+                }
+              },
+              {
+                "phase": "transformer_released",
+                "elapsed_ms": 18107.286415994167,
+                "mlx_active_bytes": 179383410,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "transformer_released",
+                  "timestamp": 1791029849.772717,
+                  "pid": 91051,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 179383410,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 842776576,
+                  "process_peak_rss_bytes": 9228632064,
+                  "darwin_physical_footprint_bytes": 1290750160,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10319257448
+                }
+              },
+              {
+                "phase": "before_decode",
+                "elapsed_ms": 18132.73216597736,
+                "mlx_active_bytes": 179383410,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "before_decode",
+                  "timestamp": 1791029849.7975302,
+                  "pid": 91051,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 179383410,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 842776576,
+                  "process_peak_rss_bytes": 9228632064,
+                  "darwin_physical_footprint_bytes": 1290750160,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10319257448
+                }
+              },
+              {
+                "phase": "after_decode",
+                "elapsed_ms": 19734.48395798914,
+                "mlx_active_bytes": 185674866,
+                "mlx_cache_bytes": 819990920,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "after_decode",
+                  "timestamp": 1791029851.400892,
+                  "pid": 91051,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 185674866,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 819990920,
+                  "process_rss_bytes": 842891264,
+                  "process_peak_rss_bytes": 9228632064,
+                  "darwin_physical_footprint_bytes": 1796425936,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10319257448
+                }
+              }
+            ],
+            "cache_limit_changed": true,
+            "explicit_cache_limit_bytes": 1000000000,
+            "peak_reset_during_inference": false,
+            "native_math_changed": false,
+            "instance_consumed": true,
+            "decoder_barriers": {
+              "rows": [
+                {
+                  "block": "conv_in",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 6.728041917085648,
+                  "mlx_active_bytes": 198258034,
+                  "mlx_cache_bytes": 73662608,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 12.693916913121939,
+                  "mlx_active_bytes": 248589818,
+                  "mlx_cache_bytes": 490840084,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.attention",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 29.61774985305965,
+                  "mlx_active_bytes": 231812466,
+                  "mlx_cache_bytes": 971038878,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 5.4845421109348536,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 432119830,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 6.554374936968088,
+                  "mlx_active_bytes": 215035250,
+                  "mlx_cache_bytes": 516006046,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 4.788625054061413,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 482451478,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet2",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 4.675291944295168,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 482451478,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.sample0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 17.32316706329584,
+                  "mlx_active_bytes": 315698678,
+                  "mlx_cache_bytes": 945020954,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 42.47425007633865,
+                  "mlx_active_bytes": 315698546,
+                  "mlx_cache_bytes": 993661076,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 40.21775000728667,
+                  "mlx_active_bytes": 382807410,
+                  "mlx_cache_bytes": 980832398,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet2",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 33.95491698756814,
+                  "mlx_active_bytes": 382807538,
+                  "mlx_cache_bytes": 1032998920,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.sample0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 84.64304194785655,
+                  "mlx_active_bytes": 584134006,
+                  "mlx_cache_bytes": 1089667076,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet0",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 144.83104087412357,
+                  "mlx_active_bytes": 651242998,
+                  "mlx_cache_bytes": 1006635016,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet1",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 84.2934160027653,
+                  "mlx_active_bytes": 718351730,
+                  "mlx_cache_bytes": 1024755716,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet2",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 91.11670800484717,
+                  "mlx_active_bytes": 718351734,
+                  "mlx_cache_bytes": 1050839048,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.sample0",
+                  "output_nchw": [
+                    1,
+                    256,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 150.21720784716308,
+                  "mlx_active_bytes": 1121004918,
+                  "mlx_cache_bytes": 1050836996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet0",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 308.6913339793682,
+                  "mlx_active_bytes": 986787186,
+                  "mlx_cache_bytes": 1073745928,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet1",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 216.83824993669987,
+                  "mlx_active_bytes": 1389444470,
+                  "mlx_cache_bytes": 1018068996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet2",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 208.76995800063014,
+                  "mlx_active_bytes": 1389444470,
+                  "mlx_cache_bytes": 1018068996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "conv_norm_out",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 74.38841694965959,
+                  "mlx_active_bytes": 718351730,
+                  "mlx_cache_bytes": 1073745924,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "conv_out",
+                  "output_nchw": [
+                    1,
+                    3,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 5.9836250729858875,
+                  "mlx_active_bytes": 456207730,
+                  "mlx_cache_bytes": 549458056,
+                  "mlx_peak_active_bytes": 9974666660
+                }
+              ],
+              "class_methods_restored": true,
+              "resized": false,
+              "tiled": false,
+              "precision_changed": false,
+              "equality_scope": "Graph materialization control only; compare actual pre-clipped native output bytes before claiming pixel equality."
+            },
+            "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+          }
+        }
+      },
+      "boundary_correction": {
+        "path": "/tmp/maple-removal-bologna-person-hole-64-seam-20261003/report.json",
+        "sha256": "c1326071caacde97d85a64d382a0eb895fd5cb4a02b98199a869fdd08ce35db2",
+        "report": {
+          "unknown_pixels": 95337,
+          "boundary_edges": 1738,
+          "matrix_nonzeros": 474947,
+          "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+          "channels": [
+            {
+              "relative_residual": 6.037071322446789e-09,
+              "iterations": 5
+            },
+            {
+              "relative_residual": 5.631472678621245e-09,
+              "iterations": 5
+            },
+            {
+              "relative_residual": 7.3832530418777955e-09,
+              "iterations": 5
+            }
+          ],
+          "max_absolute_correction": 0.2715808325051638,
+          "range": [
+            0.014999999664723873,
+            0.9850000143051147
+          ],
+          "outside_float_bits_changed": 0,
+          "source_inside_domain_used_for_rhs": false,
+          "clipped": false,
+          "source_sha256": "eaa7030fef7be6fca16b0a0c5615e878760943ac0dd529166561ea5e30964d27",
+          "prediction_sha256": "79a11e446b4a2d99514793b2fb9b07f8cf0d3fa1c610b764e6cda916d61a68b4",
+          "domain_sha256": "1cec81df42f31f5b9f5232e51e13c0a247f69537699dba85e1dce73ec2d53e2e",
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_resampled": false,
+          "correction_ms": 246.67933420278132,
+          "model_domain_valid": true,
+          "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+          "correction_sha256": "983343bbcc71dfce6443cb984bd76564621f1f06dce67f51935538718721e477",
+          "process_peak_resident_bytes": 271990784,
+          "toolchain": {
+            "pyamg": "5.3.0",
+            "scipy": "1.17.1",
+            "numpy": "2.4.6"
+          },
+          "releaseQualified": false,
+          "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+        }
+      },
+      "RAW_bake": {
+        "path": "/tmp/maple-removal-bologna-person-hole-64-bake-20261003/report.json",
+        "sha256": "ccdfd6572cb351cd25e3ec9a894c4bd711cfb55919df6b9403bec6b0b1c5d33b",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "low": -1.6838237074610694,
+            "span": 5.260952918861613,
+            "version": 1
+          },
+          "generation_masks": "blake3:ac7233291b75f79acedcdf877008364130b1364b037cdf5058c1b1304521d630",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2250.5933750000004
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2250.5933750000004
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.5262514352798462e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1257.686583
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.5262514352798462e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1257.686583
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1195.54225
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1195.54225
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1145.496
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1145.496
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001221001148223877,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1164.514167
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001221001148223877,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1164.514167
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1201.190625
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1201.190625
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1262.510375
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1262.510375
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009768009185791016,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1379.731792
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009768009185791016,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1379.731792
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1278.86675
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1278.86675
+            }
+          ],
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "model_result": "blake3:5e3c16bf2530edf4a793293849238b8135ebf0ee5318a89ba566df11b2aeaa8a",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      }
+    },
+    "192": {
+      "preparation": {
+        "path": "/tmp/maple-removal-bologna-person-hole-192-context-20261003/preparation.json",
+        "sha256": "c5f52d528997df5296253177dac1908f23a2c9223d11edcd172a7b63e8e352ec",
+        "report": {
+          "case": {
+            "id": "bologna-person-hole-192",
+            "raw": "bologna",
+            "window_xywh": [
+              2850,
+              1300,
+              1024,
+              1024
+            ],
+            "hole_radius": 192,
+            "fringe_radius": 4,
+            "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+            "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 192 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+            "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+            "orientation": 1,
+            "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+            "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+            "selection_provenance": {
+              "intent_mask": {
+                "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+                "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+              },
+              "protected_mask": {
+                "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+                "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+              },
+              "detector_report": {
+                "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+                "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+              },
+              "selector_report": {
+                "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+                "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+              },
+              "protection_report": {
+                "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+                "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+              },
+              "display_proxy": {
+                "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+                "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+              }
+            }
+          },
+          "manifest_sha256": "c321a0dd4c8e8cbcff7c39bb9c2af0eb03b8be4f2afdfcf023d2f8dc6331a405",
+          "RAW_sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+          "scene_probe_sha256": "5982953c2ff10a1b578822269c7e3dc367e418fd65c4898f9bb8c1b51868fb73",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+            "encoding": {
+              "version": 1,
+              "low": -1.6838237074610694,
+              "span": 5.260952918861613
+            },
+            "release_qualified": false
+          },
+          "hole_pixels": 385362,
+          "coverage_pixels": 95337,
+          "protected_pixels": 302076,
+          "orientation": {
+            "height": 1024,
+            "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "releaseQualified": false
+        }
+      },
+      "native": {
+        "path": "/tmp/maple-removal-bologna-person-hole-192-native-20261003/report.json",
+        "sha256": "996c7f729502bcea65ad1d448b7dc45ef33cecf1ce9a0f82536ea93da2391c50",
+        "report": {
+          "orientation": 1,
+          "instruction": "background-only",
+          "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+          "conditioning": {
+            "method": "native-harmonic-known-boundary-v1",
+            "selected_source_samples_used": false,
+            "selected_pixels": 385362,
+            "changed_selected_samples": 1156086,
+            "known_source_bits_changed": 0,
+            "resampled": false,
+            "clipped": false,
+            "range": [
+              0.014999999664723873,
+              0.9850000143051147
+            ],
+            "solver": {
+              "unknown_pixels": 385362,
+              "boundary_edges": 4788,
+              "matrix_nonzeros": 1922022,
+              "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+              "channels": [
+                {
+                  "relative_residual": 4.057761136529277e-09,
+                  "iterations": 7
+                },
+                {
+                  "relative_residual": 4.109201893611432e-09,
+                  "iterations": 7
+                },
+                {
+                  "relative_residual": 4.074245512312286e-09,
+                  "iterations": 7
+                }
+              ],
+              "max_absolute_correction": 0.7072844834698407,
+              "range": [
+                0.014999999664723873,
+                0.9850000143051147
+              ],
+              "outside_float_bits_changed": 0,
+              "source_inside_domain_used_for_rhs": false,
+              "clipped": false
+            },
+            "scope": "Inference conditioning only. No original, canonical anchor, coverage, protection or accepted output is changed."
+          },
+          "conditioned_input_sha256": "57e2699a696522298568a35cd1db3d42cdcdc8e4d6c614f8207f2e332c07dd94",
+          "orientation_metadata": {
+            "height": 1024,
+            "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+            "inverse": false,
+            "orientation": 1,
+            "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+            "raw_identity": {
+              "decoded_orientation": "Normal",
+              "decoder_verified": true,
+              "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+            },
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "preparation_sha256": "c5f52d528997df5296253177dac1908f23a2c9223d11edcd172a7b63e8e352ec",
+          "context": {
+            "plate": "LinearCalibrationV1",
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "source_anchor": {
+              "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+              "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+              "width": 6000,
+              "height": 4000
+            },
+            "window": {
+              "x": 2850,
+              "y": 1300,
+              "width": 1024,
+              "height": 1024
+            },
+            "source_width": 6000,
+            "source_height": 4000,
+            "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+            "model_input": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+            "encoding": {
+              "version": 1,
+              "low": -1.6838237074610694,
+              "span": 5.260952918861613
+            },
+            "release_qualified": false
+          },
+          "context_sha256": "717cf1fe466d6a2e353c6893eacc42d4abfb84e7b82d927bfaee3e75e6657996",
+          "canonical_input_sha256": "76aa4174dc67d7175f933b73ea8966fc76640a9ff1c8192725b52e17e8eecf4c",
+          "canonical_mask_sha256": "54209362c2c57cc1eb4dbe60d1b27478f14dd91d9b16012eb1b96bda17ce237c",
+          "shared_orientation_probe_sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950",
+          "canonical_extent_hw": [
+            1024,
+            1024
+          ],
+          "upright_extent_hw": [
+            1024,
+            1024
+          ],
+          "source": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "mask": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+              "inverse": false,
+              "orientation": 1,
+              "output_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+              "inverse": true,
+              "orientation": 1,
+              "output_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "outputs": {
+            "prediction": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "d2006d63a86ade05ddf2acfc53eac330f2975b60c74d0b6643faf42da7674e49",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "d2006d63a86ade05ddf2acfc53eac330f2975b60c74d0b6643faf42da7674e49",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true
+            },
+            "decoder-unclipped": {
+              "inverse": {
+                "height": 1024,
+                "input_blake3": "07a3634d0ed3fe9c950ecf9ea35c50150c4efd3cbc03962e073a61e3081d120c",
+                "inverse": true,
+                "orientation": 1,
+                "output_blake3": "07a3634d0ed3fe9c950ecf9ea35c50150c4efd3cbc03962e073a61e3081d120c",
+                "raw_identity": null,
+                "releaseQualified": false,
+                "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+                "width": 1024
+              },
+              "replay_bits_exact": true
+            }
+          },
+          "model_report_sha256": "899e41009bc7ceac4813af862c7256137a7336fe8842ce874816ef512e6b8e2f",
+          "result": {
+            "sha256": "56e8d93da95e9a45e845d7ddba65fa7eaad00cd4be261eea18bf5708633c60eb",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "prediction_sha256": "5c0d4f49d704ac3e7f68e827f4b5305800bb66931368a2ed38be02cd396b572f",
+          "decoder_unclipped_sha256": "c22a8c1b5f8882f4ccac70c4b074371a0d6d1afeacbb8ecbaa3b1e931c77169f",
+          "source_resampled": false,
+          "model_input_quantized_to_u8": false,
+          "releaseQualified": false,
+          "scope": "Native Paint research; selection/EXIF provenance, RAW inverse, grades, subject protection and photographic acceptance require separate evidence."
+        }
+      },
+      "model": {
+        "path": "/tmp/maple-removal-bologna-person-hole-192-native-20261003/generated/report.json",
+        "sha256": "899e41009bc7ceac4813af862c7256137a7336fe8842ce874816ef512e6b8e2f",
+        "report": {
+          "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+          "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+          "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+          "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+          "strict_loaded_tensors": [
+            {
+              "component": "vae",
+              "tensors": 266
+            },
+            {
+              "component": "transformer",
+              "tensors": 387
+            },
+            {
+              "component": "text_encoder",
+              "tensors": 905
+            }
+          ],
+          "quantization": 8,
+          "source_sha256": "91b815de58808736801f4061cccd510e0d8ac6e02a69c4438959a0ad6fa36955",
+          "float_input_sha256": "57e2699a696522298568a35cd1db3d42cdcdc8e4d6c614f8207f2e332c07dd94",
+          "model_input_quantized_to_u8": false,
+          "model_input_tensor_samples_exact": true,
+          "mask_sha256": "54209362c2c57cc1eb4dbe60d1b27478f14dd91d9b16012eb1b96bda17ce237c",
+          "crop_xywh": [
+            0,
+            0,
+            1024,
+            1024
+          ],
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_preprocessor_samples_exact": true,
+          "pixel_mask_preprocessor_exact": true,
+          "visual_mask_reference": false,
+          "visual_mask_reference_vae_verified": false,
+          "visual_mask_reference_sha256": null,
+          "source_resampled": false,
+          "selected_pixels": 385362,
+          "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+          "negative_prompt": "",
+          "seed": 3941,
+          "requested_steps": 4,
+          "actual_steps": 4,
+          "guidance": 1.0,
+          "verification_ms": 4178.440334042534,
+          "model_open_ms": 2874.5107499416918,
+          "inference_ms": 18177.02987487428,
+          "steps": [
+            {
+              "step": 1,
+              "scheduler_index": 0,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 5021.669207839295,
+              "mlx_allocated_bytes": 4299794710,
+              "mlx_cache_bytes": 722789384
+            },
+            {
+              "step": 2,
+              "scheduler_index": 1,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 8380.934749962762,
+              "mlx_allocated_bytes": 4299794714,
+              "mlx_cache_bytes": 597959686
+            },
+            {
+              "step": 3,
+              "scheduler_index": 2,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 11785.84308293648,
+              "mlx_allocated_bytes": 4299794714,
+              "mlx_cache_bytes": 595862532
+            },
+            {
+              "step": 4,
+              "scheduler_index": 3,
+              "latent_shape": [
+                1,
+                4096,
+                128
+              ],
+              "elapsed_ms": 15832.240249961615,
+              "mlx_allocated_bytes": 4298746138,
+              "mlx_cache_bytes": 593765386
+            }
+          ],
+          "decoder_unclipped_range": [
+            -0.765625,
+            0.921875
+          ],
+          "decoder_unclipped_sha256": "c22a8c1b5f8882f4ccac70c4b074371a0d6d1afeacbb8ecbaa3b1e931c77169f",
+          "prediction_sha256": "5c0d4f49d704ac3e7f68e827f4b5305800bb66931368a2ed38be02cd396b572f",
+          "result": {
+            "sha256": "56e8d93da95e9a45e845d7ddba65fa7eaad00cd4be261eea18bf5708633c60eb",
+            "outside_float_bits_changed": 0,
+            "outside_u8_samples_changed": 0
+          },
+          "mlx_peak_allocated_bytes": 9974666660,
+          "process_peak_resident_bytes": 9278865408,
+          "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+          "toolchain": {
+            "mlx": "0.32.3",
+            "mlx-gen": "0.38.0",
+            "numpy": "2.4.6",
+            "pillow": "12.3.0",
+            "transformers": "5.18.0"
+          },
+          "releaseQualified": false,
+          "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+          "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+          "memory_experiment": {
+            "mode": "release-blocks-small-cache",
+            "rows": [
+              {
+                "phase": "loaded",
+                "elapsed_ms": 7161.942292004824,
+                "mlx_active_bytes": 8559746382,
+                "mlx_cache_bytes": 8616,
+                "mlx_peak_active_bytes": 8559746382,
+                "runtime_memory": {
+                  "phase": "loaded",
+                  "timestamp": 1791029876.535657,
+                  "pid": 91430,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 8559746382,
+                  "mlx_peak_memory_bytes": 8559746382,
+                  "mlx_cache_memory_bytes": 8616,
+                  "process_rss_bytes": 9270001664,
+                  "process_peak_rss_bytes": 9271197696,
+                  "darwin_physical_footprint_bytes": 9239698608,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 9239698608
+                }
+              },
+              {
+                "phase": "prompt_encoded",
+                "elapsed_ms": 7461.547416867688,
+                "mlx_active_bytes": 8567620942,
+                "mlx_cache_bytes": 960848824,
+                "mlx_peak_active_bytes": 9501214298,
+                "runtime_memory": {
+                  "phase": "prompt_encoded",
+                  "timestamp": 1791029876.820874,
+                  "pid": 91430,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 8567620942,
+                  "mlx_peak_memory_bytes": 9501214298,
+                  "mlx_cache_memory_bytes": 960848824,
+                  "process_rss_bytes": 9278865408,
+                  "process_peak_rss_bytes": 9278865408,
+                  "darwin_physical_footprint_bytes": 10369425184,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10369425184
+                }
+              },
+              {
+                "phase": "text_encoder_released",
+                "elapsed_ms": 7559.130583889782,
+                "mlx_active_bytes": 4291790926,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9501214298,
+                "runtime_memory": {
+                  "phase": "text_encoder_released",
+                  "timestamp": 1791029876.919839,
+                  "pid": 91430,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 4291790926,
+                  "mlx_peak_memory_bytes": 9501214298,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 5392121856,
+                  "process_peak_rss_bytes": 9278865408,
+                  "darwin_physical_footprint_bytes": 5681665208,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10369441568
+                }
+              },
+              {
+                "phase": "denoised",
+                "elapsed_ms": 23169.28816679865,
+                "mlx_active_bytes": 4297173138,
+                "mlx_cache_bytes": 595338386,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "denoised",
+                  "timestamp": 1791029892.560883,
+                  "pid": 91430,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 4297173138,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 595338386,
+                  "process_rss_bytes": 5015519232,
+                  "process_peak_rss_bytes": 9278865408,
+                  "darwin_physical_footprint_bytes": 5739877320,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10369441568
+                }
+              },
+              {
+                "phase": "transformer_released",
+                "elapsed_ms": 23386.442916933447,
+                "mlx_active_bytes": 179383410,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "transformer_released",
+                  "timestamp": 1791029892.751223,
+                  "pid": 91430,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 179383410,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 897662976,
+                  "process_peak_rss_bytes": 9278865408,
+                  "darwin_physical_footprint_bytes": 1398147304,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10369441568
+                }
+              },
+              {
+                "phase": "before_decode",
+                "elapsed_ms": 23441.006583860144,
+                "mlx_active_bytes": 179383410,
+                "mlx_cache_bytes": 0,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "before_decode",
+                  "timestamp": 1791029892.836514,
+                  "pid": 91430,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 179383410,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 0,
+                  "process_rss_bytes": 897662976,
+                  "process_peak_rss_bytes": 9278865408,
+                  "darwin_physical_footprint_bytes": 1024706672,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10369441568
+                }
+              },
+              {
+                "phase": "after_decode",
+                "elapsed_ms": 25478.566041914746,
+                "mlx_active_bytes": 185674866,
+                "mlx_cache_bytes": 819990920,
+                "mlx_peak_active_bytes": 9974666660,
+                "runtime_memory": {
+                  "phase": "after_decode",
+                  "timestamp": 1791029894.8247948,
+                  "pid": 91430,
+                  "platform": "macOS-27.0-arm64-arm-64bit",
+                  "synchronized": false,
+                  "mlx_active_memory_bytes": 185674866,
+                  "mlx_peak_memory_bytes": 9974666660,
+                  "mlx_cache_memory_bytes": 819990920,
+                  "process_rss_bytes": 897794048,
+                  "process_peak_rss_bytes": 9278865408,
+                  "darwin_physical_footprint_bytes": 1851263088,
+                  "errors": {},
+                  "darwin_peak_physical_footprint_bytes": 10369441568
+                }
+              }
+            ],
+            "cache_limit_changed": true,
+            "explicit_cache_limit_bytes": 1000000000,
+            "peak_reset_during_inference": false,
+            "native_math_changed": false,
+            "instance_consumed": true,
+            "decoder_barriers": {
+              "rows": [
+                {
+                  "block": "conv_in",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 7.8084159176796675,
+                  "mlx_active_bytes": 198258034,
+                  "mlx_cache_bytes": 73662606,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 20.3703329898417,
+                  "mlx_active_bytes": 248589818,
+                  "mlx_cache_bytes": 490840082,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.attention",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 40.93370819464326,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 937484310,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "mid.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 8.893665857613087,
+                  "mlx_active_bytes": 265367032,
+                  "mlx_cache_bytes": 448897048,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 8.057542145252228,
+                  "mlx_active_bytes": 215035250,
+                  "mlx_cache_bytes": 532783262,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 7.183208130300045,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 482451480,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.resnet2",
+                  "output_nchw": [
+                    1,
+                    512,
+                    128,
+                    128
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 5.606207996606827,
+                  "mlx_active_bytes": 265367034,
+                  "mlx_cache_bytes": 482451478,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up0.sample0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 26.51195810176432,
+                  "mlx_active_bytes": 282144114,
+                  "mlx_cache_bytes": 978575518,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 71.1732089985162,
+                  "mlx_active_bytes": 315698546,
+                  "mlx_cache_bytes": 993661076,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet1",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 65.45320805162191,
+                  "mlx_active_bytes": 382807538,
+                  "mlx_cache_bytes": 980832398,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.resnet2",
+                  "output_nchw": [
+                    1,
+                    512,
+                    256,
+                    256
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 59.71879209391773,
+                  "mlx_active_bytes": 382807410,
+                  "mlx_cache_bytes": 1032998920,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up1.sample0",
+                  "output_nchw": [
+                    1,
+                    512,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 126.73837481997907,
+                  "mlx_active_bytes": 584134006,
+                  "mlx_cache_bytes": 1089667076,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet0",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 204.10116598941386,
+                  "mlx_active_bytes": 651242870,
+                  "mlx_cache_bytes": 1006635016,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet1",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 90.94933304004371,
+                  "mlx_active_bytes": 785460726,
+                  "mlx_cache_bytes": 1006635016,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.resnet2",
+                  "output_nchw": [
+                    1,
+                    256,
+                    512,
+                    512
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 115.93645811080933,
+                  "mlx_active_bytes": 718351730,
+                  "mlx_cache_bytes": 1024755716,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up2.sample0",
+                  "output_nchw": [
+                    1,
+                    256,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 210.25749994441867,
+                  "mlx_active_bytes": 1389440374,
+                  "mlx_cache_bytes": 1155792900,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet0",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 373.23908298276365,
+                  "mlx_active_bytes": 986787186,
+                  "mlx_cache_bytes": 1073745928,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet1",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 218.0963340215385,
+                  "mlx_active_bytes": 1255222646,
+                  "mlx_cache_bytes": 1018068996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "up3.resnet2",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 200.75629209168255,
+                  "mlx_active_bytes": 1255222646,
+                  "mlx_cache_bytes": 1018068996,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "conv_norm_out",
+                  "output_nchw": [
+                    1,
+                    128,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 76.95112493820488,
+                  "mlx_active_bytes": 718351730,
+                  "mlx_cache_bytes": 1073745924,
+                  "mlx_peak_active_bytes": 9974666660
+                },
+                {
+                  "block": "conv_out",
+                  "output_nchw": [
+                    1,
+                    3,
+                    1024,
+                    1024
+                  ],
+                  "output_dtype": "mlx.core.bfloat16",
+                  "materialization_ms": 5.799791077151895,
+                  "mlx_active_bytes": 456207730,
+                  "mlx_cache_bytes": 549458056,
+                  "mlx_peak_active_bytes": 9974666660
+                }
+              ],
+              "class_methods_restored": true,
+              "resized": false,
+              "tiled": false,
+              "precision_changed": false,
+              "equality_scope": "Graph materialization control only; compare actual pre-clipped native output bytes before claiming pixel equality."
+            },
+            "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+          }
+        }
+      },
+      "boundary_correction": {
+        "path": "/tmp/maple-removal-bologna-person-hole-192-seam-20261003/report.json",
+        "sha256": "cc6ff94d0e24cddcf4091f37860f4b9b360bd6533f621b22e51abce74ac9131a",
+        "report": {
+          "unknown_pixels": 95337,
+          "boundary_edges": 1738,
+          "matrix_nonzeros": 474947,
+          "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+          "channels": [
+            {
+              "relative_residual": 7.514583872489827e-09,
+              "iterations": 5
+            },
+            {
+              "relative_residual": 8.40012180872736e-09,
+              "iterations": 5
+            },
+            {
+              "relative_residual": 7.696410076221853e-09,
+              "iterations": 5
+            }
+          ],
+          "max_absolute_correction": 0.2526528810159633,
+          "range": [
+            0.014999999664723873,
+            0.9850000143051147
+          ],
+          "outside_float_bits_changed": 0,
+          "source_inside_domain_used_for_rhs": false,
+          "clipped": false,
+          "source_sha256": "eaa7030fef7be6fca16b0a0c5615e878760943ac0dd529166561ea5e30964d27",
+          "prediction_sha256": "5c0d4f49d704ac3e7f68e827f4b5305800bb66931368a2ed38be02cd396b572f",
+          "domain_sha256": "1cec81df42f31f5b9f5232e51e13c0a247f69537699dba85e1dce73ec2d53e2e",
+          "native_extent_hw": [
+            1024,
+            1024
+          ],
+          "source_resampled": false,
+          "correction_ms": 195.97812509164214,
+          "model_domain_valid": true,
+          "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+          "correction_sha256": "fce8e12b8c84aabe9ad94eae8893b7e49aa52493424ffc44e5f6ce7b0dc82e08",
+          "process_peak_resident_bytes": 263389184,
+          "toolchain": {
+            "pyamg": "5.3.0",
+            "scipy": "1.17.1",
+            "numpy": "2.4.6"
+          },
+          "releaseQualified": false,
+          "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+        }
+      },
+      "RAW_bake": {
+        "path": "/tmp/maple-removal-bologna-person-hole-192-bake-20261003/report.json",
+        "sha256": "8fadfd4e53366d70e25aefc2a2a0c0c4336985230028b92843f610277e4359f5",
+        "report": {
+          "as_shot_temperature": 4084.04931640625,
+          "as_shot_tint": 42.26961898803711,
+          "auto_profile_engaged": true,
+          "encoding": {
+            "low": -1.6838237074610694,
+            "span": 5.260952918861613,
+            "version": 1
+          },
+          "generation_masks": "blake3:1f7d5dba36e57a0c7b444066263e72a13186518f1b8a06a3307b60bfcff3eecb",
+          "grades": [
+            {
+              "case": "neutral_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1661.870333
+            },
+            {
+              "case": "auto_ev-3_wb-1000",
+              "max_scene_float_error_identity": 2.734363079071045e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1661.870333
+            },
+            {
+              "case": "neutral_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.5262514352798462e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2136.431458
+            },
+            {
+              "case": "auto_ev-3_wb+0",
+              "max_scene_float_error_identity": 1.5262514352798462e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2136.431458
+            },
+            {
+              "case": "neutral_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2252.30075
+            },
+            {
+              "case": "auto_ev-3_wb+1000",
+              "max_scene_float_error_identity": 1.1788681149482727e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 2252.30075
+            },
+            {
+              "case": "neutral_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1399.22
+            },
+            {
+              "case": "auto_ev+0_wb-1000",
+              "max_scene_float_error_identity": 0.0002187490463256836,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1399.22
+            },
+            {
+              "case": "neutral_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001221001148223877,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1350.911083
+            },
+            {
+              "case": "auto_ev+0_wb+0",
+              "max_scene_float_error_identity": 0.0001221001148223877,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1350.911083
+            },
+            {
+              "case": "neutral_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1262.0800000000002
+            },
+            {
+              "case": "auto_ev+0_wb+1000",
+              "max_scene_float_error_identity": 9.430944919586182e-05,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1262.0800000000002
+            },
+            {
+              "case": "neutral_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1267.526916
+            },
+            {
+              "case": "auto_ev+3_wb-1000",
+              "max_scene_float_error_identity": 0.0017499923706054688,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1267.526916
+            },
+            {
+              "case": "neutral_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009768009185791016,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1277.251792
+            },
+            {
+              "case": "auto_ev+3_wb+0",
+              "max_scene_float_error_identity": 0.0009768009185791016,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1277.251792
+            },
+            {
+              "case": "neutral_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1317.783708
+            },
+            {
+              "case": "auto_ev+3_wb+1000",
+              "max_scene_float_error_identity": 0.0007544755935668945,
+              "outside_mask_max_error": 0,
+              "three_native_develops_ms": 1317.783708
+            }
+          ],
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "model_result": "blake3:ed57be4749a3470f19fa96d8af9ac23b5adc62f5c745e52e2b9cbbfc886d3d15",
+          "native_context": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2850,
+            "y": 1300
+          },
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "outside_mask_max_error": 0,
+          "plate": "LinearCalibrationV1",
+          "profile_tier": "BundleConfident",
+          "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+          "release_qualified": false
+        }
+      }
+    }
+  },
+  "independent_grade_checks": [
+    {
+      "hole_radius": 64,
+      "case": "auto_ev+0_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "f9fb97ea64e750ed25862a8524205e46725fa85064f358bbbd294e71e02c05c6",
+      "source_image_sha256": "565b2c343804e120671faa7a52f2dcae63e85f13fa28d014a0247bd032d0bc43"
+    },
+    {
+      "hole_radius": 64,
+      "case": "auto_ev+0_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "ff95b0cede2ff72d6055426c8588ff40ce18c28cfe6133213971a406a22596f2",
+      "source_image_sha256": "e99d063a679559b6e1648d394f499a3c7a87eea3f220586b672e1b92d5d2e77a"
+    },
+    {
+      "hole_radius": 64,
+      "case": "auto_ev+0_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "30c051e0e08ffde913daa1a3acf332abf2d2994753f46b84c5188ed1d162bae0",
+      "source_image_sha256": "032e9ea15cbd9cbea2c51d86d5763ded2114e538449352523539faa7ad4b8d72"
+    },
+    {
+      "hole_radius": 64,
+      "case": "auto_ev+3_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "5e28428a38ad4801c8cce46fb6ed442e9e7ea4da919c9426ac53941244e2ac47",
+      "source_image_sha256": "804b2ea8ffdfa4af646c29b1536668ed08ba36b55870782b4524d433e24e13b0"
+    },
+    {
+      "hole_radius": 64,
+      "case": "auto_ev+3_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "edb0a8e8d7aab1d9537ad4ab9e194d5ef8ad8291e2f35f7184375c82c27cbfaf",
+      "source_image_sha256": "30a8609358f0b9f6fc635da4720f031c56a1329ec8cad63957261dfa08703989"
+    },
+    {
+      "hole_radius": 64,
+      "case": "auto_ev+3_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "82504fc2b052d8e324d56a230c1013560296bbe96c85dff2225ae47f1316e4b0",
+      "source_image_sha256": "e2d32e87f7688622030cf65a3e2cb6b9755be055634dbcb5328b03f1f8e1bd0a"
+    },
+    {
+      "hole_radius": 64,
+      "case": "auto_ev-3_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "90477f4895372c6e0f5b10636eb0a340debbd501ab1afc3f3cb2719dc07462fd",
+      "source_image_sha256": "5bba64a64704f4c334d386f311184e94791ab7b52c75515b899414291bda13bc"
+    },
+    {
+      "hole_radius": 64,
+      "case": "auto_ev-3_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "91660349965c252128896e2f3cc41282070096d305d893fc8b1ed2c2edcc9e87",
+      "source_image_sha256": "648723566b980672eeb503c636ebe63e9450cc395a1249d6d1d705f2cca5ab8e"
+    },
+    {
+      "hole_radius": 64,
+      "case": "auto_ev-3_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "1fcae220c03db9bffb1513e1b4fca9659f4c67f4fcab7f7ef80e4801142686b3",
+      "source_image_sha256": "02fb83aee56776f375cd2f6fbced29222e7c77e2a263ab12ad168341a836f3e1"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev+0_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "7dd804e8ff2ed41207b47a679fa9af24c3626c18595d071a5341d1b94383c3c7",
+      "source_image_sha256": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev+0_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "584f49af1bc62c86aea7ed9650fd7593a381c52829360cc5c92a7c0fbdab249c",
+      "source_image_sha256": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev+0_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "e3bec941072e130aaf34392294e62d38ed2b7b7077fb87652f2301940f42c922",
+      "source_image_sha256": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev+3_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "520bfe6bc3fe6f2abea75efc2b6f45746b6414c3373a8af3e76f9dc0b0fdb22d",
+      "source_image_sha256": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev+3_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "79c2f0730dc4dcc92792ff03406ba013a523601f64d2f9453b831fac784c8578",
+      "source_image_sha256": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev+3_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "f486db1330f0ff21c8c53ab519e9ab10d00ba698cb6d246ca02c40d18335693b",
+      "source_image_sha256": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev-3_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "a8a4687c515f5edae0ed632f3b1dfdad820f7eb88a5e15b913e268cd7c93ce20",
+      "source_image_sha256": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev-3_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "2c0eb1e0a85c3d578ee3ae0415a348420ed061f804cae1256dae4949675eec2a",
+      "source_image_sha256": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617"
+    },
+    {
+      "hole_radius": 64,
+      "case": "neutral_ev-3_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "6b58d5a25324ebbd82ce4d92126f4b3c3220a584a6bb464bb71cbb3145a92145",
+      "source_image_sha256": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev+0_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "104eabe1ea7e687563c108cfa9d5b43e0dcdef5b8aedbd70cdbc9bbf7b2f32ba",
+      "source_image_sha256": "565b2c343804e120671faa7a52f2dcae63e85f13fa28d014a0247bd032d0bc43"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev+0_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "884b1fd6febddd60a7940264c8d7a8b6aac4fb138ba570be6c36435565d3dd72",
+      "source_image_sha256": "e99d063a679559b6e1648d394f499a3c7a87eea3f220586b672e1b92d5d2e77a"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev+0_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "9050bde49a31e3370ff9a56c39c6644bb3ac87f2cfe8f590d5e5b0dbc4fa2a46",
+      "source_image_sha256": "032e9ea15cbd9cbea2c51d86d5763ded2114e538449352523539faa7ad4b8d72"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev+3_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "4db0cc4a892b7afe9d6022a4bed14bc4fff17ba3795f546f737fe3c90e1a002e",
+      "source_image_sha256": "804b2ea8ffdfa4af646c29b1536668ed08ba36b55870782b4524d433e24e13b0"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev+3_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "bfba90b55b5fa1b1d966debc71b83d95978820bdbda51caa198a0dc272371a09",
+      "source_image_sha256": "30a8609358f0b9f6fc635da4720f031c56a1329ec8cad63957261dfa08703989"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev+3_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "f04bf7a416c9fda1fccee8ac7034ca03a9633534f9af349c250ddf77e8e4a91e",
+      "source_image_sha256": "e2d32e87f7688622030cf65a3e2cb6b9755be055634dbcb5328b03f1f8e1bd0a"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev-3_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "dc4ba98e8f7aff632324adb617029897ab45faf0bcc04bc82f5dabb2b412f7a9",
+      "source_image_sha256": "5bba64a64704f4c334d386f311184e94791ab7b52c75515b899414291bda13bc"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev-3_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "3efaf5576d45b53dd859ae340b3b48eb9f12a24dec7429b5c554351d9543e101",
+      "source_image_sha256": "648723566b980672eeb503c636ebe63e9450cc395a1249d6d1d705f2cca5ab8e"
+    },
+    {
+      "hole_radius": 192,
+      "case": "auto_ev-3_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "02a45ed6f4f76811801219f315be3b6334d80d94f860c09424c84d37a4ec81a6",
+      "source_image_sha256": "02fb83aee56776f375cd2f6fbced29222e7c77e2a263ab12ad168341a836f3e1"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev+0_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "617b759f755b79b683ff9cad59111cc3d413207403f06acff0c027cfb3590692",
+      "source_image_sha256": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev+0_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "abde6c1029071c8f915df5b8a63487f0f1659507dfa3d5f7443d9562d078f138",
+      "source_image_sha256": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev+0_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "970df1d19a21551a2cc81313d80e620fbf2f5a161cab86d6b16b41fd6824e112",
+      "source_image_sha256": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev+3_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "0117bad1da4e8e0cb5cbc5d852c5daaf99c2636e896fd9ac02d9d76997deeb0a",
+      "source_image_sha256": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev+3_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "91c0276fc0d0ed5f3e88455f8fea17d0d96a436337acd1b1aeaa999a7a7c28fd",
+      "source_image_sha256": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev+3_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "7e929c5b028a15dbc621ad72013e53cdebb6b8394e18e735846dd8c0da1ad7be",
+      "source_image_sha256": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev-3_wb+0",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "a39245e54ab3f09a4afd3838daf4d5c0caa5e3950eafe8fc60687cf1b82f5a43",
+      "source_image_sha256": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev-3_wb+1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "d2a558a6c6c5cfe1226f7e1c86012e0b1dd44844af801d2b93873f544ae9053d",
+      "source_image_sha256": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617"
+    },
+    {
+      "hole_radius": 192,
+      "case": "neutral_ev-3_wb-1000",
+      "outside_coverage_samples_changed": 0,
+      "protected_samples_changed": 0,
+      "image_sha256": "c5588a2edfccbced882906d954328e4b7c1a541cc1d9a81d29e69d59bbd47180",
+      "source_image_sha256": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3"
+    }
+  ],
+  "findings": {
+    "radius64": "No newly generated target person is visible in the selected ROI; fill retains a conspicuous hazy person-shaped region with little plausible photographic background detail. Semantic progress only, fails overall photographic reconstruction.",
+    "radius192": "No newly generated target person is visible in the selected ROI; conspicuous hazy shape/background mismatch remains. Fails overall photographic reconstruction.",
+    "decision": "Wider generation holes avoid the replacement-person failure on this one case, but neither is acceptable photographic removal. No model or mask policy admitted."
+  },
+  "encoding_observation": {
+    "method": "Existing reversible signed-log Rec2020-to-sRGB research encoding",
+    "recipe": {
+      "version": 1,
+      "low": -1.6838237074610694,
+      "span": 5.260952918861613
+    },
+    "encoded_neutral_scene_black_rgb": [
+      0.32545877456562744,
+      0.32545877456562744,
+      0.32545877456562744
+    ],
+    "source": "src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+    "finding": "Neutral scene black maps near0.325 in this model domain. A photographic-contrast reversible encoding is worth testing. This observation does not prove the cause of the haze or establish a color/noise acceptance result."
+  },
+  "original_RAW_sha256_after": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+  "scientific_figures": [
+    {
+      "path": "/tmp/maple-removal-bologna-wide-hole-comparison-20261003.png",
+      "sha256": "52aa95d7e563dff5c2a8ed41ac705d40134dbef095ea62e1f27e0aee2edcfaed"
+    },
+    {
+      "path": "/tmp/maple-removal-bologna-wide-hole-stages-20261003.png",
+      "sha256": "8872c118e03af929bdfaeda6eb60a0f897316aa8f525890d707fb82a7d6b16ef"
+    }
+  ],
+  "executed_sources": [
+    {
+      "path": "tools/removal/photo-research-cases.json",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/photo-research-cases.json",
+      "sha256": "c321a0dd4c8e8cbcff7c39bb9c2af0eb03b8be4f2afdfcf023d2f8dc6331a405"
+    },
+    {
+      "path": "tools/removal/prepare_photo_case.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/prepare_photo_case.py",
+      "sha256": "949ead6f312cf1e48d91d2a14c563005638be608b6c93d40068be781518f873d"
+    },
+    {
+      "path": "tools/removal/probe_klein_oriented.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/probe_klein_oriented.py",
+      "sha256": "9a7c2eb7cab3d69bdf17deb753e728a0e8d8843a94cc6c7c763f091aa4daff54"
+    },
+    {
+      "path": "tools/removal/probe_klein_native.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/probe_klein_native.py",
+      "sha256": "ad4abbf91162efb71ad270d641a7b0381ec69a0cc4e88da7eaf3d11cf2825e45"
+    },
+    {
+      "path": "tools/removal/probe_klein_memory.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/probe_klein_memory.py",
+      "sha256": "e8ced891fa2dcd290074cab5e76fe5c877a6869070ad14044f05b53a98212fa5"
+    },
+    {
+      "path": "tools/removal/klein_decoder_barriers.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/klein_decoder_barriers.py",
+      "sha256": "5b07073913a8c4319309b623084e82ebccd912c50db28a0c7052998724a16436"
+    },
+    {
+      "path": "tools/removal/klein_erased_conditioning.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/klein_erased_conditioning.py",
+      "sha256": "8d0cd5de346b786c6a1cfcfe07097d054112d0bc01cf88b6b61e993bdb1aafb9"
+    },
+    {
+      "path": "tools/removal/native_seam_correction.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/native_seam_correction.py",
+      "sha256": "422ef1ddb98445fa051343daf216703fdff3a06d1a10bfa2976c639f10ebea3a"
+    },
+    {
+      "path": "tools/removal/native_orientation.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/native_orientation.py",
+      "sha256": "fd0d7d039b8b91ac9cd64b04093878d94d51843549f63f494bf92cb7ee8471c6"
+    },
+    {
+      "path": "tools/removal/native_probe_pixels.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/native_probe_pixels.py",
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    },
+    {
+      "path": "tools/removal/probe_native_seams.py",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/probe_native_seams.py",
+      "sha256": "219b9e58afa97869787ac6ad6190e6962bc2f53b180ae25c086c769c99b4aafa"
+    },
+    {
+      "path": "tools/removal/klein-research-models.json",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/tools/removal/klein-research-models.json",
+      "sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b"
+    },
+    {
+      "path": "src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "sha256": "5982953c2ff10a1b578822269c7e3dc367e418fd65c4898f9bb8c1b51868fb73"
+    },
+    {
+      "path": "src/raw-pipeline/target/release/examples/removal-orientation-probe",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/src/raw-pipeline/target/release/examples/removal-orientation-probe",
+      "sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/src/stages/removal_generation.rs",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/src/raw-pipeline/raw-core/src/stages/removal_generation.rs",
+      "sha256": "073fc7260e486dd7e8a9b1d68a9b47bf01fb5f55c6ba416d25dbfa66d025ec0d"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+      "sha256": "5512d73fa5a15a36066304915ff3911956dd6e7077dbad02a2344839047b42fe"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+      "captured_copy": "/tmp/maple-removal-wide-hole-executed-20261003/src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+      "sha256": "c7d5b82dc7ae8bf3698b1d977299cd58090bf0216340a6ab35bf1e761e77f16b"
+    }
+  ],
+  "limitations": [
+    "No production model admission, mask defaults, UI/runtime, accepted XMP, asset encoding, rendering/export path or native context cap changes.",
+    "One public RAW, visually reviewed instance mask, no independent closure/role labels, person model releases or hidden-background truth.",
+    "Known/protected pixel preservation is established for36 rendered grades; that does not establish photographic quality, color/hardware performance or release qualification.",
+    "Shared M5 Max128 GiB host; uncontrolled timing and memory observations, no supported-device-tier p50/p95 claim.",
+    "Qwen Image Edit is a separate candidate under download/provenance review, not executed or accepted by this record.",
+    "All licensing/conversion/distribution and full product/native-context/portable-runtime gates remain."
+  ],
+  "next_work": "Qualify a reversible photographic-contrast model encoding on the same native scene, and evaluate the pinned Qwen Image Edit candidate locally. Keep accepted coverage/protection exact and continue the full Mac-first goal."
+}
