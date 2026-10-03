@@ -112,7 +112,16 @@ class NativeSteps:
         print(json.dumps(row), flush=True)
 
 
-def run(upstream, model_path, image_path, mask_path, crop, output, float_input=None):
+def run(
+    upstream,
+    model_path,
+    image_path,
+    mask_path,
+    crop,
+    output,
+    float_input=None,
+    memory_experiment=None,
+):
     source_u8, hole = native_context(image_path, mask_path, crop)
     native_dimensions(crop)
     source = float_source(float_input, source_u8)
@@ -135,6 +144,8 @@ def run(upstream, model_path, image_path, mask_path, crop, output, float_input=N
     from mflux.utils.image_util import ImageUtil
     from mflux.utils.mask_util import MaskUtil
 
+    if memory_experiment is not None:
+        memory_experiment.prepare()
     loaded = []
 
     def strict_weights(weights, models, components=None):
@@ -154,6 +165,8 @@ def run(upstream, model_path, image_path, mask_path, crop, output, float_input=N
     mx.eval(pipe.parameters())
     mx.synchronize()
     model_open_ms = (time.perf_counter() - started) * 1000
+    if memory_experiment is not None:
+        memory_experiment.attach(pipe)
     height, width = hole.shape
     output.mkdir(parents=True, exist_ok=False)
     Image.fromarray(source_u8).save(output / "source.png")
@@ -196,8 +209,12 @@ def run(upstream, model_path, image_path, mask_path, crop, output, float_input=N
     original_decode = pipe.vae.decode_packed_latents
 
     def checked_decode(latents):
+        if memory_experiment is not None:
+            memory_experiment.snapshot("before_decode")
         raw = original_decode(latents)
         mx.eval(raw)
+        if memory_experiment is not None:
+            memory_experiment.snapshot("after_decode")
         array = np.asarray(raw.astype(mx.float32))
         if array.shape != (1, 3, height, width) or not np.isfinite(array).all():
             raise ValueError("Invalid native decoder output before clipping")
@@ -291,6 +308,8 @@ def run(upstream, model_path, image_path, mask_path, crop, output, float_input=N
         ),
         "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
     }
+    if memory_experiment is not None:
+        report["memory_experiment"] = memory_experiment.report()
     (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2), flush=True)
 
