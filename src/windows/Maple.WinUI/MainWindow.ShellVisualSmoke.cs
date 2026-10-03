@@ -13,9 +13,12 @@ namespace Maple.WinUI;
 
 public sealed partial class MainWindow
 {
+    private static bool ShellVisualCheckpointsRequested => Environment.GetCommandLineArgs().Any(
+        arg => arg is "--shell-visual-checkpoints" or "--shell-visual-checkpoints-narrow");
+
     private async Task VerifyShellVisualCheckpointsAsync(string output)
     {
-        if (Array.IndexOf(Environment.GetCommandLineArgs(), "--shell-visual-checkpoints") < 0) return;
+        if (!ShellVisualCheckpointsRequested) return;
         var root = (FrameworkElement)Content;
         var originalSize = AppWindow.Size;
         var originalMode = _mode;
@@ -28,12 +31,35 @@ public sealed partial class MainWindow
         var adjustments = ViewModel.Adjustments;
         try
         {
-            AppWindow.Resize(new SizeInt32(1440, 960));
+            var narrow = Array.IndexOf(Environment.GetCommandLineArgs(), "--shell-visual-checkpoints-narrow") >= 0;
+            var logicalSize = narrow ? new SizeInt32(1024, 768) : new SizeInt32(1440, 960);
+            var scale = root.XamlRoot.RasterizationScale;
+            var clientSize = new SizeInt32(
+                (int)Math.Round(logicalSize.Width * scale), (int)Math.Round(logicalSize.Height * scale));
+            AppWindow.ResizeClient(clientSize);
             var deadline = Environment.TickCount64 + 5000;
-            while ((AppWindow.Size.Width != 1440 || AppWindow.Size.Height != 960) && Environment.TickCount64 < deadline)
+            while (!HasRequestedSize() && Environment.TickCount64 < deadline)
+            {
                 await Task.Delay(100);
-            if (AppWindow.Size.Width != 1440 || AppWindow.Size.Height != 960)
-                throw new InvalidOperationException("Shell visual window did not reach 1440x960");
+                root.UpdateLayout();
+                // ResizeClient can include a standard-caption allowance despite
+                // custom title-bar extension. Correct using measured client pixels.
+                if (AppWindow.ClientSize.Width != clientSize.Width || AppWindow.ClientSize.Height != clientSize.Height)
+                    AppWindow.Resize(new SizeInt32(
+                        AppWindow.Size.Width + clientSize.Width - AppWindow.ClientSize.Width,
+                        AppWindow.Size.Height + clientSize.Height - AppWindow.ClientSize.Height));
+            }
+            if (!HasRequestedSize())
+                throw new InvalidOperationException($"Shell visual client did not reach {logicalSize.Width}x{logicalSize.Height} DIPs: "
+                    + $"client={AppWindow.ClientSize.Width}x{AppWindow.ClientSize.Height}, "
+                    + $"content={root.ActualWidth}x{root.ActualHeight}, scale={root.XamlRoot.RasterizationScale}, "
+                    + $"requestedClient={clientSize.Width}x{clientSize.Height}, initialScale={scale}.");
+
+            bool HasRequestedSize() => AppWindow.ClientSize.Width == clientSize.Width
+                && AppWindow.ClientSize.Height == clientSize.Height
+                && Math.Abs(root.ActualWidth - logicalSize.Width) <= 1 / scale + .001
+                && Math.Abs(root.ActualHeight - logicalSize.Height) <= 1 / scale + .001
+                && Math.Abs(root.XamlRoot.RasterizationScale - scale) < .001;
             _infoPaneOpen = false;
             if (photo != null) RestoreBrowseSelection(new[] { photo }, photo);
             await VerifyPreviewToggleScrollAsync(output);
@@ -59,6 +85,7 @@ public sealed partial class MainWindow
                 }
                 await Task.Delay(300);
                 root.UpdateLayout();
+                if (!HasRequestedSize()) throw new InvalidOperationException("Visual viewport changed before capture.");
                 if (name.StartsWith("editor", StringComparison.Ordinal)) VerifyEditorHeaderBounds();
                 if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(adjustments, ViewModel.Adjustments))
                     throw new InvalidOperationException($"Shell visual navigation changed the document: {name}");
@@ -68,6 +95,8 @@ public sealed partial class MainWindow
                 await File.WriteAllTextAsync(checkpoint + ".ready", JsonSerializer.Serialize(new
                 {
                     name, width = AppWindow.Size.Width, height = AppWindow.Size.Height,
+                    clientWidth = AppWindow.ClientSize.Width, clientHeight = AppWindow.ClientSize.Height,
+                    requestedLogicalWidth = logicalSize.Width, requestedLogicalHeight = logicalSize.Height,
                     logicalWidth = root.ActualWidth, logicalHeight = root.ActualHeight,
                     scale = root.XamlRoot.RasterizationScale, photoCount = ViewModel.Photos.Count,
                     activeGroup = _activeGroup, comparison = _compare.ShowingBefore
