@@ -62,6 +62,11 @@ public enum MCPToolCatalog {
         "type": "object",
         "properties": [
           "expected_revision": revisionProperty,
+          "mask_id": [
+            "type": "string",
+            "description":
+              "Optional UUID of a mask layer to adjust locally instead of global sliders. Adjusts the layer's local controls (exposure, contrast, highlights, shadows, whites, blacks, saturation, vibrance, temperature, tint, hue, texture, clarity, dehaze, sharpness).",
+          ],
           "adjustments": [
             "type": "object",
             "description":
@@ -131,6 +136,138 @@ public enum MCPToolCatalog {
           "metrics": ["type": "object"],
         ],
         "required": ["photo_id", "revision", "metrics"],
+      ],
+      "annotations": ["readOnlyHint": true, "idempotentHint": true, "openWorldHint": false],
+    ],
+    [
+      "name": "maple_create_mask",
+      "title": "Create mask",
+      "description":
+        "Create a local adjustment mask on the active photo. Supports geometric shapes (linear gradient, radial) and Apple Vision segmentation (person_skin, whole_image_skin). The created mask is selected and ready for local adjustments.",
+      "inputSchema": [
+        "type": "object",
+        "properties": [
+          "expected_revision": revisionProperty,
+          "kind": [
+            "type": "string",
+            "enum": ["linear", "radial", "person_skin", "whole_image_skin"],
+            "description": "The type of mask to create.",
+          ],
+          "params": [
+            "type": "object",
+            "description":
+              "Optional parameters: for linear, start/end/feather; for radial, center/radii/angle/feather/invert; for person_skin, person_index (default 0), facial_skin (default true), body_skin (default true).",
+          ],
+          "description": [
+            "type": "string",
+            "description": "Optional short label for undo history, e.g. \"Skin mask\".",
+          ],
+        ],
+        "required": ["expected_revision", "kind"],
+        "additionalProperties": false,
+      ],
+      "outputSchema": [
+        "type": "object",
+        "properties": [
+          "photo_id": ["type": "string"],
+          "revision": ["type": "string"],
+          "mask_id": ["type": "string"],
+          "kind": ["type": "string"],
+          "can_undo": ["type": "boolean"],
+        ],
+        "required": ["photo_id", "revision", "mask_id", "kind"],
+      ],
+      "annotations": [
+        "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false,
+        "openWorldHint": false,
+      ],
+    ],
+    [
+      "name": "maple_render_mask_overlay",
+      "title": "Render mask overlay",
+      "description":
+        "Return a JPEG of the canvas with the specified (or currently selected) mask rendered in translucent red, allowing visual verification of segmentation boundaries and coverage before applying local edits.",
+      "inputSchema": [
+        "type": "object",
+        "properties": [
+          "mask_id": [
+            "type": "string",
+            "description":
+              "Optional UUID of the mask to render. If omitted, uses the currently selected mask.",
+          ],
+          "max_edge": [
+            "type": "integer", "minimum": 256, "maximum": 2048, "default": 1024,
+            "description": "Longest edge of the returned JPEG in pixels.",
+          ],
+        ],
+        "additionalProperties": false,
+      ],
+      "outputSchema": [
+        "type": "object",
+        "properties": [
+          "photo_id": ["type": "string"],
+          "revision": ["type": "string"],
+          "mask_id": ["type": "string"],
+          "kind": ["type": "string"],
+          "coverage_pct": ["type": "number"],
+          "sample_count": ["type": "integer"],
+          "width": ["type": "integer"],
+          "height": ["type": "integer"],
+        ],
+        "required": ["photo_id", "revision", "mask_id", "coverage_pct"],
+      ],
+      "annotations": ["readOnlyHint": true, "idempotentHint": true, "openWorldHint": false],
+    ],
+    [
+      "name": "maple_get_vectorscope",
+      "title": "Get vectorscope",
+      "description":
+        "Return display-referred Rec.709 chroma distribution and vectorscope metrics for the active photo or a selected mask. Reports sample coverage, mean Cb/Cr, and (when evaluating a skin region or mask) skin locus angle compared to the traditional 123° colorist reference line.",
+      "inputSchema": [
+        "type": "object",
+        "properties": [
+          "mask_id": [
+            "type": "string",
+            "description":
+              "Optional UUID of a mask layer to isolate (e.g. a person_skin mask). If omitted, uses the currently selected mask if any, or evaluates the entire image.",
+          ],
+          "region": [
+            "type": "object",
+            "description": "Optional normalized crop [0..1] of the displayed image to evaluate.",
+            "properties": [
+              "x": ["type": "number"], "y": ["type": "number"],
+              "width": ["type": "number"], "height": ["type": "number"],
+            ],
+            "required": ["x", "y", "width", "height"],
+            "additionalProperties": false,
+          ],
+        ],
+        "additionalProperties": false,
+      ],
+      "outputSchema": [
+        "type": "object",
+        "properties": [
+          "photo_id": ["type": "string"],
+          "revision": ["type": "string"],
+          "basis": ["type": "string"],
+          "convention": ["type": "string"],
+          "target_hint_deg": ["type": "number"],
+          "target_wedge_deg": ["type": "number"],
+          "has_skin_target": ["type": "boolean"],
+          "mask_id": ["type": "string"],
+          "sample_count": ["type": "integer"],
+          "insufficient_evidence": ["type": "boolean"],
+          "skin_locus_angle_deg": ["type": "number"],
+          "deviation_deg": ["type": "number"],
+          "mean_cb": ["type": "number"],
+          "mean_cr": ["type": "number"],
+          "confidence": ["type": "string"],
+          "warning": ["type": "string"],
+        ],
+        "required": [
+          "photo_id", "revision", "basis", "has_skin_target", "sample_count",
+          "insufficient_evidence",
+        ],
       ],
       "annotations": ["readOnlyHint": true, "idempotentHint": true, "openWorldHint": false],
     ],

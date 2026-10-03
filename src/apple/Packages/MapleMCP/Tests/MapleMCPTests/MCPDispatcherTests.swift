@@ -60,8 +60,9 @@ final class MCPDispatcherTests: XCTestCase {
     XCTAssertEqual(
       Set(tools.compactMap { $0["name"]?.stringValue }),
       [
-        "maple_get_active_photo", "maple_set_adjustments", "maple_render_and_inspect", "maple_undo",
-        "maple_reset",
+        "maple_get_active_photo", "maple_set_adjustments", "maple_render_and_inspect",
+        "maple_create_mask", "maple_render_mask_overlay", "maple_get_vectorscope",
+        "maple_undo", "maple_reset",
       ])
     for tool in tools {
       XCTAssertEqual(tool["inputSchema"]?["type"], "object", "\(tool)")
