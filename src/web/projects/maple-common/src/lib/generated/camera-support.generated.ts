@@ -27,7 +27,7 @@ export const CAMERA_TIER_EXPLANATION: Readonly<Record<CameraTier, string>> = {
   matrix_only:
     "Maple is using the colour matrix embedded in the file itself. Neutrals and overall colour are calibrated; saturated colours are not, because this camera has no hue and saturation calibration in Maple's profile set.",
   profiled:
-    "Maple has full colour calibration for this camera, but no measured reference render for it — no physical sample of this body has been through Maple's colour qualification suite.",
+    'Maple has full colour calibration for this camera, but its required colour qualification evidence is incomplete or does not pass for the current build.',
   qualified:
     'Maple has full colour calibration for this camera and measures every release against a reference render of a physical sample of this body.',
 };
