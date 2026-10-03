@@ -57,12 +57,12 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
   public func errors() -> AsyncStream<Error> {
     let id = nextSubscriberID
     nextSubscriberID &+= 1
-    return AsyncStream { continuation in
-      subscribers[id] = continuation
-      continuation.onTermination = { [weak self] _ in
-        Task { await self?.removeSubscriber(id) }
-      }
+    let (stream, continuation) = AsyncStream<Error>.makeStream()
+    subscribers[id] = continuation
+    continuation.onTermination = { [weak self] _ in
+      Task { await self?.removeSubscriber(id) }
     }
+    return stream
   }
   private func removeSubscriber(_ id: UInt64) { subscribers.removeValue(forKey: id) }
 
