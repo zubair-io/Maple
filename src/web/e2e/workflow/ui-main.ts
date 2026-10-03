@@ -208,6 +208,30 @@ Reflect.set(window, 'workflowUI', {
   dispose,
   read,
   replace,
+  async variantState() {
+    if (!active) throw Error('No owned workflow UI fixture');
+    const editor = active.app.injector.get(EditorStateService);
+    const source = editor.workflowCommands.capture(editor.imageId()!, editor.currentAdjustment()!);
+    if (!source) throw Error('No writable editor source');
+    const document = await editor.workflowCommands.load(source);
+    const parser = active.app.injector.get(XmpParserService);
+    const primary = await read();
+    const access = active.app.injector.get(FolderAccessService);
+    const original = active.hosted
+      ? Array.from(await access.readFile(active.hosted.folder, 'photo.dng'))
+      : (await control<{ original: number[] }>(`/workflow-fixture/${active.server!.source.key}`))
+          .original;
+    return {
+      variantId: source.variantId,
+      record: document.record,
+      xml: document.xml,
+      primary,
+      model: editor.currentAdjustment(),
+      culling: document.xml === null ? null : parser.parseCulling(document.xml),
+      original,
+      undoCount: editor.undoHistory().length,
+    };
+  },
   status() {
     const editor = active!.app.injector.get(EditorStateService);
     return {

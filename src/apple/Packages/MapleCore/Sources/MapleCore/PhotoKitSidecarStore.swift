@@ -8,7 +8,7 @@ import MapleBackup
 public actor PhotoKitSidecarStore: WorkflowSidecarStoreProtocol {
   private let phassetLocalId: String
   private let sidecars: AppSupportSidecarStore
-  private let writer: XMPSidecarStore
+  let writer: XMPSidecarStore
 
   public init(phassetLocalId: String, sidecars: AppSupportSidecarStore) {
     self.phassetLocalId = phassetLocalId

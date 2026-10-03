@@ -91,6 +91,12 @@ White-balance names and provenance are excluded from the decoded-model key along
 
 After a changed timestamp validates the same baked model, the cache accepts the timestamp captured before parsing. Subsequent ticks return to the stat-only fast path; a later write still changes that timestamp and triggers validation. Pending decode ownership is checked after native completion and after normalization, so a late result cannot clear or replace a newer profile/quality request for the same asset.
 
+Named variant switching (#4063) also compares the selected sidecar path before accepting the decoded-cache timestamp fast path. Equal timestamps on two siblings do not establish equal baked models. Switching to an equal stripped model shares the existing decoded pixels; a different stripped model invalidates them. In-flight decodes are bound to their selected sidecar path. `RenderedPreviewCache` includes a named sibling's path and modification time, while preserving existing primary keys. Queued preview writes retain that selected path and revision; invalidating the RAW clears all its branch previews.
+
+Apple keeps at most two settled variant previews per editor session, bounded to 4096 pixels on the long edge. Reuse requires the same selected UUID, complete confirmed XMP, adjustment model and viewport width. Photos and API sources share the original session-owned RAW download across switches; API decode reads an atomically written, session-owned copy of confirmed branch XMP. The selected writer owns save errors and queued edits. A canceled decode loses join eligibility immediately, even while its native task is still finishing. Named branches cannot seed from the primary embedded, grid or canonical display preview, or overwrite those primary derivatives.
+
+The Web CPU canvas transfers ownership of at most two existing viewport bitmaps at a branch boundary. A hit requires the same source scope, asset ID, original bytes object, selected UUID, render XMP and viewport width; eviction and teardown close unused bitmaps. Admission adds no bitmap copy or allocation to slider ticks. GPU switching retains the existing live session and RAW bytes, while render-generation guards reject stale publications. Both Web backends keep canonical thumbnail/display-preview persistence scoped to Primary.
+
 The `ThumbnailDiskCache` file header still describes an LRU with a 500 MB / 10,000-entry cap. **No such eviction exists in the code** — the on-disk thumb store is unbounded and the memory tiers use the FIFO/count bounds in the table above.
 
 Sourced from `src/apple/Packages/MapleCore/Sources/MapleCloudKit/`, the Self-Hosted client adds four more, all under `~/Library/Caches/app.justmaple.aperture/`: `CloudThumbCache` (AVIF bytes keyed on absolute server path, LRU with a 2 GB soft cap and coalesced eviction sweeps), `CloudBucketsCache` and `CloudPagesCache` (JSON `/api/search` responses, stale-while-revalidate, no cap), `CloudFoldersCache` and `AuthUserCache` (last-known folder list and account metadata per `host:port`, used as an offline fallback).
@@ -124,17 +130,17 @@ Caches under `src/web/projects/maple-common/src/lib/` unless noted.
 
 Eleven IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) that opens, transacts, and closes per operation — no long-lived connection. **None of the eleven has a byte cap, count cap, LRU, or TTL.** Several records carry a `storedAt` timestamp, but no read path ever compares it against a threshold; the only bounding force is the browser's own quota eviction, and where invalidation exists it is content-validity based.
 
-| Database                                   | Store                 | Key                            | Value                    | Invalidated by                                                                |
-| ------------------------------------------ | --------------------- | ------------------------------ | ------------------------ | ----------------------------------------------------------------------------- |
-| `maple-id-cache`                           | `ids`                 | `slug:relPath` address         | `{size, mtime, mapleId}` | Live size/mtime mismatch                                                      |
-| `maple-folder-listing-cache` (v2)          | `listings-by-address` | address                        | folder listing           | DB version bump; explicit `clear()`                                           |
-| `maple-sidecar-cache` (v2)                 | `sidecars-by-path`    | path                           | XMP text                 | DB version bump; explicit delete                                              |
-| `maple-film-lut-cache`                     | `luts-by-id`          | LUT id                         | `.mlut` bytes            | Nothing — no delete path exists                                               |
-| `maple-file-cache`                         | `files`               | id                             | imported `File`          | `clear()` runs in the same transaction as every write — single-slot           |
-| `maple-slug-registry` / `maple-fs-handles` | —                     | slug / UUID                    | directory + file handles | Explicit removal only                                                         |
-| `maple-fallback-cache`                     | `blobs`               | `` `${folderLabel}/${path}` `` | bytes                    | Nothing                                                                       |
-| `maple-observability` / `maple-presets`    | `config` / `presets`  | `'current'` / preset id        | config / preset          | Overwrite; user delete                                                        |
-| `maple-lens-profiles` (#3479)              | `profiles`            | BLAKE3 digest of the `.lcp`    | LCP XML text             | Nothing — content-addressed; the core re-verifies the digest on every restore |
+| Database                                   | Store                 | Key                             | Value                    | Invalidated by                                                                |
+| ------------------------------------------ | --------------------- | ------------------------------- | ------------------------ | ----------------------------------------------------------------------------- |
+| `maple-id-cache`                           | `ids`                 | `slug:relPath` address          | `{size, mtime, mapleId}` | Live size/mtime mismatch                                                      |
+| `maple-folder-listing-cache` (v2)          | `listings-by-address` | address                         | folder listing           | DB version bump; explicit `clear()`                                           |
+| `maple-sidecar-cache` (v2)                 | `sidecars-by-path`    | path + selected branch identity | XMP text                 | DB version bump; explicit delete                                              |
+| `maple-film-lut-cache`                     | `luts-by-id`          | LUT id                          | `.mlut` bytes            | Nothing — no delete path exists                                               |
+| `maple-file-cache`                         | `files`               | id                              | imported `File`          | `clear()` runs in the same transaction as every write — single-slot           |
+| `maple-slug-registry` / `maple-fs-handles` | —                     | slug / UUID                     | directory + file handles | Explicit removal only                                                         |
+| `maple-fallback-cache`                     | `blobs`               | `` `${folderLabel}/${path}` ``  | bytes                    | Nothing                                                                       |
+| `maple-observability` / `maple-presets`    | `config` / `presets`  | `'current'` / preset id         | config / preset          | Overwrite; user delete                                                        |
+| `maple-lens-profiles` (#3479)              | `profiles`            | BLAKE3 digest of the `.lcp`     | LCP XML text             | Nothing — content-addressed; the core re-verifies the digest on every restore |
 
 In memory (`state/library-cache.service.ts`, `state/lru-cache.ts`):
 

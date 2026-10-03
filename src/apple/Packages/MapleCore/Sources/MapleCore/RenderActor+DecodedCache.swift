@@ -80,7 +80,10 @@ extension RenderActor {
     // escalated to `.full`/`.amaze` must not join an in-flight
     // `.preview` fast task (or vice versa), which would silently hand
     // back the wrong-quality buffer.
-    if let existing = decodeTask, decodeTaskAssetID == asset.id,
+    // cancelAll revokes ownership before the abandoned FFI task finishes.
+    // A new render must start a fresh decode instead of joining that task.
+    if let existing = decodeTask, decodeCancelFlag != nil, decodeTaskAssetID == asset.id,
+      decodeTaskSidecarURL == asset.sidecarURL,
       decodeTaskProfile == decodeProfile,
       decodeTaskAutoExposure == decodeAutoExposure,
       decodeTaskQuality == decodeQuality,
@@ -101,6 +104,7 @@ extension RenderActor {
     decodeCancelFlag = nil
     decodeTask = nil
     decodeTaskAssetID = nil
+    decodeTaskSidecarURL = nil
 
     let decodeSignpostID = editSessionSignposter.makeSignpostID()
     let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
@@ -261,6 +265,7 @@ extension RenderActor {
         }
     decodeTask = task
     decodeTaskAssetID = asset.id
+    decodeTaskSidecarURL = asset.sidecarURL
     decodeTaskIsFull = wantsFull
     decodeTaskProfile = decodeProfile
     decodeTaskAutoExposure = decodeAutoExposure
@@ -281,6 +286,7 @@ extension RenderActor {
     else {
       decodeTask = nil
       decodeTaskAssetID = nil
+      decodeTaskSidecarURL = nil
       decodeCancelFlag = nil
       return nil
     }
@@ -347,6 +353,7 @@ extension RenderActor {
       decodedAtModel = EditSession.parseSidecarModel(for: asset)
       decodedBakedModel = currentBaked
       decodedSidecarMtime = currentMtime
+      decodedSidecarURL = asset.sidecarURL
       decodedIsFull = wantsFull
       decodedProfile = decodeProfile  // #871 — buffer is profile-keyed
       decodedAutoExposure = decodeAutoExposure  // #1387 — buffer is autoExposure-keyed too
@@ -376,6 +383,7 @@ extension RenderActor {
     }
     decodeTask = nil
     decodeTaskAssetID = nil
+    decodeTaskSidecarURL = nil
     decodeCancelFlag = nil
     return normalized
   }
@@ -414,6 +422,7 @@ extension RenderActor {
     decodedForAssetID = nil
     decodedBakedModel = nil
     decodedSidecarMtime = nil
+    decodedSidecarURL = nil
     decodedIsFull = false
     // #951: abandon any in-flight cold decode — flip its flag so the Rust
     // worker unwinds, then drop our reference (the in-flight Task keeps its
@@ -422,6 +431,7 @@ extension RenderActor {
     decodeCancelFlag = nil
     decodeTask = nil
     decodeTaskAssetID = nil
+    decodeTaskSidecarURL = nil
     decodeTaskIsFull = false
     decodeTaskProfile = nil
     decodeTaskAutoExposure = nil
@@ -451,12 +461,17 @@ extension RenderActor {
     let isFresh: Bool
     if !assetMatches {
       isFresh = false
-    } else if let mt = decodedSidecarMtime, currentMtime == mt {
+    } else if decodedSidecarURL == asset.sidecarURL,
+      let mt = decodedSidecarMtime, currentMtime == mt
+    {
       // File untouched since decode → baked model unchanged.
       isFresh = true
     } else {
       isFresh = (Self.bakedModel(for: asset) == decodedBakedModel)
-      if isFresh { decodedSidecarMtime = currentMtime }
+      if isFresh {
+        decodedSidecarMtime = currentMtime
+        decodedSidecarURL = asset.sidecarURL
+      }
     }
     return DecodedSnapshot(
       image: decodedImage,

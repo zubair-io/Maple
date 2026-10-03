@@ -64,6 +64,8 @@ import {
 } from '../raw-pipeline/image-utils';
 import { isSupportedRaw } from './raw-extensions';
 import { previewLocation, type PreviewLocation } from './preview-location';
+import { XmpStoreService } from '../xmp/xmp-store.service';
+import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 
 /** Idle debounce before a developed preview is persisted, in ms. Longer than
  * the 150ms sidecar-write debounce (`XmpStoreService`)
@@ -85,6 +87,7 @@ export class EditPreviewPersistService {
   private readonly serverPersistence = inject(SERVER_WORKSPACE_PERSISTENCE);
   private readonly pipeline = inject(RawPipelineService);
   private readonly xmpSerializer = inject(XmpSerializerService);
+  private readonly sidecars = inject(XmpStoreService);
 
   private readonly _timers = new Map<AssetId, ReturnType<typeof setTimeout>>();
 
@@ -143,6 +146,7 @@ export class EditPreviewPersistService {
    * network, disk) is caught and logged — this is a cache write, never
    * allowed to surface as a user-visible error or affect the editor. */
   private async _persist(id: AssetId): Promise<void> {
+    if (!this.isPrimary(id)) return;
     const asset = this.store.findAsset(id);
     // There is no longer a decode-side reason to skip non-RAW assets here:
     // `RawPipelineService.decode`'s non-RAW branch DOES now apply `xmp` via
@@ -210,14 +214,22 @@ export class EditPreviewPersistService {
     const ext = filename.split('.').pop()?.toLowerCase() ?? '';
     const model = this.store.adjustmentFor(id)();
     const xmp = this.xmpSerializer.serialize(model);
+    const path = this.store.absPathFor(id);
+    const folder = this.store.currentFolder();
+    const current = () =>
+      this.isPrimary(id) &&
+      this.store.absPathFor(id) === path &&
+      this.store.currentFolder() === folder &&
+      this.xmpSerializer.serialize(this.store.adjustmentFor(id)()) === xmp;
     // Full quality (not the fast-phase half-res Preview demosaic) — this
     // is a persisted cache artifact, not a live-render tick.
     const img = await this.pipeline.decode(bytes, ext, xmp, PREVIEW_LONG_EDGE_PX, false);
+    if (!current()) return;
 
     if (this.store.backend === 'self-hosted') {
-      await this._persistServerBacked(id, img);
+      await this._persistServerBacked(id, img, current);
     } else if (hostedTarget) {
-      await this._persistHosted(id, img, hostedTarget);
+      await this._persistHosted(id, img, hostedTarget, current);
     }
   }
 
@@ -226,15 +238,21 @@ export class EditPreviewPersistService {
    * transcodes a JPEG body to AVIF server-side, so this path always
    * persists something (unlike Hosted, which has no server to fall back
    * to). No-ops if the asset has no known on-disk path yet. */
-  private async _persistServerBacked(id: AssetId, img: DecodedImage): Promise<void> {
+  private async _persistServerBacked(
+    id: AssetId,
+    img: DecodedImage,
+    current: () => boolean,
+  ): Promise<void> {
     const absPath = this.store.absPathFor(id);
     if (!absPath || !this.serverPersistence) return;
     const avif = await encodeDevelopedRenderToAvif(img);
     if (avif) {
+      if (!current()) return;
       await firstValueFrom(this.serverPersistence.writePreview(absPath, avif, 'image/avif'));
       return;
     }
     const jpeg = await encodeDevelopedRenderToJpeg(img);
+    if (!current()) return;
     await firstValueFrom(this.serverPersistence.writePreview(absPath, jpeg, 'image/jpeg'));
   }
 
@@ -246,18 +264,33 @@ export class EditPreviewPersistService {
     id: AssetId,
     img: DecodedImage,
     target: HostedPreviewTarget,
+    current: () => boolean,
   ): Promise<void> {
     if (this.store.currentFolder() !== target.folder || !target.folder.write) return;
     const avif = await encodeDevelopedRenderToAvif(img);
     const blob = avif ?? (await encodeDevelopedRenderToJpeg(img));
     const sourceAfter = await this.cache.hostedBytes.identityFor(id);
-    if (!samePreviewSource(target.sourceBefore, sourceAfter)) return;
+    if (!current() || !samePreviewSource(target.sourceBefore, sourceAfter)) return;
     await this.mapleCache.writePreview(
       target.folder,
       target.location.dir,
       target.location.filename,
       blob,
       target.sourceBefore,
+    );
+  }
+
+  private isPrimary(id: AssetId): boolean {
+    if (this.store.backend === 'self-hosted') {
+      const path = this.store.absPathFor(id);
+      return !!path && this.store.workflowVariants.variantFor(id, path) === PRIMARY_VARIANT_ID;
+    }
+    const folder = this.store.currentFolder();
+    const asset = this.store.findAsset(id);
+    return (
+      !!folder &&
+      !!asset &&
+      this.sidecars.bindingFor(id, folder, asset.filename).variantId === PRIMARY_VARIANT_ID
     );
   }
 }

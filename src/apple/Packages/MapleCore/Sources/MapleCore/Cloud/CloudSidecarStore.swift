@@ -8,9 +8,10 @@
 import Foundation
 
 public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
-  private let server: URL
+  let server: URL
   private let assetID: String
-  private let httpClient: AuthenticatedHTTPClient
+  let httpClient: AuthenticatedHTTPClient
+  let renderSidecar = WorkflowRenderSidecar()
   private let variantId: String
 
   private var cacheGeneration: UInt64 = 0
@@ -90,6 +91,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     _ = try selectedWorkflow(String(decoding: data, as: UTF8.self))
     let result = try XMPParser.parse(data: data)
     guard generation == cacheGeneration else { return cached ?? result }
+    try renderSidecar.write(String(decoding: data, as: UTF8.self))
     cached = result
     cachedPassthrough = XMPParser.parsePassthrough(data: data)
     cachedMetadata = XMPParser.parseMetadata(String(decoding: data, as: UTF8.self))
@@ -230,6 +232,9 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     req.httpBody = Data(xml.utf8)
     let (data, resp) = try await httpClient.data(for: req)
     try Self.checkOK(resp, data: data)
+    // Path writes return their preserved XMP; catalog writes acknowledge in JSON.
+    let published = String(data: data, encoding: .utf8)
+    try renderSidecar.write(published?.hasPrefix("<") == true ? published! : xml)
   }
 
   private func writePending() async {
@@ -295,6 +300,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
       if self.pendingModel == nil { self.cached = restored }
       self.cachedMetadata = XMPParser.parseMetadata(published)
       self.cachedPassthrough = XMPParser.parsePassthrough(published)
+      try self.renderSidecar.write(published)
       return published
     }
     writeTail = Task { _ = try await task.value }
@@ -343,7 +349,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     return xml
   }
 
-  private func resolvedWorkflowPath() async throws -> String {
+  func resolvedWorkflowPath() async throws -> String {
     if let workflowPath { return workflowPath }
     let path: String
     if assetID.hasPrefix("fs:") {
@@ -382,6 +388,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     try Self.checkOK(response, data: data)
     guard let xml = String(data: data, encoding: .utf8) else { throw XMPStoreError.encodingError }
     _ = try selectedWorkflow(xml)
+    try renderSidecar.write(xml)
     return xml
   }
 

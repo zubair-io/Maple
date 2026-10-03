@@ -6,6 +6,8 @@ import { HttpLibrarySource } from '../addressing/http-library-source';
 import { LIBRARY_SOURCE } from '../addressing/library-source';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { WorkflowApiService } from '../api/workflow-api.service';
+import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
+import { WORKFLOW_VARIANT_SERVER } from './workflow-variant-server';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { SELF_HOSTED_WORKSPACE_POLICY, WORKSPACE_CAPABILITIES } from './workspace-capabilities';
 import {
@@ -27,13 +29,18 @@ function serverPersistenceFactory(): ServerWorkspacePersistence {
   const api = inject(BunApiBackendService);
   const workflow: WorkflowApiService = inject(WorkflowApiService);
   return {
-    readSidecar: (path) => api.getXmp(path),
-    writeSidecar: (path, xml) => api.putXmp(path, xml),
-    restoreSidecar: (path, expectedXmp, entry) => workflow.restore(path, expectedXmp, entry),
-    snapshotSidecar: (path, expectedXmp, snapshot, initialXmp) =>
-      workflow.snapshot(path, expectedXmp, snapshot, initialXmp),
-    commitSidecar: (path, expectedXmp, xml, entry) =>
-      workflow.commit(path, expectedXmp, xml, entry),
+    readSidecar: (path, variantId = PRIMARY_VARIANT_ID) =>
+      variantId === PRIMARY_VARIANT_ID ? api.getXmp(path) : workflow.read(path, variantId),
+    writeSidecar: (path, xml, variantId = PRIMARY_VARIANT_ID) =>
+      variantId === PRIMARY_VARIANT_ID
+        ? api.putXmp(path, xml)
+        : workflow.write(path, xml, variantId),
+    restoreSidecar: (path, expectedXmp, entry, variantId) =>
+      workflow.restore(path, expectedXmp, entry, variantId),
+    snapshotSidecar: (path, expectedXmp, snapshot, initialXmp, variantId) =>
+      workflow.snapshot(path, expectedXmp, snapshot, initialXmp, variantId),
+    commitSidecar: (path, expectedXmp, xml, entry, variantId) =>
+      workflow.commit(path, expectedXmp, xml, entry, variantId),
     writePreview: (path, bytes, contentType) =>
       api.putPreview(path, bytes, contentType).pipe(map(() => undefined)),
   };
@@ -45,6 +52,16 @@ export function provideSelfHostedWorkspace(): EnvironmentProviders {
     { provide: LIBRARY_SOURCE, useExisting: HttpLibrarySource },
     { provide: WORKSPACE_CAPABILITIES, useValue: SELF_HOSTED_WORKSPACE_POLICY },
     { provide: SERVER_WORKSPACE_PERSISTENCE, useFactory: serverPersistenceFactory },
+    {
+      provide: WORKFLOW_VARIANT_SERVER,
+      useFactory: () => {
+        const workflow = inject(WorkflowApiService);
+        return {
+          list: (path: string) => workflow.list(path),
+          create: (...args: Parameters<WorkflowApiService['create']>) => workflow.create(...args),
+        };
+      },
+    },
     { provide: SERVER_LIBRARY_IO, useExisting: BunApiBackendService },
     // #2637/#2706 — real inline-rename (POST /api/assets/:id/rename) only
     // wired up here, behind the AssetRenameCapability token the shared grid

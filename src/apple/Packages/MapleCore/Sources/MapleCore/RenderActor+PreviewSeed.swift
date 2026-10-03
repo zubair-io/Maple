@@ -12,6 +12,7 @@ extension RenderActor {
     self.decodedRawResolution = rawResolution
     self.decodedForAssetID = asset.id
     self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)  // #950 fast-path gate
+    self.decodedSidecarURL = asset.sidecarURL
     self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
     self.decodedAtModel = decodedAtModel
     // Seeded buffers (cached rendered preview / embedded JPEG) are
@@ -58,6 +59,7 @@ extension RenderActor {
     self.decodedRawResolution = rawResolution
     self.decodedForAssetID = asset.id
     self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)  // #950 fast-path gate
+    self.decodedSidecarURL = asset.sidecarURL
     self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
     self.decodedAtModel = decodedAtModel
     self.decodedIsFull = false

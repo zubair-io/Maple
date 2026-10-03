@@ -19,11 +19,17 @@ public actor WorkflowVariantStore {
   public func list() throws -> [WorkflowVariantSidecar] {
     let primary = primarySidecarURL
     let prefix = primary.deletingPathExtension().lastPathComponent + ".v"
-    let files = try FileManager.default.contentsOfDirectory(
-      at: primary.deletingLastPathComponent(), includingPropertiesForKeys: nil
-    )
-    .sorted { $0.lastPathComponent < $1.lastPathComponent }
-    let siblings = try files.compactMap { file -> WorkflowVariantSidecar? in
+    let files: [URL]
+    do {
+      files = try FileManager.default.contentsOfDirectory(
+        at: primary.deletingLastPathComponent(), includingPropertiesForKeys: nil)
+    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+      return [try inspect(WorkflowContract.primaryVariantID)]
+    }
+    let sorted =
+      files
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    let siblings = try sorted.compactMap { file -> WorkflowVariantSidecar? in
       let name = file.lastPathComponent
       guard name.hasPrefix(prefix), name.hasSuffix(".xmp") else { return nil }
       let id = String(name.dropFirst(prefix.count).dropLast(4))

@@ -68,8 +68,30 @@ final class WorkflowControlsUITests: XCTestCase {
     activate(app.buttons["Restore"])
     XCTAssertTrue(save.waitForExistence(timeout: 10))
     XCTAssertEqual(try Data(contentsOf: sidecar), before, "Unchanged restore has no fake history")
+    activate(app.buttons["workflow-new-variant"])
+    let variantName = app.textFields["Variant name"]
+    XCTAssertTrue(variantName.waitForExistence(timeout: 5))
+    activate(variantName)
+    variantName.typeText("UI Night")
+    activate(app.buttons["Create"])
+    XCTAssertTrue(app.buttons["Selected variant UI Night"].waitForExistence(timeout: 10))
+    XCTAssertEqual(try Data(contentsOf: sidecar), before)
+    let sibling = try XCTUnwrap(
+      FileManager.default.contentsOfDirectory(
+        at: staged, includingPropertiesForKeys: nil
+      ).first {
+        $0.lastPathComponent.hasPrefix("rgb-gradient.v") && $0.pathExtension == "xmp"
+      })
+    XCTAssertTrue(try String(contentsOf: sibling, encoding: .utf8).contains("UI Night"))
+    activate(app.buttons["workflow-select-primary"])
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
+    XCTAssertEqual(try Data(contentsOf: sidecar), before)
+    activate(app.buttons["Use variant UI Night"])
+    XCTAssertTrue(app.buttons["Selected variant UI Night"].waitForExistence(timeout: 10))
+    activate(app.buttons["workflow-select-primary"])
+    XCTAssertTrue(row.waitForExistence(timeout: 10))
     let screenshot = XCTAttachment(screenshot: app.screenshot())
-    screenshot.name = "Native snapshot controls after unchanged restore"
+    screenshot.name = "Native variants and snapshot controls after switching"
     screenshot.lifetime = .keepAlways
     add(screenshot)
     activate(close)

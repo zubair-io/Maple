@@ -19,6 +19,8 @@ import {
   untracked,
 } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
+import { WorkflowVariantSelectionService } from '../../xmp/workflow-variant-selection.service';
+import { ImageCanvasAdjustmentEffect } from './image-canvas.adjustment-effect';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { ImageCanvasService } from './image-canvas.service';
 import { AssetId } from '../../models/asset';
@@ -109,7 +111,11 @@ export class ImageCanvasComponent
 
   // GPU live-render path (epic #925, P4b-web / #1038) — full scope/invariant
   // notes in `ImageCanvasGpuPresent`. Flag OFF keeps the 2D path the only route.
-  private readonly gpuPresent = new ImageCanvasGpuPresent(this);
+  readonly gpuPresent = new ImageCanvasGpuPresent(this);
+  private readonly adjustmentEffect = new ImageCanvasAdjustmentEffect(
+    this,
+    inject(WorkflowVariantSelectionService),
+  );
   readonly filmSync = new ImageCanvasFilmSync(this, () => this.forceRerenderForFilm()); // #2683, public for Render2dHost (#3171)
 
   private ro?: ResizeObserver;
@@ -163,7 +169,7 @@ export class ImageCanvasComponent
   private paintedLongEdge = 0;
   // Cold open seeds As-Shot WB before the adjustment effect may render.
   // Otherwise the synchronous-byte path can queue a pre-seed 6500K decode.
-  private coldOpenDone = false;
+  coldOpenDone = false;
   // Cold open records its seeded model to deduplicate the WB-seed effect.
   // Genuine edits change this key. Shared with the GPU cold-open host.
   lastRenderedXmp: string | null = null;
@@ -248,6 +254,7 @@ export class ImageCanvasComponent
         }
         if (a.id === this.currentAssetId) return; // same asset, skip
         this.currentAssetId = a.id;
+        this.adjustmentEffect.reset();
         // New asset → invalidate any in-flight adjustment re-render and drop
         // the retained bytes. `lastRenderedXmp` is reset so the first edit on
         // the new asset always renders; the cold-open decode records the
@@ -296,32 +303,7 @@ export class ImageCanvasComponent
     // the model signal, so a Profile toggle or slider move re-fires this
     // effect; the asset-switch case is handled by the decode effect above (and
     // skipped here via the `lastRenderedXmp` dedup).
-    const rerenderEff = effect(
-      () => {
-        const a = this.state.focusedAsset();
-        if (!a) return;
-        // Subscribe to the model signal — this is what makes edits reactive.
-        const model = this.state.adjustmentFor(a.id)();
-        // Only RAW assets with retained bytes participate (mock/gradient
-        // assets and not-yet-decoded async sources have no bytes here). Gate on
-        // `coldOpenDone` so the pre-seed initial run and the As-Shot WB seed's
-        // re-fire don't schedule a spurious 6500K-default decode.
-        if (!this.currentBytes || a.id !== this.currentAssetId || !this.coldOpenDone) return;
-        this.filmSync.syncIfNeeded(a.id, model.filmLook, this.gpuPresent.active()); // #2683
-        if (!this.gpuPresent.active()) this.filmSync.ensureCpuLutResolving(a.id, model.filmLook); // #3171
-        // Dedup: cold open + As-Shot WB seed both land on the same XMP the
-        // canvas already shows, so skip the redundant decode. A genuine edit
-        // produces a different XMP and renders. Reading `cropSession.active()`
-        // (via `serializeForRender`) makes entering/leaving crop re-fire this
-        // effect — crop-on strips the crop (renders full frame), crop-off
-        // restores it (renders the cropped result).
-        const xmp = this.serializeForRender(model);
-        if (xmp === this.lastRenderedXmp) return;
-        this.scheduleRerender(xmp);
-      },
-      { injector: this.injector },
-    );
-    this.cleanupRerenderEffect = () => rerenderEff.destroy();
+    this.cleanupRerenderEffect = this.adjustmentEffect.wire(this.injector);
 
     // Re-render whenever view or decode state changes.
     const drawEff = effect(
@@ -479,7 +461,7 @@ export class ImageCanvasComponent
    * fast phase immediately (coalesced latest-wins) and the refine phase
    * behind the trailing debounce.
    */
-  private scheduleRerender(xmp: string): void {
+  scheduleRerender(xmp: string): void {
     // Bump the generation so any render already in flight (from an earlier
     // edit) drops its result instead of painting stale pixels.
     this.renderGeneration++;
@@ -487,11 +469,12 @@ export class ImageCanvasComponent
     this.twoPhase.schedule(xmp, this.renderGeneration);
   }
 
-  private clearRerenderTimers(): void {
+  clearRerenderTimers(): void {
     this.twoPhase.clear();
   }
 
   private forceRerenderForFilm(): void {
+    this.adjustmentEffect.reset();
     const a = this.state.focusedAsset();
     if (!a || a.id !== this.currentAssetId) return;
     this.lastRenderedXmp = null;

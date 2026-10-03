@@ -328,4 +328,7 @@ NativeCloudWorkflowControlsTests
 
 # Named branch writers use actual local/Photos sibling files (#4063).
 NativeVariantWriterTests
+NativeVariantControlsTests
+NativeVariantExportTests
+WorkflowVariantCacheTests
 NativeCloudVariantWriterTests

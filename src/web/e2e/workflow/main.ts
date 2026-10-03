@@ -1,5 +1,8 @@
 import '@angular/compiler';
 import { editorHistory } from './editor-history';
+import { variantWriter } from './variant-writer';
+import { variantPreviewCache } from './variant-preview-cache';
+import { selfHostedVariantWriter } from './self-hosted-variant-writer';
 import {
   selfHostedEditorHistory,
   selfHostedRejectedHistory,
@@ -86,6 +89,8 @@ async function publishFixtureWorkflow(
 
 Object.assign(window, {
   workflowTest: {
+    variantWriter,
+    selfHostedVariantWriter,
     selfHostedEditorHistory,
     selfHostedRejectedHistory,
     selfHostedConcurrentStage,
@@ -455,6 +460,7 @@ Object.assign(window, {
         await root.removeEntry(directoryName, { recursive: true });
       }
     },
+    variantPreviewCache,
     async checkpoints(row: unknown, input: string) {
       const environment = injector();
       const root = await navigator.storage.getDirectory();

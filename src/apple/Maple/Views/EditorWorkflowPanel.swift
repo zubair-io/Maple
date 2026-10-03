@@ -8,6 +8,8 @@ struct EditorWorkflowPanel: View {
   @Environment(\.dismiss) private var dismiss
   @State private var snapshotPrompt = false
   @State private var snapshotName = ""
+  @State private var variantPrompt = false
+  @State private var variantName = ""
 
   private var workflow: EditorWorkflowState { session.workflow }
 
@@ -19,7 +21,9 @@ struct EditorWorkflowPanel: View {
           variant: .body, color: .muted, block: true
         )
         .fixedSize(horizontal: false, vertical: true)
-        if let error = workflow.errorText, !snapshotPrompt, workflow.pendingRestoreLabel == nil {
+        if let error = workflow.errorText, !snapshotPrompt, !variantPrompt,
+          workflow.pendingRestoreLabel == nil
+        {
           MuiText(error, variant: .body, color: .error, block: true)
             .accessibilityIdentifier("workflow-error")
         }
@@ -29,6 +33,18 @@ struct EditorWorkflowPanel: View {
         }
         ScrollView {
           LazyVStack(alignment: .leading, spacing: MuiTokens.spacingSm) {
+            HStack {
+              MuiText("Variants", variant: .rowLabel, block: true)
+              Spacer()
+              MuiButton(label: "New variant", variant: .ghost, disabled: workflow.isBusy) {
+                variantName = ""
+                variantPrompt = true
+              }
+              .accessibilityIdentifier("workflow-new-variant")
+            }
+            ForEach(workflow.variants, id: \.variantId) { variant in
+              variantRow(variant)
+            }
             if workflow.record?.snapshots.isEmpty != false
               && workflow.record?.history.isEmpty != false
             {
@@ -89,11 +105,28 @@ struct EditorWorkflowPanel: View {
         .navigationBarTitleDisplayMode(.inline)
       #endif
     }
-    .disabled(snapshotPrompt || workflow.pendingRestoreLabel != nil)
-    .accessibilityHidden(snapshotPrompt || workflow.pendingRestoreLabel != nil)
+    .disabled(snapshotPrompt || variantPrompt || workflow.pendingRestoreLabel != nil)
+    .accessibilityHidden(snapshotPrompt || variantPrompt || workflow.pendingRestoreLabel != nil)
     #if os(macOS)
       .frame(width: 480, height: 520)
     #endif
+    .overlay {
+      MuiDialog(
+        isPresented: variantPrompt, title: "New variant",
+        message: workflow.errorText ?? "Start a separate edit from the current variant.",
+        variant: .prompt, confirmLabel: "Create", promptPlaceholder: "Variant name",
+        promptValue: $variantName,
+        confirmed: { _ in
+          let name = variantName
+          Task {
+            await workflow.createVariant(name: name, session: session)
+            if workflow.errorText == nil { variantPrompt = false }
+          }
+        },
+        dismissed: { variantPrompt = false }
+      )
+      .disabled(workflow.isBusy)
+    }
     .overlay {
       MuiDialog(
         isPresented: snapshotPrompt, title: "Save snapshot",
@@ -131,6 +164,20 @@ struct EditorWorkflowPanel: View {
     .interactiveDismissDisabled(workflow.isBusy)
     .task { await workflow.reload(session: session) }
     .onDisappear { workflow.cancelRestore() }
+  }
+
+  private func variantRow(_ variant: WorkflowVariantSidecar) -> some View {
+    let name = variant.workflow?.variantName ?? "Primary"
+    let selected = workflow.selectedVariantId == variant.variantId
+    return MuiListRow(
+      label: name, disabled: workflow.isBusy || selected,
+      pressed: { Task { await workflow.selectVariant(variant.variantId, session: session) } },
+      trailing: {
+        MuiText(selected ? "Selected" : "Use", variant: .toolLabel, color: .muted, truncate: true)
+      }
+    )
+    .accessibilityLabel("\(selected ? "Selected variant" : "Use variant") \(name)")
+    .accessibilityIdentifier("workflow-select-\(variant.variantId)")
   }
 
   private func checkpointRow(id: String, label: String, timestamp: UInt64, snapshot: Bool)

@@ -20,7 +20,19 @@ import { SidecarSaveStateService } from './sidecar-save-state.service';
 import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpParserService } from './xmp-parser.service';
 import { HostedWorkflowWriterService } from './hosted-workflow-writer.service';
-import { WORKFLOW_MARKUP_PATTERN, type SidecarWorkflow } from '../generated/workflow.generated';
+import { WorkflowVariantStoreService } from './workflow-variant-store.service';
+import {
+  PRIMARY_VARIANT_ID,
+  WORKFLOW_MARKUP_PATTERN,
+  type SidecarWorkflow,
+} from '../generated/workflow.generated';
+
+export interface HostedSidecarBinding {
+  readonly folder: MapleFolderHandle;
+  readonly rawFilename: string;
+  readonly filename: string;
+  readonly variantId: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class XmpStoreService {
@@ -30,12 +42,15 @@ export class XmpStoreService {
   private readonly workflowCore = inject(WorkflowXmpService);
   private readonly parser = inject(XmpParserService);
   private readonly hostedWriter = inject(HostedWorkflowWriterService);
+  private readonly variants = inject(WorkflowVariantStoreService);
   private readonly latestModels = new WeakMap<MapleFolderHandle, Map<AssetId, AdjustmentModel>>();
+  private readonly bindings = new Map<AssetId, HostedSidecarBinding>();
   private readonly retryWrites = new Map<
     AssetId,
     {
       folder: MapleFolderHandle;
       rawFilename: string;
+      binding: HostedSidecarBinding;
       run: () => Promise<void>;
     }[]
   >();
@@ -54,6 +69,7 @@ export class XmpStoreService {
       model: AdjustmentModel;
       culling: XmpCulling;
       revision: number;
+      binding: HostedSidecarBinding;
     }
   >();
   /** Publish workflow metadata through the same per-asset atomic write chain.
@@ -154,6 +170,63 @@ export class XmpStoreService {
     return this._metadata.get(assetId);
   }
 
+  /** Settle the old immutable writer before adopting the selected file (#4063). */
+  async bindVariant(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+    variantId: string,
+    currentSource: () => boolean = () => true,
+  ) {
+    this.requireVariantAccess(folder);
+    await this.settleAsset(assetId);
+    const primary = this._sidecarFilename(rawFilename);
+    const filename = await this.workflowCore.variantFilename(primary, variantId);
+    const xml = await this.variants.read(folder, primary, variantId);
+    if (!currentSource()) throw Error('The editor source changed while loading this variant.');
+    this.bindings.set(assetId, { folder, rawFilename, filename, variantId });
+    this.latestModels.get(folder)?.delete(this.modelKey(assetId, variantId));
+    return this.adoptVariantDocument(assetId, xml);
+  }
+
+  private requireVariantAccess(folder: MapleFolderHandle): void {
+    if (!folder.native || !folder.write || !navigator.locks)
+      throw Error('Reopen this folder with filesystem write access before selecting a variant.');
+  }
+
+  private adoptVariantDocument(assetId: AssetId, xml: string | null) {
+    const parsed = xml === null ? null : this.parser.parseAdjustmentModel(xml);
+    this.replacePassthroughs(
+      [assetId],
+      parsed ? new Map([[assetId, parsed.passthrough]]) : new Map(),
+      parsed ? new Map([[assetId, parsed.metadata]]) : new Map(),
+    );
+    return {
+      xml,
+      model: parsed?.model ?? {},
+      culling:
+        xml === null
+          ? { rating: 0, flag: 'unflagged' as const, colorLabel: null, keywords: [] }
+          : this.parser.parseCulling(xml),
+    };
+  }
+
+  bindingFor(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+  ): HostedSidecarBinding {
+    const selected = this.bindings.get(assetId);
+    return selected?.folder === folder && selected.rawFilename === rawFilename
+      ? selected
+      : {
+          folder,
+          rawFilename,
+          filename: this._sidecarFilename(rawFilename),
+          variantId: PRIMARY_VARIANT_ID,
+        };
+  }
+
   // ── Write ───────────────────────────────────────────────────────────────────
 
   /**
@@ -169,8 +242,9 @@ export class XmpStoreService {
     culling: XmpCulling,
   ): void {
     if (!folder.write) return;
+    const binding = this.bindingFor(assetId, folder, rawFilename);
     const models = this.latestModels.get(folder) ?? new Map<AssetId, AdjustmentModel>();
-    models.set(assetId, structuredClone(model));
+    models.set(this.modelKey(assetId, binding.variantId), structuredClone(model));
     this.latestModels.set(folder, models);
     const revision = this.saveState.queued(assetId);
 
@@ -187,6 +261,7 @@ export class XmpStoreService {
         culling,
         revision,
         this._passthroughs.get(assetId),
+        binding,
       ).catch(() => undefined);
     }, this.DEBOUNCE_MS);
 
@@ -197,11 +272,20 @@ export class XmpStoreService {
       model,
       culling,
       revision,
+      binding,
     });
   }
 
-  latestModel(assetId: AssetId, folder: MapleFolderHandle): AdjustmentModel | undefined {
-    return this.latestModels.get(folder)?.get(assetId);
+  latestModel(
+    assetId: AssetId,
+    folder: MapleFolderHandle,
+    variantId = PRIMARY_VARIANT_ID,
+  ): AdjustmentModel | undefined {
+    return this.latestModels.get(folder)?.get(this.modelKey(assetId, variantId));
+  }
+
+  private modelKey(assetId: AssetId, variantId: string): string {
+    return assetId + '\0' + variantId;
   }
 
   async commitSemantic(
@@ -212,17 +296,14 @@ export class XmpStoreService {
     culling: XmpCulling,
     action: string,
     label: string,
+    capturedBinding?: HostedSidecarBinding,
   ): Promise<void> {
     const revision = this.saveState.queued(assetId);
     try {
-      this.hostedWriter.capture(
-        folder,
-        this._sidecarFilename(rawFilename),
-        model,
-        culling,
-        action,
-        label,
-      );
+      const binding = capturedBinding ?? this.bindingFor(assetId, folder, rawFilename);
+      if (binding.folder !== folder || binding.rawFilename !== rawFilename)
+        throw Error('Captured variant belongs to another source.');
+      this.hostedWriter.capture(folder, binding.filename, model, culling, action, label);
       const pending = this._pendingWrites.get(assetId);
       if (pending?.folder === folder) {
         clearTimeout(pending.timeout);
@@ -235,6 +316,8 @@ export class XmpStoreService {
         structuredClone(model),
         structuredClone(culling),
         revision,
+        undefined,
+        binding,
       );
     } catch (error) {
       this.saveState.failed(assetId, revision, error);
@@ -256,6 +339,7 @@ export class XmpStoreService {
         pending.culling,
         pending.revision,
         this._passthroughs.get(id),
+        pending.binding,
       );
     }
     const inFlight = this._inFlightWrites.get(id);
@@ -332,6 +416,7 @@ export class XmpStoreService {
           pending.culling,
           pending.revision,
           this._passthroughs.get(id),
+          pending.binding,
         ),
       );
     }
@@ -352,6 +437,7 @@ export class XmpStoreService {
     culling: XmpCulling,
     revision: number,
     passthrough?: PassthroughBucket,
+    binding = this.bindingFor(assetId, folder, rawFilename),
   ): Promise<void> {
     // File System Access writes are asynchronous. Serialize writes for the
     // same asset so an older, slower write can never overwrite a newer edit.
@@ -360,29 +446,28 @@ export class XmpStoreService {
       .catch(() => undefined)
       .then(async () => {
         try {
-          await this._flushWrite(
-            assetId,
-            folder,
-            rawFilename,
-            model,
-            culling,
-            revision,
-            passthrough,
-          );
+          await this._flushWrite(assetId, model, culling, revision, passthrough, binding);
           const remaining = (this.retryWrites.get(assetId) ?? []).filter(
-            (retry) => retry.folder !== folder || retry.rawFilename !== rawFilename,
+            (retry) =>
+              retry.folder !== folder ||
+              retry.rawFilename !== rawFilename ||
+              retry.binding.variantId !== binding.variantId,
           );
           if (remaining.length === 0) this.retryWrites.delete(assetId);
           else this.retryWrites.set(assetId, remaining);
         } catch (error) {
           const retained = (this.retryWrites.get(assetId) ?? []).filter(
-            (retry) => retry.folder !== folder || retry.rawFilename !== rawFilename,
+            (retry) =>
+              retry.folder !== folder ||
+              retry.rawFilename !== rawFilename ||
+              retry.binding.variantId !== binding.variantId,
           );
           this.retryWrites.set(assetId, [
             ...retained,
             {
               folder,
               rawFilename,
+              binding,
               run: () =>
                 this._startWrite(
                   assetId,
@@ -392,6 +477,7 @@ export class XmpStoreService {
                   culling,
                   revision,
                   passthrough,
+                  binding,
                 ),
             },
           ]);
@@ -409,22 +495,25 @@ export class XmpStoreService {
 
   private async _flushWrite(
     assetId: AssetId,
-    folder: MapleFolderHandle,
-    rawFilename: string,
     model: AdjustmentModel,
     culling: XmpCulling,
     revision: number,
-    passthrough?: PassthroughBucket,
+    passthrough: PassthroughBucket | undefined,
+    binding: HostedSidecarBinding,
   ): Promise<void> {
+    const { folder, rawFilename, filename: sidecarName } = binding;
     this.saveState.saving(assetId, revision);
     // Source XML retains language alternatives and multiple creators that the
     // typed cache cannot represent. Use cached metadata only without source XML.
     // A workflow save may have completed while this edit waited in the chain.
-    const currentPassthrough = this._passthroughs.get(assetId) ?? passthrough;
+    const currentSource = () =>
+      this.bindingFor(assetId, folder, rawFilename).variantId === binding.variantId;
+    const currentPassthrough = currentSource()
+      ? (this._passthroughs.get(assetId) ?? passthrough)
+      : passthrough;
     const metadata = currentPassthrough ? undefined : this._metadata.get(assetId);
     const xml = this.serializer.serialize(model, currentPassthrough, culling, metadata);
     const bytes = new TextEncoder().encode(xml);
-    const sidecarName = this._sidecarFilename(rawFilename);
     try {
       if (folder.native && navigator.locks) {
         const output = await this.hostedWriter.write(
@@ -434,8 +523,10 @@ export class XmpStoreService {
           culling,
           currentPassthrough,
           metadata,
+          binding.variantId,
         );
-        this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
+        if (currentSource())
+          this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
         this.saveState.saved(assetId, revision);
         return;
       }

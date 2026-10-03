@@ -3,7 +3,7 @@ import type { AssetId } from '../models/asset';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import type { XmpCulling } from '../xmp/xmp.types';
-import { XmpStoreService } from '../xmp/xmp-store.service';
+import { XmpStoreService, type HostedSidecarBinding } from '../xmp/xmp-store.service';
 import { LibraryStore } from '../state/library-store.service';
 import { SidecarStore } from '../xmp/sidecar.store';
 import { SelfHostedWorkflowWriterService } from '../xmp/self-hosted-workflow-writer.service';
@@ -14,11 +14,13 @@ interface WorkflowEditSource {
   readonly model: AdjustmentModel;
   readonly culling: XmpCulling;
   readonly cullingPatch: Readonly<Partial<XmpCulling>>;
+  readonly variantId: string;
 }
 
 export interface HostedWorkflowEdit extends WorkflowEditSource {
   readonly backend: 'hosted';
   readonly folder: MapleFolderHandle;
+  readonly binding: HostedSidecarBinding;
 }
 export interface SelfHostedWorkflowEdit extends WorkflowEditSource {
   readonly backend: 'self-hosted';
@@ -41,12 +43,22 @@ export class EditorWorkflowHistoryService {
     if (!asset) return null;
     const source = this.source(id);
     if (!source) return null;
-    if (source.backend === 'self-hosted') this.serverWriter?.beginModel(source.path, model);
+    const frozenSource =
+      source.backend === 'hosted'
+        ? { ...source, binding: this.writer.bindingFor(id, source.folder, asset.filename) }
+        : source;
+    const variantId =
+      frozenSource.backend === 'hosted'
+        ? frozenSource.binding.variantId
+        : this.library.workflowVariants.variantFor(id, frozenSource.path);
+    if (frozenSource.backend === 'self-hosted')
+      this.serverWriter?.beginModel(frozenSource.path, model, variantId);
     // Copied single-file imports have no writable source and remain #2437.
     return {
-      ...source,
+      ...frozenSource,
       id,
       filename: asset.filename,
+      variantId,
       model: structuredClone(model),
       cullingPatch: this.library.cullingPatchFor(id),
       culling: {
@@ -77,7 +89,10 @@ export class EditorWorkflowHistoryService {
       (edit.backend === 'hosted'
         ? this.library.currentFolder() === edit.folder
         : this.library.absPathFor(edit.id) === edit.path) &&
-      this.library.findAsset(edit.id)?.filename === edit.filename
+      this.library.findAsset(edit.id)?.filename === edit.filename &&
+      (edit.backend === 'hosted'
+        ? this.writer.bindingFor(edit.id, edit.folder, edit.filename).variantId === edit.variantId
+        : this.library.workflowVariants.variantFor(edit.id, edit.path) === edit.variantId)
     );
   }
 
@@ -85,8 +100,8 @@ export class EditorWorkflowHistoryService {
     return this.isCurrent(edit) && live
       ? live
       : edit.backend === 'hosted'
-        ? (this.writer.latestModel(edit.id, edit.folder) ?? edit.model)
-        : (this.serverWriter?.latestModel(edit.path) ?? edit.model);
+        ? (this.writer.latestModel(edit.id, edit.folder, edit.variantId) ?? edit.model)
+        : (this.serverWriter?.latestModel(edit.path, edit.variantId) ?? edit.model);
   }
 
   record(edit: WorkflowEdit, model: AdjustmentModel, action: string, label: string): void {
@@ -97,26 +112,40 @@ export class EditorWorkflowHistoryService {
     if (edit.backend === 'self-hosted') {
       if (!this.server) throw Error('Self Hosted sidecar persistence is not configured');
       void this.server
-        .commitSemantic(edit.id, edit.path, {
-          before: edit.model,
-          after: model,
-          culling: edit.culling,
-          cullingPatch: this.isCurrent(edit)
-            ? this.library.cullingPatchFor(edit.id)
-            : edit.cullingPatch,
-          action: kind,
-          label,
-        })
+        .commitSemantic(
+          edit.id,
+          edit.path,
+          {
+            before: edit.model,
+            after: model,
+            culling: edit.culling,
+            cullingPatch: this.isCurrent(edit)
+              ? this.library.cullingPatchFor(edit.id)
+              : edit.cullingPatch,
+            action: kind,
+            label,
+          },
+          edit.variantId,
+        )
         .catch(() => undefined);
       return;
     }
     // Publication errors are surfaced by SidecarSaveState; flush retries the captured action.
     void this.writer
-      .commitSemantic(edit.id, edit.folder, edit.filename, model, edit.culling, kind, label)
+      .commitSemantic(
+        edit.id,
+        edit.folder,
+        edit.filename,
+        model,
+        edit.culling,
+        kind,
+        label,
+        edit.binding,
+      )
       .catch(() => undefined);
   }
 
   release(edit: WorkflowEdit | null): void {
-    if (edit?.backend === 'self-hosted') this.serverWriter?.endModel(edit.path);
+    if (edit?.backend === 'self-hosted') this.serverWriter?.endModel(edit.path, edit.variantId);
   }
 }

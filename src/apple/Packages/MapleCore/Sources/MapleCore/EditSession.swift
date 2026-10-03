@@ -43,7 +43,7 @@ public final class EditSession {
   /// or `true` and that's fine.
   nonisolated(unsafe) public static var deepZoomEnabled: Bool = false
 
-  public let asset: AssetRef
+  public internal(set) var asset: AssetRef
   public internal(set) var hasLoadedSidecar = false
 
   /// Byte-download progress for a remote (cloud) asset open (#822). Set by
@@ -387,14 +387,14 @@ public final class EditSession {
   /// File-backed sidecar store. `nil` for sourceless assets (PhotoKit, self-
   /// hosted API) where sidecar persistence goes through the source's
   /// `writeXMP` API instead.
-  @ObservationIgnored let sidecarStore: (any SidecarStoreProtocol)?
+  @ObservationIgnored let primarySidecarStore: (any SidecarStoreProtocol)?
   /// Tail of the existing sidecar forwarding tasks, joined by an exit flush.
   @ObservationIgnored var sidecarUpdateTask: Task<Void, Never>?
 
   /// Owns pending preview/debounce/write lifetime; session guards remain here.
   @ObservationIgnored let previewPersistence: DisplayPreviewPersistence
 
-  @ObservationIgnored private var sidecarErrorTask: Task<Void, Never>?
+  @ObservationIgnored var sidecarErrorTask: Task<Void, Never>?
 
   /// The wgpu live-render driver (epic #925, P4b-apple / #1028). Created
   /// lazily ONLY when the runtime flag is on (`GpuLiveFlag.isEnabled` —
@@ -522,14 +522,14 @@ public final class EditSession {
     self.renderActor = RenderActor(pipeline: pipeline, rawRenderSource: rawSource)
     if let url = asset.primaryURL {
       // Local-file asset — write to the .xmp sidecar next to the RAW.
-      self.sidecarStore = XMPSidecarStore(rawURL: url)
+      self.primarySidecarStore = XMPSidecarStore(rawURL: url)
     } else if let remote = remoteSidecarStore {
       // Cloud-backed (or PhotoKit) asset — caller injects a remote
       // store that round-trips through the API.
-      self.sidecarStore = remote
+      self.primarySidecarStore = remote
     } else {
       // Sourceless and no remote store wired — edits are session-local.
-      self.sidecarStore = nil
+      self.primarySidecarStore = nil
     }
 
     // Preview sink parallels the sidecar store (#2009): a local file next
@@ -543,21 +543,7 @@ public final class EditSession {
       self.previewPersistence = DisplayPreviewPersistence(sink: remotePreviewSink)
     }
 
-    if let store = self.sidecarStore {
-      sidecarErrorTask = Task { [weak self, store] in
-        // Mirror the tileEventsTask pattern: check cancellation before
-        // touching UI state so teardown doesn't publish a stale error
-        // after the session is gone.
-        let stream = await store.errors()
-        for await error in stream {
-          guard let self else { return }
-          if Task.isCancelled { return }
-          await MainActor.run {
-            self.sidecarError = error
-          }
-        }
-      }
-    }
+    observeSidecarErrors()
   }
 
   deinit {

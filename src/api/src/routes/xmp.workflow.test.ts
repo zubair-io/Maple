@@ -317,6 +317,45 @@ const nativeValue = async (method: 'workflowCheckpointXmp' | 'workflowReadXmp', 
   return result.value;
 };
 
+test('a stale named-variant ordinary save retains newer snapshots and history', async () => {
+  const branch = { ...corpus[1], snapshots: [], history: [] };
+  expect((await variantRequest('variants?' + variantQuery(), 'POST', branch)).status).toBe(201);
+  const route = 'variant?' + variantQuery() + '&variantId=' + branch.variantId;
+  const stale = await (await variantRequest(route, 'GET')).text();
+  const checkpoint = await nativeValue('workflowCheckpointXmp', stale);
+  const entry = historyEntry(checkpoint);
+  const committed = await actionRequest('commit', branch.variantId, {
+    expectedXmp: stale,
+    xmp: checkpoint,
+    entry,
+  });
+  expect(committed.status).toBe(200);
+  const snapshot = {
+    id: crypto.randomUUID(),
+    name: 'Night checkpoint',
+    createdAtMs: 12,
+    adjustmentXmp: checkpoint,
+  };
+  const saved = await actionRequest('snapshot', branch.variantId, {
+    expectedXmp: await committed.text(),
+    snapshot,
+  });
+  expect(saved.status).toBe(200);
+  const retained = await nativeValue('workflowReadXmp', await saved.text());
+  const edited = stale.replace(
+    'crs:ProcessVersion="15.4"',
+    'crs:ProcessVersion="15.4" crs:Exposure2012="2.5"',
+  );
+  const response = await variantRequest(route, 'PUT', edited);
+  expect(response.status).toBe(200);
+  const published = await response.text();
+  expect(published).toContain('crs:Exposure2012="2.5"');
+  expect(published).toContain('<crs:MaskGroupBasedCorrections>');
+  expect(await nativeValue('workflowReadXmp', published)).toBe(retained);
+  expect(await readFile(join(directory, 'photo.xmp'), 'utf8')).toBe(xml);
+  expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
+});
+
 test('the first snapshot creates its primary atomically with one winner and no invented history', async () => {
   await unlink(join(directory, 'photo.xmp'));
   const checkpoint = await nativeValue('workflowCheckpointXmp', xml);

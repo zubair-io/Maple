@@ -5,24 +5,27 @@ import type { WorkflowHistoryEntry, WorkflowSnapshot } from '../generated/workfl
 /** Server-only persistence used by shared editor code. Browser filesystem
  * writes remain in XmpStoreService and MapleCacheService. */
 export interface ServerWorkspacePersistence {
-  readSidecar(path: string): Observable<string | null>;
-  writeSidecar(path: string, xml: string): Observable<string>;
+  readSidecar(path: string, variantId?: string): Observable<string | null>;
+  writeSidecar(path: string, xml: string, variantId?: string): Observable<string>;
   restoreSidecar(
     path: string,
     expectedXmp: string,
     entry: WorkflowHistoryEntry,
+    variantId?: string,
   ): Observable<string>;
   snapshotSidecar(
     path: string,
     expectedXmp: string | null,
     snapshot: WorkflowSnapshot,
     initialXmp?: string,
+    variantId?: string,
   ): Observable<string>;
   commitSidecar(
     path: string,
     expectedXmp: string | null,
     xmp: string,
     entry: WorkflowHistoryEntry,
+    variantId?: string,
   ): Observable<string>;
   writePreview(
     path: string,

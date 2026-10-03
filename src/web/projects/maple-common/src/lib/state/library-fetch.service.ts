@@ -91,6 +91,7 @@ export const LAST_SOURCE_KEY = 'cm.lastSourceId';
 
 interface PendingApiSidecar {
   readonly path: string;
+  readonly variantId: string;
   readonly model: AdjustmentModel;
   readonly patch: Partial<AdjustmentModel>;
   readonly culling: XmpCulling;
@@ -1202,15 +1203,17 @@ export class LibraryFetch {
     }
 
     const revision = this.sidecarSave.queued(id);
+    const variantId = this.store.workflowVariants.variantFor(id, absPath);
     this._apiXmpPending.set(id, {
       path: absPath,
+      variantId,
       model,
       patch: this._apiAdjustmentPatches.get(id) ?? {},
       culling,
       cullingPatch: this.store.cullingPatchFor(id),
       revision,
     });
-    this.workflowWriter.noteModel(absPath, model);
+    this.workflowWriter.noteModel(absPath, model, variantId);
 
     const existing = this._apiXmpTimers.get(id);
     if (existing) clearTimeout(existing);
@@ -1247,7 +1250,7 @@ export class LibraryFetch {
       .then(async () => {
         this.sidecarSave.saving(id, pending.revision);
         const xml = await this.serializeCapturedSidecar(id, pending);
-        return this.sidecarStore.write(absPath, xml);
+        return this.sidecarStore.write(absPath, xml, pending.variantId);
       })
       .then(() => this.sidecarSave.saved(id, pending.revision))
       .catch((err) => {
@@ -1264,10 +1267,12 @@ export class LibraryFetch {
   }
 
   private async serializeCapturedSidecar(id: AssetId, pending: PendingApiSidecar): Promise<string> {
-    const currentSource = this.store.absPathFor(id) === pending.path;
+    const currentSource =
+      this.store.absPathFor(id) === pending.path &&
+      this.store.workflowVariants.variantFor(id, pending.path) === pending.variantId;
     const persisted = currentSource
       ? await this.xmpRestore.loadForWrite(id)
-      : await this.readCapturedSidecar(pending.path);
+      : await this.readCapturedSidecar(pending.path, pending.variantId);
     const model = this.store.hydrateAdjustment(id, {
       ...pending.model,
       ...persisted?.model,
@@ -1290,7 +1295,11 @@ export class LibraryFetch {
     persisted: Awaited<ReturnType<XmpAdjustmentRestoreService['loadForWrite']>>,
   ): void {
     // The active view uses all current intent; a queued publication stays frozen.
-    if (this.store.absPathFor(id) !== pending.path) return;
+    if (
+      this.store.absPathFor(id) !== pending.path ||
+      this.store.workflowVariants.variantFor(id, pending.path) !== pending.variantId
+    )
+      return;
     this.store.mergePersistedAdjustment(
       id,
       persisted?.model ?? {},
@@ -1299,8 +1308,8 @@ export class LibraryFetch {
     this.store.mergePersistedCulling(id, persisted?.culling ?? pending.culling);
   }
 
-  private async readCapturedSidecar(path: string) {
-    const xml = await firstValueFrom(this.workflowWriter.read(path));
+  private async readCapturedSidecar(path: string, variantId: string) {
+    const xml = await firstValueFrom(this.workflowWriter.read(path, variantId));
     return xml === null
       ? null
       : {
@@ -1315,7 +1324,11 @@ export class LibraryFetch {
     if (
       this._apiXmpPending.has(id) ||
       this._apiXmpInFlight.has(id) ||
-      (path && this.sidecarStore.hasPendingSemantic(path))
+      (path &&
+        this.sidecarStore.hasPendingSemantic(
+          path,
+          this.store.workflowVariants.variantFor(id, path),
+        ))
     )
       await this.flushSidecarWrite(id);
   }
@@ -1323,6 +1336,22 @@ export class LibraryFetch {
   rememberWorkflowRestore(id: AssetId, xml: string, model: AdjustmentModel): void {
     this._apiAdjustmentPatches.set(id, structuredClone(model));
     this.xmpRestore.rememberConfirmed(id, xml);
+  }
+
+  /** Selection changes only after the old publication queue has settled (#4063). */
+  bindWorkflowVariant(
+    id: AssetId,
+    path: string,
+    variantId: string,
+    xml: string | null,
+    model: AdjustmentModel,
+  ): void {
+    if (this.store.absPathFor(id) !== path)
+      throw Error('The source changed while selecting a variant.');
+    this.store.workflowVariants.bind(id, path, variantId);
+    this._apiAdjustmentPatches.set(id, structuredClone(model));
+    if (xml === null) this.xmpRestore.invalidateForAsset(id);
+    else this.xmpRestore.rememberConfirmed(id, xml);
   }
 
   /** Await only the selected asset, retaining per-asset batch failures. */
@@ -1334,8 +1363,9 @@ export class LibraryFetch {
     if (this._apiXmpPending.has(id)) return this._flushApiXmpWrite(id);
     const inFlight = this._apiXmpInFlight.get(id);
     const path = this.store.absPathFor(id);
-    if (path && this.sidecarStore.hasPendingSemantic(path))
-      return this.sidecarStore.retrySemantic(path);
+    const variantId = path ? this.store.workflowVariants.variantFor(id, path) : undefined;
+    if (path && this.sidecarStore.hasPendingSemantic(path, variantId))
+      return this.sidecarStore.retrySemantic(path, variantId);
     return inFlight ?? Promise.reject(new Error('No writable sidecar path for this photo.'));
   }
 
