@@ -7,6 +7,7 @@ public enum AgentSocketError: Error, Equatable, CustomStringConvertible {
   case system(call: String, errno: Int32)
   case connectionClosed
   case malformedResponse
+  case messageTooLarge
 
   public var description: String {
     switch self {
@@ -15,6 +16,8 @@ public enum AgentSocketError: Error, Equatable, CustomStringConvertible {
     case .system(let call, let code): return "\(call) failed: \(String(cString: strerror(code)))"
     case .connectionClosed: return "The connection closed before a response arrived"
     case .malformedResponse: return "The response was not a valid agent message"
+    case .messageTooLarge:
+      return "Agent message exceeds the \(LineReader.maxLineBytes / 1024 / 1024) MiB frame limit"
     }
   }
 }
@@ -109,6 +112,9 @@ enum UnixSocket {
 
 /// Splits a byte stream into newline-terminated messages.
 struct LineReader {
+  // max_edge ≤2048 inspection uses one JPEG/base64 image. This also has
+  // room for base64 of that complete 8-bit RGB raster plus JSON metadata.
+  static let maxLineBytes = 32 * 1024 * 1024
   private let fd: Int32
   private var buffer = Data()
 
@@ -117,12 +123,20 @@ struct LineReader {
   /// The next line without its terminator, or nil at end of stream.
   mutating func nextLine() throws -> Data? {
     var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+    var scannedCount = 0
     while true {
-      if let newline = buffer.firstIndex(of: 0x0A) {
+      if let newline = buffer.dropFirst(scannedCount).firstIndex(of: 0x0A) {
+        guard buffer.distance(from: buffer.startIndex, to: newline) <= Self.maxLineBytes else {
+          throw AgentSocketError.messageTooLarge
+        }
         let line = buffer[buffer.startIndex..<newline]
         buffer.removeSubrange(buffer.startIndex...newline)
         return Data(line)
       }
+      guard buffer.count <= Self.maxLineBytes else {
+        throw AgentSocketError.messageTooLarge
+      }
+      scannedCount = buffer.count
       let count = read(fd, &chunk, chunk.count)
       if count < 0 {
         if errno == EINTR { continue }
