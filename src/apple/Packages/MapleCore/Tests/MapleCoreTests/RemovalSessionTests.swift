@@ -132,4 +132,50 @@ final class RemovalSessionTests: XCTestCase {
     editor.removal.close()
     await session.releaseTransientMemory()
   }
+
+  #if os(macOS)
+    func testImportCannotReopenAClosedOrFailedPhoto() async throws {
+      let session = try stage()
+      let raw = try XCTUnwrap(session.asset.primaryURL)
+      let folder = raw.deletingLastPathComponent()
+      let destination = folder.appendingPathComponent("models")
+      let removal = RemovalSession(
+        session: session, modelStore: MacRemovalModelStore(root: destination))
+      await removal.chooseModelFolder(folder)
+      XCTAssertEqual(removal.phase, .closed)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+      try Data([0]).write(to: raw)
+      await removal.open()
+      XCTAssertEqual(removal.phase, .failed)
+      await removal.chooseModelFolder(folder)
+      XCTAssertEqual(removal.phase, .failed)
+      XCTAssertFalse(removal.canRemove)
+      removal.close()
+      await session.releaseTransientMemory()
+    }
+
+    func testIncompleteImportPreservesSelectionAndCannotEnableRemove() async throws {
+      let session = try stage()
+      let raw = try XCTUnwrap(session.asset.primaryURL)
+      let folder = raw.deletingLastPathComponent()
+      let original = try Data(contentsOf: raw)
+      let removal = RemovalSession(
+        session: session,
+        modelStore: MacRemovalModelStore(root: folder.appendingPathComponent("models")))
+      await removal.open()
+      removal.radius = 0.1
+      await removal.paint([[0.4, 0.5]], cropInputSize: [16, 8])
+      let selected = removal.selection
+      await removal.chooseModelFolder(folder)
+      XCTAssertEqual(removal.phase, .ready)
+      XCTAssertFalse(removal.message.isEmpty)
+      XCTAssertEqual(removal.selection, selected)
+      XCTAssertNil(removal.modelFolderName)
+      XCTAssertFalse(removal.canRemove)
+      XCTAssertEqual(try Data(contentsOf: raw), original)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: raw).path))
+      removal.close()
+      await session.releaseTransientMemory()
+    }
+  #endif
 }

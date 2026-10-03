@@ -41,6 +41,7 @@ actor NativeRemovalEditorEngine {
 
   func setModelDirectory(_ url: URL) throws {
     guard url.isFileURL else { throw RemovalError.invalid("Choose a local model folder") }
+    guard directory != url else { return }
     if accessingDirectory { directory?.stopAccessingSecurityScopedResource() }
     directory = url
     accessingDirectory = url.startAccessingSecurityScopedResource()

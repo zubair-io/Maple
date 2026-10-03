@@ -69,8 +69,23 @@ public final class RemovalSession {
   @ObservationIgnored var job: NativeRemovalAuthoringJob?
   @ObservationIgnored var operation: NativeRemovalInferenceOperation?
   @ObservationIgnored private var scope: RemovalSecurityScope?
+  #if os(macOS)
+    @ObservationIgnored let modelStore: MacRemovalModelStore
+  #endif
 
-  public init(session: EditSession) { self.session = session }
+  public init(session: EditSession) {
+    self.session = session
+    #if os(macOS)
+      modelStore = .shared
+    #endif
+  }
+
+  #if os(macOS)
+    init(session: EditSession, modelStore: MacRemovalModelStore) {
+      self.session = session
+      self.modelStore = modelStore
+    }
+  #endif
 
   public var busy: Bool {
     phase == .preparing || phase == .selecting || phase == .generating || phase == .saving
@@ -99,6 +114,23 @@ public final class RemovalSession {
     }
     scope = RemovalSecurityScope(session.asset.scopeParentURL ?? raw.deletingLastPathComponent())
     do {
+      #if os(macOS)
+        do {
+          let installed = try await modelStore.installedDirectory()
+          guard current(token) else { return }
+          if let installed {
+            try await engine.setModelDirectory(installed)
+            guard current(token) else { return }
+            modelFolderName = "Installed local models"
+          } else {
+            modelFolderName = nil
+          }
+        } catch {
+          guard current(token) else { return }
+          modelFolderName = nil
+          message = "Local models need reinstalling: \(error.localizedDescription)"
+        }
+      #endif
       let captured = try await session.removalAuthoringSnapshot()
       guard current(token) else { return }
       guard session.model == captured.model else { throw RemovalError.saveConflict }
@@ -146,14 +178,29 @@ public final class RemovalSession {
   }
 
   public func chooseModelFolder(_ url: URL) async {
-    guard !busy, phase != .review else { return }
+    guard active, !busy, phase != .review else { return }
     let token = revision
+    let returnPhase = phase
+    phase = .preparing
     do {
-      try await engine.setModelDirectory(url)
+      #if os(macOS)
+        let installed = try await modelStore.install(from: url)
+        guard current(token) else { return }
+        try await engine.setModelDirectory(installed)
+      #else
+        try await engine.setModelDirectory(url)
+      #endif
       guard current(token) else { return }
-      modelFolderName = url.lastPathComponent
-      message = "Models are checksum-verified when used. This experiment is not release-qualified."
-    } catch { fail(error, token: token) }
+      #if os(macOS)
+        modelFolderName = "Installed local models"
+        message = "Local models verified. This experiment is not release-qualified."
+      #else
+        modelFolderName = url.lastPathComponent
+        message =
+          "Models are checksum-verified when used. This experiment is not release-qualified."
+      #endif
+      phase = returnPhase
+    } catch { fail(error, token: token, phase: returnPhase) }
   }
 
   public func setMode(_ next: Mode) {

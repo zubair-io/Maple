@@ -54,7 +54,7 @@ struct RemovalPanel: View {
       MuiCollapsible(label: "Local AI models", open: $showingLocalModels) {
         VStack(alignment: .leading, spacing: 8) {
           Text(
-            "Choose a folder containing the pinned model files listed below. Models are verified when used. Photographic quality and device performance are not release-qualified."
+            "Import the pinned model files listed below. On Mac, include runtime.dylib; verified files are copied into app storage and reused after reopening. Photographic quality and device performance are not release-qualified."
           )
           .font(.caption).foregroundStyle(ProTokens.textMuted)
           ForEach(ExperimentalRemovalModels.all, id: \.id) { pin in
@@ -62,7 +62,7 @@ struct RemovalPanel: View {
           }
           if let name = removal.modelFolderName { Text("Selected: \(name)").font(.caption) }
           MuiButton(
-            label: "Choose model folder", size: .sm,
+            label: "Import model folder", size: .sm,
             disabled: removal.busy || removal.phase == .review
           ) { selectingModels = true }
         }

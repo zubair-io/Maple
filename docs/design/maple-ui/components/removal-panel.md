@@ -60,7 +60,7 @@ Saved rows expose Enable/Disable, Delete and Replace through confirmed history. 
 
 Apple owns temporary selection and review in `RemovalSession`. Its panel is
 available in the Mac/iPad inspector and iPhone controls; a local model folder
-is selected through the system picker. Paint uses the shared source-coordinate
+is selected through the system picker. On Mac, **Import model folder** copies all four pinned models and the architecture-specific pinned `runtime.dylib` into app-owned Application Support. The complete set is staged and verified before any file is installed; a bad import preserves a valid installation. Copied files are regular files, independent of imported symlinks or external volumes. Reopening the tool verifies and restores this installation. Missing or corrupt models show a reinstall message while Paint selection remains available; Remove stays disabled. Model/runtime files are verified again by native loaders when used. This offline import does not qualify the model quality, licenses or public distribution. Paint uses the shared source-coordinate
 rasterizer; Smart paint and People use pinned native SAM/RT-DETR inference.
 Selection/protection overlays use the shared inverse RAW geometry. The review
 RGB preview overlays the confirmed canvas without retiring its RAW owner, so
