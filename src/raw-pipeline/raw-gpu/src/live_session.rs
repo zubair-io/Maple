@@ -467,6 +467,7 @@ mod dehaze_split;
 mod limits;
 // The vectorscope scope-pass buffers + `take_scope_stats` (#3272) — split
 // out purely for the file-size budget; see that file's own header.
+mod inspection;
 mod scope;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests.rs"]

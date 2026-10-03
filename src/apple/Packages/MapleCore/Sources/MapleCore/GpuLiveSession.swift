@@ -66,7 +66,7 @@ private struct AutoProfileArtifacts {
 public actor GpuLiveSession {
   /// The opaque Rust handle (`maple_gpu_live_open` → `…_close`). `nil` once closed
   /// or if the open failed.
-  private var handle: MapleGpuLiveSession?
+  var handle: MapleGpuLiveSession?
   public let width: Int
   public let height: Int
 
@@ -86,8 +86,8 @@ public actor GpuLiveSession {
   /// this alongside `noiseProfile` to compute the local sigma; both are
   /// meaningless without the other, so they travel together.
   private let iso: UInt32
-  private let whitesAnchorEv: Float
-  private let nrSamplingScale: Float
+  let whitesAnchorEv: Float
+  let nrSamplingScale: Float
 
   /// The per-image Auto Profile artifacts (fit once via `fitAutoProfile`); `nil`
   /// until fit, or when the image has no Auto tail (plain AgX / Neutral).
@@ -358,7 +358,8 @@ public actor GpuLiveSession {
     asShotCCT: Double? = nil,
     asShotTint: Double? = nil,
     inputShape: UInt32 = 0,
-    wbFrame: WbSliderFrame? = nil
+    wbFrame: WbSliderFrame? = nil,
+    targetColorSpace: CanvasColorSpace = .current
   ) throws -> [UInt8]? {
     let interval = gpuLiveSignposter.beginInterval(
       "GpuFrameReadback", id: gpuLiveSignposter.makeSignpostID())
@@ -371,7 +372,8 @@ public actor GpuLiveSession {
       asShotCCT: asShotCCT,
       asShotTint: asShotTint,
       inputShape: inputShape,
-      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: nrSamplingScale
+      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: nrSamplingScale,
+      targetColorSpace: targetColorSpace
     )
     var out = [UInt8](repeating: 0, count: width * height * 3)
     let rc = withGpuLiveParams(params, curves: model) { pp in
@@ -429,7 +431,7 @@ public actor GpuLiveSession {
   /// `[x0, y0, x1, y1, …]` layout `flattened(_:)` produces, and treats a
   /// null pointer or zero length as the identity curve — so an unedited
   /// model still takes the stage's short-circuit.
-  private func withGpuLiveParams<R>(
+  func withGpuLiveParams<R>(
     _ params: MapleGpuLiveParams,
     curves model: AdjustmentModel,
     _ body: (UnsafePointer<MapleGpuLiveParams>) -> R
@@ -533,7 +535,7 @@ public actor GpuLiveSession {
     }
   }
 
-  private static func lastError() -> String? {
+  static func lastError() -> String? {
     guard let c = maple_last_error() else { return nil }
     return String(cString: c)
   }

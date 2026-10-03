@@ -14,6 +14,14 @@ struct Params {
     src_h: u32,
     dst_w: u32,
     dst_h: u32,
+    origin_x: u32,
+    origin_y: u32,
+    region_w: u32,
+    region_h: u32,
+    use_alpha: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -39,17 +47,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     }
     let ox = i % params.dst_w;
     let oy = i / params.dst_w;
-    let x0 = span_start(ox, params.src_w, params.dst_w);
-    let x1 = min(max(span_start(ox + 1u, params.src_w, params.dst_w), x0 + 1u), params.src_w);
-    let y0 = span_start(oy, params.src_h, params.dst_h);
-    let y1 = min(max(span_start(oy + 1u, params.src_h, params.dst_h), y0 + 1u), params.src_h);
-    var sum = vec3<f32>(0.0, 0.0, 0.0);
+    let x0 = span_start(ox, params.region_w, params.dst_w);
+    let x1 = min(max(span_start(ox + 1u, params.region_w, params.dst_w), x0 + 1u), params.region_w);
+    let y0 = span_start(oy, params.region_h, params.dst_h);
+    let y1 = min(max(span_start(oy + 1u, params.region_h, params.dst_h), y0 + 1u), params.region_h);
+    var sum = vec4<f32>(0.0);
     for (var y = y0; y < y1; y = y + 1u) {
         for (var x = x0; x < x1; x = x + 1u) {
-            sum = sum + src[y * params.src_w + x].rgb;
+            sum = sum + src[(params.origin_y + y) * params.src_w + params.origin_x + x];
         }
     }
     let n = f32((y1 - y0) * (x1 - x0));
     let m = sum / n;
-    out[i] = quantize(m.r) | (quantize(m.g) << 8u) | (quantize(m.b) << 16u);
+    let weight = select(255u, quantize(m.a), params.use_alpha != 0u);
+    out[i] = quantize(m.r) | (quantize(m.g) << 8u) | (quantize(m.b) << 16u) | (weight << 24u);
 }

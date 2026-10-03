@@ -36,17 +36,23 @@ final class AgentMaskScopeTests: XCTestCase {
 
   func testChromaRec709Math() {
     // Pure red (1, 0, 0)
-    let (redCb, redCr) = AgentVectorscope.chromaRec709(r: 1, g: 0, b: 0)
+    let red = AgentVectorscope.compute(
+      rgba: [255, 0, 0, 255], width: 1, height: 1, hasSkinTarget: false)
+    let (redCb, redCr) = (red.meanCb, red.meanCr)
     XCTAssertEqual(redCb, -0.114572, accuracy: 0.0001)
     XCTAssertEqual(redCr, 0.5, accuracy: 0.0001)
 
     // Pure green (0, 1, 0)
-    let (greenCb, greenCr) = AgentVectorscope.chromaRec709(r: 0, g: 1, b: 0)
+    let green = AgentVectorscope.compute(
+      rgba: [0, 255, 0, 255], width: 1, height: 1, hasSkinTarget: false)
+    let (greenCb, greenCr) = (green.meanCb, green.meanCr)
     XCTAssertEqual(greenCb, -0.385428, accuracy: 0.0001)
     XCTAssertEqual(greenCr, -0.454153, accuracy: 0.0001)
 
     // Pure blue (0, 0, 1)
-    let (blueCb, blueCr) = AgentVectorscope.chromaRec709(r: 0, g: 0, b: 1)
+    let blue = AgentVectorscope.compute(
+      rgba: [0, 0, 255, 255], width: 1, height: 1, hasSkinTarget: false)
+    let (blueCb, blueCr) = (blue.meanCb, blue.meanCr)
     XCTAssertEqual(blueCb, 0.5, accuracy: 0.0001)
     XCTAssertEqual(blueCr, -0.045847, accuracy: 0.0001)
   }
@@ -269,7 +275,19 @@ final class AgentMaskScopeTests: XCTestCase {
 
   func testRenderMaskOverlay() async throws {
     let service = AgentEditService()
-    let session = makeSession()
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "agent-overlay-real-mask")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let url = root.appendingPathComponent("portrait.png")
+    let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let image = CIImage(color: CIColor(red: 0.85, green: 0.60, blue: 0.45)).cropped(
+      to: CGRect(x: 0, y: 0, width: 200, height: 200))
+    try CIContext().writePNGRepresentation(of: image, to: url, format: .RGBA8, colorSpace: space)
+    let original = try Data(contentsOf: url)
+    let session = EditSession(asset: AssetRef(url: url))
+    session.previewSize = CGSize(width: 200, height: 200)
+    await session.openAssetPipelineAsync()
+    _ = await session.latestRenderSchedule?.value
+    await session.renderActor.awaitCurrentRenderIfInFlight()
     service.activate(session)
 
     // Create radial mask
@@ -290,11 +308,22 @@ final class AgentMaskScopeTests: XCTestCase {
     XCTAssertNotNil(overlayRes.result["sample_count"])
     XCTAssertEqual(overlayRes.image?.mimeType, "image/jpeg")
     XCTAssertEqual(overlayRes.image?.data.prefix(2), Data([0xFF, 0xD8]))
+    XCTAssertEqual(try Data(contentsOf: url), original)
   }
 
   func testGetVectorscopeToolWithMask() async throws {
     let service = AgentEditService()
-    let session = makeSession()
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "agent-scope-real-mask")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let url = root.appendingPathComponent("portrait.jpg")
+    let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let image = CIImage(color: CIColor(red: 0.85, green: 0.60, blue: 0.45)).cropped(
+      to: CGRect(x: 0, y: 0, width: 200, height: 200))
+    try CIContext().writeJPEGRepresentation(of: image, to: url, colorSpace: space)
+    let session = EditSession(asset: AssetRef(url: url))
+    session.previewSize = CGSize(width: 200, height: 200)
+    await session.openAssetPipelineAsync()
+    _ = await session.latestRenderSchedule?.value
     service.activate(session)
 
     // Create a whole-image skin mask
