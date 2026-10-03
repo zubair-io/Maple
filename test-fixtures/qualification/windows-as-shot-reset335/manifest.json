@@ -1,0 +1,60 @@
+{
+  "executableSha256": "109681CDC39B99FA92D4A3C6F3C517E94FD42F0D8FC1B11692F68C30FCF2B997",
+  "qualification": {
+    "dpiScale": 1.5,
+    "customizedWhiteBalancePreserved": true,
+    "tempDisplayed": "6504 K",
+    "processExit": 0,
+    "modifiedMarkersPresent": false,
+    "screenshotsInspected": 10,
+    "retainedScreenshot": "editor-color.png",
+    "whiteBalanceRowResetUndo": true,
+    "comparisonIntegrity": true,
+    "resetAllUndo": true,
+    "passed": true,
+    "tintDisplayed": "+11"
+  },
+  "build": "Maple.DesignAudit335",
+  "fixture": {
+    "arguments": "--patch-size 256 --guard 16 --encoding rec2020",
+    "generator": "raw-core/examples/synth-chart.rs",
+    "dimensions": "1616x1072",
+    "sha256": "52A10D80F571AF72A1B115AB02D60A8500B55FD8F55D91627378B1128F9C12C5"
+  },
+  "base": "057bc604c619f2ef6e071a7ae38d25dfb1fa5d64",
+  "backend": "cpu",
+  "issue": 4114,
+  "remainingScreenshotsLocal": "C:\\Users\\zubai\\AppData\\Local\\Temp\\maple-colorchart335-visual-20261003/screenshots",
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3",
+  "sourceFiles": [
+    {
+      "path": "src/windows/Maple.WinUI/MainWindow.ComparisonSmoke.cs",
+      "sha256": "15EAD1BA0FD7AC088E6FC87AAF9DEAE0153E1126EFD04B8F1A800FBD6BE2C53B"
+    },
+    {
+      "path": "src/windows/Maple.WinUI/MainWindow.PresetSmoke.cs",
+      "sha256": "E642951D4282998D4629796706F3E1F76A5004FFFE6F41CE7AECBE9454D8391E"
+    },
+    {
+      "path": "src/windows/Maple.WinUI/ViewModels/AdjustmentSectionViewModel.cs",
+      "sha256": "2A43CBB178B008D9235DF314155C923E5876AD8C057DD767CF9D362265964867"
+    },
+    {
+      "path": "src/windows/Maple.WinUI/ViewModels/EditSessionViewModel.DecodeMetadata.cs",
+      "sha256": "090B14828F5DF9E3DFCF94B2426AFA9F22D776F8DDB2C3E332303A062A82D485"
+    },
+    {
+      "path": "src/windows/Maple.WinUI/ViewModels/EditSessionViewModel.History.cs",
+      "sha256": "797494386CAA8409042998DFF8C13B4143E76FA126258A4A8A69A67732D89D24"
+    },
+    {
+      "path": "src/windows/Maple.WinUI/ViewModels/EditSessionViewModel.cs",
+      "sha256": "37FAEAF78F901AACA9B405A5B0F0A069ACBCCD19099C84C65DD98970A5E1DB37"
+    }
+  ],
+  "limitations": [
+    "Synthetic RAW fixture; no ACR color qualification or physical reference-hardware performance claim.",
+    "150% DPI only; no complete accessibility or all-tool visual signoff.",
+    "Cloud lifecycle uses controlled test server responses; no live account qualification."
+  ]
+}

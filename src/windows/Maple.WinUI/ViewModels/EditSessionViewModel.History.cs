@@ -125,11 +125,7 @@ namespace Maple.WinUI.ViewModels
             var before = Adjustments;
             _undoStack.Add(Adjustments.Clone());
             _redoStack.Clear();
-            Adjustments = new AdjustmentState
-            {
-                Temperature = _asShotTemperature,
-                Tint = _asShotTint,
-            };
+            Adjustments = DefaultAdjustments();
             _undoBaseline = Adjustments.Clone();
             AfterModelReplaced(before);
         }

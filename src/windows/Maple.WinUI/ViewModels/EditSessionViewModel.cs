@@ -49,7 +49,7 @@ namespace Maple.WinUI.ViewModels
         public int UndoCount => _undoStack.Count;
         public bool HasNonDefaultEdits()
         {
-            var defaults = new AdjustmentState { Temperature = _asShotTemperature, Tint = _asShotTint };
+            var defaults = DefaultAdjustments();
             return XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = Adjustments }) !=
                 XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = defaults });
         }
@@ -201,6 +201,8 @@ namespace Maple.WinUI.ViewModels
             HasSidecarLoadError = false;
             SidecarLoadError = string.Empty;
             _openPhoto = photo;
+            _asShotTemperature = 6500f;
+            _asShotTint = 0;
             _sidecarDirty = false;
             _decodedPhoto = null;
             Interlocked.Increment(ref _decodeGeneration);
