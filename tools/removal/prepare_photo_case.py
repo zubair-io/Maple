@@ -92,6 +92,9 @@ def prepare(
     protected = selection(case, "protected", protected_mask)
     if not intent.any() or np.any((intent > 0) & (protected > 0)):
         raise ValueError("Empty intent or intent overlaps protected source")
+    encoding = case.get("model_encoding", "signed-log")
+    if encoding not in ["signed-log", "photographic-contrast"]:
+        raise ValueError("Unsupported recorded photographic model encoding")
     subprocess.run(
         [
             str(scene_probe),
@@ -101,6 +104,11 @@ def prepare(
             str(y),
             str(output),
             "--linear-calibration",
+            *(
+                ["--photographic-contrast"]
+                if encoding == "photographic-contrast"
+                else []
+            ),
         ],
         check=True,
         capture_output=True,
