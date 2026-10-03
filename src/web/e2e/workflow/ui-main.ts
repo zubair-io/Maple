@@ -1,3 +1,4 @@
+import { lensGestureWorkflow } from './lens-gesture-workflow';
 import { comparisonWorkflow } from './comparison';
 import { Component, createComponent, inject, type ApplicationRef } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
@@ -190,6 +191,7 @@ function attach(app: ApplicationRef, local: HostedFixture | null, server: Fixtur
   app.tick();
 }
 Reflect.set(window, 'workflowUI', {
+  lensGestureWorkflow,
   comparisonWorkflow,
   async mount(input: string | null, backend: 'hosted' | 'self-hosted') {
     await dispose();

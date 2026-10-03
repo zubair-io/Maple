@@ -55,7 +55,8 @@ import {
   Component,
   computed,
   inject,
-  signal,
+  linkedSignal,
+  type WritableSignal,
   viewChild,
 } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -66,6 +67,12 @@ import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment
 import { DEFAULT_LENS_CORRECTION_CAPABILITY } from '../../state/library-store-lens-corrections';
 import { LensProfileImportComponent } from './lens-profile-import.component';
 import { LensProfileSelectComponent } from './lens-profile-select.component';
+
+type LensField = 'lensCorrectionDistortion' | 'lensCorrectionCa' | 'lensCorrectionVignetting';
+interface LensGesture {
+  readonly assetId: string;
+  readonly value: number | null;
+}
 
 const DISTORTION_RANGE = ADJUSTMENT_RANGES.lensCorrectionDistortion;
 const CA_RANGE = ADJUSTMENT_RANGES.lensCorrectionCa;
@@ -199,16 +206,31 @@ export class LensCorrectionsPanelComponent {
   // In-progress drag values — `null` when no gesture is live, in which
   // case the slider tracks the committed model value. See the file banner
   // for why these hold the value locally instead of writing per tick.
-  private readonly liveDistortion = signal<number | null>(null);
-  private readonly liveCa = signal<number | null>(null);
-  private readonly liveVignetting = signal<number | null>(null);
+  // Linked state resets synchronously when focus changes, including A→B→A
+  // between render passes. Late ticks/releases cannot revive a stale gesture (#4103).
+  private readonly liveDistortion = linkedSignal<string | null, LensGesture | null>({
+    source: this.library.focusedAssetId,
+    computation: () => null,
+  });
+  private readonly liveCa = linkedSignal<string | null, LensGesture | null>({
+    source: this.library.focusedAssetId,
+    computation: () => null,
+  });
+  private readonly liveVignetting = linkedSignal<string | null, LensGesture | null>({
+    source: this.library.focusedAssetId,
+    computation: () => null,
+  });
 
   readonly distortion = computed<number>(
-    () => this.liveDistortion() ?? this.adj()?.lensCorrectionDistortion ?? this.distortionMax,
+    () =>
+      this.liveDistortion()?.value ?? this.adj()?.lensCorrectionDistortion ?? this.distortionMax,
   );
-  readonly ca = computed<number>(() => this.liveCa() ?? this.adj()?.lensCorrectionCa ?? this.caMax);
+  readonly ca = computed<number>(
+    () => this.liveCa()?.value ?? this.adj()?.lensCorrectionCa ?? this.caMax,
+  );
   readonly vignetting = computed<number>(
-    () => this.liveVignetting() ?? this.adj()?.lensCorrectionVignetting ?? this.vignettingMax,
+    () =>
+      this.liveVignetting()?.value ?? this.adj()?.lensCorrectionVignetting ?? this.vignettingMax,
   );
 
   /** Profile-free lateral CA (#3411). Enabled ONLY when the RAW's own
@@ -238,8 +260,11 @@ export class LensCorrectionsPanelComponent {
     this.library.updateAdjustment(id, { lensProfileEnable: this.enabled() ? 'Off' : 'On' });
   }
 
+  onDistortionDragStart(): void {
+    this.startGesture(this.liveDistortion);
+  }
   onDistortionChange(v: number): void {
-    this.liveDistortion.set(v);
+    this.parkValue(this.liveDistortion, v);
   }
   onDistortionDragEnd(): void {
     this.commit('lensCorrectionDistortion', this.liveDistortion);
@@ -249,8 +274,11 @@ export class LensCorrectionsPanelComponent {
     this.writeNow('lensCorrectionDistortion', this.distortionMax);
   }
 
+  onCaDragStart(): void {
+    this.startGesture(this.liveCa);
+  }
   onCaChange(v: number): void {
-    this.liveCa.set(v);
+    this.parkValue(this.liveCa, v);
   }
   onCaDragEnd(): void {
     this.commit('lensCorrectionCa', this.liveCa);
@@ -260,8 +288,11 @@ export class LensCorrectionsPanelComponent {
     this.writeNow('lensCorrectionCa', this.caMax);
   }
 
+  onVignettingDragStart(): void {
+    this.startGesture(this.liveVignetting);
+  }
   onVignettingChange(v: number): void {
-    this.liveVignetting.set(v);
+    this.parkValue(this.liveVignetting, v);
   }
   onVignettingDragEnd(): void {
     this.commit('lensCorrectionVignetting', this.liveVignetting);
@@ -271,23 +302,26 @@ export class LensCorrectionsPanelComponent {
     this.writeNow('lensCorrectionVignetting', this.vignettingMax);
   }
 
-  /** Write the field's parked live value once (drag end) and clear the
-   *  local override so the slider goes back to tracking the model. */
-  private commit(
-    field: 'lensCorrectionDistortion' | 'lensCorrectionCa' | 'lensCorrectionVignetting',
-    live: ReturnType<typeof signal<number | null>>,
-  ): void {
-    const v = live();
-    live.set(null);
-    if (v === null) return;
-    this.writeNow(field, v);
+  private startGesture(live: WritableSignal<LensGesture | null>): void {
+    const assetId = this.library.focusedAssetId();
+    live.set(assetId ? { assetId, value: null } : null);
   }
 
-  private writeNow(
-    field: 'lensCorrectionDistortion' | 'lensCorrectionCa' | 'lensCorrectionVignetting',
-    v: number,
-  ): void {
-    const id = this.library.focusedAssetId();
+  private parkValue(live: WritableSignal<LensGesture | null>, value: number): void {
+    const gesture = live();
+    if (gesture) live.set({ ...gesture, value });
+  }
+
+  /** Release one asset-bound gesture; selection changes already discard it. */
+  private commit(field: LensField, live: WritableSignal<LensGesture | null>): void {
+    const gesture = live();
+    live.set(null);
+    if (!gesture || gesture.value === null || gesture.assetId !== this.library.focusedAssetId())
+      return;
+    this.writeNow(field, gesture.value, gesture.assetId);
+  }
+
+  private writeNow(field: LensField, v: number, id = this.library.focusedAssetId()): void {
     if (!id) return;
     // Snapshot undo BEFORE the write (Copilot review on #3184) — same
     // "commit, then write" ordering `EditorStateService`'s own mutators use,
