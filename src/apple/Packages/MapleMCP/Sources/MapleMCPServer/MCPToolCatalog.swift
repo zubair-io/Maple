@@ -20,7 +20,11 @@ public enum MCPToolCatalog {
     "required": ["photo_id", "revision"],
   ]
 
-  public static let tools: [JSONValue] = [
+  public static var tools: [JSONValue] {
+    developTools + browseTools
+  }
+
+  public static let developTools: [JSONValue] = [
     [
       "name": "maple_get_active_photo",
       "title": "Get active photo",
