@@ -357,3 +357,7 @@ BrowseCancellationOwnershipTests
 
 AgentHTTPIntegrationTests
 AgentExportTests # default JPEG export, originals, revision races and cancellation
+
+TopShelfBuilderTests
+TopShelfCacheTests
+TopShelfLinkTests

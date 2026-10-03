@@ -312,3 +312,13 @@ Five things the old document stated that the code does not support:
 5. **The five-cache framing.** The old "five caches at a glance" table describes an Apple-only world. It omits the layers that carry most of today's behavior: versioned shared filenames and per-platform memory keys, the R2 and Cloudflare Worker edge tier, the File Provider and Quick Look caches, the ten web IndexedDB stores and the byte-bounded in-memory tiers, the API's per-stage `targetVersion` regeneration and its `cache-gc` sweep, and the server-side TTL caches for search counts and reverse-geocodes.
 
 Two things the old doc got right and this one preserves: the `RenderedPreviewCache` key composition, including sidecar mtime as the adjustment-version proxy, and the Hosted preview cache's descriptor-based validation. Separately, the `<sha16>_1600.jpg` naming that sometimes gets attributed to the preview cache is a retired scheme on both sides — `cache-gc`'s `LEGACY_PANO_PREVIEW_RE` recognizes it for reclamation and nothing writes it, and Apple's reader never consults the equivalent old path.
+
+### Maple TV Top Shelf
+
+`TopShelfCache` stores up to five JPEG covers and an atomic JSON manifest in the
+App Group's `TopShelf/<SHA256(server URL + library ID)>/` directory. The app and
+extension share this cache; disk reads and writes run on its actor. A manifest is
+fresh for six hours. Refresh publishes only covers downloaded successfully and
+removes images no longer referenced. The extension requires a paired server with
+Keychain credentials before reading a cache, so unpairing hides the shelf.
+Selecting another server or library uses a separate cache directory.

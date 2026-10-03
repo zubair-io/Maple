@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Minimal Info.plist for Maple TV, merged with the keys Xcode synthesizes
+  (GENERATE_INFOPLIST_FILE stays YES). Same arrangement, and the same reason,
+  as `Maple-Info.plist`: CFBundleURLTypes is an array of dictionaries and the
+  synthesizer only handles scalar INFOPLIST_KEY_* settings. Everything Maple
+  TV can express as a scalar still lives in project.pbxproj.
+
+  The scheme exists for the Top Shelf. TVTopShelfAction carries a bare URL, so
+  selecting a memory on the Home screen has no way into the app without one.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.justmaple.aperture.tv</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>maple-tv</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

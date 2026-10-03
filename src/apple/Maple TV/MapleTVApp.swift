@@ -5,9 +5,15 @@ import SwiftUI
 
 @main
 struct MapleTVApp: App {
+  /// Holds a `maple-tv://` link from the Top Shelf until the screen that can
+  /// honour it exists — see `TVDeepLinkRouter`.
+  @State private var deepLinks = TVDeepLinkRouter()
+
   var body: some Scene {
     WindowGroup {
       RootView()
+        .environment(deepLinks)
+        .onOpenURL { deepLinks.open($0) }
     }
   }
 }
