@@ -34,6 +34,10 @@ actor NativeAutoProfileWorker {
     -> NativeAutoProfile
   {
     try Task.checkCancellation()
+    let preparation = editSessionSignposter.beginInterval(
+      "NativeAutoPrepare", id: editSessionSignposter.makeSignpostID(),
+      "quality \(quality.rawValue, privacy: .public)")
+    defer { editSessionSignposter.endInterval("NativeAutoPrepare", preparation) }
     defer { withExtendedLifetime(cancel) {} }
     var curve = [Float](repeating: 0, count: Int(MAPLE_PROFILE_CURVE_FLAT_LEN))
     var lut = [Float](repeating: 0, count: 49 * 49 * 49 * 3)

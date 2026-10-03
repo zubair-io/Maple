@@ -188,7 +188,8 @@ extension EditSession {
     )
     let phaseName: StaticString = (phase == .fast) ? "fast" : "refine"
     let phaseSignpostID = editSessionSignposter.makeSignpostID()
-    let phaseState = editSessionSignposter.beginInterval(phaseName, id: phaseSignpostID)
+    let phaseState = editSessionSignposter.beginInterval(
+      phaseName, id: phaseSignpostID, "generation \(gen ?? 0, privacy: .public)")
     defer { editSessionSignposter.endInterval(phaseName, phaseState) }
 
     let filterStageName: StaticString =

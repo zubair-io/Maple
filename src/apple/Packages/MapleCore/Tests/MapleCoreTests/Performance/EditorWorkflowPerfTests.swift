@@ -254,6 +254,9 @@ final class EditorWorkflowPerfTests: XCTestCase {
     name: String, session: EditSession,
     change: (inout AdjustmentModel, Double) -> Void
   ) async throws -> TickSummary {
+    let drag = editSessionSignposter.beginInterval(
+      "BenchmarkDrag", id: editSessionSignposter.makeSignpostID(), "case \(name, privacy: .public)")
+    defer { editSessionSignposter.endInterval("BenchmarkDrag", drag) }
     let count = 60
     let baseline = session.model
     let observations = Publications()

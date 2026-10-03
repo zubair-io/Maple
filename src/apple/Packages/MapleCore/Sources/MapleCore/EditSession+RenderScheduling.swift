@@ -38,8 +38,10 @@ extension EditSession {
     editSessionLogger.debug(
       "scheduleRender request phase=\(String(describing: phase), privacy: .public)"
     )
+    let admission = editSessionSignposter.beginInterval(
+      "RenderAdmission", id: editSessionSignposter.makeSignpostID())
     latestRenderSchedule = Task {
-      await actor.scheduleRender(phase: phase) { [weak self] gen in
+      let gen = await actor.scheduleRender(phase: phase) { [weak self] gen in
         guard let self else { return }
         await self.fastPhaseBody(gen: gen)
         let live = await actor.currentGeneration()
@@ -51,6 +53,9 @@ extension EditSession {
         // refineTask it owns.
         await self._scheduleRefine(gen: gen)
       }
+      editSessionSignposter.endInterval(
+        "RenderAdmission", admission, "generation \(gen, privacy: .public)")
+      return gen
     }
   }
 
@@ -59,6 +64,10 @@ extension EditSession {
   /// `renderActor.scheduleRender` can be a single inline `await` —
   /// preserves cancellation propagation from the actor's task handle.
   private func fastPhaseBody(gen: UInt64) async {
+    let callback = editSessionSignposter.beginInterval(
+      "FastCallback", id: editSessionSignposter.makeSignpostID(),
+      "generation \(gen, privacy: .public)")
+    defer { editSessionSignposter.endInterval("FastCallback", callback) }
     await decodeAndRender(targetSize: fastTargetSize, phase: .fast, gen: gen)
   }
 

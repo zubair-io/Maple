@@ -309,6 +309,9 @@ extension EditSession {
     // CAT16 sentinel (#1472); non-RAW keeps the D65 baseline (#1734).
     let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
     let anchor = wbDeltaAnchor
+    let submission = editSessionSignposter.beginInterval(
+      "GpuDriverAwait", id: editSessionSignposter.makeSignpostID(),
+      "generation \(gen ?? 0, privacy: .public)")
     let didPresent = await driver.present(
       model: m,
       asShotCCT: resolvedIsRaw ? anchor?.temperature : 6500.0,
@@ -320,6 +323,7 @@ extension EditSession {
       presentErr = error
       self?.renderError = error
     }
+    editSessionSignposter.endInterval("GpuDriverAwait", submission)
     // Only overwrite on an actual new sample — mirrors the driver's own
     // "one-off readback miss leaves the previous sample in place"
     // contract one layer up. Gated on `scopeEnabled` too, so turning the
@@ -417,6 +421,7 @@ extension EditSession {
     if let gen, gen != (await renderActor.currentGeneration()) { return true }
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen
+    editSessionSignposter.emitEvent("GpuPublished", "generation \(gen ?? 0, privacy: .public)")
     if !gpuFramePresented { gpuFramePresented = true }
     histogramState.framePresented()
     editSessionSignposter.emitEvent("GPU frame submitted")
