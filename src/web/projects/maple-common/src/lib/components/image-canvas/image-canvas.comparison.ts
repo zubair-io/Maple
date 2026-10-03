@@ -68,6 +68,8 @@ export class ImageCanvasComparison {
         if (colorSpace !== 'display-p3' && colorSpace !== 'srgb') {
           untracked(() => {
             this.cancel();
+            this.bitmap()?.close();
+            this.bitmap.set(null);
             this.error.set('Original preview unavailable');
           });
           return;

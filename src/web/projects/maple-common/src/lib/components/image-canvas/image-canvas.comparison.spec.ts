@@ -171,6 +171,19 @@ describe('session-open comparison ownership (#4073)', () => {
     expect(s.comparison.bitmap()).toBeNull();
     expect(s.exportImage).not.toHaveBeenCalled();
   });
+  it('releases an earlier baseline when the achieved GPU tag becomes unknown', async () => {
+    const s = setup(true);
+    cleanup = s.cleanup;
+    await settle();
+    s.split.set(0.5);
+    await settle(150);
+    expect(s.comparison.bitmap()).toBe(bitmap);
+    s.color.set('unknown');
+    await settle();
+    expect(bitmap.close).toHaveBeenCalled();
+    expect(s.comparison.bitmap()).toBeNull();
+    expect(s.comparison.error()).toBe('Original preview unavailable');
+  });
   it('keeps the opening film look when the current look changes', async () => {
     const s = setup(true);
     cleanup = s.cleanup;
