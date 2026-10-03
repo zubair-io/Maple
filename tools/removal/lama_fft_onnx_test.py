@@ -7,8 +7,7 @@ from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 import torch
-
-from lama_fft_onnx import RealFFT2, InverseRealFFT2
+from lama_fft_onnx import InverseRealFFT2, RealFFT2
 
 
 class FourierRoundTrip(torch.nn.Module):
@@ -25,7 +24,7 @@ class PortableFourierTests(unittest.TestCase):
     def test_standard_dft_matches_real_fft_for_rectangular_and_square_inputs(self):
         torch.manual_seed(3941)
         model = FourierRoundTrip().eval()
-        for height, width in [(8, 16), (32, 32), (128, 256)]:
+        for height, width in [(8, 16), (32, 32), (128, 256), (2048, 2048)]:
             with (
                 self.subTest(height=height, width=width),
                 tempfile.TemporaryDirectory() as directory,

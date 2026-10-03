@@ -1,0 +1,238 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T04:56:27.048251+00:00",
+  "parent_commit": "1a15eb5dd2cfd605f1a3e2606de8d5b92b137278",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "purpose": "Determine whether the same pinned LaMa checkpoint can reconstruct a greater-than-1024-source-pixel hole without resizing the source.",
+  "artifact": {
+    "build_recipe": "maple-lama-standard-dft-v1",
+    "source_revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+    "checkpoint_sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+    "weights_archive_url": "https://huggingface.co/smartywu/big-lama/resolve/05cb2be7f8dbe6ca7c6e78f4fc827a4b2baaa4a9/big-lama.zip",
+    "weights_archive_sha256": "f1b358ca24093b93a106183b98a3dea6e8ed09f3b43ea7251eb2c81e7b4575f6",
+    "license_sha256": "4ceeeac5a802e86c413c22b16cce8e9a22027b0250c97e6f8ac97c14cf0542c0",
+    "config_sha256": "4fdeed49926e13b101c4dd9e193acec9e58677dfdb4ba49dd6a3a8927964e2a7",
+    "artifact": "lama-native-2048.onnx",
+    "artifact_sha256": "06c3a4fefd33e371c696ef00b0004bb8a16515d6d540f5bc2be50c219ca1c97b",
+    "native_size": 2048,
+    "fourier_units": 36,
+    "generator_tensors": 989,
+    "opset": 17,
+    "input": "float32 NCHW: masked RGB [0,1] then mask 1=remove, 0=known",
+    "output": "float32 NCHW RGB [0,1], known pixels copied by the shared plate compositor",
+    "release_qualified": false,
+    "toolchain": {
+      "torch": "2.14.1",
+      "onnx": "1.23.1"
+    },
+    "path": "/tmp/maple-removal-lama-native2048-20261003/lama-native-2048.onnx",
+    "bytes": 204794328
+  },
+  "input": {
+    "source": "/tmp/maple-removal-corpus/public-raws/market-auto.png",
+    "source_sha256": "f3849bc239641640749f76a1d44c8060c9d12f073385da37b632e703573a84dc",
+    "crop_bounds": [
+      2700,
+      1240,
+      4748,
+      3288
+    ],
+    "resampled": false,
+    "input": "Full-resolution RAW-developed Auto SDR PNG, diagnostic only, not canonical scene-linear inference plate",
+    "license_manifest": "/tmp/maple-removal-corpus/public-raws/sources.json"
+  },
+  "mask": {
+    "rectangle": [
+      180,
+      540,
+      1200,
+      1400
+    ],
+    "selected_pixels": 1680000,
+    "source_resampled": false
+  },
+  "runtime": {
+    "onnxruntime": "1.23.2",
+    "provider": "CPUExecutionProvider",
+    "artifact_sha256": "06c3a4fefd33e371c696ef00b0004bb8a16515d6d540f5bc2be50c219ca1c97b",
+    "input_sha256": "04edc86babf4443fa41d0525988c238dde9fba005ba73b79995541d324b46391",
+    "native_side": 2048,
+    "hole": [
+      180,
+      540,
+      1200,
+      1400
+    ],
+    "inference_ms": 147265.76641597785,
+    "session_and_inference_ms": 148015.53245796822,
+    "output_min": 0.0,
+    "output_max": 1.0,
+    "output_shape": [
+      1,
+      3,
+      2048,
+      2048
+    ],
+    "output_sha256": "a6e43db0ff82384b643cf06969307aa72e158ee9d8186c8f54791fcfb16c93e8",
+    "scope": "Actual Python ORT 1.23.2 CPU wheel; not exact app dylib, photographic quality or device qualification",
+    "releaseQualified": false,
+    "process_peak_resident_bytes": 8124760064,
+    "measurement_scope": "Isolated process, Python CPUExecutionProvider 1.23.2 wheel, four intra-op threads, one inter-op thread. Shared active host; no p50/p95 or stable device budget."
+  },
+  "reference": {
+    "torch": "2.14.1",
+    "elapsed_ms": 42367.1991659794,
+    "shape": [
+      1,
+      3,
+      2048,
+      2048
+    ],
+    "min": 1.6866280187894219e-16,
+    "max": 1.0,
+    "sha256": "a71ceae6fcad7d169a27b9e82406dfcdbd4372d40724489d4ba82d0210266bd7",
+    "process_peak_resident_bytes": 33971798016
+  },
+  "numerical_comparison": {
+    "shape": [
+      1,
+      3,
+      2048,
+      2048
+    ],
+    "native_side": 2048,
+    "max_float_error": 0.0006315857172012329,
+    "mean_float_error": 8.147009793901816e-06,
+    "max_u8_error": 1,
+    "within_existing_one_code_value_gate": true,
+    "onnxruntime": "1.23.2",
+    "scope": "Upstream PyTorch versus ONNX CPU numerical parity, not reconstructed scene ground truth",
+    "releaseQualified": false
+  },
+  "composite": {
+    "outside_mask_max_u8_change": 0,
+    "masked_pixels": 1680000,
+    "known_pixels": 2514304,
+    "scope": "SDR diagnostic; not accepted RAW patch or quality ground truth",
+    "path": "/tmp/maple-removal-lama-native2048-input-20261003/ort123-composite.png",
+    "sha256": "f6bb030fc771b9c15218d2855aca5a4df282b13a6474caa1182f34e974599b14"
+  },
+  "tests": {
+    "fft_round_trip": {
+      "tests": 1,
+      "shape_subcases": [
+        [
+          8,
+          16
+        ],
+        [
+          32,
+          32
+        ],
+        [
+          128,
+          256
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "failed": 0
+    },
+    "existing_1024_probe": {
+      "artifact_sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+      "onnxruntime": "1.30.0",
+      "cases": [
+        {
+          "image": "native-brick.png",
+          "image_sha256": "8d21650a2c8225dc124e507c4babfbe8008a8e9bc013b6636f842b6bc07e85a6",
+          "native_size": 1024,
+          "onnx_f32_sha256": "92ea1761400fb7cea65297b85bf615bb0928d85abd59ab4c1ddba99852914442",
+          "torch_f32_sha256": "0f5596f5d35feaefdce851e7755554bfd7223c167f2952af4beb1b82e00cb86d",
+          "hole": [
+            412,
+            412,
+            200,
+            200
+          ],
+          "elapsed_ms": 7566.755959065631,
+          "max_float_error_vs_torch": 0.00022178888320922852,
+          "mean_float_error_vs_torch": 9.832893965722178e-08,
+          "max_u8_error_vs_torch": 1,
+          "outside_mask_max_error": 0
+        }
+      ],
+      "release_qualified": false,
+      "qualification": "SDR execution probe; fixed scene anchor, HDR inverse, browser and device gates remain"
+    },
+    "bounds_refusal": "Outside-context 2049x32 hole rejected before loading model or creating output.",
+    "limits": "The complete 2048 combined probe failed during output writing; numerical parity was then verified by separate runtime/reference commands. Report-only memory_scope fields added after the 1024 regression."
+  },
+  "observations": [
+    "Native 2048 ONNX export retains all 989 learned generator tensors and 36 Fourier units from pinned source/checkpoint; no trained weights changed.",
+    "Official-version ORT CPU inference completes, with finite shape-correct native 2048 output and <=1 SDR code difference from upstream PyTorch.",
+    "Runtime-only peak RSS is about 7.6 GiB and inference about 147 seconds on this shared host.",
+    "100-percent diagnostic inspection shows a broad smooth fill and lost plausible market structure in the selected hole. This is a visible challenge failure, not a numeric release score or proof about all scenes.",
+    "Known SDR source pixels outside the rectangle are byte-identical in the diagnostic composite.",
+    "First combined reference/runtime run exhausted disk while saving output. Only this task's rebuildable Xcode intermediates were removed; apps, evidence, model/source artifacts and originals retained. Separate runs completed afterward."
+  ],
+  "remaining": [
+    "No canonical scene-linear RAW input, HDR/seam/noise or saved-patch/export qualification at 2048.",
+    "No exact app C-API/dylib, GPU provider, iOS, browser or lower-memory physical-device test at this extent.",
+    "The model and current application remain unqualified for large-object release; no pin, runtime admission, schema, ABI, generation limit or provisioning change.",
+    "Next evaluate bounded coarse structure with native texture refinement; independent unconditioned tiling or enlarged preview is not sufficient under the RFC."
+  ],
+  "references": [
+    "https://arxiv.org/abs/2109.07161",
+    "https://arxiv.org/abs/2206.13644",
+    "https://arxiv.org/abs/2208.03552"
+  ],
+  "logs": {
+    "export": {
+      "path": "/tmp/maple-removal-lama-native2048-export-20261003.log",
+      "sha256": "6d0dcfe3d3e79a4830358559e013ba06f4d1e16e460a90f21a1d9033e70b670a"
+    },
+    "fft": {
+      "path": "/tmp/maple-removal-lama-native2048-fft-20261003.log",
+      "sha256": "63008d0d2953058eaaaf534983f279f5f6b3da7518dc2ce41f5a6c44d80446c6"
+    },
+    "failed_combined_probe": {
+      "path": "/tmp/maple-removal-lama-native2048-probe-20261003.log",
+      "sha256": "1062973a44ce4392ea58756b4ecfcc75766864154830bdb36bc9223c4026b287"
+    },
+    "runtime_only": {
+      "path": "/tmp/maple-removal-lama-native2048-ort123-20261003.log",
+      "sha256": "d2fbe691c3f7a51b9f700fdf80790d9fd269f0c013d4dbdd5168eab958158f57"
+    },
+    "reference_only": {
+      "path": "/tmp/maple-removal-lama-native2048-torch-20261003.log",
+      "sha256": "6776bafc0dea685b91135b08e1a9f0a20a585eb017910f3f0b1fbd4cb38b4675"
+    },
+    "existing_1024_regression": {
+      "path": "/tmp/maple-removal-lama-native1024-tool-regression-20261003.log",
+      "sha256": "a1c92172a57239773e360bfbcddbda62f4ba08535abfda4271716816391be64d"
+    }
+  },
+  "source_sha256": {
+    "tools/removal/export_lama_native.py": "8cac2884b6809012ce258ddf7c3e16eb894ca19036162d5b9d719003ac1d0ff4",
+    "tools/removal/probe_lama_native.py": "422dd016f6d3788c1f9536d1233e0bbd876113a8d6856db1f74275ed1bb42bd3",
+    "tools/removal/lama_fft_onnx_test.py": "40c86da1051e979853d3a46421561e9aaab8c9f9ff352dca1579c6227b2cd7e7"
+  },
+  "no_push_pr_merge": true,
+  "host": {
+    "cpu": "Apple M5 Max",
+    "physical_memory_bytes": 137438953472,
+    "logical_cpu_count": 18,
+    "scope": "Shared active host; not controlled performance qualification"
+  },
+  "original_source_verification": {
+    "all_source_raw_sha256_match_existing_manifests": true,
+    "raw_files": [
+      "P1010153.RW2",
+      "DSC06078.ARW"
+    ]
+  }
+}

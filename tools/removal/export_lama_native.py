@@ -2,8 +2,10 @@
 
 Load the exact upstream training checkpoint with a restricted weights-only
 unpickler, discard training metadata, preserve all generator tensors, and
-replace only the complex FFT representation for export. Release qualification
-still requires the scene plate, browser runtime and supported device gates.
+replace only the complex FFT representation for export. The native 2048 export
+is a large-context qualification experiment under #3941; application model pins
+and accepted-edit limits stay unchanged. Release qualification still requires
+the scene plate, browser runtime and supported device gates.
 """
 
 import argparse
@@ -18,14 +20,13 @@ from pathlib import Path
 
 import onnx
 import torch
+from lama_fft_onnx import portable_fourier_forward
 from omegaconf import OmegaConf
 from omegaconf.base import ContainerMetadata, Metadata
 from omegaconf.dictconfig import DictConfig
 from omegaconf.listconfig import ListConfig
 from omegaconf.nodes import AnyNode
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-
-from lama_fft_onnx import portable_fourier_forward
 
 SOURCE_REVISION = "786f5936b27fb3dacd2b1ad799e4de968ea697e7"
 CHECKPOINT_SHA256 = "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423"
@@ -153,7 +154,7 @@ def main():
     parser.add_argument("checkpoint", type=Path)
     parser.add_argument("config", type=Path)
     parser.add_argument("output_directory", type=Path)
-    parser.add_argument("--size", type=int, choices=(512, 1024), default=1024)
+    parser.add_argument("--size", type=int, choices=(512, 1024, 2048), default=1024)
     args = parser.parse_args()
     print(
         json.dumps(
