@@ -1,0 +1,1841 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T13:11:36.540879+00:00",
+  "parent_commit": "b8277ca4ff0efcc043b897b45f21e4a516f29566",
+  "releaseQualified": false,
+  "goal_status": "active; incomplete",
+  "experiment": "Pinned local Qwen Image Edit2511 8bit native-float masked reconstruction on the exact refined Bologna person and wider-hole RAW case, with unchanged accepted coverage/protection.",
+  "weights_manifest": {
+    "path": "tools/removal/qwen-edit-research-models.json",
+    "sha256": "7581dcd36018c930532f8c59913734dc3456e9dbf73fcae11f0f371051063fc9"
+  },
+  "published_artifact_receipt": {
+    "path": "/tmp/maple-removal-qwen-edit-triage-20261003/download-verified.json",
+    "sha256": "c9601b7ab7e396b75200c4ce88ead29d7c7f24d38d7f3d2aace55c59001484fc",
+    "report": {
+      "repo": "AbstractFramework/qwen-image-edit-2511-8bit",
+      "revision": "5f35885dfe4061e57c87df2c03123e5e8124edfa",
+      "files": [
+        {
+          "path": ".gitattributes",
+          "bytes": 1580,
+          "git_blob_id": "f1ca65ce6a5b0774360fde1ec05157d9f937aaa2",
+          "lfs_sha256": null,
+          "sha256": "caf3ca02d5e883f643e939cbed54f94237f94c171797f0dfea5e25c7e33315b3"
+        },
+        {
+          "path": "LICENSE.md",
+          "bytes": 11358,
+          "git_blob_id": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+          "lfs_sha256": null,
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        },
+        {
+          "path": "README.md",
+          "bytes": 1962,
+          "git_blob_id": "0743d21d38b502f01fb5b484c7e171792a0461ef",
+          "lfs_sha256": null,
+          "sha256": "c74a6658c39d2909dd714312d6454a691f17f078dcbc27fddb48357c90562309"
+        },
+        {
+          "path": "text_encoder/model.safetensors.index.json",
+          "bytes": 92268,
+          "git_blob_id": "c8b6163323c83ca1d6d9ec6b3c23428771b25ee4",
+          "lfs_sha256": null,
+          "sha256": "7fe69e12e90874b3e3335fc1f62569a8a1e139f79c0bc47b4f991bfe976aefd2"
+        },
+        {
+          "path": "tokenizer/tokenizer.json",
+          "bytes": 11417006,
+          "git_blob_id": "2c0bc81e7ba1bfa2a690d2caaf4bb72d3166e2ac",
+          "lfs_sha256": "444a80c37c7f34f485c050cf374595a0cb7d88735459cf0505fd204453c33178",
+          "sha256": "444a80c37c7f34f485c050cf374595a0cb7d88735459cf0505fd204453c33178"
+        },
+        {
+          "path": "tokenizer/tokenizer_config.json",
+          "bytes": 269,
+          "git_blob_id": "3299687e615af5b239e5000b69cb0cb62ee2008f",
+          "lfs_sha256": null,
+          "sha256": "ebf4e7d1ac441e3d84a44228a1a7392977b375a34c8fbc8b87c68e6a832e98ba"
+        },
+        {
+          "path": "transformer/model.safetensors.index.json",
+          "bytes": 241760,
+          "git_blob_id": "c1e5a8a43af2ca41b5bf797ec61e8ab0ea9c1c04",
+          "lfs_sha256": null,
+          "sha256": "64238ee24b2c645a8f473e2cdebcce88c64af5d8375f9aa76dd23ce6ec6617bb"
+        },
+        {
+          "path": "vae/model.safetensors.index.json",
+          "bytes": 13512,
+          "git_blob_id": "e8b9611c39726bf40ee8cc2d8303806ed678cfe4",
+          "lfs_sha256": null,
+          "sha256": "0178247c899001d8f7e5ffa9686e838726a365eca9dda041aef0e874e6837d44"
+        },
+        {
+          "path": "text_encoder/0.safetensors",
+          "bytes": 2096110757,
+          "git_blob_id": "78f3d24ade7eafe25040b03a0d8e59c94d17e32c",
+          "lfs_sha256": "045669ba3ae4cb3cd19a124eefbba410d85a0504d1194f51e473ca7e10a50376",
+          "sha256": "045669ba3ae4cb3cd19a124eefbba410d85a0504d1194f51e473ca7e10a50376"
+        },
+        {
+          "path": "text_encoder/1.safetensors",
+          "bytes": 2125384621,
+          "git_blob_id": "845f6a1e510010c629e87e245c5af86d6a10bd27",
+          "lfs_sha256": "1a94b0e0ae34d795ca4b9aa3d5acdce6c440c99863a678c563af2b7ec6644968",
+          "sha256": "1a94b0e0ae34d795ca4b9aa3d5acdce6c440c99863a678c563af2b7ec6644968"
+        },
+        {
+          "path": "text_encoder/2.safetensors",
+          "bytes": 2084466661,
+          "git_blob_id": "3187b5cdfe0d09535cdef4dd2ac72e1482aefceb",
+          "lfs_sha256": "cf8cd1bd5f9db93f320e94474544d5cdb3e0ea0677ef21661a55607ad8777e1b",
+          "sha256": "cf8cd1bd5f9db93f320e94474544d5cdb3e0ea0677ef21661a55607ad8777e1b"
+        },
+        {
+          "path": "text_encoder/3.safetensors",
+          "bytes": 2059110344,
+          "git_blob_id": "ca515eedd57a92d504c1c033ca91e3921b3601bb",
+          "lfs_sha256": "9dddda10c8760f5d5637c6ed70e5b2d4ad41795850a759962333a0cd59148706",
+          "sha256": "9dddda10c8760f5d5637c6ed70e5b2d4ad41795850a759962333a0cd59148706"
+        },
+        {
+          "path": "transformer/0.safetensors",
+          "bytes": 2147291992,
+          "git_blob_id": "aca572323083e051b285015263c71b3df0a83829",
+          "lfs_sha256": "a396a4b8f415ea7fb3e612d810f6fcf81810ca5b003cb6a9916aed80e97a24f3",
+          "sha256": "a396a4b8f415ea7fb3e612d810f6fcf81810ca5b003cb6a9916aed80e97a24f3"
+        },
+        {
+          "path": "transformer/1.safetensors",
+          "bytes": 2129238946,
+          "git_blob_id": "564b3e83f4c965deefbc25fc4712e726d3683059",
+          "lfs_sha256": "5d5b9bcc694cd9b701b5f5aeae248c819db4bc41b51dccd051248c641e9da5c7",
+          "sha256": "5d5b9bcc694cd9b701b5f5aeae248c819db4bc41b51dccd051248c641e9da5c7"
+        },
+        {
+          "path": "transformer/10.safetensors",
+          "bytes": 381428288,
+          "git_blob_id": "2a80eae09686bf20fccd0ae3c286e75ff8cda755",
+          "lfs_sha256": "9589c06ec82821492a3b9b7852980f6c45f7c9d09b46b69683ecc8a4e86a6e64",
+          "sha256": "9589c06ec82821492a3b9b7852980f6c45f7c9d09b46b69683ecc8a4e86a6e64"
+        },
+        {
+          "path": "transformer/2.safetensors",
+          "bytes": 2106788646,
+          "git_blob_id": "af597046bb018d7a67b5db99c53bac6c3ca4260e",
+          "lfs_sha256": "e117417cdab9a8cd43a26ce8164de3f8c1a77fd841eb49f93cae2aa2c61d219e",
+          "sha256": "e117417cdab9a8cd43a26ce8164de3f8c1a77fd841eb49f93cae2aa2c61d219e"
+        },
+        {
+          "path": "transformer/3.safetensors",
+          "bytes": 2126873381,
+          "git_blob_id": "a84fbdbaf92b12925fb34349c26432a95bd58e30",
+          "lfs_sha256": "67bb9e2e51503785772dcaa6e265adfd7b1b1aca3ca756cde2f6bd02afd68566",
+          "sha256": "67bb9e2e51503785772dcaa6e265adfd7b1b1aca3ca756cde2f6bd02afd68566"
+        },
+        {
+          "path": "transformer/4.safetensors",
+          "bytes": 2126854960,
+          "git_blob_id": "daea7dfbdcd96badc3b08e2b561dd92b7f76538c",
+          "lfs_sha256": "bdbccb730de6ae72051446e8a8beceb26fe311bafed39708e9900b9121b955b1",
+          "sha256": "bdbccb730de6ae72051446e8a8beceb26fe311bafed39708e9900b9121b955b1"
+        },
+        {
+          "path": "transformer/5.safetensors",
+          "bytes": 2146920787,
+          "git_blob_id": "54293ffaa10a66c31f7485e156ac83ef437a7198",
+          "lfs_sha256": "c7653fa0e40df4967b65d6f65533b0a90aca3ef63dd206a2c34598b5723d722f",
+          "sha256": "c7653fa0e40df4967b65d6f65533b0a90aca3ef63dd206a2c34598b5723d722f"
+        },
+        {
+          "path": "transformer/6.safetensors",
+          "bytes": 2146919411,
+          "git_blob_id": "de04ac08d9fb573133731f9270d2c94ac17c77af",
+          "lfs_sha256": "55d54d9a82c74c4742ddb13c93637515b3d15f35b9b66f51a9004280f6996ec2",
+          "sha256": "55d54d9a82c74c4742ddb13c93637515b3d15f35b9b66f51a9004280f6996ec2"
+        },
+        {
+          "path": "transformer/7.safetensors",
+          "bytes": 2146920895,
+          "git_blob_id": "b9b8c8fba466b2c1df0598bd5aac4569f619575b",
+          "lfs_sha256": "344333683222e2360ce0e84fe987d19e66306f2a48c96923e32337e74973c933",
+          "sha256": "344333683222e2360ce0e84fe987d19e66306f2a48c96923e32337e74973c933"
+        },
+        {
+          "path": "transformer/8.safetensors",
+          "bytes": 2146920883,
+          "git_blob_id": "d8ac9221dc1129a49919efcc78ec00cfae9220eb",
+          "lfs_sha256": "cf5da41a83f7d659e04c41ab1c640d858c1090de584e22ee7aca9d528ee3ecf8",
+          "sha256": "cf5da41a83f7d659e04c41ab1c640d858c1090de584e22ee7aca9d528ee3ecf8"
+        },
+        {
+          "path": "transformer/9.safetensors",
+          "bytes": 2106788772,
+          "git_blob_id": "264b0f734b2aefa626886a597c27cf9059e69586",
+          "lfs_sha256": "69e36f894756170b3a5f58fdc0e92c4a8ea84643cd6003cbb3a0e324bd28ef52",
+          "sha256": "69e36f894756170b3a5f58fdc0e92c4a8ea84643cd6003cbb3a0e324bd28ef52"
+        },
+        {
+          "path": "vae/0.safetensors",
+          "bytes": 253586147,
+          "git_blob_id": "20bef55005f631d87050122dcafc6f0eb53cad42",
+          "lfs_sha256": "c71dcc9f4d35c66aecfde9997f8b649a791cd3602fcc26534ce916f712af90dc",
+          "sha256": "c71dcc9f4d35c66aecfde9997f8b649a791cd3602fcc26534ce916f712af90dc"
+        }
+      ],
+      "bytes": 30343385206,
+      "directory": "/tmp/maple-removal-models/qwen-edit-2511-mlx8bit",
+      "upstream_repo": "Qwen/Qwen-Image-Edit-2511",
+      "upstream_revision": "6f3ccc0b56e431dc6a0c2b2039706d7d26f22cb9",
+      "releaseQualified": false,
+      "license_scope": "Pinned converted Apache-2.0 LICENSE.md and official source model-card license statement; transitive provenance/conversion/distribution/terms remain unqualified."
+    }
+  },
+  "preparation": {
+    "path": "/tmp/maple-removal-bologna-person-hole-192-context-20261003/preparation.json",
+    "sha256": "c5f52d528997df5296253177dac1908f23a2c9223d11edcd172a7b63e8e352ec",
+    "report": {
+      "case": {
+        "id": "bologna-person-hole-192",
+        "raw": "bologna",
+        "window_xywh": [
+          2850,
+          1300,
+          1024,
+          1024
+        ],
+        "hole_radius": 192,
+        "fringe_radius": 4,
+        "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+        "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+        "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person. Research generation hole expands 192 native pixels while accepted intent, fringe4 coverage and protected masks remain identical.",
+        "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+        "orientation": 1,
+        "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+        "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+        "selection_provenance": {
+          "intent_mask": {
+            "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+            "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+          },
+          "protected_mask": {
+            "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+            "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+          },
+          "detector_report": {
+            "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+            "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+          },
+          "selector_report": {
+            "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+            "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+          },
+          "protection_report": {
+            "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+            "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+          },
+          "display_proxy": {
+            "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+            "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+          }
+        }
+      },
+      "manifest_sha256": "c321a0dd4c8e8cbcff7c39bb9c2af0eb03b8be4f2afdfcf023d2f8dc6331a405",
+      "RAW_sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "scene_probe_sha256": "5982953c2ff10a1b578822269c7e3dc367e418fd65c4898f9bb8c1b51868fb73",
+      "context": {
+        "plate": "LinearCalibrationV1",
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "source_anchor": {
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "width": 6000,
+          "height": 4000
+        },
+        "window": {
+          "x": 2850,
+          "y": 1300,
+          "width": 1024,
+          "height": 1024
+        },
+        "source_width": 6000,
+        "source_height": 4000,
+        "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+        "model_input": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+        "encoding": {
+          "version": 1,
+          "low": -1.6838237074610694,
+          "span": 5.260952918861613
+        },
+        "release_qualified": false
+      },
+      "hole_pixels": 385362,
+      "coverage_pixels": 95337,
+      "protected_pixels": 302076,
+      "orientation": {
+        "height": 1024,
+        "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+        "inverse": false,
+        "orientation": 1,
+        "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+        "raw_identity": {
+          "decoded_orientation": "Normal",
+          "decoder_verified": true,
+          "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+        },
+        "releaseQualified": false,
+        "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+        "width": 1024
+      },
+      "releaseQualified": false
+    }
+  },
+  "source_bound_upright_input": {
+    "path": "/tmp/maple-removal-bologna-person-hole-192-native-20261003/report.json",
+    "sha256": "996c7f729502bcea65ad1d448b7dc45ef33cecf1ce9a0f82536ea93da2391c50",
+    "report": {
+      "orientation": 1,
+      "instruction": "background-only",
+      "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+      "conditioning": {
+        "method": "native-harmonic-known-boundary-v1",
+        "selected_source_samples_used": false,
+        "selected_pixels": 385362,
+        "changed_selected_samples": 1156086,
+        "known_source_bits_changed": 0,
+        "resampled": false,
+        "clipped": false,
+        "range": [
+          0.014999999664723873,
+          0.9850000143051147
+        ],
+        "solver": {
+          "unknown_pixels": 385362,
+          "boundary_edges": 4788,
+          "matrix_nonzeros": 1922022,
+          "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+          "channels": [
+            {
+              "relative_residual": 4.057761136529277e-09,
+              "iterations": 7
+            },
+            {
+              "relative_residual": 4.109201893611432e-09,
+              "iterations": 7
+            },
+            {
+              "relative_residual": 4.074245512312286e-09,
+              "iterations": 7
+            }
+          ],
+          "max_absolute_correction": 0.7072844834698407,
+          "range": [
+            0.014999999664723873,
+            0.9850000143051147
+          ],
+          "outside_float_bits_changed": 0,
+          "source_inside_domain_used_for_rhs": false,
+          "clipped": false
+        },
+        "scope": "Inference conditioning only. No original, canonical anchor, coverage, protection or accepted output is changed."
+      },
+      "conditioned_input_sha256": "57e2699a696522298568a35cd1db3d42cdcdc8e4d6c614f8207f2e332c07dd94",
+      "orientation_metadata": {
+        "height": 1024,
+        "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+        "inverse": false,
+        "orientation": 1,
+        "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+        "raw_identity": {
+          "decoded_orientation": "Normal",
+          "decoder_verified": true,
+          "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+        },
+        "releaseQualified": false,
+        "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+        "width": 1024
+      },
+      "preparation_sha256": "c5f52d528997df5296253177dac1908f23a2c9223d11edcd172a7b63e8e352ec",
+      "context": {
+        "plate": "LinearCalibrationV1",
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "source_anchor": {
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "width": 6000,
+          "height": 4000
+        },
+        "window": {
+          "x": 2850,
+          "y": 1300,
+          "width": 1024,
+          "height": 1024
+        },
+        "source_width": 6000,
+        "source_height": 4000,
+        "scene": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+        "model_input": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+        "encoding": {
+          "version": 1,
+          "low": -1.6838237074610694,
+          "span": 5.260952918861613
+        },
+        "release_qualified": false
+      },
+      "context_sha256": "717cf1fe466d6a2e353c6893eacc42d4abfb84e7b82d927bfaee3e75e6657996",
+      "canonical_input_sha256": "76aa4174dc67d7175f933b73ea8966fc76640a9ff1c8192725b52e17e8eecf4c",
+      "canonical_mask_sha256": "54209362c2c57cc1eb4dbe60d1b27478f14dd91d9b16012eb1b96bda17ce237c",
+      "shared_orientation_probe_sha256": "161a53633e0960c8253d24700634a7e4f26a7d8b4f0b412fa4f14409e837e950",
+      "canonical_extent_hw": [
+        1024,
+        1024
+      ],
+      "upright_extent_hw": [
+        1024,
+        1024
+      ],
+      "source": {
+        "forward": {
+          "height": 1024,
+          "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+          "inverse": false,
+          "orientation": 1,
+          "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+          "raw_identity": null,
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "inverse": {
+          "height": 1024,
+          "input_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+          "inverse": true,
+          "orientation": 1,
+          "output_blake3": "a309706eda790e64e539d87cd83b8e77fdc168b96f4d99381730d444a9a808de",
+          "raw_identity": null,
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "roundtrip_bits_exact": true
+      },
+      "mask": {
+        "forward": {
+          "height": 1024,
+          "input_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+          "inverse": false,
+          "orientation": 1,
+          "output_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+          "raw_identity": null,
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "inverse": {
+          "height": 1024,
+          "input_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+          "inverse": true,
+          "orientation": 1,
+          "output_blake3": "58b69311b8a7e035e9f08b4c31f947d7fccf806069d5bb991d9a33c43e2c2583",
+          "raw_identity": null,
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "roundtrip_bits_exact": true
+      },
+      "outputs": {
+        "prediction": {
+          "inverse": {
+            "height": 1024,
+            "input_blake3": "d2006d63a86ade05ddf2acfc53eac330f2975b60c74d0b6643faf42da7674e49",
+            "inverse": true,
+            "orientation": 1,
+            "output_blake3": "d2006d63a86ade05ddf2acfc53eac330f2975b60c74d0b6643faf42da7674e49",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "replay_bits_exact": true
+        },
+        "decoder-unclipped": {
+          "inverse": {
+            "height": 1024,
+            "input_blake3": "07a3634d0ed3fe9c950ecf9ea35c50150c4efd3cbc03962e073a61e3081d120c",
+            "inverse": true,
+            "orientation": 1,
+            "output_blake3": "07a3634d0ed3fe9c950ecf9ea35c50150c4efd3cbc03962e073a61e3081d120c",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          },
+          "replay_bits_exact": true
+        }
+      },
+      "model_report_sha256": "899e41009bc7ceac4813af862c7256137a7336fe8842ce874816ef512e6b8e2f",
+      "result": {
+        "sha256": "56e8d93da95e9a45e845d7ddba65fa7eaad00cd4be261eea18bf5708633c60eb",
+        "outside_float_bits_changed": 0,
+        "outside_u8_samples_changed": 0
+      },
+      "prediction_sha256": "5c0d4f49d704ac3e7f68e827f4b5305800bb66931368a2ed38be02cd396b572f",
+      "decoder_unclipped_sha256": "c22a8c1b5f8882f4ccac70c4b074371a0d6d1afeacbb8ecbaa3b1e931c77169f",
+      "source_resampled": false,
+      "model_input_quantized_to_u8": false,
+      "releaseQualified": false,
+      "scope": "Native Paint research; selection/EXIF provenance, RAW inverse, grades, subject protection and photographic acceptance require separate evidence."
+    }
+  },
+  "protocol": {
+    "native_window": [
+      2850,
+      1300,
+      1024,
+      1024
+    ],
+    "orientation": 1,
+    "intent_pixels": 90546,
+    "generation_hole_pixels": 385362,
+    "accepted_coverage_pixels": 95337,
+    "protected_pixels": 302076,
+    "conditioning": "Same native harmonic erasure and signed-log encoding as Klein wider-hole control. Native VAE receives source float values exactly, never u8 quantization or replacement resampling. Qwen VL semantic proxy uses the pinned upstream image processor.",
+    "prompt": "Same background-only instruction; Qwen CFG guidance4, negative person/people/human figure/silhouette, seed3941, twenty steps. No Lightning LoRA.",
+    "comparison_scope": "Different model/runtime architecture and inference protocol; no isolated causal claim about a single parameter."
+  },
+  "initial_strict_load_failure": {
+    "source_path": "/tmp/maple-removal-qwen-executed-first-20261003/probe_qwen_native.py",
+    "source_sha256": "5ad75fad801178acbffafc63da48943316a5c7a71de36929681f8543ff72cd87",
+    "log_path": "/tmp/maple-removal-qwen-bologna-hole192-native-20261003.log",
+    "log_sha256": "c24248af13f1b9390057e9de5450cbf6dcfa3bfbc09b5cf6d249dc3981631714",
+    "reason": "Pinned upstream mapper flattens VAE RMS gamma to C, while module defaults are Cx1x1 or Cx1x1x1. Strict shape validation failed before inference.",
+    "resolution": "Only actual QwenImageRMSNorm channel vectors are reshaped into their singleton broadcast layout; the pinned forward pass already uses the same channel-vector reshape. No learned values changed, omitted or synthesized; all component parameter names and shapes are then loaded strictly. Every view adaptation is recorded."
+  },
+  "model": {
+    "path": "/tmp/maple-removal-qwen-bologna-hole192-native-20261003/report.json",
+    "sha256": "8182337cf5d176cf6e6306fad6ae1cc99af1b4493cbf5842ca41a9903163a211",
+    "report": {
+      "repo": "AbstractFramework/qwen-image-edit-2511-8bit",
+      "revision": "5f35885dfe4061e57c87df2c03123e5e8124edfa",
+      "model_manifest_sha256": "7581dcd36018c930532f8c59913734dc3456e9dbf73fcae11f0f371051063fc9",
+      "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+      "prepared_source_report": "/tmp/maple-removal-bologna-person-hole-192-native-20261003/report.json",
+      "prepared_source_report_sha256": "996c7f729502bcea65ad1d448b7dc45ef33cecf1ce9a0f82536ea93da2391c50",
+      "float_input_sha256": "57e2699a696522298568a35cd1db3d42cdcdc8e4d6c614f8207f2e332c07dd94",
+      "mask_sha256": "54209362c2c57cc1eb4dbe60d1b27478f14dd91d9b16012eb1b96bda17ce237c",
+      "native_extent_hw": [
+        1024,
+        1024
+      ],
+      "source_resampled": false,
+      "model_input_quantized_to_u8": false,
+      "source_samples_exact_before_VAE": true,
+      "semantic_proxy_scope": "Qwen VL image observation uses upstream semantic resize; replacement VAE pixels and decoder remain native.",
+      "strict_loaded_tensors": [
+        {
+          "component": "vae",
+          "tensors": 192,
+          "broadcast_views": [
+            {
+              "tensor": "encoder.mid_block.resnets.0.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.mid_block.resnets.0.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.mid_block.resnets.1.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.mid_block.resnets.1.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.mid_block.attentions.0.norm.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.0.resnets.0.norm2.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.0.resnets.0.norm1.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.0.resnets.1.norm2.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.0.resnets.1.norm1.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.1.resnets.0.norm1.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.1.resnets.0.norm2.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.1.resnets.1.norm2.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.1.resnets.1.norm1.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.2.resnets.0.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.2.resnets.0.norm1.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.2.resnets.1.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.2.resnets.1.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.3.resnets.0.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.3.resnets.0.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.3.resnets.1.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.down_blocks.3.resnets.1.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "encoder.norm_out.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block3.resnets.0.norm1.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block3.resnets.0.norm2.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block3.resnets.1.norm1.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block3.resnets.1.norm2.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block3.resnets.2.norm1.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block3.resnets.2.norm2.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block0.resnets.0.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block0.resnets.0.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block0.resnets.1.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block0.resnets.1.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block0.resnets.2.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block0.resnets.2.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block2.resnets.0.norm2.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block2.resnets.0.norm1.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block2.resnets.1.norm2.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block2.resnets.1.norm1.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block2.resnets.2.norm2.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block2.resnets.2.norm1.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.mid_block.resnets.0.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.mid_block.resnets.0.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.mid_block.resnets.1.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.mid_block.resnets.1.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.mid_block.attentions.0.norm.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block1.resnets.0.norm1.weight",
+              "from": [
+                192
+              ],
+              "to": [
+                192,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block1.resnets.0.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block1.resnets.1.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block1.resnets.1.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block1.resnets.2.norm1.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.up_block1.resnets.2.norm2.weight",
+              "from": [
+                384
+              ],
+              "to": [
+                384,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "tensor": "decoder.norm_out.weight",
+              "from": [
+                96
+              ],
+              "to": [
+                96,
+                1,
+                1,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "component": "transformer",
+          "tensors": 3624,
+          "broadcast_views": []
+        },
+        {
+          "component": "text_encoder",
+          "tensors": 1412,
+          "broadcast_views": []
+        }
+      ],
+      "quantization": 8,
+      "seed": 3941,
+      "requested_steps": 20,
+      "actual_steps": 20,
+      "guidance": 4.0,
+      "prompt": "Remove the selected person and their carried objects completely. Fill the selected region with a continuous extension of the visible background. The replacement contains only background surfaces, with no new people, faces, bodies, clothing or bags. Preserve scene perspective, lighting, materials and photographic detail.",
+      "negative_prompt": "person, people, human figure, silhouette",
+      "model_open_ms": 9943.979416973889,
+      "inference_ms": 697340.030292049,
+      "steps": [
+        {
+          "step": 1,
+          "scheduler_index": 0,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 37051.950874971226,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 2,
+          "scheduler_index": 1,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 71748.33775009029,
+          "mlx_active_bytes": 30356567442,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 3,
+          "scheduler_index": 2,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 103903.09604210779,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 4,
+          "scheduler_index": 3,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 137027.02895901166,
+          "mlx_active_bytes": 30356829590,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 5,
+          "scheduler_index": 4,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 168914.7209590301,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 6,
+          "scheduler_index": 5,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 198921.07854201458,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 7,
+          "scheduler_index": 6,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 233225.91400006786,
+          "mlx_active_bytes": 30356043022,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 8,
+          "scheduler_index": 7,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 260744.58666704595,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 9,
+          "scheduler_index": 8,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 294687.8651250154,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 10,
+          "scheduler_index": 9,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 327795.4975841567,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 11,
+          "scheduler_index": 10,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 356361.14637507126,
+          "mlx_active_bytes": 30356829590,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 12,
+          "scheduler_index": 11,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 388763.25916708447,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 13,
+          "scheduler_index": 12,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 426081.86220913194,
+          "mlx_active_bytes": 30866610138,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 14,
+          "scheduler_index": 13,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 463804.28758403286,
+          "mlx_active_bytes": 31374981086,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 15,
+          "scheduler_index": 14,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 501611.7302090861,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 16,
+          "scheduler_index": 15,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 537910.1175840478,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 17,
+          "scheduler_index": 16,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 575767.2925840598,
+          "mlx_active_bytes": 31377373150,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 18,
+          "scheduler_index": 17,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 617226.2029999401,
+          "mlx_active_bytes": 31787136990,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 19,
+          "scheduler_index": 18,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 654221.4359589852,
+          "mlx_active_bytes": 30356829594,
+          "mlx_cache_bytes": 1073741824
+        },
+        {
+          "step": 20,
+          "scheduler_index": 19,
+          "latent_shape": [
+            1,
+            4096,
+            64
+          ],
+          "elapsed_ms": 690711.1816250253,
+          "mlx_active_bytes": 30564530110,
+          "mlx_cache_bytes": 1073741824
+        }
+      ],
+      "mlx_peak_memory_bytes": 45940017094,
+      "memory_scope": "Logical MLX peak only, not system/device footprint or a supported-memory-tier claim.",
+      "decoder_unclipped_sha256": "3ec2acd5b2b64b70020d6c7dc19578686812e15ebca7fd633d0d159d864aed8e",
+      "prediction_sha256": "7771779555fbbec9d7ad457433218c5a5f910f4332903a59787892be211cf8a4",
+      "result": {
+        "sha256": "3b612464d5e2e8bc02ae80534410af705cf899d2c76b61c5987fa614c2627dc4",
+        "outside_float_bits_changed": 0,
+        "outside_u8_samples_changed": 0
+      },
+      "releaseQualified": false,
+      "scope": "Native candidate reconstruction research. Canonical inverse, grades, object/subject/detail/noise quality, licenses/distribution and runtime/device gates remain."
+    }
+  },
+  "boundary_correction": {
+    "path": "/tmp/maple-removal-qwen-bologna-hole192-seam-20261003/report.json",
+    "sha256": "799a88b490c28ecec1cf35f2d4351903845d48a2d0eb2b1c0197d9d62c5778cc",
+    "report": {
+      "unknown_pixels": 95337,
+      "boundary_edges": 1738,
+      "matrix_nonzeros": 474947,
+      "solver": "PyAMG classical Ruge-Stuben preconditioned conjugate gradients",
+      "channels": [
+        {
+          "relative_residual": 6.590987914712606e-09,
+          "iterations": 5
+        },
+        {
+          "relative_residual": 6.912633005676819e-09,
+          "iterations": 5
+        },
+        {
+          "relative_residual": 5.685198729317912e-09,
+          "iterations": 5
+        }
+      ],
+      "max_absolute_correction": 0.25510215352685395,
+      "range": [
+        0.014999999664723873,
+        0.9850000143051147
+      ],
+      "outside_float_bits_changed": 0,
+      "source_inside_domain_used_for_rhs": false,
+      "clipped": false,
+      "source_sha256": "eaa7030fef7be6fca16b0a0c5615e878760943ac0dd529166561ea5e30964d27",
+      "prediction_sha256": "7771779555fbbec9d7ad457433218c5a5f910f4332903a59787892be211cf8a4",
+      "domain_sha256": "1cec81df42f31f5b9f5232e51e13c0a247f69537699dba85e1dce73ec2d53e2e",
+      "native_extent_hw": [
+        1024,
+        1024
+      ],
+      "source_resampled": false,
+      "correction_ms": 293.3303751051426,
+      "model_domain_valid": true,
+      "display_preview_scope": "Display-only clipped u8 visualization. Persisted f32 correction is unmodified, never clipped.",
+      "correction_sha256": "85203f5c567f8d8c98ae372798253a8d77df84f53bdf593dea8605167834887e",
+      "process_peak_resident_bytes": 274464768,
+      "toolchain": {
+        "pyamg": "5.3.0",
+        "scipy": "1.17.1",
+        "numpy": "2.4.6"
+      },
+      "releaseQualified": false,
+      "scope": "Native boundary correction research only; no RAW inverse, accepted record, editor/runtime, photographic corpus or hardware qualification is implied."
+    }
+  },
+  "RAW_bake": {
+    "path": "/tmp/maple-removal-qwen-bologna-hole192-bake-20261003/report.json",
+    "sha256": "234cdae9ada4bfd2496325335e23fe0c5ff333b4379e54bc656e871a3f83bf88",
+    "report": {
+      "as_shot_temperature": 4084.04931640625,
+      "as_shot_tint": 42.26961898803711,
+      "auto_profile_engaged": true,
+      "encoding": {
+        "low": -1.6838237074610694,
+        "span": 5.260952918861613,
+        "version": 1
+      },
+      "generation_masks": "blake3:1f7d5dba36e57a0c7b444066263e72a13186518f1b8a06a3307b60bfcff3eecb",
+      "grades": [
+        {
+          "case": "neutral_ev-3_wb-1000",
+          "max_scene_float_error_identity": 2.734363079071045e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2525.366416
+        },
+        {
+          "case": "auto_ev-3_wb-1000",
+          "max_scene_float_error_identity": 2.734363079071045e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2525.366416
+        },
+        {
+          "case": "neutral_ev-3_wb+0",
+          "max_scene_float_error_identity": 1.5262514352798462e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2753.63825
+        },
+        {
+          "case": "auto_ev-3_wb+0",
+          "max_scene_float_error_identity": 1.5262514352798462e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2753.63825
+        },
+        {
+          "case": "neutral_ev-3_wb+1000",
+          "max_scene_float_error_identity": 1.1788681149482727e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2943.986416
+        },
+        {
+          "case": "auto_ev-3_wb+1000",
+          "max_scene_float_error_identity": 1.1788681149482727e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2943.986416
+        },
+        {
+          "case": "neutral_ev+0_wb-1000",
+          "max_scene_float_error_identity": 0.0002187490463256836,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2630.8039590000003
+        },
+        {
+          "case": "auto_ev+0_wb-1000",
+          "max_scene_float_error_identity": 0.0002187490463256836,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2630.8039590000003
+        },
+        {
+          "case": "neutral_ev+0_wb+0",
+          "max_scene_float_error_identity": 0.0001221001148223877,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2399.869208
+        },
+        {
+          "case": "auto_ev+0_wb+0",
+          "max_scene_float_error_identity": 0.0001221001148223877,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 2399.869208
+        },
+        {
+          "case": "neutral_ev+0_wb+1000",
+          "max_scene_float_error_identity": 9.430944919586182e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1480.66125
+        },
+        {
+          "case": "auto_ev+0_wb+1000",
+          "max_scene_float_error_identity": 9.430944919586182e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1480.66125
+        },
+        {
+          "case": "neutral_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1484.192792
+        },
+        {
+          "case": "auto_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0017499923706054688,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1484.192792
+        },
+        {
+          "case": "neutral_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0009768009185791016,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1454.772458
+        },
+        {
+          "case": "auto_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0009768009185791016,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1454.772458
+        },
+        {
+          "case": "neutral_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.0007544755935668945,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1502.9716250000001
+        },
+        {
+          "case": "auto_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.0007544755935668945,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1502.9716250000001
+        }
+      ],
+      "max_scene_float_error_identity": 0.0017499923706054688,
+      "model_result": "blake3:69c2e7bbe6cde2d0e55927a5625a9456a71d25add3f2f7d737af7e95b8a6df9a",
+      "native_context": {
+        "height": 1024,
+        "width": 1024,
+        "x": 2850,
+        "y": 1300
+      },
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "outside_mask_max_error": 0,
+      "plate": "LinearCalibrationV1",
+      "profile_tier": "BundleConfident",
+      "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+      "release_qualified": false
+    }
+  },
+  "independent_grade_checks": {
+    "path": "/tmp/maple-removal-qwen-bologna-hole192-grade-checks-20261003.json",
+    "sha256": "d97ecf97ffb2dd4e14fc6e7b33b9b10034a1417799e99743c594affedfb78486",
+    "report": [
+      {
+        "case": "auto_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "922085279236cc62e77133e72d6f3902dd76e55dbc2372bb7bbb39f1db4a81bc",
+        "source_image_sha256": "565b2c343804e120671faa7a52f2dcae63e85f13fa28d014a0247bd032d0bc43"
+      },
+      {
+        "case": "auto_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "daf4e7a4f62ca81ea6a2a4b8254f62aac40dbc45029ce9552eb8b7bfb9b8560c",
+        "source_image_sha256": "e99d063a679559b6e1648d394f499a3c7a87eea3f220586b672e1b92d5d2e77a"
+      },
+      {
+        "case": "auto_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "016b51389dbeb92625b5011fc5da81decda2a6b817f38d407c9c42f5454c5b00",
+        "source_image_sha256": "032e9ea15cbd9cbea2c51d86d5763ded2114e538449352523539faa7ad4b8d72"
+      },
+      {
+        "case": "auto_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "9e107b33117800402c00eef1c7f7193d5660d6790ccd0199b6cf98c9ede575c3",
+        "source_image_sha256": "804b2ea8ffdfa4af646c29b1536668ed08ba36b55870782b4524d433e24e13b0"
+      },
+      {
+        "case": "auto_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "302d8d9d5240de60964e05ffc657ab2d7c2f6614ba64560f75543aa3bf444a7e",
+        "source_image_sha256": "30a8609358f0b9f6fc635da4720f031c56a1329ec8cad63957261dfa08703989"
+      },
+      {
+        "case": "auto_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "f2a1a534440df6248b3692fa0a57d8071028f0b403d4320dbf865b3db621a153",
+        "source_image_sha256": "e2d32e87f7688622030cf65a3e2cb6b9755be055634dbcb5328b03f1f8e1bd0a"
+      },
+      {
+        "case": "auto_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "81a5870fc1c8055306e8a5abe052982eb335e95de215a006ae469cf570670b62",
+        "source_image_sha256": "5bba64a64704f4c334d386f311184e94791ab7b52c75515b899414291bda13bc"
+      },
+      {
+        "case": "auto_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "b0069bc5af383890b73a0d2f6b35e69697ebef0e891de8ca12045a2e789b69e3",
+        "source_image_sha256": "648723566b980672eeb503c636ebe63e9450cc395a1249d6d1d705f2cca5ab8e"
+      },
+      {
+        "case": "auto_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "0aa67fe19d645d5f63705bb197eb384a5772b972dd199acf62fc62bede818bae",
+        "source_image_sha256": "02fb83aee56776f375cd2f6fbced29222e7c77e2a263ab12ad168341a836f3e1"
+      },
+      {
+        "case": "neutral_ev+0_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "bbf318b6a27ea01714b9e47fb1da582c2e939b889cd78055b5153f636cc06b0a",
+        "source_image_sha256": "fb8567a7ee45a3c054bfa4d55b387ab6ad7a0a8bf3b2c06d991c01ba9622a3a1"
+      },
+      {
+        "case": "neutral_ev+0_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "b8dd50cef8474b926be6a4567419ef754c0dae120105341fb13951765c173d46",
+        "source_image_sha256": "c17c2c90ef1dc42591857431864eed76a97a0cc6ad775a9850a999d34c75e59e"
+      },
+      {
+        "case": "neutral_ev+0_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "66989c57475ef551fdb7b76c721f66d4e2961bd483454222d5e633ba05776fda",
+        "source_image_sha256": "226c8d2a657d49664defd1ae3d9dc3c4c307ab89ec12319b6b611e337dcdf05d"
+      },
+      {
+        "case": "neutral_ev+3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "026d9c393167b48e4a9714e1e18bab2cf0f17d790da698197fbc4da4fc12e2ff",
+        "source_image_sha256": "8ac1a2b15f9369b02f4381996f7241c85899ca479d6f6341aad356c737cf0e17"
+      },
+      {
+        "case": "neutral_ev+3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "82af70d2509684cc511410f9349a605f91cd9c9c8b4edcd1c8419d85b34c3053",
+        "source_image_sha256": "da3021a7f02f3406fd429bb65d224f9212bc984cc33350ef4fc05a7ff78b43a3"
+      },
+      {
+        "case": "neutral_ev+3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "7dac00888b21754b0b149b0ab71c45103e1376a1adaf794277975723254f76f7",
+        "source_image_sha256": "f27cf2f825690382ed917b8fe8b994d507187c4101f4cdbf34cea4cd429d02c8"
+      },
+      {
+        "case": "neutral_ev-3_wb+0",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "43a755ef241a8450efca0dbc1367b275391b6f784886699e8c2f956d3477fd7f",
+        "source_image_sha256": "0861e005a819775ce7b7690a1c37caefd058c82987fdc82e23330d115a9d2bdd"
+      },
+      {
+        "case": "neutral_ev-3_wb+1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "7dfd685aa4a30b1da3b94308024edd57a1b968d24dfca69eb58b656d640117af",
+        "source_image_sha256": "5f95e95ed1f5b1e2fa5160443cd0619576271b21d3ee2caed5d565591aeaf617"
+      },
+      {
+        "case": "neutral_ev-3_wb-1000",
+        "outside_coverage_samples_changed": 0,
+        "protected_samples_changed": 0,
+        "image_sha256": "6bd4a5338bb11bfeedffc82ee0d3dc07e6a45799ab071c740fef151600969055",
+        "source_image_sha256": "43b0762d4d3414f85199dc5df2ae447b032b3da1f168c41c31fbc0933b6db6b3"
+      }
+    ]
+  },
+  "original_RAW_sha256_after": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+  "findings": {
+    "reconstruction": "The original target's blue coat and face are no longer visible, but the selected area remains an obvious target-shaped blur with colored edge artifacts and little plausible photographic background detail. Native RAW Auto rendering remains visibly unsuitable for accepted removal. This does not establish complete semantic closure; it fails overall photographic reconstruction.",
+    "preservation": "Actual shared RAW inverse, durable fp16 codec and native rendering preserve exact known/protected samples in18 independently checked Auto/Neutral exposure/WB renders. No accepted sidecar was written.",
+    "timing_memory": "One uncontrolled M5 Max128 GiB run; about697 seconds and45.94 GB logical MLX peak. This is not device RSS, controlled p50/p95, nor supported16/24/32 GiB qualification. No optimized phase ownership or cache protocol is established for Qwen.",
+    "decision": "No Qwen model/runtime, wider-hole policy, color conversion or product configuration admitted. Photographic-contrast model encoding remains worth evaluating, with no causal conclusion about the current haze."
+  },
+  "scientific_figure": {
+    "path": "/tmp/maple-removal-qwen-bologna-raw-comparison-20261003.png",
+    "sha256": "b84770dd5720c930d7845e2aed275dd0d14603ab6bda3a5d8948304a4e3e61af",
+    "scope": "Display comparison of native RAW crops; no perceptual color gate or ground-truth quality measure."
+  },
+  "executed_sources": [
+    {
+      "path": "tools/removal/probe_qwen_native.py",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/tools/removal/probe_qwen_native.py",
+      "sha256": "912e52d82423ae70f83d90333319f32df00f4deeb8d01578be165923021842a2"
+    },
+    {
+      "path": "tools/removal/qwen-edit-research-models.json",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/tools/removal/qwen-edit-research-models.json",
+      "sha256": "7581dcd36018c930532f8c59913734dc3456e9dbf73fcae11f0f371051063fc9"
+    },
+    {
+      "path": "tools/removal/probe_klein_native.py",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/tools/removal/probe_klein_native.py",
+      "sha256": "ad4abbf91162efb71ad270d641a7b0381ec69a0cc4e88da7eaf3d11cf2825e45"
+    },
+    {
+      "path": "tools/removal/native_probe_pixels.py",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/tools/removal/native_probe_pixels.py",
+      "sha256": "b7327a50ed73250d859b9ded4dc808427b112768ea9643f52620ff81a1071ebc"
+    },
+    {
+      "path": "tools/removal/probe_klein_oriented.py",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/tools/removal/probe_klein_oriented.py",
+      "sha256": "9a7c2eb7cab3d69bdf17deb753e728a0e8d8843a94cc6c7c763f091aa4daff54"
+    },
+    {
+      "path": "tools/removal/probe_native_seams.py",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/tools/removal/probe_native_seams.py",
+      "sha256": "219b9e58afa97869787ac6ad6190e6962bc2f53b180ae25c086c769c99b4aafa"
+    },
+    {
+      "path": "tools/removal/native_seam_correction.py",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/tools/removal/native_seam_correction.py",
+      "sha256": "422ef1ddb98445fa051343daf216703fdff3a06d1a10bfa2976c639f10ebea3a"
+    },
+    {
+      "path": "src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "sha256": "5982953c2ff10a1b578822269c7e3dc367e418fd65c4898f9bb8c1b51868fb73"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs",
+      "sha256": "5512d73fa5a15a36066304915ff3911956dd6e7077dbad02a2344839047b42fe"
+    },
+    {
+      "path": "src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/src/raw-pipeline/raw-core/src/pipeline/removal_encoding.rs",
+      "sha256": "c7d5b82dc7ae8bf3698b1d977299cd58090bf0216340a6ab35bf1e761e77f16b"
+    },
+    {
+      "path": "/tmp/maple-removal-qwen-check-raw-20261003.py",
+      "captured_copy": "/tmp/maple-removal-qwen-executed-full-20261003/tmp/maple-removal-qwen-check-raw-20261003.py",
+      "sha256": "7ee1e12b65788d2f9d0a0cfa7eb719a445db741bdbc646177c41d08d4a3044f7"
+    }
+  ],
+  "limitations": [
+    "One public RAW; visually reviewed SAM instance/protection, no independent whole-object/role labels, hidden-background truth or verified person releases.",
+    "Published artifact hashes and declared Apache2 licenses are provenance only; conversion equivalence, transitive terms, distribution/signing and full admission remain unresolved.",
+    "Native canonical RAW conversion/preservation does not establish reconstruction quality, texture/noise, accepted edit history/export portability or device performance.",
+    "The full Mac-first epic remains active, including native larger selections/coherence, corpus, runtime admission/integration, accessibility, all portable consumers, then full Web authoring/parity."
+  ],
+  "next_work": "Evaluate an exact reversible photographic-contrast model encoding on the same native controls, qualify identity/negative/HDR behavior and preserve source-bound RAW/protection gates before rerunning the faster Klein reconstruction candidate."
+}
