@@ -51,6 +51,16 @@ extension EditSession {
   public func createPersonSkinMask(person: PersonCandidate, facialSkin: Bool, bodySkin: Bool)
     async throws
   {
+    let layer = try await preparePersonSkinMask(
+      person: person, facialSkin: facialSkin, bodySkin: bodySkin)
+    model.localAdjustments.append(layer)
+    selectedMaskId = layer.id
+  }
+
+  /// Prepare derived raster data without opening or mutating an edit transaction.
+  func preparePersonSkinMask(person: PersonCandidate, facialSkin: Bool, bodySkin: Bool)
+    async throws -> LocalAdjustment
+  {
     let image = try await renderForSegmentation()
     let request = SkinRasterRequest(person: person.id, facialSkin: facialSkin, bodySkin: bodySkin)
     let modelId = "apple-vision-person-instance/1"
@@ -68,8 +78,7 @@ extension EditSession {
     let layer = LocalAdjustment(
       mask: .bitmap(recipe: recipe, rasterId: rasterId), range: .skinTone,
       adjustments: PartialAdjustments())
-    model.localAdjustments.append(layer)
-    selectedMaskId = layer.id
+    return layer
   }
 
   /// Re-register every bitmap mask a loaded sidecar carries (#3366).

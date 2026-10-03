@@ -15,7 +15,8 @@ public enum AgentMaskService {
 
   public static func createMask(
     _ arguments: [String: JSONValue],
-    in session: EditSession
+    in session: EditSession,
+    validateBeforeMutation: @MainActor () throws -> Void
   ) async throws -> JSONValue {
     guard let kind = arguments["kind"]?.stringValue else {
       throw AgentError(
@@ -119,6 +120,7 @@ public enum AgentMaskService {
         throw AgentError(code: "vision_failed", message: error.localizedDescription)
       }
 
+      try validateBeforeMutation()
       guard !candidates.isEmpty else {
         throw AgentError(
           code: "no_person_detected",
@@ -138,17 +140,17 @@ public enum AgentMaskService {
       let facialSkin = params["facial_skin"]?.boolValue ?? true
       let bodySkin = params["body_skin"]?.boolValue ?? true
 
-      session.beginEdit(kind: .mask, description: "AI: \(label ?? "Add person skin mask")")
+      let layer: LocalAdjustment
       do {
-        try await session.createPersonSkinMask(
-          person: candidates[personIndex],
-          facialSkin: facialSkin,
-          bodySkin: bodySkin
-        )
+        layer = try await session.preparePersonSkinMask(
+          person: candidates[personIndex], facialSkin: facialSkin, bodySkin: bodySkin)
       } catch {
-        session.endEdit()
         throw AgentError(code: "vision_failed", message: error.localizedDescription)
       }
+      try validateBeforeMutation()
+      session.beginEdit(kind: .mask, description: "AI: \(label ?? "Add person skin mask")")
+      session.model.localAdjustments.append(layer)
+      session.selectedMaskId = layer.id
       session.endEdit()
 
       guard let layerId = session.selectedMaskId else {
