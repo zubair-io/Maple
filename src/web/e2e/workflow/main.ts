@@ -1,4 +1,5 @@
 import '@angular/compiler';
+import { repeatedWorkflow } from './repeated-workflow';
 import { editorHistory } from './editor-history';
 import { variantWriter } from './variant-writer';
 import { variantPreviewCache } from './variant-preview-cache';
@@ -99,6 +100,7 @@ Object.assign(window, {
     selfHostedConcurrentGate,
     selfHostedConcurrentClient,
     selfHostedConcurrentRead,
+    repeatedWorkflow,
     ready: true,
     editorHistory,
     async roundtrip(row: unknown, input: string, future = false, concurrent = false) {

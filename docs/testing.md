@@ -399,6 +399,24 @@ cd src/web
 bun x playwright test --config playwright.workflow.config.ts white-balance-workflow.spec.ts
 ```
 
+The same required job separately runs `repeated-workflow.spec.ts` (#4090):
+100 successive visible Exposure/Contrast gestures per deployment on one retained
+RAW/sidecar. Each cycle persists, checks one Undo boundary, undoes/redoes, loads
+through a fresh application root, and compares actual decoded PNG pixels. Exact
+foreign XML, caption and original bytes are checked at every persistence stage;
+durable history survives its generated bounded compaction. Both 100-cycle JSON
+attachments and exactly two passing tests are required, with no retries/skips.
+The preceding 24-case report is retained as `wb-auto-tone-results.json` before
+the cycle run. This synthetic-RAW adapter qualification does not establish
+physical camera color parity, UI accessibility, other action classes or
+large-file latency/memory acceptance. Run the cycle gate locally with:
+
+```bash
+cd src/web
+bun x playwright test --config playwright.workflow.config.ts repeated-workflow.spec.ts
+python3 ../../tools/check_web_cycle_evidence.py test-results/workflow/results.json
+```
+
 The native `WhiteBalanceWorkflowAcceptanceTests` and
 `SMBWhiteBalanceAcceptanceTests` cover the same full Auto Tone action through
 Local, the canonical PhotoKit sidecar store and authenticated SMB. PhotoKit

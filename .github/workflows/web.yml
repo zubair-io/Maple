@@ -435,6 +435,23 @@ jobs:
           assert stats['expected'] == 24, stats
           assert stats['unexpected'] == stats['skipped'] == stats['flaky'] == 0, stats
           PYCODE
+      - name: Preserve white balance and Auto Tone report
+        id: wb_report
+        working-directory: src/web
+        run: cp test-results/workflow/results.json "$RUNNER_TEMP/wb-auto-tone-results.json"
+      - name: Qualify 100 repeated cycles on each Web deployment
+        working-directory: src/web
+        run: |
+          bun x playwright test --config playwright.workflow.config.ts repeated-workflow.spec.ts
+          python3 ../../tools/check_web_cycle_evidence.py test-results/workflow/results.json
+      # Playwright cleans test-results before its next run. Restore the separate
+      # mode report afterwards, including when the cycle gate failed.
+      - name: Restore white balance and Auto Tone report
+        if: always() && steps.wb_report.outcome == 'success'
+        working-directory: src/web
+        run: |
+          mkdir -p test-results/workflow
+          cp "$RUNNER_TEMP/wb-auto-tone-results.json" test-results/workflow/wb-auto-tone-results.json
       - name: Upload workflow acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
