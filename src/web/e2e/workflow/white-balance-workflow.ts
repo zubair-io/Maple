@@ -1,3 +1,4 @@
+import { applyAutoTone, withWorkflowMetadata, foreignAudit } from './auto-tone-workflow';
 import { workflowExportPixels } from './workflow-export-pixels';
 import { createApplication } from '@angular/platform-browser';
 import { provideHttpClient, withFetch } from '@angular/common/http';
@@ -21,7 +22,10 @@ import {
 } from '../../projects/maple-common/src/lib/editor/copy-paste/adjustment-transfer';
 
 /** Shipping editor, folder persistence, RAW worker and export; no substitutes. */
-export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled') {
+export async function whiteBalanceWorkflow(
+  mode: WhiteBalancePreset | 'Sampled' | 'Auto Tone',
+  profile: 'Auto' | 'Neutral' = 'Auto',
+) {
   const app = await createApplication({
     providers: [provideHostedWorkspace(), provideHttpClient(withFetch()), provideRouter([])],
   });
@@ -33,13 +37,17 @@ export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled')
     const access = app.injector.get(FolderAccessService);
     const serializer = app.injector.get(XmpSerializerService);
     const parser = app.injector.get(XmpParserService);
-    const input = serializer.serialize({
-      ...defaultAdjustmentModel(),
-      whiteBalancePreset: mode === 'Custom' ? 'As Shot' : 'Custom',
-      wbSource: mode === 'Custom' ? 'AsShot' : 'Manual',
-      temperature: 4800,
-      tint: 8,
-    });
+    const input = withWorkflowMetadata(
+      serializer.serialize({
+        ...defaultAdjustmentModel(),
+        profile,
+        whiteBalancePreset: mode === 'Custom' ? 'As Shot' : 'Custom',
+        wbSource: mode === 'Custom' ? 'AsShot' : 'Manual',
+        temperature: 4800,
+        tint: 8,
+      }),
+      'A',
+    );
     const fixture = await fetch('/workflow-fixture', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -50,6 +58,13 @@ export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled')
     await access.writeFile(folder, 'photo.dng', bytes);
     await access.writeFile(folder, 'copy.dng', bytes);
     await access.writeFile(folder, 'photo.xmp', new TextEncoder().encode(input));
+    await access.writeFile(
+      folder,
+      'copy.xmp',
+      new TextEncoder().encode(
+        withWorkflowMetadata(serializer.serialize(defaultAdjustmentModel()), 'B'),
+      ),
+    );
     const library = app.injector.get(LibraryStateService);
     const writer = app.injector.get(XmpStoreService);
     const editor = app.injector.get(EditorStateService);
@@ -63,9 +78,11 @@ export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled')
     library.seedAsShotWhiteBalance(id, camera.asShotTemperature, camera.asShotTint);
     const before = JSON.stringify(library.adjustmentFor(id)());
     const changed =
-      mode === 'Sampled'
-        ? await editor.sampleWhiteBalanceAt(id, 0.25, 0.75)
-        : await editor.applyWhiteBalancePreset(id, mode);
+      mode === 'Auto Tone'
+        ? await applyAutoTone(editor, id, pipeline, bytes)
+        : mode === 'Sampled'
+          ? await editor.sampleWhiteBalanceAt(id, 0.25, 0.75)
+          : await editor.applyWhiteBalancePreset(id, mode);
     await writer.settleAsset(id);
     const applied = JSON.stringify(library.adjustmentFor(id)());
     const saved = new TextDecoder().decode(await access.readFile(folder, 'photo.xmp'));
@@ -87,7 +104,7 @@ export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled')
     const request: AdjustmentTransferRequest = {
       sourceAssetId: clipboard.entry()!.sourceAssetId,
       source: clipboard.entry()!.model,
-      groups: ['white_balance'],
+      groups: mode === 'Auto Tone' ? ['white_balance', 'tone', 'color'] : ['white_balance'],
       relativeWhiteBalance: false,
     };
     const targetId = library.assets().find((asset) => asset.filename === 'copy.dng')!.id;
@@ -99,6 +116,17 @@ export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled')
     const sourceBytes = await access.readFile(folder, 'photo.dng');
     const copiedBytes = await access.readFile(folder, 'copy.dng');
     return {
+      metadataDetails: {
+        source: parser.parseMetadata(saved),
+        copy: parser.parseMetadata(copied),
+      },
+      metadataPreserved:
+        [saved, restored].every(
+          (xml) =>
+            parser.parseMetadata(xml).caption === 'Caption A' && xml.includes(foreignAudit('A')),
+        ) &&
+        parser.parseMetadata(copied).caption === 'Caption B' &&
+        copied.includes(foreignAudit('B')),
       changed,
       undone,
       redone,

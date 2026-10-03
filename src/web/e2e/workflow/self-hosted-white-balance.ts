@@ -1,3 +1,4 @@
+import { applyAutoTone, withWorkflowMetadata, foreignAudit } from './auto-tone-workflow';
 import { createApplication } from '@angular/platform-browser';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
@@ -62,16 +63,26 @@ async function environment(sources: readonly Source[]) {
   return { app, library, id };
 }
 /** Actual HTTP original/sidecars, SQLite jobs and production editor — no substitutes. */
-export async function selfHostedWhiteBalance(mode: WhiteBalancePreset | 'Sampled') {
-  const input = new XmpSerializerService().serialize({
-    ...defaultAdjustmentModel(),
-    whiteBalancePreset: mode === 'Custom' ? 'As Shot' : 'Custom',
-    wbSource: mode === 'Custom' ? 'AsShot' : 'Manual',
-    temperature: 4800,
-    tint: 8,
-  });
+export async function selfHostedWhiteBalance(
+  mode: WhiteBalancePreset | 'Sampled' | 'Auto Tone',
+  profile: 'Auto' | 'Neutral' = 'Auto',
+) {
+  const input = withWorkflowMetadata(
+    new XmpSerializerService().serialize({
+      ...defaultAdjustmentModel(),
+      profile,
+      whiteBalancePreset: mode === 'Custom' ? 'As Shot' : 'Custom',
+      wbSource: mode === 'Custom' ? 'AsShot' : 'Manual',
+      temperature: 4800,
+      tint: 8,
+    }),
+    'A',
+  );
   const source = await control<Source>('/workflow-fixture', { xml: input, synthetic: true });
-  const target = await control<Source>('/workflow-fixture', { xml: null, synthetic: true });
+  const target = await control<Source>('/workflow-fixture', {
+    xml: withWorkflowMetadata(new XmpSerializerService().serialize(defaultAdjustmentModel()), 'B'),
+    synthetic: true,
+  });
   const sources = [source, target];
   const f = await environment(sources);
   let reopened: Awaited<ReturnType<typeof environment>> | undefined;
@@ -85,9 +96,11 @@ export async function selfHostedWhiteBalance(mode: WhiteBalancePreset | 'Sampled
     f.library.seedAsShotWhiteBalance(f.id, camera.asShotTemperature, camera.asShotTint);
     const before = JSON.stringify(f.library.adjustmentFor(f.id)());
     const changed =
-      mode === 'Sampled'
-        ? await editor.sampleWhiteBalanceAt(f.id, 0.25, 0.75)
-        : await editor.applyWhiteBalancePreset(f.id, mode);
+      mode === 'Auto Tone'
+        ? await applyAutoTone(editor, f.id, pipeline, bytes)
+        : mode === 'Sampled'
+          ? await editor.sampleWhiteBalanceAt(f.id, 0.25, 0.75)
+          : await editor.applyWhiteBalancePreset(f.id, mode);
     await f.library.flushPendingXmpWrites();
     const applied = JSON.stringify(f.library.adjustmentFor(f.id)());
     const saved = await read();
@@ -104,7 +117,7 @@ export async function selfHostedWhiteBalance(mode: WhiteBalancePreset | 'Sampled
     const request: AdjustmentTransferRequest = {
       sourceAssetId: f.id,
       source: clipboard.entry()!.model,
-      groups: ['white_balance'],
+      groups: mode === 'Auto Tone' ? ['white_balance', 'tone', 'color'] : ['white_balance'],
       relativeWhiteBalance: false,
     };
     const targetId = `workflow-fixture:${target.key}/photo.dng`;
@@ -118,6 +131,17 @@ export async function selfHostedWhiteBalance(mode: WhiteBalancePreset | 'Sampled
       .get(XmpSerializerService)
       .serialize(reopened.library.adjustmentFor(f.id)());
     return {
+      metadataDetails: {
+        source: parser.parseMetadata(saved.xml),
+        copy: parser.parseMetadata(copied.xml),
+      },
+      metadataPreserved:
+        [saved.xml, redoneXml].every(
+          (xml) =>
+            parser.parseMetadata(xml).caption === 'Caption A' && xml.includes(foreignAudit('A')),
+        ) &&
+        parser.parseMetadata(copied.xml).caption === 'Caption B' &&
+        copied.xml.includes(foreignAudit('B')),
       changed,
       undone,
       redone,

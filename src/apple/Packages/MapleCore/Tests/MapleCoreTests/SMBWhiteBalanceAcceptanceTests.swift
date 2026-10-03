@@ -70,10 +70,20 @@ final class SMBWhiteBalanceAcceptanceTests: EditorTestCase {
     XCTAssertEqual(otherBytes, fixture.original)
   }
 
-  private func qualify(preset: WhiteBalancePreset?) async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+  func testAutoTonePersistsAsOneUndoActionOnSelectedSMBVariant() async throws {
+    for profile in [Profile.auto, .neutral] {
+      try await qualify(preset: .auto, autoTone: true, profile: profile)
+    }
+  }
+
+  private func qualify(
+    preset: WhiteBalancePreset?, autoTone: Bool = false, profile: Profile = .auto
+  ) async throws {
+    let input = NativeWorkflowControlFixture.input().replacingOccurrences(
+      of: "papp:Profile=\"Auto\"", with: "papp:Profile=\"\(profile.rawValue)\"")
+    let fixture = try await OwnedSMBWorkflowFixture.open(initialXML: input)
     do {
-      try await qualify(preset: preset, fixture: fixture)
+      try await qualify(preset: preset, fixture: fixture, autoTone: autoTone)
       await fixture.close()
     } catch {
       await fixture.close()
@@ -81,8 +91,10 @@ final class SMBWhiteBalanceAcceptanceTests: EditorTestCase {
     }
   }
 
-  private func qualify(preset: WhiteBalancePreset?, fixture: OwnedSMBWorkflowFixture) async throws {
-    let label = preset?.rawValue ?? "Sampled"
+  private func qualify(
+    preset: WhiteBalancePreset?, fixture: OwnedSMBWorkflowFixture, autoTone: Bool
+  ) async throws {
+    let label = autoTone ? "Auto Tone" : preset?.rawValue ?? "Sampled"
     let copy = fixture.share.appendingPathComponent("copy.dng")
     try fixture.original.write(to: copy)
     try Data(NativeWorkflowControlFixture.input(tag: "B").utf8)
@@ -110,7 +122,9 @@ final class SMBWhiteBalanceAcceptanceTests: EditorTestCase {
     let primaryBefore = try await fixture.source.readWorkflowSidecar(
       for: sourceRef, variantId: WorkflowContract.primaryVariantID)
     let before = session.model
-    if let preset {
+    if autoTone {
+      try await AutoToneWorkflowAssertions.apply(session)
+    } else if let preset {
       await EditorState(session: session).applyWhiteBalancePreset(preset)
     } else {
       let picker = WhiteBalancePicker(session: session)
@@ -157,7 +171,8 @@ final class SMBWhiteBalanceAcceptanceTests: EditorTestCase {
     let target = editor(fixture.source, targetRef)
     await target.loadSidecar()
     let patch = try AdjustmentTransfer.prepare(
-      source: applied, groups: [.whiteBalance], relativeWhiteBalance: false)
+      source: applied, groups: autoTone ? [.whiteBalance, .tone, .color] : [.whiteBalance],
+      relativeWhiteBalance: false)
     try await target.applyAdjustmentTransfer(patch)
     XCTAssertNil(target.sidecarError, label)
     let targetXML = try await fixture.source.readWorkflowSidecar(
