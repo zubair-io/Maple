@@ -1,0 +1,34 @@
+{
+  "kind": "windows-ci-lifecycle-failure-investigation",
+  "run": "https://github.com/zubair-io/Maple/actions/runs/37017695182",
+  "prHead": "d8f152fa5244edcb23db8df94f76f36cc3d0c5de",
+  "testedMergeRevision": "3261cbc2136e2480afcc6776ed4f687212621c1a",
+  "artifact": "winui-lifecycle",
+  "artifactId": 11231414014,
+  "host": {
+    "adapter": "Microsoft Hyper-V Video",
+    "sessionId": 2,
+    "interactive": true
+  },
+  "observed": {
+    "gpu": "failed",
+    "cpu": "failed",
+    "empty": "passed",
+    "failure": "Repair layout requested 1440x960, reached 1044x788; logical=1028x779, scale=1, presenter=Overlapped",
+    "stage": "retouch-layout-resize-1440x960",
+    "nativeRustTests": { "passed": 2507, "failed": 0, "ignored": 92 },
+    "managedTests": { "passed": 1477, "failed": 0, "skipped": 11 }
+  },
+  "change": {
+    "scope": "Disposable GitHub Actions desktop preparation before the existing lifecycle smoke",
+    "requiredDesktop": "1920x1080 physical pixels",
+    "assertions": "Both 1440x960 and 1024x768 window layout assertions remain unchanged",
+    "localValidation": "PowerShell parse, embedded C# compilation, DEVMODEW size and field offsets; display-changing APIs not invoked locally",
+    "runnerValidation": "pending"
+  },
+  "limitations": [
+    "This failure has a different signature from the retained native XAML crash and cloud-map timeout; it does not explain or clear either.",
+    "Desktop preparation still requires validation on the actual runner.",
+    "This evidence does not qualify pixel parity, reference-device performance, DPI, accessibility or real-cloud behavior."
+  ]
+}

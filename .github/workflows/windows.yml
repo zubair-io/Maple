@@ -67,6 +67,10 @@ jobs:
         run: |
           dotnet test src/windows/Maple.WinUI.Tests/Maple.WinUI.Tests.csproj -c Release
 
+      - name: Prepare runner desktop for both required layout sizes
+        shell: pwsh
+        run: ./src/windows/scripts/prepare-ci-desktop.ps1
+
       - name: Real WinUI open-render-close lifecycle smoke
         shell: pwsh
         run: ./src/windows/scripts/test-window-lifecycle.ps1
