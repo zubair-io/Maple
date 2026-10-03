@@ -25,6 +25,7 @@ import Foundation
 /// ```
 public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private let sidecarURL: URL
+  private let variantId: String
 
   private var cached: (AdjustmentModel, CullingState)?
   private var pendingTask: Task<Void, Never>?
@@ -43,10 +44,22 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   public init(rawURL: URL) {
     self.sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+    self.variantId = WorkflowContract.primaryVariantID
   }
 
   /// PhotoKit's canonical App Support file shares the same writer (#4047).
-  init(sidecarURL: URL) { self.sidecarURL = sidecarURL }
+  init(sidecarURL: URL) {
+    self.sidecarURL = sidecarURL
+    self.variantId = WorkflowContract.primaryVariantID
+  }
+
+  /// Bind the existing writer to a validated UUID sibling, including Photos' canonical root (#4063).
+  public init(primarySidecarURL: URL, variantId: String) throws {
+    let filename = try WorkflowSidecarCore.variantFilename(
+      primaryName: primarySidecarURL.lastPathComponent, variantId: variantId)
+    self.sidecarURL = primarySidecarURL.deletingLastPathComponent().appendingPathComponent(filename)
+    self.variantId = variantId
+  }
 
   /// Load current model+culling from disk (or return cached).
   /// Returns defaults if no sidecar exists.
@@ -64,6 +77,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
     if let cached { return cached }
     guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
+      try requirePrimaryAbsence()
       return nil
     }
     let result = try readFromDisk()
@@ -129,7 +143,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     model: AdjustmentModel, culling: CullingState, action: String, label: String
   ) throws {
     try coordinateSidecarWrite { destination, existing in
-      if let existing { try self.requirePrimaryWorkflow(in: existing) }
+      if let existing { try self.requireVariantWorkflow(in: existing) }
       let checkpoint = try WorkflowSidecarCore.checkpoint(
         xmp: self.serializedSidecar(model: model, culling: culling, existingXML: existing))
       let entry = WorkflowHistoryEntry(
@@ -156,8 +170,11 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   /// Workflow operations share the actor and primary path with adjustment writes.
   public func readWorkflow() throws -> SidecarWorkflow? {
-    guard let xml = try existingSidecarXML(at: sidecarURL) else { return nil }
-    return try WorkflowSidecarCore.primaryWorkflow(xmp: xml)
+    guard let xml = try existingSidecarXML(at: sidecarURL) else {
+      try requirePrimaryAbsence()
+      return nil
+    }
+    return try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId)
   }
 
   /// Publish pending authored adjustments and workflow in one atomic replacement.
@@ -171,9 +188,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
         xml = existing ?? XMPSerializer.serialize(model: .default, culling: CullingState())
       }
       // Validate the on-disk record even if a serializer would omit it.
-      if let existing { try self.requirePrimaryWorkflow(in: existing) }
+      if let existing { try self.requireVariantWorkflow(in: existing) }
       let embedded = try WorkflowSidecarCore.embed(workflow, in: xml)
-      try self.requirePrimaryWorkflow(in: embedded)
+      try self.requireVariantWorkflow(in: embedded)
       let output = try self.appendingSemanticHistory(to: embedded)
       try self.publishSidecarXML(output, at: destination)
       self.pendingSemanticEdits.removeAll()
@@ -189,14 +206,15 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   public func readWorkflowXML() throws -> String? {
     try settleWorkflowWrites()
     let xml = try existingSidecarXML(at: sidecarURL)
-    if let xml { try requirePrimaryWorkflow(in: xml) }
+    if xml == nil { try requirePrimaryAbsence() }
+    if let xml { try requireVariantWorkflow(in: xml) }
     return xml
   }
 
   public func publishWorkflow(_ command: WorkflowPublication) throws -> String {
     try settleWorkflowWrites()
     return try coordinateSidecarWrite { destination, existing in
-      let output = try command.output(current: existing)
+      let output = try command.output(current: existing, variantId: self.variantId)
       // Parse before publication; a failure never changes the original checkpoint.
       let restored = try XMPParser.parse(output)
       if output != existing { try self.publishSidecarXML(output, at: destination) }
@@ -253,10 +271,12 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
     guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
+      try requirePrimaryAbsence()
       return (.default, CullingState())
     }
     let data = try Data(contentsOf: sidecarURL)
-    _ = try WorkflowSidecarCore.primaryWorkflow(xmp: String(decoding: data, as: UTF8.self))
+    _ = try WorkflowSidecarCore.variantWorkflow(
+      xmp: String(decoding: data, as: UTF8.self), variantId: variantId)
     return try XMPParser.parse(data: data)
   }
 
@@ -282,7 +302,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private func writeSidecar(
     model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL
   ) throws {
-    if let existingXML { try requirePrimaryWorkflow(in: existingXML) }
+    if let existingXML { try requireVariantWorkflow(in: existingXML) }
     let xml = try appendingSemanticHistory(
       to: serializedSidecar(model: model, culling: culling, existingXML: existingXML))
     try publishSidecarXML(xml, at: destination)
@@ -292,7 +312,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   private func appendingSemanticHistory(to xml: String) throws -> String {
     guard !pendingSemanticEdits.isEmpty else { return xml }
-    try requirePrimaryWorkflow(in: xml)
+    try requireVariantWorkflow(in: xml)
     var workflow = try WorkflowSidecarCore.read(xmp: xml)
     for entry in pendingSemanticEdits {
       let candidate =
@@ -308,8 +328,16 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     return try WorkflowSidecarCore.embed(workflow, in: xml)
   }
 
-  private func requirePrimaryWorkflow(in xml: String) throws {
-    _ = try WorkflowSidecarCore.primaryWorkflow(xmp: xml)
+  private func requireVariantWorkflow(in xml: String) throws {
+    _ = try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId)
+  }
+
+  private func requirePrimaryAbsence() throws {
+    guard variantId == WorkflowContract.primaryVariantID else {
+      throw WorkflowSidecarError(
+        message:
+          "Variant sidecar is missing: \(sidecarURL.lastPathComponent). Restore it before editing.")
+    }
   }
 
   /// Cooperate with separate editor/variant store instances on this same file.
@@ -318,7 +346,11 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     var error: NSError?
     var result: Result<T, Error>?
     coordinator.coordinate(writingItemAt: sidecarURL, options: [], error: &error) { url in
-      result = Result { try write(url, self.existingSidecarXML(at: url)) }
+      result = Result {
+        let existing = try self.existingSidecarXML(at: url)
+        if existing == nil { try self.requirePrimaryAbsence() }
+        return try write(url, existing)
+      }
     }
     if let error { throw error }
     guard let result else {

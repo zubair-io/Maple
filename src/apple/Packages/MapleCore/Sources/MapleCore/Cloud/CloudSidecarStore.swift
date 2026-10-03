@@ -11,6 +11,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
   private let server: URL
   private let assetID: String
   private let httpClient: AuthenticatedHTTPClient
+  private let variantId: String
 
   private var cacheGeneration: UInt64 = 0
   private var cached: (AdjustmentModel, CullingState)?
@@ -46,6 +47,30 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     self.server = server
     self.assetID = assetID
     self.httpClient = httpClient
+    self.variantId = WorkflowContract.primaryVariantID
+  }
+
+  private init(
+    server: URL, assetID: String, httpClient: AuthenticatedHTTPClient,
+    variantId: String, workflowPath: String
+  ) {
+    self.server = server
+    self.assetID = assetID
+    self.httpClient = httpClient
+    self.variantId = variantId
+    self.workflowPath = workflowPath
+  }
+
+  /// A new immutable writer has its own save queue; derive the original path from this asset (#4063).
+  public func variantWriter(variantId: String) async throws -> CloudSidecarStore {
+    _ = try WorkflowSidecarCore.variantFilename(primaryName: "photo.xmp", variantId: variantId)
+    _ = try await readWorkflowXML()
+    let path = try await resolvedWorkflowPath()
+    let writer = CloudSidecarStore(
+      server: server, assetID: assetID, httpClient: httpClient,
+      variantId: variantId, workflowPath: path)
+    _ = try await writer.readWorkflowXML()
+    return writer
   }
 
   public func load() async throws -> (AdjustmentModel, CullingState) {
@@ -55,13 +80,14 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
   public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
     if let cached { return cached }
     let generation = cacheGeneration
-    let req = URLRequest(url: sidecarURL)
+    let req = URLRequest(url: try sidecarURL)
     let (data, resp) = try await httpClient.data(for: req)
     if let http = resp as? HTTPURLResponse, http.statusCode == 404 {
+      if generation == cacheGeneration { try requirePrimaryAbsence() }
       return generation == cacheGeneration ? nil : cached
     }
     try Self.checkOK(resp, data: data)
-    _ = try primaryWorkflow(String(decoding: data, as: UTF8.self))
+    _ = try selectedWorkflow(String(decoding: data, as: UTF8.self))
     let result = try XMPParser.parse(data: data)
     guard generation == cacheGeneration else { return cached ?? result }
     cached = result
@@ -113,13 +139,19 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
   // Folder browsing identifies assets as fs:<absolute path>, not Mongo IDs.
   // Use the path endpoint so existing edits also work before indexing (#3357).
   private var sidecarURL: URL {
-    guard assetID.hasPrefix("fs:") else {
-      return server.appending(path: "/api/assets/\(assetID)/xmp")
+    get throws {
+      if variantId != WorkflowContract.primaryVariantID {
+        guard let workflowPath else { throw URLError(.badURL) }
+        return try workflowURL(path: workflowPath, commit: false)
+      }
+      guard assetID.hasPrefix("fs:") else {
+        return server.appending(path: "/api/assets/\(assetID)/xmp")
+      }
+      var components = URLComponents(
+        url: server.appending(path: "/api/xmp"), resolvingAgainstBaseURL: false)!
+      components.queryItems = [URLQueryItem(name: "path", value: String(assetID.dropFirst(3)))]
+      return components.url!
     }
-    var components = URLComponents(
-      url: server.appending(path: "/api/xmp"), resolvingAgainstBaseURL: false)!
-    components.queryItems = [URLQueryItem(name: "path", value: String(assetID.dropFirst(3)))]
-    return components.url!
   }
 
   public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
@@ -173,8 +205,9 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     try await publishSemanticEdits()
     // Metadata can change independently of this editor session. Preserve
     // the current sidecar's foreign XML and IPTC fields at the write boundary.
-    let (bytes, response) = try await httpClient.data(for: URLRequest(url: sidecarURL))
+    let (bytes, response) = try await httpClient.data(for: URLRequest(url: try sidecarURL))
     let absent = (response as? HTTPURLResponse)?.statusCode == 404
+    if absent { try requirePrimaryAbsence() }
     if !absent { try Self.checkOK(response, data: bytes) }
     if absent {
       cachedMetadata = XmpMetadata()
@@ -184,14 +217,15 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     if let existing {
       let currentXML = String(decoding: existing, as: UTF8.self)
       _ = try XMPParser.parse(data: existing)
-      _ = try primaryWorkflow(currentXML)
+      _ = try selectedWorkflow(currentXML)
       cachedMetadata = XMPParser.parseMetadata(currentXML)
       cachedPassthrough = XMPParser.parsePassthrough(data: existing)
     }
     let xml = XMPSerializer.serialize(
       model: model, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
-    var req = URLRequest(url: sidecarURL)
-    req.httpMethod = assetID.hasPrefix("fs:") ? "POST" : "PUT"
+    var req = URLRequest(url: try sidecarURL)
+    req.httpMethod =
+      variantId == WorkflowContract.primaryVariantID && assetID.hasPrefix("fs:") ? "POST" : "PUT"
     req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
     req.httpBody = Data(xml.utf8)
     let (data, resp) = try await httpClient.data(for: req)
@@ -247,12 +281,13 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
         }
       }
       let path = try await self.resolvedWorkflowPath()
-      let current = try await self.readPrimary(path: path)
+      let current = try await self.readSelected(path: path)
       guard let command else { return current }
-      let output = try command.output(current: current)
+      let output = try command.output(current: current, variantId: self.variantId)
       let published = output == current ? output : try await self.sendWorkflow(command, path: path)
-      _ = try self.primaryWorkflow(published)
-      guard try output == current || command.acknowledged(in: published) else {
+      _ = try self.selectedWorkflow(published)
+      guard try output == current || command.acknowledged(in: published, variantId: self.variantId)
+      else {
         throw WorkflowSidecarError(message: "The server did not confirm this checkpoint action.")
       }
       let restored = try XMPParser.parse(published)
@@ -294,7 +329,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
       url: server.appending(path: "/api/xmp/variant/\(operation)"), resolvingAgainstBaseURL: false)
     components?.queryItems = [
       URLQueryItem(name: "path", value: path),
-      URLQueryItem(name: "variantId", value: WorkflowContract.primaryVariantID),
+      URLQueryItem(name: "variantId", value: variantId),
     ]
     guard let url = components?.url else { throw URLError(.badURL) }
     var request = URLRequest(url: url)
@@ -331,24 +366,34 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
       resolvingAgainstBaseURL: false)
     components?.queryItems = [
       URLQueryItem(name: "path", value: path),
-      URLQueryItem(name: "variantId", value: WorkflowContract.primaryVariantID),
+      URLQueryItem(name: "variantId", value: variantId),
     ]
     guard let url = components?.url else { throw URLError(.badURL) }
     return url
   }
 
-  private func readPrimary(path: String) async throws -> String? {
+  private func readSelected(path: String) async throws -> String? {
     let (data, response) = try await httpClient.data(
       for: URLRequest(url: workflowURL(path: path, commit: false)))
-    if (response as? HTTPURLResponse)?.statusCode == 404 { return nil }
+    if (response as? HTTPURLResponse)?.statusCode == 404 {
+      try requirePrimaryAbsence()
+      return nil
+    }
     try Self.checkOK(response, data: data)
     guard let xml = String(data: data, encoding: .utf8) else { throw XMPStoreError.encodingError }
-    _ = try primaryWorkflow(xml)
+    _ = try selectedWorkflow(xml)
     return xml
   }
 
-  private func primaryWorkflow(_ xml: String) throws -> SidecarWorkflow? {
-    try WorkflowSidecarCore.primaryWorkflow(xmp: xml)
+  private func selectedWorkflow(_ xml: String) throws -> SidecarWorkflow? {
+    try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId)
+  }
+
+  private func requirePrimaryAbsence() throws {
+    guard variantId == WorkflowContract.primaryVariantID else {
+      throw WorkflowSidecarError(
+        message: "The selected variant sidecar is missing. Restore it before editing.")
+    }
   }
 
   private func historyEntry(_ edit: CapturedCloudEdit, checkpoint: String) -> WorkflowHistoryEntry {
@@ -361,9 +406,9 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     guard !pendingSemanticEdits.isEmpty else { return }
     let edits = pendingSemanticEdits
     let path = try await resolvedWorkflowPath()
-    var current = try await readPrimary(path: path)
+    var current = try await readSelected(path: path)
     for edit in edits {
-      let record = try current.flatMap { try primaryWorkflow($0) }
+      let record = try current.flatMap { try selectedWorkflow($0) }
       if record?.history.contains(where: { $0.id == edit.id }) != true {
         current = try await publishSemantic(edit, path: path, current: current)
       }
@@ -392,7 +437,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     guard let published = String(data: data, encoding: .utf8) else {
       throw XMPStoreError.encodingError
     }
-    _ = try primaryWorkflow(published)
+    _ = try selectedWorkflow(published)
     return published
   }
 

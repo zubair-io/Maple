@@ -325,3 +325,7 @@ PrimaryWorkflowIdentityTests
 # Native snapshot/history product commands and complete-XMP Undo (#4062).
 NativeWorkflowControlsTests
 NativeCloudWorkflowControlsTests
+
+# Named branch writers use actual local/Photos sibling files (#4063).
+NativeVariantWriterTests
+NativeCloudVariantWriterTests

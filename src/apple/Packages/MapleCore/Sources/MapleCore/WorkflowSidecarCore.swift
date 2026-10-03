@@ -14,15 +14,23 @@ public enum WorkflowSidecarCore {
   /// Primary editors must never hydrate or overwrite a different branch (#4057).
   /// Legacy sidecars keep their existing parse path without a workflow conversion.
   static func primaryWorkflow(xmp: String) throws -> SidecarWorkflow? {
+    try variantWorkflow(xmp: xmp, variantId: WorkflowContract.primaryVariantID)
+  }
+
+  /// Editor stores bind an immutable branch identity (#4063); legacy XMP is primary only.
+  static func variantWorkflow(xmp: String, variantId: String) throws -> SidecarWorkflow? {
     guard xmp.range(of: WorkflowContract.markupPattern, options: .regularExpression) != nil else {
+      guard variantId == WorkflowContract.primaryVariantID else {
+        throw WorkflowSidecarError(message: "The named variant has no workflow identity.")
+      }
       return nil
     }
     let record = try read(xmp: xmp)
-    guard
-      (record?.variantId ?? WorkflowContract.primaryVariantID) == WorkflowContract.primaryVariantID
-    else {
+    guard (record?.variantId ?? WorkflowContract.primaryVariantID) == variantId else {
+      let label =
+        variantId == WorkflowContract.primaryVariantID ? "primary sidecar" : "selected variant"
       throw WorkflowSidecarError(
-        message: "Variant identity does not match the primary sidecar. Repair it before editing.")
+        message: "Variant identity does not match the \(label). Repair it before editing.")
     }
     return record
   }

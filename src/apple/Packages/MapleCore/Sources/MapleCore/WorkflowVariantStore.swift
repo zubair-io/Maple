@@ -10,11 +10,14 @@ public struct WorkflowVariantSidecar: Sendable {
 
 /// Sibling storage is reconstructed from XMP. UI/cache switching follows in #2437.
 public actor WorkflowVariantStore {
-  private let rawURL: URL
-  public init(rawURL: URL) { self.rawURL = rawURL }
+  private let primarySidecarURL: URL
+  public init(rawURL: URL) { self.primarySidecarURL = SidecarPath.sidecarURL(for: rawURL) }
+
+  /// Photos keeps the same sibling contract beneath its canonical App Support file (#4063).
+  public init(primarySidecarURL: URL) { self.primarySidecarURL = primarySidecarURL }
 
   public func list() throws -> [WorkflowVariantSidecar] {
-    let primary = SidecarPath.sidecarURL(for: rawURL)
+    let primary = primarySidecarURL
     let prefix = primary.deletingPathExtension().lastPathComponent + ".v"
     let files = try FileManager.default.contentsOfDirectory(
       at: primary.deletingLastPathComponent(), includingPropertiesForKeys: nil
@@ -25,7 +28,7 @@ public actor WorkflowVariantStore {
       guard name.hasPrefix(prefix), name.hasSuffix(".xmp") else { return nil }
       let id = String(name.dropFirst(prefix.count).dropLast(4))
       guard id.count == 36 else { return nil }  // Other tools' .v2 files are not UUID variants.
-      let expected = try SidecarPath.variantURL(for: rawURL, variantId: id)
+      let expected = try variantURL(id)
       guard expected.lastPathComponent == name else {
         throw failure("Noncanonical variant filename: \(name)")
       }
@@ -36,7 +39,7 @@ public actor WorkflowVariantStore {
 
   /// A missing primary is explicit absence; a missing named variant is an error.
   public func read(variantId: String) throws -> String? {
-    try read(variantId: variantId, at: SidecarPath.variantURL(for: rawURL, variantId: variantId))
+    try read(variantId: variantId, at: variantURL(variantId))
   }
 
   private func read(variantId: String, at url: URL) throws -> String? {
@@ -60,7 +63,7 @@ public actor WorkflowVariantStore {
       throw failure("Create a new variant identity; the primary already exists.")
     }
     try WorkflowSidecarCore.validate(workflow)
-    let destination = try SidecarPath.variantURL(for: rawURL, variantId: workflow.variantId)
+    let destination = try variantURL(workflow.variantId)
     guard let source = try read(variantId: sourceVariantId) else {
       throw failure("Commit the source adjustments before creating a variant.")
     }
@@ -132,7 +135,7 @@ public actor WorkflowVariantStore {
   private func coordinateWrite(
     variantId: String, convert: (String?) throws -> String
   ) throws -> String {
-    let destination = try SidecarPath.variantURL(for: rawURL, variantId: variantId)
+    let destination = try variantURL(variantId)
     let coordinator = NSFileCoordinator(filePresenter: nil)
     var error: NSError?
     var result: Result<String, Error>?
@@ -166,7 +169,7 @@ public actor WorkflowVariantStore {
   }
 
   private func inspect(_ id: String) throws -> WorkflowVariantSidecar {
-    let url = try SidecarPath.variantURL(for: rawURL, variantId: id)
+    let url = try variantURL(id)
     let xml = try read(variantId: id)
     return WorkflowVariantSidecar(
       variantId: id, filename: url.lastPathComponent,
@@ -176,6 +179,11 @@ public actor WorkflowVariantStore {
     do { return try String(contentsOf: url, encoding: .utf8) } catch let error as CocoaError
       where error.code == .fileReadNoSuchFile
     { return nil }
+  }
+  private func variantURL(_ id: String) throws -> URL {
+    let filename = try WorkflowSidecarCore.variantFilename(
+      primaryName: primarySidecarURL.lastPathComponent, variantId: id)
+    return primarySidecarURL.deletingLastPathComponent().appendingPathComponent(filename)
   }
   private func requireIdentity(_ record: SidecarWorkflow?, _ id: String, _ filename: String) throws
   {
