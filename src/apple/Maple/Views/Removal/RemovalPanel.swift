@@ -15,6 +15,7 @@ struct RemovalPanel: View {
     VStack(alignment: .leading, spacing: 12) {
       Text("AI object removal · Local experiment")
         .font(.caption.weight(.semibold))
+      if removal.phase != .ready && removal.phase != .selecting { statusMessage }
       MuiSegmentedToggle(
         options: RemovalSession.Mode.allCases.map {
           MuiSegmentedOption(value: $0.rawValue, label: $0.label)
@@ -29,6 +30,7 @@ struct RemovalPanel: View {
         reviewControls
       } else if removal.phase == .ready || removal.phase == .selecting {
         selectionControls
+        statusMessage
         MuiButton(label: "Remove", variant: .primary, disabled: !removal.canRemove) {
           Task { await removal.remove() }
         }.accessibilityIdentifier("removal-generate")
@@ -36,20 +38,16 @@ struct RemovalPanel: View {
       if removal.busy {
         HStack {
           ProgressView().controlSize(.small)
-          Text(removal.phase == .saving ? "Saving removal…" : "Preparing removal…")
+          Text(removal.phase == .saving ? "Saving removal…" : "Working…")
             .font(.caption)
         }
+        .accessibilityIdentifier("removal-progress")
         if removal.phase != .saving {
           MuiButton(label: "Cancel", size: .sm) { removal.cancel() }
         }
       }
       if removal.phase == .failed || removal.phase == .closed {
         MuiButton(label: "Retry loading photo", size: .sm) { Task { await state.retryRendering() } }
-      }
-      if !removal.message.isEmpty || !importError.isEmpty {
-        Text(importError.isEmpty ? removal.message : importError)
-          .font(.caption).foregroundStyle(ProTokens.textMuted)
-          .accessibilityIdentifier("removal-status")
       }
       MuiCollapsible(label: "Local AI models", open: $showingLocalModels) {
         VStack(alignment: .leading, spacing: 8) {
@@ -87,6 +85,16 @@ struct RemovalPanel: View {
       Task { await removal.open() }
     }
     .onDisappear { removal.close() }
+  }
+
+  @ViewBuilder
+  private var statusMessage: some View {
+    if !removal.message.isEmpty || !importError.isEmpty {
+      Text(importError.isEmpty ? removal.message : importError)
+        .font(.caption).foregroundStyle(ProTokens.text)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityIdentifier("removal-status")
+    }
   }
 
   private var reviewControls: some View {
@@ -167,10 +175,17 @@ struct RemovalPanel: View {
       }
       Text("Likely subjects and uncertain people start kept. Review each suggestion.").font(
         .caption)
+      Text("Green = Keep · Red = Remove").font(.caption)
+      if !removal.people.isEmpty {
+        Text(
+          "\(removal.people.count) people detected · \(removal.people.filter { !$0.keep }.count) marked Remove"
+        )
+        .font(.caption).accessibilityIdentifier("removal-people-count")
+      }
       ForEach(removal.people) { person in
-        MuiButton(
-          label: "Person \(person.id) · \(person.keep ? "Keep" : "Remove") · \(person.role.label)",
-          variant: person.keep ? .primary : .secondary, size: .sm, disabled: removal.busy
+        MuiCheckbox(
+          state: person.keep ? .unchecked : .checked,
+          label: "Remove Person \(person.id) · \(person.role.label)", disabled: removal.busy
         ) {
           removal.keepPerson(person.id)
         }
@@ -182,7 +197,8 @@ struct RemovalPanel: View {
         }
       }
       MuiButton(
-        label: "Apply person choices", size: .sm,
+        label: "Apply person choices",
+        variant: removal.personChoicesNeedApply ? .primary : .secondary, size: .sm,
         disabled: removal.busy || removal.people.isEmpty
       ) { Task { await removal.selectOtherPeople() } }
       if let id = removal.refiningPersonID {

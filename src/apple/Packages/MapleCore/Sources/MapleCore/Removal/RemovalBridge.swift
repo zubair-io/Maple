@@ -10,7 +10,13 @@ public enum RemovalError: Error, LocalizedError {
 
   public var errorDescription: String? {
     switch self {
-    case .invalid(let message): return message
+    case .invalid(let message):
+      if message == "removal generation: selection and expansion exceed native context" {
+        let side = ExperimentalRemovalModels.lama.nativeSide
+        return
+          "This object is too large for the current removal model. The selection and edge expansion must fit inside \(side) × \(side) source pixels. Select a smaller object."
+      }
+      return message
     case .missingCompanion(let name): return "Removal asset is missing: \(name)"
     case .saveConflict: return "The photo changed before this removal could be saved."
     }
