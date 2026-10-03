@@ -112,7 +112,8 @@ if (-not (Test-Path -LiteralPath $exportResult.output -PathType Leaf)) { throw '
 if ((Get-FileHash -LiteralPath $exportResult.output -Algorithm SHA256).Hash -ne $exportResult.sha256) {
     throw 'Production export artifact changed after publication.'
 }
-& $Python $parityScript $work --budget $ParityBudgetMean
+$parityBudgetArgument = $ParityBudgetMean.ToString('R', [Globalization.CultureInfo]::InvariantCulture)
+& $Python $parityScript $work --budget $parityBudgetArgument
 $parityExit = $LASTEXITCODE
 if ($parityExit -notin @(0, 1)) { throw "Parity tooling failed. Evidence: $work" }
 $verdict = Get-Content -LiteralPath (Join-Path $work 'parity-verdict.json') -Raw | ConvertFrom-Json
