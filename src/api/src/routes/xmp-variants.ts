@@ -2,7 +2,13 @@
 import { Elysia, status, t } from 'elysia';
 import { publishSidecarChange } from './xmp-change';
 import { resolveAndAuthorizePath } from './xmp-path-auth';
-import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
+import {
+  parseSidecarWorkflow,
+  PRIMARY_VARIANT_ID,
+  WORKFLOW_MAX_BYTES,
+  WORKFLOW_MAX_TIMESTAMP_MS,
+  WORKFLOW_UUID_PATTERN,
+} from '../generated/workflow.generated';
 import {
   createWorkflowVariant,
   commitWorkflowVariant,
@@ -131,7 +137,12 @@ export const xmpVariantRoutes = new Elysia()
       query: t.Object({ path: t.String(), variantId: t.String() }),
       body: t.Object({
         expectedXmp: t.Union([t.String(), t.Null()]),
-        snapshot: t.Any(),
+        snapshot: t.Object({
+          id: t.String({ pattern: `^${WORKFLOW_UUID_PATTERN}$` }),
+          name: t.String({ minLength: 1, maxLength: WORKFLOW_MAX_BYTES, pattern: '\\S' }),
+          createdAtMs: t.Integer({ minimum: 0, maximum: WORKFLOW_MAX_TIMESTAMP_MS }),
+          adjustmentXmp: t.String({ maxLength: WORKFLOW_MAX_BYTES }),
+        }),
         initialXmp: t.Optional(t.String()),
       }),
       detail: {

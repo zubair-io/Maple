@@ -7,6 +7,7 @@ import { callNative, shutdownMaplePool } from 'maple';
 import { xmpPathRoutes } from './xmp';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache';
 import { writeXmpWithPrecondition } from '../fs/xmp';
+import { WORKFLOW_MAX_BYTES, WORKFLOW_MAX_TIMESTAMP_MS } from '../generated/workflow.generated';
 
 const corpus = JSON.parse(
   await readFile(
@@ -53,6 +54,37 @@ const post = (body: string) =>
       { method: 'POST', headers: { 'Content-Type': 'application/xml' }, body },
     ),
   );
+
+test('snapshot ingress rejects malformed fields before changing sidecars or original bytes', async () => {
+  const snapshot = {
+    id: crypto.randomUUID(),
+    name: 'Saved checkpoint',
+    createdAtMs: 11,
+    adjustmentXmp: xml,
+  };
+  const malformed = [
+    null,
+    {},
+    [],
+    { ...snapshot, id: '../primary' },
+    { ...snapshot, name: 42 },
+    { ...snapshot, name: ' ' },
+    { ...snapshot, createdAtMs: -1 },
+    { ...snapshot, createdAtMs: 0.5 },
+    { ...snapshot, createdAtMs: WORKFLOW_MAX_TIMESTAMP_MS + 1 },
+    { ...snapshot, adjustmentXmp: { xml } },
+    { ...snapshot, adjustmentXmp: 'x'.repeat(WORKFLOW_MAX_BYTES + 1) },
+  ];
+  for (const payload of malformed) {
+    const response = await actionRequest('snapshot', 'primary', {
+      expectedXmp: xml,
+      snapshot: payload,
+    });
+    expect(response.status).toBe(422);
+    expect(await readFile(join(directory, 'photo.xmp'), 'utf8')).toBe(xml);
+    expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
+  }
+});
 
 test('API uses real Rust and atomic sidecar files while preserving authored WB/checkpoints', async () => {
   const response = await patch(corpus[0]);
