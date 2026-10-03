@@ -165,20 +165,6 @@ fn channels_written(image: &RasterImage, output: &RasterOutput) -> u8 {
     }
 }
 
-/// `true` for `RasterOutput::Avif` — split out (rather than an inline
-/// `matches!`) because that variant only exists under the `avif` feature
-/// (see `raster_encode.rs`'s own `#[cfg]` on it); `run_recipe`'s AVIF+P3
-/// gate below needs an answer that compiles either way, same dual-`#[cfg]`
-/// shape `raster_recipe_output::avif_from_wire` already uses.
-#[cfg(feature = "avif")]
-fn is_avif_output(output: &RasterOutput) -> bool {
-    matches!(output, RasterOutput::Avif(_))
-}
-#[cfg(not(feature = "avif"))]
-fn is_avif_output(_output: &RasterOutput) -> bool {
-    false
-}
-
 /// The primaries a `metadata.iccName` names, when it names one.
 ///
 /// `withIccProfile('srgb'|'p3')` CONVERTS and tags (#3507 reconciliation with
@@ -279,13 +265,6 @@ pub fn run_recipe(recipe: &Recipe, input: &[u8], aux: &[u8]) -> Result<RecipeRes
     } else {
         processed.to_colourspace(op_primaries, primaries)
     };
-    // AVIF carries no ICC box at all (`ravif` 0.13 writes none), so a
-    // Display P3 AVIF request is rejected by name here rather than silently
-    // shipping untagged — and therefore mis-rendering — P3 samples. Same
-    // gate `export::encode_raster_rgb` applies on the non-recipe path.
-    if is_avif_output(&output) {
-        crate::export::reject_untagged_avif_p3(crate::export::ExportFormat::Avif, primaries)?;
-    }
     let metadata =
         resolve_output_metadata(recipe, input, aux, primaries, auto_oriented, &processed)?;
     let bytes = encode_raster_output(&processed, &output, &metadata)?;

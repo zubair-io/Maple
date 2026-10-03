@@ -7,9 +7,9 @@
 //!
 //! WebP is LOSSLESS ONLY. There is no pure-Rust lossy WebP encoder, so
 //! `lossless: false` is a named error rather than a silent fallback to a
-//! four-times-larger lossless file — see the plan's decision D6. ICC and XMP
-//! for AVIF are likewise not writable by `avif-serialize` 0.8.8 and are out of
-//! Tier 2 (decision D5).
+//! four-times-larger lossless file — see the plan's decision D6. ICC is
+//! supported by the in-tree encoder/muxer patches (#3580); XMP writing
+//! remains unsupported.
 //!
 //! AVIF 4:2:0 chroma subsampling is likewise a named error, not a working
 //! option: the vendored `ravif` 0.13 hard-codes `ChromaSampling::Cs444` in
@@ -214,6 +214,17 @@ pub fn encode_avif_opts(
         .with_speed(speed)
         .with_bit_depth(depth)
         .with_internal_color_model(ColorModel::YCbCr);
+    let base = if meta.icc
+        == Some(crate::icc::profile_for(crate::view::encode::TargetPrimaries::P3).as_slice())
+    {
+        base.with_display_p3()
+    } else {
+        base
+    };
+    let base = match meta.icc {
+        Some(profile) => base.with_icc_profile(profile.to_vec()),
+        None => base,
+    };
     let encoder = match meta.exif {
         // ISO/IEC 23008-12 Annex A.2.1: an `Exif` item's payload starts with
         // a 4-byte offset to the TIFF header, and `avif-serialize` (what

@@ -325,22 +325,15 @@ fn a_default_recipe_leaves_its_jpeg_output_untagged() {
     );
 }
 
-/// AVIF has no ICC/CICP tag yet (#3503) — a recipe asking for a P3 AVIF
-/// must fail by name through this path too, matching
-/// `export::encode_raster_rgb`'s gate on the non-recipe path (#3506
-/// rebase: this path skipped the gate entirely before the ICC binding
-/// was wired up).
+#[cfg(feature = "avif")]
 #[test]
-fn a_p3_recipe_rejects_avif_output_by_name() {
-    let recipe = parse_recipe(
-        r#"{"v":1,"input":{"kind":"raw","width":2,"height":2,"channels":3},
-            "ops":[{"op":"toColourspace","space":"display-p3"}],
-            "output":{"format":"avif"}}"#,
-    )
-    .unwrap();
-    let err = run_recipe(&recipe, &vec![128u8; 12], &[]).unwrap_err();
-    assert!(
-        format!("{err}").to_lowercase().contains("avif"),
-        "expected the AVIF/P3 combination to be named in the error, got: {err}"
+fn a_p3_recipe_writes_its_actual_avif_profile() {
+    let recipe = parse_recipe(r#"{"v":1,"input":{"kind":"raw","width":2,"height":2,"channels":3},"ops":[{"op":"toColourspace","space":"display-p3"}],"output":{"format":"avif"}}"#).unwrap();
+    let image = run_recipe(&recipe, &[128; 12], &[]).unwrap();
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&image.bytes).icc,
+        Some(crate::icc::profile_for(
+            crate::view::encode::TargetPrimaries::P3
+        ))
     );
 }
