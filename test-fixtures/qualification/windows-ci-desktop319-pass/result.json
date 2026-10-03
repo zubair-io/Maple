@@ -1,0 +1,10 @@
+{
+  "desktopPreparation": "passed",
+  "scope": "Real software-GPU CI lifecycle and required layout sizes; not physical GPU performance, complete UI or crash root-cause proof",
+  "run": "https://github.com/zubair-io/Maple/actions/runs/37098043475",
+  "head": "5e0c6d90d82c5dbbbbb1e026ea94e411ea75a29e",
+  "testedMergeRevision": "1dd343f482b4de1faafb676cf0f5d3f9855b7406",
+  "empty": "passed",
+  "cpu": "passed",
+  "gpu": "passed"
+}

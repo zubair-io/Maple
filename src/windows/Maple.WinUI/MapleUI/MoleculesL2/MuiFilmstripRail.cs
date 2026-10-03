@@ -120,10 +120,11 @@ namespace Maple.UI
             IsTabStop = false;
             HorizontalContentAlignment = HorizontalAlignment.Stretch;
             VerticalContentAlignment = VerticalAlignment.Stretch;
-            // ActiveId is often set before the rail has a viewport (it mounts
-            // collapsed, or its list arrives first); re-follow once it does,
-            // and again whenever the viewport changes size.
-            _scroll.SizeChanged += (_, _) => RequestFollow();
+            // Preview resizing must not override a user's manual scroll.
+            _scroll.SizeChanged += (_, _) =>
+            {
+                if (_followAfterLayout || !PreviewNavigation) RequestFollow();
+            };
             _column.LayoutUpdated += (_, _) =>
             {
                 if (_followAfterLayout) _followAfterLayout = !FollowActive();
@@ -218,7 +219,7 @@ namespace Maple.UI
             RequestFollow();
         }
 
-        private void OnActiveIdChanged()
+        private void OnActiveIdChanged(bool follow = true)
         {
             var items = Items ?? Array.Empty<MuiFilmstripItem>();
             for (var i = 0; i < _cells.Count && i < items.Count; i++)
@@ -232,7 +233,7 @@ namespace Maple.UI
             for (var i = 0; i < items.Count; i++) if (items[i].Id == ActiveId) selected = i;
             _count.Text = $"{selected + 1:00} / {items.Count:00}";
 
-            RequestFollow();
+            if (follow) RequestFollow();
         }
 
         private void RequestFollow() => _followAfterLayout = !FollowActive();
@@ -276,7 +277,7 @@ namespace Maple.UI
             AutomationProperties.SetName(_toggle, PreviewNavigation
                 ? (expanded ? "Collapse photo list" : "Expand photo list")
                 : (IsCollapsed ? "Expand filmstrip" : "Collapse filmstrip"));
-            OnActiveIdChanged();
+            OnActiveIdChanged(follow: false);
         }
     }
 }

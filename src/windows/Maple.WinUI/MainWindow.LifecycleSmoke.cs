@@ -58,11 +58,16 @@ namespace Maple.WinUI
                     // The synthetic RAW has no embedded JPEG. Preview must
                     // render it without requiring the user to enter Edit.
                     SetMode(ShellMode.Preview);
-                    ViewModel.SelectedPhoto = new PhotoItem
+                    if (Array.IndexOf(Environment.GetCommandLineArgs(), "--shell-visual-checkpoints") >= 0)
+                        raw = await PrepareShellVisualLibraryAsync(raw, output);
+                    var inputInfo = new FileInfo(raw);
+                    ViewModel.SelectedPhoto = ViewModel.Photos.FirstOrDefault(item => item.FilePath == raw) ?? new PhotoItem
                     {
                         FilePath = raw,
                         FileName = Path.GetFileName(raw),
-                        Format = "DNG"
+                        Format = "DNG",
+                        FileSizeBytes = inputInfo.Length,
+                        FileModifiedUtc = inputInfo.LastWriteTimeUtc
                     };
                     var previewDeadline = Environment.TickCount64 + 90000;
                     while (!frame.Task.IsCompleted && ViewModel.SelectedPhoto.PreviewPath == null

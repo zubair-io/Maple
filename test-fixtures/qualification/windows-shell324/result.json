@@ -1,0 +1,36 @@
+{
+  "lifecyclePassed": true,
+  "exitCode": 0,
+  "priorAttempts": [
+    {
+      "reason": "180-second screenshot acknowledgement timeout",
+      "output": "maple-shell324-20261003",
+      "passed": false
+    },
+    {
+      "reason": "Wrong launcher CPU environment flag: required cpu frame got gpu",
+      "output": "maple-shell324b-20261003",
+      "passed": false
+    }
+  ],
+  "renderPath": "cpu",
+  "build": "Maple.DesignAudit324",
+  "limitations": [
+    "Synthetic grey 64x64 RAW copies; does not prove image-quality parity",
+    "150% DPI only",
+    "Pointer/hover overlays on interaction captures; not pixel goldens",
+    "Does not complete all epic UI and hardware acceptance criteria"
+  ],
+  "dpiScale": 1.5,
+  "checkpointCount": 6,
+  "workingChanges": [
+    "MuiFilmstripRail Preview manual-scroll preservation",
+    "64-photo production-scanned visual diagnostic library",
+    "native accessible toggle regression"
+  ],
+  "managedSha256": "A61D30E73D578E73CF6970869CD66F39479A06A6384394227A77AEB5FF5469D0",
+  "photoCount": 64,
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3",
+  "sourceBase": "2546f6860",
+  "manualToggle": "Both directions preserve later rows 56-63 with Photo-000 selected; Info layouts preserve those rows"
+}

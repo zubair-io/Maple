@@ -1,0 +1,87 @@
+{
+  "issue": 3875,
+  "sourceBase": "2546f6860",
+  "mainBase": "89c88db906a42983552e0ac1a4621ee5ef451ac9",
+  "build": "Maple.DesignAudit322",
+  "sourceChanges": [
+    "MainWindow.LifecycleSmoke.cs and new MainWindow.ShellVisualLibrary.cs: scan 64 real fixture copies through LoadDirectoryAsync"
+  ],
+  "managedAssemblySha256": "7A78AB36819C2F67A73DA7A9ADEF32EDE5155E8AB7D9E9CAC03CAF15AD95ADD4",
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3",
+  "renderPath": "cpu",
+  "exitCode": 0,
+  "fixtureCount": 64,
+  "checkpoints": [
+    {
+      "name": "browse-grid",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 64
+    },
+    {
+      "name": "browse-list",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 64
+    },
+    {
+      "name": "preview-info",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 64
+    },
+    {
+      "name": "preview-list-info",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 64
+    },
+    {
+      "name": "preview-list",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 64
+    },
+    {
+      "name": "preview-rail",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 64
+    }
+  ],
+  "verified": [
+    "Production folder scan loaded 64 actual RAW files and their generated thumbnails. File metadata shows 9 KB and 64 x 64, rather than the manually created fixture model defaults.",
+    "Grid wheel scrolling reached Photo-063 and returned to the first rows.",
+    "List wheel scrolling fully exposed Photo-063 and returned to the selected Photo-000. Detail remained on Photo-000.",
+    "Compact filmstrip responds to wheel scrolling while the selected photo and 01 / 64 counter stay unchanged.",
+    "CPU lifecycle completed with exit code zero, renderer stopped and one panel release."
+  ],
+  "failed": [
+    "At later Preview list rows (Photo-046 onwards), clicking the real Collapse photo list button jumped the filmstrip to the selected Photo-000 at the top. This violates scroll preservation."
+  ],
+  "limitations": [
+    "150 percent scaling only: physical 1440x960 window, about 945x632 DIP content; this is not the 100 percent reference size.",
+    "Synthetic grey imagery; photo color/parity and real EXIF coverage are not qualified.",
+    "Scroll interaction captures include transient cursor/hover overlays; they are not pixel goldens.",
+    "The subsequently edited MuiFilmstripRail scroll fix is not part of this build and requires a new regression run.",
+    "Narrator, other DPI levels, actual cloud and full Editor states remain incomplete."
+  ]
+}

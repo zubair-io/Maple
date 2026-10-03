@@ -1,0 +1,13 @@
+{
+  "source": "1dd343f482b4de1faafb676cf0f5d3f9855b7406",
+  "interactive": true,
+  "originalSha256": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276",
+  "os": "Microsoft Windows NT 10.0.26100.0",
+  "adapters": [
+    {
+      "Name": "Microsoft Hyper-V Video",
+      "DriverVersion": "10.0.26100.1150"
+    }
+  ],
+  "sessionId": 2
+}
