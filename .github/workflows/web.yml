@@ -427,7 +427,7 @@ jobs:
         id: export_retry_report
         working-directory: src/web
         run: |
-          bun x playwright test --config playwright.workflow.config.ts export-retry.spec.ts
+          bun x playwright test --config playwright.workflow.config.ts '(^|/)export-retry\.spec\.ts$'
           python3 ../../tools/check_export_retry_evidence.py test-results/workflow/results.json
           cp test-results/workflow/results.json "$RUNNER_TEMP/export-retry-results.json"
       - name: Qualify Self Hosted retry originals through HTTP and IndexedDB
