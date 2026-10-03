@@ -51,7 +51,8 @@
       "expected_scene_blake3": "blake3:50f65b33b413746281b59cb89be7dd221d6e06328c7fd7b99a8d60d283fd2f43",
       "expected_model_input_blake3": "blake3:625c01c734ea6cab3afb6a295452f58c85b16b3669d56ac40d765861412c12d4",
       "annotation": "Small partially occluded head above cabin railing; explicit Paint rectangle and protected wood below.",
-      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy."
+      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy.",
+      "orientation": 1
     },
     {
       "id": "bologna-paint",
@@ -64,7 +65,8 @@
       "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
       "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
       "annotation": "Paint rectangle over blue-coat shopper/bag and part of adjacent dark-coated shopper. Protected left foreground; partial unselected person fragments are a known annotation limit, not automatic mask truth.",
-      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy."
+      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy.",
+      "orientation": 1
     },
     {
       "id": "night-tiger-poster",
