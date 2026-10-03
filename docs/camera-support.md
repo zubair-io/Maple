@@ -23,7 +23,7 @@ Maple has full colour calibration for this camera and measures every release aga
 
 ### `profiled` — Profiled
 
-Maple has full colour calibration for this camera, but no measured reference render for it — no physical sample of this body has been through Maple's colour qualification suite.
+Maple has full colour calibration for this camera, but its required colour qualification evidence is incomplete or does not pass for the current build.
 
 ### `matrix_only` — Matrix only
 

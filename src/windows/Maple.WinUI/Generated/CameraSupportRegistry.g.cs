@@ -54,7 +54,7 @@ namespace Maple.WinUI.Generated
             CameraTier.Unsupported => "Maple cannot decode this file format, so it cannot be edited or exported.",
             CameraTier.DecodeOnly => "Maple can read this camera's files but has no colour calibration for its sensor, so colours are approximate. Editing and export work; expect a cast, and expect it to change if calibration is added later.",
             CameraTier.MatrixOnly => "Maple is using the colour matrix embedded in the file itself. Neutrals and overall colour are calibrated; saturated colours are not, because this camera has no hue and saturation calibration in Maple's profile set.",
-            CameraTier.Profiled => "Maple has full colour calibration for this camera, but no measured reference render for it — no physical sample of this body has been through Maple's colour qualification suite.",
+            CameraTier.Profiled => "Maple has full colour calibration for this camera, but its required colour qualification evidence is incomplete or does not pass for the current build.",
             CameraTier.Qualified => "Maple has full colour calibration for this camera and measures every release against a reference render of a physical sample of this body.",
             _ => throw new ArgumentOutOfRangeException(nameof(value)),
         };
