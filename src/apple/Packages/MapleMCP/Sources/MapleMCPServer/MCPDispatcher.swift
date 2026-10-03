@@ -107,7 +107,7 @@ public final class MCPDispatcher {
     switch response.outcome {
     case .success(let payload):
       var content: [JSONValue] = []
-      if let image = payload.image {
+      for image in payload.images {
         content.append([
           "type": "image", "data": .string(image.data.base64EncodedString()),
           "mimeType": .string(image.mimeType),
