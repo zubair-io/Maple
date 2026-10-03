@@ -430,6 +430,13 @@ jobs:
           bun x playwright test --config playwright.workflow.config.ts export-retry.spec.ts
           python3 ../../tools/check_export_retry_evidence.py test-results/workflow/results.json
           cp test-results/workflow/results.json "$RUNNER_TEMP/export-retry-results.json"
+      - name: Qualify Self Hosted retry originals through HTTP and IndexedDB
+        id: self_hosted_export_retry_report
+        working-directory: src/web
+        run: |
+          bun x playwright test --config playwright.export-original-retry.config.ts
+          python3 ../../tools/check_export_retry_evidence.py test-results/export-original-retry/results.json self-hosted
+          cp test-results/export-original-retry/results.json "$RUNNER_TEMP/self-hosted-export-retry-results.json"
       # Committed synthetic RAWs: no external fixture download or skip path.
       - name: Qualify white balance, Auto Tone and lens gestures
         working-directory: src/web
@@ -464,6 +471,12 @@ jobs:
         run: |
           mkdir -p test-results/workflow
           cp "$RUNNER_TEMP/export-retry-results.json" test-results/workflow/export-retry-results.json
+      - name: Restore Self Hosted retry original protection report
+        if: always() && steps.self_hosted_export_retry_report.outcome == 'success'
+        working-directory: src/web
+        run: |
+          mkdir -p test-results/export-original-retry
+          cp "$RUNNER_TEMP/self-hosted-export-retry-results.json" test-results/export-original-retry/results.json
       - name: Upload workflow acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4

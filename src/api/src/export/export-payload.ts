@@ -16,6 +16,8 @@ export interface ExportTarget {
 export interface ExportPayload {
   targets: ExportTarget[];
   recipe: ExportRecipe;
+  /** Retained selection snapshot; only the server checkpoint proves completeness (#4111). */
+  originalPaths?: string[];
 }
 
 function textField(entry: Record<string, unknown>, name: string): string {
@@ -58,7 +60,30 @@ export function parseExportPayload(raw: Record<string, unknown>): ExportPayload 
   const targets = values.map(target);
   if (new Set(targets.map((photo) => photo.id)).size !== targets.length)
     throw new Error('Export photo identities must be unique');
-  if (new TextEncoder().encode(JSON.stringify({ targets, recipe })).length > 12_000_000)
+  const originalPaths = raw['originalPaths'];
+  if (originalPaths !== undefined) {
+    if (
+      !Array.isArray(originalPaths) ||
+      originalPaths.length < 1 ||
+      originalPaths.length > 2000 ||
+      originalPaths.some(
+        (path) =>
+          typeof path !== 'string' ||
+          !isAbsolute(path) ||
+          path.includes('\0') ||
+          path.length > 8192,
+      ) ||
+      new Set(originalPaths).size !== originalPaths.length ||
+      targets.some((photo) => !originalPaths.includes(photo.path))
+    )
+      throw new Error('Complete original identity set must contain every selected photo');
+  }
+  const payload = {
+    targets,
+    recipe,
+    ...(originalPaths !== undefined ? { originalPaths } : {}),
+  };
+  if (new TextEncoder().encode(JSON.stringify(payload)).length > 12_000_000)
     throw new Error('This export contains too many edit snapshots; split it into smaller batches');
-  return { targets, recipe };
+  return payload;
 }

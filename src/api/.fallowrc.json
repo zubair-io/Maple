@@ -37,6 +37,7 @@
     "tests/fixtures/unified-folder-server.ts",
     // #4053 — Playwright starts this real API/SQLite/filesystem process.
     "tests/browser/workflow-server.ts",
+    "tests/browser/export-retry-server.ts",
 
     // #3797 — the reader-pool sizing and degradation benchmark. Same shape as
     // the block above: an entry point run by hand, so nothing imports it. On

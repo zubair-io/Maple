@@ -67,6 +67,7 @@ async function target(name: string, index = 0) {
 function payload(targets: Awaited<ReturnType<typeof target>>[], overwritePolicy = 'error') {
   return {
     targets,
+    originalPaths: [...new Set(targets.map((photo) => photo.path))],
     recipe: {
       ...DEFAULT_EXPORT_RECIPE,
       format: 'png',
@@ -82,6 +83,9 @@ async function claimed(value: Record<string, unknown>) {
   const job = await jobs.createJob({
     kind: 'batch_recipe_export',
     payload: value,
+    ...(value['originalPaths'] === undefined
+      ? {}
+      : { checkpoint: { originalPaths: value['originalPaths'] } }),
   });
   expect((await jobs.claimJob('recipe-worker', 60000))?._id.toHexString()).toBe(
     job._id.toHexString(),
@@ -207,6 +211,7 @@ integration('export recovery boundaries', () => {
       `.maple-export-${job._id}-00000000-0000-4000-8000-000000000000.tmp`,
     );
     await writeFile(other.path, original);
+    value.originalPaths = value.targets.map((source) => source.path);
     // The restored payload genuinely selects the staging-shaped original too.
     const ctx = await context(job._id);
     ctx.checkpoint = {
@@ -329,7 +334,12 @@ integration('export recovery boundaries', () => {
   it('migrates the legacy JPEG job onto an immutable developed-image recipe ledger', async () => {
     const photo = await target('legacy');
     const assetId = insertAsset(live!.db);
-    insertLocation(live!.db, { assetId, libraryId, path: '', filename: 'legacy.dng' });
+    insertLocation(live!.db, {
+      assetId,
+      libraryId,
+      path: '',
+      filename: 'legacy.dng',
+    });
     await writeFile(join(root, 'legacy.xmp'), xml);
     const job = await jobs.createJob({
       kind: 'batch_jpeg_export',

@@ -12,6 +12,10 @@ export class SelfHostedExportRecipeService implements ExportRecipeServer {
   // Called through the EXPORT_RECIPE_SERVER injection-token interface.
   // fallow-ignore-next-line unused-class-member
   create(record: RecipeQueueRecord): Observable<{ id: string }> {
+    if (record.retryOf)
+      return this.http.post<{ id: string }>(`${this.base}/jobs/${record.retryOf}/retry-failed`, {
+        requestId: record.serverJobId,
+      });
     return this.http.post<{ id: string }>(`${this.base}/jobs`, {
       kind: 'batch_recipe_export',
       requestId: record.serverJobId,

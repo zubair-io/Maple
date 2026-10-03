@@ -26,6 +26,8 @@ export interface RecipeQueueRecord {
   targets: RecipeTarget[];
   entries: RecipeEntry[];
   serverJobId: string | null;
+  /** Trusted server retry source survives a lost creation response/reload (#4111). */
+  retryOf?: string;
   cancelled: boolean;
   directoryHandle?: FileSystemDirectoryHandle;
   /** All initial originals survive failed-item filtering and queue reloads (#4107). */

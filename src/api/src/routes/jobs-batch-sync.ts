@@ -23,6 +23,10 @@ function retrySource(previous: JobDoc) {
     payload: parseExportPayload(raw as Record<string, unknown>),
   };
 }
+function retryCheckpoint(previous: JobDoc) {
+  const originals = previous.checkpoint?.['originalPaths'];
+  return originals === undefined ? {} : { checkpoint: { originalPaths: originals } };
+}
 function retryPayload(previous: JobDoc | null) {
   if (
     !previous ||
@@ -38,7 +42,11 @@ function retryPayload(previous: JobDoc | null) {
     const failed = new Set(Array.isArray(entries) ? entries.map((entry) => entry.id) : []);
     const targets = source.payload.targets.filter((target) => failed.has(target.id));
     if (!targets.length) return 'This batch has no failures to retry';
-    return { kind: source.kind, payload: { ...source.payload, targets } };
+    return {
+      kind: source.kind,
+      payload: { ...source.payload, targets },
+      ...retryCheckpoint(previous),
+    };
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
