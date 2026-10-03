@@ -1,6 +1,8 @@
 """Focused web CI contracts. Run with python3 -m unittest tools/test_ci_web.py."""
 
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -84,6 +86,24 @@ class WebWorkflowTests(unittest.TestCase):
                 jobs[job]["steps"].append({"uses": action})
             with self.subTest(job=job, action=action), self.assertRaises(ValueError):
                 validate_rust_provisioning(jobs)
+
+    def test_browser_export_retry_selects_only_its_fixture_compatible_spec(self):
+        browser = step(
+            "web-workflow-acceptance", "Qualify browser export retry original protection"
+        )
+        selector = shlex.split(browser["run"].splitlines()[0])[-1]
+        specs = ROOT.glob("src/web/e2e/workflow/*.spec.ts")
+        selected = {p.name for p in specs if re.search(selector, p.as_posix())}
+        self.assertEqual(selected, {"export-retry.spec.ts"})
+        self.assertIn("check_export_retry_evidence.py", browser["run"])
+        self_hosted = step(
+            "web-workflow-acceptance",
+            "Qualify Self Hosted retry originals through HTTP and IndexedDB",
+        )
+        self.assertIn("playwright.export-original-retry.config.ts", self_hosted["run"])
+        self.assertIn("results.json self-hosted", self_hosted["run"])
+        self.assertNotIn("continue-on-error", browser)
+        self.assertNotIn("continue-on-error", self_hosted)
 
     def test_repeated_cycles_preserve_the_separate_mode_report_and_gate_evidence(self):
         steps = JOBS["web-workflow-acceptance"]["steps"]
