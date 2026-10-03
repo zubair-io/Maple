@@ -19,7 +19,7 @@ extension RemovalSession {
       let entry = savedRemovals.first(where: { $0.id == id }), entry.editable,
       let maskDigest = entry.mask
     else { return }
-    setMode(.paint)
+    await setMode(.paint)
     clearSelection()
     let token = revision
     phase = .preparing

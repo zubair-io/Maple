@@ -76,7 +76,7 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
         modelStore: MacRemovalModelStore(root: directory.appendingPathComponent("models")))
       await removal.open()
       await removal.chooseModelFolder(root)
-      removal.setMode(.people)
+      await removal.setMode(.people)
       // This test starts at reviewed source masks; detector/segmenter quality
       // has separate gates. Reconstruction and durable Keep use the real model.
       let masks = try [0.25, 0.75].map { x in
@@ -88,8 +88,23 @@ final class NativeRemovalAuthoringJobTests: XCTestCase {
       }
       removal.personMasks = masks
       removal.selection = try RemovalBridge.combineMasks(masks[0], masks[1])
+      removal.detectedPersonMasks = masks.enumerated().map {
+        RemovalPersonSelection(id: $0.offset + 1, mask: $0.element)
+      }
+      removal.people = masks.enumerated().map {
+        RemovalSession.Person(
+          id: $0.offset + 1,
+          detection: NativeRemovalDetection(class: 0, bounds: [0, 0, 16, 8], score: 0.9),
+          keep: true)
+      }
+      removal.keepPerson(1)
+      removal.keepPerson(2)
+      XCTAssertTrue(removal.personChoicesNeedApply)
+      XCTAssertTrue(removal.selection.isEmpty)
+      XCTAssertTrue(removal.canRemove, "List choices enable Remove before mask preparation")
       await removal.remove()
       XCTAssertEqual(removal.phase, .review, removal.message)
+      XCTAssertFalse(removal.personChoicesNeedApply)
       XCTAssertEqual(removal.proposals.count, 2)
       let sidecar = try XCTUnwrap(session.asset.sidecarURL)
       XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))

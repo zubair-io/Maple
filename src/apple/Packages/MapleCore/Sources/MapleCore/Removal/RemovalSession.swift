@@ -64,6 +64,7 @@ public final class RemovalSession {
   @ObservationIgnored var manualProtection = Data()
   @ObservationIgnored var proposals: [NativeRemovalProposal] = []
   @ObservationIgnored var personMasks: [Data] = []
+  @ObservationIgnored var detectedPersonMasks: [RemovalPersonSelection] = []
   @ObservationIgnored var personBases: [RemovalPersonSelection] = []
   @ObservationIgnored var personGestures: [RemovalPersonGesture] = []
   @ObservationIgnored var redoPersonGestures: [RemovalPersonGesture] = []
@@ -101,7 +102,9 @@ public final class RemovalSession {
   public var canPaint: Bool { mode != .people || refiningPersonID != nil }
   public func canRefinePerson(_ id: Int) -> Bool { personBases.contains { $0.id == id } }
   public var canRemove: Bool {
-    phase == .ready && !personChoicesNeedApply && !selection.isEmpty && modelFolderName != nil
+    guard phase == .ready, modelFolderName != nil else { return false }
+    return mode == .people && personChoicesNeedApply
+      ? people.contains { !$0.keep } : !selection.isEmpty
   }
 
   public func open() async {
@@ -147,6 +150,7 @@ public final class RemovalSession {
       savedRemovals = try RemovalBridge.savedList(
         records: captured.model.inpaintRemovals?.json ?? "[]")
       phase = .ready
+      if mode == .people { await findPeople() }
     } catch { fail(error, token: token, phase: .failed) }
   }
 
@@ -164,6 +168,7 @@ public final class RemovalSession {
     replacementBase = Data()
     replacementOriginal = nil
     personMasks = []
+    detectedPersonMasks = []
     resetPersonRefinement()
     preview = nil
     compare = false
@@ -204,14 +209,17 @@ public final class RemovalSession {
           "Models are checksum-verified when used. This experiment is not release-qualified."
       #endif
       phase = returnPhase
+      if mode == .people, people.isEmpty, phase == .ready { await findPeople() }
     } catch { fail(error, token: token, phase: returnPhase) }
   }
 
-  public func setMode(_ next: Mode) {
+  public func setMode(_ next: Mode) async {
     guard phase == .ready, mode != next, replacingRemovalID == nil else { return }
     clearSelection()
     people = []
+    detectedPersonMasks = []
     mode = next
+    if next == .people { await findPeople() }
   }
 
   public func clearSelection() {
@@ -244,8 +252,16 @@ public final class RemovalSession {
     clearSelection()
     if mode == .people, !people.isEmpty {
       personChoicesNeedApply = true
-      message = "Protection cleared. Review the people to keep, then click Apply person choices."
+      message = "Protection cleared. Review the selected people before clicking Remove."
     }
+  }
+
+  public func clearSelectedPeople() {
+    guard phase == .ready, mode == .people else { return }
+    clearSelection()
+    people = people.map { Person(id: $0.id, detection: $0.detection, keep: true, role: $0.role) }
+    personChoicesNeedApply = true
+    message = "No people selected for removal. Select people in the list."
   }
 
   public func cancel() {

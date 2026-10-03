@@ -81,8 +81,20 @@ extension RemovalSession {
   {
     guard let context else { throw RemovalError.invalid("Removal photo is not prepared") }
     let token = revision
+    let selected: Data
+    let kept: Data
+    if mode == .people, personChoicesNeedApply, detectedPersonMasks.count == people.count {
+      let masks = try await engine.peopleSelection(
+        people, masks: detectedPersonMasks, manualProtection: manualProtection)
+      guard current(token) else { throw CancellationError() }
+      selected = masks.selection
+      kept = masks.protection
+    } else {
+      selected = selection
+      kept = protection
+    }
     let result = try await engine.overlay(
-      context: context, selection: selection, protection: protection, people: people,
+      context: context, selection: selected, protection: kept, people: people,
       cropInputSize: cropInputSize, aspect: aspect)
     guard current(token) else { throw CancellationError() }
     return result

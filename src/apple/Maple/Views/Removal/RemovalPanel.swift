@@ -23,7 +23,9 @@ struct RemovalPanel: View {
         value: Binding(
           get: { removal.mode.rawValue },
           set: {
-            if let mode = RemovalSession.Mode(rawValue: $0) { removal.setMode(mode) }
+            if let mode = RemovalSession.Mode(rawValue: $0) {
+              Task { await removal.setMode(mode) }
+            }
           }), disabled: removal.phase != .ready || removal.replacingRemovalID != nil)
       savedControls
       if removal.phase == .review {
@@ -170,11 +172,9 @@ struct RemovalPanel: View {
   @ViewBuilder
   private var selectionControls: some View {
     if removal.mode == .people {
-      MuiButton(label: "Suggest background people", size: .sm, disabled: removal.busy) {
-        Task { await removal.findPeople() }
-      }
-      Text("Likely subjects and uncertain people start kept. Review each suggestion.").font(
-        .caption)
+      Text("People to remove").font(.caption.weight(.semibold))
+      Text("Likely background people start selected. Subjects and uncertain people start kept.")
+        .font(.caption)
       Text("Green = Keep · Red = Remove").font(.caption)
       if !removal.people.isEmpty {
         Text(
@@ -182,25 +182,32 @@ struct RemovalPanel: View {
         )
         .font(.caption).accessibilityIdentifier("removal-people-count")
       }
-      ForEach(removal.people) { person in
-        MuiCheckbox(
-          state: person.keep ? .unchecked : .checked,
-          label: "Remove Person \(person.id) · \(person.role.label)", disabled: removal.busy
-        ) {
-          removal.keepPerson(person.id)
+      if !removal.people.isEmpty {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 4) {
+            ForEach(removal.people) { person in
+              HStack {
+                MuiCheckbox(
+                  state: person.keep ? .unchecked : .checked,
+                  label: "Person \(person.id) · \(person.role.label)", disabled: removal.busy
+                ) { removal.keepPerson(person.id) }
+                Spacer(minLength: 4)
+                if !person.keep {
+                  MuiButton(
+                    label: "Refine", size: .sm,
+                    disabled: removal.busy
+                  ) { Task { await removal.beginPersonRefinement(person.id) } }
+                  .accessibilityLabel("Refine Person \(person.id)")
+                }
+              }
+            }
+          }
         }
-        if !person.keep {
-          MuiButton(
-            label: "Refine Person \(person.id)", size: .sm,
-            disabled: removal.busy || !removal.canRefinePerson(person.id)
-          ) { removal.refinePerson(person.id) }
-        }
+        .frame(height: min(CGFloat(removal.people.count) * 52, 260))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("People to remove, multiple selection")
+        .accessibilityIdentifier("removal-people-list")
       }
-      MuiButton(
-        label: "Apply person choices",
-        variant: removal.personChoicesNeedApply ? .primary : .secondary, size: .sm,
-        disabled: removal.busy || removal.people.isEmpty
-      ) { Task { await removal.selectOtherPeople() } }
       if let id = removal.refiningPersonID {
         Text("Painting Person \(id): include missed edges, belongings, shadows or reflections.")
           .font(.caption)
@@ -239,8 +246,16 @@ struct RemovalPanel: View {
     HStack {
       MuiButton(
         label: "Clear selection", size: .sm,
-        disabled: removal.busy || removal.selection.isEmpty
-      ) { removal.clearSelection() }
+        disabled: removal.busy
+          || (removal.mode == .people
+            ? removal.people.allSatisfy(\.keep) : removal.selection.isEmpty)
+      ) {
+        if removal.mode == .people {
+          removal.clearSelectedPeople()
+        } else {
+          removal.clearSelection()
+        }
+      }
       MuiButton(
         label: "Clear protection", size: .sm,
         disabled: removal.busy || removal.protection.isEmpty
