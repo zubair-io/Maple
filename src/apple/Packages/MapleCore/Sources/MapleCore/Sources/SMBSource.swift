@@ -84,6 +84,7 @@ public actor SMBSource {
   /// point: `search()` returns `nil`), so the map is always populated by
   /// the time a caller round-trips a ref back into `rawBytes`/`writeXMP`.
   private var pathByMapleId: [String: String] = [:]
+  private var relocatedPaths: [ImageRef: String] = [:]
 
   /// First 64 KB of a file — the bound the primary-form head hash reads.
   /// Matches `raw_core::SHA1_HEAD_BYTES` (`id.rs`) and
@@ -99,6 +100,12 @@ public actor SMBSource {
 
   /// Connect to an SMB share and enumerate RAW files in a path.
   public func connect(credentials: Credentials, remotePath: String = "/") async throws {
+    if self.credentials?.host != credentials.host
+      || self.credentials?.share != credentials.share
+      || self.credentials?.username != credentials.username
+    {
+      relocatedPaths = [:]
+    }
     self.credentials = credentials
 
     guard let serverURL = URL(string: "smb://\(credentials.host)") else {
@@ -167,7 +174,7 @@ public actor SMBSource {
     let outcome = try await SMBFileOperations.relocate(
       sourcePath, to: destinationDir, newBasename: newFilename,
       mode: .move, collision: collision, transport: client)
-    pathByMapleId[ref.id] = outcome.primaryPath
+    recordRelocation(ref, from: sourcePath, to: outcome.primaryPath)
     if let idx = _assets.firstIndex(where: { $0.path == sourcePath }) {
       let old = _assets[idx]
       _assets[idx] = SMBAsset(path: outcome.primaryPath, size: old.size, mtime: old.mtime)
@@ -190,7 +197,7 @@ public actor SMBSource {
     let outcome = try await SMBFileOperations.relocate(
       sourcePath, to: destinationDir, mode: mode, collision: collision, transport: client)
     guard mode == .move else { return outcome }
-    pathByMapleId[ref.id] = outcome.primaryPath
+    recordRelocation(ref, from: sourcePath, to: outcome.primaryPath)
     if let idx = _assets.firstIndex(where: { $0.path == sourcePath }) {
       let old = _assets[idx]
       _assets[idx] = SMBAsset(path: outcome.primaryPath, size: old.size, mtime: old.mtime)
@@ -208,7 +215,7 @@ public actor SMBSource {
     guard let client else { throw SMBError.notConnected }
     let sourcePath = path(for: ref)
     let outcome = try await SMBFileOperations.trash(sourcePath, transport: client)
-    pathByMapleId[ref.id] = outcome.primaryPath
+    recordRelocation(ref, from: sourcePath, to: outcome.primaryPath)
     _assets.removeAll { $0.path == sourcePath }
     return outcome
   }
@@ -492,7 +499,7 @@ extension SMBSource: ImageSource {
     for a in _assets {
       let id = await mapleId(for: a) ?? a.path
       freshPathByMapleId[id] = a.path
-      refs.append(ImageRef(id: id, displayName: a.name, url: nil))
+      refs.append(ImageRef(id: id, displayName: a.name, smbPath: a.path))
     }
     pathByMapleId = freshPathByMapleId
     return refs
@@ -520,17 +527,18 @@ extension SMBSource: ImageSource {
     try await writeWithRetry(data: data, to: sidecarPath, client: client)
   }
 
-  /// Resolve `ref.id` (the maple_id hex, #1995) back to the share-relative
-  /// path `rawBytes`/`writeXMP`/`thumb`/`writeThumb` actually need to
-  /// address the file over SMB. Falls back to treating `ref.id` itself as
-  /// the path — covers the (expected-rare) case where maple_id derivation
-  /// failed for this asset and `images()` fell back to the path as the
-  /// id, so `pathByMapleId` maps it to itself anyway; this fallback just
-  /// avoids a spurious lookup miss in that case.
-  ///
-  /// Not `private`: `SMBSource+Thumbs.swift` (#2690) calls this too.
+  private func recordRelocation(_ ref: ImageRef, from oldPath: String, to newPath: String) {
+    relocatedPaths = relocatedPaths.mapValues { $0 == oldPath ? newPath : $0 }
+    relocatedPaths[ref] = newPath
+    pathByMapleId[ref.id] = newPath
+  }
+
+  /// Listed locations keep identical RAW copies' sidecars independent (#4085).
+  /// Relocations retain captured references, including across reconnects.
+  /// ID lookup remains a fallback for legacy references without a location.
+  /// Also used by SMBSource+Thumbs.swift.
   func path(for ref: ImageRef) -> String {
-    pathByMapleId[ref.id] ?? ref.id
+    relocatedPaths[ref] ?? ref.smbPath ?? pathByMapleId[ref.id] ?? ref.id
   }
 
   /// SMB shares have no server-side index.
