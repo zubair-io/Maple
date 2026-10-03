@@ -32,6 +32,7 @@ class QualificationParityTests(unittest.TestCase):
             [sys.executable, str(driver), str(self.work), *args],
             capture_output=True,
             text=True,
+            check=False,
         )
 
     def test_equal_images_with_space_and_bracket_paths_pass(self):
@@ -90,6 +91,7 @@ class QualificationParityTests(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
