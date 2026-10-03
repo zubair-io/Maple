@@ -23,6 +23,26 @@ import XCTest
       SidecarPath.sidecarURL(for: URL(fileURLWithPath: source.path))
     }
 
+    func testOneHundredConsecutiveCyclesOnActualFolderAndCatalogSidecars() async throws {
+      let fixture = try await NativeWorkflowHTTPFixture.start()
+      defer { fixture.stop() }
+      for catalog in [false, true] {
+        let source = try await fixture.stage(xml: Fixture.input())
+        let raw = URL(fileURLWithPath: source.path)
+        let original = try Data(contentsOf: raw)
+        let initial = session(fixture, source, catalog: catalog)
+        await initial.loadSidecar()
+        try await RepeatedNativeWorkflowAssertions.qualify(
+          initial: initial, adapter: catalog ? "Cloud-catalog-sidecar" : "Cloud-folder-sidecar",
+          reopen: {
+            let fresh = self.session(fixture, source, catalog: catalog)
+            await fresh.loadSidecar()
+            return fresh
+          }, readXML: { try Fixture.xml(self.path(source)) },
+          verifyOriginal: { XCTAssertEqual(try Data(contentsOf: raw), original) })
+      }
+    }
+
     func testActualFolderAndCatalogCompleteXmpRestoreUndoRedoAndReopen() async throws {
       let fixture = try await NativeWorkflowHTTPFixture.start()
       defer { fixture.stop() }
