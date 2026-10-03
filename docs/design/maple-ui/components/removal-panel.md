@@ -16,6 +16,8 @@ A selected person exposes **Refine Person N**. Add/Subtract paints directly into
 
 Remove starts local inference. The proposed pixels remain temporary until Keep. Compare shows the current confirmed photo. Cancel restores its verified saved stack and writes no proposal files. Keep verifies companion publication before confirming XMP. Navigation, model changes and late worker results cannot replace a newer photo's selection. A failed restoration preserves inspection state, disables Keep and offers Retry restoring photo.
 
+On Apple, preparing People choices checks actual mask pixels against kept-person and painted protection. If protection removes any selected pixels, Remove stops before inference and names the overlapping kept people in the selected person's row. Fully protected people have no generation mask and cannot be refined until their choices change. The photographer can change those choices, refine the remaining selection, or explicitly choose **Remove unprotected parts**. This action retains all protection; it does not imply complete removal of the detected person. New choices clear the previous overlap review and are prepared again. Protection subtraction trims empty mask borders before native planning even without painted refinement gestures. The shared mask implementation preserves the exact frame when protection is disjoint and there are no gestures. This Apple interaction still needs the Web panel port under #1472.
+
 ## States
 
 - Closed/loading: show the actionable opening error or preparing status.

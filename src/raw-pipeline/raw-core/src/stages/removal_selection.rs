@@ -33,6 +33,7 @@ pub fn refine_json(base: &[u8], protected: &[u8], request: &str) -> Result<Vec<u
         return Ok(Vec::new());
     };
     let mut bounds = [mask.width, mask.height, 0, 0];
+    let mut protection_changed = false;
     for (i, pixel) in mask.pixels.iter_mut().enumerate() {
         if *pixel == 0 {
             continue;
@@ -47,6 +48,7 @@ pub fn refine_json(base: &[u8], protected: &[u8], request: &str) -> Result<Vec<u
                 && p.pixels[((sy - p.y) * p.width + sx - p.x) as usize] == 255
         }) {
             *pixel = 0;
+            protection_changed = true;
         } else {
             bounds = [
                 bounds[0].min(x),
@@ -60,10 +62,12 @@ pub fn refine_json(base: &[u8], protected: &[u8], request: &str) -> Result<Vec<u
     if end_x <= x || end_y <= y {
         return Ok(Vec::new());
     }
-    // Undo with no manual edits preserves the detected mask's exact frame.
+    // Undo with no edits or protection changes preserves the exact frame.
     // Edited masks drop zero borders, so erasing or painting only on protected
     // pixels cannot retain/inflate an otherwise oversized generation context.
-    if !request.strokes.is_empty() && bounds != [0, 0, mask.width, mask.height] {
+    if (!request.strokes.is_empty() || protection_changed)
+        && bounds != [0, 0, mask.width, mask.height]
+    {
         let (width, height) = (end_x - x, end_y - y);
         let mut pixels = Vec::new();
         pixels

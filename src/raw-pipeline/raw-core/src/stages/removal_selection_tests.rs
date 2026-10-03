@@ -123,6 +123,36 @@ fn refinement_trims_erased_extent_before_native_generation_on_100mp_source() {
         refine_json(&base, &[], r#"{"schema":1,"strokes":[]}"#).unwrap(),
         base
     );
+    // List-choice protection is an edit even without a painted gesture.
+    let protected = crate::pipeline::removal_mask_to_bytes(&RemovalMask {
+        source_width: 10000,
+        source_height: 10000,
+        x: 1899,
+        y: 101,
+        width: 1,
+        height: 1,
+        pixels: vec![255],
+    })
+    .unwrap();
+    let trimmed = refine_json(&base, &protected, r#"{"schema":1,"strokes":[]}"#).unwrap();
+    let mask = crate::pipeline::removal_mask_from_bytes(&trimmed).unwrap();
+    assert_eq!((mask.x, mask.y, mask.width, mask.height), (100, 101, 1, 1));
+    assert_eq!(mask.pixels, [255]);
+    crate::pipeline::plan_removal_generation(&source, &trimmed, 8, 4.0).unwrap();
+    let disjoint = crate::pipeline::removal_mask_to_bytes(&RemovalMask {
+        source_width: 10000,
+        source_height: 10000,
+        x: 2000,
+        y: 101,
+        width: 1,
+        height: 1,
+        pixels: vec![255],
+    })
+    .unwrap();
+    assert_eq!(
+        refine_json(&base, &disjoint, r#"{"schema":1,"strokes":[]}"#).unwrap(),
+        base
+    );
 }
 
 #[test]

@@ -15,7 +15,10 @@ extension NativeRemovalEditorEngine {
   /// stays off main and never re-segments people or enters the slider loop.
   func peopleSelection(
     _ people: [RemovalSession.Person], masks: [RemovalPersonSelection], manualProtection: Data
-  ) throws -> (selection: Data, protection: Data, bases: [RemovalPersonSelection]) {
+  ) throws -> (
+    selection: Data, protection: Data, bases: [RemovalPersonSelection],
+    conflicts: [RemovalPersonProtectionConflict]
+  ) {
     var protection = manualProtection
     for person in people where person.keep {
       guard let mask = masks.first(where: { $0.id == person.id }) else {
@@ -23,15 +26,40 @@ extension NativeRemovalEditorEngine {
       }
       protection = try RemovalBridge.combineMasks(protection, mask.mask)
     }
+    var conflicts: [RemovalPersonProtectionConflict] = []
     let bases = try people.filter { !$0.keep }.compactMap { person -> RemovalPersonSelection? in
       guard let mask = masks.first(where: { $0.id == person.id }) else {
         throw RemovalError.invalid("Missing detected person selection")
       }
-      let selected = try RemovalBridge.combineMasks(mask.mask, protection, subtract: true)
+      guard !mask.mask.isEmpty else { return nil }
+      // Use shared protection subtraction and border trimming: an erased
+      // detector extent must not consume the native context limit.
+      let selected = try RemovalBridge.refineSelection(
+        mask.mask, strokes: [], protection: protection)
+      let excluded = try RemovalBridge.combineMasks(mask.mask, selected, subtract: true)
+      if !excluded.isEmpty {
+        let keepers = try people.filter(\.keep).compactMap { kept -> Int? in
+          guard let keptMask = masks.first(where: { $0.id == kept.id }) else {
+            throw RemovalError.invalid("Missing kept person selection")
+          }
+          return try overlaps(excluded, keptMask.mask) ? kept.id : nil
+        }
+        conflicts.append(
+          RemovalPersonProtectionConflict(
+            id: person.id, keptPersonIDs: keepers,
+            manualProtection: try overlaps(excluded, manualProtection),
+            fullyProtected: selected.isEmpty))
+      }
       return selected.isEmpty ? nil : RemovalPersonSelection(id: person.id, mask: selected)
     }
     let selection = try bases.reduce(Data()) { try RemovalBridge.combineMasks($0, $1.mask) }
-    return (selection, protection, bases)
+    return (selection, protection, bases, conflicts)
+  }
+
+  private func overlaps(_ first: Data, _ second: Data) throws -> Bool {
+    guard !first.isEmpty, !second.isEmpty else { return false }
+    let outside = try RemovalBridge.combineMasks(first, second, subtract: true)
+    return try !RemovalBridge.combineMasks(first, outside, subtract: true).isEmpty
   }
 
   /// Source mask replay stays off main and never invokes a model. Each person
@@ -67,6 +95,7 @@ extension RemovalSession {
   }
 
   func resetPersonRefinement(_ bases: [RemovalPersonSelection] = []) {
+    personProtectionConflicts = []
     personBases = bases
     personGestures = []
     redoPersonGestures = []
