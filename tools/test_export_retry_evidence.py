@@ -3,27 +3,26 @@
 import copy
 import unittest
 
-from check_export_retry_evidence import validate
+from check_export_retry_evidence import scenario_titles, validate
 
 
-def report():
+def report(self_hosted=False):
     return {
-        "stats": {"expected": 5, "unexpected": 0, "skipped": 0, "flaky": 0},
+        "stats": {
+            "expected": len(scenario_titles(self_hosted)),
+            "unexpected": 0,
+            "skipped": 0,
+            "flaky": 0,
+        },
         "errors": [],
         "suites": [
             {
                 "specs": [
                     {
-                        "title": f"browser export retry protects original identities: {scenario}",
+                        "title": title,
                         "tests": [{"results": [{"status": "passed", "retry": 0}]}],
                     }
-                    for scenario in (
-                        "new",
-                        "legacy",
-                        "legacy-filtered",
-                        "missing",
-                        "unrelated",
-                    )
+                    for title in sorted(scenario_titles(self_hosted))
                 ]
             }
         ],
@@ -33,6 +32,39 @@ def report():
 class EvidenceTests(unittest.TestCase):
     def test_complete(self):
         self.assertEqual(validate(report()), 5)
+
+    def test_self_hosted_complete(self):
+        self.assertEqual(validate(report(True), self_hosted=True), 2)
+
+    def test_self_hosted_missing_duplicate_substitute_skip_retry(self):
+        for mutation in (
+            "missing",
+            "duplicate",
+            "substitute",
+            "skip",
+            "retry",
+            "stats",
+            "errors",
+        ):
+            with self.subTest(mutation=mutation):
+                value = report(True)
+                specs = value["suites"][0]["specs"]
+                if mutation == "missing":
+                    specs.pop()
+                elif mutation == "duplicate":
+                    specs[1] = copy.deepcopy(specs[0])
+                elif mutation == "substitute":
+                    specs[1]["title"] = "browser original-protection smoke"
+                elif mutation == "skip":
+                    specs[0]["tests"][0]["results"][0]["status"] = "skipped"
+                elif mutation == "retry":
+                    specs[0]["tests"][0]["results"][0]["retry"] = 1
+                elif mutation == "stats":
+                    value["stats"]["expected"] = 3
+                else:
+                    value["errors"] = [{"message": "server crashed"}]
+                with self.assertRaises(ValueError):
+                    validate(value, self_hosted=True)
 
     def test_missing_duplicate_substitute(self):
         for mutation in ("missing", "duplicate", "substitute"):

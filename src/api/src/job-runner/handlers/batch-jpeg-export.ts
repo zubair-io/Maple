@@ -36,10 +36,17 @@ async function recipePayload(raw: Record<string, unknown>): Promise<Record<strin
     const path = view ? assetAbsPath(view, roots) : null;
     if (!path) throw new Error(`Cannot resolve original ${id}`);
     const xmp = await snapshot(path);
-    targets.push({ id, path, xmp, index, capturedAt: view?.capturedAt ?? null });
+    targets.push({
+      id,
+      path,
+      xmp,
+      index,
+      capturedAt: view?.capturedAt ?? null,
+    });
   }
   const payload = {
     targets,
+    originalPaths: [...new Set(targets.map((target) => target.path))],
     recipe: {
       ...DEFAULT_EXPORT_RECIPE,
       quality: raw['quality'] ?? 82,
@@ -61,10 +68,17 @@ export const batchJpegExportHandler: JobHandler = {
       saved && typeof saved === 'object'
         ? (saved as Record<string, unknown>)
         : await recipePayload(raw);
+    const originalPaths = saved ? ctx.checkpoint?.['originalPaths'] : payload['originalPaths'];
+    const checkpoint = {
+      ...ctx.checkpoint,
+      exportPayload: payload,
+      ...(originalPaths === undefined ? {} : { originalPaths }),
+    };
     // Persist the original XMP snapshot so recovery cannot pick up later edits.
-    await ctx.saveCheckpoint({ ...ctx.checkpoint, exportPayload: payload });
+    await ctx.saveCheckpoint(checkpoint);
     return batchRecipeExportHandler.run(payload, {
       ...ctx,
+      checkpoint,
       saveCheckpoint: (value) => ctx.saveCheckpoint!({ ...value, exportPayload: payload }),
     });
   },

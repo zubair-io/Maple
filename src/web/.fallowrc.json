@@ -5,6 +5,7 @@
     "scripts/export-recipe-storage.entry.ts",
     "playwright.partial-white-balance.config.ts",
     "playwright.workflow.config.ts",
+    "playwright.export-original-retry.config.ts",
     "e2e/workflow/main.ts",
     "e2e/workflow/ui-main.ts"
   ],

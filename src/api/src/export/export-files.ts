@@ -11,6 +11,7 @@ import { renderFilenameTemplate } from 'maple';
 import { EXPORT_ENCODERS } from '../generated/export-recipe.generated.ts';
 import type { ExportRecipe } from '../generated/export-recipe.generated.ts';
 import type { ExportTarget } from './export-payload.ts';
+import type { ExportOriginals } from './export-originals.ts';
 
 export interface ExportEntry {
   id: string;
@@ -66,6 +67,10 @@ async function authorize(path: string): Promise<string> {
   return canonical;
 }
 
+// Only a freshly rendered entry in this process may use its newly created staging file
+// without a complete legacy original set. Restored staging remains fail-closed (#4111).
+const freshStaging = new WeakSet<ExportEntry>();
+
 interface ExportPaths {
   source: string;
   directory: string;
@@ -75,7 +80,7 @@ interface ExportPaths {
 async function exportPaths(
   target: ExportTarget,
   recipe: ExportRecipe,
-  originalPaths: ReadonlySet<string>,
+  originalPaths: ExportOriginals,
 ): Promise<ExportPaths> {
   const source = await authorize(target.path);
   const directory = await authorize(recipe.directory!);
@@ -104,15 +109,27 @@ async function exportPaths(
 async function guardOriginal(
   outputPath: string,
   source: string,
-  originalPaths: ReadonlySet<string>,
+  originalPaths: ExportOriginals,
+  fresh = false,
 ) {
   const canonicalOutput = await realpath(outputPath).catch(() => null);
   if (
-    originalPaths.has(resolve(outputPath)) ||
-    originalPaths.has(canonicalOutput ?? '') ||
+    originalPaths.paths.has(resolve(outputPath)) ||
+    originalPaths.paths.has(canonicalOutput ?? '') ||
     canonicalOutput === source
   )
     throw new Error('Destination is the original. Choose another directory or naming template.');
+  if (
+    !originalPaths.complete &&
+    !fresh &&
+    (await lstat(outputPath).catch((error) => {
+      if (hasCode(error, 'ENOENT')) return null;
+      throw error;
+    }))
+  )
+    throw new Error(
+      'Original identity unavailable for this saved export. Start a new export from the complete selection before replacing an existing file.',
+    );
 }
 
 async function recoverPrepared(
@@ -134,7 +151,8 @@ async function validateStagingPath(
   entry: ExportEntry,
   directory: string,
   jobId: string,
-  originals: ReadonlySet<string>,
+  originals: ExportOriginals,
+  fresh = false,
 ): Promise<void> {
   const temp = entry.tempPath;
   if (
@@ -144,7 +162,7 @@ async function validateStagingPath(
     !isStagingName(basename(temp), jobId)
   )
     throw new Error('Saved staging path does not belong to this export job and destination');
-  await guardOriginal(temp, '', originals);
+  await guardOriginal(temp, '', originals, fresh);
   const info = await lstat(temp).catch((error) => {
     if (hasCode(error, 'ENOENT')) return null;
     throw error;
@@ -222,7 +240,7 @@ export async function prepareExport(
   recipe: ExportRecipe,
   jobId: string,
   previous: ExportEntry | null,
-  originalPaths: ReadonlySet<string>,
+  originalPaths: ExportOriginals,
   beforeRender: (entry: ExportEntry) => Promise<void>,
 ): Promise<ExportEntry> {
   const paths = await exportPaths(target, recipe, originalPaths);
@@ -249,19 +267,21 @@ export async function prepareExport(
   await validateStagingPath(entry, paths.directory, jobId, originalPaths);
   // Persist the staging identity before the native child can create any bytes.
   await beforeRender(entry);
-  return renderStaging(target, recipe, paths, entry);
+  const prepared = await renderStaging(target, recipe, paths, entry);
+  freshStaging.add(prepared);
+  return prepared;
 }
 
 export async function publishExport(
   entry: ExportEntry,
   recipe: ExportRecipe,
   jobId: string,
-  originals: ReadonlySet<string>,
+  originals: ExportOriginals,
 ): Promise<ExportEntry> {
   if (!entry.tempPath || !entry.outputPath || !entry.afterHash)
     throw new Error('Incomplete prepared export');
   const directory = await authorize(recipe.directory!);
-  await validateStagingPath(entry, directory, jobId, originals);
+  await validateStagingPath(entry, directory, jobId, originals, freshStaging.has(entry));
   if (dirname(entry.outputPath) !== directory)
     throw new Error('Saved output is outside the selected destination');
   await guardOriginal(entry.outputPath, '', originals);

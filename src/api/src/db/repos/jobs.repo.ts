@@ -64,6 +64,8 @@ export interface CreateJobInput {
   payload: Record<string, unknown>;
   /** Optional caller-generated identity makes a lost creation response recoverable. */
   requestId?: string;
+  /** Server-only initial checkpoint, inserted atomically with the job (#4111). */
+  checkpoint?: Record<string, unknown>;
 }
 
 export interface ListJobsFilter {
@@ -116,7 +118,10 @@ async function readJobRow(db: SqliteDb, hex: string): Promise<JobRow | null> {
  */
 function leaseStamps(leaseMs: number, now: () => Date): { nowIso: string; leaseIso: string } {
   const at = now();
-  return { nowIso: at.toISOString(), leaseIso: new Date(at.getTime() + leaseMs).toISOString() };
+  return {
+    nowIso: at.toISOString(),
+    leaseIso: new Date(at.getTime() + leaseMs).toISOString(),
+  };
 }
 
 /** The 15 bound values of a fresh job row, in column order. */
@@ -140,7 +145,7 @@ function insertParams(
     nowIso,
     JSON.stringify(input.payload),
     null,
-    null,
+    input.checkpoint === undefined ? null : JSON.stringify(input.checkpoint),
     scopes === undefined ? null : JSON.stringify(scopes),
   ];
 }

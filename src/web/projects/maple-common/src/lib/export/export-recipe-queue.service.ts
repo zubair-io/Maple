@@ -130,6 +130,7 @@ export class ExportRecipeQueueService {
         targets,
         entries: targets.map((target) => ({ id: target.id, status: 'pending' })),
         serverJobId: previous.serverJobId ? id : null,
+        ...(previous.serverJobId ? { retryOf: previous.serverJobId } : {}),
         cancelled: false,
       };
       // Preserve stable sequence indices and the immutable XMP snapshot from the original run.

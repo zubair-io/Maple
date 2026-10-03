@@ -1,6 +1,5 @@
 /** A recipe job reuses JobRunner's lease/cancel/checkpoint contract. One render at a time. */
-import { resolve } from 'node:path';
-import { realpath } from '../../fs/mirrored.ts';
+import { exportOriginals, type ExportOriginals } from '../../export/export-originals.ts';
 import { parseExportPayload, type ExportTarget } from '../../export/export-payload.ts';
 import {
   prepareExport,
@@ -47,19 +46,12 @@ function summary(entries: (ExportEntry | null)[], targets: ExportTarget[]) {
     }
     if (entry.status === 'skipped') value.skipped.push(entry.id);
     if (entry.status === 'failed')
-      value.failed.push({ id: entry.id, reason: entry.reason ?? 'Export failed' });
+      value.failed.push({
+        id: entry.id,
+        reason: entry.reason ?? 'Export failed',
+      });
   }
   return value;
-}
-
-async function sourcePaths(targets: ExportTarget[]): Promise<Set<string>> {
-  const paths = new Set(targets.map((target) => resolve(target.path)));
-  // Include resolved aliases so a later source cannot be replaced by an earlier output.
-  for (const target of targets) {
-    const canonical = await realpath(target.path).catch(() => null);
-    if (canonical) paths.add(canonical);
-  }
-  return paths;
 }
 
 async function prepareItem(
@@ -67,7 +59,7 @@ async function prepareItem(
   recipe: ExportRecipe,
   jobId: string,
   previous: ExportEntry | null,
-  originals: Set<string>,
+  originals: ExportOriginals,
   save: (entry: ExportEntry) => Promise<void>,
 ): Promise<ExportEntry> {
   try {
@@ -89,7 +81,7 @@ async function publishItem(
   entry: ExportEntry,
   recipe: ExportRecipe,
   jobId: string,
-  originals: Set<string>,
+  originals: ExportOriginals,
 ): Promise<ExportEntry> {
   if (entry.status !== 'prepared') return entry;
   try {
@@ -101,13 +93,21 @@ async function publishItem(
 
 export const batchRecipeExportHandler: JobHandler = {
   async run(raw, ctx) {
-    const { targets, recipe } = parseExportPayload(raw);
+    const payload = parseExportPayload(raw);
+    const { targets, recipe } = payload;
     const checkpoint = ctx.saveCheckpoint;
     if (!checkpoint) throw new Error('Recipe export requires a durable job ledger');
     const entries = readLedger(ctx.checkpoint?.['entries'], targets);
-    const originals = await sourcePaths(targets);
+    const originals = await exportOriginals(payload, ctx.checkpoint);
     const result = () => summary(entries, targets);
-    const save = () => checkpoint({ entries, ...result() });
+    const save = () =>
+      checkpoint({
+        ...(ctx.checkpoint?.['originalPaths'] === undefined
+          ? {}
+          : { originalPaths: ctx.checkpoint['originalPaths'] }),
+        entries,
+        ...result(),
+      });
     await save();
     await ctx.reportProgress(entries.filter(done).length, targets.length);
     for (const [index, target] of targets.entries()) {

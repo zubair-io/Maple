@@ -1,4 +1,4 @@
-"""Require all five actual-service browser original-protection cases for #4107."""
+"""Require exact browser (#4107) and HTTP/IndexedDB/native (#4111) retry evidence."""
 
 import json
 import sys
@@ -11,22 +11,36 @@ def specs_in(suite):
         yield from specs_in(child)
 
 
-def validate(report):
+def scenario_titles(self_hosted=False):
+    if self_hosted:
+        return {
+            "Self Hosted retry retains original identities through HTTP/IndexedDB "
+            + scenario
+            for scenario in (
+                "acknowledged repeated retry",
+                "lost acknowledgement and reload",
+            )
+        }
+    return {
+        f"browser export retry protects original identities: {scenario}"
+        for scenario in ("new", "legacy", "legacy-filtered", "missing", "unrelated")
+    }
+
+
+def validate(report, self_hosted=False):
+    expected = scenario_titles(self_hosted)
+    count = len(expected)
     stats = report["stats"]
     if (
-        stats["expected"] != 5
+        stats["expected"] != count
         or any(stats[key] != 0 for key in ("unexpected", "skipped", "flaky"))
         or report.get("errors")
     ):
         raise ValueError(
-            "Expected exactly five passing cases without errors/skips/retries"
+            f"Expected exactly {count} passing cases without errors/skips/retries"
         )
-    expected = {
-        f"browser export retry protects original identities: {scenario}"
-        for scenario in ("new", "legacy", "legacy-filtered", "missing", "unrelated")
-    }
     specs = [spec for suite in report["suites"] for spec in specs_in(suite)]
-    if len(specs) != 5 or {spec["title"] for spec in specs} != expected:
+    if len(specs) != count or {spec["title"] for spec in specs} != expected:
         raise ValueError(
             "Missing, duplicate or unexpected original-protection scenario"
         )
@@ -41,10 +55,10 @@ def validate(report):
             or results[0]["retry"] != 0
         ):
             raise ValueError("A scenario failed, skipped or retried")
-    return 5
+    return count
 
 
 if __name__ == "__main__":
-    print(
-        f"Verified {validate(json.loads(Path(sys.argv[1]).read_text()))} export original-protection cases"
-    )
+    self_hosted = len(sys.argv) > 2 and sys.argv[2] == "self-hosted"
+    count = validate(json.loads(Path(sys.argv[1]).read_text()), self_hosted=self_hosted)
+    print(f"Verified {count} export original-protection cases")
