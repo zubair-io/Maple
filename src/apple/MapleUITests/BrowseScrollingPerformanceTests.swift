@@ -12,7 +12,7 @@
       try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
       defer { try? FileManager.default.removeItem(at: folder) }
       // One copied original plus hard links keep the real 500-file browse workload
-      // without copying 250 large RAWs or modifying the fixture's original inode.
+      // without copying 500 large RAWs or modifying the fixture's original inode.
       let first = folder.appendingPathComponent("image-0000.dng")
       try FileManager.default.copyItem(at: fixture, to: first)
       for index in 1..<500 {
@@ -25,9 +25,14 @@
       app.launchArguments = ["--uitest-browse"]
       app.launch()
       defer { app.terminate() }
-      app.typeKey("f", modifierFlags: [.control, .command])
       let firstCell = app.descendants(matching: .any)["thumb-image-0000"].firstMatch
       XCTAssertTrue(firstCell.waitForExistence(timeout: 20), "Cold Browse never became interactive")
+      app.activate()
+      // Send the shortcut to the actual window: an application's synthetic
+      // event target can have an infinite frame on a multi-display desktop.
+      let window = app.windows.firstMatch
+      XCTAssertTrue(window.waitForExistence(timeout: 10))
+      window.typeKey("f", modifierFlags: [.control, .command])
       let before = XCTAttachment(screenshot: app.screenshot())
       before.name = "Cold 500-image Browse"
       before.lifetime = .keepAlways
