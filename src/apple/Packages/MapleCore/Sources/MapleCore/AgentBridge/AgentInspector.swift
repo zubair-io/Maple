@@ -54,15 +54,15 @@ enum AgentInspector {
 
   static func parseMaxEdge(_ value: JSONValue?) throws -> Int {
     guard let value else { return defaultMaxEdge }
-    guard let number = value.numberValue, number.rounded() == number,
-      maxEdgeRange.contains(Int(number))
+    guard let number = value.numberValue, let edge = Int(exactly: number),
+      maxEdgeRange.contains(edge)
     else {
       throw AgentError(
         code: "invalid_arguments",
         message:
           "`max_edge` must be an integer in \(maxEdgeRange.lowerBound)…\(maxEdgeRange.upperBound).")
     }
-    return Int(number)
+    return edge
   }
 
   static func inspect(_ image: CIImage, maxEdge: Int, region: Region?, context: CIContext)

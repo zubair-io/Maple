@@ -74,6 +74,45 @@ final class AgentInspectorTests: XCTestCase {
     XCTAssertThrowsError(try AgentInspector.Region.parse(["x": 0]))
   }
 
+  func testSizeValidationRejectsHugeNonfiniteAndFractionalNumbersWithoutTrapping() throws {
+    for value in [
+      1e100, -1e100, .infinity, -.infinity, .nan, 256.5,
+      Double(Int.max), Double(Int.min), 255, 2049,
+    ] {
+      XCTAssertThrowsError(try AgentInspector.parseMaxEdge(.number(value))) { error in
+        XCTAssertEqual((error as? AgentError)?.code, "invalid_arguments")
+      }
+    }
+    for value in [256, 1024, 2048] {
+      XCTAssertEqual(try AgentInspector.parseMaxEdge(.int(value)), value)
+    }
+  }
+
+  func testInvalidSizeOverRealWireLeavesTheAppServing() async throws {
+    let service = AgentEditService()
+    let socket = "/tmp/agent-size-\(UUID().uuidString.prefix(8)).sock"
+    let server = AgentSocketServer(path: socket) { await service.handle($0) }
+    try server.start()
+    defer { server.stop() }
+    let client = AgentSocketClient(path: socket, timeout: 5)
+    let responses = try await Task.detached {
+      try [1e100, -1e100, 256.5].enumerated().map { index, value in
+        try client.send(
+          AgentRequest(
+            id: index, tool: "maple_render_and_inspect",
+            arguments: ["max_edge": .number(value)]))
+      } + [client.send(AgentRequest(id: 9, tool: "maple_get_active_photo", arguments: [:]))]
+    }.value
+    for response in responses.prefix(3) {
+      guard case .failure(let error) = response.outcome else { return XCTFail("expected failure") }
+      XCTAssertEqual(error.code, "invalid_arguments")
+    }
+    guard case .failure(let error) = responses.last?.outcome else {
+      return XCTFail("expected normal no-photo reply")
+    }
+    XCTAssertEqual(error.code, "no_active_photo")
+  }
+
   func testServiceInspectsTheCanvasAndTagsTheRevision() async throws {
     let session = EditSession(
       asset: AssetRef(displayName: "t.dng", hintExtension: "dng") { Data() },

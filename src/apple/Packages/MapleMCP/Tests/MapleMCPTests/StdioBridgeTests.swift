@@ -67,6 +67,35 @@ final class StdioBridgeTests: XCTestCase {
       ["tool": "maple_get_active_photo", "revision": "abc"])
   }
 
+  func testMalformedNumericResponseIsAToolErrorAndStdioKeepsServing() throws {
+    let socket = "/tmp/mcp-number-stdio-\(UUID().uuidString.prefix(8)).sock"
+    let server = AgentSocketServer(path: socket) { request in
+      // Double-backed JSON encodes Int.max as 2^63, outside an Int ID.
+      AgentResponse(
+        id: request.tool == "maple_get_active_photo" ? Int.max : request.id,
+        outcome: .success(AgentPayload(result: ["healthy": true])))
+    }
+    try server.start()
+    defer { server.stop() }
+    let replies = try run(
+      [
+        [
+          "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+          "params": ["name": "maple_get_active_photo"],
+        ],
+        [
+          "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+          "params": ["name": "maple_undo"],
+        ],
+        ["jsonrpc": "2.0", "id": 3, "method": "ping"],
+      ], socket: socket)
+    XCTAssertEqual(replies.count, 3)
+    XCTAssertEqual(replies[0]["result"]?["isError"], true)
+    XCTAssertEqual(replies[1]["result"]?["isError"], false)
+    XCTAssertEqual(replies[1]["result"]?["structuredContent"]?["healthy"], true)
+    XCTAssertEqual(replies[2]["result"]?["resultType"], "complete")
+  }
+
   func testMissingAppYieldsToolErrorAndTheBridgeKeepsServing() throws {
     XCTAssertTrue(
       FileManager.default.isExecutableFile(atPath: executable.path),

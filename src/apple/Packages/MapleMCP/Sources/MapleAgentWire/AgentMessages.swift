@@ -17,10 +17,12 @@ public struct AgentRequest: Sendable, Equatable {
   }
 
   public init?(json: JSONValue) {
-    guard let id = json["id"]?.numberValue, let tool = json["tool"]?.stringValue else {
+    guard let number = json["id"]?.numberValue, let id = Int(exactly: number),
+      let tool = json["tool"]?.stringValue
+    else {
       return nil
     }
-    self.init(id: Int(id), tool: tool, arguments: json["arguments"]?.objectValue ?? [:])
+    self.init(id: id, tool: tool, arguments: json["arguments"]?.objectValue ?? [:])
   }
 }
 
@@ -90,9 +92,9 @@ public struct AgentResponse: Sendable, Equatable {
   }
 
   public init?(json: JSONValue) {
-    guard let id = json["id"]?.numberValue else { return nil }
+    guard let number = json["id"]?.numberValue, let id = Int(exactly: number) else { return nil }
     if let error = json["error"].flatMap(AgentError.init(json:)) {
-      self.init(id: Int(id), outcome: .failure(error))
+      self.init(id: id, outcome: .failure(error))
       return
     }
     guard let result = json["result"] else { return nil }
@@ -103,7 +105,7 @@ public struct AgentResponse: Sendable, Equatable {
     {
       image = AgentImage(data: data, mimeType: mimeType)
     }
-    self.init(id: Int(id), outcome: .success(AgentPayload(result: result, image: image)))
+    self.init(id: id, outcome: .success(AgentPayload(result: result, image: image)))
   }
 }
 
