@@ -1,0 +1,5 @@
+# Isolated research solver; not an application runtime dependency (#3941).
+numpy==2.4.6
+scipy==1.17.1
+pyamg==5.3.0
+pillow==12.3.0
