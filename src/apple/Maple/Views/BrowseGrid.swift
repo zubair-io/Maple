@@ -68,7 +68,7 @@ struct BrowseGrid: View {
   /// Called from each thumbnail cell's `.onAppear`. Used by AppShell to
   /// lazily create per-asset `EditSession`s only when their cell scrolls
   /// into view, instead of eagerly priming every asset in the folder.
-  var onPrimeSession: ((AssetRef) -> Void)? = nil
+  var onPrimeSession: ((AssetRef) async -> Void)? = nil
   /// Fired when the user taps "Merge to Panorama…" from the selection bar
   /// (≥2 assets selected). `nil` suppresses the bar entirely (e.g. previews).
   var onMergePanorama: (() -> Void)? = nil
@@ -164,6 +164,7 @@ struct BrowseGrid: View {
             // the selection bar when it's shown.
             .padding(.bottom, vm.isSelecting ? 60 : 0)
           }
+          .accessibilityIdentifier("browse-scroll")
           .background(MapleTokens.bg)
           .opacity(isEmpty ? 0 : 1)
           // Empty state — only when the folder has zero folders AND zero
@@ -326,7 +327,7 @@ struct BrowseGrid: View {
         selection: vm.isSelecting
           ? vm.selectedIDs
           : (vm.selectedID.map { Set([$0]) } ?? []),
-        onAppearItem: { asset in onPrimeSession?(asset) },
+        onLoadItem: { asset in await onPrimeSession?(asset) },
         multiSelectChecked: vm.isSelecting
           ? { asset in
             vm.selectedIDs.contains(asset.id)

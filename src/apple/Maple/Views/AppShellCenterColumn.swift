@@ -111,7 +111,7 @@ struct AppShellCenterColumn: View {
   /// for the Preview hero to grow out of. Mac / iPad surfaces keep
   /// `onOpenEditor`.
   var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
-  let onPrimeSession: (AssetRef) -> Void
+  let onPrimeSession: (AssetRef) async -> Void
   /// Recover from a vanished selection by flipping back to Browse.
   let onFullImageFallback: () -> Void
   /// S5 EditorView dismiss (back to browse). Only used when `isFullImage`

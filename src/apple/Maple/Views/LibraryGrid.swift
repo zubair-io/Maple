@@ -40,7 +40,7 @@
     /// A tile tap: the asset and its tile's window-space frame, for the
     /// Preview hero to grow out of.
     let onOpenEditor: (AssetRef, CGRect) -> Void
-    let onPrimeSession: (AssetRef) -> Void
+    let onPrimeSession: (AssetRef) async -> Void
     /// Tap on a sub-folder tile — drills the grid into that folder.
     let onNavigateFolder: (URL) -> Void
     /// Fired by the empty state's "Connect" button when `vm.photosAuthNeeded`
@@ -148,9 +148,9 @@
               selection: vm.isSelecting
                 ? vm.selectedIDs : (vm.selectedID.map { Set([$0]) } ?? []),
               onAppearItem: { asset in
-                onPrimeSession(asset)
                 Task { await vm.loadMorePhotoKitIfNeeded(appearing: asset.id) }
               },
+              onLoadItem: { asset in await onPrimeSession(asset) },
               multiSelectChecked: vm.isSelecting
                 ? { asset in vm.selectedIDs.contains(asset.id) } : nil,
               onSelectedFrameChange: onSelectedFrameChange,

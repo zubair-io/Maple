@@ -22,59 +22,59 @@
 // `PhotoThumbnailCell.multiSelectChecked`. `nil` (default) keeps the existing
 // single-select outline behaviour unchanged.
 
-import SwiftUI
 import MapleCore
+import SwiftUI
 
 // MARK: - ColumnStrategy
 
 /// Describes how grid columns are computed. Pass one of the three presets
 /// or a custom fixed/adaptive value.
 enum ColumnStrategy {
-    /// Exactly `count` equal-width flexible columns with the given spacing.
-    case fixed(Int, spacing: CGFloat = 4)
-    /// Adaptive columns filling the width, constrained to `min…max` points.
-    case adaptive(min: CGFloat, max: CGFloat = .infinity, spacing: CGFloat = 4)
-    /// Picks column count from the `mapleLayout` environment value:
-    ///   phone   → 3 fixed, 2pt gap
-    ///   tablet  → 5 fixed, 4pt gap
-    ///   desktop → adaptive 180pt min, 4pt gap
-    case responsiveBySizeClass
+  /// Exactly `count` equal-width flexible columns with the given spacing.
+  case fixed(Int, spacing: CGFloat = 4)
+  /// Adaptive columns filling the width, constrained to `min…max` points.
+  case adaptive(min: CGFloat, max: CGFloat = .infinity, spacing: CGFloat = 4)
+  /// Picks column count from the `mapleLayout` environment value:
+  ///   phone   → 3 fixed, 2pt gap
+  ///   tablet  → 5 fixed, 4pt gap
+  ///   desktop → adaptive 180pt min, 4pt gap
+  case responsiveBySizeClass
 
-    /// Resolve to SwiftUI `GridItem` array given the current `MapleLayout`.
-    /// For `.responsiveBySizeClass`, `layout` is read from the environment
-    /// before calling this method.
-    func gridItems(for layout: MapleLayout) -> [GridItem] {
-        switch self {
-        case .fixed(let count, let spacing):
-            return Array(repeating: GridItem(.flexible(), spacing: spacing), count: count)
-        case .adaptive(let min, let max, let spacing):
-            return [GridItem(.adaptive(minimum: min, maximum: max), spacing: spacing)]
-        case .responsiveBySizeClass:
-            switch layout {
-            case .phone:
-                // The phone tier + gap live with the pinch geometry so the
-                // two can never drift apart.
-                return Array(
-                    repeating: GridItem(.flexible(), spacing: LibraryGridZoom.spacing),
-                    count: LibraryGridZoom.defaultColumns)
-            case .tablet:
-                return Array(repeating: GridItem(.flexible(), spacing: 4), count: 5)
-            case .desktop:
-                return [GridItem(.adaptive(minimum: 180), spacing: 4)]
-            }
-        }
+  /// Resolve to SwiftUI `GridItem` array given the current `MapleLayout`.
+  /// For `.responsiveBySizeClass`, `layout` is read from the environment
+  /// before calling this method.
+  func gridItems(for layout: MapleLayout) -> [GridItem] {
+    switch self {
+    case .fixed(let count, let spacing):
+      return Array(repeating: GridItem(.flexible(), spacing: spacing), count: count)
+    case .adaptive(let min, let max, let spacing):
+      return [GridItem(.adaptive(minimum: min, maximum: max), spacing: spacing)]
+    case .responsiveBySizeClass:
+      switch layout {
+      case .phone:
+        // The phone tier + gap live with the pinch geometry so the
+        // two can never drift apart.
+        return Array(
+          repeating: GridItem(.flexible(), spacing: LibraryGridZoom.spacing),
+          count: LibraryGridZoom.defaultColumns)
+      case .tablet:
+        return Array(repeating: GridItem(.flexible(), spacing: 4), count: 5)
+      case .desktop:
+        return [GridItem(.adaptive(minimum: 180), spacing: 4)]
+      }
     }
+  }
 
-    /// Inter-row spacing for the grid as a whole. Layout-aware so
-    /// `.responsiveBySizeClass` matches its column gap exactly (phone uses a 2pt
-    /// gap in BOTH directions per the S2 spec; tablet/desktop use 4pt).
-    func rowSpacing(for layout: MapleLayout) -> CGFloat {
-        switch self {
-        case .fixed(_, let spacing): return spacing
-        case .adaptive(_, _, let spacing): return spacing
-        case .responsiveBySizeClass: return layout == .phone ? LibraryGridZoom.spacing : 4
-        }
+  /// Inter-row spacing for the grid as a whole. Layout-aware so
+  /// `.responsiveBySizeClass` matches its column gap exactly (phone uses a 2pt
+  /// gap in BOTH directions per the S2 spec; tablet/desktop use 4pt).
+  func rowSpacing(for layout: MapleLayout) -> CGFloat {
+    switch self {
+    case .fixed(_, let spacing): return spacing
+    case .adaptive(_, _, let spacing): return spacing
+    case .responsiveBySizeClass: return layout == .phone ? LibraryGridZoom.spacing : 4
     }
+  }
 }
 
 // MARK: - PhotoGrid (flat)
@@ -94,191 +94,196 @@ enum ColumnStrategy {
 /// `PhotoGridItem` model with UI-only state.
 struct PhotoGrid<Element: Identifiable>: View {
 
-    let data: [Element]
-    let columns: ColumnStrategy
-    let provider: ThumbnailProvider
-    let displayMode: GridDisplayMode
-    var selection: Set<Element.ID> = []
-    var onAppearItem: ((Element) -> Void)? = nil
-    /// Optional multi-select badge state per element. When non-nil, the closure
-    /// is called for each visible element and the result is passed to
-    /// `PhotoThumbnailCell.multiSelectChecked`. `nil` preserves the single-select
-    /// outline behaviour of the original grid surfaces.
-    var multiSelectChecked: ((Element) -> Bool?)? = nil
-    /// Drag-onto-source-tree payload (#2646). `nil` (the default) disables
-    /// dragging for every cell — only `BrowseGrid`'s normal (non-merged,
-    /// non-PhotoKit) grid opts in. Called per visible element, same shape
-    /// as `multiSelectChecked`.
-    var dragPayload: ((Element) -> DraggedAssetPayload?)? = nil
-    /// Right-click / long-press context menu (#2653). Called per visible
-    /// element, same shape as `multiSelectChecked`/`dragPayload`. `nil`
-    /// (the default) disables the context menu for every cell.
-    var contextMenuItems: ((Element) -> AnyView?)? = nil
-    /// Bottom-aligned per-cell overlay (#2842 — Browse grid's inline-rename
-    /// filename caption). Called per visible element, same opt-in shape as
-    /// `contextMenuItems`/`dragPayload`; `nil` (the default) renders no
-    /// overlay — every surface besides `BrowseGrid`'s normal (non-merged)
-    /// grid leaves this unset.
-    var renameOverlay: ((Element) -> AnyView?)? = nil
-    /// Live window-space frame of the SELECTED cell (see
-    /// `PhotoThumbnailCell.onFrameChange`); attached to that one cell only.
-    var onSelectedFrameChange: ((CGRect) -> Void)? = nil
-    /// Draws an element's cell fully transparent (it keeps its place and
-    /// its taps). The iPhone grid blanks the tile whose photo the Preview
-    /// hero is carrying, as Photos does.
-    var isHidden: ((Element) -> Bool)? = nil
-    /// Tap on an element, with the tile's window-space frame at that moment.
-    let onTap: (Element, CGRect) -> Void
-    let makeItem: (Element) -> PhotoGridItem
+  let data: [Element]
+  let columns: ColumnStrategy
+  let provider: ThumbnailProvider
+  let displayMode: GridDisplayMode
+  var selection: Set<Element.ID> = []
+  var onAppearItem: ((Element) -> Void)? = nil
+  /// Background hydration shares the cell task's cancellation lifecycle.
+  var onLoadItem: ((Element) async -> Void)? = nil
+  /// Optional multi-select badge state per element. When non-nil, the closure
+  /// is called for each visible element and the result is passed to
+  /// `PhotoThumbnailCell.multiSelectChecked`. `nil` preserves the single-select
+  /// outline behaviour of the original grid surfaces.
+  var multiSelectChecked: ((Element) -> Bool?)? = nil
+  /// Drag-onto-source-tree payload (#2646). `nil` (the default) disables
+  /// dragging for every cell — only `BrowseGrid`'s normal (non-merged,
+  /// non-PhotoKit) grid opts in. Called per visible element, same shape
+  /// as `multiSelectChecked`.
+  var dragPayload: ((Element) -> DraggedAssetPayload?)? = nil
+  /// Right-click / long-press context menu (#2653). Called per visible
+  /// element, same shape as `multiSelectChecked`/`dragPayload`. `nil`
+  /// (the default) disables the context menu for every cell.
+  var contextMenuItems: ((Element) -> AnyView?)? = nil
+  /// Bottom-aligned per-cell overlay (#2842 — Browse grid's inline-rename
+  /// filename caption). Called per visible element, same opt-in shape as
+  /// `contextMenuItems`/`dragPayload`; `nil` (the default) renders no
+  /// overlay — every surface besides `BrowseGrid`'s normal (non-merged)
+  /// grid leaves this unset.
+  var renameOverlay: ((Element) -> AnyView?)? = nil
+  /// Live window-space frame of the SELECTED cell (see
+  /// `PhotoThumbnailCell.onFrameChange`); attached to that one cell only.
+  var onSelectedFrameChange: ((CGRect) -> Void)? = nil
+  /// Draws an element's cell fully transparent (it keeps its place and
+  /// its taps). The iPhone grid blanks the tile whose photo the Preview
+  /// hero is carrying, as Photos does.
+  var isHidden: ((Element) -> Bool)? = nil
+  /// Tap on an element, with the tile's window-space frame at that moment.
+  let onTap: (Element, CGRect) -> Void
+  let makeItem: (Element) -> PhotoGridItem
 
-    @Environment(\.mapleLayout) private var layout
+  @Environment(\.mapleLayout) private var layout
 
-    init(
-        data: [Element],
-        columns: ColumnStrategy,
-        provider: ThumbnailProvider,
-        displayMode: GridDisplayMode,
-        selection: Set<Element.ID> = [],
-        onAppearItem: ((Element) -> Void)? = nil,
-        multiSelectChecked: ((Element) -> Bool?)? = nil,
-        dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
-        contextMenuItems: ((Element) -> AnyView?)? = nil,
-        renameOverlay: ((Element) -> AnyView?)? = nil,
-        onSelectedFrameChange: ((CGRect) -> Void)? = nil,
-        isHidden: ((Element) -> Bool)? = nil,
-        onTap: @escaping (Element, CGRect) -> Void,
-        makeItem: @escaping (Element) -> PhotoGridItem
+  init(
+    data: [Element],
+    columns: ColumnStrategy,
+    provider: ThumbnailProvider,
+    displayMode: GridDisplayMode,
+    selection: Set<Element.ID> = [],
+    onAppearItem: ((Element) -> Void)? = nil,
+    onLoadItem: ((Element) async -> Void)? = nil,
+    multiSelectChecked: ((Element) -> Bool?)? = nil,
+    dragPayload: ((Element) -> DraggedAssetPayload?)? = nil,
+    contextMenuItems: ((Element) -> AnyView?)? = nil,
+    renameOverlay: ((Element) -> AnyView?)? = nil,
+    onSelectedFrameChange: ((CGRect) -> Void)? = nil,
+    isHidden: ((Element) -> Bool)? = nil,
+    onTap: @escaping (Element, CGRect) -> Void,
+    makeItem: @escaping (Element) -> PhotoGridItem
+  ) {
+    self.data = data
+    self.columns = columns
+    self.provider = provider
+    self.displayMode = displayMode
+    self.selection = selection
+    self.onAppearItem = onAppearItem
+    self.onLoadItem = onLoadItem
+    self.multiSelectChecked = multiSelectChecked
+    self.dragPayload = dragPayload
+    self.contextMenuItems = contextMenuItems
+    self.renameOverlay = renameOverlay
+    self.onSelectedFrameChange = onSelectedFrameChange
+    self.isHidden = isHidden
+    self.onTap = onTap
+    self.makeItem = makeItem
+  }
+
+  var body: some View {
+    LazyVGrid(
+      columns: columns.gridItems(for: layout),
+      spacing: columns.rowSpacing(for: layout)
     ) {
-        self.data = data
-        self.columns = columns
-        self.provider = provider
-        self.displayMode = displayMode
-        self.selection = selection
-        self.onAppearItem = onAppearItem
-        self.multiSelectChecked = multiSelectChecked
-        self.dragPayload = dragPayload
-        self.contextMenuItems = contextMenuItems
-        self.renameOverlay = renameOverlay
-        self.onSelectedFrameChange = onSelectedFrameChange
-        self.isHidden = isHidden
-        self.onTap = onTap
-        self.makeItem = makeItem
-    }
-
-    var body: some View {
-        LazyVGrid(
-            columns: columns.gridItems(for: layout),
-            spacing: columns.rowSpacing(for: layout)
-        ) {
-            ForEach(data) { element in
-                // Map to a PhotoGridItem here, inside the LazyVGrid's ForEach, so
-                // only realized (visible) cells build their item + derive overlays.
-                let item = makeItem(element)
-                PhotoThumbnailCell(
-                    item: item,
-                    provider: provider,
-                    displayMode: displayMode,
-                    isSelected: selection.contains(element.id),
-                    multiSelectChecked: multiSelectChecked?(element),
-                    dragPayload: dragPayload?(element),
-                    onTap: { frame in onTap(element, frame) },
-                    onFrameChange: selection.contains(element.id) ? onSelectedFrameChange : nil,
-                    onAppear: onAppearItem.map { cb in { cb(element) } },
-                    contextMenuItems: contextMenuItems?(element)
-                )
-                .overlay(alignment: .bottom) {
-                    renameOverlay?(element)
-                }
-                .opacity(isHidden?(element) == true ? 0 : 1)
-                // Tag each photo cell so ScrollViewReader.scrollTo can target it.
-                .id(element.id)
-            }
+      ForEach(data) { element in
+        // Map to a PhotoGridItem here, inside the LazyVGrid's ForEach, so
+        // only realized (visible) cells build their item + derive overlays.
+        let item = makeItem(element)
+        PhotoThumbnailCell(
+          item: item,
+          provider: provider,
+          displayMode: displayMode,
+          isSelected: selection.contains(element.id),
+          multiSelectChecked: multiSelectChecked?(element),
+          dragPayload: dragPayload?(element),
+          onTap: { frame in onTap(element, frame) },
+          onFrameChange: selection.contains(element.id) ? onSelectedFrameChange : nil,
+          onAppear: onAppearItem.map { cb in { cb(element) } },
+          onLoad: onLoadItem.map { cb in { await cb(element) } },
+          contextMenuItems: contextMenuItems?(element)
+        )
+        .overlay(alignment: .bottom) {
+          renameOverlay?(element)
         }
+        .opacity(isHidden?(element) == true ? 0 : 1)
+        // Tag each photo cell so ScrollViewReader.scrollTo can target it.
+        .id(element.id)
+      }
     }
+  }
 }
 
 // MARK: - Previews
 
 private func previewItems(count: Int, style: OverlayStyle = .phone) -> [PhotoGridItem] {
-    (0..<count).map { i in
-        PhotoGridItem(
-            id: "prev-\(i)",
-            displayName: "IMG_\(String(format: "%04d", i)).dng",
-            thumbnailSource: .photoKit(localID: "local-\(i)"),
-            overlays: GridCellOverlays(
-                rating: i % 6,
-                flag: i % 4 == 0 ? .pick : nil,
-                style: style
-            )
-        )
-    }
+  (0..<count).map { i in
+    PhotoGridItem(
+      id: "prev-\(i)",
+      displayName: "IMG_\(String(format: "%04d", i)).dng",
+      thumbnailSource: .photoKit(localID: "local-\(i)"),
+      overlays: GridCellOverlays(
+        rating: i % 6,
+        flag: i % 4 == 0 ? .pick : nil,
+        style: style
+      )
+    )
+  }
 }
 
 #Preview("Flat — .fixed(3)") {
-    ScrollView {
-        PhotoGrid(
-            data: previewItems(count: 12),
-            columns: .fixed(3, spacing: 2),
-            provider: .preview(),
-            displayMode: .fill,
-            onTap: { _, _ in },
-            makeItem: { $0 }
-        )
-        .padding(2)
-    }
-    .frame(width: 390, height: 600)
-    .background(MapleTokens.bg)
+  ScrollView {
+    PhotoGrid(
+      data: previewItems(count: 12),
+      columns: .fixed(3, spacing: 2),
+      provider: .preview(),
+      displayMode: .fill,
+      onTap: { _, _ in },
+      makeItem: { $0 }
+    )
+    .padding(2)
+  }
+  .frame(width: 390, height: 600)
+  .background(MapleTokens.bg)
 }
 
 #Preview("Flat — .adaptive(min:140)") {
-    ScrollView {
-        PhotoGrid(
-            data: previewItems(count: 12, style: .desktop),
-            columns: .adaptive(min: 140, spacing: 4),
-            provider: .preview(),
-            displayMode: .fill,
-            onTap: { _, _ in },
-            makeItem: { $0 }
-        )
-        .padding(4)
-    }
-    .frame(width: 720, height: 600)
-    .background(MapleTokens.bg)
+  ScrollView {
+    PhotoGrid(
+      data: previewItems(count: 12, style: .desktop),
+      columns: .adaptive(min: 140, spacing: 4),
+      provider: .preview(),
+      displayMode: .fill,
+      onTap: { _, _ in },
+      makeItem: { $0 }
+    )
+    .padding(4)
+  }
+  .frame(width: 720, height: 600)
+  .background(MapleTokens.bg)
 }
 
 #Preview("Flat — .responsiveBySizeClass") {
-    ScrollView {
-        PhotoGrid(
-            data: previewItems(count: 12),
-            columns: .responsiveBySizeClass,
-            provider: .preview(),
-            displayMode: .fill,
-            selection: Set(["prev-0", "prev-2"]),
-            onTap: { _, _ in },
-            makeItem: { $0 }
-        )
-        .padding(2)
-    }
-    .frame(width: 390, height: 600)
-    .background(MapleTokens.bg)
+  ScrollView {
+    PhotoGrid(
+      data: previewItems(count: 12),
+      columns: .responsiveBySizeClass,
+      provider: .preview(),
+      displayMode: .fill,
+      selection: Set(["prev-0", "prev-2"]),
+      onTap: { _, _ in },
+      makeItem: { $0 }
+    )
+    .padding(2)
+  }
+  .frame(width: 390, height: 600)
+  .background(MapleTokens.bg)
 }
 
 #Preview("Multi-select badges") {
-    let items = previewItems(count: 9, style: .desktop)
-    let checkedIDs = Set(["prev-0", "prev-2", "prev-5"])
-    ScrollView {
-        PhotoGrid(
-            data: items,
-            columns: .adaptive(min: 140, spacing: 4),
-            provider: .preview(),
-            displayMode: .fill,
-            selection: checkedIDs,
-            multiSelectChecked: { item in checkedIDs.contains(item.id) },
-            onTap: { _, _ in },
-            makeItem: { $0 }
-        )
-        .padding(4)
-    }
-    .frame(width: 720, height: 600)
-    .background(MapleTokens.bg)
+  let items = previewItems(count: 9, style: .desktop)
+  let checkedIDs = Set(["prev-0", "prev-2", "prev-5"])
+  ScrollView {
+    PhotoGrid(
+      data: items,
+      columns: .adaptive(min: 140, spacing: 4),
+      provider: .preview(),
+      displayMode: .fill,
+      selection: checkedIDs,
+      multiSelectChecked: { item in checkedIDs.contains(item.id) },
+      onTap: { _, _ in },
+      makeItem: { $0 }
+    )
+    .padding(4)
+  }
+  .frame(width: 720, height: 600)
+  .background(MapleTokens.bg)
 }
