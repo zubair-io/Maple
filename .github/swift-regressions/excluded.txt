@@ -199,3 +199,4 @@ NativeRemovalAuthoringJobTests fixture requires gitignored pinned ONNX/ORT quali
 NativeRemovalGenerationTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
 NativeRemovalReconstructorTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
 NativeRemovalSelectorTests fixture requires gitignored pinned ONNX/ORT qualification corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
+PhotographicRemovalGroupTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
