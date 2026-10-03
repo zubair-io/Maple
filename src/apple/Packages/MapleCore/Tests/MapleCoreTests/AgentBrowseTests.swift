@@ -109,6 +109,98 @@ final class AgentBrowseTests: XCTestCase {
     XCTAssertEqual(photos[1]["is_active"], false)
   }
 
+  func testDecodedUnsafeNumbersAreRejectedWithoutMutation() async throws {
+    let service = AgentEditService()
+    let delegate = MockBrowseDelegate()
+    let asset = makeAsset(name: "unchanged.dng")
+    delegate.browseAssets = [asset]
+    service.browseDelegate = delegate
+    let session = delegate.ensureSession(for: asset)
+    session.culling.stars = 3
+    let cases = [
+      ("maple_list_photos", "offset"), ("maple_list_photos", "limit"),
+      ("maple_get_thumbnails", "max_edge"), ("maple_set_rating", "rating"),
+    ]
+    for (tool, key) in cases {
+      for invalid in ["1e100", "-1e100", "9223372036854775808", "1.5", "null", "true", "\"5\""] {
+        let json = """
+          {"id":1,"tool":"\(tool)","arguments":{"asset_id":"\(asset.id.uuidString)",
+          "asset_ids":["\(asset.id.uuidString)"],"\(key)":\(invalid)}}
+          """
+        let request = try XCTUnwrap(AgentRequest(json: JSONValue.decode(Data(json.utf8))))
+        guard case .failure(let error) = await service.handle(request).outcome else {
+          XCTFail("Accepted \(key)=\(invalid)")
+          continue
+        }
+        XCTAssertEqual(error.code, "invalid_arguments", "\(key)=\(invalid)")
+        XCTAssertEqual(session.culling.stars, 3)
+      }
+    }
+  }
+
+  func testRepresentableLargeOffsetReturnsEmptyPageAndDefaultsRemainValid() async throws {
+    let service = AgentEditService()
+    let delegate = MockBrowseDelegate()
+    delegate.browseAssets = [makeAsset(name: "one.dng")]
+    service.browseDelegate = delegate
+    let large = try await call(service, "maple_list_photos", ["offset": .number(1e18)]).get()
+    XCTAssertEqual(large.result["photos"]?.arrayValue?.count, 0)
+    let defaults = try await call(service, "maple_list_photos").get()
+    XCTAssertEqual(defaults.result["offset"], 0)
+    XCTAssertEqual(defaults.result["limit"], 50)
+    XCTAssertEqual(defaults.result["photos"]?.arrayValue?.count, 1)
+  }
+
+  func testSocketCullingPersistsRealSidecarAndRejectsUnsafeRating() async throws {
+    var fixture = URL(fileURLWithPath: #filePath)
+    for _ in 0..<5 { fixture.deleteLastPathComponent() }
+    fixture.append(path: "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
+    let dir = try SidecarContractIO.makeTempDirectory(prefix: "agent-browse")
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let raw = dir.appendingPathComponent("grey.dng")
+    try FileManager.default.copyItem(at: fixture, to: raw)
+    let original = try Data(contentsOf: raw)
+    let asset = AssetRef(url: raw)
+    let session = EditSession(asset: asset, model: .default, culling: CullingState())
+    let browse = BrowseViewModel()
+    browse.assets = [asset]
+    let adapter = AppShellBrowseAdapter(
+      browseVM: browse, getSessions: { [asset.id: session] }, ensureSessionHandler: { _ in session }
+    )
+    let service = AgentEditService()
+    service.browseDelegate = adapter
+    service.activate(session)
+    let controller = AgentBridgeController(service: service)
+    let socket = "/tmp/browse-\(UUID().uuidString.prefix(8)).sock"
+    controller.start(path: socket)
+    defer { controller.stop() }
+    XCTAssertTrue(controller.isListening, controller.lastError ?? "")
+    let client = AgentSocketClient(path: socket, timeout: 10)
+    let rated = try await Task.detached {
+      try client.send(
+        AgentRequest(
+          id: 1, tool: "maple_set_rating",
+          arguments: [
+            "asset_id": .string(asset.id.uuidString), "rating": 4,
+          ]))
+    }.value.outcome.get()
+    XCTAssertEqual(rated.result["rating"], 4)
+    let rejectedRating = try await Task.detached {
+      try client.send(
+        AgentRequest(
+          id: 2, tool: "maple_set_rating",
+          arguments: [
+            "asset_id": .string(asset.id.uuidString), "rating": .number(1e100),
+          ]))
+    }.value.outcome
+    guard case .failure(let error) = rejectedRating else { return XCTFail("expected rejection") }
+    XCTAssertEqual(error.code, "invalid_arguments")
+    let reopened = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
+    await reopened.loadSidecar()
+    XCTAssertEqual(reopened.culling.stars, 4)
+    XCTAssertEqual(try Data(contentsOf: raw), original)
+  }
+
   func testListPhotosOffsetAndLimitValidation() async {
     let service = AgentEditService()
     let delegate = MockBrowseDelegate()
