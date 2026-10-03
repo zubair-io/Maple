@@ -53,11 +53,26 @@ public final class AgentEditService {
       return try await renderAndInspect(arguments)
     case "maple_create_mask":
       let session = try editableSession(arguments)
-      return AgentPayload(result: try await AgentMaskService.createMask(arguments, in: session))
+      return AgentPayload(
+        result: try await AgentMaskService.createMask(arguments, in: session) {
+          guard try self.editableSession(arguments) === session else {
+            throw AgentError(
+              code: "stale_revision",
+              message: "The active edit session changed. Nothing was applied.")
+          }
+        })
     case "maple_render_mask_overlay":
-      return try await AgentMaskService.renderMaskOverlay(arguments, in: try session())
+      let session = try session()
+      let revision = Self.revision(of: session)
+      let payload = try await AgentMaskService.renderMaskOverlay(arguments, in: session)
+      try validateInspection(session, revision: revision)
+      return payload
     case "maple_get_vectorscope":
-      return try await AgentVectorscopeTool.getVectorscope(arguments, in: try session())
+      let session = try session()
+      let revision = Self.revision(of: session)
+      let payload = try await AgentVectorscopeTool.getVectorscope(arguments, in: session)
+      try validateInspection(session, revision: revision)
+      return payload
     case "maple_list_photos":
       return AgentPayload(
         result: try await AgentBrowseService.listPhotos(
@@ -166,6 +181,14 @@ public final class AgentEditService {
     result["metrics"] = inspection.metrics
     return AgentPayload(
       result: .object(result), image: AgentImage(data: inspection.jpeg, mimeType: "image/jpeg"))
+  }
+
+  private func validateInspection(_ session: EditSession, revision: String) throws {
+    guard activeSession === session, Self.revision(of: session) == revision else {
+      throw AgentError(
+        code: "render_superseded",
+        message: "The photo changed during inspection. Call the tool again.")
+    }
   }
 
   private func session() throws -> EditSession {
