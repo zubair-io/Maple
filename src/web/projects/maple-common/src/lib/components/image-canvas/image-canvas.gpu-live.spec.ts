@@ -277,7 +277,9 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     expect(openSessionSpy).toHaveBeenCalledTimes(1); // GPU path is active
 
     // Installed only now — draw()'s gradient-placeholder path never runs again.
-    const canvas = fixture.nativeElement.querySelector('canvas') as HTMLCanvasElement;
+    const canvas = fixture.nativeElement.querySelector(
+      'canvas:not([data-gpu-live])',
+    ) as HTMLCanvasElement;
     const clearRectSpy = vi.fn();
     vi.spyOn(canvas, 'getContext').mockReturnValue({
       clearRect: clearRectSpy,

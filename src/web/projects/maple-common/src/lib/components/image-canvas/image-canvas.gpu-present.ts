@@ -10,10 +10,9 @@ import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 // untouched — this helper is only ever reached behind the `gpuLiveRenderEnabled` /
 // `active()` guards there.
 //
-// SCOPE (invariant #6 — stated, not silently dropped): the GPU path renders the
-// plain live preview only. Before/after-split + the gradient placeholder stay on the
-// 2D path (flag-off / mock assets); they are not supported on the GPU live canvas
-// this ticket.
+// Before/after uses an independently owned, bounded baseline on the 2D
+// overlay (#4073). The live GPU scene stays active below it; comparison never
+// changes the live model or performs readback on slider ticks.
 //
 // SCOPES (#1045): the histogram/waveform/parade/vectorscope read a CPU-side
 // `currentPixels` RGBA. The zero-readback present produces none, so the worker reads
@@ -111,6 +110,7 @@ export interface GpuPresentHost {
 export class ImageCanvasGpuPresent {
   /** True while a worker GPU session is presenting to the OffscreenCanvas. */
   readonly active = signal(false);
+  readonly colorSpace = signal<string>('unknown');
   private canvasEl: HTMLCanvasElement | null = null;
   // A scalar request cannot replace frozen prefix fields such as Profile.
   // Establish a compatible prefix through full XMP before using the fast path.
@@ -333,6 +333,7 @@ export class ImageCanvasGpuPresent {
         return true; // superseded; the newer open/teardown owns the canvas now
       }
 
+      this.colorSpace.set(info.colorSpace);
       this.active.set(true);
       // A GPU session is up — drop any fallback notice from an earlier failed
       // asset/session so the UI doesn't keep reporting a degraded path that's
@@ -453,6 +454,7 @@ export class ImageCanvasGpuPresent {
       this.host.pipeline.closeLiveSession();
     }
     this.active.set(false);
+    this.colorSpace.set('unknown');
     this.removeCanvasEl();
   }
 
@@ -469,7 +471,8 @@ export class ImageCanvasGpuPresent {
     el.setAttribute('data-gpu-live', '');
     // Match the 2D canvas's pan transform; `draw()` sizes/positions the 2D canvas,
     // and `applyView()` keeps this one in sync on zoom/pan/resize.
-    this.host.wrapRef.nativeElement.appendChild(el);
+    const wrap = this.host.wrapRef.nativeElement;
+    wrap.insertBefore(el, wrap.firstChild);
     this.canvasEl = el;
     this.applyView();
     return el;

@@ -85,6 +85,24 @@
        crop drag. -->
   <editor-canvas-pick-overlay></editor-canvas-pick-overlay>
 
+  @if (canvasSvc.beforeAfterSplitX() !== null && comparison.loading()) {
+    <div
+      class="absolute top-3 left-3 z-10 rounded bg-surface px-3 py-2 text-text-muted"
+      role="status"
+    >
+      Preparing original preview…
+    </div>
+  }
+  @if (canvasSvc.beforeAfterSplitX() !== null && comparison.error()) {
+    <div
+      class="absolute top-3 left-3 z-10 rounded bg-surface px-3 py-2 text-text-main"
+      role="alert"
+    >
+      {{ comparison.error() }}
+      <mui-button variant="ghost" size="sm" (pressed)="comparison.retry()">Retry</mui-button>
+    </div>
+  }
+
   <!-- Before/after divider (hidden during a momentary peek, #2450) -->
   @if (canvasSvc.latchedBeforeAfter()) {
     <div

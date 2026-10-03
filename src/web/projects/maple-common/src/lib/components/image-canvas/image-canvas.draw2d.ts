@@ -131,6 +131,8 @@ export interface Draw2dInputs {
   /** Decoded pixels; `null` falls back to the gradient placeholder. */
   bitmap: ImageBitmap | null;
   detail?: DetailOverlay | null;
+  before?: ImageBitmap | null;
+  overlayOnly?: boolean;
   /** Before/after divider position as a 0..1 fraction; `null` = no split. */
   split: number | null;
   /** Mock-asset gradient thumbnail URL (placeholder path when no bitmap). */
@@ -202,7 +204,9 @@ function ensureGradientImage(url: string, repaint: () => void): HTMLImageElement
  * frame for as long as GPU stayed active — a stale, misaligned second image.
  */
 export function clearCanvas2d(canvas: HTMLCanvasElement): void {
-  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+  canvas
+    .getContext('2d', { colorSpace: 'display-p3' })
+    ?.clearRect(0, 0, canvas.width, canvas.height);
 }
 
 export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): void {
@@ -217,7 +221,7 @@ export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): v
   if (canvas.width !== bw) canvas.width = bw;
   if (canvas.height !== bh) canvas.height = bh;
 
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { colorSpace: 'display-p3' });
   if (!ctx) return;
   ctx.clearRect(0, 0, bw, bh);
   ctx.imageSmoothingEnabled = true;
@@ -230,8 +234,10 @@ export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): v
   const dx = (wrapW / 2 + pan.x) * dpr - dw / 2;
   const dy = (wrapH / 2 + pan.y) * dpr - dh / 2;
 
-  if (bitmap) {
-    drawBitmap(ctx, bitmap, { dx, dy, dw, dh, bw, bh }, split, inputs.detail);
+  if (inputs.overlayOnly) {
+    drawComparisonOverlay(ctx, inputs.before, { dx, dy, dw, dh, bw, bh }, split);
+  } else if (bitmap) {
+    drawBitmap(ctx, bitmap, { dx, dy, dw, dh, bw, bh }, split, inputs.detail, inputs.before);
   } else {
     // Gradient placeholder for mock assets — fills the would-be image rect.
     // The first frame for a URL paints the procedural fallback while the
@@ -244,16 +250,23 @@ export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): v
       : null;
     if (split !== null) {
       const splitPx = Math.round(bw * split);
-      drawClipped(ctx, [0, 0, splitPx, bh], () =>
-        drawGradient(ctx, gradientImg, dx, dy, dw, dh, 0),
-      );
+      drawBefore(ctx, inputs.before, { dx, dy, dw, dh, bw, bh }, split);
       drawClipped(ctx, [splitPx, 0, bw - splitPx, bh], () =>
-        drawGradient(ctx, gradientImg, dx, dy, dw, dh, 15),
+        drawGradient(ctx, gradientImg, dx, dy, dw, dh),
       );
     } else {
-      drawGradient(ctx, gradientImg, dx, dy, dw, dh, 0);
+      drawGradient(ctx, gradientImg, dx, dy, dw, dh);
     }
   }
+}
+
+function drawComparisonOverlay(
+  ctx: CanvasRenderingContext2D,
+  bitmap: ImageBitmap | null | undefined,
+  bounds: { dx: number; dy: number; dw: number; dh: number; bw: number; bh: number },
+  split: number | null,
+): void {
+  if (split !== null) drawBefore(ctx, bitmap, bounds, split);
 }
 
 function drawClipped(
@@ -275,15 +288,14 @@ function drawBitmap(
   bounds: { dx: number; dy: number; dw: number; dh: number; bw: number; bh: number },
   split: number | null,
   detail: DetailOverlay | null | undefined,
+  before: ImageBitmap | null | undefined,
 ): void {
   const { dx, dy, dw, dh, bw, bh } = bounds;
   if (split !== null) {
     const splitPx = Math.round(bw * split);
-    drawClipped(ctx, [0, 0, splitPx, bh], () => ctx.drawImage(bitmap, dx, dy, dw, dh));
+    drawBefore(ctx, before, bounds, split);
     drawClipped(ctx, [splitPx, 0, bw - splitPx, bh], () => {
-      ctx.drawImage(bitmap, dx, dy, dw, dh);
-      ctx.fillStyle = 'rgba(255,255,255,0.06)';
-      ctx.fillRect(splitPx, 0, bw - splitPx, bh);
+      drawBitmap(ctx, bitmap, bounds, null, detail, before);
     });
     return;
   }
@@ -298,6 +310,21 @@ function drawBitmap(
     );
 }
 
+/** An unavailable baseline must cover edited GPU pixels, never impersonate before. */
+function drawBefore(
+  ctx: CanvasRenderingContext2D,
+  bitmap: ImageBitmap | null | undefined,
+  bounds: { dx: number; dy: number; dw: number; dh: number; bw: number; bh: number },
+  split: number,
+): void {
+  const { dx, dy, dw, dh, bw, bh } = bounds;
+  drawClipped(ctx, [0, 0, Math.round(bw * split), bh], () => {
+    ctx.fillStyle = '#181c22';
+    ctx.fillRect(0, 0, bw, bh);
+    if (bitmap) ctx.drawImage(bitmap, dx, dy, dw, dh);
+  });
+}
+
 /** Paint one gradient-placeholder rect: the cached image when loaded, else
  *  the procedural two-stop fallback. Always synchronous — load waiting lives
  *  in `ensureGradientImage` / the caller's repaint closure. */
@@ -308,7 +335,6 @@ function drawGradient(
   y: number,
   w: number,
   h: number,
-  lightenBy: number,
 ): void {
   if (w <= 0 || h <= 0) return;
 
@@ -324,11 +350,6 @@ function drawGradient(
     grd.addColorStop(0, '#3a4050');
     grd.addColorStop(1, '#181c22');
     ctx.fillStyle = grd;
-    ctx.fillRect(x, y, w, h);
-  }
-
-  if (lightenBy > 0) {
-    ctx.fillStyle = `rgba(255,255,255,${lightenBy / 100})`;
     ctx.fillRect(x, y, w, h);
   }
 
