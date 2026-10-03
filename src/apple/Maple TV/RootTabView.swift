@@ -27,8 +27,33 @@ struct RootTabView: View {
   /// into it); Back moves it to `.menu`, and the menu's rows move it to a
   /// content screen.
   @State private var screen: RootScreen = .timeline
+  /// A `maple-tv://` link from the Top Shelf. Both link kinds land on the
+  /// Memories screen; a `.memory` link additionally carries an id that
+  /// `MemoriesScreen` consumes once its collections load.
+  @Environment(TVDeepLinkRouter.self) private var deepLinks
 
   var body: some View {
+    routed
+      // A link can arrive while the app is already running (selecting a
+      // second memory from the Home screen) as well as at launch, so this
+      // watches rather than reading once in `onAppear`.
+      .onChange(of: deepLinks.pending) { _, link in
+        if link != nil { screen = .memories }
+      }
+      .onAppear {
+        if deepLinks.pending != nil { screen = .memories }
+      }
+      // Fill the Home screen's Top Shelf from here rather than from the
+      // Memories screen: this runs on every connected launch, whereas
+      // Memories is a screen most sessions never visit — and the shelf is
+      // most useful to someone who has NOT opened the app.
+      .task(id: libraryID) {
+        await TopShelfMaintainer.refreshIfNeeded(session: session, libraryID: libraryID)
+      }
+  }
+
+  @ViewBuilder
+  private var routed: some View {
     switch screen {
     case .menu:
       // No `.onExitCommand`: at the hub, Back is the tvOS default (background
@@ -64,4 +89,5 @@ struct RootTabView: View {
     libraryName: "My Photos",
     onForgotten: {}
   )
+  .environment(TVDeepLinkRouter())
 }

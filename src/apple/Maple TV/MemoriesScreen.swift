@@ -32,6 +32,9 @@ struct MemoriesScreen: View {
   /// assets are a round trip away, so without this the card would sit there
   /// looking inert between the click and the grid appearing.
   @State private var openingCollectionID: String?
+  /// A memory selected from the Top Shelf, waiting for this screen's
+  /// collections to arrive so it can be opened.
+  @Environment(TVDeepLinkRouter.self) private var deepLinks
 
   private struct OpenMemory: Identifiable {
     var id: String { collection.id }
@@ -45,10 +48,11 @@ struct MemoriesScreen: View {
   init(session: TVCloudSession, libraryID: String) {
     self.session = session
     self.libraryID = libraryID
-    _viewModel = State(initialValue: TVGeneratedSearchViewModel(
-      libraryID: libraryID,
-      client: session.generatedSearchClient
-    ))
+    _viewModel = State(
+      initialValue: TVGeneratedSearchViewModel(
+        libraryID: libraryID,
+        client: session.generatedSearchClient
+      ))
   }
 
   private static let cardSpacing: CGFloat = 40
@@ -67,7 +71,11 @@ struct MemoriesScreen: View {
     // gives this screen a per-library SwiftUI identity, so a library switch
     // rebuilds the view (and its `@State` viewModel) rather than re-running
     // `load()` against a viewModel still bound to the old library.
-    .task { await viewModel.load() }
+    .task {
+      await viewModel.load()
+      openPendingDeepLinkIfAny()
+    }
+    .onChange(of: deepLinks.pending) { _, _ in openPendingDeepLinkIfAny() }
     .fullScreenCover(item: $openMemory) { open in
       MemoryDetailScreen(
         collection: open.collection,
@@ -75,6 +83,7 @@ struct MemoriesScreen: View {
         total: open.total,
         session: session
       )
+      .id(open.id)
     }
   }
 
@@ -182,6 +191,21 @@ struct MemoriesScreen: View {
   }
 
   @MainActor
+  /// Open the memory a Top Shelf selection asked for, once collections are
+  /// loaded. An id that no longer resolves — a memory the server retired
+  /// after the shelf cached it, which will happen — leaves the viewer on the
+  /// Memories screen rather than failing at them.
+  private func openPendingDeepLinkIfAny() {
+    guard deepLinks.pending != nil, !viewModel.isLoading, openingCollectionID == nil else { return }
+    guard let id = deepLinks.takePendingMemoryID(),
+      let collection = viewModel.collections.first(where: { $0.id == id })
+    else {
+      openMemory = nil
+      return
+    }
+    open(collection)
+  }
+
   private func open(_ collection: GeneratedSearchCard) {
     guard openingCollectionID == nil else { return }
     openingCollectionID = collection.id
@@ -192,6 +216,10 @@ struct MemoriesScreen: View {
     Task { @MainActor in
       let page = await viewModel.firstPage(of: collection)
       openingCollectionID = nil
+      if deepLinks.pending != nil {
+        openPendingDeepLinkIfAny()
+        return
+      }
       // Don't open an empty grid — a memory whose photos failed to load
       // should do nothing rather than show a blank screen.
       if !page.results.isEmpty {
