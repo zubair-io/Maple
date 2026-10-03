@@ -2,6 +2,12 @@ import Foundation
 
 @MainActor
 extension GpuLiveDriver {
+  /// A completed provisional fit (including valid absence) can be reused
+  /// without asking the source actor for a file on every slider tick.
+  var needsAutoProfileFit: Bool {
+    !autoProfileFitDone || autoProfileFitTask != nil || nativeAutoProfileID != nil
+  }
+
   /// Fit the Auto Profile curve + residual LUT for `rawPath` once per open (the
   /// A2 artifacts the chain's curve/LUT passes reapply every tick). No-op after
   /// the first call per open, or when `model.profile != .auto`.

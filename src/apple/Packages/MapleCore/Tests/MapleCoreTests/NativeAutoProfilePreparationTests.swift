@@ -6,6 +6,138 @@ import XCTest
 
 @MainActor
 final class NativeAutoProfilePreparationTests: XCTestCase {
+  func testPendingNativeSourceDoesNotBlockReuseAndNewDecodeOrQualityReplacesItsRequest()
+    async throws
+  {
+    let fixture = AutoProfileCanvasParityTests.fixtureDir("test-fixtures/removal/basic/source.dng")
+    let original = try Data(contentsOf: fixture)
+    let gate = NativeAutoSourceGate()
+    let started = expectation(description: "One owned source download entered")
+    let asset = AssetRef(displayName: "source", hintExtension: "dng", explicitIsRaw: true) {
+      started.fulfill()
+      await gate.wait()
+      return original
+    }
+    let session = EditSession(asset: asset)
+    let driver = GpuLiveDriver()
+    do {
+      try await driver.open(
+        width: 16, height: 16, identity: .init(decodeGeneration: 1, crop: .identity)
+      ) { Array(repeating: Float(0.18), count: 16 * 16 * 4) }
+      // A real provisional fit, including this fixture's valid absent tail.
+      await driver.fitAutoProfileIfNeeded(rawPath: fixture.path, model: .default, quality: .preview)
+      let quality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
+      let source = await session.renderActor.rawRenderSource
+      var firstPublished = false
+      XCTAssertNil(
+        session.nativeAutoProfile.prepared(
+          asset: session.asset, source: source, quality: quality, decodeGeneration: 1
+        ) { firstPublished = true })
+      await fulfillment(of: [started], timeout: 3)
+      let reused = expectation(
+        description: "Provisional GPU can continue while native source waits")
+      var didReturn = false
+      let attempt = Task {
+        let current = await session.prepareGpuAutoProfile(
+          driver: driver, model: .default, decodeGeneration: 1, quality: .preview, gen: nil)
+        didReturn = true
+        reused.fulfill()
+        return current
+      }
+      await fulfillment(of: [reused], timeout: 1)
+      let returnedBeforeSource = didReturn
+      XCTAssertTrue(returnedBeforeSource)
+      // Always release the provider if this regression fails, so XCTest does
+      // not leave a task hanging after reporting the timeout.
+      if !returnedBeforeSource {
+        await gate.open()
+        _ = await attempt.value
+        await session.nativeAutoProfile.cancelAndWait()
+        await driver.closeSession()
+        return
+      }
+      let canContinue = await attempt.value
+      XCTAssertTrue(canContinue)
+      XCTAssertNil(session.nativeAutoProfile.ready)
+      XCTAssertFalse(firstPublished)
+      // A new decode must replace the pending request, despite a reusable GPU
+      // fit. Both jobs still share the one owned source download.
+      let replacement = await session.prepareGpuAutoProfile(
+        driver: driver, model: .default, decodeGeneration: 2, quality: .preview, gen: nil)
+      XCTAssertTrue(replacement)
+      // A different quality on that same decode must also be replaced by the
+      // actual Mac native quality, without another download or a stale result.
+      var previewPublished = false
+      XCTAssertNil(
+        session.nativeAutoProfile.prepared(
+          asset: session.asset, source: source, quality: .preview, decodeGeneration: 2
+        ) { previewPublished = true })
+      let corrected = await session.prepareGpuAutoProfile(
+        driver: driver, model: .default, decodeGeneration: 2, quality: .preview, gen: nil)
+      XCTAssertTrue(corrected)
+      await gate.open()
+      await session.nativeAutoProfile.awaitPreparation()
+      let ready = try XCTUnwrap(
+        session.nativeAutoProfile.readyFor(decodeGeneration: 2, quality: quality))
+      XCTAssertNil(ready.artifacts)
+      XCTAssertNil(session.nativeAutoProfile.readyFor(decodeGeneration: 1, quality: quality))
+      XCTAssertNil(session.nativeAutoProfile.readyFor(decodeGeneration: 2, quality: .preview))
+      XCTAssertFalse(firstPublished, "The retired source waiter cannot publish")
+      XCTAssertFalse(previewPublished, "The retired quality waiter cannot publish")
+      let downloads = await gate.waitCount
+      XCTAssertEqual(downloads, 1, "All profile revisions must share the owned source download")
+      XCTAssertEqual(try Data(contentsOf: fixture), original)
+      await session.nativeAutoProfile.cancelAndWait()
+      await driver.closeSession()
+    } catch {
+      await gate.open()
+      await session.nativeAutoProfile.cancelAndWait()
+      await driver.closeSession()
+      throw error
+    }
+  }
+
+  func testSupersededColdSourceCannotStartProfileWork() async throws {
+    let original = try Data(
+      contentsOf: AutoProfileCanvasParityTests.fixtureDir("test-fixtures/removal/basic/source.dng"))
+    let gate = NativeAutoSourceGate()
+    let started = expectation(description: "Cold source provider entered")
+    let asset = AssetRef(displayName: "source", hintExtension: "dng", explicitIsRaw: true) {
+      started.fulfill()
+      await gate.wait()
+      return original
+    }
+    let session = EditSession(asset: asset)
+    let driver = GpuLiveDriver()
+    do {
+      try await driver.open(
+        width: 16, height: 16, identity: .init(decodeGeneration: 1, crop: .identity)
+      ) { Array(repeating: Float(0.18), count: 16 * 16 * 4) }
+      let gen = await session.renderActor.currentGeneration()
+      let attempt = Task {
+        await session.prepareGpuAutoProfile(
+          driver: driver, model: .default, decodeGeneration: 1, quality: .preview, gen: gen)
+      }
+      await fulfillment(of: [started], timeout: 3)
+      let admitted = expectation(description: "Newer actor generation admitted")
+      let next = await session.renderActor.scheduleRender(phase: .fast) { _ in admitted.fulfill() }
+      XCTAssertGreaterThan(next, gen)
+      await fulfillment(of: [admitted], timeout: 3)
+      await gate.open()
+      let current = await attempt.value
+      XCTAssertFalse(current)
+      XCTAssertTrue(driver.needsAutoProfileFit, "A stale source cannot mutate the provisional fit")
+      XCTAssertFalse(session.nativeAutoProfile.hasRequested)
+      await session.nativeAutoProfile.cancelAndWait()
+      await driver.closeSession()
+    } catch {
+      await gate.open()
+      await session.nativeAutoProfile.cancelAndWait()
+      await driver.closeSession()
+      throw error
+    }
+  }
+
   func testNoPreviewIsAJoinedNegativeResultAndQualityKeysStayDistinct() async throws {
     let source = AutoProfileCanvasParityTests.fixtureDir("test-fixtures/removal/basic/source.dng")
     let original = try Data(contentsOf: source)
@@ -127,14 +259,16 @@ final class NativeAutoProfilePreparationTests: XCTestCase {
 
 private actor NativeAutoSourceGate {
   private var opened = false
-  private var continuation: CheckedContinuation<Void, Never>?
+  private var continuations: [CheckedContinuation<Void, Never>] = []
+  private(set) var waitCount = 0
   func wait() async {
+    waitCount += 1
     if opened { return }
-    await withCheckedContinuation { continuation = $0 }
+    await withCheckedContinuation { continuations.append($0) }
   }
   func open() {
     opened = true
-    continuation?.resume()
-    continuation = nil
+    for continuation in continuations { continuation.resume() }
+    continuations.removeAll()
   }
 }

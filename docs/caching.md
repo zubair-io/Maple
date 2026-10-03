@@ -382,9 +382,14 @@ Until preparation completes, the existing proxy frame remains provisional and
 is not persisted as a completed preview. The GPU path finishes its provisional
 fit before requesting a cold native preparation, then rechecks render generation
 and cancellation so an older fit completion cannot rewind a newer request.
+Only a cold or replacement provisional fit resolves the RAW URL through the
+source actor. A completed GPU fit with a current pending native request, or
+ready native artifacts, reuses its owned state on slider ticks. Decode and
+native-quality changes still replace the request; a superseded source await
+cannot start fitting work.
 Editor exit joins preparation and ensures the resulting frame actually owns the
-ready tail before persisting;
-failed preparation retains the provisional frame and does not write it as settled.
+ready tail before persisting; failed preparation retains the provisional frame
+and does not write it as settled.
 
 `NativeAutoProfilePreparation` has one active fit and one completed result
 (including a valid absent tail), keyed by canonical URL, original modification

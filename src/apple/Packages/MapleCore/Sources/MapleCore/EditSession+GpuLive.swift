@@ -244,34 +244,11 @@ extension EditSession {
       }
     }
 
-    // Cloud RAWs need the same fit as local files. The session stages
-    // their bytes once for the path-only FFI (#3357).
     if resolvedIsRaw, m.profile == .auto,
-      let url = try? await renderActor.rawRenderSource.url(for: asset)
+      !(await prepareGpuAutoProfile(
+        driver: driver, model: m, decodeGeneration: decodeGeneration, quality: quality, gen: gen))
     {
-      let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-      let accessing = scope.startAccessingSecurityScopedResource()
-      defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-      if let prepared = nativeAutoProfile.readyFor(
-        decodeGeneration: decodeGeneration, quality: AmazeFlag.isEnabled ? .amaze : .full)
-      {
-        await driver.installNativeAutoProfile(prepared)
-      } else {
-        await driver.fitAutoProfileIfNeeded(rawPath: url.path, model: m, quality: quality)
-        // #1472: the full native develop uses the same CPU workers as this
-        // provisional fit. Finish the fit before requesting a cold native job.
-        // A newer render can arrive during that await; never rewind its native
-        // request with this decode.
-        if let gen {
-          guard gen == (await renderActor.currentGeneration()), !Task.isCancelled else {
-            return true
-          }
-        }
-        guard !Task.isCancelled else { return true }
-        if let prepared = preparedNativeAutoProfile(decodeGeneration: decodeGeneration) {
-          await driver.installNativeAutoProfile(prepared)
-        }
-      }
+      return true  // Superseded work must not start a CPU fallback.
     }
 
     // Film look (epic #2683, Task 10): resolve + push BEFORE this present,

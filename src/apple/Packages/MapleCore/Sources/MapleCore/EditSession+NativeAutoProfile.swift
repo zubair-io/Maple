@@ -3,6 +3,50 @@ import Foundation
 
 @MainActor
 extension EditSession {
+  /// Return false for superseded work. Only an actual cold/replacement fit
+  /// needs the source URL; ready artifacts and pending same-decode requests
+  /// reuse their owned state without source-actor round trips (#1472).
+  func prepareGpuAutoProfile(
+    driver: GpuLiveDriver, model: AdjustmentModel,
+    decodeGeneration: UInt64, quality: PipelineRenderer.Quality, gen: UInt64?
+  ) async -> Bool {
+    guard !Task.isCancelled else { return false }
+    if let prepared = nativeAutoProfile.readyFor(
+      decodeGeneration: decodeGeneration, quality: AmazeFlag.isEnabled ? .amaze : .full)
+    {
+      await driver.installNativeAutoProfile(prepared)
+      return !Task.isCancelled
+    }
+    if driver.needsAutoProfileFit {
+      // Cloud RAWs share the session's staged file with decode/export. The
+      // source owner stays retained through the joined fit's actual return.
+      guard let url = try? await renderActor.rawRenderSource.url(for: asset) else {
+        return !Task.isCancelled
+      }
+      if let gen, gen != (await renderActor.currentGeneration()) { return false }
+      guard !Task.isCancelled else { return false }
+      let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+      let accessing = scope.startAccessingSecurityScopedResource()
+      defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
+      await driver.fitAutoProfileIfNeeded(rawPath: url.path, model: model, quality: quality)
+    }
+    guard !Task.isCancelled else { return false }
+    let nativeQuality: PipelineRenderer.Quality = AmazeFlag.isEnabled ? .amaze : .full
+    if !nativeAutoProfile.isRequested(
+      decodeGeneration: decodeGeneration, quality: nativeQuality)
+    {
+      // The full native develop shares CPU workers with the provisional fit.
+      // Start it only after that fit returns, and reject a stale caller before
+      // it can rewind a newer native request after the fit await.
+      if let gen, gen != (await renderActor.currentGeneration()) { return false }
+      guard !Task.isCancelled else { return false }
+      if let prepared = preparedNativeAutoProfile(decodeGeneration: decodeGeneration) {
+        await driver.installNativeAutoProfile(prepared)
+      }
+    }
+    return !Task.isCancelled
+  }
+
   /// Mac uses the same full-quality Auto tail as its full export, independent
   /// of the bounded preview's demosaic/resolution. The provisional proxy stays
   /// visible until preparation completes. iOS retains its existing memory gate
