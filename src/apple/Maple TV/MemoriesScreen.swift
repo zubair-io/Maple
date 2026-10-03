@@ -83,6 +83,7 @@ struct MemoriesScreen: View {
         total: open.total,
         session: session
       )
+      .id(open.id)
     }
   }
 
@@ -195,10 +196,13 @@ struct MemoriesScreen: View {
   /// after the shelf cached it, which will happen — leaves the viewer on the
   /// Memories screen rather than failing at them.
   private func openPendingDeepLinkIfAny() {
-    guard !viewModel.isLoading, openingCollectionID == nil else { return }
+    guard deepLinks.pending != nil, !viewModel.isLoading, openingCollectionID == nil else { return }
     guard let id = deepLinks.takePendingMemoryID(),
       let collection = viewModel.collections.first(where: { $0.id == id })
-    else { return }
+    else {
+      openMemory = nil
+      return
+    }
     open(collection)
   }
 
