@@ -10,6 +10,8 @@
 // corpus, with executed == expected cases and zero failures or skips.
 // See docs/camera-support.md.
 
+#nullable enable
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
