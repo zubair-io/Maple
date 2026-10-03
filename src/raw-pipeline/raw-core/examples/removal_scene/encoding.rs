@@ -7,6 +7,10 @@ use raw_core::pipeline::RemovalModelEncoding;
 use raw_core::view::{agx, agx_inverse, encode};
 use serde::{Deserialize, Serialize};
 
+#[path = "photographic_encoding.rs"]
+mod photographic_encoding;
+use photographic_encoding::PhotographicContrast;
+
 type ProbeResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Serialize, Deserialize)]
@@ -14,6 +18,7 @@ type ProbeResult<T> = Result<T, Box<dyn std::error::Error>>;
 pub enum ProbeEncoding {
     SignedLog(RemovalModelEncoding),
     FixedSdr(FixedSdr),
+    PhotographicContrast(PhotographicContrast),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -24,8 +29,19 @@ pub struct FixedSdr {
 }
 
 impl ProbeEncoding {
-    pub fn fit(scene: &[[f32; 3]], fixed_sdr: bool) -> ProbeResult<Self> {
-        if fixed_sdr {
+    pub fn fit(
+        scene: &[[f32; 3]],
+        fixed_sdr: bool,
+        photographic_contrast: bool,
+    ) -> ProbeResult<Self> {
+        if fixed_sdr && photographic_contrast {
+            return Err("choose one research encoding".into());
+        }
+        if photographic_contrast {
+            Ok(Self::PhotographicContrast(PhotographicContrast::fit(
+                scene,
+            )?))
+        } else if fixed_sdr {
             Ok(Self::FixedSdr(FixedSdr {
                 method: "fixed-agx-srgb".into(),
                 agx_version: agx::AGX_VERSION,
@@ -36,6 +52,9 @@ impl ProbeEncoding {
     }
 
     fn validate(&self) -> ProbeResult<()> {
+        if let Self::PhotographicContrast(recipe) = self {
+            recipe.validate()?;
+        }
         if let Self::FixedSdr(recipe) = self {
             if recipe.method != "fixed-agx-srgb" || recipe.agx_version != agx::AGX_VERSION {
                 return Err("unsupported fixed photographic SDR recipe".into());
@@ -51,6 +70,7 @@ impl ProbeEncoding {
         }
         match self {
             Self::SignedLog(recipe) => Ok(recipe.encode(scene)?),
+            Self::PhotographicContrast(recipe) => recipe.encode(scene),
             Self::FixedSdr(_) => {
                 let mut image = Image {
                     width: scene.len().try_into()?,
@@ -81,6 +101,7 @@ impl ProbeEncoding {
         }
         match self {
             Self::SignedLog(recipe) => Ok(recipe.decode(model)?),
+            Self::PhotographicContrast(recipe) => recipe.decode(model),
             Self::FixedSdr(_) => Ok(model
                 .iter()
                 .map(|p| {

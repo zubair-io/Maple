@@ -275,7 +275,7 @@ pub(super) fn compare(path: &Path, x: u32, y: u32, output: &Path) -> ProbeResult
 pub(super) fn compare_display(native: &Path, browser: &Path, output: &Path) -> ProbeResult<()> {
     let native = super::read_rgb(&std::fs::read(native)?, 1024, false)?;
     let browser = super::read_rgb(&std::fs::read(browser)?, 1024, false)?;
-    let encoding = super::encoding::ProbeEncoding::fit(&native, true)?;
+    let encoding = super::encoding::ProbeEncoding::fit(&native, true, false)?;
     let a = encoding.encode(&native)?;
     let b = encoding.encode(&browser)?;
     let quantize = |value: f32| (value * 255.0).round().clamp(0.0, 255.0) as u8;

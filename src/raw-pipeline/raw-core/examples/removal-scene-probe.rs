@@ -41,6 +41,9 @@ enum Command {
         /// Its approximate inverse is measured; it is not assumed lossless.
         #[arg(long)]
         fixed_sdr: bool,
+        /// #3941: reversible black-anchored contrast research, not admission.
+        #[arg(long, conflicts_with = "fixed_sdr")]
+        photographic_contrast: bool,
         /// Qualify the bounded pre-WB linear calibration context (#3955).
         #[arg(long)]
         linear_calibration: bool,
@@ -138,6 +141,7 @@ fn encode(
     y: u32,
     output: &Path,
     fixed_sdr: bool,
+    photographic_contrast: bool,
     linear_calibration: bool,
 ) -> ProbeResult<()> {
     let (bytes, raw) = decode_raw(path)?;
@@ -156,7 +160,7 @@ fn encode(
     } else {
         render_removal_context(&raw, window)?
     };
-    let encoding = encoding::ProbeEncoding::fit(&scene.pixels, fixed_sdr)?;
+    let encoding = encoding::ProbeEncoding::fit(&scene.pixels, fixed_sdr, photographic_contrast)?;
     let model = encoding.encode(&scene.pixels)?;
     let scene_bytes = pack(scene.pixels.iter().flatten().copied());
     let model_bytes = pack((0..3).flat_map(|c| model.iter().map(move |p| p[c])));
@@ -418,8 +422,17 @@ fn main() -> ProbeResult<()> {
             y,
             output,
             fixed_sdr,
+            photographic_contrast,
             linear_calibration,
-        } => encode(&raw, x, y, &output, fixed_sdr, linear_calibration),
+        } => encode(
+            &raw,
+            x,
+            y,
+            &output,
+            fixed_sdr,
+            photographic_contrast,
+            linear_calibration,
+        ),
         Command::CalibrationParity { raw, x, y, output } => {
             calibration::compare(&raw, x, y, &output)
         }
