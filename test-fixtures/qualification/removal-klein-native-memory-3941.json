@@ -1,0 +1,2431 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T09:43:37.023194+00:00",
+  "parent_commit": "a7f657c03c8c7a160555db3b1409326071118516",
+  "releaseQualified": false,
+  "app_limit_changed": false,
+  "model_catalog_changed": false,
+  "purpose": "Measure actual one-shot native MLX Klein phase ownership, preserving exact pre-clipped decoder pixels. No model admission, accepted edit, or app dependency change.",
+  "policy": "Materialize prompt embeddings, release text encoder and prompt cache, then complete all four native denoising steps. A callable lease releases the compiled predictor closure, compiled cache and transformer before native VAE decoding. Clear only free cache at phase transitions; no resizing, tiling, changed precision, changed learned tensors, altered prompt/seed or peak reset during inference. Instance is consumed and must reload for another generation.",
+  "memory_scope": "MLX active allocation high-water, free cache, OS process physical-footprint high-water and RSS are different measurements. Do not sum them or claim total device peak. libproc OS footprint can differ from MLX logical allocation accounting. Shared M5 Max 128GiB macOS27 observations, no physical16/24/32GiB tier proof, no p50/p95, no speedup claim, no admission budget change.",
+  "cache_control": "Additional release-small-cache cases impose an explicit1,000,000,000-byte MLX free-cache cap before loading; upstream respects the host cap. No app configuration or environment variable added.",
+  "input_scope": "Paint is an explicit combined manual990K-pixel rectangle on Auto SDR native1024x1536, not automatic People mask policy. Scene is canonical pre-WB linearRec2020 RAW native1024square, supplied shared signed-asinh encodedf32 without PNG quantization; source contains5367channels>1 and0negativechannels. This is not negative photographic fixture qualification.",
+  "cases": [
+    {
+      "case": "paint",
+      "mode": "resident",
+      "executed_source_version": "v1",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "float_input_sha256": null,
+        "model_input_quantized_to_u8": true,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57",
+        "crop_xywh": [
+          384,
+          384,
+          1024,
+          1536
+        ],
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 990000,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 3926.7134580295533,
+        "model_open_ms": 2467.456415994093,
+        "inference_ms": 27216.281541856006,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 7748.9452918525785,
+            "mlx_allocated_bytes": 8579626522,
+            "mlx_cache_bytes": 8503896250
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 13379.79929195717,
+            "mlx_allocated_bytes": 8579626522,
+            "mlx_cache_bytes": 8546430650
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 19081.965708872303,
+            "mlx_allocated_bytes": 8577267090,
+            "mlx_cache_bytes": 8583393086
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 24696.364084025845,
+            "mlx_allocated_bytes": 8578053658,
+            "mlx_cache_bytes": 8511798948
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.0546875,
+          1.0625
+        ],
+        "decoder_unclipped_sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963",
+        "prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "result": {
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 23683612110,
+        "process_peak_resident_bytes": 9091465216,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Public-RAW Auto SDR PNG; native geometry but source values quantized to u8.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "resident",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 6650.540458038449,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 7222.185374936089,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960848312,
+              "mlx_peak_active_bytes": 9501214298
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 31766.209416091442,
+              "mlx_active_bytes": 8575694226,
+              "mlx_cache_bytes": 8514158380,
+              "mlx_peak_active_bytes": 17082143396
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 31766.50504115969,
+              "mlx_active_bytes": 8575694226,
+              "mlx_cache_bytes": 8514158380,
+              "mlx_peak_active_bytes": 17082143396
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 34242.099583148956,
+              "mlx_active_bytes": 8585131410,
+              "mlx_cache_bytes": 8602567710,
+              "mlx_peak_active_bytes": 23683612110
+            }
+          ],
+          "cache_limit_changed": false,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": false,
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-memory-resident-paint-20261003/report.json",
+        "bytes": 4949,
+        "sha256": "58b7507e81f9fa8d7428e820fc25c465e62286e1156e868ecb15319556686842"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-memory-resident-paint-20261003.log",
+        "bytes": 6906,
+        "sha256": "62df082ae9d65b3e49f198451e406d0c76bd725cd327f1f574bf7dcedc5eeebf"
+      },
+      "files": [
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-20261003/decoder-unclipped.f32",
+          "bytes": 18874368,
+          "sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-20261003/prediction.f32",
+          "bytes": 18874368,
+          "sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-20261003/result.f32",
+          "bytes": 18874368,
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-20261003/result.png",
+          "bytes": 2450718,
+          "sha256": "cfff041c0354678d1ac5a46daf6632627ac9020f488cea6789585e770c6ca3f3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-20261003/source.png",
+          "bytes": 2324780,
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-20261003/hole.png",
+          "bytes": 4272,
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        }
+      ],
+      "independent_checks": {
+        "byte_identical_to_original_generation": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "raw_decoder_finite": true,
+        "OS_process_peak_footprint_bytes": null
+      }
+    },
+    {
+      "case": "paint",
+      "mode": "release",
+      "executed_source_version": "v1",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "float_input_sha256": null,
+        "model_input_quantized_to_u8": true,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57",
+        "crop_xywh": [
+          384,
+          384,
+          1024,
+          1536
+        ],
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 990000,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 3804.678292013705,
+        "model_open_ms": 1763.4801249951124,
+        "inference_ms": 21546.73979105428,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 6072.104874998331,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 8573919994
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 10772.744749905542,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 8550899442
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 15236.19058309123,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 8585492202
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 19929.213624913245,
+            "mlx_allocated_bytes": 4302223640,
+            "mlx_cache_bytes": 8420349670
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.0546875,
+          1.0625
+        ],
+        "decoder_unclipped_sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963",
+        "prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "result": {
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 15289992366,
+        "process_peak_resident_bytes": 9016754176,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Public-RAW Auto SDR PNG; native geometry but source values quantized to u8.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "release",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 5718.064790824428,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 5898.892457829788,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960848824,
+              "mlx_peak_active_bytes": 9501214298
+            },
+            {
+              "phase": "text_encoder_released",
+              "elapsed_ms": 5927.7354998048395,
+              "mlx_active_bytes": 4291790926,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9501214298
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 25723.771582823247,
+              "mlx_active_bytes": 4299864210,
+              "mlx_cache_bytes": 8422709098,
+              "mlx_peak_active_bytes": 12806296996
+            },
+            {
+              "phase": "transformer_released",
+              "elapsed_ms": 25813.564290991053,
+              "mlx_active_bytes": 182074482,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 12806296996
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 25813.70999990031,
+              "mlx_active_bytes": 182074482,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 12806296996
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 27318.500290857628,
+              "mlx_active_bytes": 191511666,
+              "mlx_cache_bytes": 8602567718,
+              "mlx_peak_active_bytes": 15289992366
+            }
+          ],
+          "cache_limit_changed": false,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": true,
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-memory-release-paint-20261003/report.json",
+        "bytes": 5363,
+        "sha256": "244367ff76271c6114679a8df1bccf2c404d7a05a44f24ef267c1f371f6a6ee5"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-memory-release-paint-20261003.log",
+        "bytes": 7627,
+        "sha256": "b75b0deff7cc4d4c998df12d2d5fc7b4ae95a3ec3315545258f1c9bdd4ebd981"
+      },
+      "files": [
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-paint-20261003/decoder-unclipped.f32",
+          "bytes": 18874368,
+          "sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-paint-20261003/prediction.f32",
+          "bytes": 18874368,
+          "sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-paint-20261003/result.f32",
+          "bytes": 18874368,
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-paint-20261003/result.png",
+          "bytes": 2450718,
+          "sha256": "cfff041c0354678d1ac5a46daf6632627ac9020f488cea6789585e770c6ca3f3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-paint-20261003/source.png",
+          "bytes": 2324780,
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-paint-20261003/hole.png",
+          "bytes": 4272,
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        }
+      ],
+      "independent_checks": {
+        "byte_identical_to_original_generation": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "raw_decoder_finite": true,
+        "OS_process_peak_footprint_bytes": null
+      }
+    },
+    {
+      "case": "scene",
+      "mode": "resident",
+      "executed_source_version": "v1",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "dafffed28c809b0b6b80426b5a2315a30d3098c217c3a3ecd98c60da7dd65f41",
+        "float_input_sha256": "2204ecb9ed54ff0e9f858ed9c22b81a978e71f67b046359ce6f93133f17f6e32",
+        "model_input_quantized_to_u8": false,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3",
+        "crop_xywh": [
+          0,
+          0,
+          1024,
+          1024
+        ],
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 22753,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 2967.1916670631617,
+        "model_open_ms": 1396.4277498889714,
+        "inference_ms": 10766.933750128374,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 3107.756666140631,
+            "mlx_allocated_bytes": 8575624728,
+            "mlx_cache_bytes": 8550873600
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 5405.10533307679,
+            "mlx_allocated_bytes": 8575624730,
+            "mlx_cache_bytes": 8335911414
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 7660.967916017398,
+            "mlx_allocated_bytes": 8575624730,
+            "mlx_cache_bytes": 8495286766
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 9904.044666094705,
+            "mlx_allocated_bytes": 8574576154,
+            "mlx_cache_bytes": 8549851630
+          }
+        ],
+        "decoder_unclipped_range": [
+          -0.9375,
+          0.875
+        ],
+        "decoder_unclipped_sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563",
+        "prediction_sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3",
+        "result": {
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 18658487758,
+        "process_peak_resident_bytes": 9007300608,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "resident",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 4446.732708020136,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 4607.2966249194,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960848824,
+              "mlx_peak_active_bytes": 9501214298
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 14407.336624804884,
+              "mlx_active_bytes": 8573003154,
+              "mlx_cache_bytes": 8551424630,
+              "mlx_peak_active_bytes": 14250496676
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 14407.40149980411,
+              "mlx_active_bytes": 8573003154,
+              "mlx_cache_bytes": 8551424630,
+              "mlx_peak_active_bytes": 14250496676
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 15256.717666983604,
+              "mlx_active_bytes": 8579294610,
+              "mlx_cache_bytes": 8857865302,
+              "mlx_peak_active_bytes": 18658487758
+            }
+          ],
+          "cache_limit_changed": false,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": false,
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-memory-resident-scene-20261003/report.json",
+        "bytes": 5084,
+        "sha256": "feafb9a2267c5be9f6d0420a993c6e2d8a5e0ad37512682e7e0a2fc5f76780c8"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-memory-resident-scene-20261003.log",
+        "bytes": 7035,
+        "sha256": "f4391e0b256f7b3df4d399fc1cfca4912f4416eaeb449fed6cc5ad85b4b4a750"
+      },
+      "files": [
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-scene-20261003/decoder-unclipped.f32",
+          "bytes": 12582912,
+          "sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-scene-20261003/prediction.f32",
+          "bytes": 12582912,
+          "sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-scene-20261003/result.f32",
+          "bytes": 12582912,
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-scene-20261003/result.png",
+          "bytes": 1195733,
+          "sha256": "3201dfc09ea2524f19ec22b3b1d6b37b1b74cd174aafe2ff8a2a130ca06e613d"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-scene-20261003/source.png",
+          "bytes": 1189955,
+          "sha256": "61f5a025915eee63337d5ab013074b76bd45483ab0ce472798d3cec841645453"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-scene-20261003/hole.png",
+          "bytes": 2280,
+          "sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3"
+        }
+      ],
+      "independent_checks": {
+        "byte_identical_to_original_generation": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "raw_decoder_finite": true,
+        "OS_process_peak_footprint_bytes": null
+      }
+    },
+    {
+      "case": "scene",
+      "mode": "release",
+      "executed_source_version": "v2",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "dafffed28c809b0b6b80426b5a2315a30d3098c217c3a3ecd98c60da7dd65f41",
+        "float_input_sha256": "2204ecb9ed54ff0e9f858ed9c22b81a978e71f67b046359ce6f93133f17f6e32",
+        "model_input_quantized_to_u8": false,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3",
+        "crop_xywh": [
+          0,
+          0,
+          1024,
+          1024
+        ],
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 22753,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 2952.7700829785317,
+        "model_open_ms": 1371.2509169708937,
+        "inference_ms": 9014.355042017996,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 2429.1903749108315,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 8461361700
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 4199.573500081897,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 8339460620
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 6061.627333983779,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 8497781252
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 8042.488958919421,
+            "mlx_allocated_bytes": 4298746138,
+            "mlx_cache_bytes": 8575328772
+          }
+        ],
+        "decoder_unclipped_range": [
+          -0.9375,
+          0.875
+        ],
+        "decoder_unclipped_sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563",
+        "prediction_sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3",
+        "result": {
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 10264868014,
+        "process_peak_resident_bytes": 8972632064,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "release",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 4408.233624882996,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382,
+              "runtime_memory": {
+                "phase": "loaded",
+                "timestamp": 1791020283.10729,
+                "pid": 25259,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8559746382,
+                "mlx_peak_memory_bytes": 8559746382,
+                "mlx_cache_memory_bytes": 8616,
+                "process_rss_bytes": 8955035648,
+                "process_peak_rss_bytes": 8955723776,
+                "darwin_physical_footprint_bytes": 8931335080,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 8931335080
+              }
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 4611.215666867793,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960848824,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "prompt_encoded",
+                "timestamp": 1791020283.307693,
+                "pid": 25259,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8567620942,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 960848824,
+                "process_rss_bytes": 8972582912,
+                "process_peak_rss_bytes": 8972582912,
+                "darwin_physical_footprint_bytes": 10069745200,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10069745200
+              }
+            },
+            {
+              "phase": "text_encoder_released",
+              "elapsed_ms": 4666.203124914318,
+              "mlx_active_bytes": 4291790926,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "text_encoder_released",
+                "timestamp": 1791020283.363492,
+                "pid": 25259,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4291790926,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 5384781824,
+                "process_peak_rss_bytes": 8972632064,
+                "darwin_physical_footprint_bytes": 6267213800,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10069794352
+              }
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 12547.31133300811,
+              "mlx_active_bytes": 4297173138,
+              "mlx_cache_bytes": 8576901772,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "denoised",
+                "timestamp": 1791020291.245007,
+                "pid": 25259,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4297173138,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 8576901772,
+                "process_rss_bytes": 4709302272,
+                "process_peak_rss_bytes": 8972632064,
+                "darwin_physical_footprint_bytes": 13421712112,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 15371981528
+              }
+            },
+            {
+              "phase": "transformer_released",
+              "elapsed_ms": 12638.571749906987,
+              "mlx_active_bytes": 179383410,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "transformer_released",
+                "timestamp": 1791020291.335169,
+                "pid": 25259,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 179383410,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 591446016,
+                "process_peak_rss_bytes": 8972632064,
+                "darwin_physical_footprint_bytes": 2329380808,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 15371981528
+              }
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 12663.086207816377,
+              "mlx_active_bytes": 179383410,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "before_decode",
+                "timestamp": 1791020291.357174,
+                "pid": 25259,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 179383410,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 591446016,
+                "process_peak_rss_bytes": 8972632064,
+                "darwin_physical_footprint_bytes": 2329380808,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 15371981528
+              }
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 13482.471499824896,
+              "mlx_active_bytes": 185674866,
+              "mlx_cache_bytes": 8793377848,
+              "mlx_peak_active_bytes": 10264868014,
+              "runtime_memory": {
+                "phase": "after_decode",
+                "timestamp": 1791020292.178623,
+                "pid": 25259,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 185674866,
+                "mlx_peak_memory_bytes": 10264868014,
+                "mlx_cache_memory_bytes": 8793377848,
+                "process_rss_bytes": 591544320,
+                "process_peak_rss_bytes": 8972632064,
+                "darwin_physical_footprint_bytes": 11672963016,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 15371981528
+              }
+            }
+          ],
+          "cache_limit_changed": false,
+          "explicit_cache_limit_bytes": null,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": true,
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-memory-release-scene-20261003/report.json",
+        "bytes": 9732,
+        "sha256": "850ec9946b7bb82c257497bcfc11f127dbb497fb8897e9ff60e6151ef47e0d98"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-memory-release-scene-20261003.log",
+        "bytes": 15148,
+        "sha256": "c51b87d018f800303de4ddc744ec3ba8cb698671fa8e7f1da3a37dca3dcfaed8"
+      },
+      "files": [
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-scene-20261003/decoder-unclipped.f32",
+          "bytes": 12582912,
+          "sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-scene-20261003/prediction.f32",
+          "bytes": 12582912,
+          "sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-scene-20261003/result.f32",
+          "bytes": 12582912,
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-scene-20261003/result.png",
+          "bytes": 1195733,
+          "sha256": "3201dfc09ea2524f19ec22b3b1d6b37b1b74cd174aafe2ff8a2a130ca06e613d"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-scene-20261003/source.png",
+          "bytes": 1189955,
+          "sha256": "61f5a025915eee63337d5ab013074b76bd45483ab0ce472798d3cec841645453"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-release-scene-20261003/hole.png",
+          "bytes": 2280,
+          "sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3"
+        }
+      ],
+      "independent_checks": {
+        "byte_identical_to_original_generation": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "raw_decoder_finite": true,
+        "OS_process_peak_footprint_bytes": 15371981528
+      }
+    },
+    {
+      "case": "paint",
+      "mode": "resident",
+      "executed_source_version": "v2",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "float_input_sha256": null,
+        "model_input_quantized_to_u8": true,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57",
+        "crop_xywh": [
+          384,
+          384,
+          1024,
+          1536
+        ],
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 990000,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 2956.394874956459,
+        "model_open_ms": 1207.9492500051856,
+        "inference_ms": 17430.458791088313,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 4027.0244581624866,
+            "mlx_allocated_bytes": 8577267090,
+            "mlx_cache_bytes": 8433337754
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 7203.29654100351,
+            "mlx_allocated_bytes": 8579626522,
+            "mlx_cache_bytes": 8473956106
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 10869.456125190482,
+            "mlx_allocated_bytes": 8577267090,
+            "mlx_cache_bytes": 8485754736
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 15130.842083133757,
+            "mlx_allocated_bytes": 8578053658,
+            "mlx_cache_bytes": 8393983702
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.0546875,
+          1.0625
+        ],
+        "decoder_unclipped_sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963",
+        "prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "result": {
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 23683612110,
+        "process_peak_resident_bytes": 9080520704,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Public-RAW Auto SDR PNG; native geometry but source values quantized to u8.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "resident",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 4271.353707881644,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382,
+              "runtime_memory": {
+                "phase": "loaded",
+                "timestamp": 1791020339.6508002,
+                "pid": 25844,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8559746382,
+                "mlx_peak_memory_bytes": 8559746382,
+                "mlx_cache_memory_bytes": 8616,
+                "process_rss_bytes": 8995356672,
+                "process_peak_rss_bytes": 8996061184,
+                "darwin_physical_footprint_bytes": 8971770840,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 8971770840
+              }
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 4483.563165878877,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960848824,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "prompt_encoded",
+                "timestamp": 1791020339.863934,
+                "pid": 25844,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8567620942,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 960848824,
+                "process_rss_bytes": 9011904512,
+                "process_peak_rss_bytes": 9011904512,
+                "darwin_physical_footprint_bytes": 10109165176,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10109165176
+              }
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 19508.393874857575,
+              "mlx_active_bytes": 8575694226,
+              "mlx_cache_bytes": 8396343134,
+              "mlx_peak_active_bytes": 17082143396,
+              "runtime_memory": {
+                "phase": "denoised",
+                "timestamp": 1791020354.906888,
+                "pid": 25844,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8575694226,
+                "mlx_peak_memory_bytes": 17082143396,
+                "mlx_cache_memory_bytes": 8396343134,
+                "process_rss_bytes": 9031335936,
+                "process_peak_rss_bytes": 9044410368,
+                "darwin_physical_footprint_bytes": 17568177832,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 21398888104
+              }
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 19558.051249943674,
+              "mlx_active_bytes": 8575694226,
+              "mlx_cache_bytes": 8396343134,
+              "mlx_peak_active_bytes": 17082143396,
+              "runtime_memory": {
+                "phase": "before_decode",
+                "timestamp": 1791020354.954155,
+                "pid": 25844,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8575694226,
+                "mlx_peak_memory_bytes": 17082143396,
+                "mlx_cache_memory_bytes": 8396343134,
+                "process_rss_bytes": 9031335936,
+                "process_peak_rss_bytes": 9044410368,
+                "darwin_physical_footprint_bytes": 17568226984,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 21398888104
+              }
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 21720.964249921963,
+              "mlx_active_bytes": 8585131410,
+              "mlx_cache_bytes": 8602567718,
+              "mlx_peak_active_bytes": 23683612110,
+              "runtime_memory": {
+                "phase": "after_decode",
+                "timestamp": 1791020357.125081,
+                "pid": 25844,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8585131410,
+                "mlx_peak_memory_bytes": 23683612110,
+                "mlx_cache_memory_bytes": 8602567718,
+                "process_rss_bytes": 9031729152,
+                "process_peak_rss_bytes": 9044410368,
+                "darwin_physical_footprint_bytes": 18186952384,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 25524919976
+              }
+            }
+          ],
+          "cache_limit_changed": false,
+          "explicit_cache_limit_bytes": null,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": false,
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-memory-resident-paint-footprint-20261003/report.json",
+        "bytes": 7997,
+        "sha256": "4e0b0e4ae4e5f7b15f1a3e39053a5833b7b3245dca401cbcbdf6438ef2dd683d"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-memory-resident-paint-footprint-20261003.log",
+        "bytes": 12222,
+        "sha256": "0dadb7755fe65c91c8da8b3ca823a5bb936314b1b7525bde5bf6ca1292854ac5"
+      },
+      "files": [
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-footprint-20261003/decoder-unclipped.f32",
+          "bytes": 18874368,
+          "sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-footprint-20261003/prediction.f32",
+          "bytes": 18874368,
+          "sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-footprint-20261003/result.f32",
+          "bytes": 18874368,
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-footprint-20261003/result.png",
+          "bytes": 2450718,
+          "sha256": "cfff041c0354678d1ac5a46daf6632627ac9020f488cea6789585e770c6ca3f3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-footprint-20261003/source.png",
+          "bytes": 2324780,
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-resident-paint-footprint-20261003/hole.png",
+          "bytes": 4272,
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        }
+      ],
+      "independent_checks": {
+        "byte_identical_to_original_generation": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "raw_decoder_finite": true,
+        "OS_process_peak_footprint_bytes": 25524919976
+      }
+    },
+    {
+      "case": "paint",
+      "mode": "release-small-cache",
+      "executed_source_version": "v2",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "d1298bd00fef7093a896d1657b6f88aa4c7181084b68add1d837d8ffedbd027b",
+        "float_input_sha256": null,
+        "model_input_quantized_to_u8": true,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "4f84dc7398bc99915fda4c7ff180dc60ace6357d505e4133218ac549a8b3cc57",
+        "crop_xywh": [
+          384,
+          384,
+          1024,
+          1536
+        ],
+        "native_extent_hw": [
+          1536,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 990000,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 3344.141790876165,
+        "model_open_ms": 1676.4341248199344,
+        "inference_ms": 17406.15429216996,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 4429.359083995223,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 873213952
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 8096.107667079195,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 879505430
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 11767.850999953225,
+            "mlx_allocated_bytes": 4303796506,
+            "mlx_cache_bytes": 879505430
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              6144,
+              128
+            ],
+            "elapsed_ms": 15503.764500143006,
+            "mlx_allocated_bytes": 4299864338,
+            "mlx_cache_bytes": 873988104
+          }
+        ],
+        "decoder_unclipped_range": [
+          -1.0546875,
+          1.0625
+        ],
+        "decoder_unclipped_sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963",
+        "prediction_sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1",
+        "result": {
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 15289992366,
+        "process_peak_resident_bytes": 9017704448,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Public-RAW Auto SDR PNG; native geometry but source values quantized to u8.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "release-small-cache",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 5160.108583047986,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382,
+              "runtime_memory": {
+                "phase": "loaded",
+                "timestamp": 1791020403.1277618,
+                "pid": 26573,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8559746382,
+                "mlx_peak_memory_bytes": 8559746382,
+                "mlx_cache_memory_bytes": 8616,
+                "process_rss_bytes": 9001107456,
+                "process_peak_rss_bytes": 9001762816,
+                "darwin_physical_footprint_bytes": 8977472472,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 8977472472
+              }
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 5375.705416081473,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960848824,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "prompt_encoded",
+                "timestamp": 1791020403.343884,
+                "pid": 26573,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8567620942,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 960848824,
+                "process_rss_bytes": 9017704448,
+                "process_peak_rss_bytes": 9017704448,
+                "darwin_physical_footprint_bytes": 10114965112,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10114965112
+              }
+            },
+            {
+              "phase": "text_encoder_released",
+              "elapsed_ms": 5441.416250076145,
+              "mlx_active_bytes": 4291790926,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "text_encoder_released",
+                "timestamp": 1791020403.415971,
+                "pid": 26573,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4291790926,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 4742004736,
+                "process_peak_rss_bytes": 9017704448,
+                "darwin_physical_footprint_bytes": 4876571400,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10114965112
+              }
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 20771.33212494664,
+              "mlx_active_bytes": 4299864210,
+              "mlx_cache_bytes": 873988232,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "denoised",
+                "timestamp": 1791020418.741365,
+                "pid": 26573,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4299864210,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 873988232,
+                "process_rss_bytes": 4761321472,
+                "process_peak_rss_bytes": 9017704448,
+                "darwin_physical_footprint_bytes": 5773792056,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12367680288
+              }
+            },
+            {
+              "phase": "transformer_released",
+              "elapsed_ms": 20834.5341659151,
+              "mlx_active_bytes": 182074482,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "transformer_released",
+                "timestamp": 1791020418.799789,
+                "pid": 26573,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 182074482,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 839680000,
+                "process_peak_rss_bytes": 9017704448,
+                "darwin_physical_footprint_bytes": 1850263664,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12367680288
+              }
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 20859.281040960923,
+              "mlx_active_bytes": 182074482,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 12806296996,
+              "runtime_memory": {
+                "phase": "before_decode",
+                "timestamp": 1791020418.8237271,
+                "pid": 26573,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 182074482,
+                "mlx_peak_memory_bytes": 12806296996,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 839680000,
+                "process_peak_rss_bytes": 9017704448,
+                "darwin_physical_footprint_bytes": 1850263664,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12367680288
+              }
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 22629.33454103768,
+              "mlx_active_bytes": 191511666,
+              "mlx_cache_bytes": 1210073090,
+              "mlx_peak_active_bytes": 15289992366,
+              "runtime_memory": {
+                "phase": "after_decode",
+                "timestamp": 1791020420.594927,
+                "pid": 26573,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 191511666,
+                "mlx_peak_memory_bytes": 15289992366,
+                "mlx_cache_memory_bytes": 1210073090,
+                "process_rss_bytes": 643579904,
+                "process_peak_rss_bytes": 9017704448,
+                "darwin_physical_footprint_bytes": 4818356192,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 12367680288
+              }
+            }
+          ],
+          "cache_limit_changed": true,
+          "explicit_cache_limit_bytes": 1000000000,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": true,
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/report.json",
+        "bytes": 9607,
+        "sha256": "868955d7f199e724aec6f83566ba8da0cb38bfa10da6fb13be40210ec040e47d"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003.log",
+        "bytes": 14956,
+        "sha256": "9c6950e8cd11ef7edec198abd4d66abdb0ae6da8818b7ab1fe4ab59095cb1df5"
+      },
+      "files": [
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/decoder-unclipped.f32",
+          "bytes": 18874368,
+          "sha256": "1ca4c54f67b79130ca4604b46761c8f13fc315ee2e0b894420533a5a809b8963"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/prediction.f32",
+          "bytes": 18874368,
+          "sha256": "bac73b4a610865d083d460db3bcdd8ca2fc282919acf23574934f2f84b0434d1"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/result.f32",
+          "bytes": 18874368,
+          "sha256": "da335348d9856809c177ce3e9827cba33f59b1dc2086b7c05f11d01a907b9ef9"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/result.png",
+          "bytes": 2450718,
+          "sha256": "cfff041c0354678d1ac5a46daf6632627ac9020f488cea6789585e770c6ca3f3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/source.png",
+          "bytes": 2324780,
+          "sha256": "2c2ba6964bb016c9c393cc970453c75fc6be0e1549369a7c2011f011e1e3f290"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-paint-20261003/hole.png",
+          "bytes": 4272,
+          "sha256": "b61caf6d29d198236288343fa7f61a7edcf84fa4f356655b7f68124413ace12b"
+        }
+      ],
+      "independent_checks": {
+        "byte_identical_to_original_generation": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "raw_decoder_finite": true,
+        "OS_process_peak_footprint_bytes": 12367680288
+      }
+    },
+    {
+      "case": "scene",
+      "mode": "release-small-cache",
+      "executed_source_version": "v2",
+      "report": {
+        "repo": "AbstractFramework/flux.2-klein-4b-8bit",
+        "revision": "21764997c7d92ab919d4a51a3ac7f8fb0f36c4a6",
+        "model_manifest_sha256": "692b837c6c70b9db3808ae9502a2fdf6c5e9cea6dd7baf612e2045ce6814523b",
+        "runtime_source_revision": "99fb94dd3eaa9dd1931cd3cd8eae1ae3e20f2ef3",
+        "strict_loaded_tensors": [
+          {
+            "component": "vae",
+            "tensors": 266
+          },
+          {
+            "component": "transformer",
+            "tensors": 387
+          },
+          {
+            "component": "text_encoder",
+            "tensors": 905
+          }
+        ],
+        "quantization": 8,
+        "source_sha256": "dafffed28c809b0b6b80426b5a2315a30d3098c217c3a3ecd98c60da7dd65f41",
+        "float_input_sha256": "2204ecb9ed54ff0e9f858ed9c22b81a978e71f67b046359ce6f93133f17f6e32",
+        "model_input_quantized_to_u8": false,
+        "model_input_tensor_samples_exact": true,
+        "mask_sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3",
+        "crop_xywh": [
+          0,
+          0,
+          1024,
+          1024
+        ],
+        "native_extent_hw": [
+          1024,
+          1024
+        ],
+        "source_preprocessor_samples_exact": true,
+        "pixel_mask_preprocessor_exact": true,
+        "source_resampled": false,
+        "selected_pixels": 22753,
+        "prompt": "Remove the people inside the selected region and their carried objects. Reconstruct the existing background naturally, preserving the scene's perspective, lighting, materials and photographic detail.",
+        "negative_prompt": "",
+        "seed": 3941,
+        "requested_steps": 4,
+        "actual_steps": 4,
+        "guidance": 1.0,
+        "verification_ms": 2830.652042059228,
+        "model_open_ms": 1185.0478339474648,
+        "inference_ms": 13675.363708054647,
+        "steps": [
+          {
+            "step": 1,
+            "scheduler_index": 0,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 4018.1129581760615,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 778464282
+          },
+          {
+            "step": 2,
+            "scheduler_index": 1,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 6914.349124999717,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 651437078
+          },
+          {
+            "step": 3,
+            "scheduler_index": 2,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 9695.49904204905,
+            "mlx_allocated_bytes": 4299794714,
+            "mlx_cache_bytes": 597959702
+          },
+          {
+            "step": 4,
+            "scheduler_index": 3,
+            "latent_shape": [
+              1,
+              4096,
+              128
+            ],
+            "elapsed_ms": 12456.587125081569,
+            "mlx_allocated_bytes": 4298746138,
+            "mlx_cache_bytes": 592708608
+          }
+        ],
+        "decoder_unclipped_range": [
+          -0.9375,
+          0.875
+        ],
+        "decoder_unclipped_sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563",
+        "prediction_sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3",
+        "result": {
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048",
+          "outside_float_bits_changed": 0,
+          "outside_u8_samples_changed": 0
+        },
+        "mlx_peak_allocated_bytes": 10264868014,
+        "process_peak_resident_bytes": 8972468224,
+        "memory_scope": "MLX allocations/cache and process RSS are distinct. Do not sum or claim a total device peak.",
+        "toolchain": {
+          "mlx": "0.32.3",
+          "mlx-gen": "0.38.0",
+          "numpy": "2.4.6",
+          "pillow": "12.3.0",
+          "transformers": "5.18.0"
+        },
+        "releaseQualified": false,
+        "input_scope": "Supplied Rust encoded f32 context; native samples reach VAE normalization without a PNG round trip. Context provenance and inverse require separate verification.",
+        "qualification": "Research model inference only. No accepted RAW edit, broad HDR/corpus, supported Mac tier or production distribution qualification.",
+        "memory_experiment": {
+          "mode": "release-small-cache",
+          "rows": [
+            {
+              "phase": "loaded",
+              "elapsed_ms": 4080.7557909283787,
+              "mlx_active_bytes": 8559746382,
+              "mlx_cache_bytes": 8616,
+              "mlx_peak_active_bytes": 8559746382,
+              "runtime_memory": {
+                "phase": "loaded",
+                "timestamp": 1791020462.656859,
+                "pid": 27202,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8559746382,
+                "mlx_peak_memory_bytes": 8559746382,
+                "mlx_cache_memory_bytes": 8616,
+                "process_rss_bytes": 8954904576,
+                "process_peak_rss_bytes": 8955576320,
+                "darwin_physical_footprint_bytes": 8931204008,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 8931204008
+              }
+            },
+            {
+              "phase": "prompt_encoded",
+              "elapsed_ms": 4287.169207818806,
+              "mlx_active_bytes": 8567620942,
+              "mlx_cache_bytes": 960848824,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "prompt_encoded",
+                "timestamp": 1791020462.86308,
+                "pid": 27202,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 8567620942,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 960848824,
+                "process_rss_bytes": 8972468224,
+                "process_peak_rss_bytes": 8972468224,
+                "darwin_physical_footprint_bytes": 10069646920,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10069646920
+              }
+            },
+            {
+              "phase": "text_encoder_released",
+              "elapsed_ms": 4347.833790816367,
+              "mlx_active_bytes": 4291790926,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9501214298,
+              "runtime_memory": {
+                "phase": "text_encoder_released",
+                "timestamp": 1791020462.921677,
+                "pid": 27202,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4291790926,
+                "mlx_peak_memory_bytes": 9501214298,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 5085724672,
+                "process_peak_rss_bytes": 8972468224,
+                "darwin_physical_footprint_bytes": 5339894704,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10069646920
+              }
+            },
+            {
+              "phase": "denoised",
+              "elapsed_ms": 16633.047790965065,
+              "mlx_active_bytes": 4297173138,
+              "mlx_cache_bytes": 594281608,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "denoised",
+                "timestamp": 1791020475.208888,
+                "pid": 27202,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 4297173138,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 594281608,
+                "process_rss_bytes": 4709154816,
+                "process_peak_rss_bytes": 8972468224,
+                "darwin_physical_footprint_bytes": 5920297688,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10069646920
+              }
+            },
+            {
+              "phase": "transformer_released",
+              "elapsed_ms": 16692.99745792523,
+              "mlx_active_bytes": 179383410,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "transformer_released",
+                "timestamp": 1791020475.2675729,
+                "pid": 27202,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 179383410,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 591691776,
+                "process_peak_rss_bytes": 8972468224,
+                "darwin_physical_footprint_bytes": 1319552896,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10069646920
+              }
+            },
+            {
+              "phase": "before_decode",
+              "elapsed_ms": 16718.5244159773,
+              "mlx_active_bytes": 179383410,
+              "mlx_cache_bytes": 0,
+              "mlx_peak_active_bytes": 9974666660,
+              "runtime_memory": {
+                "phase": "before_decode",
+                "timestamp": 1791020475.291775,
+                "pid": 27202,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 179383410,
+                "mlx_peak_memory_bytes": 9974666660,
+                "mlx_cache_memory_bytes": 0,
+                "process_rss_bytes": 591691776,
+                "process_peak_rss_bytes": 8972468224,
+                "darwin_physical_footprint_bytes": 1319552896,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10069646920
+              }
+            },
+            {
+              "phase": "after_decode",
+              "elapsed_ms": 17812.20491603017,
+              "mlx_active_bytes": 185674866,
+              "mlx_cache_bytes": 1018068994,
+              "mlx_peak_active_bytes": 10264868014,
+              "runtime_memory": {
+                "phase": "after_decode",
+                "timestamp": 1791020476.386009,
+                "pid": 27202,
+                "platform": "macOS-27.0-arm64-arm-64bit",
+                "synchronized": false,
+                "mlx_active_memory_bytes": 185674866,
+                "mlx_peak_memory_bytes": 10264868014,
+                "mlx_cache_memory_bytes": 1018068994,
+                "process_rss_bytes": 591380480,
+                "process_peak_rss_bytes": 8972468224,
+                "darwin_physical_footprint_bytes": 3897460608,
+                "errors": {},
+                "darwin_peak_physical_footprint_bytes": 10069646920
+              }
+            }
+          ],
+          "cache_limit_changed": true,
+          "explicit_cache_limit_bytes": 1000000000,
+          "peak_reset_during_inference": false,
+          "native_math_changed": false,
+          "instance_consumed": true,
+          "scope": "Synchronized phase snapshots, not a total system/device peak or supported lower-memory Mac qualification."
+        }
+      },
+      "report_record": {
+        "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003/report.json",
+        "bytes": 9740,
+        "sha256": "f4278b4629669312a4ca676701cd024ec272b8bbec5d09b93f45a7cee9f67552"
+      },
+      "log_record": {
+        "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003.log",
+        "bytes": 15081,
+        "sha256": "23d2f79fe4d1731d28c179c6d5baea610f1bf4cfe2c9c3d2a30a89d2f6d69c8f"
+      },
+      "files": [
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003/decoder-unclipped.f32",
+          "bytes": 12582912,
+          "sha256": "08830844f8c931839fd5d008a42089b869477b15032b0a601903913640c57563"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003/prediction.f32",
+          "bytes": 12582912,
+          "sha256": "b0cf09a5f8e411c141e67e748e52c80710dd8c799ee94f2f85b061d62eb7f9c3"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003/result.f32",
+          "bytes": 12582912,
+          "sha256": "508df41add86a51b12ebcd44050291d36f1df4e7afb65957c97c0244f2b56048"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003/result.png",
+          "bytes": 1195733,
+          "sha256": "3201dfc09ea2524f19ec22b3b1d6b37b1b74cd174aafe2ff8a2a130ca06e613d"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003/source.png",
+          "bytes": 1189955,
+          "sha256": "61f5a025915eee63337d5ab013074b76bd45483ab0ce472798d3cec841645453"
+        },
+        {
+          "path": "/tmp/maple-removal-klein-memory-small-cache-scene-20261003/hole.png",
+          "bytes": 2280,
+          "sha256": "118dbec747abb8f25bd398033d745efaf5e76df9c6ba74fd79d9c5eee32e70b3"
+        }
+      ],
+      "independent_checks": {
+        "byte_identical_to_original_generation": {
+          "decoder-unclipped.f32": true,
+          "prediction.f32": true,
+          "result.f32": true
+        },
+        "outside_float_bits_changed": 0,
+        "raw_decoder_finite": true,
+        "OS_process_peak_footprint_bytes": 10069646920
+      }
+    }
+  ],
+  "raw_bake": {
+    "report": {
+      "as_shot_temperature": 5241.63671875,
+      "as_shot_tint": 15.853179931640625,
+      "auto_profile_engaged": true,
+      "encoding": {
+        "low": -0.03480941980694387,
+        "span": 3.739743307597713,
+        "version": 1
+      },
+      "generation_masks": "blake3:56fcb0a9c03b3789460445000ca717bebfeeae22e6e4971383989700ec2c6f26",
+      "grades": [
+        {
+          "case": "neutral_ev-3_wb-1000",
+          "max_scene_float_error_identity": 4.581175744533539e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1053.2815
+        },
+        {
+          "case": "auto_ev-3_wb-1000",
+          "max_scene_float_error_identity": 4.581175744533539e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1053.2815
+        },
+        {
+          "case": "neutral_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.8053840398788452e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 943.195708
+        },
+        {
+          "case": "auto_ev-3_wb+0",
+          "max_scene_float_error_identity": 3.8053840398788452e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 943.195708
+        },
+        {
+          "case": "neutral_ev-3_wb+1000",
+          "max_scene_float_error_identity": 4.178844392299652e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 976.7949580000001
+        },
+        {
+          "case": "auto_ev-3_wb+1000",
+          "max_scene_float_error_identity": 4.178844392299652e-06,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 976.7949580000001
+        },
+        {
+          "case": "neutral_ev+0_wb-1000",
+          "max_scene_float_error_identity": 3.664940595626831e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1016.651417
+        },
+        {
+          "case": "auto_ev+0_wb-1000",
+          "max_scene_float_error_identity": 3.664940595626831e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1016.651417
+        },
+        {
+          "case": "neutral_ev+0_wb+0",
+          "max_scene_float_error_identity": 3.0443072319030762e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 953.54975
+        },
+        {
+          "case": "auto_ev+0_wb+0",
+          "max_scene_float_error_identity": 3.0443072319030762e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 953.54975
+        },
+        {
+          "case": "neutral_ev+0_wb+1000",
+          "max_scene_float_error_identity": 3.343075513839722e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 987.0571249999999
+        },
+        {
+          "case": "auto_ev+0_wb+1000",
+          "max_scene_float_error_identity": 3.343075513839722e-05,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 987.0571249999999
+        },
+        {
+          "case": "neutral_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0002931952476501465,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 968.76825
+        },
+        {
+          "case": "auto_ev+3_wb-1000",
+          "max_scene_float_error_identity": 0.0002931952476501465,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 968.76825
+        },
+        {
+          "case": "neutral_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0002435445785522461,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 965.818709
+        },
+        {
+          "case": "auto_ev+3_wb+0",
+          "max_scene_float_error_identity": 0.0002435445785522461,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 965.818709
+        },
+        {
+          "case": "neutral_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.00026744604110717773,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1038.389333
+        },
+        {
+          "case": "auto_ev+3_wb+1000",
+          "max_scene_float_error_identity": 0.00026744604110717773,
+          "outside_mask_max_error": 0,
+          "three_native_develops_ms": 1038.389333
+        }
+      ],
+      "max_scene_float_error_identity": 0.0002931952476501465,
+      "model_result": "blake3:a1425bf417bc136db4a9d66ece08f32dcc3e5e666e43430f78afe5b31a4b29c6",
+      "native_context": {
+        "height": 1024,
+        "width": 1024,
+        "x": 750,
+        "y": 1500
+      },
+      "original": "blake3:7846a4170e1a3aa18bc18ef20e3e4738845c26e61150f17e50ffa4beec9173c8",
+      "outside_mask_max_error": 0,
+      "plate": "LinearCalibrationV1",
+      "profile_tier": "BundleConfident",
+      "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+      "release_qualified": false
+    },
+    "report_record": {
+      "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/report.json",
+      "bytes": 4450,
+      "sha256": "2b17e1c90d619a2b66e5036c32c4d5ae8fb8e703b5b32d0d3edb7994e71c6241"
+    },
+    "outputs": [
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev+0_wb+0-removal.png",
+          "bytes": 1814382,
+          "sha256": "bb691673369db4dcd47c02b1d357c311345114c8cdf474b685e34f52c3874569"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev+0_wb+1000-removal.png",
+          "bytes": 1807516,
+          "sha256": "8730bc5487827f3df976c1244b7057a89b1665c03401c73e21bcec57a2064a50"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev+0_wb-1000-removal.png",
+          "bytes": 1838246,
+          "sha256": "7bcfcfe878b7a178fdb17035a009ebd74f388cdbd3494228a87c23f3f9ea9200"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev+3_wb+0-removal.png",
+          "bytes": 1764453,
+          "sha256": "24c7c9192978b697ef235bbdae4578c00a58264184a1648e928a1c8cd7056228"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev+3_wb+1000-removal.png",
+          "bytes": 1730972,
+          "sha256": "12078c2adc5da257c7a75dae7c4af6952ee5c9efb92979759196f52e10ae6786"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev+3_wb-1000-removal.png",
+          "bytes": 1777253,
+          "sha256": "e27743c79ba0e8d6c14fc8a1835eeed96c1fbb24d3aced03a018a34711944c34"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev-3_wb+0-removal.png",
+          "bytes": 1275887,
+          "sha256": "bcd99f5c9735e31aaec6d0e35562e47b69fcbc75561496192f8871b9ca4390db"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev-3_wb+1000-removal.png",
+          "bytes": 1271408,
+          "sha256": "0f84f03c8af996eab8479385dc5d7165d8683e308763c64acd3127f9c627f985"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/auto_ev-3_wb-1000-removal.png",
+          "bytes": 1285233,
+          "sha256": "9202a5cec9ecbf8284808b0e06184f9227c3f0afe15aeb4eaf3c66f4a44026e4"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev+0_wb+0-removal.png",
+          "bytes": 1521902,
+          "sha256": "780a88e7de7902096eaae8d3bc7b5ab26955c3c3f6a85ebaca75bf771867cff5"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev+0_wb+1000-removal.png",
+          "bytes": 1526504,
+          "sha256": "e157636f74226e35c2b65a6246bb14f6194ad34045b4f67211554c1bf1c1fe05"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev+0_wb-1000-removal.png",
+          "bytes": 1537405,
+          "sha256": "c89bbf6de31b84cf89d2fdbfd45205d146d557fa41a8136b267bf31763a2b9a9"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev+3_wb+0-removal.png",
+          "bytes": 1774233,
+          "sha256": "d362b37ad62a45e810a2d305c292718650a271bd92accdc3db96346d22f546c9"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev+3_wb+1000-removal.png",
+          "bytes": 1772466,
+          "sha256": "af716b5d744dfbe154fa71070678f4a05a24519280194c75b944eb785f4fd623"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev+3_wb-1000-removal.png",
+          "bytes": 1744648,
+          "sha256": "663c714b610f29761a3f164a48ae4bf9075ca0cae8f6425a6283506a85bc2df6"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev-3_wb+0-removal.png",
+          "bytes": 649566,
+          "sha256": "d0e6b3c109188be4a4a963cd27757dad55f81e7bd4157da2ccb581b1798aee46"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev-3_wb+1000-removal.png",
+          "bytes": 644847,
+          "sha256": "af50a809eb805ca79e14e10b79d6c0dca7225215d289b7d2f01e4df3fe09126f"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      },
+      {
+        "file": {
+          "path": "/tmp/maple-removal-klein-memory-scene-bake-20261003/neutral_ev-3_wb-1000-removal.png",
+          "bytes": 667003,
+          "sha256": "73168cd61803a75e2865f360f05ffd64f1eaced083a9fdf0277f375a20c213c0"
+        },
+        "outside_u8_samples_changed": 0,
+        "byte_identical_to_parent_bake": true
+      }
+    ],
+    "binary": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/release/examples/removal-scene-probe",
+      "bytes": 14621344,
+      "sha256": "fe5d31783c20074c21486a22380daa353cb5c12b94b566b0fd64b07b4b35a30d"
+    },
+    "scope": "Shared inverse/realfp16/cameraWB-DCP/Auto and Neutral18-grade bake only. Truth-labelled images are unedited source, not hidden-content reconstruction ground truth. No Keep/XMP/GPU/tile/export/device or ACR gate claim."
+  },
+  "original_RAW": {
+    "path": "/tmp/maple-removal-corpus/public-raws/P1010153.RW2",
+    "bytes": 19678208,
+    "sha256": "874b652b9d2605030aac18eab4a687903083ac4b8a73029a35f46c36b1f7ba82"
+  },
+  "parent_evidence": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/qualification/removal-klein-native-raw-3941.json",
+    "bytes": 63335,
+    "sha256": "424af5c2854432081dd299553e6bcde93403ff02d8e303a27e7a6272bc12e146"
+  },
+  "source_versions": {
+    "v1": [
+      {
+        "path": "/tmp/maple-removal-klein-memory-executed-v1-20261003/probe_klein_native.py",
+        "bytes": 13398,
+        "sha256": "51320e735bc5ba62774e9abedf9f237bdeb91950cd4f029ed613e50bb044b6c0"
+      },
+      {
+        "path": "/tmp/maple-removal-klein-memory-executed-v1-20261003/probe_klein_memory.py",
+        "bytes": 4914,
+        "sha256": "e52e2ace1a87084d2160f77071eed27b5c71c2ab6ef5625574790a2b61842a86"
+      }
+    ],
+    "v2": [
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_klein_native.py",
+        "bytes": 13472,
+        "sha256": "51215961496b5236b4e42e6d396d57d497af6a62a0440c6c47ba1ae46a8b37a4"
+      },
+      {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_klein_memory.py",
+        "bytes": 5830,
+        "sha256": "80165d029e5a4f6158e2dad3958869eb1ecb0f4990dcffffee109f30e12bd9a8"
+      }
+    ]
+  },
+  "current_test": {
+    "tests": 7,
+    "failures": 0,
+    "skips": 0,
+    "log": {
+      "path": "/tmp/maple-removal-klein-memory-tests-final-20261003.log",
+      "bytes": 105,
+      "sha256": "b1d201648a5e913063608760a0518a7ee5deb05ea63bd611bd8e38039da46ead"
+    },
+    "scope": "Five native float/identity guards plus two actual MLX compiled ownership and premature-release guards; does not replace real generation or Mac tier tests."
+  },
+  "next_requirements": [
+    "Physical lower-memory Mac and sustained repeated-authoring tests, reload latency/peak and app render residency.",
+    "Native reconstruction quality, overlap/protection and automatic mask closure remain unqualified.",
+    "Broad consented/correctly labeled photographic/HDR/noise/crowd corpus, fine detail and seams.",
+    "Exact conversion/transitive distribution license and signed production runtime.",
+    "Canonical accepted patch/XMP/history/live/export/portable consumer and full Apple/Web release qualification."
+  ],
+  "comparisons": [
+    {
+      "case": "paint",
+      "resident_peak_MLX_active_bytes": 23683612110,
+      "release_peak_MLX_active_bytes": 15289992366,
+      "active_peak_reduction_percent": 35.44062326732643,
+      "small_cache_peak_MLX_active_bytes": 15289992366,
+      "native_preclipped_decoder_prediction_and_composite_byte_identical": true
+    },
+    {
+      "case": "scene",
+      "resident_peak_MLX_active_bytes": 18658487758,
+      "release_peak_MLX_active_bytes": 10264868014,
+      "active_peak_reduction_percent": 44.98553072931196,
+      "small_cache_peak_MLX_active_bytes": 10264868014,
+      "native_preclipped_decoder_prediction_and_composite_byte_identical": true
+    }
+  ],
+  "paint_OS_process_footprint_comparison": {
+    "resident_peak_bytes": 25524919976,
+    "phase_release_small_cache_peak_bytes": 12367680288,
+    "reduction_percent": 51.54664422208255,
+    "scope": "Direct libproc process-footprint lifetime high-water values in fresh processes; not summed with MLX or RSS, not device total, physical16GiB support or percentile benchmark."
+  }
+}
