@@ -295,7 +295,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Covers: none
 - Accepted backends: `cpu-reference`
 - Expected cases: 796
-- Corpus: `test-fixtures/budgets.json`
+- Corpus: `test-fixtures/budgets.json`, `src/raw-pipeline/raw-core/src/color/profiles/profiles.bin`, `src/scripts/test_color_pipeline.sh`, `src/scripts/compare_images.py`, `src/scripts/acr-reference/verify_settings.py`, `src/scripts/acr-reference/write_xmp.py`
 - Record: no record
 
 ### `sidecar_contract_apple`

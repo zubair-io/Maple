@@ -495,9 +495,9 @@ jobs:
         if: steps.probe.outputs.have_script == 'true'
         run: bash tools/codegen.sh
 
-      - name: Test schema emitters
+      - name: Test schema emitters and qualification recorder
         if: steps.probe.outputs.have_script == 'true'
-        run: cargo test --release --manifest-path src/raw-pipeline/Cargo.toml -p codegen --bin codegen
+        run: cargo test --release --manifest-path src/raw-pipeline/Cargo.toml -p codegen
 
       - name: Verify no drift
         if: steps.probe.outputs.have_script == 'true'

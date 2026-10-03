@@ -34,12 +34,12 @@ set -euo pipefail
 
 check=""
 if [[ "${1:-}" == "--check" ]]; then
-  check="--check"
-  shift
+	check="--check"
+	shift
 fi
 if [[ $# -lt 4 || "$3" != "--" ]]; then
-  echo "usage: $0 [--check] <source> <backend> -- <command...>" >&2
-  exit 2
+	echo "usage: $0 [--check] <source> <backend> -- <command...>" >&2
+	exit 2
 fi
 source_id="$1"
 backend="$2"
@@ -47,8 +47,42 @@ shift 3
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="$REPO_ROOT/test-fixtures/qualification/${source_id}.json"
+BIN=""
+color_manifest_args=()
+if [[ "$source_id" == "color_harness" ]]; then
+	# An operator's alternate manifest must hash its actual inputs (#4074).
+	# Subset/alternate-budget/full-resolution diagnostics cannot stamp the
+	# canonical release qualification; run those directly through the harness.
+	if [[ -n "${FILTER:-}" || "${PREFERRED_RES:-down}" != "down" ||
+		"${BUDGETS:-$REPO_ROOT/test-fixtures/budgets.json}" != "$REPO_ROOT/test-fixtures/budgets.json" ||
+		! "${ALLOW_MISSING_BUDGET:-0}" =~ ^(0|false|False)$ ]]; then
+		echo "qualification: colour evidence requires unfiltered canonical budgets and down protocol" >&2
+		exit 2
+	fi
+	color_manifest_args=(--color-manifest "${MANIFEST:-$REPO_ROOT/test-fixtures/references/manifest.json}")
+fi
 LOG="$(mktemp "${TMPDIR:-/tmp}/qualification-${source_id}.XXXXXX")"
 trap 'rm -f "$LOG"' EXIT
+
+build_recorder() {
+	cargo build --quiet \
+		--manifest-path "$REPO_ROOT/src/raw-pipeline/Cargo.toml" \
+		-p codegen --bin qualification-record
+	BIN="$REPO_ROOT/src/raw-pipeline/target/debug/qualification-record"
+	if [[ -f "${BIN}.exe" ]]; then
+		BIN="${BIN}.exe"
+	fi
+
+}
+# Capture the measured inputs before execution. The final writer hashes again
+# and rejects a changed corpus rather than attesting to unmeasured pixels.
+if [[ "$source_id" == "color_harness" ]]; then
+	build_recorder
+	before_corpus_hash="$("$BIN" --source "$source_id" --backend "$backend" --executed 0 \
+		--repo-root "$REPO_ROOT" --out "$OUT" --print-corpus-hash \
+		${color_manifest_args[@]+"${color_manifest_args[@]}"})"
+	color_manifest_args+=(--expected-corpus-hash "$before_corpus_hash")
+fi
 
 # Shell-escaped argv: the log line and the record's `command` field show
 # the exact command executed, quoting intact (`bash -c 'cd … && …'` stays
@@ -67,74 +101,69 @@ executed=""
 failed=""
 skipped=""
 if grep -qE '^qualification: executed=[0-9]+ failed=[0-9]+ skipped=[0-9]+' "$LOG"; then
-  line="$(grep -E '^qualification: executed=' "$LOG" | tail -n 1)"
-  executed="$(sed -E 's/.*executed=([0-9]+).*/\1/' <<<"$line")"
-  failed="$(sed -E 's/.*failed=([0-9]+).*/\1/' <<<"$line")"
-  skipped="$(sed -E 's/.*skipped=([0-9]+).*/\1/' <<<"$line")"
+	line="$(grep -E '^qualification: executed=' "$LOG" | tail -n 1)"
+	executed="$(sed -E 's/.*executed=([0-9]+).*/\1/' <<<"$line")"
+	failed="$(sed -E 's/.*failed=([0-9]+).*/\1/' <<<"$line")"
+	skipped="$(sed -E 's/.*skipped=([0-9]+).*/\1/' <<<"$line")"
 elif grep -qE '^test result: ' "$LOG"; then
-  passed_sum=0
-  failed_sum=0
-  ignored_sum=0
-  while IFS= read -r line; do
-    p="$(sed -E 's/.* ([0-9]+) passed;.*/\1/' <<<"$line")"
-    f="$(sed -E 's/.* ([0-9]+) failed;.*/\1/' <<<"$line")"
-    i="$(sed -E 's/.* ([0-9]+) ignored;.*/\1/' <<<"$line")"
-    passed_sum=$((passed_sum + p))
-    failed_sum=$((failed_sum + f))
-    ignored_sum=$((ignored_sum + i))
-  done < <(grep -E '^test result: ' "$LOG")
-  executed=$((passed_sum + failed_sum))
-  failed=$failed_sum
-  skipped=$ignored_sum
+	passed_sum=0
+	failed_sum=0
+	ignored_sum=0
+	while IFS= read -r line; do
+		p="$(sed -E 's/.* ([0-9]+) passed;.*/\1/' <<<"$line")"
+		f="$(sed -E 's/.* ([0-9]+) failed;.*/\1/' <<<"$line")"
+		i="$(sed -E 's/.* ([0-9]+) ignored;.*/\1/' <<<"$line")"
+		passed_sum=$((passed_sum + p))
+		failed_sum=$((failed_sum + f))
+		ignored_sum=$((ignored_sum + i))
+	done < <(grep -E '^test result: ' "$LOG")
+	executed=$((passed_sum + failed_sum))
+	failed=$failed_sum
+	skipped=$ignored_sum
 elif grep -qE '^ *[0-9]+ pass' "$LOG"; then
-  pass="$(grep -E '^ *[0-9]+ pass' "$LOG" | tail -n 1 | sed -E 's/^ *([0-9]+) pass.*/\1/')"
-  fail="$(grep -E '^ *[0-9]+ fail' "$LOG" | tail -n 1 | sed -E 's/^ *([0-9]+) fail.*/\1/' || true)"
-  skip="$(grep -E '^ *[0-9]+ skip' "$LOG" | tail -n 1 | sed -E 's/^ *([0-9]+) skip.*/\1/' || true)"
-  executed=$((pass + ${fail:-0}))
-  failed=${fail:-0}
-  skipped=${skip:-0}
+	pass="$(grep -E '^ *[0-9]+ pass' "$LOG" | tail -n 1 | sed -E 's/^ *([0-9]+) pass.*/\1/')"
+	fail="$(grep -E '^ *[0-9]+ fail' "$LOG" | tail -n 1 | sed -E 's/^ *([0-9]+) fail.*/\1/' || true)"
+	skip="$(grep -E '^ *[0-9]+ skip' "$LOG" | tail -n 1 | sed -E 's/^ *([0-9]+) skip.*/\1/' || true)"
+	executed=$((pass + ${fail:-0}))
+	failed=${fail:-0}
+	skipped=${skip:-0}
 elif grep -qE 'Executed [0-9]+ tests?, with [0-9]+ failures?' "$LOG"; then
-  line="$(grep -E 'Executed [0-9]+ tests?, with [0-9]+ failures?' "$LOG" | tail -n 1)"
-  executed="$(sed -E 's/.*Executed ([0-9]+) tests?, with ([0-9]+) failures?.*/\1/' <<<"$line")"
-  failed="$(sed -E 's/.*Executed ([0-9]+) tests?, with ([0-9]+) failures?.*/\2/' <<<"$line")"
-  # XCTest counts a skipped test inside "Executed" and reports it as
-  # `Test Case '-[Suite test]' skipped (0.001 seconds).` — count only those
-  # per-case lines (not suite-level or reason text), and never let the
-  # subtraction go negative: a skip is not evidence.
-  skipped="$(grep -cE "^Test Case '.*' skipped \(" "$LOG" || true)"
-  skipped=${skipped:-0}
-  if [[ "$skipped" -gt "$executed" ]]; then
-    echo "qualification: parsed more skipped ($skipped) than executed ($executed) tests — refusing to write an invalid record" >&2
-    exit 2
-  fi
-  executed=$((executed - skipped))
+	line="$(grep -E 'Executed [0-9]+ tests?, with [0-9]+ failures?' "$LOG" | tail -n 1)"
+	executed="$(sed -E 's/.*Executed ([0-9]+) tests?, with ([0-9]+) failures?.*/\1/' <<<"$line")"
+	failed="$(sed -E 's/.*Executed ([0-9]+) tests?, with ([0-9]+) failures?.*/\2/' <<<"$line")"
+	# XCTest counts a skipped test inside "Executed" and reports it as
+	# `Test Case '-[Suite test]' skipped (0.001 seconds).` — count only those
+	# per-case lines (not suite-level or reason text), and never let the
+	# subtraction go negative: a skip is not evidence.
+	skipped="$(grep -cE "^Test Case '.*' skipped \(" "$LOG" || true)"
+	skipped=${skipped:-0}
+	if [[ "$skipped" -gt "$executed" ]]; then
+		echo "qualification: parsed more skipped ($skipped) than executed ($executed) tests — refusing to write an invalid record" >&2
+		exit 2
+	fi
+	executed=$((executed - skipped))
 else
-  echo "qualification: could not find a recognised summary line in the suite output" >&2
-  exit 2
+	echo "qualification: could not find a recognised summary line in the suite output" >&2
+	exit 2
 fi
 echo "qualification: parsed executed=$executed failed=$failed skipped=$skipped"
 
 # ---- stamp + write / check ------------------------------------------------
-cargo build --quiet \
-  --manifest-path "$REPO_ROOT/src/raw-pipeline/Cargo.toml" \
-  -p codegen --bin qualification-record
-BIN="$REPO_ROOT/src/raw-pipeline/target/debug/qualification-record"
-if [[ -f "${BIN}.exe" ]]; then
-  BIN="${BIN}.exe"
-fi
+if [[ -z "${BIN:-}" ]]; then build_recorder; fi
 
 git_sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "")"
 recorded_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 "$BIN" \
-  --source "$source_id" \
-  --backend "$backend" \
-  --executed "$executed" \
-  --failed "$failed" \
-  --skipped "$skipped" \
-  --repo-root "$REPO_ROOT" \
-  --out "$OUT" \
-  --git-sha "$git_sha" \
-  --recorded-at "$recorded_at" \
-  --command "$command_text" \
-  $check
+	--source "$source_id" \
+	--backend "$backend" \
+	--executed "$executed" \
+	--failed "$failed" \
+	--skipped "$skipped" \
+	--repo-root "$REPO_ROOT" \
+	--out "$OUT" \
+	--git-sha "$git_sha" \
+	--recorded-at "$recorded_at" \
+	--command "$command_text" \
+	${color_manifest_args[@]+"${color_manifest_args[@]}"} \
+	$check
