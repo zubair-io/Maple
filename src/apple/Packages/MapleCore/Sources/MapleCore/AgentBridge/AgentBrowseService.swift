@@ -31,34 +31,14 @@ enum AgentBrowseService {
         code: "browse_unavailable",
         message: "Maple is not currently browsing a library or folder.")
     }
-    let offset: Int
-    if let offsetVal = arguments["offset"]?.numberValue {
-      guard offsetVal.rounded() == offsetVal, offsetVal >= 0 else {
-        throw AgentError(
-          code: "invalid_arguments",
-          message: "`offset` must be a non-negative integer.")
-      }
-      offset = Int(offsetVal)
-    } else {
-      offset = 0
-    }
-    let limit: Int
-    if let limitVal = arguments["limit"]?.numberValue {
-      guard limitVal.rounded() == limitVal, (1...100).contains(Int(limitVal)) else {
-        throw AgentError(
-          code: "invalid_arguments",
-          message: "`limit` must be an integer between 1 and 100.")
-      }
-      limit = Int(limitVal)
-    } else {
-      limit = 50
-    }
+    let offset = try integer(arguments, key: "offset", range: 0...Int.max, defaultValue: 0)
+    let limit = try integer(arguments, key: "limit", range: 1...100, defaultValue: 50)
 
     let allAssets = delegate.browseAssets
     let totalCount = allAssets.count
     let slice: ArraySlice<AssetRef>
     if offset < totalCount {
-      slice = allAssets[offset..<min(offset + limit, totalCount)]
+      slice = allAssets[offset..<(offset + min(limit, totalCount - offset))]
     } else {
       slice = []
     }
@@ -117,17 +97,7 @@ enum AgentBrowseService {
         code: "invalid_arguments",
         message: "`asset_ids` cannot contain more than 20 photo IDs at once.")
     }
-    let maxEdge: Int
-    if let maxEdgeVal = arguments["max_edge"]?.numberValue {
-      guard maxEdgeVal.rounded() == maxEdgeVal, (256...1024).contains(Int(maxEdgeVal)) else {
-        throw AgentError(
-          code: "invalid_arguments",
-          message: "`max_edge` must be an integer between 256 and 1024.")
-      }
-      maxEdge = Int(maxEdgeVal)
-    } else {
-      maxEdge = 512
-    }
+    let maxEdge = try integer(arguments, key: "max_edge", range: 256...1024, defaultValue: 512)
 
     var images: [AgentImage] = []
     var thumbnailsMeta: [JSONValue] = []
@@ -184,15 +154,8 @@ enum AgentBrowseService {
         code: "invalid_arguments",
         message: "`asset_id` must be a valid photo UUID.")
     }
-    guard let ratingNum = arguments["rating"]?.numberValue,
-      ratingNum.rounded() == ratingNum,
-      (0...5).contains(Int(ratingNum))
-    else {
-      throw AgentError(
-        code: "invalid_arguments",
-        message: "`rating` must be an integer between 0 and 5.")
-    }
-    let rating = Int(ratingNum)
+    let rating = try integer(arguments, key: "rating", range: 0...5)
+
     guard let asset = delegate.browseAssets.first(where: { $0.id == uuid }) else {
       throw AgentError(
         code: "asset_not_found",
@@ -284,6 +247,21 @@ enum AgentBrowseService {
         message: "No photo found with ID `\(idStr)` in the active collection.")
     }
     return try await delegate.openPhoto(assetID: uuid)
+  }
+
+  private static func integer(
+    _ arguments: [String: JSONValue], key: String, range: ClosedRange<Int>,
+    defaultValue: Int? = nil
+  ) throws -> Int {
+    if arguments[key] == nil, let defaultValue { return defaultValue }
+    guard let value = arguments[key]?.numberValue, let integer = Int(exactly: value),
+      range.contains(integer)
+    else {
+      throw AgentError(
+        code: "invalid_arguments",
+        message: "`\(key)` must be an integer between \(range.lowerBound) and \(range.upperBound).")
+    }
+    return integer
   }
 
   static func cullingState(
