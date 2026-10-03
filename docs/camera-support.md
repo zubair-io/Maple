@@ -61,13 +61,14 @@ The order `color::dcp::profile_for_with_source` tries its branches, best evidenc
 
 ## Fixtured bodies
 
-Every camera Maple holds a physical file for. No other body can reach `qualified`, because no other body has anything to measure.
+Every camera Maple holds a physical file for. No other body can reach `qualified`, because no other body has anything to measure. Each fixture digest identifies the exact reviewed sample bytes; fixture validation rejects a different sample under the same filename before decoding it (#4080). These identities do not supply missing measurement-run evidence or the fixed C-suite requirements tracked by #2440 and #2439.
 
 ### Canon EOS 5D Mark III
 
 - Tier: **profiled**
 - Lookup key: `Canon EOS 5D Mark III`
 - Fixture: `test_0006.DNG`
+- Fixture digest: `blake3:3bb09ec615751cebb9d5a12ff343bdf742c4ad10b58c3da675f55a8bd0f26978`
 - Profile resolution: `embedded_full`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -78,6 +79,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Canon EOS 5D Mark IV`
 - Fixture: `test_0009.CR2`
+- Fixture digest: `blake3:6dfa394ef79f8e4ccbc18ba44623534785a8e173dc13bbffe78d1c667004add8`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -88,6 +90,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Canon EOS 5DS R`
 - Fixture: `test_0003.CR2`
+- Fixture digest: `blake3:6d0c97a5fc810dc89d8ced77b4abf9edcd1aa422b7f7ba9a471f9ce055df6703`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -98,6 +101,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Fujifilm GFX 50R`
 - Fixture: `test_0012.raf`
+- Fixture digest: `blake3:1d10d338c8536257f01defa7a7595cc122def250fffb6d8de76a32e153b27229`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -108,6 +112,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Fujifilm GFX 50S`
 - Fixture: `test_0005.RAF`
+- Fixture digest: `blake3:b79a13398f1442e3fb2e56ce2d3c803a0fc811906c9dbe519c98116d75d61857`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -118,6 +123,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Fujifilm X-T3`
 - Fixture: `test_0008.RAF`
+- Fixture digest: `blake3:318b17b8aa59e87fb56dbcce49b26315cc4ba59cd7b8e21868b854bb6ead5fff`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -128,6 +134,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Google Pixel 6 Pro`
 - Fixture: `test_0015.dng`
+- Fixture digest: `blake3:7a1b8b7cb6d181339d68e80aaded7e3c84675cfe90b644955725cc95df38c152`
 - Profile resolution: `bundle_confident`
 - Lens: `embedded_correction`
 - Qualification evidence:
@@ -138,6 +145,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Hasselblad H2D-39`
 - Fixture: `test_0002.dng`
+- Fixture digest: `blake3:220c6f28339dd600e1f7eea7ee9ee85be4ebee3e3ade7d74275c08d85f53b61c`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -148,6 +156,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **decode_only**
 - Lookup key: `Hasselblad H5D-40`
 - Fixture: `test_0004.fff`
+- Fixture digest: `blake3:890012a018f8ae950d449cd7828e6de999ac786e7d8ccc3cf56ac82c5c566ded`
 - Profile resolution: `rawler_fallback`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -158,6 +167,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Hasselblad L3D-100c`
 - Fixture: `test_0000.DNG`
+- Fixture digest: `blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107`
 - Profile resolution: `bundle_confident`
 - Lens: `embedded_correction`
 - Qualification evidence:
@@ -168,6 +178,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `LEICA M10`
 - Fixture: `test_0017.dng`
+- Fixture digest: `blake3:030ce28a7ba895d7f816b4eac19eec2febb9b1b52f4ee151395ee08a0c0cb714`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -178,6 +189,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Nikon D850`
 - Fixture: `test_0014.NEF`
+- Fixture digest: `blake3:bd88324bf65124db228f187018ef59ed7684ea79c9bfcf3c5d2c0eabe157bb8c`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -188,6 +200,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Panasonic DMC-LX2`
 - Fixture: `test_0001.RAW`
+- Fixture digest: `blake3:5adffbb3b5be7db37e5ae87a11d0f9918d7d0ca93b61fff89d1e63572ff04031`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -198,6 +211,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **unsupported**
 - Lookup key: `Sigma Foveon X3F`
 - Fixture: `test_0016.X3F`
+- Fixture digest: `blake3:125210865382458bef10a5d312e7eefbbb801c4d2567a3780eae0d2c826f46f4`
 - Profile resolution: `decode_failed`
 - Lens: `no_correction_data`
 - Qualification evidence: none declared
@@ -207,6 +221,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `Sony ILCE-7RM4`
 - Fixture: `test_0011.ARW`
+- Fixture digest: `blake3:3aef6986a8f81a0bed55c134c5e1758ecf3f7ccaf072bb7439191b7ddbda4663`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:
@@ -217,6 +232,7 @@ Every camera Maple holds a physical file for. No other body can reach `qualified
 - Tier: **profiled**
 - Lookup key: `iPhone13,3 back camera`
 - Fixture: `test_0013.DNG`
+- Fixture digest: `blake3:823db2fb2d3d9c8e01c501e20f399a2aab62342da2ee5c39b125e2e2e1bba61b`
 - Profile resolution: `bundle_confident`
 - Lens: `no_correction_data`
 - Qualification evidence:

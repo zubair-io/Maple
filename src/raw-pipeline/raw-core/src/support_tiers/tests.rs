@@ -50,6 +50,11 @@ fn every_fixtured_body_declares_a_distinct_fixture() {
         "two entries claim the same fixture file"
     );
     for body in FIXTURED_BODIES {
+        let digest = body.fixture_digest.strip_prefix("blake3:").unwrap();
+        assert_eq!(digest.len(), 64, "{} has an invalid digest", body.fixture);
+        assert!(digest
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
         assert!(!body.key.is_empty(), "{} has an empty key", body.fixture);
         assert!(
             !body.display_name.is_empty(),
@@ -229,6 +234,7 @@ fn indistinguishable_bodies_collapse_to_the_worst() {
         key: "Acme Shared Body",
         display_name: "Acme, firmware 1.0",
         fixture: "synthetic_a.dng",
+        fixture_digest: FIXTURED_BODIES[0].fixture_digest,
         resolution: ProfileResolution::BundleConfident,
         lens: LensSupport::NoCorrectionData,
         qualification: &[EvidenceSource::ColorHarness],
