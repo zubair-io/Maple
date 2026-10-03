@@ -7,7 +7,7 @@ import XCTest
 @MainActor
 final class SMBWorkflowAcceptanceTests: EditorTestCase {
   func testConnectedEditorHistorySnapshotsVariantsReopenAndExportPreserveOriginal() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     let ref = try await fixture.image()
     let session = editor(fixture.source, ref)
     await session.loadSidecar()

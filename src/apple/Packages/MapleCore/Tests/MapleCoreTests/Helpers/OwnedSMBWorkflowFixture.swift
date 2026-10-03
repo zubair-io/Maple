@@ -12,12 +12,14 @@ final class OwnedSMBWorkflowFixture {
   let original: Data
   let source = SMBSource()
   let credentials: SMBSource.Credentials
+  private let diagnostics: OwnedSMBDiagnostics
   private let process = Process()
   private let input = Pipe()
   private var termination: Task<Void, Never>?
   private let output: FileHandle
 
-  private init(initialXML: String?) throws {
+  private init(testCase: XCTestCase, initialXML: String?) throws {
+    diagnostics = OwnedSMBDiagnostics(testCase: testCase)
     let files = try NativeWorkflowControlFixture.files()
     defer { try? FileManager.default.removeItem(at: files.directory) }
     // Samba uses UNIX-domain sockets; macOS limits their paths to 104 bytes.
@@ -94,7 +96,7 @@ final class OwnedSMBWorkflowFixture {
     }
     process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = [
-      "-F", "--no-process-group", "--debug-stdout", "-d", "3", "-s", config.path,
+      "-F", "--no-process-group", "--debug-stdout", "-d", "10", "-s", config.path,
     ]
     process.standardOutput = output
     process.standardError = output
@@ -102,52 +104,62 @@ final class OwnedSMBWorkflowFixture {
     process.standardInput = input
   }
 
-  static func open(initialXML: String? = NativeWorkflowControlFixture.input()) async throws
+  static func open(testCase: XCTestCase, initialXML: String? = NativeWorkflowControlFixture.input())
+    async throws
     -> OwnedSMBWorkflowFixture
   {
-    let fixture = try OwnedSMBWorkflowFixture(initialXML: initialXML)
+    let fixture = try OwnedSMBWorkflowFixture(testCase: testCase, initialXML: initialXML)
     let exit = AsyncStream<Void>.makeStream()
     fixture.process.terminationHandler = { _ in exit.continuation.finish() }
     fixture.termination = Task { for await _ in exit.stream {} }
     do { try fixture.process.run() } catch {
       exit.continuation.finish()
+      fixture.diagnostics.record(error)
       throw error
     }
     let deadline = Date().addingTimeInterval(15)
     while fixture.process.isRunning {
       do {
         try await fixture.source.connect(credentials: fixture.credentials)
+        // Keep diagnostics alive until XCTest records an unexpected thrown failure.
+        testCase.addTeardownBlock { await fixture.close() }
         return fixture
       } catch {
-        guard Date() < deadline else { throw error }
+        guard Date() < deadline else {
+          await fixture.close(error: error)
+          throw error
+        }
         try await Task.sleep(for: .milliseconds(100))
       }
     }
     let log = try String(
       contentsOf: fixture.directory.appendingPathComponent("server.log"), encoding: .utf8)
-    throw WorkflowSidecarError(
+    let error = WorkflowSidecarError(
       message: "Owned Samba exited (\(fixture.process.terminationStatus)): \(log)")
+    await fixture.close(error: error)
+    throw error
   }
 
   func image() async throws -> ImageRef {
     let images = try await source.images()
     return try XCTUnwrap(images.first { $0.displayName == "photo.dng" })
   }
-  func close() async {
+  func close(error: Error? = nil) async {
+    if let error { diagnostics.record(error) }
     await source.disconnect()
     if process.isRunning {
       process.terminate()
     }
     await termination?.value
     try? output.close()
-    try? FileManager.default.removeItem(at: directory)
+    if !diagnostics.preserve(directory) { try? FileManager.default.removeItem(at: directory) }
   }
   deinit {
     if process.isRunning {
       process.terminate()
     }
     try? output.close()
-    try? FileManager.default.removeItem(at: directory)
+    if !diagnostics.preserve(directory) { try? FileManager.default.removeItem(at: directory) }
   }
 
   private static func unusedPort() throws -> UInt16 {

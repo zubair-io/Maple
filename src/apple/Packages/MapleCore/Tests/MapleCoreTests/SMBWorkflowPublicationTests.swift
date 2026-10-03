@@ -5,7 +5,7 @@ import XCTest
 
 final class SMBWorkflowPublicationTests: XCTestCase {
   func testConcurrentHandleAdoptionReadCloseAndPublicationPreservesOriginalAndXmp() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     do {
       let ref = try await fixture.image()
       let store = SMBSidecarStore(source: fixture.source, ref: ref)
@@ -46,13 +46,13 @@ final class SMBWorkflowPublicationTests: XCTestCase {
       XCTAssertEqual(try Data(contentsOf: fixture.raw), original)
       await fixture.close()
     } catch {
-      await fixture.close()
+      await fixture.close(error: error)
       throw error
     }
   }
 
   func testSemanticConflictFailsWithoutNetworkBackoff() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     let ref = try await fixture.image()
     let store = SMBSidecarStore(source: fixture.source, ref: ref)
     let loaded = try await store.load()
@@ -74,7 +74,7 @@ final class SMBWorkflowPublicationTests: XCTestCase {
     } catch let error as WorkflowSidecarError {
       XCTAssertTrue(error.localizedDescription.contains("Refresh"))
     } catch {
-      await fixture.close()
+      await fixture.close(error: error)
       throw error
     }
     // The old network retry loop slept one + two seconds for this conflict.
@@ -87,7 +87,7 @@ final class SMBWorkflowPublicationTests: XCTestCase {
   }
 
   func testConnectedClientPublicationCapabilities() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open(initialXML: nil)
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self, initialXML: nil)
     let source = fixture.source
     let connected = await source.client
     let client = try XCTUnwrap(connected)
