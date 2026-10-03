@@ -93,6 +93,12 @@ export function buildGroupPatch(
   // Web-only extensions carried alongside a schema-generated group but not
   // part of `GeneratedAdjustmentModel` itself — see module doc.
   if (selected.has('white_balance')) {
+    // Absolute copy preserves a validated source, including camera/legacy
+    // pairs outside today's slider range. Only relative target corrections
+    // use those bounds; clamping here changes the source's rendered colour (#4067).
+    if (Number.isFinite(source.temperature) && source.temperature > 0)
+      patch.temperature = source.temperature;
+    if (Number.isFinite(source.tint)) patch.tint = source.tint;
     patch.whiteBalancePreset = source.whiteBalancePreset;
     patch.wbScaleVersion = source.wbScaleVersion;
     patch.wbSampleX = 0;

@@ -123,6 +123,32 @@ describe('buildGroupPatch', () => {
     expect(patch.wbScaleVersion).toBe(5);
   });
 
+  it.each([1, 5])(
+    'absolute WB preserves an existing camera pair at scale %s (#4067)',
+    (version) => {
+      const source = {
+        ...defaultAdjustmentModel(),
+        temperature: 7050,
+        tint: 180,
+        whiteBalancePreset: 'Custom' as const,
+        wbSource: 'Manual' as const,
+        wbScaleVersion: version,
+        wbSampleX: 0.25,
+        wbSampleY: 0.75,
+        wbAlgorithmVersion: 1,
+      };
+      expect(buildGroupPatch(source, ['white_balance'])).toMatchObject({
+        temperature: 7050,
+        tint: 180,
+        wbScaleVersion: version,
+        wbSource: 'Manual',
+        wbSampleX: 0,
+        wbSampleY: 0,
+        wbAlgorithmVersion: 0,
+      });
+    },
+  );
+
   it('omits whiteBalancePreset/wbScaleVersion when white_balance is not selected', () => {
     const source = defaultAdjustmentModel();
     source.whiteBalancePreset = 'Daylight';
