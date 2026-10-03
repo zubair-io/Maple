@@ -81,10 +81,11 @@ final class PhotographicRemovalGroupTests: XCTestCase {
       let context = try XCTUnwrap(removal.context)
       XCTAssertEqual([context.width, context.height], [6000, 4000])
       XCTAssertEqual(removal.detectedPersonMasks.count, removal.people.count)
+      let detectedMasks = removal.detectedPersonMasks
       let detected = removal.people.map { person -> [String: Any] in
         [
           "id": person.id, "role": person.role.label, "keep": person.keep,
-          "bounds": person.detection.bounds,
+          "bounds": person.detection.bounds, "score": person.detection.score,
         ]
       }
       let engine = NativeRemovalEditorEngine()
@@ -151,10 +152,22 @@ final class PhotographicRemovalGroupTests: XCTestCase {
         try Data(image.bytes).write(to: evidence.appendingPathComponent("\(name).rgb8"))
       }
       for (name, bytes) in assets { try bytes.write(to: evidence.appendingPathComponent(name)) }
+      // Preserve the actual masks before kept-instance protection clips them.
+      // Pairwise ownership/duplicate diagnostics must use these inputs, not
+      // reconstruct selections from detector rectangles or accepted hole masks.
+      for person in detectedMasks {
+        try person.mask.write(to: evidence.appendingPathComponent("detected-\(person.id).mimf"))
+      }
       try Data(contentsOf: sidecar).write(to: evidence.appendingPathComponent("photo.xmp"))
       let report: [String: Any] = [
         "source": try JSONSerialization.jsonObject(with: Data(context.source.utf8)),
         "detected": detected, "selected": selected, "requests": requests,
+        "detectedMasks": try detectedMasks.map {
+          [
+            "id": $0.id, "file": "detected-\($0.id).mimf",
+            "digest": try RemovalBridge.digest($0.mask),
+          ] as [String: Any]
+        },
         "removeElapsed": removeElapsed, "reviewSize": [review.width, review.height],
         "preparationElapsed": preparationElapsed,
         "protectionReview": conflicts.map {

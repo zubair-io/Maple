@@ -1,0 +1,111 @@
+{
+  "issue": 3941,
+  "engineeringIssue": 3984,
+  "epic": 1472,
+  "recordedAt": "2026-10-03T23:55:37.513921+00:00",
+  "headBeforeCommit": "32d212d4264b5fab17a1ea7671ebeef3f3e9d84c",
+  "releaseQualified": false,
+  "scope": "Measured retained pre-protection native photographic detector/SAM masks; original and every retained mask validated against native content digests. No shipping role or deduplication policy change.",
+  "nativeTest": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-instance-ownership-tests-20261003.log",
+      "sha256": "4f587d7d02764ca4a2093669ecb5a6c4513cd2346ba3de51c602b38b1c547045",
+      "bytes": 5379
+    },
+    "report": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/A135F700-55C0-4313-9E37-EC6A778F2BE4/report.json",
+      "sha256": "18b2c129a9ea0c8405c9afb6da5ee78192c6ff9448abf026dcede78111e5ce3f",
+      "bytes": 12774
+    }
+  },
+  "audit": {
+    "report": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-instance-overlap-20261003.json",
+      "sha256": "47119488c4552d287c8dd43e8ffa8ad87990c0df9e1e9b355f084583b7c89642",
+      "bytes": 9663
+    },
+    "sourceWH": [6000, 4000],
+    "originalSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+    "instanceCount": 15,
+    "overlappingPairs": [
+      {
+        "first": 1,
+        "second": 8,
+        "commonPixels": 9364,
+        "firstCoveredFraction": 0.01142819483583259,
+        "secondCoveredFraction": 0.48350286569938555,
+        "maskIoU": 0.011290361474836625
+      },
+      {
+        "first": 3,
+        "second": 15,
+        "commonPixels": 986794,
+        "firstCoveredFraction": 0.9832513454025147,
+        "secondCoveredFraction": 0.9040797442028786,
+        "maskIoU": 0.8903680324533362
+      },
+      {
+        "first": 5,
+        "second": 13,
+        "commonPixels": 148132,
+        "firstCoveredFraction": 0.480042517199698,
+        "secondCoveredFraction": 0.9600383673151953,
+        "maskIoU": 0.4706383222079956
+      },
+      {
+        "first": 9,
+        "second": 11,
+        "commonPixels": 44941,
+        "firstCoveredFraction": 0.9916591275182595,
+        "secondCoveredFraction": 0.5374689054726368,
+        "maskIoU": 0.5350501226278067
+      },
+      {
+        "first": 10,
+        "second": 15,
+        "commonPixels": 101568,
+        "firstCoveredFraction": 0.9645400847087425,
+        "secondCoveredFraction": 0.09305444850617046,
+        "maskIoU": 0.09273719348735966
+      }
+    ],
+    "selectedHat": {
+      "id": 10,
+      "score": 0.6495658755302429,
+      "maskPixels": 105302,
+      "keptInstance": 15,
+      "protectedPixels": 101568,
+      "protectedFraction": 0.9645400847087425,
+      "remainingPixels": 3734
+    },
+    "blueCoat": {
+      "id": 6,
+      "score": 0.8565353155136108,
+      "role": "Uncertain",
+      "maskPixels": 95543,
+      "overlappingMaskIDs": [],
+      "boxPolicyFinding": "Source boxes 1 and6 intersect, but their actual retained SAM masks share no active pixels. The shared box-based uncertainty rule prevents the size/confidence-based background suggestion."
+    }
+  },
+  "refusalControls": [
+    {
+      "case": "wrong original bytes",
+      "rejectedBeforeOutput": true,
+      "reason": "RAW differs from native report anchor"
+    },
+    {
+      "case": "retained mask byte changed",
+      "rejectedBeforeOutput": true,
+      "reason": "mask digest differs from native report"
+    }
+  ],
+  "limitations": [
+    "Pixel overlap alone does not prove distinct-person ownership, semantic duplicate detection, missed object closure or background intent.",
+    "The actual crowd still has zero automatically selected background people. Current photographic reconstruction remains unqualified.",
+    "No new shipping threshold, auto mask dilation, model or automatic deduplication is introduced."
+  ],
+  "next": "Use actual-mask overlap to qualify background-role/protection decisions, including true occlusion and duplicate/partial-instance cases, before changing shared automatic policy."
+}
