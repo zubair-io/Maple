@@ -15,7 +15,7 @@ class QualificationParityTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.work = Path(self.temp.name)
         (self.work / "cpu").mkdir()
-        self.exported = self.work / "production export [one].tiff"
+        self.exported = self.work / "production export [one] Å_日本.tiff"
         for path in (
             self.work / "app-frame.png",
             self.work / "ref-frame.png",
@@ -23,7 +23,8 @@ class QualificationParityTests(unittest.TestCase):
         ):
             Image.new("RGB", (16, 12), (100, 120, 140)).save(path)
         (self.work / "cpu" / "export-result.json").write_text(
-            json.dumps({"output": str(self.exported)})
+            json.dumps({"output": str(self.exported)}, ensure_ascii=False),
+            encoding="utf-8",
         )
 
     def run_driver(self, *args):
@@ -35,13 +36,17 @@ class QualificationParityTests(unittest.TestCase):
             check=False,
         )
 
-    def test_equal_images_with_space_and_bracket_paths_pass(self):
+    def test_equal_images_with_space_bracket_and_unicode_paths_pass(self):
         result = self.run_driver()
         self.assertEqual(result.returncode, 0, result.stderr)
-        verdict = json.loads((self.work / "parity-verdict.json").read_text())
+        verdict = json.loads(
+            (self.work / "parity-verdict.json").read_text(encoding="utf-8")
+        )
         self.assertEqual(verdict["mean_budget"], 2.0)
         for name in ("preview", "export", "preview-export"):
-            metric = json.loads((self.work / f"{name}-diff.json").read_text())
+            metric = json.loads(
+                (self.work / f"{name}-diff.json").read_text(encoding="utf-8")
+            )
             self.assertEqual(metric["mean_deltaE"], 0)
             self.assertEqual(metric["n_pixels"], 192)
             self.assertFalse(verdict[name.replace("-", "_") + "_parity_failed"])
@@ -50,7 +55,9 @@ class QualificationParityTests(unittest.TestCase):
         Image.new("RGB", (16, 12), "red").save(self.work / "app-frame.png")
         result = self.run_driver()
         self.assertEqual(result.returncode, 1, result.stderr)
-        verdict = json.loads((self.work / "parity-verdict.json").read_text())
+        verdict = json.loads(
+            (self.work / "parity-verdict.json").read_text(encoding="utf-8")
+        )
         self.assertTrue(verdict["preview_parity_failed"])
         self.assertTrue(verdict["preview_export_parity_failed"])
         self.assertFalse(verdict["export_parity_failed"])
