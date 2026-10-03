@@ -16,6 +16,48 @@ fn fixture() -> Vec<u8> {
 }
 
 #[test]
+fn png_original_routes_to_canonical_raster_export_without_raw_decode() {
+    let pixels = image::RgbImage::from_fn(32, 24, |x, y| {
+        image::Rgb([((x * 7) % 255) as u8, ((y * 9) % 255) as u8, 91])
+    });
+    let mut bytes = Cursor::new(Vec::new());
+    pixels
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let original = bytes.into_inner();
+    assert!(decode_bytes(&original, "png").is_err());
+    let model = AdjustmentModel {
+        exposure: 0.7,
+        ..Default::default()
+    };
+    let recipe = ExportRecipe {
+        format: "png".into(),
+        quality: None,
+        max_long_edge: Some(16),
+        ..Default::default()
+    };
+    let options = recipe.options().unwrap();
+    let (width, height, reference) = crate::pipeline::render_export_raster(
+        &original,
+        &model,
+        options.max_long_edge,
+        options.target,
+        crate::pipeline::ExportDepth::Eight,
+        None,
+    )
+    .unwrap();
+    let expected = crate::export::encode_pixels(width, height, reference, &options).unwrap();
+    let output = export_bytes_with_recipe(&original, "png", &model, &recipe, None).unwrap();
+    assert_eq!(output.bytes, expected.bytes);
+    let decoded = image::load_from_memory(&output.bytes).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (16, 12));
+    assert_eq!(
+        image::guess_format(&original).unwrap(),
+        image::ImageFormat::Png
+    );
+}
+
+#[test]
 fn recipes_render_real_raw_pixels_with_exact_profile_and_without_source_metadata() {
     let bytes = metadata_fixture::with_source_metadata(fixture());
     metadata_fixture::assert_source_metadata(&bytes);

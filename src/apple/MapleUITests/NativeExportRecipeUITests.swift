@@ -23,9 +23,12 @@ import XCTest
       app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = root.path
       app.launch()
       defer { app.terminate() }
-      let share = app.buttons["editor-share"]
-      XCTAssertTrue(share.waitForExistence(timeout: 30))
+      let more = app.buttons["editor-more"]
+      XCTAssertTrue(more.waitForExistence(timeout: 30))
       attach(app, name: "Focused image before recipe export")
+      more.tap()
+      let share = app.menuItems["Share / Export…"]
+      XCTAssertTrue(share.waitForExistence(timeout: 5))
       share.tap()
       let recipes = app.buttons["export-open-recipes"]
       XCTAssertTrue(recipes.waitForExistence(timeout: 10))

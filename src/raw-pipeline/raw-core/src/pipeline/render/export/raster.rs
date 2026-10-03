@@ -1,4 +1,4 @@
-//! Edited JPEG/TIFF export (#3891), using the existing non-RAW live chain.
+//! Edited JPEG/PNG/TIFF export (#3891), using the existing non-RAW live chain.
 //! No AgX or camera Auto Profile is applied to already tone-mapped pixels.
 use super::{finish_eight, finish_sixteen, ExportDepth, ExportPixels};
 use crate::{
@@ -64,9 +64,9 @@ fn decode(bytes: &[u8]) -> Result<(Image, ExifOrientation)> {
         .map_err(|e| unsupported(&e.to_string()))?;
     if !matches!(
         reader.format(),
-        Some(image::ImageFormat::Jpeg | image::ImageFormat::Tiff)
+        Some(image::ImageFormat::Jpeg | image::ImageFormat::Png | image::ImageFormat::Tiff)
     ) {
-        return Err(unsupported("only JPEG and TIFF inputs are supported"));
+        return Err(unsupported("only JPEG, PNG and TIFF inputs are supported"));
     }
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(crate::raster::MAX_BITMAP_DECODE_BYTES);
