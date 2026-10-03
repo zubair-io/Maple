@@ -29,7 +29,7 @@ public final class EditorWorkflowState {
   }
 
   public func reload(session: EditSession) async {
-    guard !isBusy else { return }
+    guard !isBusy, !session.isSavingRemoval else { return }
     session.endEdit()
     isBusy = true
     generation &+= 1
@@ -60,7 +60,7 @@ public final class EditorWorkflowState {
   }
 
   public func saveSnapshot(name: String, session: EditSession) async {
-    guard !isBusy else { return }
+    guard !isBusy, !session.isSavingRemoval else { return }
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
       errorText = "Enter a snapshot name."
@@ -138,7 +138,8 @@ public final class EditorWorkflowState {
   }
 
   public func confirmRestore(session: EditSession) async {
-    guard !isBusy, case .restore(_, let entry) = pending, let command = pending,
+    guard !isBusy, !session.isSavingRemoval, case .restore(_, let entry) = pending,
+      let command = pending,
       let before = beforeCheckpoint
     else { return }
     session.endEdit()
@@ -193,7 +194,7 @@ public final class EditorWorkflowState {
   }
 
   func beginReplay(session: EditSession, transaction: EditTransaction, undo: Bool) {
-    guard !isBusy else { return }
+    guard !isBusy, !session.isSavingRemoval else { return }
     isBusy = true
     let current = generation
     task = Task {

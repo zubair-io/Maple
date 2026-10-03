@@ -97,8 +97,8 @@ extension EditSession {
   /// while its asynchronous commit is in flight. Chrome observes the busy
   /// flag; this guard also protects late analysis and keyboard callbacks.
   func permitsModelChange(from previous: AdjustmentModel) -> Bool {
-    if isApplyingRemovalCommit { return true }
-    guard !isSavingRemoval else { return false }
+    if isApplyingRemovalCommit || workflow.isApplying { return true }
+    guard !isSavingRemoval, !workflow.isBusy else { return false }
     guard model.inpaintRemovals == previous.inpaintRemovals else {
       sidecarError = RemovalError.invalid("Accepted removals require a confirmed save")
       return false
@@ -124,7 +124,9 @@ extension EditSession {
     transition: RemovalHistoryTransition, sidecarRevision: RemovalSidecarRevision? = nil,
     prepare: @escaping @MainActor (URL) async throws -> AdjustmentModel
   ) throws -> Task<Void, Error> {
-    guard !isSavingRemoval else { throw RemovalError.invalid("A removal save is already running") }
+    guard !isSavingRemoval, !workflow.isBusy else {
+      throw RemovalError.invalid("An editor save is already running")
+    }
     guard let raw = asset.primaryURL, let store = sidecarStore as? XMPSidecarStore else {
       throw RemovalError.invalid("Removal authoring currently requires a local photo folder")
     }

@@ -157,36 +157,43 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   /// publication keeps this exact checkpoint for the next write/exit flush.
   public func commitSemantic(
     model: AdjustmentModel, culling: CullingState, action: String, label: String
-  ) throws {
-    try coordinateSidecarWrite { destination, existing in
-      if let existing { try self.requireVariantWorkflow(in: existing) }
-      let checkpoint = try WorkflowSidecarCore.checkpoint(
-        xmp: self.serializedSidecar(model: model, culling: culling, existingXML: existing))
-      let entry = WorkflowHistoryEntry(
-        id: UUID().uuidString.lowercased(),
-        createdAtMs: UInt64(Date().timeIntervalSince1970 * 1000),
-        action: action, label: label, adjustmentXmp: checkpoint)
-      // Invalid actions/checkpoints fail before entering the retry queue.
-      _ = try WorkflowSidecarCore.commit(entry, in: checkpoint)
-      self.pendingSemanticEdits.append(entry)
-      if self.pendingSemanticEdits.count > WorkflowContract.historyLimit {
-        self.pendingSemanticEdits.removeFirst(
-          self.pendingSemanticEdits.count - WorkflowContract.historyLimit)
+  ) async throws {
+    // Yield while another admitted writer holds the lease. A bounded retry
+    // preserves concurrent history without blocking Swift's cooperative pool.
+    for attempt in 0..<50 {
+      do {
+        return try coordinateSidecarWrite { destination, existing in
+          if let existing { try self.requireVariantWorkflow(in: existing) }
+          let checkpoint = try WorkflowSidecarCore.checkpoint(
+            xmp: self.serializedSidecar(model: model, culling: culling, existingXML: existing))
+          let entry = WorkflowHistoryEntry(
+            id: UUID().uuidString.lowercased(),
+            createdAtMs: UInt64(Date().timeIntervalSince1970 * 1000),
+            action: action, label: label, adjustmentXmp: checkpoint)
+          // Invalid actions/checkpoints fail before entering the retry queue.
+          _ = try WorkflowSidecarCore.commit(entry, in: checkpoint)
+          self.pendingSemanticEdits.append(entry)
+          if self.pendingSemanticEdits.count > WorkflowContract.historyLimit {
+            self.pendingSemanticEdits.removeFirst(
+              self.pendingSemanticEdits.count - WorkflowContract.historyLimit)
+          }
+          self.pendingTask?.cancel()
+          self.pendingTask = nil
+          self.pendingModel = model
+          self.pendingCulling = culling
+          let saved = try self.writeSidecar(
+            model: model, culling: culling, existingXML: existing, at: destination,
+            removalChange: nil)
+          self.cached = (saved, culling)
+          self.pendingModel = nil
+          self.pendingCulling = nil
+        }
+      } catch RemovalError.saveConflict where attempt < 49 {
+        try await Task.sleep(for: .milliseconds(10))
       }
-      self.pendingTask?.cancel()
-      self.pendingTask = nil
-      self.pendingModel = model
-      self.pendingCulling = culling
-      self.cached = (model, culling)
-      try self.writeSidecar(
-        model: model, culling: culling, existingXML: existing, at: destination,
-        removalChange: nil)
-      self.pendingModel = nil
-      self.pendingCulling = nil
     }
   }
 
-  /// Workflow operations share the actor and primary path with adjustment writes.
   public func readWorkflow() throws -> SidecarWorkflow? {
     guard let xml = try existingSidecarXML(at: sidecarURL) else {
       try requirePrimaryAbsence()
@@ -235,7 +242,21 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       let output = try command.output(current: existing, variantId: self.variantId)
       // Parse before publication; a failure never changes the original checkpoint.
       let restored = try XMPParser.parse(output)
-      if output != existing { try self.publishSidecarXML(output, at: destination) }
+      let priorRemovals =
+        try existing.flatMap {
+          try RemovalXMPRecords.read(Data($0.utf8))
+        } ?? "[]"
+      let nextRemovals = restored.0.inpaintRemovals?.json ?? "[]"
+      if priorRemovals != "[]" || nextRemovals != "[]" {
+        // A complete-XMP restore has the same source/companion requirements as Keep.
+        _ = try self.serializedSidecar(
+          model: restored.0, culling: restored.1, existingXML: existing,
+          removalChange: (priorRemovals, nextRemovals))
+      }
+      if output != existing {
+        try self.publishSidecarXML(
+          output, at: destination, durable: priorRemovals != nextRemovals)
+      }
       self.cached = restored
       return output
     }
@@ -354,7 +375,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
           throw RemovalError.saveConflict
         }
       }
-      try self.writeSidecar(
+      return try self.writeSidecar(
         model: model, culling: culling, existingXML: existing, at: destination,
         removalChange: removalChange)
     }
@@ -412,7 +433,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     let descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
     guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { throw RemovalError.saveConflict }
+    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+      throw RemovalError.saveConflict
+    }
     defer { flock(descriptor, LOCK_UN) }
     let coordinator = NSFileCoordinator(filePresenter: nil)
     var error: NSError?
@@ -536,7 +559,6 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     }
     pendingMetadata = nil
     removalObservedRevision = try RemovalSidecarRevision(xml: xml)
-    return savedModel
   }
 }
 

@@ -1,22 +1,6 @@
+import { triggerHaptic, type HapticEvent } from './editor-state.haptics';
 import { manualAdjustmentPatch } from './editor-state.wb-sample';
-// editor-state.service.ts — responsive-program S5c (#625).
-//
-// Web mirror of Apple's EditorState. Three differences from the Apple
-// side, each forced by the platform:
-//
-//   1. Web has no EditSession analog — adjustment state lives on
-//      LibraryStateService keyed by asset id, exposed as a Signal<AdjustmentModel>.
-//      So this service owns a snapshot stack of full AdjustmentModel
-//      values (cap 32) and applies undo/redo via
-//      `LibraryStateService.updateAdjustment(id, snapshot)`.
-//   2. Save coalescing piggy-backs on the existing 750ms debounce in
-//      `LibraryFetchService.scheduleSidecarWrite` — `updateAdjustment`
-//      already schedules it, so live value writes during a drag inherit
-//      that.
-//   3. `haptic` is a method that fans out via `navigator.vibrate` with
-//      feature detection (no `UIImpactFeedbackGenerator` analog).
-//
-// Spec: docs/design/responsive-program/s5-editor.md §4 + §6.
+// Shared editor transactions and confirmed workflow/removal history.
 
 import {
   Injectable,
@@ -77,18 +61,7 @@ import {
 
 export { UNDO_STACK_CAP };
 
-export type HapticEvent =
-  | 'zero-cross' // .light  / vibrate(8)
-  | 'extreme' //   .medium / vibrate(12)
-  | 'reset' //     .selection / vibrate(4)
-  | 'switch'; //   .selection / vibrate(4)
-
-const HAPTIC_DURATION_MS: Record<HapticEvent, number> = {
-  'zero-cross': 8,
-  extreme: 12,
-  reset: 4,
-  switch: 4,
-};
+export type { HapticEvent } from './editor-state.haptics';
 
 @Injectable({ providedIn: 'root' })
 export class EditorStateService {
@@ -104,7 +77,6 @@ export class EditorStateService {
   readonly removalSaveError = signal<string | null>(null);
   bindingRevision = 0;
 
-  // ── Identity / arming ────────────────────────────────────────────────────
   readonly imageId = signal<AssetId | null>(null);
   readonly armedGroup = signal<ToolGroup>('light');
   readonly armedTool = signal<ToolId>('exposure');
@@ -119,18 +91,6 @@ export class EditorStateService {
    * filmstrip image switches keep the selection. */
   private readonly subParamMemory = new Map<ToolId, string>();
 
-  // ── Transaction ring (#2432; cap 32) ─────────────────────────────────────
-  //
-  // Every committed action is ONE `EditTransaction`: `commit()` opens it
-  // (capturing the model as `before`), the gesture's value writes are
-  // previews (render + coalesced sidecar write, no history), and
-  // `endEdit()` closes it — computing the sidecar diff, dropping a no-op,
-  // otherwise recording it, handing `after` to the library (→ sidecar) and
-  // announcing it. A still-open transaction is closed by the next boundary
-  // (`commit`, `undo`, `redo`, `endEdit`, `bind`), so a caller that only
-  // knows the START of a gesture still produces exactly one entry. Mirrors
-  // Apple's `EditSession+UndoRedo.swift`; the bookkeeping lives in
-  // `EditTransactionRing`.
   readonly ring = new EditTransactionRing();
   readonly workflowCommands: EditorWorkflowCommandsService = inject(EditorWorkflowCommandsService);
   readonly workflowBusy = signal(false);
@@ -144,16 +104,18 @@ export class EditorStateService {
   readonly lastCommittedTransaction = this.ring.lastCommitted;
 
   readonly canUndo = computed(
-    () => !this.workflowBusy() && !this.removalSaving() && this.ring.canUndo(this.currentAdjustment()),
+    () =>
+      !this.workflowBusy() && !this.removalSaving() && this.ring.canUndo(this.currentAdjustment()),
   );
-  readonly canRedo = computed(() => !this.workflowBusy() && !this.removalSaving() && this.ring.canRedo());
+  readonly canRedo = computed(
+    () => !this.workflowBusy() && !this.removalSaving() && this.ring.canRedo(),
+  );
 
   /** The recorded transactions, oldest first. Test / diagnostics seam. */
   undoHistory(): readonly EditTransaction[] {
     return this.ring.history();
   }
 
-  // ── Derived: live adjustment + dirty flag ────────────────────────────────
   readonly currentAdjustment = computed<AdjustmentModel | null>(() => {
     const id = this.imageId();
     return id == null ? null : this.library.adjustmentFor(id)();
@@ -169,14 +131,6 @@ export class EditorStateService {
     const id = this.armedSubParamId();
     return id == null ? null : subParamById(this.armedTool(), id);
   });
-
-  // ── Commit-on-release buffer (#1153) ─────────────────────────────────────
-  //
-  // Decode-product sub-params (Noise → Deep / Prefilter) must not write the
-  // model per pointer sample: every write re-develops the decode prefix, and
-  // BM3D takes seconds. So a gesture over one of them parks its display value
-  // here — the drag bar and value chip read it, the pipeline does not — and
-  // `endGesture()` performs the single real write on release.
 
   /** In-flight, uncommitted display value; `null` when nothing is deferred. */
   private readonly _deferredDisplay = signal<number | null>(null);
@@ -208,21 +162,13 @@ export class EditorStateService {
     return displayValueFromInternal(this.armedTool(), this.armedInternalValue());
   });
 
-  /** True when the armed (tool, subParam) pair can take drag-bar /
-   * wheel / reset value edits — mirrors Apple's
-   * `EditorState.armedToolAcceptsValueEdits`. Sub-params always carry a
-   * generated range + field; single-param tools need a wired field and a
-   * display range (presets and the #952 stubs fail this). The drag bar
-   * gates its pointer-down `commit()` on it so value-less tools can't
-   * push junk undo snapshots. */
+  /** Whether the armed parameter accepts numeric edits. */
   readonly armedToolAcceptsValueEdits = computed<boolean>(() => {
     const tool = this.armedTool();
     if (!isWired(tool)) return false;
     if (this.armedSubParam() != null) return true;
     return fieldFor(tool) != null && displayRange(tool) != null;
   });
-
-  // ── Lifecycle ────────────────────────────────────────────────────────────
 
   /** Bind the editor to an asset. Resets undo/redo stacks. The armed
    * sub-param is re-resolved from the session memory (it is per-session
@@ -367,9 +313,8 @@ export class EditorStateService {
     ));
   }
 
-  // ── Arming ──────────────────────────────────────────────────────────────
-
   restoreWorkflow(command: RestoreCommand): Promise<void> {
+    if (this.removalSaving()) return Promise.resolve();
     this.endEdit();
     return restoreWorkflow(this, command);
   }
@@ -416,8 +361,6 @@ export class EditorStateService {
     return defaultSubParamId(tool);
   }
 
-  // ── Value pipe ──────────────────────────────────────────────────────────
-
   /** Mark the start of a continuous value gesture (drag-bar press, canvas
    * scrub). Only meaningful for commit-on-release sub-params; harmless
    * otherwise. Pairs with `endGesture()`. */
@@ -452,7 +395,7 @@ export class EditorStateService {
    * coalescer). A commit-on-release sub-param under an active gesture parks
    * the value instead — `endGesture()` writes it once. */
   setArmedDisplayValue(value: number): void {
-    if (this.workflowBusy()) return;
+    if (this.workflowBusy() || this.removalSaving()) return;
     const id = this.imageId();
     if (id == null || !this.armedToolAcceptsValueEdits()) return;
     if (this.gestureActive() && this.armedCommitsOnRelease()) {
@@ -497,20 +440,12 @@ export class EditorStateService {
     this.haptic('reset');
   }
 
-  // ── Black & white (#276) ──────────────────────────────────────────────────
-
   /**
    * Toggle Black & White mode as ONE undo entry — routed through the same
    * `commit()` / `LibraryStateService.updateAdjustment` path as every other
-   * edit, so it is undoable and marks the session dirty exactly like a
-   * slider drag. Turning it On while HSL is armed re-arms `bwMix`: the HSL
-   * surface hides entirely while B&W is On (its 24 sliders are inert — see
-   * `visibleToolsInGroup` in tool-model.ts), so leaving `hsl` armed would
-   * point the drag bar / sub-param row at a tool with no visible dock entry
-   * or panel.
    */
   setBlackWhite(mode: BlackWhiteMode): void {
-    if (this.workflowBusy()) return;
+    if (this.workflowBusy() || this.removalSaving()) return;
     const id = this.imageId();
     const adj = this.currentAdjustment();
     if (id == null || !adj || adj.blackWhite === mode) return;
@@ -523,14 +458,12 @@ export class EditorStateService {
     this.haptic('switch');
   }
 
-  // ── Presets (#1115, spec §10.7) ──────────────────────────────────────────
-
   /**
    * Apply a preset: sparse merge of its known fields into the current
    * model as ONE undo-ring entry.
    */
   applyPreset(preset: Preset): boolean {
-    if (this.workflowBusy()) return false;
+    if (this.workflowBusy() || this.removalSaving()) return false;
     const id = this.imageId();
     if (id == null || this.currentAdjustment() == null) return false;
     const patch = buildApplyPatch(preset.fields);
@@ -541,8 +474,6 @@ export class EditorStateService {
     this.haptic('switch');
     return true;
   }
-
-  // ── Reset all (#1372, M1) ─────────────────────────────────────────────────
 
   /**
    * Reset every develop slider to its factory default, point white balance
@@ -585,16 +516,15 @@ export class EditorStateService {
   readonly autoResult = signal<string | null>(null);
 
   applyAuto(id: AssetId, whiteBalanceOnly = false): Promise<boolean> {
-    if (this.workflowBusy()) return Promise.resolve(false);
+    if (this.workflowBusy() || this.removalSaving()) return Promise.resolve(false);
     return applyAutoInto(this, id, whiteBalanceOnly);
   }
 
   applyWhiteBalancePreset(id: AssetId, preset: WhiteBalancePreset): Promise<boolean> {
-    if (this.workflowBusy()) return Promise.resolve(false);
+    if (this.workflowBusy() || this.removalSaving()) return Promise.resolve(false);
     return applyWhiteBalancePresetInto(this, id, preset);
   }
 
-  // ── Neutral white-balance sample (#2434) ─────────────────────────────────
   // Same lifecycle as AUTO above, through the same two signals: an in-flight
   // flag so the eyedropper can't be re-armed mid-sample, and one line of
   // feedback. A rejected click says what to pick instead — not an error
@@ -611,17 +541,13 @@ export class EditorStateService {
    * model untouched and puts the reason in `autoResult`.
    */
   sampleWhiteBalanceAt(id: AssetId, nx: number, ny: number): Promise<boolean> {
-    if (this.autoInFlight()) return Promise.resolve(false);
+    if (this.autoInFlight() || this.workflowBusy() || this.removalSaving())
+      return Promise.resolve(false);
     return sampleWhiteBalanceInto(this, id, nx, ny);
   }
 
-  // ── Haptics (web — Vibration API w/ feature detection) ───────────────────
-
   haptic(event: HapticEvent): void {
-    const nav = typeof navigator === 'undefined' ? undefined : navigator;
-    if (nav && typeof nav.vibrate === 'function') {
-      nav.vibrate(HAPTIC_DURATION_MS[event]);
-    }
+    triggerHaptic(event);
   }
 }
 

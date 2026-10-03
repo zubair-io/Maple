@@ -8,9 +8,22 @@ import { SavedRemovalRenderService } from './saved-removal-render.service';
 import { savedRemovalRecords } from './saved-removal-records';
 import { TestBed } from '@angular/core/testing';
 import { beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest';
-import { initSync } from '../raw-pipeline/pkg/raw_wasm';
+import {
+  initSync,
+  workflow_read_xmp,
+  workflow_embed_xmp,
+  workflow_checkpoint_xmp,
+  workflow_commit_xmp,
+} from '../raw-pipeline/pkg/raw_wasm';
+import { WorkflowXmpService } from '../xmp/workflow-xmp.service';
+import { HostedWorkflowWriterService } from '../xmp/hosted-workflow-writer.service';
+import type { SidecarWorkflow, WorkflowHistoryEntry } from '../generated/workflow.generated';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
-import { fsAccessReadFile, fsAccessWriteFile } from '../folder-access/fs-access-backend';
+import {
+  fsAccessReadFile,
+  fsAccessWriteFile,
+  fsAccessListEntries,
+} from '../folder-access/fs-access-backend';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
@@ -55,6 +68,7 @@ describe('durable browser removal through actual WASM and filesystem files', () 
     });
   });
   beforeEach(async () => {
+    TestBed.resetTestingModule();
     root = await fs.mkdtemp(join(tmpdir(), 'maple-removal-'));
     await fs.writeFile(join(root, 'photo.dng'), fixture('source.dng'));
     await fs.writeFile(join(root, 'photo.xmp'), fixture('prior.xmp'));
@@ -66,6 +80,18 @@ describe('durable browser removal through actual WASM and filesystem files', () 
     };
     TestBed.configureTestingModule({
       providers: [
+        // The converters are real WASM; Node has no browser Worker.
+        {
+          provide: WorkflowXmpService,
+          useValue: {
+            read: async (xml: string) => JSON.parse(workflow_read_xmp(xml)),
+            embed: async (workflow: SidecarWorkflow, xml: string) =>
+              workflow_embed_xmp(JSON.stringify(workflow), xml),
+            checkpoint: async (xml: string) => workflow_checkpoint_xmp(xml),
+            commit: async (entry: WorkflowHistoryEntry, xml: string) =>
+              workflow_commit_xmp(xml, JSON.stringify(entry)),
+          },
+        },
         {
           provide: LibraryStateService,
           useValue: {
@@ -75,7 +101,11 @@ describe('durable browser removal through actual WASM and filesystem files', () 
         },
         {
           provide: FolderAccessService,
-          useValue: { readFile: fsAccessReadFile, writeFile: fsAccessWriteFile },
+          useValue: {
+            readFile: fsAccessReadFile,
+            writeFile: fsAccessWriteFile,
+            listEntries: fsAccessListEntries,
+          },
         },
       ],
     });
@@ -157,6 +187,46 @@ describe('durable browser removal through actual WASM and filesystem files', () 
     expect(
       reopened.passthrough.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value,
     ).toBe(records);
+  });
+
+  it('preserves accepted removals and snapshots when a stale semantic capture is published', async () => {
+    const records = await publish();
+    await commit(records);
+    const accepted = await fs.readFile(join(root, 'photo.xmp'), 'utf8');
+    const snapshot = {
+      id: crypto.randomUUID(),
+      name: 'Accepted removal',
+      createdAtMs: Date.now(),
+      adjustmentXmp: workflow_checkpoint_xmp(accepted),
+    };
+    await sidecars.writeWorkflow('photo', folder, 'photo.dng', {
+      schemaVersion: 1,
+      variantId: 'primary',
+      variantName: 'Original',
+      snapshots: [snapshot],
+      history: [],
+    });
+    const stale = { ...defaultAdjustmentModel(), exposure: 1 };
+    TestBed.inject(HostedWorkflowWriterService).capture(
+      folder,
+      'photo.xmp',
+      stale,
+      culling,
+      'adjustment',
+      'Exposure',
+    );
+    sidecars.scheduleWrite('photo', folder, 'photo.dng', stale, culling);
+    await sidecars.flushAsset('photo');
+    const output = await fs.readFile(join(root, 'photo.xmp'), 'utf8');
+    const workflow = JSON.parse(workflow_read_xmp(output)) as SidecarWorkflow;
+    expect(savedRemovalRecords(output)).toBe(records);
+    expect(workflow.snapshots).toEqual([snapshot]);
+    expect(workflow.history).toHaveLength(1);
+    expect(savedRemovalRecords(workflow.history[0].adjustmentXmp)).toBe(records);
+    expect(TestBed.inject(XmpParserService).parseAdjustmentModel(output).model.exposure).toBe(1);
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(
+      fixture('source.dng'),
+    );
   });
 
   it('confirms and reopens the explicit calibration plate without downgrading it', async () => {

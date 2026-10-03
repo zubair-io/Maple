@@ -10,6 +10,7 @@ import {
 import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
 import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpParserService } from './xmp-parser.service';
+import { savedRemovalRecords } from '../removal/saved-removal-records';
 import { XmpSerializerService } from './xmp-serializer.service';
 
 interface CapturedAction {
@@ -74,14 +75,25 @@ export class HostedWorkflowWriterService {
       const workflow = await this.selectedRecord(current, variantId);
       const passthrough =
         current === null ? fallback : this.parser.parseAdjustmentModel(current).passthrough;
+      const records = current === null ? undefined : savedRemovalRecords(current);
       const pending = this.actions.get(folder)?.get(name) ?? [];
       const retained = await pending.reduce(
         async (previous, captured) =>
-          this.applyCapture(await previous, captured, passthrough, metadata),
+          this.applyCapture(
+            await previous,
+            { ...captured, model: { ...captured.model, inpaintRemovals: records } },
+            passthrough,
+            metadata,
+          ),
         Promise.resolve(workflow),
       );
       const checkpoint = await this.core.checkpoint(
-        this.serializer.serialize(model, passthrough, culling, passthrough ? undefined : metadata),
+        this.serializer.serialize(
+          { ...model, inpaintRemovals: records },
+          passthrough,
+          culling,
+          passthrough ? undefined : metadata,
+        ),
       );
       const output = retained === null ? checkpoint : await this.core.embed(retained, checkpoint);
       await this.access.writeFile(folder, name, new TextEncoder().encode(output));

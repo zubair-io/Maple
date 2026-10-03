@@ -34,7 +34,9 @@ extension EditSession {
     return pending.before != model
   }
 
-  public var canRedo: Bool { !workflow.isBusy && !isSavingRemoval && !transactions.redoStack.isEmpty }
+  public var canRedo: Bool {
+    !workflow.isBusy && !isSavingRemoval && !transactions.redoStack.isEmpty
+  }
 
   /// Monotonic edit identity, including edit → undo back to the same model.
   public var editRevision: UInt64 { transactions.nextID }

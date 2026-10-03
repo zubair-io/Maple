@@ -43,8 +43,8 @@ export class EditorRemovalHistory {
     sidecarRevision?: string,
   ): Promise<string> {
     const editor = this.editor;
-    if (editor.removalSaving())
-      return Promise.reject(new Error('A removal save is already running.'));
+    if (editor.removalSaving() || editor.workflowBusy())
+      return Promise.reject(new Error('An editor save is already running.'));
     const id = editor.imageId();
     const asset = editor.library.focusedAsset();
     const folder = editor.library.currentFolder();
@@ -109,7 +109,7 @@ export class EditorRemovalHistory {
 }
 
 export function undoEditor(editor: EditorStateService): void {
-  if (editor.removalSaving()) return;
+  if (editor.removalSaving() || editor.workflowBusy()) return;
   const id = editor.imageId();
   if (id == null) return;
   editor.endEdit();
@@ -128,7 +128,7 @@ export function undoEditor(editor: EditorStateService): void {
 }
 
 export function redoEditor(editor: EditorStateService): void {
-  if (editor.removalSaving()) return;
+  if (editor.removalSaving() || editor.workflowBusy()) return;
   const id = editor.imageId();
   if (id == null) return;
   editor.endEdit();

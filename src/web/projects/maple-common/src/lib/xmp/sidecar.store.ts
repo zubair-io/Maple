@@ -39,7 +39,11 @@ import { SidecarSaveStateService } from './sidecar-save-state.service';
 import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 import { workflowSidecarKey } from './workflow-sidecar-binding';
 import { savedRemovalRecords } from '../removal/saved-removal-records';
-import { confirmedSidecarRevision } from '../removal/removal-server-confirmation';
+import { WorkflowXmpService } from './workflow-xmp.service';
+import {
+  confirmedSidecarRevision,
+  removalSidecarRevision,
+} from '../removal/removal-server-confirmation';
 
 /**
  * The store's view of a sidecar. Matches the shape returned by
@@ -125,7 +129,11 @@ export class SidecarStore {
       if (this.backend === 'self-hosted') {
         if (!this.serverPersistence)
           throw new Error('Self Hosted sidecar persistence is not configured');
-        if (this.workflow.hasPending(path, variantId)) await firstValueFrom(this.workflow.flush(path, variantId));
+        if (this.workflow.hasPending(path, variantId)) {
+          const flushed = await firstValueFrom(this.workflow.flush(path, variantId));
+          if (flushed !== null && variantId === PRIMARY_VARIANT_ID && this.removalRevisions.has(path))
+            this.removalRevisions.set(path, await removalSidecarRevision(flushed));
+        }
         const owned = this._docs()
           .get(key)
           ?.passthrough.unknownAttributes.some(
@@ -138,10 +146,14 @@ export class SidecarStore {
           const prior = snapshot.xml ? (savedRemovalRecords(snapshot.xml) ?? '[]') : '[]';
           if ((savedRemovalRecords(xml) ?? '[]') !== prior)
             throw new Error('Saved removal history changed. Reopen the photo before saving edits.');
+          const core = this.injector.get(WorkflowXmpService);
+          const workflow = snapshot.xml ? await core.read(snapshot.xml) : null;
+          const output = workflow ? await core.embed(workflow, xml) : xml;
           const saved = await firstValueFrom(
-            io.commit(path, this.removalRevisions.get(key) ?? snapshot.revision, prior, xml),
+            io.commit(path, this.removalRevisions.get(path) ?? snapshot.revision, prior, output),
           );
-          this.removalRevisions.set(path, await confirmedSidecarRevision(xml, saved));
+          this.removalRevisions.set(path, await confirmedSidecarRevision(output, saved));
+          await this._ingest(path, output, true);
         } else {
           const published = await firstValueFrom(this.serverPersistence.writeSidecar(path, xml, variantId));
           await this._ingest(path, published, true, variantId);
@@ -210,10 +222,15 @@ export class SidecarStore {
     return this.serializeWrite(workflowSidecarKey(path, variantId), async () => {
       this.saveState.saving(id, revision);
       try {
-        if (this.workflow.hasPending(path, variantId))
-          await firstValueFrom(this.workflow.flush(path, variantId));
+        if (this.workflow.hasPending(path, variantId)) {
+          const flushed = await firstValueFrom(this.workflow.flush(path, variantId));
+          if (flushed !== null && variantId === PRIMARY_VARIANT_ID && this.removalRevisions.has(path))
+            this.removalRevisions.set(path, await removalSidecarRevision(flushed));
+        }
         const output = await publish();
         await this._ingest(path, output, true, variantId);
+        if (variantId === PRIMARY_VARIANT_ID && this.removalRevisions.has(path))
+          this.removalRevisions.set(path, await removalSidecarRevision(output));
         this.saveState.saved(id, revision);
         return output;
       } catch (error) {
@@ -232,8 +249,10 @@ export class SidecarStore {
       this.saveState.saving(id, revision);
       try {
         const published = await firstValueFrom(this.workflow.flush(path, variantId));
-        if (published === null) throw Error('The committed sidecar is missing.');
+        if (published === null) throw Error('The committed primary sidecar is missing.');
         await this._ingest(path, published, /* persist */ true, variantId);
+        if (variantId === PRIMARY_VARIANT_ID && this.removalRevisions.has(path))
+          this.removalRevisions.set(path, await removalSidecarRevision(published));
         this.saveState.saved(id, revision);
         if (!this.workflow.hasPending(path, variantId)) this.semanticAssets.delete(key);
       } catch (error) {

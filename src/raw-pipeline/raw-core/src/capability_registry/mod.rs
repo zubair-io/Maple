@@ -445,10 +445,10 @@ impl EvidenceSource {
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
             EvidenceSource::SidecarContractApi => 3,
-            // 19 since #3434: cached camera-frame WB resolution joins the
-            // textured highlight/OpcodeList3 CPU/GPU parity corpus.
-            EvidenceSource::GpuChainParityLavapipe => 19,
-            EvidenceSource::GpuChainParityMetal => 19,
+            // 20 after combining #1472 saved rendering with #3434 camera-frame WB:
+            // both must run alongside textured highlight/OpcodeList3 parity.
+            EvidenceSource::GpuChainParityLavapipe => 20,
+            EvidenceSource::GpuChainParityMetal => 20,
             EvidenceSource::AppleCanvasGolden => 1,
         }
     }
