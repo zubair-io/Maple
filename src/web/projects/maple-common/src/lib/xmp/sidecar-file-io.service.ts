@@ -18,15 +18,16 @@ export class SidecarFileIoService {
     folder: MapleFolderHandle,
     name: string,
     workflow: SidecarWorkflow,
+    variantId: string,
   ): Promise<PassthroughBucket> {
-    if (workflow.variantId !== 'primary')
-      throw Error('Variant identity does not match the primary sidecar.');
+    if (workflow.variantId !== variantId)
+      throw Error('Variant identity does not match the selected sidecar.');
     const xml = new TextDecoder('utf-8', { fatal: true }).decode(
       await this.folderAccess.readFile(folder, name),
     );
     const existing = await this.core.read(xml);
-    if ((existing?.variantId ?? 'primary') !== 'primary')
-      throw Error('Variant identity does not match the primary sidecar.');
+    if ((existing?.variantId ?? 'primary') !== variantId)
+      throw Error('Variant identity does not match the selected sidecar.');
     const output = await this.core.embed(workflow, xml);
     await this.folderAccess.writeFile(folder, name, new TextEncoder().encode(output));
     return this.parser.parseAdjustmentModel(output).passthrough;

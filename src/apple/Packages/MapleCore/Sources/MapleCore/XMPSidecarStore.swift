@@ -26,7 +26,7 @@ import Foundation
 /// ```
 public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   let primarySidecarURL: URL
-  private let rawURL: URL?
+  let rawURL: URL?
   private let sidecarURL: URL
   private let variantId: String
 
@@ -64,7 +64,11 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   /// Bind the existing writer to a validated UUID sibling, including Photos' canonical root (#4063).
   public init(primarySidecarURL: URL, variantId: String) throws {
-    self.rawURL = nil
+    try self.init(primarySidecarURL: primarySidecarURL, variantId: variantId, rawURL: nil)
+  }
+
+  init(primarySidecarURL: URL, variantId: String, rawURL: URL?) throws {
+    self.rawURL = rawURL
     self.primarySidecarURL = primarySidecarURL
     let filename = try WorkflowSidecarCore.variantFilename(
       primaryName: primarySidecarURL.lastPathComponent, variantId: variantId)
@@ -351,15 +355,22 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   }
 
   private func writePending() async {
-    guard let model = pendingModel, let culling = pendingCulling else { return }
-    do {
-      let saved = try writeAtomically(model: model, culling: culling)
-      cached = (saved, culling)
-      pendingModel = nil
-      pendingCulling = nil
-    } catch {
-      for subscriber in subscribers.values {
-        subscriber.yield(error)
+    for attempt in 0..<50 {
+      // Re-read after yielding: a newer update can supersede the waiting snapshot.
+      guard !Task.isCancelled, let model = pendingModel, let culling = pendingCulling else {
+        return
+      }
+      do {
+        let saved = try writeAtomically(model: model, culling: culling)
+        cached = (saved, culling)
+        pendingModel = nil
+        pendingCulling = nil
+        return
+      } catch RemovalError.saveConflict where attempt < 49 {
+        do { try await Task.sleep(for: .milliseconds(10)) } catch { return }
+      } catch {
+        for subscriber in subscribers.values { subscriber.yield(error) }
+        return
       }
     }
   }
@@ -532,31 +543,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   }
 
   private func publishSidecarXML(_ xml: String, at destination: URL, durable: Bool = false) throws {
-    guard let data = xml.data(using: .utf8) else {
-      throw XMPStoreError.encodingError
-    }
-    let tmpURL = destination.deletingLastPathComponent()
-      .appendingPathComponent(".\(destination.lastPathComponent).tmp")
-    try data.write(to: tmpURL, options: .atomic)
-    if durable {
-      let handle = try FileHandle(forWritingTo: tmpURL)
-      defer { try? handle.close() }
-      try handle.synchronize()
-    }
-    // Atomic rename
-    if FileManager.default.fileExists(atPath: destination.path) {
-      _ = try FileManager.default.replaceItemAt(destination, withItemAt: tmpURL)
-    } else {
-      try FileManager.default.moveItem(at: tmpURL, to: destination)
-    }
-    if durable {
-      let directoryFD = open(sidecarURL.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY)
-      guard directoryFD >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-      defer { close(directoryFD) }
-      guard fsync(directoryFD) == 0 else {
-        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-      }
-    }
+    try XMPSidecarFilePublication.publish(xml, at: destination, durable: durable)
     pendingMetadata = nil
     removalObservedRevision = try RemovalSidecarRevision(xml: xml)
   }

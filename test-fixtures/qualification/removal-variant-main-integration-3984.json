@@ -1,0 +1,110 @@
+{
+  "issue": 3984,
+  "epic": 1472,
+  "recorded_at": "2026-10-03T05:36:58.435967+00:00",
+  "branch": "codex/ai-object-removal",
+  "rebased_onto": "89c88db906a42983552e0ac1a4621ee5ef451ac9",
+  "parent_commit": "978e45fb1f0253c7717cf9f6004135585d54cba1",
+  "pre_rebase_backup": "codex/ai-object-removal-pre-variants-20261003",
+  "rebase_commits": 99,
+  "releaseQualified": false,
+  "goal_status": "active; incomplete",
+  "changes": [
+    "Bound local native variant writers retain RAW source verification for removal saves.",
+    "Decode publication records the selected sidecar and clears its in-flight identity.",
+    "Variant canvas reset also clears the settled CPU Auto frame identity.",
+    "Debounced sidecar writes yield and retry a short file-lease conflict, recapturing newer pending edits.",
+    "Hosted removal and workflow writes use immutable selected sibling bindings; ordinary writes preserve accepted removal records.",
+    "File publication, hosted binding and confirmed-removal operations are extracted for source headroom."
+  ],
+  "checks": {
+    "swift_regressions": {
+      "log": "/tmp/maple-variants-removal-swift-regressions-final2-20261003.log",
+      "sha256": "b1000dc6f2a0d8728d29ef34d1500c46614ae92064e8f3677f65b56760d3277c",
+      "passed": 2322,
+      "failed": 0,
+      "skipped": 0,
+      "classes": 296,
+      "configuration": "debug; exact CI class allowlist; serial"
+    },
+    "swift_focused": {
+      "log": "/tmp/maple-variants-removal-contention-focused-20261003.log",
+      "sha256": "c7d6071656d2be0518adcf67f4e78e5249d09f02a15d683c7cfc675cfecdc31d",
+      "passed": 29,
+      "failed": 0
+    },
+    "file_lease_contention": {
+      "log": "/tmp/maple-variants-removal-contention-isolated-20261003.log",
+      "sha256": "12d6659602299b0d04fa4c620e137e0bbc2b6e834b2cbb371dd701d64bb971c4",
+      "passed": 1,
+      "failed": 0
+    },
+    "web": {
+      "log": "/tmp/maple-variants-removal-web-final3-20261003.log",
+      "sha256": "c39905ceda7282d73175d14a7266221109c9360096410496d4b92606f43f8809",
+      "passed": 205,
+      "failed": 0,
+      "files": 23
+    },
+    "api": {
+      "log": "/tmp/maple-variants-removal-api-20261003.log",
+      "sha256": "9a3838fd22e1a4ce1b5d4caccc974e4039ef821b0db301b072d2b29d0bc85118",
+      "passed": 79,
+      "failed": 0,
+      "files": 5
+    },
+    "mac_build": {
+      "log": "/tmp/maple-variants-removal-mac-final2-20261003.log",
+      "sha256": "050beb0c4369b6758a08342e1557ba15a4ead1fb7f4a2d6f517d81d3942eff49",
+      "success": true
+    },
+    "typescript": {
+      "log": "/tmp/maple-variants-removal-typescript-final-20261003.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "success": true,
+      "scope": "noEmit; declaration/declarationMap disabled"
+    },
+    "swift_format": {
+      "log": "/tmp/maple-variants-removal-swift-format-final2-20261003.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "success": true
+    },
+    "headroom": {
+      "log": "/tmp/maple-variants-removal-headroom-final2-20261003.log",
+      "sha256": "e5ab2a25f8061db32ffdb922fed42f0e27b479832ba0cc573d056ef342acf495",
+      "success": true
+    },
+    "class_coverage": {
+      "log": "/tmp/maple-variants-removal-coverage-20261003.log",
+      "sha256": "30fb0b40b618c7899911246b9e893965d0b9eb180b38f751a40ebc37b82affe2",
+      "success": true,
+      "run": 296,
+      "excluded": 182,
+      "untriaged": 0
+    }
+  },
+  "sources": {
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorWorkflowState+Variants.swift": "54a7bcd262453fcff0580cdcd95b92c5bf7315a84c6f109fe92f894975cb1bae",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/RenderActor+DecodedPublication.swift": "5177c12fb2fc914d6c6cdbb0cdff8be55c1281f5d343789f547dc5bcd91c8b20",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/WorkflowVariantBinding.swift": "3ddb212ac101dcd767cf2bee4be42eb09096a9c5827dadab694481fdbb9ab26f",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarFilePublication.swift": "526d8d1ca12b2d5374ad804413ff53887c77133a7c7da3b717cdf7fdf1094914",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift": "75606baa1894ac11298042e9d16c1e0e4c04085e0618e6a8bf9d0e9cd87865cc",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/RemovalModelStateTests.swift": "ea448e1e6ac873501d941c2c47382b50c35f6fe3cb164d2981ae9f0c9522dcff",
+    "src/web/projects/maple-common/src/lib/editor/editor-state.removal-history.spec.ts": "e8582cb6bcbdeccf872bd6e282d327b95c24a9cc0314f964ae5bb17caf4c47ae",
+    "src/web/projects/maple-common/src/lib/removal/local-removal-assets.spec.ts": "95d79628a6ec16dda8ed453d9fbf21af22ff81a13a94c413055ee2142fb2a617",
+    "src/web/projects/maple-common/src/lib/removal/server-removal-sidecars.spec.ts": "afe370c970ffb6f96f26f3028af715a26b44bb8e4e95965294dc822cbc877479",
+    "src/web/projects/maple-common/src/lib/removal/server-removal-sidecars.ts": "c25d2e4ce075630d9a68a39bb299f00b3005fa521d6e016b157acf7da3a696ad",
+    "src/web/projects/maple-common/src/lib/xmp/hosted-removal-writer.service.ts": "34abc2244ce7a8c54266a452d725118fb8c9ee296fc3747c2917543055feacbd",
+    "src/web/projects/maple-common/src/lib/xmp/hosted-sidecar-bindings.service.ts": "c966164ce4486fc4c6699bae3ea38eb1187f1234b630052397c247a9ca6447f7",
+    "src/web/projects/maple-common/src/lib/xmp/sidecar-file-io.service.ts": "990c3e00f102369fd86f55226a5c49f0790b09e4eb9036bddc9810295edf3817",
+    "src/web/projects/maple-common/src/lib/xmp/xmp-store.service.ts": "66f201bd99a92948a4ecc365f9a31745ea035957817d38e3f55a9b7dece1b2b0"
+  },
+  "mac_app": "/tmp/maple-variants-removal-mac-20261003/Build/Products/Debug/Maple.app",
+  "mac_executable_sha256": "f8ecae2ca7a3be497b4ea9846544558fc516d280cea15951e503f5d3700cf51d",
+  "limitations": [
+    "Named Self Hosted removal authoring refuses before accessing the primary CAS route; its variant transport remains tracked in #3984.",
+    "No fresh native UI run, iOS/Windows qualification or color-pipeline parity claim for this integration; Rust color math and model ABI unchanged.",
+    "Earlier failed runs and their diagnostics are preserved; the focused test temporarily waited in macOS Metal device lookup and completed without process termination.",
+    "Full goal remains incomplete: large-object quality, device/performance matrix, licensed model distribution and portable lifecycle qualification remain outstanding."
+  ]
+}

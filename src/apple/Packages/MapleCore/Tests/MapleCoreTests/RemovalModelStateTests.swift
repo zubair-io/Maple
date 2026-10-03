@@ -1,4 +1,5 @@
 import CoreImage
+import Darwin
 import Foundation
 import MapleBackup
 import XCTest
@@ -150,6 +151,62 @@ final class RemovalModelStateTests: XCTestCase {
       records: "[]", expectedRecords: records.json, model: incoming, culling: CullingState())
     let cleared = try await store.load().0.inpaintRemovals
     XCTAssertNil(cleared, "Explicit clearing restores the default absent representation")
+    XCTAssertEqual(try Data(contentsOf: raw), try fixture("source", "dng"))
+  }
+
+  func testPendingSaveRetriesFileLeaseAndPublishesTheLatestUpdate() async throws {
+    let (raw, _) = try stage()
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    let lock = sidecar.deletingLastPathComponent().appendingPathComponent(".photo.xmp.lock")
+    let descriptor = open(lock.path, O_CREAT | O_RDWR, 0o600)
+    XCTAssertGreaterThanOrEqual(descriptor, 0)
+    defer { close(descriptor) }
+    XCTAssertEqual(flock(descriptor, LOCK_EX | LOCK_NB), 0)
+    let writer = XMPSidecarStore(rawURL: raw)
+    var first = AdjustmentModel.default
+    first.exposure = 1
+    await writer.update(model: first, culling: CullingState())
+    let flush = Task { await writer.flush() }
+    try await Task.sleep(for: .milliseconds(30))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))
+    var latest = first
+    latest.exposure = 2
+    await writer.update(model: latest, culling: CullingState())
+    XCTAssertEqual(flock(descriptor, LOCK_UN), 0)
+    await flush.value
+    let reopened = try await XMPSidecarStore(rawURL: raw).load().0
+    XCTAssertEqual(reopened.exposure, 2)
+    XCTAssertEqual(try Data(contentsOf: raw), try fixture("source", "dng"))
+  }
+
+  func testBoundVariantRemovalSaveKeepsPrimaryAndRawUntouched() async throws {
+    let (raw, xml) = try stage()
+    let records = try XCTUnwrap(try XMPParser.parse(xml).0.inpaintRemovals)
+    let root = XMPSidecarStore(rawURL: raw)
+    try await root.writeConfirmed(model: .default, culling: CullingState())
+    let primary = SidecarPath.sidecarURL(for: raw)
+    let initial = try Data(contentsOf: primary)
+    let id = UUID().uuidString.lowercased()
+    try await root.createWorkflowVariant(
+      SidecarWorkflow(
+        schemaVersion: WorkflowContract.version, variantId: id,
+        variantName: "Removal branch", snapshots: [], history: []),
+      sourceVariantId: WorkflowContract.primaryVariantID)
+    let bound = try await root.bindWorkflowVariant(id)
+    let writer = try XCTUnwrap(bound.writer as? XMPSidecarStore)
+    let revision = try await writer.removalRevision()
+    try await writer.writeRemovalConfirmed(
+      records: records.json, expectedRecords: "[]", model: .default, culling: CullingState(),
+      expectedSidecarRevision: revision)
+    XCTAssertEqual(
+      try XMPParser.parse(data: Data(contentsOf: bound.sidecarURL)).0.inpaintRemovals, records)
+    XCTAssertEqual(
+      try WorkflowSidecarCore.variantWorkflow(
+        xmp: String(contentsOf: bound.sidecarURL, encoding: .utf8), variantId: id)?.variantId, id)
+    let reopened = try await root.bindWorkflowVariant(id)
+    let reopenedModel = try await reopened.writer.load().0
+    XCTAssertEqual(reopenedModel.inpaintRemovals, records)
+    XCTAssertEqual(try Data(contentsOf: primary), initial)
     XCTAssertEqual(try Data(contentsOf: raw), try fixture("source", "dng"))
   }
 
