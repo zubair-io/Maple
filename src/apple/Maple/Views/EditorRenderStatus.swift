@@ -7,15 +7,6 @@ struct EditorRenderStatus: View {
 
   var body: some View {
     ZStack {
-      if showsLoadingIndicator {
-        VStack {
-          IndeterminateLoadingBar()
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
-          Spacer()
-        }
-        .frame(maxWidth: .infinity)
-      }
       if let denoise = session.deepDenoiseProgress.progress {
         VStack(spacing: 8) {
           ProgressView(value: denoise.fraction)
@@ -32,6 +23,28 @@ struct EditorRenderStatus: View {
       }
     }
     .allowsHitTesting(false)
+  }
+}
+
+/// Isolates first-frame observations from the rest of the editor header.
+struct EditorHistogramChip: View {
+  let session: EditSession
+
+  var body: some View {
+    ZStack {
+      if showsLoadingIndicator {
+        IndeterminateLoadingBar()
+          .padding(.horizontal, 8)
+      } else {
+        MiniHistogram(session: session)
+      }
+    }
+    .frame(maxWidth: 140)
+    .frame(height: 26)
+    .padding(.horizontal, 12)
+    .allowsHitTesting(false)
+    .accessibilityElement(children: .contain)
+    .accessibilityIdentifier("editor-pill-histogram")
   }
 
   private var showsLoadingIndicator: Bool {

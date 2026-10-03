@@ -15,13 +15,7 @@ struct PillHeader: View {
 
   var body: some View {
     FloatingImageHeader(identifierPrefix: "editor", onBack: onBack) {
-      MiniHistogram(session: state.session)
-        .frame(maxWidth: 140)
-        .frame(height: 26)
-        .padding(.horizontal, 12)
-        .allowsHitTesting(false)
-        .accessibilityLabel("RGB histogram")
-        .accessibilityIdentifier("editor-pill-histogram")
+      EditorHistogramChip(session: state.session)
     } trailing: {
       EditorAutoButton(state: state)
         .id(ObjectIdentifier(state.session))
