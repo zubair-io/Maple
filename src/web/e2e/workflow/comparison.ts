@@ -66,10 +66,16 @@ function preparationMetrics(
   return preparation
     ? {
         preparingTickMs: preparation.maximumMs,
+        preparingPollingMs: preparation.maximumPollingMs,
         preparingAtTick: preparation.loadingAtFirstTick,
         preparingTicks: preparation.samples,
       }
-    : { preparingTickMs: null, preparingAtTick: false, preparingTicks: 0 };
+    : {
+        preparingTickMs: null,
+        preparingPollingMs: null,
+        preparingAtTick: false,
+        preparingTicks: 0,
+      };
 }
 
 function verifyRenderPath(
