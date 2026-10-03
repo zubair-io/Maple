@@ -21,7 +21,7 @@ namespace Maple.WinUI.ViewModels
         public double Minimum { get; }
         public double Maximum { get; }
         public double StepFrequency { get; }
-        public double DefaultValue { get; }
+        public double DefaultValue { get; private set; }
 
         /// <summary>DECODE-PRODUCT field: writing it invalidates the decoded
         /// base, so the model write is held until the gesture ENDS instead of
@@ -77,7 +77,7 @@ namespace Maple.WinUI.ViewModels
             _set = set;
             _format = format ?? (v => v.ToString("0"));
             CommitOnRelease = commitOnRelease;
-            DefaultValue = get(new AdjustmentState());
+            DefaultValue = get(session.DefaultAdjustments());
             _value = get(session.Adjustments);
             _deferred = commitOnRelease
                 ? new DeferredCommit(
@@ -134,8 +134,17 @@ namespace Maple.WinUI.ViewModels
         {
             _suppress = true;
             _deferred?.Discard();
+            RefreshDefaultValue();
             Value = _get(_session.Adjustments);
+            OnPropertyChanged(nameof(IsModified));
             _suppress = false;
+        }
+
+        internal void RefreshDefaultValue()
+        {
+            DefaultValue = _get(_session.DefaultAdjustments());
+            OnPropertyChanged(nameof(DefaultValue));
+            OnPropertyChanged(nameof(IsModified));
         }
 
         /// <summary>Double-tap reset per the drag-bar spec. A reset is an

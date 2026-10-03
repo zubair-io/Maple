@@ -67,6 +67,45 @@ public sealed partial class MainWindow
         ViewModel.Undo();
         ViewModel.Undo();
         if (ViewModel.Adjustments.Tint != originalTint || ViewModel.UndoCount != originalDepth)
-            throw new InvalidOperationException("Preset verification did not restore its initial state.");
+            throw new InvalidOperationException($"Preset verification did not restore its initial state: "
+                + $"tint={ViewModel.Adjustments.Tint}, expected={originalTint}, "
+                + $"undo={ViewModel.UndoCount}, expected={originalDepth}.");
+        VerifyWhiteBalanceSliderReset();
+    }
+
+    private void VerifyWhiteBalanceSliderReset()
+    {
+        var original = XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = ViewModel.Adjustments });
+        var originalDepth = ViewModel.UndoCount;
+        var defaults = ViewModel.DefaultAdjustments();
+        foreach (var (label, field, target) in new[]
+        {
+            ("Temp", "temperature", defaults.Temperature),
+            ("Tint", "tint", defaults.Tint)
+        })
+        {
+            var slider = ViewModel.Sections.Single(section => section.Title == "Color").Sliders.Single(row => row.Label == label);
+            if (slider.DefaultValue != target || slider.IsModified)
+                throw new InvalidOperationException($"As-shot {label} is marked modified or has the wrong reset origin.");
+            var changed = target + (label == "Temp" ? 500 : 17);
+            var json = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1, name = "As-shot reset check",
+                fields = new System.Collections.Generic.Dictionary<string, double> { [field] = changed }
+            });
+            ViewModel.ApplyPreset(PresetDocument.Parse(json));
+            if (!slider.IsModified || slider.Value != changed)
+                throw new InvalidOperationException($"Manual {label} is not marked modified.");
+            slider.Reset();
+            if (slider.Value != target || slider.IsModified)
+                throw new InvalidOperationException($"{label} reset did not restore the photo's as-shot identity.");
+            ViewModel.Undo();
+            if (slider.Value != changed || !slider.IsModified)
+                throw new InvalidOperationException($"{label} reset Undo did not restore the manual value.");
+            ViewModel.Undo();
+            if (ViewModel.UndoCount != originalDepth ||
+                original != XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = ViewModel.Adjustments }))
+                throw new InvalidOperationException($"{label} reset verification changed the initial document.");
+        }
     }
 }
