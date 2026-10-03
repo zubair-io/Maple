@@ -85,6 +85,15 @@ public struct AgentResponse: Sendable, Equatable {
           "data": .string(image.data.base64EncodedString()), "mimeType": .string(image.mimeType),
         ]
       }
+      if !payload.images.isEmpty {
+        fields["images"] = .array(
+          payload.images.map { img in
+            [
+              "data": .string(img.data.base64EncodedString()),
+              "mimeType": .string(img.mimeType),
+            ]
+          })
+      }
       return .object(fields)
     case .failure(let error):
       return ["id": .int(id), "error": error.json]
@@ -98,23 +107,39 @@ public struct AgentResponse: Sendable, Equatable {
       return
     }
     guard let result = json["result"] else { return nil }
-    var image: AgentImage?
-    if let encoded = json["image"]?["data"]?.stringValue,
+    var images: [AgentImage] = []
+    if let array = json["images"]?.arrayValue {
+      for item in array {
+        if let encoded = item["data"]?.stringValue,
+          let mimeType = item["mimeType"]?.stringValue,
+          let data = Data(base64Encoded: encoded)
+        {
+          images.append(AgentImage(data: data, mimeType: mimeType))
+        }
+      }
+    } else if let encoded = json["image"]?["data"]?.stringValue,
       let mimeType = json["image"]?["mimeType"]?.stringValue,
       let data = Data(base64Encoded: encoded)
     {
-      image = AgentImage(data: data, mimeType: mimeType)
+      images.append(AgentImage(data: data, mimeType: mimeType))
     }
-    self.init(id: id, outcome: .success(AgentPayload(result: result, image: image)))
+    self.init(id: id, outcome: .success(AgentPayload(result: result, images: images)))
   }
 }
 
 public struct AgentPayload: Sendable, Equatable {
   public let result: JSONValue
-  public let image: AgentImage?
+  public let images: [AgentImage]
+
+  public var image: AgentImage? { images.first }
 
   public init(result: JSONValue, image: AgentImage? = nil) {
     self.result = result
-    self.image = image
+    self.images = image.map { [$0] } ?? []
+  }
+
+  public init(result: JSONValue, images: [AgentImage]) {
+    self.result = result
+    self.images = images
   }
 }
