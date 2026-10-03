@@ -3,6 +3,38 @@ import type { LibraryStateService } from '../../projects/maple-common/src/lib/st
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
+function observeRenderPublication(canvas: ImageCanvasComponent) {
+  const descriptor = Object.getOwnPropertyDescriptor(canvas, 'lastRenderedXmp');
+  if (!descriptor?.configurable || !('value' in descriptor))
+    throw Error('Canvas publication field cannot be observed');
+  const state: { value: string | null; target: string | null; at: number | null } = {
+    value: canvas.lastRenderedXmp,
+    target: null,
+    at: null,
+  };
+  Object.defineProperty(canvas, 'lastRenderedXmp', {
+    configurable: true,
+    enumerable: descriptor.enumerable,
+    get: () => state.value,
+    set: (value: string | null) => {
+      state.value = value;
+      if (value === state.target) state.at = performance.now();
+    },
+  });
+  return {
+    expect: (target: string) => {
+      state.target = target;
+      state.at = null;
+    },
+    duration: (start: number) => {
+      if (state.at === null) throw Error('No accepted render publication was observed');
+      return state.at - start;
+    },
+    restore: () =>
+      Object.defineProperty(canvas, 'lastRenderedXmp', { ...descriptor, value: state.value }),
+  };
+}
+
 /** Observe real baseline requests, then tick throughout the 100MP preparation window. */
 export async function measureComparisonPreparation(
   canvas: ImageCanvasComponent,
@@ -10,6 +42,7 @@ export async function measureComparisonPreparation(
   id: string,
   readXML: () => Promise<string | null>,
 ) {
+  const publication = observeRenderPublication(canvas);
   let submitted = false;
   const renderer = Reflect.get(canvas.comparison, 'renderer').bind(canvas.comparison);
   const observed = new WeakSet<object>();
@@ -45,21 +78,32 @@ export async function measureComparisonPreparation(
     const xml = await readXML();
     const loadingAtFirstTick = canvas.comparison.loading();
     let maximumMs = 0;
+    let maximumPollingMs = 0;
     let samples = 0;
     do {
       const start = performance.now();
       library.updateAdjustment(id, { exposure: samples % 2 === 0 ? 1.35 : 1.36 });
       const target = canvas.serializeForRender(library.adjustmentFor(id)());
+      publication.expect(target);
       while (canvas.lastRenderedXmp !== target) {
         if (performance.now() > deadline) throw Error('Preparing comparison blocked a live tick');
         await frame();
       }
-      maximumMs = Math.max(maximumMs, performance.now() - start);
+      maximumMs = Math.max(maximumMs, publication.duration(start));
+      maximumPollingMs = Math.max(maximumPollingMs, performance.now() - start);
       samples++;
     } while (canvas.comparison.loading() && performance.now() < deadline);
-    console.log('100MP preparation ticks', samples, 'maximum', maximumMs);
-    return { xml, loadingAtFirstTick, maximumMs, samples };
+    console.log(
+      '100MP preparation ticks',
+      samples,
+      'publication maximum',
+      maximumMs,
+      'polling maximum',
+      maximumPollingMs,
+    );
+    return { xml, loadingAtFirstTick, maximumMs, maximumPollingMs, samples };
   } finally {
     Reflect.deleteProperty(canvas.comparison, 'renderer');
+    publication.restore();
   }
 }
