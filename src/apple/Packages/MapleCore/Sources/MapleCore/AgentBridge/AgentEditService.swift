@@ -104,6 +104,13 @@ public final class AgentEditService {
     let inspection = try await Task.detached(priority: .userInitiated) {
       try AgentInspector.inspect(image, maxEdge: maxEdge, region: region, context: context)
     }.value
+    // JPEG encoding and metrics run off the main actor. Revalidate after
+    // that suspension before assembling any state fields with these pixels.
+    guard activeSession === session, Self.revision(of: session) == revision else {
+      throw AgentError(
+        code: "render_superseded",
+        message: "The photo changed during inspection. Call maple_render_and_inspect again.")
+    }
     var result = summaryFields(session)
     result["revision"] = .string(revision)
     result["width"] = .int(inspection.width)
