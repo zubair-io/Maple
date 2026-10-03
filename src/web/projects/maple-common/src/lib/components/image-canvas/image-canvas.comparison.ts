@@ -1,4 +1,12 @@
-import { computed, effect, signal, untracked, type Injector } from '@angular/core';
+import {
+  computed,
+  effect,
+  signal,
+  untracked,
+  Injector,
+  type DestroyableInjector,
+} from '@angular/core';
+import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { ImageCanvasComponent } from './image-canvas.component';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
@@ -25,6 +33,18 @@ export class ImageCanvasComparison {
   private completed: string | null = null;
   private failed: string | null = null;
   private timer?: ReturnType<typeof setTimeout>;
+  private injector!: Injector;
+  private renderInjector?: DestroyableInjector;
+
+  private renderer(): RawPipelineService {
+    // A CPU decode/export cannot occupy the live GPU worker's event loop.
+    // Own one lazy worker while comparing; cancellation destroys its heap.
+    this.renderInjector ??= Injector.create({
+      providers: [RawPipelineService],
+      parent: this.injector,
+    });
+    return this.renderInjector.get(RawPipelineService);
+  }
 
   constructor(
     private readonly host: ImageCanvasComponent,
@@ -34,6 +54,7 @@ export class ImageCanvasComparison {
   ) {}
 
   wire(injector: Injector): () => void {
+    this.injector = injector;
     const crop = computed(() => {
       const asset = this.host.state.focusedAsset();
       return asset ? this.host.state.adjustmentFor(asset.id)().crop : null;
@@ -202,7 +223,7 @@ export class ImageCanvasComparison {
     if (colorSpace === 'display-p3') {
       // Reuse the bounded CPU reference and its lossless, ICC-tagged output;
       // GPU presentation retains its independent live scene and textures.
-      const rendered = await this.host.pipeline.exportImage(
+      const rendered = await this.renderer().exportImage(
         bytes,
         ext,
         { format: 'png', quality: 100, colorSpace, maxSidePixels: target },
@@ -213,14 +234,7 @@ export class ImageCanvasComparison {
     }
     // Sized CPU RAW and browser-developed non-RAW share the existing sRGB
     // preview entry. Non-RAW ignores the decode cap: bound its owned bitmap.
-    const decoded = await this.host.pipeline.decode(
-      bytes,
-      ext,
-      xmp,
-      target,
-      false,
-      film ?? undefined,
-    );
+    const decoded = await this.renderer().decode(bytes, ext, xmp, target, false, film ?? undefined);
     const full = await imageDataToBitmap(decoded);
     const scale = Math.min(1, target / Math.max(full.width, full.height));
     if (scale === 1) return full;
@@ -237,6 +251,8 @@ export class ImageCanvasComparison {
 
   private cancel(): void {
     this.generation++;
+    this.renderInjector?.destroy();
+    this.renderInjector = undefined;
     clearTimeout(this.timer);
     this.timer = undefined;
     this.requested = null;

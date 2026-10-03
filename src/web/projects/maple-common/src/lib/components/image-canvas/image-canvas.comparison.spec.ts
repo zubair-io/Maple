@@ -31,6 +31,11 @@ function setup(gpu = false) {
     rgb: new Uint8Array([40, 50, 60]),
   }));
   const exportImage = vi.fn(async (..._args: unknown[]) => ({ blob: new Blob(['baseline']) }));
+  const destroy = vi.fn();
+  vi.spyOn(Injector, 'create').mockReturnValue({
+    get: () => ({ decode, exportImage }),
+    destroy,
+  } as unknown as ReturnType<typeof Injector.create>);
   const getLattice = vi.fn(async (_id: string) => new ArrayBuffer(8));
   const host = {
     state: { focusedAsset: focused, adjustmentFor: () => model },
@@ -71,6 +76,7 @@ function setup(gpu = false) {
     exportImage,
     getLattice,
     bytes,
+    destroy,
   };
 }
 async function settle(milliseconds = 0) {
@@ -105,6 +111,7 @@ afterEach(() => {
   cleanup = undefined;
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   TestBed.resetTestingModule();
 });
 
@@ -129,6 +136,8 @@ describe('session-open comparison ownership (#4073)', () => {
     s.split.set(0.3);
     await settle(200);
     expect(s.decode).toHaveBeenCalledTimes(1);
+    expect(Injector.create).toHaveBeenCalledTimes(1);
+    expect(s.destroy).toHaveBeenCalledTimes(1);
     expect(s.model().exposure).toBe(5);
     expect(Array.from(s.bytes)).toEqual([1, 2, 3]);
   });
