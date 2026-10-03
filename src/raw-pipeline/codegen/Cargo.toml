@@ -20,3 +20,6 @@ raw-core = { path = "../raw-core" }
 clap.workspace = true
 serde_json.workspace = true
 syn = { version = "2", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3"
