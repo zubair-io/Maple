@@ -1,4 +1,5 @@
 //! Windows consumer of the same support vocabulary and evidence as Swift/TS.
+use crate::support_evidence;
 use crate::support_tiers::{closed_enums, fallback_rows, BANNER};
 use raw_core::{
     capability_registry::Evidence,
@@ -46,7 +47,8 @@ pub(crate) fn emit_cs(registry: &SupportRegistry, evidence: &Evidence) -> String
             .collect::<Vec<_>>()
             .join(", ")
     ));
-    out.push_str("    public sealed record SupportedCamera(string Key, string DisplayName, string Fixture, string FixtureDigest, CameraTier Tier, LensSupport Lens, ProfileResolution Resolution);\n\n    public static class CameraSupportRegistry\n    {\n");
+    out.push_str(support_evidence::CS_TYPES);
+    out.push_str("    public sealed record SupportedCamera(string Key, string DisplayName, string Fixture, string FixtureDigest, CameraTier Tier, LensSupport Lens, ProfileResolution Resolution, IReadOnlyList<CameraQualificationEvidence> Qualification) { public string ProfileBundleDigest => CameraSupportRegistry.ProfileBundleDigest; }\n\n    public static class CameraSupportRegistry\n    {\n");
     out.push_str(&format!("        public const uint SchemaVersion = {SUPPORT_TIER_SCHEMA_VERSION};\n        public const uint PipelineOutputVersion = {};\n        public const uint BundledModelCount = {};\n        public const string ProfileBundleDigest = {};\n\n",build.pipeline_version,registry.bundled_models.len(),quoted(&registry.profile_bundle_digest)));
     for (name, cases) in closed_enums() {
         for (method, index) in [("Id", 0), ("Label", 1), ("Explanation", 2)] {
@@ -93,14 +95,15 @@ pub(crate) fn emit_cs(registry: &SupportRegistry, evidence: &Evidence) -> String
     out.push_str("        public static readonly IReadOnlyList<SupportedCamera> FixturedCameras = new SupportedCamera[]\n        {\n");
     for body in &registry.bodies {
         out.push_str(&format!(
-            "            new({}, {}, {}, {}, CameraTier.{}, LensSupport.{}, ProfileResolution.{}),\n",
+            "            new({}, {}, {}, {}, CameraTier.{}, LensSupport.{}, ProfileResolution.{}, new CameraQualificationEvidence[] {{ {} }}),\n",
             quoted(body.key),
             quoted(body.display_name),
             quoted(body.fixture),
             quoted(body.fixture_digest),
             member(body.tier.id()),
             member(body.lens.id()),
-            member(body.resolution.id())
+            member(body.resolution.id()),
+            body.findings.iter().map(|f| support_evidence::cs(f, evidence)).collect::<Vec<_>>().join(", ")
         ));
     }
     out.push_str("        };\n    }\n}\n");

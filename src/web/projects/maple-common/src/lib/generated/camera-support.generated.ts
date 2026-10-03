@@ -64,6 +64,20 @@ export const TIER_FOR_RESOLUTION: Readonly<Record<ProfileResolution, CameraTier>
 };
 
 /** One camera body Maple holds a physical fixture for. */
+export interface CameraEvidenceRecord {
+  readonly gitSha: string;
+  readonly corpusHash: string;
+  readonly backend: string;
+  readonly pipelineVersion: number;
+  readonly schemaVersion: number;
+}
+
+export interface CameraQualificationEvidence {
+  readonly source: string;
+  readonly status: string;
+  readonly record: CameraEvidenceRecord | null;
+}
+
 export interface SupportedCamera {
   readonly key: string;
   readonly displayName: string;
@@ -72,6 +86,8 @@ export interface SupportedCamera {
   readonly tier: CameraTier;
   readonly lens: LensSupport;
   readonly resolution: ProfileResolution;
+  readonly qualification: readonly CameraQualificationEvidence[];
+  readonly profileBundleDigest: string;
 }
 
 export const CAMERA_SUPPORT_BUILD = {
@@ -95,6 +111,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'embedded_full',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Canon EOS 5D Mark IV',
@@ -104,6 +122,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Canon EOS 5DS R',
@@ -113,6 +133,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Fujifilm GFX 50R',
@@ -122,6 +144,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Fujifilm GFX 50S',
@@ -131,6 +155,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Fujifilm X-T3',
@@ -140,6 +166,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Google Pixel 6 Pro',
@@ -149,6 +177,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'embedded_correction',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Hasselblad H2D-39',
@@ -158,6 +188,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Hasselblad H5D-40',
@@ -167,6 +199,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'decode_only',
     lens: 'no_correction_data',
     resolution: 'rawler_fallback',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Hasselblad L3D-100c',
@@ -176,6 +210,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'embedded_correction',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'LEICA M10',
@@ -185,6 +221,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Nikon D850',
@@ -194,6 +232,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Panasonic DMC-LX2',
@@ -203,6 +243,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'Sigma Foveon X3F',
@@ -212,6 +254,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'unsupported',
     lens: 'no_correction_data',
     resolution: 'decode_failed',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [],
   },
   {
     key: 'Sony ILCE-7RM4',
@@ -221,6 +265,8 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
   {
     key: 'iPhone13,3 back camera',
@@ -230,5 +276,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     tier: 'profiled',
     lens: 'no_correction_data',
     resolution: 'bundle_confident',
+    profileBundleDigest: CAMERA_SUPPORT_BUILD.profileBundleDigest,
+    qualification: [{ source: 'color_harness', status: 'missing', record: null }],
   },
 ];
