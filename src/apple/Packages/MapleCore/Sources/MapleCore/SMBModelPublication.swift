@@ -35,8 +35,13 @@ final class SMBModelPublication: @unchecked Sendable {
     try lock.withLock {
       if prepared == nil {
         guard current == expected else { throw changed() }
+        // Scalar and semantic adjustment saves preserve source-owned removals.
+        // Explicit workflow restoration uses WorkflowPublication instead (#3984).
+        var savedModel = model
+        savedModel.inpaintRemovals = try RemovalXMPRecords.ordinaryWriteRecords(
+          current.map { Data($0.utf8) })
         let checkpoint = XMPSerializer.serialize(
-          model: model, culling: culling,
+          model: savedModel, culling: culling,
           metadata: current.map { XMPParser.parseMetadata($0) } ?? XmpMetadata(),
           passthrough: current.map { XMPParser.parsePassthrough($0) } ?? .empty)
         let entry = try entry(WorkflowSidecarCore.checkpoint(xmp: checkpoint))
