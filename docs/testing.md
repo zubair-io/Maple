@@ -585,7 +585,10 @@ They exercise the actual `SMBSource`/AMSMB2 connection, full editor variants,
 semantic history, snapshots, restore, Undo/Redo, reopen, rendered export,
 original bytes and server-enforced competing publication ownership. A TCP relay
 drops one successful rename reply to qualify retry after a lost acknowledgement,
-including another client's subsequent save. Neither a mounted share nor a
+including another client's subsequent save and rejection of a further stale edit.
+The same suite rejects stale first semantic and ordinary saves, checks queued
+publication ordering and retries an ordinary save with identical accepted XML.
+Neither a mounted share nor a
 mock sidecar qualifies these tests.
 
 The fixture disables Samba's temporary-directory mkdir path using
