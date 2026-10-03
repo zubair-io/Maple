@@ -33,6 +33,34 @@ final class AgentEditServiceTests: XCTestCase {
     return try XCTUnwrap(state["revision"]?.stringValue)
   }
 
+  func testRadialMaskRejectsGeometryThatOverflowsItsSharedFloatWire() async throws {
+    let invalidParameters: [JSONValue] = [
+      ["radii": ["x": 1e100, "y": 0.25]],
+      ["radii": ["x": 0.25, "y": 1e100]],
+      ["angle": 1e100],
+    ]
+    for parameters in invalidParameters {
+      let service = AgentEditService()
+      let session = makeSession()
+      service.activate(session)
+      let before = session.model
+      let result = await call(
+        service, "maple_create_mask",
+        [
+          "expected_revision": .string(try await revision(service)),
+          "kind": "radial", "params": parameters,
+        ])
+      guard case .failure(let error) = result else {
+        XCTFail("Unsafe radial parameters were committed to the model: \(parameters)")
+        continue
+      }
+      XCTAssertEqual(error.code, "invalid_arguments")
+      XCTAssertEqual(session.model, before)
+      XCTAssertTrue(session.undoHistory.isEmpty)
+      XCTAssertNil(session.selectedMaskId)
+    }
+  }
+
   func testNoActivePhotoIsAReadableError() async {
     let outcome = await call(AgentEditService(), "maple_get_active_photo")
     guard case .failure(let error) = outcome else { return XCTFail("expected failure") }

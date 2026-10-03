@@ -73,11 +73,13 @@ public enum AgentMaskService {
 
       guard (0...1).contains(centerX), (0...1).contains(centerY),
         radiusX > 0, radiusY > 0,
+        Float(radiusX).isFinite, Float(radiusY).isFinite, Float(angle).isFinite,
         (0...1).contains(feather)
       else {
         throw AgentError(
           code: "invalid_arguments",
-          message: "Radial mask center and radii must be positive normalized numbers in 0…1."
+          message:
+            "Radial center and feather must be in 0…1; radii must be positive, and radii/angle must fit the renderer’s finite numeric range."
         )
       }
 
