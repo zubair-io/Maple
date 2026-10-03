@@ -19,7 +19,7 @@
 // `mui-living-slider`'s `resetRequest`), which for geometry means the value
 // that makes that factor the identity — 100 for Scale, 0 for the other six.
 
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
@@ -102,6 +102,13 @@ export class GeometryPanelComponent {
 
   readonly sliders = GEOMETRY_SLIDERS;
 
+  // A selection change synchronously invalidates the old pointer/key gesture,
+  // including A→B→A before a render. Live ticks remain immediate (#4121).
+  private readonly gestureAsset = linkedSignal<string | null, string | null>({
+    source: this.library.focusedAssetId,
+    computation: () => null,
+  });
+
   private readonly adj = computed<AdjustmentModel | null>(() => {
     const id = this.library.focusedAssetId();
     return id ? this.library.adjustmentFor(id)() : null;
@@ -118,27 +125,33 @@ export class GeometryPanelComponent {
   /** Pointer-down / first held arrow key: open the one transaction this whole
    *  gesture will land as. */
   onDragStart(): void {
-    if (this.panelDisabled()) return;
+    const id = this.library.focusedAssetId();
+    this.gestureAsset.set(id);
+    if (!id) return;
     this.editorState.commit();
     this.editorState.beginGesture();
   }
 
   onDragEnd(): void {
-    this.editorState.endGesture();
+    const id = this.gestureAsset();
+    this.gestureAsset.set(null);
+    if (id && id === this.library.focusedAssetId()) this.editorState.endGesture();
   }
 
   onValueChange(field: GeometryField, value: number): void {
-    const id = this.library.focusedAssetId();
-    if (!id) return;
+    const id = this.gestureAsset();
+    if (!id || id !== this.library.focusedAssetId()) return;
     this.library.updateAdjustment(id, { [field]: value });
   }
 
   /** Double-click: back to the value that makes this factor the identity.
    *  A discrete edit, so it opens and closes its own transaction. */
   onReset(field: GeometryField): void {
+    this.gestureAsset.set(null);
     const id = this.library.focusedAssetId();
     if (!id) return;
     this.editorState.commit();
     this.library.updateAdjustment(id, { [field]: DEFAULTS[field] });
+    this.editorState.endGesture();
   }
 }
