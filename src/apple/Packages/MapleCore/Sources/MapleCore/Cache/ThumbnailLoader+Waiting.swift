@@ -8,7 +8,7 @@ extension ThumbnailLoader {
     return await withTaskCancellationHandler {
       let result = await task.value
       finishWaiting(task, waiter: waiter, cancelled: false)
-      return result
+      return Task.isCancelled ? nil : result
     } onCancel: {
       Task { await self.finishWaiting(task, waiter: waiter, cancelled: true) }
     }

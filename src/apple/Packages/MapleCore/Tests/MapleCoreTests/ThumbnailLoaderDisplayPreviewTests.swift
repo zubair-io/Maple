@@ -95,7 +95,10 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
     try FileManager.default.createDirectory(
       at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-    let staged = try Data(contentsOf: assetURL)
+    let stagedJPEG = try writeJPEG(named: "staged.jpg", width: 160, height: 96)
+    let stagedImage = try XCTUnwrap(CIImage(contentsOf: stagedJPEG))
+    let staged = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: stagedImage))
+    XCTAssertEqual(try longEdge(of: staged), 160)
     try staged.write(to: previewURL)
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(

@@ -68,7 +68,15 @@ public final class BrowseViewModel {
   /// Monotonically increasing load generation. Each `loadFolder` bumps it;
   /// stale in-flight tasks check the captured generation before mutating
   /// `assets` / `selectedID`.
-  @ObservationIgnored var loadGeneration: UInt64 = 0
+  @ObservationIgnored var folderEnumerationCheckpoint: (@Sendable () async -> Void)?
+  @ObservationIgnored let folderEnumerationSlots = BoundedAsyncSemaphore(value: 1)
+  @ObservationIgnored var folderEnumerationTask: Task<([AssetRef], [URL]), Error>?
+  @ObservationIgnored var loadGeneration: UInt64 = 0 {
+    didSet {
+      folderEnumerationTask?.cancel()
+      folderEnumerationTask = nil
+    }
+  }
   @ObservationIgnored private var pagedPhotoKitSource: PhotoKitSource?
   @ObservationIgnored private var photoKitNextOffset = 0
   @ObservationIgnored private var photoKitTotalCount = 0
