@@ -28,7 +28,7 @@ pub(crate) fn emit_cs(registry: &SupportRegistry, evidence: &Evidence) -> String
         .lines()
         .map(|line| format!("//{}{line}\n", if line.is_empty() { "" } else { " " }))
         .collect();
-    out.push_str("\nusing System;\nusing System.Collections.Generic;\nusing System.Linq;\n\nnamespace Maple.WinUI.Generated\n{\n");
+    out.push_str("\n#nullable enable\n\nusing System;\nusing System.Collections.Generic;\nusing System.Linq;\n\nnamespace Maple.WinUI.Generated\n{\n");
     for (name, cases) in closed_enums() {
         out.push_str(&format!(
             "    public enum {name} {{ {} }}\n",
