@@ -134,6 +134,56 @@ final class RemovalSessionTests: XCTestCase {
   }
 
   #if os(macOS)
+    func testPersonChoiceChangeExplainsDisabledRemovalAndCannotPublish() async throws {
+      let session = try stage()
+      let raw = try XCTUnwrap(session.asset.primaryURL)
+      let original = try Data(contentsOf: raw)
+      let removal = RemovalSession(
+        session: session,
+        modelStore: MacRemovalModelStore(
+          root: raw.deletingLastPathComponent().appendingPathComponent("models")))
+      await removal.open()
+      removal.setMode(.people)
+      removal.people = [
+        RemovalSession.Person(
+          id: 1, detection: NativeRemovalDetection(class: 0, bounds: [0, 0, 4, 8], score: 0.9),
+          keep: true)
+      ]
+      removal.keepPerson(1)
+      XCTAssertFalse(removal.people[0].keep)
+      XCTAssertTrue(removal.personChoicesNeedApply)
+      XCTAssertTrue(removal.message.contains("Apply person choices"))
+      XCTAssertFalse(removal.canRemove)
+      await removal.remove()
+      XCTAssertEqual(removal.phase, .ready)
+      XCTAssertTrue(removal.message.contains("Apply person choices"))
+      XCTAssertNil(removal.preview)
+      XCTAssertTrue(removal.proposals.isEmpty)
+      removal.keepPerson(99)
+      XCTAssertFalse(removal.people[0].keep, "Unknown labels do not change choices")
+      removal.clearProtection()
+      XCTAssertTrue(removal.personChoicesNeedApply)
+      removal.close()
+      XCTAssertFalse(removal.personChoicesNeedApply)
+      XCTAssertEqual(try Data(contentsOf: raw), original)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: raw).path))
+      await session.releaseTransientMemory()
+    }
+
+    func testRemoveWithoutSelectionOrPreparedContextReportsTheMissingStep() async throws {
+      let session = try stage()
+      let removal = RemovalSession(session: session)
+      await removal.open()
+      await removal.remove()
+      XCTAssertEqual(removal.phase, .ready)
+      XCTAssertTrue(removal.message.contains("Paint"))
+      removal.setMode(.people)
+      await removal.remove()
+      XCTAssertTrue(removal.message.contains("No people selected"))
+      removal.close()
+      await session.releaseTransientMemory()
+    }
+
     func testImportCannotReopenAClosedOrFailedPhoto() async throws {
       let session = try stage()
       let raw = try XCTUnwrap(session.asset.primaryURL)

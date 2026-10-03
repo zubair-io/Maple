@@ -4,6 +4,28 @@ import XCTest
 @testable import MapleCore
 
 final class RemovalGenerationBridgeTests: XCTestCase {
+  func testOversizedNativeSelectionReportsTheModelLimitAndPreservesIntent() throws {
+    let digest = try RemovalBridge.digest(Data("source".utf8))
+    let source =
+      "{\"original\":\"\(digest)\",\"decode\":\"\(digest)\",\"width\":4096,\"height\":4096}"
+    let intent = try RemovalBridge.selection(
+      width: 4096, height: 4096,
+      request:
+        "{\"schema\":1,\"strokes\":[{\"points\":[[0.5,0.5]],\"radius\":0.2,\"subtract\":false}]}")
+    let original = intent
+    XCTAssertThrowsError(
+      try NativeRemovalGeneration.plan(
+        source: source, intent: intent, holeRadius: ExperimentalRemovalModels.holeRadius,
+        fringeRadius: ExperimentalRemovalModels.fringeRadius)
+    ) { error in
+      XCTAssertTrue(error.localizedDescription.contains("object is too large"))
+      XCTAssertTrue(
+        error.localizedDescription.contains("\(ExperimentalRemovalModels.lama.nativeSide)"))
+      XCTAssertTrue(error.localizedDescription.contains("source pixels"))
+    }
+    XCTAssertEqual(intent, original)
+  }
+
   func testRealBridgeKeepsIntentOpaqueAndRejectsProtectionOverlap() throws {
     let intent = try RemovalBridge.selection(
       width: 9, height: 9,

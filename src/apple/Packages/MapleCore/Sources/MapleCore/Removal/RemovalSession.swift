@@ -43,6 +43,7 @@ public final class RemovalSession {
   public var compare = false
   public internal(set) var message = ""
   public internal(set) var people: [Person] = []
+  public internal(set) var personChoicesNeedApply = false
   public internal(set) var savedRemovals: [SavedRemovalEntry] = []
   public internal(set) var replacingRemovalID: String?
   @ObservationIgnored var replacementBase = Data()
@@ -99,7 +100,9 @@ public final class RemovalSession {
   }
   public var canPaint: Bool { mode != .people || refiningPersonID != nil }
   public func canRefinePerson(_ id: Int) -> Bool { personBases.contains { $0.id == id } }
-  public var canRemove: Bool { phase == .ready && !selection.isEmpty && modelFolderName != nil }
+  public var canRemove: Bool {
+    phase == .ready && !personChoicesNeedApply && !selection.isEmpty && modelFolderName != nil
+  }
 
   public func open() async {
     guard phase != .saving else { return }
@@ -171,6 +174,7 @@ public final class RemovalSession {
     gestureSizes = []
     redoGestures = []
     people = []
+    personChoicesNeedApply = false
     message = ""
     active = false
     phase = .closed
@@ -217,6 +221,7 @@ public final class RemovalSession {
     replacementBase = Data()
     strokes = []
     personMasks = []
+    personChoicesNeedApply = false
     resetPersonRefinement()
     gestureSizes = []
     redoGestures = []
@@ -237,6 +242,10 @@ public final class RemovalSession {
     protection = Data()
     people = people.map { Person(id: $0.id, detection: $0.detection, keep: false, role: $0.role) }
     clearSelection()
+    if mode == .people, !people.isEmpty {
+      personChoicesNeedApply = true
+      message = "Protection cleared. Review the people to keep, then click Apply person choices."
+    }
   }
 
   public func cancel() {

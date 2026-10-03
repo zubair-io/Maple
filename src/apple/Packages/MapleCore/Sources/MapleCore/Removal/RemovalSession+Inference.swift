@@ -26,6 +26,7 @@ extension RemovalSession {
       let masks = try await masksForPeople(suggestedPeople, context: context, token: token)
       guard current(token) else { return }
       people = suggestedPeople
+      personChoicesNeedApply = false
       selection = masks.selection
       protection = masks.protection
       personMasks = masks.people
@@ -37,13 +38,15 @@ extension RemovalSession {
   }
 
   public func keepPerson(_ id: Int) {
-    guard phase == .ready else { return }
+    guard phase == .ready, people.contains(where: { $0.id == id }) else { return }
     clearSelection()
     people = people.map {
       Person(
         id: $0.id, detection: $0.detection, keep: $0.id == id ? !$0.keep : $0.keep,
         role: $0.role)
     }
+    personChoicesNeedApply = true
+    message = "Choices changed. Click Apply person choices to update the red removal selection."
   }
 
   public func selectOtherPeople() async {
@@ -59,6 +62,7 @@ extension RemovalSession {
       protection = masks.protection
       personMasks = masks.people
       resetPersonRefinement(masks.bases)
+      personChoicesNeedApply = false
       operation = nil
       phase = .ready
       message = peopleMessage
@@ -106,7 +110,28 @@ extension RemovalSession {
   }
 
   public func remove() async {
-    guard canRemove, let context, let snapshot else { return }
+    guard phase == .ready else { return }
+    guard !personChoicesNeedApply else {
+      message =
+        "Click Apply person choices before removing. Green people are kept; red people are removed."
+      return
+    }
+    guard !selection.isEmpty else {
+      message =
+        mode == .people
+        ? "No people selected for removal. Change unwanted people to Remove, then Apply person choices."
+        : "Paint over the object to select it before removing."
+      return
+    }
+    guard modelFolderName != nil else {
+      message = "Import local AI models before removing."
+      return
+    }
+    guard let context, let snapshot else {
+      message = "The photo is not ready for removal. Retry loading the photo."
+      phase = .failed
+      return
+    }
     revision &+= 1
     let token = revision
     phase = .generating
