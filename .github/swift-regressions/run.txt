@@ -321,3 +321,7 @@ WorkflowSidecarTests
 NativeWorkflowHistoryTests
 NativeCloudWorkflowHistoryTests
 PrimaryWorkflowIdentityTests
+
+# Native snapshot/history product commands and complete-XMP Undo (#4062).
+NativeWorkflowControlsTests
+NativeCloudWorkflowControlsTests

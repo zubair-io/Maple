@@ -699,9 +699,20 @@ their writable source to use these controls. A first snapshot uses a null-XMP
 precondition plus its captured initial checkpoint; the initial primary and snapshot
 publish together, without a separate baseline write or invented history entry.
 Concurrent first writers have one winner and stale commands cannot replace it.
-Native controls, cache-aware named
-variant switching, deletion/recovery and connected SMB qualification remain
-acceptance requirements under #2437.
+Apple primary snapshot/history controls (#4062) read and publish through the actual
+filesystem, PhotoKit App Support and authenticated API writers. The More menu
+opens named snapshots, portable history, explicit restore confirmation, and Refresh.
+Complete-XMP restores join each writer's ordinary-save queue, validate the primary
+identity and current bytes, and change the model and bounded Undo ring only after
+confirmed publication. Undo/Redo retain the action and immutable retry ID through
+failed or lost acknowledgements; session navigation invalidates late UI publication.
+Restored culling, metadata and foreign XML become the next ordinary write's base.
+The shared converter's required expansion of a self-closing Description is ignored
+when detecting an unchanged restore on Apple and Web; it does not create a false
+history entry or Undo action. Checkpoint payloads retain their original XML.
+
+Cache-aware named variant switching, deletion/recovery and connected SMB
+qualification remain acceptance requirements under #2437.
 `tools/qualification/workflow-roundtrip.sh` runs the committed XMP corpus through
 Rust → generated Swift → generated Web/API TypeScript → Rust and checks identical
 final serialization. It writes only its own temporary files.

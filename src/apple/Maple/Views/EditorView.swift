@@ -68,6 +68,7 @@ struct EditorSurface: View {
   /// Share button reaches the same `ExportPanel` on iPhone, iPad and Mac —
   /// the iPhone host used to hand `EditorView` a no-op share closure.
   @State private var showExport = false
+  @State private var workflowOpen = false
 
   /// Frame (in `editorCanvas` space) of whichever floating chrome panel is
   /// currently reporting itself as a wheel-exclusion region. The shared
@@ -180,6 +181,12 @@ struct EditorSurface: View {
             onBack: onDismiss,
             onShare: { showExport = true },
             onInfo: onInfo,
+            onWorkflow: {
+              state.endGesture()
+              state.whiteBalancePicker.cancel()
+              state.session.workflow.isPresented = true
+              workflowOpen = true
+            },
             showsScope: $showsScope,
             showsScopesPanel: $showsScopesPanel,
             scopesPanelAvailable: isRegular
@@ -195,6 +202,11 @@ struct EditorSurface: View {
       EditorRenderStatus(session: state.session)
 
     }
+    .disabled(state.session.workflow.isBusy)
+    .sheet(isPresented: $workflowOpen) {
+      EditorWorkflowPanel(session: state.session).disabled(false)
+    }
+    .onChange(of: workflowOpen) { _, open in state.session.workflow.isPresented = open }
     .sheet(isPresented: $showExport) {
       ExportPanel(session: state.session)
     }
@@ -227,7 +239,10 @@ struct EditorSurface: View {
     .onChange(of: scopeProducerArmed, initial: true) { _, armed in
       state.session.scopeEnabled = armed
     }
-    .onDisappear { state.session.scopeEnabled = false }
+    .onDisappear {
+      state.session.scopeEnabled = false
+      state.session.workflow.invalidate()
+    }
     // Scope the shell identifier to a CONTAINER element (#1769). A bare
     // `.accessibilityIdentifier` on a multi-element view BROADCASTS the
     // identifier onto every contained accessibility element, overriding

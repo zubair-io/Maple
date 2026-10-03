@@ -23,7 +23,7 @@ const fixtures = new Map<
   string,
   { path: string; id: string; input: string | null; cursor: number }
 >();
-const blocked = new Map<string, { promise: Promise<void>; release: () => void }>();
+const blocked = new Map<string, { promise: Promise<void>; release: () => void; arrived: number }>();
 const lostResponses = new Set<string>();
 function fixture(key: string) {
   const result = fixtures.get(key);
@@ -32,7 +32,12 @@ function fixture(key: string) {
 }
 const races = new Map<
   string,
-  { promise: Promise<void>; release: () => void; arrived: number; expected: number }
+  {
+    promise: Promise<void>;
+    release: () => void;
+    arrived: number;
+    expected: number;
+  }
 >();
 async function waitForRace(path: string) {
   const race = races.get(path);
@@ -45,10 +50,17 @@ async function waitForRequest(request: Request) {
   const url = new URL(request.url);
   const path = url.searchParams.get('path') ?? '';
   const gates: Record<string, () => Promise<void | undefined>> = {
-    'GET /api/xmp': async () => blocked.get(path)?.promise,
+    'GET /api/xmp': () => waitForBlockedRead(path),
+    'GET /api/xmp/variant': () => waitForBlockedRead(path),
     'POST /api/xmp/variant/commit': () => waitForRace(path),
   };
   await gates[`${request.method} ${url.pathname}`]?.();
+}
+async function waitForBlockedRead(path: string) {
+  const gate = blocked.get(path);
+  if (!gate) return;
+  gate.arrived++;
+  await gate.promise;
 }
 function fixtureSchema(xml: string, future: boolean | undefined): string {
   return future ? xml.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2') : xml;
@@ -65,7 +77,9 @@ function dropAcceptedResponse(request: Request) {
   if (!lostResponses.delete(String(url.searchParams.get('path')))) return;
   // Runs after the real route publishes its file/SQLite change. The client
   // receives a gateway failure instead of the acknowledgement, once (#4056).
-  return status(502, { error: 'Owned fixture lost the accepted commit acknowledgement' });
+  return status(502, {
+    error: 'Owned fixture lost the accepted commit acknowledgement',
+  });
 }
 async function fixtureXml(body: {
   xml: string | null;
@@ -82,7 +96,9 @@ const app = new Elysia()
     if (!receipt) return;
     if (!new URL(request.url).pathname.startsWith('/api/')) return;
     if (request.headers.get('authorization') !== 'Bearer workflow-token')
-      return status(401, { error: 'Unauthorized owned native fixture request' });
+      return status(401, {
+        error: 'Unauthorized owned native fixture request',
+      });
   })
   .onBeforeHandle(({ request }) => waitForRequest(request))
   .onAfterHandle(({ request }) => dropAcceptedResponse(request))
@@ -158,7 +174,11 @@ const app = new Elysia()
   .post('/workflow-fixture/:key/block', ({ params }) => {
     const source = fixture(params.key);
     const latch = Promise.withResolvers<void>();
-    blocked.set(source.path, { promise: latch.promise, release: () => latch.resolve() });
+    blocked.set(source.path, {
+      promise: latch.promise,
+      release: () => latch.resolve(),
+      arrived: 0,
+    });
     return { blocked: true };
   })
   .post('/workflow-fixture/:key/release', ({ params }) => {
@@ -195,12 +215,16 @@ const app = new Elysia()
     const workflow = xml === null ? null : await callNative('workflowReadXmp', [xml]);
     return {
       xml,
+      blockedReads: blocked.get(source.path)?.arrived ?? 0,
       workflow: workflow?.ok ? JSON.parse(workflow.value) : null,
       original: [...(await readFile(source.path))],
       state: live.db.query('SELECT has_xmp, sidecar_ver FROM assets WHERE id = ?').get(source.id),
-      changes: (await listChangesSince(live.handle, { since: source.cursor, limit: 100 })).filter(
-        (row) => row.asset_id?.toHexString() === source.id,
-      ),
+      changes: (
+        await listChangesSince(live.handle, {
+          since: source.cursor,
+          limit: 100,
+        })
+      ).filter((row) => row.asset_id?.toHexString() === source.id),
     };
   })
   .listen({ port: receipt ? 0 : 4519, hostname: '127.0.0.1' });

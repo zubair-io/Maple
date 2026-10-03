@@ -32,7 +32,11 @@ public final class EditorCommandRouter {
   /// removed editor can neither act on the next image nor revive its old one.
   @discardableResult
   public func perform(_ command: Command, assetID: UUID) -> Bool {
-    guard isActive, assetID == state.session.asset.id else { return false }
+    guard isActive, !state.session.workflow.isBusy, !state.session.workflow.isPresented,
+      assetID == state.session.asset.id
+    else {
+      return false
+    }
     switch command {
     case .nudge, .nudgeRelease: break
     default: finishNudge()

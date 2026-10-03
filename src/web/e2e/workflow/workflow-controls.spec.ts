@@ -39,6 +39,24 @@ test.afterEach(async ({ page }) => {
   await page.evaluate(async () => Reflect.get(window, 'workflowUI')?.dispose());
 });
 for (const backend of ['hosted', 'self-hosted'] as const) {
+  test(`${backend}: restoring an unchanged self-closing checkpoint records no action`, async ({
+    page,
+  }) => {
+    const input =
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="0" crs:Temperature="6500" crs:Tint="0"/></rdf:RDF></x:xmpmeta>';
+    await page.evaluate(
+      async ({ input, backend }) => Reflect.get(window, 'workflowUI').mount(input, backend),
+      { input, backend },
+    );
+    await open(page);
+    await save(page, 'Unchanged');
+    const before = await state(page);
+    await restore(page, 'Unchanged');
+    const after = await state(page);
+    expect(after.xml).toBe(before.xml);
+    expect(after.workflow.history).toEqual([]);
+    expect(after.undoCount).toBe(0);
+  });
   test(`${backend}: navigation during Undo cannot retain a retry in the new binding`, async ({
     page,
   }) => {

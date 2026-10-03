@@ -155,11 +155,14 @@ export class EditorWorkflowCommandsService {
     const current = await this.read(source);
     const accepted = current.record?.history.find((saved) => saved.id === entry.id);
     if (accepted && stableStringify(accepted) === stableStringify(entry)) return current.xml!;
-    if (entry.adjustmentXmp === command.before) {
-      if (current.xml !== expectedXmp)
-        throw Error('Variant changed. Reopen it before saving this action.');
-      return current.xml!;
-    }
+    if (current.xml !== expectedXmp)
+      throw Error('Variant changed. Reopen it before saving this action.');
+    // Only the shared converter's necessary self-closing Description expansion
+    // is ignored; foreign bytes and authored whitespace remain exact (#4062).
+    const target = current.record
+      ? await this.core.checkpoint(await this.core.embed(current.record, entry.adjustmentXmp))
+      : entry.adjustmentXmp;
+    if (target === command.before) return current.xml!;
     return this.publishEntry(command);
   }
 

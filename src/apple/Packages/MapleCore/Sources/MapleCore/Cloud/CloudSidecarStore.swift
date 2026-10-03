@@ -7,11 +7,12 @@
 
 import Foundation
 
-public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
+public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
   private let server: URL
   private let assetID: String
   private let httpClient: AuthenticatedHTTPClient
 
+  private var cacheGeneration: UInt64 = 0
   private var cached: (AdjustmentModel, CullingState)?
   private var pendingTask: Task<Void, Never>?
   private var writeTail: Task<Void, Error>?
@@ -53,14 +54,16 @@ public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
 
   public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
     if let cached { return cached }
+    let generation = cacheGeneration
     let req = URLRequest(url: sidecarURL)
     let (data, resp) = try await httpClient.data(for: req)
     if let http = resp as? HTTPURLResponse, http.statusCode == 404 {
-      return nil
+      return generation == cacheGeneration ? nil : cached
     }
     try Self.checkOK(resp, data: data)
     _ = try primaryWorkflow(String(decoding: data, as: UTF8.self))
     let result = try XMPParser.parse(data: data)
+    guard generation == cacheGeneration else { return cached ?? result }
     cached = result
     cachedPassthrough = XMPParser.parsePassthrough(data: data)
     cachedMetadata = XMPParser.parseMetadata(String(decoding: data, as: UTF8.self))
@@ -68,6 +71,7 @@ public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
   }
 
   public func update(model: AdjustmentModel, culling: CullingState) {
+    cacheGeneration &+= 1
     pendingModel = model
     pendingCulling = culling
     cached = (model, culling)
@@ -124,6 +128,7 @@ public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
     pendingModel = nil
     pendingCulling = nil
 
+    cacheGeneration &+= 1
     cached = (model, culling)
     try await persist(model: model, culling: culling)
   }
@@ -147,6 +152,7 @@ public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
     pendingTask = nil
     pendingModel = model
     pendingCulling = culling
+    cacheGeneration &+= 1
     cached = (model, culling)
     try await persist(model: model, culling: culling)
   }
@@ -207,6 +213,99 @@ public actor CloudSidecarStore: SemanticSidecarStoreProtocol {
         subscriber.yield(error)
       }
     }
+  }
+
+  public func readWorkflowXML() async throws -> String? {
+    try await enqueueWorkflow(nil)
+  }
+
+  public func publishWorkflow(_ command: WorkflowPublication) async throws -> String {
+    guard let xml = try await enqueueWorkflow(command) else {
+      throw WorkflowSidecarError(message: "The server did not confirm the checkpoint.")
+    }
+    return xml
+  }
+
+  /// Actual reads and complete-XMP publication join the same tail as ordinary edits.
+  private func enqueueWorkflow(_ command: WorkflowPublication?) async throws -> String? {
+    pendingTask?.cancel()
+    pendingTask = nil
+    let model = pendingModel
+    let culling = pendingCulling
+    pendingModel = nil
+    pendingCulling = nil
+    let previous = writeTail
+    let task = Task {
+      _ = await previous?.result
+      if let model, let culling {
+        do { try await self.send(model: model, culling: culling) } catch {
+          if self.pendingModel == nil {
+            self.pendingModel = model
+            self.pendingCulling = culling
+          }
+          throw error
+        }
+      }
+      let path = try await self.resolvedWorkflowPath()
+      let current = try await self.readPrimary(path: path)
+      guard let command else { return current }
+      let output = try command.output(current: current)
+      let published = output == current ? output : try await self.sendWorkflow(command, path: path)
+      _ = try self.primaryWorkflow(published)
+      guard try output == current || command.acknowledged(in: published) else {
+        throw WorkflowSidecarError(message: "The server did not confirm this checkpoint action.")
+      }
+      let restored = try XMPParser.parse(published)
+      self.cacheGeneration &+= 1
+      if self.pendingModel == nil { self.cached = restored }
+      self.cachedMetadata = XMPParser.parseMetadata(published)
+      self.cachedPassthrough = XMPParser.parsePassthrough(published)
+      return published
+    }
+    writeTail = Task { _ = try await task.value }
+    return try await task.value
+  }
+
+  private func sendWorkflow(_ command: WorkflowPublication, path: String) async throws -> String {
+    let operation: String
+    let fields: [String: Any]
+    switch command {
+    case .snapshot(let expected, let initial, let snapshot):
+      operation = "snapshot"
+      fields = [
+        "expectedXmp": expected as Any? ?? NSNull(),
+        "initialXmp": initial as Any? ?? NSNull(),
+        "snapshot": try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)),
+      ]
+    case .restore(let expected, let entry):
+      operation = "restore"
+      fields = [
+        "expectedXmp": expected,
+        "entry": try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)),
+      ]
+    case .replay(let expected, let entry):
+      operation = "commit"
+      fields = [
+        "expectedXmp": expected, "xmp": entry.adjustmentXmp,
+        "entry": try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)),
+      ]
+    }
+    var components = URLComponents(
+      url: server.appending(path: "/api/xmp/variant/\(operation)"), resolvingAgainstBaseURL: false)
+    components?.queryItems = [
+      URLQueryItem(name: "path", value: path),
+      URLQueryItem(name: "variantId", value: WorkflowContract.primaryVariantID),
+    ]
+    guard let url = components?.url else { throw URLError(.badURL) }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(
+      withJSONObject: fields.filter { $0.key != "initialXmp" || !($0.value is NSNull) })
+    let (data, response) = try await httpClient.data(for: request)
+    try Self.checkOK(response, data: data)
+    guard let xml = String(data: data, encoding: .utf8) else { throw XMPStoreError.encodingError }
+    return xml
   }
 
   private func resolvedWorkflowPath() async throws -> String {

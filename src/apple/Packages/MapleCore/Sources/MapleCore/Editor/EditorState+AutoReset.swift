@@ -114,7 +114,7 @@ extension EditorState {
   /// that actually renders.
   public func applyAuto(whiteBalanceOnly: Bool = false) async {
     let asset = session.asset
-    guard asset.isRaw else { return }
+    guard !session.workflow.isBusy, asset.isRaw else { return }
     whiteBalancePicker.cancel()
     autoGeneration &+= 1
     let gen = autoGeneration
@@ -145,7 +145,8 @@ extension EditorState {
     // session (or its sidecar) after the user has left the image.
     // The model catches in-progress slider writes; the transaction ID also
     // catches edit → undo while analysis runs, when the model matches again.
-    guard !Task.isCancelled, gen == autoGeneration, session.asset.id == asset.id,
+    guard !session.workflow.isBusy, !Task.isCancelled, gen == autoGeneration,
+      session.asset.id == asset.id,
       session.model == originalModel, session.transactions.nextID == editID
     else { return }
 

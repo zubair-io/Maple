@@ -23,7 +23,7 @@ import Foundation
 /// await store.update(model: newModel, culling: culling)
 /// await store.flush()   // Force immediate write before close.
 /// ```
-public actor XMPSidecarStore {
+public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private let sidecarURL: URL
 
   private var cached: (AdjustmentModel, CullingState)?
@@ -185,6 +185,36 @@ public actor XMPSidecarStore {
     pendingMetadata = nil
   }
 
+  /// Settle pending authored state with a throwing boundary before reading a checkpoint.
+  public func readWorkflowXML() throws -> String? {
+    try settleWorkflowWrites()
+    let xml = try existingSidecarXML(at: sidecarURL)
+    if let xml { try requirePrimaryWorkflow(in: xml) }
+    return xml
+  }
+
+  public func publishWorkflow(_ command: WorkflowPublication) throws -> String {
+    try settleWorkflowWrites()
+    return try coordinateSidecarWrite { destination, existing in
+      let output = try command.output(current: existing)
+      // Parse before publication; a failure never changes the original checkpoint.
+      let restored = try XMPParser.parse(output)
+      if output != existing { try self.publishSidecarXML(output, at: destination) }
+      self.cached = restored
+      return output
+    }
+  }
+
+  private func settleWorkflowWrites() throws {
+    pendingTask?.cancel()
+    pendingTask = nil
+    guard let model = pendingModel, let culling = pendingCulling else { return }
+    try writeAtomically(model: model, culling: culling)
+    pendingModel = nil
+    pendingCulling = nil
+    cached = (model, culling)
+  }
+
   /// Returns an async stream of errors encountered during background writes.
   public func errors() -> AsyncStream<Error> {
     let id = nextSubscriberID
@@ -283,10 +313,10 @@ public actor XMPSidecarStore {
   }
 
   /// Cooperate with separate editor/variant store instances on this same file.
-  private func coordinateSidecarWrite(_ write: (URL, String?) throws -> Void) throws {
+  private func coordinateSidecarWrite<T>(_ write: (URL, String?) throws -> T) throws -> T {
     let coordinator = NSFileCoordinator(filePresenter: nil)
     var error: NSError?
-    var result: Result<Void, Error>?
+    var result: Result<T, Error>?
     coordinator.coordinate(writingItemAt: sidecarURL, options: [], error: &error) { url in
       result = Result { try write(url, self.existingSidecarXML(at: url)) }
     }
@@ -295,7 +325,7 @@ public actor XMPSidecarStore {
       throw WorkflowSidecarError(
         message: "Unable to coordinate the sidecar save. Reopen and retry.")
     }
-    try result.get()
+    return try result.get()
   }
 
   private func serializedSidecar(

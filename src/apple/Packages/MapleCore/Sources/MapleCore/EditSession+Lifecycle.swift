@@ -11,7 +11,7 @@ extension EditSession {
   /// path. The tail also gives exit a real completion barrier, instead of
   /// hoping an unstructured update reaches the store before `flush()`.
   func scheduleSidecarUpdate(model: AdjustmentModel, culling: CullingState) {
-    guard let store = sidecarStore else { return }
+    guard !workflow.isApplying, let store = sidecarStore else { return }
     let previous = sidecarUpdateTask
     sidecarUpdateTask = Task {
       await previous?.value
@@ -57,6 +57,7 @@ extension EditSession {
   /// method never reached the store at all. Reviewed in #2556 for the
   /// same reason.
   public func flushPendingSidecarWrite() async {
+    await workflow.task?.value
     // A flush is a commit boundary (#2432): close the open transaction
     // so the sidecar describes a recorded action, not a half-gesture.
     endEdit()

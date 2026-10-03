@@ -86,6 +86,9 @@ export async function restoreWorkflow(
       !host.workflowCommands.history.isCurrent(command.source)
     )
       return;
+    // An unchanged complete document is a no-op, including the owned XML
+    // envelope expansion. Parsing it must not fabricate a model-only Undo (#4062).
+    if (xml === command.expectedXmp) return;
     const after = host.workflowCommands.model(command.source, xml);
     host.workflowCommands.apply(command.source, xml);
     host.ring.recordCheckpoint(
