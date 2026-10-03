@@ -3,9 +3,12 @@
 //
 //   MapleAgentWire  newline-delimited JSON over a Unix socket in the app-group
 //                   container. MapleCore links it to serve the live editor.
+//   MapleMCPServer  MCP JSON-RPC dispatch and the tool catalog; forwards each
+//                   tool call to the app over MapleAgentWire.
+//   maple-mcp       stdio executable that MCP clients (Claude Desktop) launch.
 //
-// No dependency on MapleCore or RawPipeline, so it builds and tests without
-// the native xcframework.
+// No dependency on MapleCore or RawPipeline: the bridge builds and tests
+// without the native xcframework.
 
 import PackageDescription
 
@@ -17,10 +20,17 @@ let package = Package(
     .tvOS(.v17),
   ],
   products: [
-    .library(name: "MapleAgentWire", targets: ["MapleAgentWire"])
+    .library(name: "MapleAgentWire", targets: ["MapleAgentWire"]),
+    .library(name: "MapleMCPServer", targets: ["MapleMCPServer"]),
+    .executable(name: "maple-mcp", targets: ["maple-mcp"]),
   ],
   targets: [
     .target(name: "MapleAgentWire"),
-    .testTarget(name: "MapleMCPTests", dependencies: ["MapleAgentWire"]),
+    .target(name: "MapleMCPServer", dependencies: ["MapleAgentWire"]),
+    .executableTarget(name: "maple-mcp", dependencies: ["MapleMCPServer"]),
+    .testTarget(
+      name: "MapleMCPTests",
+      dependencies: ["MapleAgentWire", "MapleMCPServer"]
+    ),
   ]
 )
