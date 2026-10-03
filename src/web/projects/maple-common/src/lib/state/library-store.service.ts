@@ -34,6 +34,7 @@ import { MapleIndex } from '../maple-cache/maple-cache.types';
 import { rekeyAssetId } from './library-store-rename';
 import { AssetDimensionBatcher } from './library-store-dimensions';
 import { LensCorrectionCapabilities } from './library-store-lens-corrections';
+import { LibraryWorkflowVariants } from './library-workflow-variants';
 import { parseAddress } from '../addressing/maple-address';
 import type { XmpCulling } from '../xmp/xmp.types';
 import {
@@ -105,6 +106,9 @@ export function buildLibrariesById(folders: readonly ApiFolder[]): ReadonlyMap<s
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStore {
+  readonly workflowVariants = new LibraryWorkflowVariants(() =>
+    this.assets().map((asset) => asset.id),
+  );
   readonly singleFileMemoryOnly = signal(false);
   /** Which backend is in use. Consumers read this to branch data-source paths. */
   readonly backend = inject(LIBRARY_BACKEND);

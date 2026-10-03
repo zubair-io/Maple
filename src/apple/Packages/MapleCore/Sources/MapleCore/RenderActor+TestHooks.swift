@@ -44,6 +44,7 @@ extension RenderActor {
     self.decodedSidecarMtime =
       (bakedModel == nil)
       ? EditSession.sidecarMtime(for: asset) : nil
+    self.decodedSidecarURL = asset.sidecarURL
     self.decodedAtModel = decodedAtModel
     self.decodedIsFull = isFull
     self.decodedProfile = profile

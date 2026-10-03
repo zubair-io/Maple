@@ -5,14 +5,19 @@ import Foundation
 @Observable
 public final class EditorWorkflowState {
   public var isPresented = false
-  public private(set) var isBusy = false
-  public private(set) var errorText: String?
+  public internal(set) var isBusy = false
+  public internal(set) var errorText: String?
+  public internal(set) var selectedVariantId = WorkflowContract.primaryVariantID
+  public internal(set) var variants: [WorkflowVariantSidecar] = []
+  @ObservationIgnored var selectedStore: (any WorkflowSidecarStoreProtocol)?
+  @ObservationIgnored var pendingVariant: WorkflowVariantCreation?
+  @ObservationIgnored let previews = WorkflowVariantPreviewCache()
   public private(set) var documentXmp: String?
   public private(set) var record: SidecarWorkflow?
   public private(set) var pendingRestoreLabel: String?
   var isApplying = false
   @ObservationIgnored var task: Task<Void, Never>?
-  @ObservationIgnored private var generation: UInt64 = 0
+  @ObservationIgnored var generation: UInt64 = 0
   @ObservationIgnored private var pending: WorkflowPublication?
   @ObservationIgnored private var beforeCheckpoint: String?
   @ObservationIgnored private var replay: (id: UInt64, undo: Bool, command: WorkflowPublication)?
@@ -40,6 +45,12 @@ public final class EditorWorkflowState {
       let xml = try await store(session).readWorkflowXML()
       guard current == generation else { return }
       try adoptDocument(xml)
+      if let variantsStore = session.primarySidecarStore as? any WorkflowVariantSidecarStoreProtocol
+      {
+        let listed = try await variantsStore.listWorkflowVariants()
+        guard current == generation else { return }
+        variants = listed
+      }
       pending = nil
       pendingRestoreLabel = nil
       errorText = nil
@@ -119,6 +130,13 @@ public final class EditorWorkflowState {
     errorText = nil
   }
 
+  func clearBranchCommands() {
+    pending = nil
+    replay = nil
+    beforeCheckpoint = nil
+    pendingRestoreLabel = nil
+  }
+
   public func confirmRestore(session: EditSession) async {
     guard !isBusy, case .restore(_, let entry) = pending, let command = pending,
       let before = beforeCheckpoint
@@ -167,6 +185,9 @@ public final class EditorWorkflowState {
     pendingRestoreLabel = nil
     documentXmp = nil
     record = nil
+    variants = []
+    pendingVariant = nil
+    previews.clear()
     errorText = nil
     isBusy = false
   }
@@ -223,12 +244,12 @@ public final class EditorWorkflowState {
     }
   }
 
-  private func releaseRasters(_ model: AdjustmentModel) {
+  func releaseRasters(_ model: AdjustmentModel) {
     Set(model.localAdjustments.flatMap { $0.mask.bitmapMasks.map(\.rasterId) }.filter { $0 != 0 })
       .forEach(MaskRasterRegistry.release)
   }
 
-  private func restoredState(_ xml: String, session: EditSession) async throws -> (
+  func restoredState(_ xml: String, session: EditSession) async throws -> (
     AdjustmentModel, CullingState
   ) {
     let (model, culling) = try XMPParser.parse(xml)
@@ -237,8 +258,10 @@ public final class EditorWorkflowState {
     return (await session.rehydratedMaskRasters(in: resolved), culling)
   }
 
-  private func adoptDocument(_ xml: String?) throws {
-    let next = try xml.flatMap { try WorkflowSidecarCore.primaryWorkflow(xmp: $0) }
+  func adoptDocument(_ xml: String?) throws {
+    let next = try xml.flatMap {
+      try WorkflowSidecarCore.variantWorkflow(xmp: $0, variantId: selectedVariantId)
+    }
     documentXmp = xml
     record = next
   }

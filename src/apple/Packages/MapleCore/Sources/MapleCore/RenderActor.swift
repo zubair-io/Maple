@@ -120,6 +120,7 @@ public actor RenderActor {
   /// us do MORE work (parse on a same-baked save), never serve a stale
   /// buffer. `nil` mirrors `decodedBakedModel == nil` (no sidecar).
   var decodedSidecarMtime: Date?
+  var decodedSidecarURL: URL?
 
   var decodedAtModel: AdjustmentModel?
 
@@ -209,6 +210,7 @@ public actor RenderActor {
       Never
     >?
   var decodeTaskAssetID: AssetRef.ID?
+  var decodeTaskSidecarURL: URL?
   /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
   /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
   /// when that decode is genuinely abandoned — a different-identity decode

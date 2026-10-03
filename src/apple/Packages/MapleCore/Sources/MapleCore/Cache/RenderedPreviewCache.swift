@@ -119,8 +119,8 @@ public actor RenderedPreviewCache {
 
   // MARK: - Read
 
-  public func preview(for assetURL: URL, screenWidth: Int) -> CIImage? {
-    let key = cacheKey(for: assetURL, screenWidth: screenWidth)
+  public func preview(for assetURL: URL, screenWidth: Int, sidecarURL: URL? = nil) -> CIImage? {
+    let key = cacheKey(for: assetURL, screenWidth: screenWidth, sidecarURL: sidecarURL)
     // Memory
     if let (img, _) = memCache[key] {
       cacheLog.notice(
@@ -158,31 +158,41 @@ public actor RenderedPreviewCache {
   struct WriteSnapshot: Sendable {
     fileprivate let assetURL: URL
     fileprivate let screenWidth: Int
+    fileprivate let sidecarURL: URL?
     fileprivate let key: String
     fileprivate let directory: URL?
   }
 
-  func captureWrite(for assetURL: URL, screenWidth: Int) -> WriteSnapshot? {
+  func captureWrite(for assetURL: URL, screenWidth: Int, sidecarURL: URL? = nil) -> WriteSnapshot? {
     let expected = assetURL.deletingLastPathComponent()
       .appendingPathComponent(".maple/previews", isDirectory: true).standardizedFileURL
     // An old session can start its exit task after the new folder configured
     // this shared actor. Do not place its derived file under that new folder.
     guard cacheDir?.standardizedFileURL.path == expected.path else { return nil }
-    return writeSnapshot(for: assetURL, screenWidth: screenWidth)
+    return writeSnapshot(for: assetURL, screenWidth: screenWidth, sidecarURL: sidecarURL)
   }
 
-  private func writeSnapshot(for assetURL: URL, screenWidth: Int) -> WriteSnapshot {
+  private func writeSnapshot(for assetURL: URL, screenWidth: Int, sidecarURL: URL?) -> WriteSnapshot
+  {
     WriteSnapshot(
-      assetURL: assetURL, screenWidth: screenWidth,
-      key: cacheKey(for: assetURL, screenWidth: screenWidth), directory: cacheDir)
+      assetURL: assetURL, screenWidth: screenWidth, sidecarURL: sidecarURL,
+      key: cacheKey(for: assetURL, screenWidth: screenWidth, sidecarURL: sidecarURL),
+      directory: cacheDir)
   }
 
-  public func storePreview(_ image: CIImage, for assetURL: URL, screenWidth: Int) {
-    storePreview(image, for: writeSnapshot(for: assetURL, screenWidth: screenWidth))
+  public func storePreview(
+    _ image: CIImage, for assetURL: URL, screenWidth: Int, sidecarURL: URL? = nil
+  ) {
+    storePreview(
+      image, for: writeSnapshot(for: assetURL, screenWidth: screenWidth, sidecarURL: sidecarURL))
   }
 
   func storePreview(_ image: CIImage, for snapshot: WriteSnapshot) {
-    guard snapshot.key == cacheKey(for: snapshot.assetURL, screenWidth: snapshot.screenWidth)
+    guard
+      snapshot.key
+        == cacheKey(
+          for: snapshot.assetURL, screenWidth: snapshot.screenWidth, sidecarURL: snapshot.sidecarURL
+        )
     else { return }
     let key = snapshot.key
     evictIfNeeded()
@@ -235,16 +245,20 @@ public actor RenderedPreviewCache {
   // before, left `invalidate` unable to match any on-disk filename (it was a
   // silent no-op — masked only because a sidecar/mtime change already bumps
   // the key on the next lookup).
-  private func cacheKey(for url: URL, screenWidth: Int) -> String {
+  private func cacheKey(for url: URL, screenWidth: Int, sidecarURL: URL?) -> String {
     let primaryMtime = mtimeString(forPath: url.path)
-    let sidecarMtime = mtimeString(forPath: SidecarPath.sidecarURL(for: url).path)
+    let primarySidecar = SidecarPath.sidecarURL(for: url).standardizedFileURL
+    let selected = (sidecarURL ?? primarySidecar).standardizedFileURL
+    let sidecarMtime = mtimeString(forPath: selected.path)
+    // Keep primary entries warm; sibling paths remain distinct even at equal mtimes (#4063).
+    let identity = selected == primarySidecar ? "" : "_" + sha256Prefix(selected.path)
     let variant = sha256Prefix(
       Self.variantToken(
         primaryMtime: primaryMtime,
         sidecarMtime: sidecarMtime,
         screenWidth: screenWidth,
         viewTransformVersion: viewTransformVersion,
-        pipelineOutputVersion: AdjustmentModel.pipelineOutputVersion))
+        pipelineOutputVersion: AdjustmentModel.pipelineOutputVersion) + identity)
     return "\(urlHash(url.path))_\(variant)"
   }
 

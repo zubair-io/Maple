@@ -17,5 +17,6 @@ extension AssetRef {
     explicitIsRaw = asset.explicitIsRaw
     thumbnailProvenance = asset.thumbnailProvenance
     catalog = asset.catalog
+    selectedSidecarURL = asset.selectedSidecarURL
   }
 }

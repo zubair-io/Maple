@@ -19,6 +19,7 @@ import Foundation
 @MainActor
 extension EditSession {
   func scheduleDisplayPreviewPersist(_ rendered: CIImage) {
+    guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
     previewPersistence.schedule(rendered)
   }
 
@@ -70,13 +71,15 @@ extension EditSession {
     guard await cancelAndJoinDisplayPreviewPersist(expectedModel: exitModel) else { return }
     // CPU render publishes enqueue a thumbnail write. Await a final write here
     // as well, so the reload signal below always follows the final pixels.
-    if !gpuFramePresented, previewIsFullRender, !isFullQualityDecoding,
+    if workflow.selectedVariantId == WorkflowContract.primaryVariantID,
+      !gpuFramePresented, previewIsFullRender, !isFullQualityDecoding,
       let url = asset.primaryURL, let image = renderedPreview
     {
       await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
     }
     await refreshThumbnailFromCurrentGpuFrame(expectedModel: exitModel)
     guard model == exitModel else { return }
+    guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
     await flushDisplayPreviewPersist(expectedModel: exitModel)
     guard model == exitModel, let url = asset.primaryURL else { return }
     DevelopedImageRevision.shared.didPersist(for: url)

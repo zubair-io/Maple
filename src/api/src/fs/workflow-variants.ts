@@ -132,11 +132,16 @@ export async function writeWorkflowVariant(
     const existing = await readWorkflowVariant(rawPath, id);
     const oldRecord = existing === null ? null : await record(existing);
     const nextRecord = await record(xml);
-    const output =
-      nextRecord === null && oldRecord !== null
-        ? await nativeValue('workflowEmbedXmp', [JSON.stringify(oldRecord), xml])
-        : xml;
     requireIdentity(nextRecord ?? oldRecord, id, path.basename(destination));
+    // Ordinary saves can carry a cached record from before a snapshot or
+    // semantic commit. The current sidecar owns workflow metadata (#4063).
+    const output =
+      oldRecord !== null
+        ? await nativeValue('workflowEmbedXmp', [
+            JSON.stringify(oldRecord),
+            await nativeValue('workflowCheckpointXmp', [xml]),
+          ])
+        : xml;
     const outcome = await writeSidecarAtomic(destination, output, 'Variant write failed');
     if (!outcome.ok) throw new WorkflowVariantError(500, outcome.error);
     return output;

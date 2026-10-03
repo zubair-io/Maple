@@ -25,6 +25,11 @@ import { MuiTextComponent } from '../ui/text/mui-text.component';
 import { MuiSpinnerComponent } from '../ui/spinner/mui-spinner.component';
 import { MuiEmptyStateComponent } from '../ui/empty-state/mui-empty-state.component';
 import { errorMessage } from '../util/errors';
+import {
+  EditorWorkflowVariantsService,
+  type CreateVariantCommand,
+} from './editor-workflow-variants.service';
+import type { WorkflowVariantSidecar } from '../xmp/workflow-variant-store.service';
 
 @Component({
   selector: 'editor-workflow-controls',
@@ -48,7 +53,9 @@ export class WorkflowControlsComponent {
   readonly triggerTemplate = viewChild<TemplateRef<unknown>>('triggerTemplate');
   private readonly trigger = viewChild<MuiButtonComponent>('trigger');
   private readonly commands: EditorWorkflowCommandsService = inject(EditorWorkflowCommandsService);
-  readonly view = signal<'closed' | 'list' | 'snapshot' | 'restore'>('closed');
+  private readonly variantCommands = inject(EditorWorkflowVariantsService);
+  readonly view = signal<'closed' | 'list' | 'snapshot' | 'restore' | 'variant'>('closed');
+  readonly branches = signal<readonly WorkflowVariantSidecar[]>([]);
   readonly source = signal<WorkflowEdit | null>(null);
   readonly document = signal<WorkflowDocument | null>(null);
   readonly working = signal(false);
@@ -78,6 +85,7 @@ export class WorkflowControlsComponent {
   private snapshot: SnapshotCommand | null = null;
   private restore: RestoreCommand | null = null;
   private operation = 0;
+  private variant: CreateVariantCommand | null = null;
 
   constructor() {
     effect(() => {
@@ -112,7 +120,11 @@ export class WorkflowControlsComponent {
     this.editor.workflowReplay = null;
     await this.run(async (current) => {
       const document = await this.commands.load(source);
-      if (current()) this.document.set(document);
+      const branches = await this.variantCommands.list(source);
+      if (current()) {
+        this.document.set(document);
+        this.branches.set(branches);
+      }
     });
   }
 
@@ -129,6 +141,36 @@ export class WorkflowControlsComponent {
     this.name.set('');
     this.error.set(null);
     this.view.set('snapshot');
+  }
+
+  newVariant(): void {
+    if (this.busy()) return;
+    this.variant = null;
+    this.name.set('');
+    this.error.set(null);
+    this.view.set('variant');
+  }
+
+  async saveVariant(): Promise<void> {
+    const source = this.source();
+    if (!source || this.busy()) return;
+    await this.run(async (current) => {
+      if (!this.variant || this.variant.workflow.variantName !== this.name().trim())
+        this.variant = await this.variantCommands.prepareCreate(source, this.name());
+      const branch = await this.variantCommands.create(this.variant);
+      if (!current()) return;
+      await this.variantCommands.select(source, branch.variantId);
+      this.reset();
+    });
+  }
+
+  async selectVariant(variantId: string): Promise<void> {
+    const source = this.source();
+    if (!source || this.busy() || source.variantId === variantId) return;
+    await this.run(async (current) => {
+      await this.variantCommands.select(source, variantId);
+      if (current()) this.reset();
+    });
   }
 
   async saveSnapshot(): Promise<void> {
@@ -179,6 +221,7 @@ export class WorkflowControlsComponent {
     if (this.busy()) return;
     this.snapshot = null;
     this.restore = null;
+    this.variant = null;
     this.error.set(null);
     this.view.set('list');
   }
@@ -228,8 +271,10 @@ export class WorkflowControlsComponent {
     this.view.set('closed');
     this.source.set(null);
     this.document.set(null);
+    this.branches.set([]);
     this.error.set(null);
     this.snapshot = null;
     this.restore = null;
+    this.variant = null;
   }
 }

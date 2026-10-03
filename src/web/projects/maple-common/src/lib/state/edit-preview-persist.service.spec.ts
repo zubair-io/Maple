@@ -26,6 +26,7 @@ import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import { XmpStoreService } from '../xmp/xmp-store.service';
 import type { Asset, AssetId } from '../models/asset';
 import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
@@ -67,6 +68,7 @@ const fakeDecodedImage = (): DecodedImage => ({
 });
 
 interface Setup {
+  variantId?: () => string;
   store?: Record<string, unknown>;
   cache?: Record<string, unknown>;
   mapleCache?: Record<string, unknown>;
@@ -75,6 +77,7 @@ interface Setup {
 }
 
 function setup(opts: Setup = {}) {
+  const variantId = opts.variantId ?? (() => 'primary');
   const api = {
     putPreview: vi.fn((_path: string, _body: Blob, _contentType: string) => of(undefined)),
     ...opts.api,
@@ -93,6 +96,7 @@ function setup(opts: Setup = {}) {
           backend: 'self-hosted',
           absPathFor: () => '/lib/2026/a.dng',
           currentFolder: () => null,
+          workflowVariants: { variantFor: variantId },
           ...opts.store,
         },
       },
@@ -131,6 +135,7 @@ function setup(opts: Setup = {}) {
         useValue: { decode: vi.fn(async () => fakeDecodedImage()), ...opts.pipeline },
       },
       { provide: XmpSerializerService, useValue: { serialize: () => '<xmp/>' } },
+      { provide: XmpStoreService, useValue: { bindingFor: () => ({ variantId: variantId() }) } },
     ],
   });
   return TestBed.inject(EditPreviewPersistService);
@@ -483,4 +488,37 @@ describe('EditPreviewPersistService — failure isolation', () => {
       warnSpy.mockRestore();
     }
   });
+});
+
+describe('selected variants never replace the canonical primary preview (#4063)', () => {
+  for (const backend of ['hosted', 'self-hosted']) {
+    for (const changeAt of ['before-decode', 'during-decode', 'during-encode']) {
+      it(`${backend}: refuses primary publication after selection changes ${changeAt}`, async () => {
+        let selected = changeAt === 'before-decode' ? 'named' : 'primary';
+        const folder = { write: true };
+        const putPreview = vi.fn(() => of(undefined));
+        const writePreview = vi.fn(async () => {});
+        const decode = vi.fn(async () => {
+          if (changeAt === 'during-decode') selected = 'named';
+          return fakeDecodedImage();
+        });
+        convertToBlobImpl = async ({ type }) => {
+          if (changeAt === 'during-encode') selected = 'named';
+          return new Blob(['x'], { type });
+        };
+        const svc = setup({
+          variantId: () => selected,
+          store: { backend, currentFolder: () => folder },
+          api: { putPreview },
+          mapleCache: { writePreview },
+          pipeline: { decode },
+        });
+        svc.schedule('lib:2026/a.dng');
+        await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+        expect(decode).toHaveBeenCalledTimes(changeAt === 'before-decode' ? 0 : 1);
+        expect(putPreview).not.toHaveBeenCalled();
+        expect(writePreview).not.toHaveBeenCalled();
+      });
+    }
+  }
 });

@@ -21,7 +21,7 @@ interface CapturedAction {
   readonly culling: XmpCulling;
 }
 
-/** Actual primary-file publication, shared by preview saves and semantic actions (#4049). */
+/** Publication bound to one sidecar, shared by preview saves and semantic actions (#4063). */
 @Injectable({ providedIn: 'root' })
 export class HostedWorkflowWriterService {
   private readonly access = inject(FolderAccessService);
@@ -65,10 +65,13 @@ export class HostedWorkflowWriterService {
     culling: XmpCulling,
     fallback?: PassthroughBucket,
     metadata?: XmpMetadata,
+    variantId = PRIMARY_VARIANT_ID,
   ): Promise<string> {
-    return navigator.locks.request('maple-workflow-variant:' + PRIMARY_VARIANT_ID, async () => {
+    // Validate the frozen binding before acquiring a lock or touching its file.
+    await this.core.variantFilename(name, variantId);
+    return navigator.locks.request('maple-workflow-variant:' + variantId, async () => {
       const current = await this.readCurrent(folder, name);
-      const workflow = await this.primaryRecord(current);
+      const workflow = await this.selectedRecord(current, variantId);
       const passthrough =
         current === null ? fallback : this.parser.parseAdjustmentModel(current).passthrough;
       const pending = this.actions.get(folder)?.get(name) ?? [];
@@ -91,10 +94,15 @@ export class HostedWorkflowWriterService {
       return output;
     });
   }
-  private async primaryRecord(current: string | null): Promise<SidecarWorkflow | null> {
+  private async selectedRecord(
+    current: string | null,
+    variantId: string,
+  ): Promise<SidecarWorkflow | null> {
+    if (current === null && variantId !== PRIMARY_VARIANT_ID)
+      throw Error('Variant sidecar is missing. Restore it before editing.');
     const workflow = current === null ? null : await this.core.read(current);
-    if ((workflow?.variantId ?? PRIMARY_VARIANT_ID) !== PRIMARY_VARIANT_ID)
-      throw Error('Variant identity does not match the primary sidecar.');
+    if ((workflow?.variantId ?? PRIMARY_VARIANT_ID) !== variantId)
+      throw Error('Variant identity does not match the selected sidecar.');
     return workflow;
   }
   private async readCurrent(folder: MapleFolderHandle, name: string): Promise<string | null> {

@@ -508,8 +508,10 @@ extension EditSession {
         // rendered-preview cache reflect what the user sees (#638).
         let thumbSource = displayImage
         if let url = asset.primaryURL {
-          Task.detached(priority: .utility) {
-            await ThumbnailLoader.shared.updateThumbnailFromRender(thumbSource, for: url)
+          if workflow.selectedVariantId == WorkflowContract.primaryVariantID {
+            Task.detached(priority: .utility) {
+              await ThumbnailLoader.shared.updateThumbnailFromRender(thumbSource, for: url)
+            }
           }
           persistCurrentPreviewToCache()
         }

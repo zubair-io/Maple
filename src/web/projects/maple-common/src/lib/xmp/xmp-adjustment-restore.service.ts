@@ -35,6 +35,7 @@ import { LibrarySelection } from '../state/library-selection.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
 import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
+import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 
 export interface HydratedSidecar {
   readonly model: Partial<AdjustmentModel>;
@@ -77,8 +78,10 @@ export class XmpAdjustmentRestoreService {
     if (!this._eligible(id)) return;
     this._attempted.add(id);
     try {
-      const sidecar = await this.loadForWrite(id);
-      if (sidecar !== null) this._applyParsedSidecar(id, sidecar);
+      const load = this.loadForWrite(id);
+      const sidecar = await load;
+      if (sidecar !== null && this._sidecars.get(id) === load)
+        this._applyParsedSidecar(id, sidecar);
     } catch (err) {
       this._attempted.delete(id);
       console.warn(`XmpAdjustmentRestore: sidecar read failed for ${id}`, err);
@@ -149,8 +152,9 @@ export class XmpAdjustmentRestoreService {
     const absPath = this.store.absPathFor(id);
     if (!absPath) return null;
     if (!this.serverPersistence) return null;
+    const variantId = this.store.workflowVariants.variantFor(id, absPath);
     try {
-      const xml = await firstValueFrom(this.serverPersistence.readSidecar(absPath));
+      const xml = await firstValueFrom(this.serverPersistence.readSidecar(absPath, variantId));
       if (xml === null) return null;
       const sidecar = {
         ...this.parser.parseAdjustmentModel(xml),
@@ -158,7 +162,12 @@ export class XmpAdjustmentRestoreService {
       };
       return sidecar;
     } catch (err) {
-      if (err instanceof HttpErrorResponse && err.status === 404) return null;
+      if (
+        variantId === PRIMARY_VARIANT_ID &&
+        err instanceof HttpErrorResponse &&
+        err.status === 404
+      )
+        return null;
       throw err;
     }
   }

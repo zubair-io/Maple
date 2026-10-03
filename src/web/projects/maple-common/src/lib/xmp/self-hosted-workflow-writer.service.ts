@@ -7,6 +7,7 @@ import { XmpSerializerService } from './xmp-serializer.service';
 import { WorkflowXmpService } from './workflow-xmp.service';
 import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { WORKFLOW_HISTORY_LIMIT, PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
+import { workflowSidecarKey, type WorkflowSidecarBinding } from './workflow-sidecar-binding';
 
 export interface SelfHostedSemanticEdit {
   readonly before: AdjustmentModel;
@@ -36,36 +37,37 @@ export class SelfHostedWorkflowWriterService {
   private readonly serializer = inject(XmpSerializerService);
   private readonly core = inject(WorkflowXmpService);
   private readonly actions = new Map<string, readonly CapturedAction[]>();
+  private readonly sources = new Map<string, WorkflowSidecarBinding>();
   // Only the armed editor gesture needs a live preview model. Semantic actions
   // already own immutable retry captures; browsing must not retain every path (#4058).
   private activePath: string | null = null;
   private activeModel: AdjustmentModel | undefined;
 
-  beginModel(path: string, model: AdjustmentModel): void {
-    this.activePath = path;
+  beginModel(path: string, model: AdjustmentModel, variantId = PRIMARY_VARIANT_ID): void {
+    this.activePath = workflowSidecarKey(path, variantId);
     this.activeModel = model;
   }
 
-  endModel(path: string): void {
-    if (this.activePath !== path) return;
+  endModel(path: string, variantId = PRIMARY_VARIANT_ID): void {
+    if (this.activePath !== workflowSidecarKey(path, variantId)) return;
     this.activePath = null;
     this.activeModel = undefined;
   }
 
-  noteModel(path: string, model: AdjustmentModel): void {
-    if (this.activePath === path) this.activeModel = model;
+  noteModel(path: string, model: AdjustmentModel, variantId = PRIMARY_VARIANT_ID): void {
+    if (this.activePath === workflowSidecarKey(path, variantId)) this.activeModel = model;
   }
-  latestModel(path: string): AdjustmentModel | undefined {
-    return this.activePath === path ? this.activeModel : undefined;
+  latestModel(path: string, variantId = PRIMARY_VARIANT_ID): AdjustmentModel | undefined {
+    return this.activePath === workflowSidecarKey(path, variantId) ? this.activeModel : undefined;
   }
-  hasPending(path: string): boolean {
-    return (this.actions.get(path)?.length ?? 0) > 0;
+  hasPending(path: string, variantId = PRIMARY_VARIANT_ID): boolean {
+    return (this.actions.get(workflowSidecarKey(path, variantId))?.length ?? 0) > 0;
   }
-  pendingPaths(): readonly string[] {
-    return [...this.actions.keys()];
+  pendingSources(): readonly WorkflowSidecarBinding[] {
+    return [...this.sources.values()];
   }
 
-  capture(path: string, edit: SelfHostedSemanticEdit): void {
+  capture(path: string, edit: SelfHostedSemanticEdit, variantId = PRIMARY_VARIANT_ID): void {
     const { before, after, culling, cullingPatch, action, label } = edit;
     const patch = Object.fromEntries(
       Object.entries(after).filter(
@@ -82,54 +84,72 @@ export class SelfHostedWorkflowWriterService {
       culling,
       cullingPatch,
     });
+    const key = workflowSidecarKey(path, variantId);
     this.actions.set(
-      path,
-      [...(this.actions.get(path) ?? []), captured].slice(-WORKFLOW_HISTORY_LIMIT),
+      key,
+      [...(this.actions.get(key) ?? []), captured].slice(-WORKFLOW_HISTORY_LIMIT),
     );
-    this.noteModel(path, after);
+    this.sources.set(key, { path, variantId });
+    this.noteModel(path, after, variantId);
   }
 
-  read(path: string): Observable<string | null> {
-    return defer(() => this.readCurrent(path));
+  read(path: string, variantId = PRIMARY_VARIANT_ID): Observable<string | null> {
+    return defer(() => this.readCurrent(path, variantId));
   }
 
-  flush(path: string): Observable<string | null> {
-    return defer(() => this.publishCaptured(path));
+  flush(path: string, variantId = PRIMARY_VARIANT_ID): Observable<string | null> {
+    return defer(() => this.publishCaptured(path, variantId));
   }
-  private async readCurrent(path: string): Promise<string | null> {
+  private async readCurrent(path: string, variantId: string): Promise<string | null> {
     if (!this.persistence) throw Error('Self Hosted sidecar persistence is not configured');
     try {
-      return await firstValueFrom(this.persistence.readSidecar(path));
+      return await firstValueFrom(this.persistence.readSidecar(path, variantId));
     } catch (error) {
-      if (error && typeof error === 'object' && Reflect.get(error, 'status') === 404) return null;
+      if (
+        variantId === PRIMARY_VARIANT_ID &&
+        error &&
+        typeof error === 'object' &&
+        Reflect.get(error, 'status') === 404
+      )
+        return null;
       throw error;
     }
   }
-  private async publishCaptured(path: string): Promise<string | null> {
-    const pending = [...(this.actions.get(path) ?? [])];
-    const source = await this.readCurrent(path);
-    await this.primaryRecord(source);
+  private async publishCaptured(path: string, variantId: string): Promise<string | null> {
+    const key = workflowSidecarKey(path, variantId);
+    const pending = [...(this.actions.get(key) ?? [])];
+    const source = await this.readCurrent(path, variantId);
+    await this.selectedRecord(source, variantId);
     return pending.reduce(async (previous, captured) => {
       const current = await previous;
-      const workflow = await this.primaryRecord(current);
+      const workflow = await this.selectedRecord(current, variantId);
       // A lost HTTP response may follow a successful atomic save. Its stable
       // captured UUID acknowledges the already-persisted action on retry.
       const published = workflow?.history.some((entry) => entry.id === captured.id)
         ? current
-        : await this.commit(path, current, captured);
-      const remaining = (this.actions.get(path) ?? []).filter((entry) => entry.id !== captured.id);
-      if (remaining.length === 0) this.actions.delete(path);
-      else this.actions.set(path, remaining);
+        : await this.commit(path, current, captured, variantId);
+      const remaining = (this.actions.get(key) ?? []).filter((entry) => entry.id !== captured.id);
+      if (remaining.length === 0) {
+        this.actions.delete(key);
+        this.sources.delete(key);
+      } else this.actions.set(key, remaining);
       return published;
     }, Promise.resolve(source));
   }
-  private async primaryRecord(xml: string | null) {
+  private async selectedRecord(xml: string | null, variantId: string) {
+    if (xml === null && variantId !== PRIMARY_VARIANT_ID)
+      throw Error('Variant sidecar is missing. Restore it before editing.');
     const record = xml === null ? null : await this.core.read(xml);
-    if ((record?.variantId ?? PRIMARY_VARIANT_ID) !== PRIMARY_VARIANT_ID)
-      throw Error('Variant identity does not match the primary sidecar.');
+    if ((record?.variantId ?? PRIMARY_VARIANT_ID) !== variantId)
+      throw Error('Variant identity does not match the selected sidecar.');
     return record;
   }
-  private async commit(path: string, current: string | null, captured: CapturedAction) {
+  private async commit(
+    path: string,
+    current: string | null,
+    captured: CapturedAction,
+    variantId: string,
+  ) {
     if (!this.persistence) throw Error('Self Hosted sidecar persistence is not configured');
     const parsed = current === null ? null : this.parser.parseAdjustmentModel(current);
     const checkpoint = await this.core.checkpoint(
@@ -145,13 +165,19 @@ export class SelfHostedWorkflowWriterService {
       ),
     );
     return firstValueFrom(
-      this.persistence.commitSidecar(path, current, checkpoint, {
-        id: captured.id,
-        createdAtMs: captured.createdAtMs,
-        action: captured.action,
-        label: captured.label,
-        adjustmentXmp: checkpoint,
-      }),
+      this.persistence.commitSidecar(
+        path,
+        current,
+        checkpoint,
+        {
+          id: captured.id,
+          createdAtMs: captured.createdAtMs,
+          action: captured.action,
+          label: captured.label,
+          adjustmentXmp: checkpoint,
+        },
+        variantId,
+      ),
     );
   }
 }

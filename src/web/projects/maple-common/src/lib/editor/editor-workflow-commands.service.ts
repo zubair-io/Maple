@@ -36,7 +36,7 @@ export interface RestoreCommand {
   readonly entry: WorkflowHistoryEntry;
 }
 
-/** Primary-branch product commands over the existing complete-XMP CAS stores (#4060). */
+/** Product commands retain their captured sidecar identity through publication (#4063). */
 @Injectable({ providedIn: 'root' })
 export class EditorWorkflowCommandsService {
   readonly history: EditorWorkflowHistoryService = inject(EditorWorkflowHistoryService);
@@ -91,7 +91,7 @@ export class EditorWorkflowCommandsService {
         return this.variants.saveSnapshot(
           source.folder,
           this.primaryName(source),
-          PRIMARY_VARIANT_ID,
+          source.variantId,
           expectedXmp,
           snapshot,
           expectedXmp === null ? snapshot.adjustmentXmp : undefined,
@@ -103,6 +103,7 @@ export class EditorWorkflowCommandsService {
           expectedXmp,
           snapshot,
           expectedXmp === null ? snapshot.adjustmentXmp : undefined,
+          source.variantId,
         ),
       );
     });
@@ -172,11 +173,11 @@ export class EditorWorkflowCommandsService {
     if (source.backend === 'hosted') {
       const name = this.primaryName(source);
       return restore
-        ? this.variants.restore(source.folder, name, PRIMARY_VARIANT_ID, expectedXmp, entry)
+        ? this.variants.restore(source.folder, name, source.variantId, expectedXmp, entry)
         : this.variants.commit(
             source.folder,
             name,
-            PRIMARY_VARIANT_ID,
+            source.variantId,
             expectedXmp,
             entry.adjustmentXmp,
             entry,
@@ -185,8 +186,14 @@ export class EditorWorkflowCommandsService {
     if (!this.persistence) throw Error('Self Hosted persistence is unavailable.');
     return firstValueFrom(
       restore
-        ? this.persistence.restoreSidecar(source.path, expectedXmp, entry)
-        : this.persistence.commitSidecar(source.path, expectedXmp, entry.adjustmentXmp, entry),
+        ? this.persistence.restoreSidecar(source.path, expectedXmp, entry, source.variantId)
+        : this.persistence.commitSidecar(
+            source.path,
+            expectedXmp,
+            entry.adjustmentXmp,
+            entry,
+            source.variantId,
+          ),
     );
   }
 
@@ -218,22 +225,29 @@ export class EditorWorkflowCommandsService {
     if (source.backend === 'hosted')
       return this.writer.publishWorkflow(source.id, publish, () => this.history.isCurrent(source));
     if (!this.server) throw Error('Self Hosted persistence is unavailable.');
-    return this.server.publishWorkflow(source.id, source.path, publish);
+    return this.server.publishWorkflow(source.id, source.path, publish, source.variantId);
   }
   private async read(source: WorkflowEdit): Promise<WorkflowDocument> {
     const xml =
       source.backend === 'hosted'
-        ? await this.variants.read(source.folder, this.primaryName(source), PRIMARY_VARIANT_ID)
-        : await this.readServer(source.path);
+        ? await this.variants.read(source.folder, this.primaryName(source), source.variantId)
+        : await this.readServer(source.path, source.variantId);
     const record = xml === null ? null : await this.core.read(xml);
-    if ((record?.variantId ?? PRIMARY_VARIANT_ID) !== PRIMARY_VARIANT_ID)
-      throw Error('Variant identity does not match the primary sidecar. Repair it before editing.');
+    if ((record?.variantId ?? PRIMARY_VARIANT_ID) !== source.variantId)
+      throw Error(
+        'Variant identity does not match the selected sidecar. Repair it before editing.',
+      );
     return { xml, record };
   }
-  private readServer(path: string): Promise<string | null> {
+  private readServer(path: string, variantId: string): Promise<string | null> {
     if (!this.persistence) throw Error('Self Hosted persistence is unavailable.');
-    return firstValueFrom(this.persistence.readSidecar(path)).catch((error: unknown) => {
-      if (error instanceof HttpErrorResponse && error.status === 404) return null;
+    return firstValueFrom(this.persistence.readSidecar(path, variantId)).catch((error: unknown) => {
+      if (
+        variantId === PRIMARY_VARIANT_ID &&
+        error instanceof HttpErrorResponse &&
+        error.status === 404
+      )
+        return null;
       throw error;
     });
   }

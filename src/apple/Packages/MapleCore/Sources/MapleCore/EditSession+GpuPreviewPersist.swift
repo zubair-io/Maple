@@ -51,11 +51,13 @@ extension EditSession {
     else { return }
     let liveSession = driver.session
     let thumbnailURL = asset.primaryURL
+    let selectedVariant = workflow.selectedVariantId
+    let selectedXML = workflow.previews.captureXML
     let screenWidth = Int(max(previewSize.width, 1))
     let cacheWrite: RenderedPreviewCache.WriteSnapshot?
     if let thumbnailURL {
       cacheWrite = await RenderedPreviewCache.shared.captureWrite(
-        for: thumbnailURL, screenWidth: screenWidth)
+        for: thumbnailURL, screenWidth: screenWidth, sidecarURL: asset.sidecarURL)
     } else {
       cacheWrite = nil
     }
@@ -79,6 +81,7 @@ extension EditSession {
     let stillCurrent: @MainActor @Sendable () -> Bool = {
       self.model == capturedModel && driver === self.gpuLiveDriver
         && liveSession === driver.session && !self.gpuPresentFailed
+        && self.workflow.selectedVariantId == selectedVariant
     }
     // Off the MainActor (per-pixel RGBA expansion + AVIF encode), but
     // AWAITED so the exit path knows the write completed.
@@ -95,6 +98,11 @@ extension EditSession {
       }
       let accepted = await MainActor.run {
         guard stillCurrent() else { return false }
+        if let selectedXML {
+          self.workflow.previews.store(
+            image, id: selectedVariant, xml: selectedXML,
+            model: capturedModel, width: screenWidth)
+        }
         // Conversion succeeded; keep the CPU fallback until this point.
         self.previewPersistence.discardPendingImage()
         return true
@@ -104,6 +112,7 @@ extension EditSession {
         guard await stillCurrent() else { return }
         await RenderedPreviewCache.shared.storePreview(image, for: cacheWrite)
       }
+      guard selectedVariant == WorkflowContract.primaryVariantID else { return }
       if let thumbnailURL {
         guard await stillCurrent() else { return }
         await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: thumbnailURL)

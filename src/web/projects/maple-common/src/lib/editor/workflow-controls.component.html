@@ -36,6 +36,27 @@
       >
     }
     @if (!busy() && document()) {
+      <div class="flex items-center justify-between gap-2">
+        <mui-text variant="row-label">Variants</mui-text>
+        <mui-button variant="secondary" [disabled]="busy() || !!error()" (pressed)="newVariant()"
+          >New variant</mui-button
+        >
+      </div>
+      @for (branch of branches(); track branch.variantId) {
+        <mui-list-row icon="history" [label]="branch.workflow?.variantName ?? 'Primary'">
+          <mui-button
+            trailing
+            variant="ghost"
+            size="sm"
+            [disabled]="busy() || source()?.variantId === branch.variantId"
+            [ariaLabel]="'Use variant ' + (branch.workflow?.variantName ?? 'Primary')"
+            (pressed)="selectVariant(branch.variantId)"
+          >
+            {{ source()?.variantId === branch.variantId ? 'Selected' : 'Use' }}
+          </mui-button>
+        </mui-list-row>
+      }
+      <mui-text variant="row-label">Snapshots and history</mui-text>
       @if (versions().length === 0) {
         <mui-empty-state icon="history" title="No saved history yet" />
       }
@@ -64,6 +85,19 @@
     >
   </div>
 </mui-overlay-shell>
+
+<mui-dialog
+  [open]="view() === 'variant'"
+  title="Variant name"
+  variant="prompt"
+  message="Create an independent variant from the current saved adjustments and metadata."
+  [(promptValue)]="name"
+  confirmLabel="Create variant"
+  [busy]="busy()"
+  [errorMessage]="error()"
+  (confirmed)="saveVariant()"
+  (dismissed)="back()"
+/>
 
 <mui-dialog
   [open]="view() === 'snapshot'"

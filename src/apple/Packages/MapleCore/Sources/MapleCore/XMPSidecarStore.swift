@@ -24,6 +24,7 @@ import Foundation
 /// await store.flush()   // Force immediate write before close.
 /// ```
 public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
+  let primarySidecarURL: URL
   private let sidecarURL: URL
   private let variantId: String
 
@@ -43,18 +44,21 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   static let debounceInterval: Duration = .milliseconds(750)
 
   public init(rawURL: URL) {
+    self.primarySidecarURL = SidecarPath.sidecarURL(for: rawURL)
     self.sidecarURL = SidecarPath.sidecarURL(for: rawURL)
     self.variantId = WorkflowContract.primaryVariantID
   }
 
   /// PhotoKit's canonical App Support file shares the same writer (#4047).
   init(sidecarURL: URL) {
+    self.primarySidecarURL = sidecarURL
     self.sidecarURL = sidecarURL
     self.variantId = WorkflowContract.primaryVariantID
   }
 
   /// Bind the existing writer to a validated UUID sibling, including Photos' canonical root (#4063).
   public init(primarySidecarURL: URL, variantId: String) throws {
+    self.primarySidecarURL = primarySidecarURL
     let filename = try WorkflowSidecarCore.variantFilename(
       primaryName: primarySidecarURL.lastPathComponent, variantId: variantId)
     self.sidecarURL = primarySidecarURL.deletingLastPathComponent().appendingPathComponent(filename)
