@@ -99,6 +99,26 @@ async function fixtureXml(body: {
   if (!embedded.ok) throw Error(embedded.error);
   return fixtureSchema(embedded.value, body.futureSchema);
 }
+async function fixturePixels(body: {
+  camera?: boolean;
+  camera100mp?: boolean;
+  synthetic?: boolean;
+}) {
+  if (body.camera100mp)
+    return readFile(join(import.meta.dir, '../../../../test-fixtures/raws/test_0000.DNG'));
+  if (body.camera)
+    return readFile(join(import.meta.dir, '../../../../test-fixtures/raws/test_0017.dng'));
+  if (body.synthetic)
+    return readFile(
+      join(import.meta.dir, '../../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng'),
+    );
+  return new Uint8Array([1, 0, 255, 42]);
+}
+
+async function fixtureOriginal(path: string, omit: boolean) {
+  return omit ? null : [...(await readFile(path))];
+}
+
 const app = new Elysia()
   .onBeforeHandle({ as: 'global' }, ({ request }) => {
     if (!receipt) return;
@@ -122,23 +142,7 @@ const app = new Elysia()
       const directory = join(root, key);
       await mkdir(directory);
       const path = join(directory, 'photo.dng');
-      const original =
-        body.camera || body.camera100mp
-          ? await readFile(
-              join(
-                import.meta.dir,
-                '../../../../test-fixtures/raws/',
-                body.camera100mp ? 'test_0000.DNG' : 'test_0017.dng',
-              ),
-            )
-          : body.synthetic
-            ? await readFile(
-                join(
-                  import.meta.dir,
-                  '../../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng',
-                ),
-              )
-            : new Uint8Array([1, 0, 255, 42]);
+      const original = await fixturePixels(body);
       await writeFile(path, original);
       const input = await fixtureXml(body);
       if (input !== null) await writeFile(join(directory, 'photo.xmp'), input);
@@ -242,7 +246,7 @@ const app = new Elysia()
       xml,
       blockedReads: blockedReadCount(source.path),
       workflow: workflow?.ok ? JSON.parse(workflow.value) : null,
-      original: query.original === 'false' ? null : [...(await readFile(source.path))],
+      original: await fixtureOriginal(source.path, query.original === 'false'),
       state: live.db.query('SELECT has_xmp, sidecar_ver FROM assets WHERE id = ?').get(source.id),
       changes: (
         await listChangesSince(live.handle, {

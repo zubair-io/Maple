@@ -1,3 +1,4 @@
+import { measureComparisonPreparation } from './comparison-preparation';
 import { createComponent } from '@angular/core';
 import { createApplication } from '@angular/platform-browser';
 import { provideHttpClient, withFetch } from '@angular/common/http';
@@ -42,6 +43,54 @@ function pixel(source: CanvasImageSource, width: number, height: number) {
 const delta = (a: number[], b: number[]) =>
   Math.max(...a.map((value, i) => Math.abs(value - b[i])));
 
+async function originalFingerprint(
+  bytes: Uint8Array<ArrayBuffer>,
+  camera100mp: boolean,
+): Promise<string> {
+  const sourceHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('');
+  if (
+    camera100mp &&
+    (bytes.length !== 129467390 ||
+      sourceHash !== 'f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5')
+  ) {
+    throw Error('100MP fixture does not match the committed canonical fingerprint');
+  }
+  return sourceHash;
+}
+
+function preparationMetrics(
+  preparation: Awaited<ReturnType<typeof measureComparisonPreparation>> | null,
+) {
+  return preparation
+    ? {
+        preparingTickMs: preparation.maximumMs,
+        preparingAtTick: preparation.loadingAtFirstTick,
+        preparingTicks: preparation.samples,
+      }
+    : { preparingTickMs: null, preparingAtTick: false, preparingTicks: 0 };
+}
+
+function verifyRenderPath(
+  canvas: ImageCanvasComponent,
+  gpu: boolean,
+  colorSpace?: CanvasColorSpace,
+): void {
+  if (canvas.gpuPresent.active() !== gpu) throw Error('Requested render path was not established');
+  if (colorSpace && canvas.gpuPresent.colorSpace() !== colorSpace)
+    throw Error('Requested canvas gamut was not established');
+}
+
+async function comparisonBitmap(canvas: ImageCanvasComponent): Promise<ImageBitmap> {
+  await until(
+    () => canvas.comparison.bitmap() !== null || canvas.comparison.error() !== null,
+    'before pixels',
+  );
+  if (canvas.comparison.error()) throw Error(canvas.comparison.error()!);
+  return canvas.comparison.bitmap()!;
+}
+
 /** Shipping canvas, RAW worker and real OPFS/HTTP XMP. No renderer or storage substitutes. */
 export async function comparisonWorkflow(
   backend: 'hosted' | 'self-hosted',
@@ -64,16 +113,7 @@ export async function comparisonWorkflow(
     return new Uint8Array(await response.arrayBuffer());
   };
   const bytes = await readOriginal();
-  const sourceHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
-    .map((v) => v.toString(16).padStart(2, '0'))
-    .join('');
-  if (
-    camera100mp &&
-    (bytes.length !== 129467390 ||
-      sourceHash !== 'f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5')
-  ) {
-    throw Error('100MP fixture does not match the committed canonical fingerprint');
-  }
+  const sourceHash = await originalFingerprint(bytes, camera100mp);
   const app = await createApplication({
     providers: [
       backend === 'hosted' ? provideHostedWorkspace() : provideSelfHostedWorkspace(),
@@ -137,10 +177,7 @@ export async function comparisonWorkflow(
         canvas.lastRenderedXmp === canvas.serializeForRender(library.adjustmentFor(id)()),
       'initial frame',
     );
-    if (canvas.gpuPresent.active() !== gpu)
-      throw Error('Requested render path was not established');
-    if (colorSpace && canvas.gpuPresent.colorSpace() !== colorSpace)
-      throw Error('Requested canvas gamut was not established');
+    verifyRenderPath(canvas, gpu, colorSpace);
     const initialModel = structuredClone(library.adjustmentFor(id)());
     const drawCanvas = host.querySelector('canvas:not([data-gpu-live])') as HTMLCanvasElement;
     const liveCanvas = () =>
@@ -160,66 +197,12 @@ export async function comparisonWorkflow(
     await flush();
     const saved = await readXML();
     const editedPixel = pixel(liveCanvas(), liveCanvas().width, liveCanvas().height);
-    let baselineSubmitted = false;
-    const renderer = Reflect.get(canvas.comparison, 'renderer').bind(canvas.comparison);
-    const observed = new WeakSet<object>();
-    Reflect.set(canvas.comparison, 'renderer', () => {
-      const pipeline = renderer() as typeof canvas.pipeline;
-      if (!observed.has(pipeline)) {
-        observed.add(pipeline);
-        const exportImage = pipeline.exportImage.bind(pipeline);
-        const decode = pipeline.decode.bind(pipeline);
-        pipeline.exportImage = (...args: Parameters<typeof exportImage>) => {
-          const result = exportImage(...args);
-          baselineSubmitted = true;
-          return result;
-        };
-        pipeline.decode = (...args: Parameters<typeof decode>) => {
-          const result = decode(...args);
-          baselineSubmitted = true;
-          return result;
-        };
-      }
-      return pipeline;
-    });
-    let preparingTickMs: number | null = null;
-    let preparingAtTick = false;
-    let preparingTicks = 0;
-    service.beforeAfterSplitX.set(1);
-    if (camera100mp && gpu) {
-      console.log('100MP comparison admission', canvas.gpuPresent.colorSpace());
-      await until(
-        () => baselineSubmitted || canvas.comparison.error() !== null,
-        'comparison admission',
-      );
-      if (canvas.comparison.error()) throw Error(canvas.comparison.error()!);
-    }
-    const comparisonXml = camera100mp && gpu ? await readXML() : null;
-    if (camera100mp && gpu) {
-      preparingAtTick = canvas.comparison.loading();
-      const deadline = performance.now() + 60000;
-      do {
-        const start = performance.now();
-        library.updateAdjustment(id, { exposure: preparingTicks % 2 === 0 ? 1.35 : 1.36 });
-        const target = canvas.serializeForRender(library.adjustmentFor(id)());
-        while (canvas.lastRenderedXmp !== target) {
-          if (performance.now() > deadline) throw Error('Preparing comparison blocked a live tick');
-          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        }
-        preparingTickMs = Math.max(preparingTickMs ?? 0, performance.now() - start);
-        preparingTicks++;
-      } while (canvas.comparison.loading() && performance.now() < deadline);
-      console.log('100MP preparation ticks', preparingTicks, 'maximum', preparingTickMs);
-    }
-    await until(
-      () => canvas.comparison.bitmap() !== null || canvas.comparison.error() !== null,
-      'before pixels',
-    );
-    if (canvas.comparison.error()) throw Error(canvas.comparison.error()!);
+    const preparation =
+      camera100mp && gpu ? await measureComparisonPreparation(canvas, library, id, readXML) : null;
+    if (!preparation) service.beforeAfterSplitX.set(1);
+    const owned = await comparisonBitmap(canvas);
     const beforePixel = pixel(drawCanvas, drawCanvas.width, drawCanvas.height);
-    const owned = canvas.comparison.bitmap()!;
-    const comparisonDoesNotWriteXMP =
-      (camera100mp && gpu ? comparisonXml : await readXML()) === saved;
+    const comparisonDoesNotWriteXMP = (preparation ? preparation.xml : await readXML()) === saved;
     for (const exposure of [1.5, 1.75, 2]) {
       library.updateAdjustment(id, { exposure });
       await until(
@@ -255,11 +238,7 @@ export async function comparisonWorkflow(
       'variant edit',
     );
     service.beforeAfterSplitX.set(1);
-    await until(
-      () => canvas.comparison.bitmap() !== null || canvas.comparison.error() !== null,
-      'variant baseline',
-    );
-    if (canvas.comparison.error()) throw Error(canvas.comparison.error()!);
+    await comparisonBitmap(canvas);
     const variantBefore = pixel(drawCanvas, drawCanvas.width, drawCanvas.height);
     const selectedModel = structuredClone(library.adjustmentFor(id)());
     await flush();
@@ -270,9 +249,7 @@ export async function comparisonWorkflow(
     return {
       gpu: canvas.gpuPresent.active(),
       colorSpace: canvas.gpuPresent.colorSpace(),
-      preparingTickMs,
-      preparingAtTick,
-      preparingTicks,
+      ...preparationMetrics(preparation),
       sourceHash,
       initialPixel,
       editedPixel,
