@@ -415,6 +415,13 @@ fn decode_into(obu: &[u8], frame_size_limit: u32, slots: &mut DecodeSlots) -> Re
 mod color;
 use color::normalize_colour;
 
+/// Read only the source colour header, using the decoder's exact normalization rule.
+pub(crate) fn normalizes_to_srgb(bytes: &[u8]) -> Result<bool> {
+    let container = parse_container(bytes)?;
+    let header = sequence_header(&container.primary_item)?;
+    Ok(color::normalizes_to_srgb(&header))
+}
+
 /// Decode an AVIF still image to RGB8 (or RGBA8 when the container carries an
 /// alpha item). 10/12-bit sources are down-converted to 8-bit; chroma is
 /// upsampled by sample replication (the consumers are thumbnails/previews).
@@ -423,7 +430,7 @@ pub fn decode_avif(bytes: &[u8]) -> Result<RasterImage> {
     let colour = decode_obu(&data.primary_item)?;
     let rgb = yuv_to_rgb(&colour);
     let header = sequence_header(&data.primary_item)?;
-    let p3 = header.pri as u32 == 12 && header.trc as u32 == 13;
+    let p3 = color::normalizes_to_srgb(&header);
     let (w, h) = (colour.width as u32, colour.height as u32);
     let Some(alpha_obu) = data.alpha_item.as_deref() else {
         return Ok(normalize_colour(RasterImage::new_rgb(w, h, rgb), p3));
