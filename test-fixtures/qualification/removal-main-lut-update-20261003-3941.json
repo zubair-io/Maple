@@ -1,0 +1,205 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-03T23:05:23.069084+00:00",
+  "releaseQualified": false,
+  "scope": "Current-main rebase integration, shared LUT sampler and actual photographic grouped native state rerun. No photographic role/closure/fill qualification.",
+  "headBeforeEvidenceCommit": "079b49d211ef9cd14b30d66350716171b2f52775",
+  "mainBase": "1161ef0413a5cdb160c18b54cab6bea3e0699c64",
+  "rebase": {
+    "recordedAt": "2026-10-03T22:56:14.718052+00:00",
+    "oldBase": "cbf00d6ccd3014a7b05fef271f8c3053003a06cd",
+    "oldHead": "07333511f3e106f2e557128dac4a5bc821da8518",
+    "newBase": "1161ef0413a5cdb160c18b54cab6bea3e0699c64",
+    "newHead": "079b49d211ef9cd14b30d66350716171b2f52775",
+    "commitsPreserved": 125,
+    "orderAndSubjectsEqual": true,
+    "conflict": "Shared LUT implementation: retain main ColorLut::sample_grid API and delegate it to feature borrowed sample_lut evaluator; no second interpolation body.",
+    "rangeDiff": "/Users/riabuz/.cache/maple-removal-research/photographic-group-rebase-range-diff-final-20261003.txt",
+    "patchDifferences": "123 equal; two differ: module context from new main API and borrowed sampler conflict integration.",
+    "validation": "8 core LUT +3 actual FFI LUT +2 native Auto +3 C# actual shared-library binding tests pass. All182 native exports across fresh Apple slices and Mac app build pass. Photographic grouped-state test rerun on this base passes with no skips."
+  },
+  "rangeDiff": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/photographic-group-rebase-range-diff-final-20261003.txt",
+    "sha256": "bff9ae4afbbd8bfdd3eda941f56a1514c1467dbc557eba1ed49f4dbef3a0bd0f",
+    "bytes": 16703
+  },
+  "tests": [
+    {
+      "scope": "core LUT",
+      "executed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-group-main-core-lut-20261003.log",
+        "sha256": "e2d6ee9e6b3dce3449c4690e57c146cfd7b84bbc5e715058b1b1e33f6fefdd38",
+        "bytes": 5757
+      }
+    },
+    {
+      "scope": "FFI LUT buffer and all-tetrahedron evaluator",
+      "executed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-group-main-ffi-lut-executed-20261003.log",
+        "sha256": "95481fb6ca94ce843db3253a2ea130a734c01e140276793527f91fb6e918bafb",
+        "bytes": 39947
+      }
+    },
+    {
+      "scope": "native Auto tail/refusal",
+      "executed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-group-main-native-auto-20261003.log",
+        "sha256": "2ec13f32aee34e7b0ab16659040f1cafad1627c60553608148dfdc476e79cc46",
+        "bytes": 39862
+      }
+    },
+    {
+      "scope": "Production C# LUT caller against actual host macOS dylib; not Windows runtime/UI qualification",
+      "executed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-group-main-dotnet-20261003.log",
+        "sha256": "62c11f2b5ea36ec1c3707c0b5350113563d4b571eda53e77c4e666baeeb3866c",
+        "bytes": 2548
+      },
+      "nativeLibrary": {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/target/debug/libraw_ffi.dylib",
+        "sha256": "b1119cff9bbbc1e7a7a4099442eb3e3a371a81a8d0a2734c6db88fc9dfdac285",
+        "bytes": 105349632
+      }
+    },
+    {
+      "scope": "Actual photographic instance-choice group/state/sidecar/companions/reopen/undo/redo on rebased core",
+      "executed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 85.441,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/photographic-native-group-rebased-20261003.log",
+        "sha256": "d5d875d1ac050561a204efa5e3344f0ed56890120a1583c64abc083dcda48c01",
+        "bytes": 108915
+      },
+      "report": {
+        "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/0DF96CF9-8C21-42EA-B8B4-E25EC71E0F7A/report.json",
+        "sha256": "dba2afe27590373fc92c0b77e75f199cfa7bf1afe00d6205cbada6f70097bc4f",
+        "bytes": 9520
+      },
+      "source": {
+        "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+        "height": 4000,
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "width": 6000
+      },
+      "selected": [
+        6,
+        10
+      ],
+      "requests": [
+        {
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2930,
+            "y": 1248
+          },
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 2930,
+            "y": 1248
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:d399ca2eb7c6aec84660fdc42dc112c9687ccdd0e664c77549a1c6b6ddcbcce2",
+          "source": {
+            "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+            "height": 4000,
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "width": 6000
+          }
+        },
+        {
+          "bake": {
+            "ev": 0,
+            "temp": 6500,
+            "tint": 0
+          },
+          "context_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 0,
+            "y": 744
+          },
+          "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+          "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+          "patch_window": {
+            "height": 1024,
+            "width": 1024,
+            "x": 0,
+            "y": 744
+          },
+          "plate": "linear-calibration-v1",
+          "recipe": "blake3:872b61bc2f220d4cd5dd47f59315739caa050088bac1c7292dfa8b31cbe7e1b5",
+          "source": {
+            "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+            "height": 4000,
+            "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+            "width": 6000
+          }
+        }
+      ],
+      "removeElapsed": "40.052532125 seconds",
+      "reviewDigest": "blake3:14821a792d3a1c41e22e6f9e528dae2eab8c1db69780d1845ba70a0c2a6ae07b",
+      "reopenedDigest": "blake3:14821a792d3a1c41e22e6f9e528dae2eab8c1db69780d1845ba70a0c2a6ae07b",
+      "assets": {
+        "23c084e284e769ea6167398e96d301115c734bce19dc95a1c5c6484108e488e0.mask": "blake3:23c084e284e769ea6167398e96d301115c734bce19dc95a1c5c6484108e488e0",
+        "c934527e57e54901a254926976aece151be450742da491cf1e852559d795c4cb.mask": "blake3:c934527e57e54901a254926976aece151be450742da491cf1e852559d795c4cb",
+        "cad5a98b2c94b93596ef636e5203732f5520abb17a931f49c993639723e7fede.f16": "blake3:cad5a98b2c94b93596ef636e5203732f5520abb17a931f49c993639723e7fede",
+        "ff49b69d3ce196897c3565733a613068f8986fdda6d04d851e964f303c0fd315.f16": "blake3:ff49b69d3ce196897c3565733a613068f8986fdda6d04d851e964f303c0fd315"
+      },
+      "originalUnchanged": true,
+      "undoSteps": 1
+    }
+  ],
+  "framework": {
+    "buildInputHash": "72921c25a190a965136f61fa9671039c78032ae8",
+    "symbolsVerified": 182,
+    "allAppleSlices": true,
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-group-main-xcframework-20261003.log",
+      "sha256": "d837324de6e9ab89e0b87718f4fec2c68fa5251bba0fe5d734ac08835f02571a",
+      "bytes": 210864
+    }
+  },
+  "macApp": {
+    "path": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app",
+    "buildSucceeded": true,
+    "executable": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app/Contents/MacOS/Maple",
+      "sha256": "63443b43064da7494c72ff60435c35e99d7bbdcc03d825ad9070c0530b5e103b",
+      "bytes": 60256
+    },
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-group-main-mac-build-20261003.log",
+      "sha256": "2aa2f12135e6f12521a205926e647b8eb01abaad21c53a2b56fb9ca58be756d1",
+      "bytes": 1146062
+    }
+  },
+  "limits": [
+    "Prior photographic images still show smeared fills/residual people and role/ownership ambiguities; passing grouped-state tests does not qualify removal quality.",
+    "Observations occur on shared M5 Max128GiB with overlapping build/test workloads; no latency/memory release qualification.",
+    "No native UI accessibility gate, complete Metal/ACR parity, export/recovery/portable/Web or full epic completion claim."
+  ]
+}
