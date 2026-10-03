@@ -39,6 +39,7 @@ extension RemovalSession {
       personMasks = masks.people
       detectedPersonMasks = masks.detected
       resetPersonRefinement(masks.bases)
+      personProtectionConflicts = masks.conflicts
       operation = nil
       phase = .ready
       message = people.isEmpty ? "No people found. Paint the object instead." : peopleMessage
@@ -74,6 +75,7 @@ extension RemovalSession {
       personMasks = masks.people
       detectedPersonMasks = masks.detected
       resetPersonRefinement(masks.bases)
+      personProtectionConflicts = masks.conflicts
       personChoicesNeedApply = false
       operation = nil
       phase = .ready
@@ -82,9 +84,15 @@ extension RemovalSession {
   }
 
   private var peopleMessage: String {
-    selection.isEmpty
-      ? "No background people selected. Review Keep/Remove choices or use Paint."
-      : "Review suggested background people and kept subjects before removing."
+    requiresProtectionReview
+      ? protectionReviewMessage
+      : selection.isEmpty
+        ? "No background people selected. Review Keep/Remove choices or use Paint."
+        : "Review suggested background people and kept subjects before removing."
+  }
+
+  private var protectionReviewMessage: String {
+    "Selected people overlap protection. Review the named kept people, refine the selection, or remove only unprotected parts."
   }
 
   private func masksForPeople(
@@ -92,16 +100,18 @@ extension RemovalSession {
     token: UInt64
   ) async throws -> (
     selection: Data, protection: Data, people: [Data], bases: [RemovalPersonSelection],
-    detected: [RemovalPersonSelection]
+    detected: [RemovalPersonSelection], conflicts: [RemovalPersonProtectionConflict]
   ) {
-    guard !people.isEmpty else { return (Data(), manualProtection, [], [], []) }
+    guard !people.isEmpty else { return (Data(), manualProtection, [], [], [], []) }
     if detectedPersonMasks.count == people.count,
       Set(detectedPersonMasks.map(\.id)) == Set(people.map(\.id))
     {
       let masks = try await engine.peopleSelection(
         people, masks: detectedPersonMasks, manualProtection: manualProtection)
       return (
-        masks.selection, masks.protection, masks.bases.map(\.mask), masks.bases, detectedPersonMasks
+        masks.selection, masks.protection, masks.bases.map(\.mask), masks.bases,
+        detectedPersonMasks,
+        masks.conflicts
       )
     }
     let run = try await engine.selectionOperation()
@@ -118,7 +128,10 @@ extension RemovalSession {
     }
     let masks = try await engine.peopleSelection(
       people, masks: detected, manualProtection: manualProtection)
-    return (masks.selection, masks.protection, masks.bases.map(\.mask), masks.bases, detected)
+    return (
+      masks.selection, masks.protection, masks.bases.map(\.mask), masks.bases, detected,
+      masks.conflicts
+    )
   }
 
   public func remove() async {
@@ -132,6 +145,21 @@ extension RemovalSession {
       await selectOtherPeople()
       guard current(preparationToken), phase == .ready, !personChoicesNeedApply else { return }
     }
+    guard !requiresProtectionReview else {
+      message = protectionReviewMessage
+      return
+    }
+    await generateSelection()
+  }
+
+  /// Explicit partial-removal choice after inspecting actual protected overlap.
+  /// List changes invalidate this choice and must be prepared by Remove again.
+  public func removeUnprotectedParts() async {
+    guard phase == .ready, requiresProtectionReview, canRemove else { return }
+    await generateSelection()
+  }
+
+  private func generateSelection() async {
     guard !selection.isEmpty else {
       message =
         mode == .people

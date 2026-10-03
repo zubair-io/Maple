@@ -1,0 +1,273 @@
+{
+  "issue": 3941,
+  "engineeringIssue": 3984,
+  "epic": 1472,
+  "recordedAt": "2026-10-03T23:45:39.125692+00:00",
+  "headBeforeCommit": "d98142d7e70a1ad5dbd04ffaf592fb9ee1c4a3c6",
+  "mainBase": "1161ef0413a5cdb160c18b54cab6bea3e0699c64",
+  "releaseQualified": false,
+  "scope": "Mac protection-conflict UX and shared mask border fix. Core/FFI/browser-WASM mask tests, actual native photographic group durable flow, fresh native slices and Mac build, isolated native UI. No photographic quality admission.",
+  "change": [
+    "Name actual kept-mask/painted-protection overlaps, pause normal Remove and expose an explicit Remove unprotected parts action. List choices remain automatic at Remove.",
+    "Trim erased borders when protection changes a mask without painted gestures; preserve exact bytes on a true no-op/disjoint protection. Original detected masks remain immutable."
+  ],
+  "tests": [
+    {
+      "scope": "shared mask refinement",
+      "passed": 14,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-core-tests-20261003.log",
+        "sha256": "bf7d296ed478a08b552f7de9beb062cdddd12928cdcf1d41efcf56623c49390f",
+        "bytes": 6522
+      }
+    },
+    {
+      "scope": "C-FFI selection binding",
+      "passed": 9,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ffi-tests-20261003.log",
+        "sha256": "01bc400af4f5391bc8ec8110571bbbe74903275f3d8dd9ae66c9b5e0a1754ed8",
+        "bytes": 40750
+      }
+    },
+    {
+      "scope": "Native refinement/session/group/save, including one actual photographic model case",
+      "passed": 25,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-review-tests-updated-core-20261003.log",
+        "sha256": "f8e26b951d8b5a013dc971c2de050d6ea5a041d24d3ea7b628ccddaa1aa9a289",
+        "bytes": 116385
+      }
+    },
+    {
+      "scope": "Actual fresh WASM in Chromium, pure-mask byte parity only",
+      "report": {
+        "crossOriginIsolated": true,
+        "protectedTrimBitsEqual": true,
+        "disjointNoopBitsEqual": true,
+        "actual": [
+          77, 73, 77, 70, 1, 0, 0, 0, 16, 39, 0, 0, 16, 39, 0, 0, 100, 0, 0, 0, 101, 0, 0, 0, 1, 0,
+          0, 0, 1, 0, 0, 0, 1
+        ],
+        "expected": [
+          77, 73, 77, 70, 1, 0, 0, 0, 16, 39, 0, 0, 16, 39, 0, 0, 100, 0, 0, 0, 101, 0, 0, 0, 1, 0,
+          0, 0, 1, 0, 0, 0, 1
+        ],
+        "browser": "147.0.7727.15",
+        "wasmSHA256": "f46fe54fc9c95b8c36ac723372790b4ea1e12fd320ca018747ef79dfd3f86add",
+        "sourceWH": [10000, 10000],
+        "releaseQualified": false,
+        "scope": "Actual rebuilt WASM binding in an isolated headless Chromium origin, pure geometry/protection mask byte parity only. No Maple browser UI/model/RAW quality claim."
+      },
+      "evidence": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-wasm-parity-20261003.json",
+        "sha256": "f070883bed543fe4a14a9dff839f40cc4d9346c9c488c163dd45700a2f10bfcf",
+        "bytes": 986
+      }
+    }
+  ],
+  "photographic": {
+    "evidence": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/7DCCD671-10E7-4FD3-B8BF-63911FDF9DEA/report.json",
+      "sha256": "037d3c0ef70080d2d8591b8a1246626c8a2e173d7917f08e9bb8cb04064cf057",
+      "bytes": 9811
+    },
+    "selectedInstances": [6, 10],
+    "protectionReview": [
+      {
+        "detail": "Some selected pixels of Person 10 are protected by Person 15.",
+        "fullyProtected": false,
+        "keptPeople": [15],
+        "manual": false,
+        "person": 10
+      }
+    ],
+    "preparationElapsed": "0.992948417 seconds",
+    "removeElapsed": "27.424839625 seconds",
+    "reviewReopenedDigest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "originalUnchanged": true,
+    "undoSteps": 1,
+    "records": 2,
+    "assets": 4,
+    "timingScope": "One uncontrolled shared M5 Max128GiB observation, not device/performance qualification."
+  },
+  "native": {
+    "inputStamp": "289a734994e456f035b2872910203ede243845b4",
+    "exportedSymbols": 182,
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-xcframework-20261003.log",
+      "sha256": "ab73ca727374b57164707ac78a4fa892d90f4f361432ebead077807416d5593c",
+      "bytes": 197032
+    },
+    "macBuild": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-mac-build-20261003.log",
+      "sha256": "e057d4f6e24e65c3bd6b7b92ec081a22c0677102bb710ee32aefb33f1e063de6",
+      "bytes": 877660
+    },
+    "macApp": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app"
+  },
+  "nativeUI": {
+    "report": {
+      "recordedAt": "2026-10-03T23:45:39.125692+00:00",
+      "scope": "Actual Mac SwiftUI/accessibility and screenshot check on copied 6000x4000 RAW with verified real models; automatic detection on tab open, multi-select, conflict pause, explicit partial generation/review, Cancel and choice invalidation. Not complete person removal or full keyboard/device qualification.",
+      "identity": {
+        "scope": "Sandboxed QA copy uses unique bundle identity and ad-hoc signature to avoid operating other Maple builds. All Mach-O sections in executable and two debug dylibs match the built app; sandbox and picker permissions retained. App-group, account, production signing and distribution integration are not qualified by this copy.",
+        "matchingSections": {
+          "Maple": {
+            "__TEXT/__text": "e3ac6c821a62565b463a57ea34261d3e1f2ec0d3b4b41ea10c4e97727fa79fed",
+            "__TEXT/__stubs": "a33b2ddf1c5a86971888d22623ffc154b9612ce1429b3915a9844a3dd9c25b0d",
+            "__TEXT/__swift5_entry": "d4cb6d536aec5cfa1096d18516bc0b48d44b5f8f828a6badeb2a55b5a12254bf",
+            "__TEXT/__const": "565a4280442207ecd18cc6d49f019fe9426571988a0766a657f5b19880ad71c2",
+            "__TEXT/__cstring": "1888908fa10190b18748268965b71293a5f9a1a2644c7dafae249b275ebb36db",
+            "__TEXT/__oslogstring": "5279f89fe00c9fa4819e87aabe4b2924718119dd777cb05f69a4c5bec531a473",
+            "__TEXT/__debug_dylib": "a24f7edabe4daa2b5e78441a46604b2453c956435654a043d2aa4861d9999a06",
+            "__TEXT/__debug_instlnm": "ca1a61e21b8d412914d90016da63242593f9e1394d6a0455eaafbd9b49e3254f",
+            "__TEXT/__unwind_info": "d7b5bb40802057f7d2ad50bce73055d76d02a502eb3f9ba32c65a22832403ece",
+            "__TEXT/__eh_frame": "7cb6322f5507cb46b1d1e6b2d60976891cbccb922876559d46e2aeaf6792b626",
+            "__DATA_CONST/__got": "e9e018ad887c2e65295017c76154e9a0ea2d8a7213abfddcb8e8d6ccdcc9cd76"
+          },
+          "Maple.debug.dylib": {
+            "__TEXT/__text": "955de5021b32a36704cc67d771fd3bd9dc070a3457b25dbac908b683cc23b80a",
+            "__TEXT/__stubs": "010fd61af589a7562a3ceaca8eede1180a43a44dc4c3285eb278b9edf8398f97",
+            "__TEXT/__objc_stubs": "837e77aec6ff45f749fbd0d43a58e0af4f5a8ecd18f88c1e7e704dde59c2778d",
+            "__TEXT/__init_offsets": "9be7e27298b252a5b34368fa80da442066c3e620ff724670fcfcbc23b298bb1e",
+            "__TEXT/__objc_methlist": "9448d7d4fd92f131898f2fe9491e3d286ecc5037ef16abb0e2cbb2daffcaa79c",
+            "__TEXT/__cstring": "ba3f2a7c2e50bc84db52ab335b48dee2d4afb5912aaec0f366747d66f09fc034",
+            "__TEXT/__swift5_typeref": "57458f1d81ac7e138130015b3a4c0ed17d67dce612787cc287cdf014fd7f6fcf",
+            "__TEXT/__const": "87b5c4626f8d46dc8cf0d63840f01ca738900bfc9bec736d24790c2dca7d0800",
+            "__TEXT/__constg_swiftt": "5f9adc283e82c396355556e4910991114702bab371eb4c492b5c400d548717a9",
+            "__TEXT/__swift5_reflstr": "1c0c390064889e132a6227d35c761dd22b097809279dd6fc9e1137e3ec4e076d",
+            "__TEXT/__swift5_fieldmd": "6b9daf981a98f9da776bc331f30f9ee8faad6df5f475fed0932679e3e3f373b8",
+            "__TEXT/__swift5_capture": "ae09e1a37d9cc4271b96fe16d1eedaa605d8435306246ef292a45a6fb12c8aa2",
+            "__TEXT/__swift5_proto": "63bc6c866ee8458cd911288a30f047a483ec4e249419b8e1117a85524712177d",
+            "__TEXT/__swift5_types": "f22974812c5a4a061c171145b2623109d6882f6730e1a1c7b69cc643926bc41d",
+            "__TEXT/__oslogstring": "4ca27461eba616050a1cef56a7f4c685d9ed0b6052afc18471caad65d149182d",
+            "__TEXT/__swift5_assocty": "abcf583027737f7be8f7104717bcaeb31d1ed1c9bb2c407427715a47ea5bec67",
+            "__TEXT/__objc_classname": "f73945f435feb860c500e37ddc7c857a55f0006a488a2575ffd3367536914f79",
+            "__TEXT/__objc_methname": "a79af4a29f97178172975f27762bd5bf9188d03f412c614a1c229a853bd68d86",
+            "__TEXT/__swift5_builtin": "036be559ea6f8422c75422ec1e8b5947eae51cad3031fb22dbf5d7e83215df86",
+            "__TEXT/__swift5_mpenum": "fb499f0f3638a2e9e21bdcbf9bc138aee5184bb8ba211bb817acbd0cc03332a3",
+            "__TEXT/__swift_as_entry": "069cfa3d4cf09e217a41cd436c2f2015ad5b05dff9033e2211ce35e0fd4bc9b0",
+            "__TEXT/__swift_as_ret": "d88dde6950d1643612a3a93a7f2daf48768f740be21ca4c0bdeb9cf24147f3bc",
+            "__TEXT/__swift_as_cont": "8dd0e29c78c171ac3f821f75c118fc42baa8cb64ab71952903050b709775a7d4",
+            "__TEXT/__objc_methtype": "dbf26ce26426d602684fb4f2fbd0b2e62e45ed2e1ee8f7b77db2af1e947fb0bb",
+            "__TEXT/__swift5_entry": "d40542a2626d7b6c62ae88b59b4e64a1d6c11bf5fe53f60cd9bd5782f0f62524",
+            "__TEXT/__swift5_protos": "51f392e93f866e2e21e4cf9c3bd6800977bb745f8c9ec6147e936caec9efbc88",
+            "__TEXT/__swift5_types2": "a4339a3acf68e28068147650056e44f8f5c621ea5b6b29e9a60e08abbfd96f9c",
+            "__TEXT/__gcc_except_tab": "bc3ea777899762f4fbcd1b3d15a58cb7e121ef1584fedace5138bc6dc6f5f789",
+            "__TEXT/__unwind_info": "a060ccdff4702a4a2d911dc9f381ea31b11fc322183083186e43cf03dcbd2bfc",
+            "__TEXT/__eh_frame": "c0ed8b9d9f6864a82987ce9a3697018fbf140134a289aa9411887d8aede189e5",
+            "__DATA_CONST/__const": "7ff6347ab33e2cad6917c682b0534709d84d030c75484344943ae3eaedf9c33d",
+            "__DATA_CONST/__objc_classlist": "6b3c047e9e9246cc4ac0a700ab5ad5d735a69f1b0cffd2178fa90c227593e204",
+            "__DATA_CONST/__objc_protolist": "98eaf495b83ce64fccdf453a17c757d132a9a25645b006d4b5575a984383e73e",
+            "__DATA_CONST/__objc_imageinfo": "7408fcdda372aaed9b8d62d262bd8e7ad4da66abeb61efb31e7c98020b1321ce",
+            "__DATA_CONST/__got": "2c6fad95cadc23d2179fca57f031a0bf517f05cc51daf497e6d902f05189a90f",
+            "__DATA/__objc_const": "afb5d1cb4cbfd457c636782bc69b96e216c8b3c3c53c3adef5927d1b215ae927",
+            "__DATA/__objc_selrefs": "21f76aa39cc09e3be27a84ac05e2b9715df8f507020a58e299bc4574f2a88887",
+            "__DATA/__objc_protorefs": "c36334cbb7def0c26e6c2408bec2e08ef5e28308bec6949ee62ce709d88fd3d9",
+            "__DATA/__objc_classrefs": "b07e3f9129d8ebf9f1099e9bd8dfd1fae86fb8b4fad52e02b05a5e3a8c3847b3",
+            "__DATA/__objc_data": "453edf43196e429c5a58da118b17b0dba463291cab05763c49b0c92417ef2346",
+            "__DATA/__data": "25c8812a413b0f88a0982546834c8f3d080864d011f85adcee130bb5bc395113",
+            "__DATA/__llvm_prf_cnts": "90fbd38a26681a4c95338e09fde3a8cc4e4946a72becfa83440169fdd0aa5fc1",
+            "__DATA/__llvm_prf_data": "31d3032ed646de08eef1604f42fc06fbc324892a987580962746b9193c09e4dc",
+            "__DATA/__llvm_prf_names": "ea644d31f038e378e22b7885f98f7c7d9f83d09f3c6eaa67d58bea524d98d14e",
+            "__DATA/__llvm_prf_vnds": "de676bae28a480011d3d012db14bef539324e62a841a9627863c689bea168af3",
+            "__DATA/__s_async_hook": "1660b9fe1260d17336f0b59406304fc8cc275d84558fa18a619c231b69b8d4ec",
+            "__DATA/__swift56_hooks": "86d2cf5b090f43ee54d8f7c1dcf746a853951191457ff6dac96269a9d24860b9",
+            "__DATA/__thread_vars": "a258cea23c2b22b43afb814d9052baa6737c8592f99f5719c8f64b7d06ddd3eb",
+            "__DATA/__thread_data": "9082eaa5d770a0cf08080364a152aa1804c37555cb5f3c0e8c4da1e49f9b939b",
+            "__LLVM_COV/__llvm_covfun": "e4994a1b85787c809c10933d1b7281d1f07782c0ebe7150c0e1fff69632dcf43",
+            "__LLVM_COV/__llvm_covmap": "04aa4d9650f2867275018d54139d74d7d2eb01642ef2fe4e8f87ab30e95b414a"
+          },
+          "__preview.dylib": {}
+        }
+      },
+      "checks": {
+        "automaticTabDetection": true,
+        "multiSelectRetainsBothChoices": true,
+        "namesActualKeeper": true,
+        "pauseBeforeGeneration": true,
+        "partialGenerationReachesReview": true,
+        "cancelWritesNoXMP": true,
+        "choiceChangeClearsPreviousReview": true,
+        "removeAutomaticallyPreparesNewChoices": true,
+        "originalSHA256Unchanged": true
+      },
+      "sourceSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "stage": {
+        "directory": "/tmp/maple-protection-ui-0wzejesj",
+        "raw": "/tmp/maple-protection-ui-0wzejesj/bologna.nef"
+      },
+      "visualFinding": "Top-left hat remains visibly present in partial reconstruction review; no complete-removal quality claim.",
+      "runtimeLogs": "Path-filtered unified log capture completed but retained no entries. Runtime error absence is not proven.",
+      "releaseQualified": false
+    },
+    "reportEvidence": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/report.json",
+      "sha256": "e592a700c4619eb59d5faaeb60e69430b370497cb1056d23bcae25cd77af0385",
+      "bytes": 7963
+    },
+    "artifacts": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/before-remove.png",
+        "sha256": "d5a243e10b65fa3e37d9c861c0739e81c00405cb587a891069832cd26c38aaa9",
+        "bytes": 298727
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/before-remove.ax.txt",
+        "sha256": "cd7d79b40c83ddc01d1e227df27af73ad0a10526ebd4048ba2160a3e991c5337",
+        "bytes": 6139
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/protection-review-visible.png",
+        "sha256": "7538bf63338167d8b3445c97748d29bf5e2a1662e1368901197a1e050a181593",
+        "bytes": 301593
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/protection-review-visible.ax.txt",
+        "sha256": "53b30e529aa6970fe56a73a48192cf6dc054ff1c42699a82851eeced47459d09",
+        "bytes": 6044
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/partial-review.png",
+        "sha256": "538f492da9ccd646240dbeb4a3d2f9705fa2a7d70c674ce6ddbd6b93f52d61b5",
+        "bytes": 284978
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/partial-review.ax.txt",
+        "sha256": "9e4c9ea2e106d301358a203d72eaae89f675612eb76eaa159497f1be1db7defc",
+        "bytes": 3979
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/two-selected.png",
+        "sha256": "cc3691005ad4112fc67e379f8060d79cf37b8ca4dfe1db9d66a2b5c1da486c32",
+        "bytes": 299027
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/two-selected.ax.txt",
+        "sha256": "2c2e07dfe090160528076be33abb8b079d93c7577803710f73d6f9cd2519df93",
+        "bytes": 5955
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/two-selected-review.ax.txt",
+        "sha256": "7c75318f15472189e805c4eb678cff6fb65e2dd9d3431a2cd8b124d51e07c906",
+        "bytes": 6095
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/person-protection-ui-20261003/runtime.log",
+        "sha256": "9f56fca152030dba9e8ee76dee4fc8967ab667507b5878f0f9ab819d55b6b9a6",
+        "bytes": 44
+      }
+    ]
+  },
+  "initialFailure": "First two Swift runs failed a mask-frame byte-equality assertion. Shared border trimming corrected protection-only masks; latest 25 tests pass. Semantic set comparison is used where mask frame equality is not the contract.",
+  "limitations": [
+    "Detector boxes/SAM masks can represent partial/duplicate proposals; no independently labeled ownership/closure truth.",
+    "Explicit partial removal preserves protection and can visibly leave most of a selected person; it is not complete removal.",
+    "Photographic fill quality, automatic background roles, practical supported-device latency/cancellation, signing/distribution and full Mac keyboard/accessibility remain unqualified.",
+    "Apple interaction remains to port to Web, with all other epic requirements active."
+  ]
+}

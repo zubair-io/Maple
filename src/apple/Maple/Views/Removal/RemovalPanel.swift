@@ -33,8 +33,17 @@ struct RemovalPanel: View {
       } else if removal.phase == .ready || removal.phase == .selecting {
         selectionControls
         statusMessage
-        MuiButton(label: "Remove", variant: .primary, disabled: !removal.canRemove) {
-          Task { await removal.remove() }
+        MuiButton(
+          label: removal.requiresProtectionReview ? "Remove unprotected parts" : "Remove",
+          variant: .primary, disabled: !removal.canRemove
+        ) {
+          Task {
+            if removal.requiresProtectionReview {
+              await removal.removeUnprotectedParts()
+            } else {
+              await removal.remove()
+            }
+          }
         }.accessibilityIdentifier("removal-generate")
       }
       if removal.busy {
@@ -186,24 +195,39 @@ struct RemovalPanel: View {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(removal.people) { person in
-              HStack {
-                MuiCheckbox(
-                  state: person.keep ? .unchecked : .checked,
-                  label: "Person \(person.id) · \(person.role.label)", disabled: removal.busy
-                ) { removal.keepPerson(person.id) }
-                Spacer(minLength: 4)
-                if !person.keep {
-                  MuiButton(
-                    label: "Refine", size: .sm,
-                    disabled: removal.busy
-                  ) { Task { await removal.beginPersonRefinement(person.id) } }
-                  .accessibilityLabel("Refine Person \(person.id)")
+              VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                  MuiCheckbox(
+                    state: person.keep ? .unchecked : .checked,
+                    label: "Person \(person.id) · \(person.role.label)", disabled: removal.busy
+                  ) { removal.keepPerson(person.id) }
+                  Spacer(minLength: 4)
+                  if !person.keep {
+                    MuiButton(
+                      label: "Refine", size: .sm,
+                      disabled: removal.busy
+                        || (!removal.personChoicesNeedApply && !removal.canRefinePerson(person.id))
+                    ) { Task { await removal.beginPersonRefinement(person.id) } }
+                    .accessibilityLabel("Refine Person \(person.id)")
+                  }
+                }
+                if let conflict = removal.personProtectionConflicts.first(where: {
+                  $0.id == person.id
+                }) {
+                  Text(conflict.detail)
+                    .font(.caption).foregroundStyle(ProTokens.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("removal-person-protection-\(person.id)")
                 }
               }
             }
           }
         }
-        .frame(height: min(CGFloat(removal.people.count) * 52, 260))
+        .frame(
+          height: min(
+            CGFloat(removal.people.count) * 52
+              + CGFloat(removal.personProtectionConflicts.count) * 64, 260)
+        )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("People to remove, multiple selection")
         .accessibilityIdentifier("removal-people-list")

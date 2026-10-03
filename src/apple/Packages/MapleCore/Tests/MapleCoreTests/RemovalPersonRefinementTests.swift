@@ -122,6 +122,91 @@ final class RemovalPersonRefinementTests: XCTestCase {
     XCTAssertEqual(result.bases.map(\.id), [3])
     XCTAssertEqual(result.protection, try RemovalBridge.combineMasks(left, middle))
     XCTAssertEqual(
+      result.conflicts,
+      [
+        RemovalPersonProtectionConflict(
+          id: 1, keptPersonIDs: [], manualProtection: true, fullyProtected: true)
+      ])
+    XCTAssertEqual(
       masks.map(\.mask), [left, middle, right], "List changes preserve detected masks")
+  }
+
+  func testProtectionConflictsNameActualKeptMasksAndPreserveDetectedInputs() async throws {
+    let left = try circle(3.5 / 16, 3.5 / 8)
+    let middle = try circle(7.5 / 16, 3.5 / 8)
+    let target = try RemovalBridge.combineMasks(left, middle)
+    let people = (1...3).map { id in
+      RemovalSession.Person(
+        id: id, detection: NativeRemovalDetection(class: 0, bounds: [0, 0, 16, 8], score: 0.9),
+        keep: id != 1)
+    }
+    let masks = [
+      RemovalPersonSelection(id: 1, mask: target),
+      RemovalPersonSelection(id: 2, mask: left),
+      RemovalPersonSelection(id: 3, mask: try circle(12.5 / 16, 3.5 / 8)),
+    ]
+    let result = try await NativeRemovalEditorEngine().peopleSelection(
+      people, masks: masks, manualProtection: Data())
+    XCTAssertEqual(
+      result.conflicts,
+      [
+        RemovalPersonProtectionConflict(
+          id: 1, keptPersonIDs: [2], manualProtection: false, fullyProtected: false)
+      ])
+    XCTAssertTrue(try RemovalBridge.combineMasks(result.selection, middle, subtract: true).isEmpty)
+    XCTAssertTrue(try RemovalBridge.combineMasks(middle, result.selection, subtract: true).isEmpty)
+    XCTAssertEqual(masks[0].mask, target)
+    XCTAssertTrue(result.conflicts[0].detail.contains("Person 2"))
+  }
+
+  func testRemoveAppliesChoicesButStopsBeforeModelWorkForProtectedOverlap() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(
+        forResource: "source", withExtension: "dng", subdirectory: "removal/calibration"))
+    let raw = directory.appendingPathComponent("photo.dng")
+    try FileManager.default.copyItem(at: fixture, to: raw)
+    let original = try Data(contentsOf: raw)
+    let session = EditSession(asset: AssetRef(url: raw))
+    let removal = RemovalSession(session: session)
+    await removal.open()
+    await removal.setMode(.people)
+    let mask = try circle(0.5, 0.5)
+    removal.people = (1...2).map { id in
+      RemovalSession.Person(
+        id: id, detection: NativeRemovalDetection(class: 0, bounds: [0, 0, 16, 8], score: 0.9),
+        keep: true)
+    }
+    removal.detectedPersonMasks = (1...2).map { RemovalPersonSelection(id: $0, mask: mask) }
+    removal.keepPerson(1)
+    await removal.remove()
+    XCTAssertEqual(removal.phase, .ready, removal.message)
+    XCTAssertFalse(removal.personChoicesNeedApply)
+    XCTAssertTrue(removal.requiresProtectionReview)
+    XCTAssertEqual(
+      removal.personProtectionConflicts,
+      [
+        RemovalPersonProtectionConflict(
+          id: 1, keptPersonIDs: [2], manualProtection: false, fullyProtected: true)
+      ])
+    XCTAssertTrue(removal.selection.isEmpty)
+    XCTAssertTrue(removal.proposals.isEmpty)
+    XCTAssertFalse(removal.canRefinePerson(1))
+    XCTAssertFalse(removal.canRemove)
+    await removal.removeUnprotectedParts()
+    XCTAssertTrue(removal.proposals.isEmpty)
+    removal.keepPerson(2)
+    XCTAssertFalse(removal.requiresProtectionReview, "New choices invalidate prior overlap review")
+    await removal.remove()
+    XCTAssertTrue(removal.personProtectionConflicts.isEmpty)
+    XCTAssertFalse(removal.selection.isEmpty)
+    XCTAssertTrue(removal.message.contains("Import local AI models"))
+    XCTAssertEqual(try Data(contentsOf: raw), original)
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: directory.appendingPathComponent("photo.xmp").path))
+    removal.close()
+    await session.releaseTransientMemory()
   }
 }

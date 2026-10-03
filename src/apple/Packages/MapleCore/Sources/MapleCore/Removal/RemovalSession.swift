@@ -44,6 +44,7 @@ public final class RemovalSession {
   public internal(set) var message = ""
   public internal(set) var people: [Person] = []
   public internal(set) var personChoicesNeedApply = false
+  public internal(set) var personProtectionConflicts: [RemovalPersonProtectionConflict] = []
   public internal(set) var savedRemovals: [SavedRemovalEntry] = []
   public internal(set) var replacingRemovalID: String?
   @ObservationIgnored var replacementBase = Data()
@@ -105,6 +106,10 @@ public final class RemovalSession {
     guard phase == .ready, modelFolderName != nil else { return false }
     return mode == .people && personChoicesNeedApply
       ? people.contains { !$0.keep } : !selection.isEmpty
+  }
+
+  public var requiresProtectionReview: Bool {
+    mode == .people && !personChoicesNeedApply && !personProtectionConflicts.isEmpty
   }
 
   public func open() async {

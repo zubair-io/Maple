@@ -100,6 +100,13 @@ final class PhotographicRemovalGroupTests: XCTestCase {
       let sidecar = try XCTUnwrap(session.asset.sidecarURL)
       let started = ContinuousClock.now
       await removal.remove()
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertTrue(removal.requiresProtectionReview)
+      XCTAssertTrue(removal.proposals.isEmpty)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))
+      let preparationElapsed = String(describing: started.duration(to: .now))
+      let conflicts = removal.personProtectionConflicts
+      await removal.removeUnprotectedParts()
       XCTAssertEqual(removal.phase, .review, removal.message)
       XCTAssertFalse(removal.personChoicesNeedApply)
       XCTAssertEqual(removal.proposals.count, 2)
@@ -149,6 +156,13 @@ final class PhotographicRemovalGroupTests: XCTestCase {
         "source": try JSONSerialization.jsonObject(with: Data(context.source.utf8)),
         "detected": detected, "selected": selected, "requests": requests,
         "removeElapsed": removeElapsed, "reviewSize": [review.width, review.height],
+        "preparationElapsed": preparationElapsed,
+        "protectionReview": conflicts.map {
+          [
+            "person": $0.id, "keptPeople": $0.keptPersonIDs, "manual": $0.manualProtection,
+            "fullyProtected": $0.fullyProtected, "detail": $0.detail,
+          ] as [String: Any]
+        },
         "beforeSize": [before.width, before.height],
         "records": try JSONSerialization.jsonObject(
           with: Data(records.utf8)),
@@ -158,7 +172,7 @@ final class PhotographicRemovalGroupTests: XCTestCase {
         "originalUnchanged": true, "undoSteps": session.undoHistory.count,
         "releaseQualified": false,
         "scope":
-          "Actual photographic detection/SAM, explicit list choices, native planner/default masks, two sequential deployed model jobs, review and one durable Keep with sidecar/companions, undo/redo and byte-exact reopening. Native UI, automatic role/closure quality, photographic fills and supported-device performance are not qualified.",
+          "Actual photographic detection/SAM, explicit list choices, protection-conflict pause and explicit partial-removal choice, native planner/default masks, two sequential deployed model jobs, review and one durable Keep with sidecar/companions, undo/redo and byte-exact reopening. Native UI, automatic role/closure quality, photographic fills and supported-device performance are not qualified.",
       ]
       try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         .write(to: evidence.appendingPathComponent("report.json"))
