@@ -59,7 +59,7 @@ def main() -> int:
         parser.error("work is required unless --self-test is set")
     try:
         return qualify(args.work, args.budget)
-    except Exception as error:
+    except (OSError, ValueError, KeyError, ImportError, TypeError) as error:
         print(f"Parity qualification tooling failed: {error}", file=sys.stderr)
         return 2
 
