@@ -21,6 +21,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test Windows build wrapper contracts
         run: python3 src/windows/scripts/test_build_windows.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install perceptual comparator dependencies
+        run: python -m pip install 'numpy>=1.26' Pillow 'colour-science>=0.4.4'
+      - name: Test qualification parity failures and retained verdicts
+        run: |
+          python src/windows/scripts/test_qualification_parity.py
+          python src/windows/scripts/qualification-parity.py --self-test
 
   windows-build-and-test:
     needs: changes

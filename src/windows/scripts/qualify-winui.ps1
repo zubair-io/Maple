@@ -7,7 +7,7 @@
 #             plus a full-resolution production export; both compared
 #             against `maple-cli render` and directly against each other.
 #
-# ΔE verdict needs python3 (compare_images.py via `maple-cli diff`); without
+# ΔE verdict needs Python with compare_images.py dependencies; without
 # it the parity artifacts are still produced, but qualification fails.
 # Missing fixtures or parity tooling fail qualification; CI functional smoke
 # remains a separate workflow and does not imply a hardware qualification pass.
@@ -15,11 +15,15 @@ param(
     [string]$Raw = "",
     [string]$AppExe = "$PSScriptRoot\..\Maple.WinUI\bin\x64\Debug\net8.0-windows10.0.19041.0\Maple.WinUI.exe",
     [string]$MapleCli = "$PSScriptRoot\..\..\raw-pipeline\target\release\maple-cli.exe",
-    [double]$ParityBudgetMean = 2.0
+    [double]$ParityBudgetMean = 2.0,
+    [string]$Python = 'python3'
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/qualification-fixture.ps1"
 . "$PSScriptRoot/qualification-timing.ps1"
+$parityScript = Join-Path $PSScriptRoot 'qualification-parity.py'
+& $Python $parityScript --self-test
+if ($LASTEXITCODE -ne 0) { throw 'Python perceptual comparator self-test failed; qualification was not performed.' }
 
 if ($Raw -eq "") {
     $fixture = Join-Path $PSScriptRoot "..\..\..\test-fixtures\raws\dji-mavic3pro-100mp.dng"
@@ -48,6 +52,8 @@ $sidecar = [IO.Path]::ChangeExtension($Raw, ".xmp")
     app_sha256 = (Get-FileHash -LiteralPath $AppExe -Algorithm SHA256).Hash
     managed_app_sha256 = (Get-FileHash -LiteralPath ([IO.Path]::ChangeExtension($AppExe, '.dll')) -Algorithm SHA256).Hash
     cli_sha256 = (Get-FileHash -LiteralPath $MapleCli -Algorithm SHA256).Hash
+    python = $Python
+    parity_driver_sha256 = (Get-FileHash -LiteralPath $parityScript -Algorithm SHA256).Hash
     native_pipeline_sha256 = (Get-FileHash -LiteralPath (Join-Path ([IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $AppExe).Path)) 'raw_ffi.dll') -Algorithm SHA256).Hash
     physical_reference_qualified = $false
     reference_demosaic = 'AMaZE with sidecar override'
@@ -100,46 +106,18 @@ $refFrame = Join-Path $work "ref-frame.png"
 & $MapleCli render $Raw @sidecarArgs --demosaic amaze --out $refFrame
 if ($LASTEXITCODE -ne 0) { throw "maple-cli render failed" }
 
-# Real python3 only — the Windows Store app-execution alias is a shim that
-# fails with "Python was not found" when actually invoked.
-$pythonWorks = $false
-try { $null = & python3 --version 2>&1; $pythonWorks = ($LASTEXITCODE -eq 0) } catch { }
-if ($pythonWorks) {
-    Write-Output "== Delta-E00 (compare_images.py via maple-cli diff) =="
-    & $MapleCli diff $appFrame $refFrame --budget $ParityBudgetMean
-    $previewParityFailed = $LASTEXITCODE -ne 0
-    Write-Output "preview/full-reference parity failed: $previewParityFailed (budget $ParityBudgetMean)"
-    # Independently exercise the production Windows snapshot/queue/encoder,
-    # not just a reduced preview buffer. Keep both verdicts even when preview
-    # parity fails; a passing export must never hide a failing preview.
-    $exportResult = Get-Content -LiteralPath (Join-Path $work 'cpu/export-result.json') -Raw | ConvertFrom-Json
-    if (-not (Test-Path -LiteralPath $exportResult.output -PathType Leaf)) { throw 'Production export artifact missing.' }
-    if ((Get-FileHash -LiteralPath $exportResult.output -Algorithm SHA256).Hash -ne $exportResult.sha256) {
-        throw 'Production export artifact changed after publication.'
-    }
-    Write-Output "== Production export / full-reference Delta-E00 =="
-    # The shared perceptual comparator can resize previews; export parity
-    # instead requires matching dimensions before it is allowed to compare.
-    & python3 -c 'import sys; from PIL import Image; a=Image.open(sys.argv[1]); b=Image.open(sys.argv[2]); print("export dimensions:", a.size, "reference:", b.size); sys.exit(0 if a.size == b.size else 1)' $exportResult.output $refFrame
-    if ($LASTEXITCODE -ne 0) { throw 'Production export dimensions differ from the full reference.' }
-    & $MapleCli diff $exportResult.output $refFrame --budget $ParityBudgetMean
-    $exportParityFailed = $LASTEXITCODE -ne 0
-    Write-Output "export/full-reference parity failed: $exportParityFailed (budget $ParityBudgetMean)"
-    Write-Output "== CPU preview / production export Delta-E00 =="
-    & $MapleCli diff $appFrame $exportResult.output --budget $ParityBudgetMean |
-        Tee-Object -FilePath (Join-Path $work 'preview-export-diff.json')
-    $previewExportParityFailed = $LASTEXITCODE -ne 0
-    Write-Output "preview/production-export parity failed: $previewExportParityFailed (budget $ParityBudgetMean)"
-    @{ preview_parity_failed = $previewParityFailed; export_parity_failed = $exportParityFailed;
-       preview_export_parity_failed = $previewExportParityFailed;
-       mean_budget = $ParityBudgetMean; tick_verdict = $tickVerdict } |
-        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $work 'verdict.json')
-    if ($previewParityFailed -or $exportParityFailed -or $previewExportParityFailed) { throw "Parity FAIL. Evidence: $work" }
-} else {
-    Write-Output "python3 not found - parity artifacts written, no Delta-E verdict:"
-    Write-Output "  candidate: $appFrame"
-    Write-Output "  reference: $refFrame"
-    throw "Parity qualification was not performed: working python3 is required."
+Write-Output "== Canonical Delta-E00: preview, production export and full reference =="
+$exportResult = Get-Content -LiteralPath (Join-Path $work 'cpu/export-result.json') -Raw | ConvertFrom-Json
+if (-not (Test-Path -LiteralPath $exportResult.output -PathType Leaf)) { throw 'Production export artifact missing.' }
+if ((Get-FileHash -LiteralPath $exportResult.output -Algorithm SHA256).Hash -ne $exportResult.sha256) {
+    throw 'Production export artifact changed after publication.'
 }
+& $Python $parityScript $work --budget $ParityBudgetMean
+$parityExit = $LASTEXITCODE
+if ($parityExit -notin @(0, 1)) { throw "Parity tooling failed. Evidence: $work" }
+$verdict = Get-Content -LiteralPath (Join-Path $work 'parity-verdict.json') -Raw | ConvertFrom-Json
+$verdict | Add-Member -NotePropertyName tick_verdict -NotePropertyValue $tickVerdict
+$verdict | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $work 'verdict.json')
+if ($parityExit -ne 0) { throw "Parity FAIL. Evidence: $work" }
 Write-Output "report dir: $work"
 if ($tickVerdict.StartsWith("FAIL")) { exit 1 }
