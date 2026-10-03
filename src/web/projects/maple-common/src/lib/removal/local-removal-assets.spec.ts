@@ -11,6 +11,7 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it } from 'vitest';
 import {
   initSync,
   workflow_read_xmp,
+  workflow_variant_filename,
   workflow_embed_xmp,
   workflow_checkpoint_xmp,
   workflow_commit_xmp,
@@ -85,6 +86,8 @@ describe('durable browser removal through actual WASM and filesystem files', () 
           provide: WorkflowXmpService,
           useValue: {
             read: async (xml: string) => JSON.parse(workflow_read_xmp(xml)),
+            variantFilename: async (name: string, id: string) =>
+              workflow_variant_filename(name, id),
             embed: async (workflow: SidecarWorkflow, xml: string) =>
               workflow_embed_xmp(JSON.stringify(workflow), xml),
             checkpoint: async (xml: string) => workflow_checkpoint_xmp(xml),
@@ -134,6 +137,53 @@ describe('durable browser removal through actual WASM and filesystem files', () 
     const names = JSON.parse(bundle!.manifest) as { name: string }[];
     await fs.rm(join(root, '.maple', 'inpaint', names[0].name));
     await expect(renderer.load('photo', xml())).rejects.toThrow();
+  });
+
+  it('binds removal and workflow writes to the named sibling without changing primary or RAW', async () => {
+    const primary = await fs.readFile(join(root, 'photo.xmp'));
+    const id = crypto.randomUUID();
+    const filename = workflow_variant_filename('photo.xmp', id);
+    const workflow: SidecarWorkflow = {
+      schemaVersion: 1,
+      variantId: id,
+      variantName: 'Removal branch',
+      snapshots: [],
+      history: [],
+    };
+    await fs.writeFile(
+      join(root, filename),
+      workflow_embed_xmp(JSON.stringify(workflow), primary.toString()),
+    );
+    await sidecars.bindVariant('photo', folder, 'photo.dng', id);
+    const records = await publish();
+    const revision = await sidecars.captureRemovalRevision('photo', folder, 'photo.dng');
+    await sidecars.writeRemovalConfirmed(
+      'photo',
+      folder,
+      'photo.dng',
+      defaultAdjustmentModel(),
+      culling,
+      '[]',
+      records,
+      revision,
+    );
+    await sidecars.writeWorkflow('photo', folder, 'photo.dng', {
+      ...workflow,
+      variantName: 'Removed objects',
+    });
+    const selected = await fs.readFile(join(root, filename), 'utf8');
+    expect(savedRemovalRecords(selected)).toBe(records);
+    expect(JSON.parse(workflow_read_xmp(selected)).variantName).toBe('Removed objects');
+    expect(await fs.readFile(join(root, 'photo.xmp'))).toEqual(primary);
+    expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(
+      fixture('source.dng'),
+    );
+    await sidecars.bindVariant('photo', folder, 'photo.dng', 'primary');
+    expect(
+      savedRemovalRecords(
+        TestBed.inject(SavedRemovalRenderService).serialize('photo', defaultAdjustmentModel()),
+      ),
+    ).toBeUndefined();
   });
 
   it('reopens verified companions from a read-only folder and refuses publication', async () => {

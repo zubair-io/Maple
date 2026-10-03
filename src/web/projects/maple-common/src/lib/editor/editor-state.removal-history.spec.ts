@@ -11,6 +11,7 @@ import {
   removal_saved_list,
   removal_saved_prefix,
   workflow_read_xmp,
+  workflow_variant_filename,
   workflow_embed_xmp,
   workflow_checkpoint_xmp,
   workflow_commit_xmp,
@@ -115,6 +116,8 @@ describe('confirmed Web removal history with real XMP and companions', () => {
           provide: WorkflowXmpService,
           useValue: {
             read: async (xml: string) => JSON.parse(workflow_read_xmp(xml)),
+            variantFilename: async (name: string, id: string) =>
+              workflow_variant_filename(name, id),
             embed: async (workflow: SidecarWorkflow, xml: string) =>
               workflow_embed_xmp(JSON.stringify(workflow), xml),
             checkpoint: async (xml: string) => workflow_checkpoint_xmp(xml),

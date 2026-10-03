@@ -25,6 +25,7 @@ extension RenderActor {
     else {
       decodeTask = nil
       decodeTaskAssetID = nil
+      decodeTaskSidecarURL = nil
       decodePublicationTask = nil
       decodeCancelFlag = nil
       return nil
@@ -79,6 +80,7 @@ extension RenderActor {
     do { currentBaked = try Self.validatedBakedModel(for: asset) } catch {
       decodeTask = nil
       decodeTaskAssetID = nil
+      decodeTaskSidecarURL = nil
       decodePublicationTask = nil
       decodeCancelFlag = nil
       return nil
@@ -86,12 +88,15 @@ extension RenderActor {
     guard currentBaked == requestedBaked else {
       decodeTask = nil
       decodeTaskAssetID = nil
+      decodeTaskSidecarURL = nil
       decodePublicationTask = nil
       decodeCancelFlag = nil
       return nil
     }
     let newRawResolution = decoded.extent.size
-    let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
+    let sameAssetCached =
+      (decodedForAssetID == asset.id) && (decodedImage != nil)
+      && decodedSidecarURL == asset.sidecarURL
     let cachedCoversNewDecode = Self.cacheCoversNewDecode(
       sameAsset: sameAssetCached,
       sameProfile: decodedProfile == decodeProfile,
@@ -112,6 +117,7 @@ extension RenderActor {
       decodedAtModel = EditSession.parseSidecarModel(for: asset)
       decodedBakedModel = currentBaked
       decodedSidecarMtime = currentMtime
+      decodedSidecarURL = asset.sidecarURL
       decodedIsFull = wantsFull
       decodedProfile = decodeProfile  // #871 — buffer is profile-keyed
       decodedAutoExposure = decodeAutoExposure  // #1387 — buffer is autoExposure-keyed too
@@ -143,6 +149,7 @@ extension RenderActor {
     }
     decodeTask = nil
     decodeTaskAssetID = nil
+    decodeTaskSidecarURL = nil
     decodePublicationTask = nil
     decodeCancelFlag = nil
     // Pair the returned image with the metadata actually retained by the write gate.

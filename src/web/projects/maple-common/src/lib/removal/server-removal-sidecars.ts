@@ -1,6 +1,8 @@
 // Imperative confirmed-save coordinator, shared by authoring and history (#3984).
 import type { Injector } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { LibraryStore } from '../state/library-store.service';
+import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 import type { LibraryStateService } from '../state/library-state.service';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling } from '../xmp/xmp.types';
@@ -71,6 +73,14 @@ export class ServerRemovalSidecars {
   private path(id: string): string {
     const path = this.library.absPathFor(id);
     if (!path) throw new Error('The server RAW path is unavailable. Reopen the photo.');
+    // #3984: named-variant authoring needs the server's confirmed removal CAS route.
+    // Refuse until that port lands so a named edit never overwrites primary.
+    if (
+      this.injector.get(LibraryStore).workflowVariants.variantFor(id, path) !== PRIMARY_VARIANT_ID
+    )
+      throw Error(
+        'Object removal in server variants is not available yet. Select Primary to remove objects.',
+      );
     return path;
   }
 }
