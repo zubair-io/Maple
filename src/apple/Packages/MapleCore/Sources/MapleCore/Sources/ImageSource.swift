@@ -26,94 +26,102 @@ import Foundation
 /// that haven't been hashed yet, an opaque source-scoped string is used until
 /// the id is computed; consumers should treat it as an opaque primary key.
 public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
-    /// Stable identifier. Prefer the BLAKE3 `maple:id` hex when available.
-    public let id: String
+  /// Stable identifier. Prefer the BLAKE3 `maple:id` hex when available.
+  public let id: String
 
-    /// Display name (file basename, PHAsset localIdentifier, etc).
-    public let displayName: String
+  /// Display name (file basename, PHAsset localIdentifier, etc).
+  public let displayName: String
 
-    /// Filesystem or SMB URL, when the source is file-shaped. `nil` for
-    /// PhotoKit- and API-backed sources where the notion of a URL is
-    /// synthetic.
-    public let url: URL?
+  /// Filesystem or SMB URL, when the source is file-shaped. `nil` for
+  /// PhotoKit- and API-backed sources where the notion of a URL is
+  /// synthetic.
+  public let url: URL?
 
-    /// Bookmark-resolved ancestor URL that grants security-scoped access to
-    /// `url`. Populated by filesystem-shaped sources (FilesystemSource) so
-    /// downstream consumers (ImageEditPipeline, ThumbnailLoader) can wrap
-    /// their Rust FFI calls in a scope-claim bracket that actually succeeds.
-    /// `nil` for sourceless adapters (PhotoKit, SelfHosted).
-    public let scopeParentURL: URL?
+  /// Share-relative SMB location. Content IDs can identify several copies;
+  /// remote I/O must address the specific listed file without a synthetic URL.
+  public let smbPath: String?
 
-    /// Capture date when known by the source. PhotoKit and CloudSource (via
-    /// AssetDoc.exif.captured_at) provide this; `FilesystemSource` provides
-    /// it too (#2274) from the EXIF `DateTimeOriginal` string
-    /// `LibraryIndex.LibraryEntry.dateTimeOriginal` already caches for
-    /// external-rename detection (#2656) — `nil` only until that cache
-    /// warms for a given file (see `ExternalRenameReconciler
-    /// .syncFingerprintCache`'s per-scan warm-up cap). SMB does not provide
-    /// it yet. Used by the merged timeline (Phase 3 Task 3.6) to sort cells
-    /// chronologically across sources.
-    public let captureDate: Date?
+  /// Bookmark-resolved ancestor URL that grants security-scoped access to
+  /// `url`. Populated by filesystem-shaped sources (FilesystemSource) so
+  /// downstream consumers (ImageEditPipeline, ThumbnailLoader) can wrap
+  /// their Rust FFI calls in a scope-claim bracket that actually succeeds.
+  /// `nil` for sourceless adapters (PhotoKit, SelfHosted).
+  public let scopeParentURL: URL?
 
-    /// Server-side `phasset_links[0].phasset_local_id` when this ImageRef is
-    /// a cloud-side row that was backed up from PhotoKit. `nil` for non-cloud
-    /// rows and for cloud rows that aren't PhotoKit-backed.
-    ///
-    /// Per-device — different on every device for the same iCloud photo. Kept
-    /// as a fallback join key in `MergedTimelineSource.merge`; the preferred
-    /// key is `cloudIdentifier` (cross-device stable). When both sides have
-    /// a cloudIdentifier the merge uses it; phid is only consulted when the
-    /// cloud id is missing (e.g. local-only PhotoKit library).
-    public let phassetLink: String?
+  /// Capture date when known by the source. PhotoKit and CloudSource (via
+  /// AssetDoc.exif.captured_at) provide this; `FilesystemSource` provides
+  /// it too (#2274) from the EXIF `DateTimeOriginal` string
+  /// `LibraryIndex.LibraryEntry.dateTimeOriginal` already caches for
+  /// external-rename detection (#2656) — `nil` only until that cache
+  /// warms for a given file (see `ExternalRenameReconciler
+  /// .syncFingerprintCache`'s per-scan warm-up cap). SMB does not provide
+  /// it yet. Used by the merged timeline (Phase 3 Task 3.6) to sort cells
+  /// chronologically across sources.
+  public let captureDate: Date?
 
-    /// `PHCloudIdentifier.stringValue` for this asset — stable across every
-    /// device on the same iCloud Photos account.
-    ///
-    /// On a local PhotoKit-backed ImageRef this is resolved via
-    /// `PHPhotoLibrary.shared().cloudIdentifierMappings(forLocalIdentifiers:)`
-    /// when the adapter enumerates the library. On a cloud-side ImageRef
-    /// this is populated from `SearchAssetPHLink.phasset_cloud_id` when any
-    /// of the asset's `phasset_links` entries had one at upload time.
-    ///
-    /// `nil` when iCloud Photos was off on every device that contributed
-    /// to this asset, or for rows that pre-date the cloud-id work.
-    public let cloudIdentifier: String?
+  /// Server-side `phasset_links[0].phasset_local_id` when this ImageRef is
+  /// a cloud-side row that was backed up from PhotoKit. `nil` for non-cloud
+  /// rows and for cloud rows that aren't PhotoKit-backed.
+  ///
+  /// Per-device — different on every device for the same iCloud photo. Kept
+  /// as a fallback join key in `MergedTimelineSource.merge`; the preferred
+  /// key is `cloudIdentifier` (cross-device stable). When both sides have
+  /// a cloudIdentifier the merge uses it; phid is only consulted when the
+  /// cloud id is missing (e.g. local-only PhotoKit library).
+  public let phassetLink: String?
 
-    /// Every `phasset_local_id` recorded on a cloud row — populated from
-    /// `phasset_links[*].phasset_local_id`. Used by `MergedTimelineSource`
-    /// to walk all entries instead of dropping every link past `[0]`.
-    /// `nil` for non-cloud rows.
-    public let allPhassetLinks: [String]?
+  /// `PHCloudIdentifier.stringValue` for this asset — stable across every
+  /// device on the same iCloud Photos account.
+  ///
+  /// On a local PhotoKit-backed ImageRef this is resolved via
+  /// `PHPhotoLibrary.shared().cloudIdentifierMappings(forLocalIdentifiers:)`
+  /// when the adapter enumerates the library. On a cloud-side ImageRef
+  /// this is populated from `SearchAssetPHLink.phasset_cloud_id` when any
+  /// of the asset's `phasset_links` entries had one at upload time.
+  ///
+  /// `nil` when iCloud Photos was off on every device that contributed
+  /// to this asset, or for rows that pre-date the cloud-id work.
+  public let cloudIdentifier: String?
 
-    /// Flattened list of non-nil `phasset_cloud_id` values from this cloud
-    /// row's `phasset_links`. Order preserves the underlying `phasset_links`
-    /// ordering but `phasset_links` entries without a cloud id are skipped,
-    /// so this array is NOT index-aligned with `allPhassetLinks`.
-    /// `MergedTimelineSource` only iterates to find a match, so the
-    /// alignment isn't needed; if a future caller needs index alignment
-    /// it should switch to `[String?]` instead. `nil` for non-cloud rows
-    /// and for rows whose links all lack a cloud id.
-    public let allCloudIdentifiers: [String]?
+  /// Every `phasset_local_id` recorded on a cloud row — populated from
+  /// `phasset_links[*].phasset_local_id`. Used by `MergedTimelineSource`
+  /// to walk all entries instead of dropping every link past `[0]`.
+  /// `nil` for non-cloud rows.
+  public let allPhassetLinks: [String]?
 
-    public init(id: String,
-                displayName: String,
-                url: URL? = nil,
-                scopeParentURL: URL? = nil,
-                captureDate: Date? = nil,
-                phassetLink: String? = nil,
-                cloudIdentifier: String? = nil,
-                allPhassetLinks: [String]? = nil,
-                allCloudIdentifiers: [String]? = nil) {
-        self.id = id
-        self.displayName = displayName
-        self.url = url
-        self.scopeParentURL = scopeParentURL
-        self.captureDate = captureDate
-        self.phassetLink = phassetLink
-        self.cloudIdentifier = cloudIdentifier
-        self.allPhassetLinks = allPhassetLinks
-        self.allCloudIdentifiers = allCloudIdentifiers
-    }
+  /// Flattened list of non-nil `phasset_cloud_id` values from this cloud
+  /// row's `phasset_links`. Order preserves the underlying `phasset_links`
+  /// ordering but `phasset_links` entries without a cloud id are skipped,
+  /// so this array is NOT index-aligned with `allPhassetLinks`.
+  /// `MergedTimelineSource` only iterates to find a match, so the
+  /// alignment isn't needed; if a future caller needs index alignment
+  /// it should switch to `[String?]` instead. `nil` for non-cloud rows
+  /// and for rows whose links all lack a cloud id.
+  public let allCloudIdentifiers: [String]?
+
+  public init(
+    id: String,
+    displayName: String,
+    url: URL? = nil,
+    smbPath: String? = nil,
+    scopeParentURL: URL? = nil,
+    captureDate: Date? = nil,
+    phassetLink: String? = nil,
+    cloudIdentifier: String? = nil,
+    allPhassetLinks: [String]? = nil,
+    allCloudIdentifiers: [String]? = nil
+  ) {
+    self.id = id
+    self.displayName = displayName
+    self.url = url
+    self.smbPath = smbPath
+    self.scopeParentURL = scopeParentURL
+    self.captureDate = captureDate
+    self.phassetLink = phassetLink
+    self.cloudIdentifier = cloudIdentifier
+    self.allPhassetLinks = allPhassetLinks
+    self.allCloudIdentifiers = allCloudIdentifiers
+  }
 }
 
 // MARK: - Sidecar
@@ -121,13 +129,13 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
 /// What an ImageSource writes when persisting per-image state. Mirrors the
 /// pair `XMPSidecarStore` already round-trips to `.xmp` files.
 public struct Sidecar: Sendable, Equatable, Hashable {
-    public var model: AdjustmentModel
-    public var culling: CullingState
+  public var model: AdjustmentModel
+  public var culling: CullingState
 
-    public init(model: AdjustmentModel, culling: CullingState) {
-        self.model = model
-        self.culling = culling
-    }
+  public init(model: AdjustmentModel, culling: CullingState) {
+    self.model = model
+    self.culling = culling
+  }
 }
 
 // MARK: - SearchQuery
@@ -136,23 +144,25 @@ public struct Sidecar: Sendable, Equatable, Hashable {
 /// parameters from spec § 07 (q/filter/near). Free-text `q` is the only
 /// required field; the rest are refinements the server understands.
 public struct SearchQuery: Sendable, Equatable, Hashable, Codable {
-    /// Free-text query (matches EXIF camera, keywords, place names, etc).
-    public var q: String
-    /// Server-side filter expression (opaque; `rating:>=4`, `flag:pick`, …).
-    public var filter: String?
-    /// "lat,lon,radius_km" for geo search. Opaque on the client.
-    public var near: String?
-    public var limit: Int?
-    public var offset: Int?
+  /// Free-text query (matches EXIF camera, keywords, place names, etc).
+  public var q: String
+  /// Server-side filter expression (opaque; `rating:>=4`, `flag:pick`, …).
+  public var filter: String?
+  /// "lat,lon,radius_km" for geo search. Opaque on the client.
+  public var near: String?
+  public var limit: Int?
+  public var offset: Int?
 
-    public init(q: String, filter: String? = nil, near: String? = nil,
-                limit: Int? = nil, offset: Int? = nil) {
-        self.q = q
-        self.filter = filter
-        self.near = near
-        self.limit = limit
-        self.offset = offset
-    }
+  public init(
+    q: String, filter: String? = nil, near: String? = nil,
+    limit: Int? = nil, offset: Int? = nil
+  ) {
+    self.q = q
+    self.filter = filter
+    self.near = near
+    self.limit = limit
+    self.offset = offset
+  }
 }
 
 // MARK: - ImageSource
@@ -160,66 +170,66 @@ public struct SearchQuery: Sendable, Equatable, Hashable, Codable {
 /// Unified source protocol. Every concrete implementation is an `actor` —
 /// calls are implicitly async from the caller's context.
 public protocol ImageSource: Actor {
-    /// Every asset the source can see, ordered by capture date descending
-    /// (or filename when capture date is unavailable).
-    func images() async throws -> [ImageRef]
+  /// Every asset the source can see, ordered by capture date descending
+  /// (or filename when capture date is unavailable).
+  func images() async throws -> [ImageRef]
 
-    /// ~256 px thumbnail bytes (AVIF). Returns `nil` when the source has
-    /// nothing to hand back yet (e.g. Indexer hasn't rendered `.maple/thumbs/`).
-    func thumb(for ref: ImageRef) async throws -> Data?
+  /// ~256 px thumbnail bytes (AVIF). Returns `nil` when the source has
+  /// nothing to hand back yet (e.g. Indexer hasn't rendered `.maple/thumbs/`).
+  func thumb(for ref: ImageRef) async throws -> Data?
 
-    /// Best-effort write-back for a freshly rendered thumbnail (#2690) —
-    /// called by `ThumbnailLoader`'s sourceless render-from-bytes fallback
-    /// right after it produces AVIF bytes for `ref`, so a source that owns a
-    /// shared/persistent thumb location (e.g. `SMBSource`'s on-share
-    /// `.maple/thumbs/`) can persist them there: the NEXT session — and
-    /// every other Maple client reading that same location — then hits via
-    /// `thumb(for:)` instead of re-rendering. Default no-op (see the
-    /// extension below) — sources with no such location (PhotoKit, plain
-    /// filesystem, which already writes its own asset-relative
-    /// `.maple/thumbs/` via `ThumbnailDiskCache`/`ThumbnailLoader` keyed by
-    /// URL, not by source) don't need to override this. MUST NOT throw or
-    /// block the caller on failure — a write-only cache miss degrades
-    /// silently to "this session re-renders it next time," never to a
-    /// user-visible error.
-    func writeThumb(_ data: Data, for ref: ImageRef) async
+  /// Best-effort write-back for a freshly rendered thumbnail (#2690) —
+  /// called by `ThumbnailLoader`'s sourceless render-from-bytes fallback
+  /// right after it produces AVIF bytes for `ref`, so a source that owns a
+  /// shared/persistent thumb location (e.g. `SMBSource`'s on-share
+  /// `.maple/thumbs/`) can persist them there: the NEXT session — and
+  /// every other Maple client reading that same location — then hits via
+  /// `thumb(for:)` instead of re-rendering. Default no-op (see the
+  /// extension below) — sources with no such location (PhotoKit, plain
+  /// filesystem, which already writes its own asset-relative
+  /// `.maple/thumbs/` via `ThumbnailDiskCache`/`ThumbnailLoader` keyed by
+  /// URL, not by source) don't need to override this. MUST NOT throw or
+  /// block the caller on failure — a write-only cache miss degrades
+  /// silently to "this session re-renders it next time," never to a
+  /// user-visible error.
+  func writeThumb(_ data: Data, for ref: ImageRef) async
 
-    /// ~1600 px preview bytes (JPEG). Returns `nil` when not rendered yet.
-    func preview(for ref: ImageRef) async throws -> Data?
+  /// ~1600 px preview bytes (JPEG). Returns `nil` when not rendered yet.
+  func preview(for ref: ImageRef) async throws -> Data?
 
-    /// Full RAW bytes for the Rust decode pipeline.
-    func rawBytes(for ref: ImageRef) async throws -> Data
+  /// Full RAW bytes for the Rust decode pipeline.
+  func rawBytes(for ref: ImageRef) async throws -> Data
 
-    /// Persist a sidecar. Atomic on file sources (temp + rename); an API
-    /// PUT on CloudSource. Throws if the source is read-only.
-    func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws
+  /// Persist a sidecar. Atomic on file sources (temp + rename); an API
+  /// PUT on CloudSource. Throws if the source is read-only.
+  func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws
 
-    /// Structured/full-text search. Returns `nil` when the source cannot
-    /// search at all (filesystem, SMB, PhotoKit without a local index);
-    /// returns `.some([])` when it can search but found nothing.
-    func search(_ query: SearchQuery) async throws -> [ImageRef]?
+  /// Structured/full-text search. Returns `nil` when the source cannot
+  /// search at all (filesystem, SMB, PhotoKit without a local index);
+  /// returns `.some([])` when it can search but found nothing.
+  func search(_ query: SearchQuery) async throws -> [ImageRef]?
 }
 
 // MARK: - ImageSource default write-back
 
 extension ImageSource {
-    /// Default no-op — see the protocol requirement's doc comment. Only
-    /// `SMBSource` overrides this today.
-    public func writeThumb(_ data: Data, for ref: ImageRef) async {}
+  /// Default no-op — see the protocol requirement's doc comment. Only
+  /// `SMBSource` overrides this today.
+  public func writeThumb(_ data: Data, for ref: ImageRef) async {}
 }
 
 // MARK: - ImageSourceError
 
 public enum ImageSourceError: Error, LocalizedError {
-    case readOnly(String)
-    case notFound(String)
-    case unsupported(String)
+  case readOnly(String)
+  case notFound(String)
+  case unsupported(String)
 
-    public var errorDescription: String? {
-        switch self {
-        case .readOnly(let s):    return "Source is read-only: \(s)"
-        case .notFound(let s):    return "Not found: \(s)"
-        case .unsupported(let s): return "Operation not supported by this source: \(s)"
-        }
+  public var errorDescription: String? {
+    switch self {
+    case .readOnly(let s): return "Source is read-only: \(s)"
+    case .notFound(let s): return "Not found: \(s)"
+    case .unsupported(let s): return "Operation not supported by this source: \(s)"
     }
+  }
 }
