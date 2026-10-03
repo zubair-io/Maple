@@ -38,16 +38,23 @@ public sealed partial class MainWindow
                 (int)Math.Round(logicalSize.Width * scale), (int)Math.Round(logicalSize.Height * scale));
             AppWindow.ResizeClient(clientSize);
             var deadline = Environment.TickCount64 + 5000;
+            var compensationApplied = false;
             while (!HasRequestedSize() && Environment.TickCount64 < deadline)
             {
                 await Task.Delay(100);
                 root.UpdateLayout();
                 // ResizeClient can include a standard-caption allowance despite
                 // custom title-bar extension. Correct using measured client pixels.
-                if (AppWindow.ClientSize.Width != clientSize.Width || AppWindow.ClientSize.Height != clientSize.Height)
+                if (!compensationApplied && (AppWindow.ClientSize.Width != clientSize.Width || AppWindow.ClientSize.Height != clientSize.Height))
+                {
+                    // Client and outer dimensions can update asynchronously.
+                    // Compensate once, then only observe; never compound a
+                    // pending resize's delta on a later polling iteration.
+                    compensationApplied = true;
                     AppWindow.Resize(new SizeInt32(
                         AppWindow.Size.Width + clientSize.Width - AppWindow.ClientSize.Width,
                         AppWindow.Size.Height + clientSize.Height - AppWindow.ClientSize.Height));
+                }
             }
             if (!HasRequestedSize())
                 throw new InvalidOperationException($"Shell visual client did not reach {logicalSize.Width}x{logicalSize.Height} DIPs: "
