@@ -4,7 +4,7 @@ import { provideHttpClient, withFetch } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { provideSelfHostedWorkspace } from '../../projects/maple-common/src/lib/workspace/self-hosted-workspace.providers';
 import type { ApiFolder } from '../../projects/maple-common/src/lib/workspace/server-library-io';
-import { LibraryStore } from '../../projects/maple-common/src/lib/state/library-store.service';
+import { seedSelfHostedFixtures } from './self-hosted-fixture-catalog';
 import { LibraryStateService } from '../../projects/maple-common/src/lib/state/library-state.service';
 import { EditorStateService } from '../../projects/maple-common/src/lib/editor/editor-state.service';
 import { XmpAdjustmentRestoreService } from '../../projects/maple-common/src/lib/xmp/xmp-adjustment-restore.service';
@@ -39,21 +39,7 @@ async function environment(sources: readonly Source[]) {
   });
   // Seed the catalog inputs from the actual server fixture. All reads, editor
   // commands, persistence, byte loading, batch jobs and render services are real.
-  const store = app.injector.get(LibraryStore);
-  store.registeredFolders.set([sources[0].library]);
-  store.assets.set(
-    sources.map((source) => ({
-      id: `workflow-fixture:${source.key}/photo.dng`,
-      filename: 'photo.dng',
-      folderId: source.library.id,
-      rating: 0,
-      flag: 'unflagged' as const,
-      colorLabel: null,
-      keywords: [],
-      thumbnailGradient: '',
-      aspectRatio: 1,
-    })),
-  );
+  const store = seedSelfHostedFixtures(app, sources);
   const library = app.injector.get(LibraryStateService);
   const id = store.assets()[0].id;
   library.focusedAssetId.set(id);

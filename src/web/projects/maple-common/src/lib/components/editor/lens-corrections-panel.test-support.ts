@@ -45,69 +45,71 @@ export function importedVerdict(reference = REFERENCE): LensProfileResolution {
   };
 }
 
-export class FakeLibraryStateService {
-  focusedAssetId = signal<string | null>(ASSET_ID);
-  private readonly models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
+export type FakeLibraryStateService = ReturnType<typeof fakeLibraryState>;
+
+function fakeLibraryState() {
+  const focusedAssetId = signal<string | null>(ASSET_ID);
+  const models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
   // #3182 — default every asset to "capable" (has corrections, CA live) so
   // every test written before this ticket keeps exercising the sliders
   // exactly as before; the dedicated describe block below overrides this
   // per-asset via `seedLensCorrections` to exercise the disabled states.
-  private readonly capabilities = new Map<
-    string,
-    ReturnType<typeof signal<LensCorrectionCapability>>
-  >();
+  const capabilities = new Map<string, ReturnType<typeof signal<LensCorrectionCapability>>>();
 
-  private modelFor(id: string) {
-    const existing = this.models.get(id);
+  function modelFor(id: string) {
+    const existing = models.get(id);
     if (existing) return existing;
     const created = signal<AdjustmentModel>({ ...defaultAdjustmentModel() });
-    this.models.set(id, created);
+    models.set(id, created);
     return created;
   }
 
-  private capsFor(id: string) {
-    const existing = this.capabilities.get(id);
+  function capsFor(id: string) {
+    const existing = capabilities.get(id);
     if (existing) return existing;
     const created = signal<LensCorrectionCapability>({
       hasLensCorrections: true,
       lensCorrectionCaInert: false,
     });
-    this.capabilities.set(id, created);
+    capabilities.set(id, created);
     return created;
   }
 
-  adjustmentFor = vi.fn((id: string) => this.modelFor(id));
+  return {
+    focusedAssetId,
+    adjustmentFor: vi.fn((id: string) => modelFor(id)),
 
-  updateAdjustment = vi.fn((id: string, patch: Partial<AdjustmentModel>) => {
-    this.modelFor(id).update((m) => ({ ...m, ...patch }));
-  });
+    updateAdjustment: vi.fn((id: string, patch: Partial<AdjustmentModel>) => {
+      modelFor(id).update((m) => ({ ...m, ...patch }));
+    }),
 
-  lensCorrectionsFor = vi.fn((id: string) => this.capsFor(id)());
+    lensCorrectionsFor: vi.fn((id: string) => capsFor(id)()),
 
-  seedLensCorrections = vi.fn(
-    (
-      id: string,
-      hasLensCorrections: boolean,
-      caInert: boolean,
-      supportJson?: string,
-      lensProfile?: LensProfileResolution,
-    ) => {
-      this.capsFor(id).set({
-        hasLensCorrections,
-        lensCorrectionCaInert: caInert,
-        cameraSupport: cameraSupportFromJson(supportJson),
-        ...(lensProfile ? { lensProfile } : {}),
-      });
-    },
-  );
+    seedLensCorrections: vi.fn(
+      (
+        id: string,
+        hasLensCorrections: boolean,
+        caInert: boolean,
+        supportJson?: string,
+        lensProfile?: LensProfileResolution,
+      ) => {
+        capsFor(id).set({
+          hasLensCorrections,
+          lensCorrectionCaInert: caInert,
+          cameraSupport: cameraSupportFromJson(supportJson),
+          ...(lensProfile ? { lensProfile } : {}),
+        });
+      },
+    ),
 
-  // The import block reads these too (#3479); the panel specs never pick a file.
-  backend = 'hosted';
-  focusedAsset = () => ({ id: ASSET_ID, filename: 'photo.dng' });
-  // The profile dropdown (#3569) fetches these on every render; a fixed
-  // empty answer keeps it a harmless "Automatic — no match" passenger in
-  // every spec below that isn't about the dropdown itself.
-  bytesForAsset = vi.fn(async () => new Uint8Array());
+    // The import block reads these too (#3479); the panel specs never pick a file.
+    backend: 'hosted',
+    focusedAsset: () => ({ id: ASSET_ID, filename: 'photo.dng' }),
+    // The profile dropdown (#3569) fetches these on every render; a fixed
+    // empty answer keeps it a harmless "Automatic — no match" passenger in
+    // every spec below that isn't about the dropdown itself.
+    bytesForAsset: vi.fn(async () => new Uint8Array()),
+  };
 }
 
 // The import block's only pipeline reads: the worker import (never invoked
@@ -131,7 +133,7 @@ export const fakePipeline = {
 };
 
 export function makeFixture() {
-  const library = new FakeLibraryStateService();
+  const library = fakeLibraryState();
   TestBed.configureTestingModule({
     imports: [LensCorrectionsPanelComponent],
     providers: [
