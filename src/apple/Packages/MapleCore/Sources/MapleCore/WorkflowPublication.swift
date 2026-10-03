@@ -8,9 +8,11 @@ public enum WorkflowPublication: Equatable, Sendable {
 
   /// Recognize an accepted command even when its acknowledgement was lost.
   /// The immutable UUID must identify the identical payload, never a different edit.
-  func acknowledged(in current: String?) throws -> Bool {
+  func acknowledged(
+    in current: String?, variantId: String = WorkflowContract.primaryVariantID
+  ) throws -> Bool {
     guard let current else { return false }
-    let record = try WorkflowSidecarCore.primaryWorkflow(xmp: current)
+    let record = try WorkflowSidecarCore.variantWorkflow(xmp: current, variantId: variantId)
     switch self {
     case .snapshot(_, _, let snapshot):
       guard let saved = record?.snapshots.first(where: { $0.id == snapshot.id }) else {
@@ -28,18 +30,22 @@ public enum WorkflowPublication: Equatable, Sendable {
     return true
   }
 
-  func output(current: String?) throws -> String {
-    if try acknowledged(in: current), let current { return current }
+  func output(current: String?, variantId: String = WorkflowContract.primaryVariantID) throws
+    -> String
+  {
+    if try acknowledged(in: current, variantId: variantId), let current { return current }
     guard current == expectedXmp else {
       throw failure("The sidecar changed. Refresh snapshots and history before trying again.")
     }
-    if let current { _ = try WorkflowSidecarCore.primaryWorkflow(xmp: current) }
+    if let current {
+      _ = try WorkflowSidecarCore.variantWorkflow(xmp: current, variantId: variantId)
+    }
     switch self {
     case .snapshot(_, let initial, let snapshot):
       guard let xml = current ?? initial else {
         throw failure("The initial checkpoint is missing.")
       }
-      _ = try WorkflowSidecarCore.primaryWorkflow(xmp: xml)
+      _ = try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId)
       return try WorkflowSidecarCore.snapshot(snapshot, in: xml)
     case .restore(_, let entry):
       guard let current else { throw failure("The sidecar is missing. Restore it before editing.") }
@@ -51,7 +57,7 @@ public enum WorkflowPublication: Equatable, Sendable {
         ? current : restored
     case .replay(_, let entry):
       guard let current else { throw failure("The sidecar is missing. Restore it before editing.") }
-      let record = try WorkflowSidecarCore.primaryWorkflow(xmp: current)
+      let record = try WorkflowSidecarCore.variantWorkflow(xmp: current, variantId: variantId)
       let candidate =
         try record.map { try WorkflowSidecarCore.embed($0, in: entry.adjustmentXmp) }
         ?? entry.adjustmentXmp
