@@ -31,6 +31,37 @@ final class BrowseLoadingPerformanceTests: XCTestCase {
     }
   }
 
+  func testCancellingOneCellDoesNotCancelAnotherVisibleConsumer() async throws {
+    let loader = ThumbnailLoader()
+    let gate = BoundedAsyncSemaphore(value: 1)
+    try await gate.acquire()
+    let producer = Task { () -> Data? in
+      do { try await gate.acquire() } catch { return nil }
+      await gate.release()
+      return Data([42])
+    }
+    let first = Task { await loader.awaitThumbnail(producer) }
+    let second = Task { await loader.awaitThumbnail(producer) }
+    for _ in 0..<10_000 {
+      if await loader.thumbnailWaiters[producer]?.count == 2 { break }
+      await Task.yield()
+    }
+    let sharedCount = await loader.thumbnailWaiters[producer]?.count
+    XCTAssertEqual(sharedCount, 2)
+    first.cancel()
+    for _ in 0..<10_000 {
+      if await loader.thumbnailWaiters[producer]?.count == 1 { break }
+      await Task.yield()
+    }
+    let visibleCount = await loader.thumbnailWaiters[producer]?.count
+    XCTAssertEqual(visibleCount, 1)
+    XCTAssertFalse(producer.isCancelled)
+    await gate.release()
+    let visibleResult = await second.value
+    XCTAssertEqual(visibleResult, Data([42]))
+    _ = await first.value
+  }
+
   func testFolderSwitchPreservesPermitsHeldByRunningDecodes() async throws {
     let loader = ThumbnailLoader()
     for _ in 0..<ThumbnailLoader.maxConcurrentDecodes {

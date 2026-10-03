@@ -175,30 +175,42 @@ struct PhotoGrid<Element: Identifiable>: View {
       spacing: columns.rowSpacing(for: layout)
     ) {
       ForEach(data) { element in
-        // Map to a PhotoGridItem here, inside the LazyVGrid's ForEach, so
-        // only realized (visible) cells build their item + derive overlays.
-        let item = makeItem(element)
-        PhotoThumbnailCell(
-          item: item,
-          provider: provider,
-          displayMode: displayMode,
-          isSelected: selection.contains(element.id),
-          multiSelectChecked: multiSelectChecked?(element),
-          dragPayload: dragPayload?(element),
-          onTap: { frame in onTap(element, frame) },
-          onFrameChange: selection.contains(element.id) ? onSelectedFrameChange : nil,
-          onAppear: onAppearItem.map { cb in { cb(element) } },
-          onLoad: onLoadItem.map { cb in { await cb(element) } },
-          contextMenuItems: contextMenuItems?(element)
-        )
-        .overlay(alignment: .bottom) {
-          renameOverlay?(element)
-        }
-        .opacity(isHidden?(element) == true ? 0 : 1)
-        // Tag each photo cell so ScrollViewReader.scrollTo can target it.
-        .id(element.id)
+        PhotoGridCell(element: element, grid: self)
       }
     }
+  }
+}
+
+// Badge reads belong to this leaf's Observation scope. Deriving every item's
+// overlays in PhotoGrid.body subscribes the whole grid to each visible session,
+// so a rating/sidecar arrival rebuilds unrelated tiles during a scroll.
+private struct PhotoGridCell<Element: Identifiable>: View {
+  let element: Element
+  let grid: PhotoGrid<Element>
+
+  var body: some View {
+    // Map to a PhotoGridItem here, inside the LazyVGrid's ForEach, so
+    // only realized (visible) cells build their item + derive overlays.
+    let item = grid.makeItem(element)
+    PhotoThumbnailCell(
+      item: item,
+      provider: grid.provider,
+      displayMode: grid.displayMode,
+      isSelected: grid.selection.contains(element.id),
+      multiSelectChecked: grid.multiSelectChecked?(element),
+      dragPayload: grid.dragPayload?(element),
+      onTap: { frame in grid.onTap(element, frame) },
+      onFrameChange: grid.selection.contains(element.id) ? grid.onSelectedFrameChange : nil,
+      onAppear: grid.onAppearItem.map { cb in { cb(element) } },
+      onLoad: grid.onLoadItem.map { cb in { await cb(element) } },
+      contextMenuItems: grid.contextMenuItems?(element)
+    )
+    .overlay(alignment: .bottom) {
+      grid.renameOverlay?(element)
+    }
+    .opacity(grid.isHidden?(element) == true ? 0 : 1)
+    // Tag each photo cell so ScrollViewReader.scrollTo can target it.
+    .id(element.id)
   }
 }
 

@@ -80,15 +80,9 @@ public actor ThumbnailLoader {
     await decodeSlots.release()
   }
 
-  /// SwiftUI cancellation must reach the detached producer, including while
-  /// it is queued. Awaiting `task.value` alone does not propagate it.
-  func awaitThumbnail(_ task: Task<Data?, Never>) async -> Data? {
-    await withTaskCancellationHandler {
-      await task.value
-    } onCancel: {
-      task.cancel()
-    }
-  }
+  // Multiple visible surfaces may share one producer. Cancellation owns a
+  // consumer, not the producer, until the final consumer disappears.
+  var thumbnailWaiters: [Task<Data?, Never>: Set<UUID>] = [:]
 
   // MARK: - Public API
 
