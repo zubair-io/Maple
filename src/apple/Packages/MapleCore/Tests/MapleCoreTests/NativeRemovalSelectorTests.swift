@@ -147,13 +147,17 @@ final class NativeRemovalSelectorTests: XCTestCase {
           at: models.appendingPathComponent(name), to: root.appendingPathComponent(name))
       }
       let session = EditSession(asset: AssetRef(url: raw))
-      let removal = RemovalSession(session: session)
+      let removal = RemovalSession(
+        session: session,
+        modelStore: MacRemovalModelStore(root: root.appendingPathComponent("installed")))
       await removal.open()
       XCTAssertEqual(removal.phase, .ready, removal.message)
       // Exercise the inference failure boundary directly. The user import
       // now refuses an incomplete model set before it reaches this boundary.
+      await removal.setMode(.people)
+      await removal.chooseModelFolder(models)
+      XCTAssertEqual(removal.phase, .ready, removal.message)
       try await removal.engine.setModelDirectory(root)
-      removal.setMode(.people)
       let previous = try RemovalBridge.selection(
         width: 7216, height: 5412,
         request: #"{"schema":1,"strokes":[{"points":[[0.4,0.5]],"radius":0.001,"subtract":false}]}"#
@@ -169,7 +173,7 @@ final class NativeRemovalSelectorTests: XCTestCase {
       ]
       let original = try RemovalBridge.digest(Data(contentsOf: raw))
       await removal.findPeople()
-      XCTAssertEqual(removal.phase, .ready)
+      XCTAssertEqual(removal.phase, .failed)
       XCTAssertTrue(removal.message.contains("mobile-sam-encoder"), removal.message)
       XCTAssertEqual(removal.selection, previous)
       XCTAssertEqual(removal.protection, previous)
@@ -184,6 +188,55 @@ final class NativeRemovalSelectorTests: XCTestCase {
       await session.releaseTransientMemory()
     #else
       throw XCTSkip("Actual detector failure-path qualification requires macOS (#3941)")
+    #endif
+  }
+
+  @MainActor
+  func testPeopleTabDetectsAutomaticallyAfterImportAndReopenOnPhotographicRAW() async throws {
+    #if os(macOS)
+      let repository = (0..<7).reduce(URL(fileURLWithPath: #filePath)) {
+        value, _ in value.deletingLastPathComponent()
+      }
+      let fixture = repository.appendingPathComponent(
+        "test-fixtures/raws/removal-photographic/portrait.dng")
+      let models = repository.appendingPathComponent("test-fixtures/raws/removal-inference")
+      guard FileManager.default.fileExists(atPath: fixture.path),
+        FileManager.default.fileExists(
+          atPath: models.appendingPathComponent("rtdetrv2-r18.onnx").path)
+      else { throw XCTSkip("Actual photographic RAW and local models are required (#3941)") }
+      let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      let raw = root.appendingPathComponent("photo.dng")
+      try FileManager.default.copyItem(at: fixture, to: raw)
+      let original = try RemovalBridge.digest(Data(contentsOf: raw))
+      let session = EditSession(asset: AssetRef(url: raw))
+      let removal = RemovalSession(
+        session: session,
+        modelStore: MacRemovalModelStore(root: root.appendingPathComponent("models")))
+      await removal.open()
+      await removal.setMode(.people)
+      XCTAssertEqual(removal.phase, .ready)
+      XCTAssertTrue(removal.message.contains("Import local AI models"))
+      await removal.chooseModelFolder(models)
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertFalse(removal.people.isEmpty, "The real portrait must produce a detected person")
+      XCTAssertEqual(removal.detectedPersonMasks.count, removal.people.count)
+      XCTAssertTrue(removal.people.filter { $0.role == .subject }.allSatisfy(\.keep))
+      XCTAssertTrue(removal.people.filter { $0.role == .background }.allSatisfy { !$0.keep })
+      let bounds = removal.people.map { $0.detection.bounds }
+      await removal.open()
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      XCTAssertEqual(removal.people.map { $0.detection.bounds }, bounds)
+      XCTAssertEqual(removal.detectedPersonMasks.count, removal.people.count)
+      removal.close()
+      XCTAssertTrue(removal.detectedPersonMasks.isEmpty)
+      XCTAssertEqual(try RemovalBridge.digest(Data(contentsOf: raw)), original)
+      XCTAssertFalse(
+        FileManager.default.fileExists(atPath: root.appendingPathComponent("photo.xmp").path))
+      await session.releaseTransientMemory()
+    #else
+      throw XCTSkip("Actual Mac photographic automatic detection gate (#3941)")
     #endif
   }
 

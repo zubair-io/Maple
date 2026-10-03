@@ -27,7 +27,7 @@ final class RemovalPersonRefinementTests: XCTestCase {
     let removal = RemovalSession(session: session)
     await removal.open()
     XCTAssertEqual(removal.phase, .ready, removal.message)
-    removal.setMode(.people)
+    await removal.setMode(.people)
     let left = try circle(3.5 / 16, 3.5 / 8)
     let right = try circle(12.5 / 16, 3.5 / 8)
     removal.personMasks = [left, right]
@@ -102,5 +102,26 @@ final class RemovalPersonRefinementTests: XCTestCase {
       try RemovalBridge.refineSelection(
         base, strokes: [RemovalStroke(points: [], radius: 0.1, subtract: false)]))
     XCTAssertEqual(try RemovalBridge.refineSelection(base, strokes: []), base)
+  }
+
+  func testMultiselectMasksKeepUnselectedPeopleAndManualProtection() async throws {
+    let left = try circle(3.5 / 16, 3.5 / 8)
+    let middle = try circle(7.5 / 16, 3.5 / 8)
+    let right = try circle(12.5 / 16, 3.5 / 8)
+    let masks = [left, middle, right].enumerated().map {
+      RemovalPersonSelection(id: $0.offset + 1, mask: $0.element)
+    }
+    let people = (1...3).map { id in
+      RemovalSession.Person(
+        id: id, detection: NativeRemovalDetection(class: 0, bounds: [0, 0, 16, 8], score: 0.9),
+        keep: id == 2)
+    }
+    let result = try await NativeRemovalEditorEngine().peopleSelection(
+      people, masks: masks, manualProtection: left)
+    XCTAssertEqual(result.selection, right)
+    XCTAssertEqual(result.bases.map(\.id), [3])
+    XCTAssertEqual(result.protection, try RemovalBridge.combineMasks(left, middle))
+    XCTAssertEqual(
+      masks.map(\.mask), [left, middle, right], "List changes preserve detected masks")
   }
 }

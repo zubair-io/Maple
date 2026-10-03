@@ -3,10 +3,17 @@ import Foundation
 extension RemovalSession {
   public func findPeople() async {
     guard phase == .ready, mode == .people, let context else { return }
+    guard modelFolderName != nil else {
+      if message.isEmpty {
+        message = "Import local AI models to detect background people automatically."
+      }
+      return
+    }
     revision &+= 1
     let token = revision
     phase = .selecting
-    message = ""
+    message = "Finding people…"
+    detectedPersonMasks = []
     do {
       let run = try await engine.detectionOperation()
       guard current(token) else {
@@ -30,11 +37,12 @@ extension RemovalSession {
       selection = masks.selection
       protection = masks.protection
       personMasks = masks.people
+      detectedPersonMasks = masks.detected
       resetPersonRefinement(masks.bases)
       operation = nil
       phase = .ready
       message = people.isEmpty ? "No people found. Paint the object instead." : peopleMessage
-    } catch { fail(error, token: token) }
+    } catch { fail(error, token: token, phase: .failed) }
   }
 
   public func keepPerson(_ id: Int) {
@@ -46,21 +54,25 @@ extension RemovalSession {
         role: $0.role)
     }
     personChoicesNeedApply = true
-    message = "Choices changed. Click Apply person choices to update the red removal selection."
+    message =
+      people.contains { !$0.keep }
+      ? "Selected people will be removed. Click Remove when the list is ready."
+      : "No people selected for removal. Select people in the list."
   }
 
-  public func selectOtherPeople() async {
+  func selectOtherPeople() async {
     guard phase == .ready, mode == .people, let context, !people.isEmpty else { return }
     revision &+= 1
     let token = revision
     phase = .selecting
-    message = ""
+    message = "Preparing selected people…"
     do {
       let masks = try await masksForPeople(people, context: context, token: token)
       guard current(token) else { return }
       selection = masks.selection
       protection = masks.protection
       personMasks = masks.people
+      detectedPersonMasks = masks.detected
       resetPersonRefinement(masks.bases)
       personChoicesNeedApply = false
       operation = nil
@@ -79,47 +91,51 @@ extension RemovalSession {
     _ people: [Person], context: NativeRemovalEditorContext,
     token: UInt64
   ) async throws -> (
-    selection: Data, protection: Data, people: [Data], bases: [RemovalPersonSelection]
+    selection: Data, protection: Data, people: [Data], bases: [RemovalPersonSelection],
+    detected: [RemovalPersonSelection]
   ) {
-    guard !people.isEmpty else { return (Data(), manualProtection, [], []) }
+    guard !people.isEmpty else { return (Data(), manualProtection, [], [], []) }
+    if detectedPersonMasks.count == people.count,
+      Set(detectedPersonMasks.map(\.id)) == Set(people.map(\.id))
+    {
+      let masks = try await engine.peopleSelection(
+        people, masks: detectedPersonMasks, manualProtection: manualProtection)
+      return (
+        masks.selection, masks.protection, masks.bases.map(\.mask), masks.bases, detectedPersonMasks
+      )
+    }
     let run = try await engine.selectionOperation()
     guard current(token) else {
       run.cancel()
       throw CancellationError()
     }
     operation = run
-    var selected = Data()
-    var protected = manualProtection
-    var masks: [RemovalPersonSelection] = []
+    var detected: [RemovalPersonSelection] = []
     for person in people {
       let mask = try await engine.personMask(person.detection, context: context, operation: run)
       guard current(token) else { throw CancellationError() }
-      if person.keep {
-        protected = try RemovalBridge.combineMasks(protected, mask)
-      } else {
-        masks.append(RemovalPersonSelection(id: person.id, mask: mask))
-        selected = try RemovalBridge.combineMasks(selected, mask)
-      }
+      detected.append(RemovalPersonSelection(id: person.id, mask: mask))
     }
-    let selection = try RemovalBridge.combineMasks(selected, protected, subtract: true)
-    let bases = try masks.map {
-      RemovalPersonSelection(
-        id: $0.id, mask: try RemovalBridge.combineMasks($0.mask, protected, subtract: true))
-    }.filter { !$0.mask.isEmpty }
-    return (selection, protected, bases.map(\.mask), bases)
+    let masks = try await engine.peopleSelection(
+      people, masks: detected, manualProtection: manualProtection)
+    return (masks.selection, masks.protection, masks.bases.map(\.mask), masks.bases, detected)
   }
 
   public func remove() async {
     guard phase == .ready else { return }
-    guard !personChoicesNeedApply else {
-      message =
-        "Click Apply person choices before removing. Green people are kept; red people are removed."
-      return
+    if mode == .people, personChoicesNeedApply {
+      guard people.contains(where: { !$0.keep }) else {
+        message = "No people selected for removal. Select people in the list."
+        return
+      }
+      let preparationToken = revision &+ 1
+      await selectOtherPeople()
+      guard current(preparationToken), phase == .ready, !personChoicesNeedApply else { return }
     }
     guard !selection.isEmpty else {
       message =
         mode == .people
-        ? "No people selected for removal. Change unwanted people to Remove, then Apply person choices."
+        ? "No people selected for removal. Select people in the list or use Paint."
         : "Paint over the object to select it before removing."
       return
     }

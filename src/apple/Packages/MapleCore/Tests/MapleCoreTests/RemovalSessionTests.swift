@@ -134,7 +134,7 @@ final class RemovalSessionTests: XCTestCase {
   }
 
   #if os(macOS)
-    func testPersonChoiceChangeExplainsDisabledRemovalAndCannotPublish() async throws {
+    func testPeopleListChoicesNeedModelsAndClearWithoutPublishing() async throws {
       let session = try stage()
       let raw = try XCTUnwrap(session.asset.primaryURL)
       let original = try Data(contentsOf: raw)
@@ -143,7 +143,7 @@ final class RemovalSessionTests: XCTestCase {
         modelStore: MacRemovalModelStore(
           root: raw.deletingLastPathComponent().appendingPathComponent("models")))
       await removal.open()
-      removal.setMode(.people)
+      await removal.setMode(.people)
       removal.people = [
         RemovalSession.Person(
           id: 1, detection: NativeRemovalDetection(class: 0, bounds: [0, 0, 4, 8], score: 0.9),
@@ -152,17 +152,26 @@ final class RemovalSessionTests: XCTestCase {
       removal.keepPerson(1)
       XCTAssertFalse(removal.people[0].keep)
       XCTAssertTrue(removal.personChoicesNeedApply)
-      XCTAssertTrue(removal.message.contains("Apply person choices"))
+      XCTAssertTrue(removal.message.contains("Click Remove"))
       XCTAssertFalse(removal.canRemove)
       await removal.remove()
       XCTAssertEqual(removal.phase, .ready)
-      XCTAssertTrue(removal.message.contains("Apply person choices"))
+      XCTAssertFalse(removal.message.contains("Apply person choices"))
       XCTAssertNil(removal.preview)
       XCTAssertTrue(removal.proposals.isEmpty)
       removal.keepPerson(99)
       XCTAssertFalse(removal.people[0].keep, "Unknown labels do not change choices")
+      removal.keepPerson(1)
+      XCTAssertTrue(removal.people[0].keep)
+      XCTAssertTrue(removal.message.contains("No people selected"))
+      XCTAssertFalse(removal.canRemove)
       removal.clearProtection()
       XCTAssertTrue(removal.personChoicesNeedApply)
+      removal.clearSelectedPeople()
+      XCTAssertTrue(removal.people.allSatisfy(\.keep))
+      XCTAssertFalse(removal.canRemove)
+      await removal.remove()
+      XCTAssertTrue(removal.message.contains("No people selected"))
       removal.close()
       XCTAssertFalse(removal.personChoicesNeedApply)
       XCTAssertEqual(try Data(contentsOf: raw), original)
@@ -177,7 +186,7 @@ final class RemovalSessionTests: XCTestCase {
       await removal.remove()
       XCTAssertEqual(removal.phase, .ready)
       XCTAssertTrue(removal.message.contains("Paint"))
-      removal.setMode(.people)
+      await removal.setMode(.people)
       await removal.remove()
       XCTAssertTrue(removal.message.contains("No people selected"))
       removal.close()

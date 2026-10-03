@@ -11,6 +11,29 @@ struct RemovalPersonGesture: Sendable {
 }
 
 extension NativeRemovalEditorEngine {
+  /// Apply list choices to the retained detector/SAM masks. This cold edit work
+  /// stays off main and never re-segments people or enters the slider loop.
+  func peopleSelection(
+    _ people: [RemovalSession.Person], masks: [RemovalPersonSelection], manualProtection: Data
+  ) throws -> (selection: Data, protection: Data, bases: [RemovalPersonSelection]) {
+    var protection = manualProtection
+    for person in people where person.keep {
+      guard let mask = masks.first(where: { $0.id == person.id }) else {
+        throw RemovalError.invalid("Missing detected person selection")
+      }
+      protection = try RemovalBridge.combineMasks(protection, mask.mask)
+    }
+    let bases = try people.filter { !$0.keep }.compactMap { person -> RemovalPersonSelection? in
+      guard let mask = masks.first(where: { $0.id == person.id }) else {
+        throw RemovalError.invalid("Missing detected person selection")
+      }
+      let selected = try RemovalBridge.combineMasks(mask.mask, protection, subtract: true)
+      return selected.isEmpty ? nil : RemovalPersonSelection(id: person.id, mask: selected)
+    }
+    let selection = try bases.reduce(Data()) { try RemovalBridge.combineMasks($0, $1.mask) }
+    return (selection, protection, bases)
+  }
+
   /// Source mask replay stays off main and never invokes a model. Each person
   /// retains an independent native window for the existing grouped generation.
   func refinePeople(
@@ -26,6 +49,17 @@ extension NativeRemovalEditorEngine {
 }
 
 extension RemovalSession {
+  public func beginPersonRefinement(_ id: Int) async {
+    guard phase == .ready, mode == .people, people.contains(where: { $0.id == id && !$0.keep })
+    else { return }
+    if personChoicesNeedApply {
+      let token = revision &+ 1
+      await selectOtherPeople()
+      guard current(token), phase == .ready, !personChoicesNeedApply else { return }
+    }
+    refinePerson(id)
+  }
+
   public func refinePerson(_ id: Int?) {
     guard phase == .ready else { return }
     guard id == nil || personBases.contains(where: { $0.id == id }) else { return }

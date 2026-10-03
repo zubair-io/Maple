@@ -94,7 +94,7 @@ final class RemovalSavedControlsTests: XCTestCase {
     XCTAssertEqual(removal.selection, base)
     await removal.redoSelection()
     XCTAssertNotEqual(removal.selection, base)
-    removal.setMode(.people)
+    await removal.setMode(.people)
     XCTAssertEqual(removal.mode, .paint)
     await removal.cancelSavedReplacement()
     XCTAssertNil(removal.replacingRemovalID)
