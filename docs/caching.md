@@ -54,6 +54,17 @@ Caches under `src/apple/Packages/MapleCore/Sources/MapleCore/`.
 
 `RawRenderSource` holds one temporary RAW copy per active byte-backed edit session. Native-size metadata, decode, Auto Profile fitting and export share its creation task instead of independently fetching the original from PhotoKit or SMB. Scene-linear RAW decode and Auto Profile use the same staged URL so the native decoded-mosaic cache sees the same path key; byte consumers map the staged file without adding a retained full-RAW memory cache. Releasing the session removes the file. It is never a writable original or a sidecar store, and it does not persist between sessions. Local files use their existing URL without a copy (#3357, #3363).
 
+The connected SMB workflow writer holds an exclusive server handle on each
+`<sidecar>.maple-lock` while reading, validating and publishing full XMP. It
+writes a unique sibling temporary file, flushes it, then requests replacing
+rename through the same connection. The persistent lock file has no ownership
+by itself: the open handle owns publication and disconnect releases it. A lost
+acknowledgement retries the same semantic UUID and checkpoint; an already
+accepted action preserves any later confirmed document. Named variants bind a
+writer to one immutable variant UUID and a session-owned confirmed XMP file for
+render/export. This temporary render file is refreshed only after confirmed
+publication or reads and is removed with its owner (#4065).
+
 | Cache                       | Stores                                                                                                                  | Where                                                                                                | Key                                                                                                                                               | Invalidated by                                                                                         | Bound                                                                                       |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
 | `ThumbnailDiskCache`        | AVIF thumbnail bytes + `CIImage`                                                                                        | `.maple/thumbs/<hash>.v<N>.avif`, plus in-memory                                                     | `sha256Prefix16(basename)`, or an opaque asset id for sourceless assets                                                                           | Overwrite after a develop render; explicit delete on move                                              | 100 image + 100 data entries (FIFO); a 2000-entry `NSCache` for the non-blocking sync peek  |

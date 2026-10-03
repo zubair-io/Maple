@@ -1,185 +1,187 @@
-// SMBSidecarStore.swift — SidecarStoreProtocol conformer for SMB-provenance
-// assets (#2674).
-//
-// Root cause this fixes: `EditSession` never wired ANY `SidecarStoreProtocol`
-// for SMB-sourced assets — no `thumbnailProvenance` tag was set for them
-// (`BrowseViewModel.loadSource`'s sourceless branch) and
-// `AppShell+FolderActions.ensureSession`'s `nil`-provenance fallback only
-// ever matches `.cloudLibrary` selections, which SMB browsing never sets
-// (it sets `.smbShare`). So `EditSession.init` fell to its
-// `sidecarStore = nil` branch and every slider/culling edit on an
-// SMB-sourced photo was session-local and silently lost on teardown, even
-// though `SMBSource.writeXMP`/`.writeSidecar` — the real, working,
-// retry-over-AMSMB2 write path — worked fine in isolation.
-//
-// Mirrors `XMPSidecarStore`'s / `CloudSidecarStore`'s debounced-write shape
-// (same 750ms coalescing, same load/loadIfPresent/update/flush/errors
-// surface) but persists through `SMBSource.writeSidecarData`/
-// `.readSidecarData` — the raw-bytes I/O primitives added alongside this
-// file — instead of a local file or an HTTP PUT.
-//
-// Passthrough preservation (#2233) follows `CloudSidecarStore`'s pattern,
-// not `XMPSidecarStore`'s: SMB has no cheap "read what's on disk right
-// before this write" the way a local file does (every read is a network
-// round trip), so the passthrough bucket is captured once on `load()` and
-// held for the store's lifetime, then re-emitted on every write — same
-// trade-off Cloud already makes for the same reason.
-//
-// Ownership: holds the CONNECTED `SMBSource` actor the browse session
-// already has (`ensureSession` passes `browseVM.currentSource as? SMBSource`)
-// rather than opening its own connection. `SMBSource.connect(credentials:)`
-// re-walks the entire share (`listRAWFiles`) as part of connecting — paying
-// that cost again per debounced sidecar write, for every visible grid cell,
-// would be wasteful and would hammer the NAS; riding the one live
-// connection the browse session already paid for is the same trade-off
-// `XMPSidecarStore` makes implicitly (one already-open filesystem) and
-// `CloudSidecarStore` makes explicitly (one already-authenticated HTTP
-// client per session).
-
 import Foundation
 
-// MARK: - SMBSidecarStore
-
-public actor SMBSidecarStore: SidecarStoreProtocol {
+/// Full-XMP workflow persistence through the browse session's connected SMB client (#4065).
+public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
   private let source: SMBSource
   private let ref: ImageRef
-
+  private let variantId: String
+  private let renderSidecar = WorkflowRenderSidecar()
   private var cached: (AdjustmentModel, CullingState)?
-
-  /// Fields the SMB sidecar carried that Maple does not model (#2233).
-  /// Captured on `load()` and held for the store's lifetime — see the
-  /// file header for why this can't re-read from a cheap local disk the
-  /// way `XMPSidecarStore` does.
-  private var cachedPassthrough: XMPPassthrough = .empty
-  private var cachedMetadata = XmpMetadata()
-
   private var pendingTask: Task<Void, Never>?
   private var writeTail: Task<Void, Error>?
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
-
+  private var pendingEdits: [SMBSemanticPublication] = []
   private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
   private var nextSubscriberID: UInt64 = 0
-
   static let debounceInterval: Duration = .milliseconds(750)
 
   public init(source: SMBSource, ref: ImageRef) {
     self.source = source
     self.ref = ref
+    self.variantId = WorkflowContract.primaryVariantID
   }
-
-  /// Load current model+culling, or defaults if no sidecar exists yet.
+  private init(source: SMBSource, ref: ImageRef, variantId: String) {
+    self.source = source
+    self.ref = ref
+    self.variantId = variantId
+  }
   public func load() async throws -> (AdjustmentModel, CullingState) {
     try await loadIfPresent() ?? (.default, CullingState())
   }
-
-  /// Like `load()`, but returns `nil` when no sidecar has ever been
-  /// written for this asset — lets `EditSession` tell "fresh SMB asset"
-  /// apart from "user has saved edits" the same way it already does for
-  /// `XMPSidecarStore` / `CloudSidecarStore` / `PhotoKitSidecarStore`.
   public func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
-    if let cached { return cached }
-    guard let data = try await source.readSidecarData(for: ref) else { return nil }
-    let result = try XMPParser.parse(data: data)
-    cached = result
-    cachedPassthrough = XMPParser.parsePassthrough(data: data)
-    cachedMetadata = XMPParser.parseMetadata(String(decoding: data, as: UTF8.self))
-    return result
+    if pendingModel != nil, let cached { return cached }
+    guard let xml = try await readWorkflowXML() else { return nil }
+    return try XMPParser.parse(xml)
   }
-
-  /// Schedule a debounced write. Resets the 750ms timer on each call.
   public func update(model: AdjustmentModel, culling: CullingState) {
     pendingModel = model
     pendingCulling = culling
     cached = (model, culling)
-
     pendingTask?.cancel()
     pendingTask = Task { [weak self] in
       do {
-        try await Task.sleep(for: SMBSidecarStore.debounceInterval)
+        try await Task.sleep(for: Self.debounceInterval)
         await self?.writePending()
-      } catch {
-        // Task cancelled — a newer update superseded this one.
-      }
+      } catch {}
     }
   }
-
-  /// Force an immediate flush of any pending write (call before closing).
   public func flush() async {
     pendingTask?.cancel()
     pendingTask = nil
     await writePending()
+    _ = await writeTail?.result
   }
-
-  /// Returns an async stream of errors encountered during background writes.
   public func errors() -> AsyncStream<Error> {
     let id = nextSubscriberID
-    nextSubscriberID &+= 1  // wrapping increment — prevents trap in long-lived processes
+    nextSubscriberID &+= 1
     return AsyncStream { continuation in
       subscribers[id] = continuation
       continuation.onTermination = { [weak self] _ in
-        Task { [weak self] in
-          await self?.removeSubscriber(id)
-        }
+        Task { await self?.removeSubscriber(id) }
       }
     }
   }
-
-  private func removeSubscriber(_ id: UInt64) {
-    subscribers.removeValue(forKey: id)
-  }
-
-  // MARK: Private
+  private func removeSubscriber(_ id: UInt64) { subscribers.removeValue(forKey: id) }
 
   public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
     pendingTask?.cancel()
     pendingTask = nil
+    pendingModel = model
+    pendingCulling = culling
+    cached = (model, culling)
+    try await settlePending()
+  }
+  public func commitSemantic(
+    model: AdjustmentModel, culling: CullingState, action: String, label: String
+  ) async throws {
+    let edit = try SMBSemanticPublication(
+      model: model, culling: culling, action: action, label: label)
+    pendingEdits.append(edit)
+    pendingTask?.cancel()
+    pendingTask = nil
+    pendingModel = model
+    pendingCulling = culling
+    cached = (model, culling)
+    try await settlePending()
+  }
+  private func settlePending() async throws {
+    pendingTask?.cancel()
+    pendingTask = nil
+    guard let model = pendingModel, let culling = pendingCulling else {
+      _ = await writeTail?.result
+      return
+    }
     pendingModel = nil
     pendingCulling = nil
-
-    cached = (model, culling)
-    try await persist(model: model, culling: culling)
-  }
-
-  private func persist(model: AdjustmentModel, culling: CullingState) async throws {
-    // Actor reentrancy must not let an older network write finish after a
-    // confirmed batch write. Each real write waits for its predecessor.
+    let edits = pendingEdits
     let previous = writeTail
     let task = Task {
       _ = await previous?.result
-      try await send(model: model, culling: culling)
+      try await self.send(model: model, culling: culling, edits: edits)
     }
     writeTail = task
-    try await task.value
-  }
-
-  private func send(model: AdjustmentModel, culling: CullingState) async throws {
-    // Metadata can change independently of this editor session. Preserve
-    // the current sidecar's foreign XML and IPTC fields at the write boundary.
-    let existing = try await source.readSidecarData(for: ref)
-    if let existing {
-      _ = try XMPParser.parse(data: existing)
-      cachedMetadata = XMPParser.parseMetadata(String(decoding: existing, as: UTF8.self))
-      cachedPassthrough = XMPParser.parsePassthrough(data: existing)
-    }
-    let xml = XMPSerializer.serialize(
-      model: model, culling: culling, metadata: cachedMetadata, passthrough: cachedPassthrough)
-    guard let data = xml.data(using: .utf8) else {
-      throw XMPStoreError.encodingError
-    }
-    try await source.writeSidecarData(data, for: ref)
-  }
-
-  private func writePending() async {
-    guard let model = pendingModel, let culling = pendingCulling else { return }
-    pendingModel = nil
-    pendingCulling = nil
-    do {
-      try await persist(model: model, culling: culling)
-    } catch {
-      for subscriber in subscribers.values {
-        subscriber.yield(error)
+    do { try await task.value } catch {
+      if pendingModel == nil {
+        pendingModel = model
+        pendingCulling = culling
       }
+      throw error
     }
+  }
+  private func send(
+    model: AdjustmentModel, culling: CullingState, edits: [SMBSemanticPublication]
+  ) async throws {
+    for edit in edits {
+      let xml = try await source.mutateWorkflowSidecar(for: ref, variantId: variantId) {
+        try edit.output(current: $0, variantId: self.variantId)
+      }
+      pendingEdits.removeAll { $0.id == edit.id }
+      try renderSidecar.write(xml)
+    }
+    // An acknowledged semantic action already includes the model and culling.
+    // Rewriting that frozen model would erase a later client's accepted edit.
+    if edits.last?.represents(model: model, culling: culling) == true { return }
+    let xml = try await source.mutateWorkflowSidecar(for: ref, variantId: variantId) { current in
+      XMPSerializer.serialize(
+        model: model, culling: culling,
+        metadata: current.map { XMPParser.parseMetadata($0) } ?? XmpMetadata(),
+        passthrough: current.map { XMPParser.parsePassthrough($0) } ?? .empty)
+    }
+    try renderSidecar.write(xml)
+  }
+  private func writePending() async {
+    do { try await settlePending() } catch {
+      for subscriber in subscribers.values { subscriber.yield(error) }
+    }
+  }
+  public func readWorkflowXML() async throws -> String? {
+    try await enqueueWorkflow(nil)
+  }
+  public func publishWorkflow(_ command: WorkflowPublication) async throws -> String {
+    guard let xml = try await enqueueWorkflow(command) else {
+      throw WorkflowSidecarError(message: "The SMB server did not confirm the checkpoint.")
+    }
+    return xml
+  }
+  private func enqueueWorkflow(_ command: WorkflowPublication?) async throws -> String? {
+    try await settlePending()
+    let previous = writeTail
+    let task = Task {
+      _ = await previous?.result
+      let xml: String?
+      if let command {
+        xml = try await self.source.mutateWorkflowSidecar(for: self.ref, variantId: self.variantId)
+        {
+          try command.output(current: $0, variantId: self.variantId)
+        }
+      } else {
+        xml = try await self.source.readWorkflowSidecar(for: self.ref, variantId: self.variantId)
+      }
+      if let xml {
+        if self.pendingModel == nil { self.cached = try XMPParser.parse(xml) }
+        try self.renderSidecar.write(xml)
+      }
+      return xml
+    }
+    writeTail = Task { _ = try await task.value }
+    return try await task.value
+  }
+  public func listWorkflowVariants() async throws -> [WorkflowVariantSidecar] {
+    _ = try await readWorkflowXML()
+    return try await source.listWorkflowSidecars(for: ref)
+  }
+  public func createWorkflowVariant(_ record: SidecarWorkflow, sourceVariantId: String) async throws
+  {
+    _ = try await readWorkflowXML()
+    try await source.createWorkflowSidecar(
+      for: ref, record: record, sourceVariantId: sourceVariantId)
+  }
+  public func bindWorkflowVariant(_ variantId: String) async throws -> WorkflowVariantBinding {
+    _ = try await readWorkflowXML()
+    _ = try WorkflowSidecarCore.variantFilename(primaryName: "photo.xmp", variantId: variantId)
+    let selected = SMBSidecarStore(source: source, ref: ref, variantId: variantId)
+    _ = try await selected.readWorkflowXML()
+    return WorkflowVariantBinding(writer: selected, sidecarURL: selected.renderSidecar.url)
   }
 }

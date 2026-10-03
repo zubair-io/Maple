@@ -177,6 +177,8 @@ jobs:
       - name: Install live change-feed fixture dependencies
         working-directory: src/api
         run: bun install --frozen-lockfile
+      - name: Install real SMB workflow fixture server
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install samba
       - name: Select newest Xcode
         id: xcode
         run: |
@@ -251,6 +253,8 @@ jobs:
             rsync -a --exclude=.build --exclude=.swiftpm \
               "src/apple/Packages/$package" "$MAPLE_SWIFT_TEST_ROOT/Packages/"
           done
+          mkdir -p "$MAPLE_SWIFT_TEST_ROOT/third_party"
+          rsync -a src/apple/third_party/AMSMB2 "$MAPLE_SWIFT_TEST_ROOT/third_party/"
           cp "$HEADERS/RawPipeline.h" "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleCore/Sources/MapleCore/include/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures"
           cp -R src/apple/MapleUITests/Fixtures/synthetic "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures/"

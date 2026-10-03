@@ -334,3 +334,7 @@ NativeVariantControlsTests
 NativeVariantExportTests
 WorkflowVariantCacheTests
 NativeCloudVariantWriterTests
+
+SMBWorkflowPublicationTests # #4065: actual owned Samba transport; no mount or sidecar mock
+SMBWorkflowAcceptanceTests # #4065: actual owned Samba transport; no mount or sidecar mock
+SMBWorkflowRecoveryTests # #4065: drop actual accepted SMB rename acknowledgement
