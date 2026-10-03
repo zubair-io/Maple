@@ -93,6 +93,8 @@ final class AdjustmentTransferRenderTests: XCTestCase {
     target.model.profile = .neutral
     try await target.applyAdjustmentTransfer(patch)
     let savedXML = try String(contentsOf: SidecarPath.sidecarURL(for: targetURL), encoding: .utf8)
+    let acknowledged = try XCTUnwrap(WorkflowSidecarCore.read(xmp: savedXML))
+    XCTAssertEqual(acknowledged.history.map(\.action), ["paste"])
     _ = try XMPParser.parse(savedXML)
     let actual = try await target.renderForExport()
     let postXML = try String(contentsOf: SidecarPath.sidecarURL(for: targetURL), encoding: .utf8)
