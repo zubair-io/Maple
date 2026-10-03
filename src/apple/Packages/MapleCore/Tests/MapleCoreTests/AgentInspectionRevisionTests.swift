@@ -199,11 +199,25 @@ final class AgentInspectionRevisionTests: XCTestCase {
     tool: String = "maple_render_and_inspect",
     _ change: (AgentEditService, EditSession) -> Void
   ) async throws {
-    let source = FencedAgentImageProvider()
-    let session = makeSession()
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-inspection-revision")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let original = directory.appendingPathComponent("portrait.png")
+    try FileManager.default.copyItem(at: fixture, to: original)
+    let originalBytes = try Data(contentsOf: original)
+    let session = EditSession(asset: AssetRef(url: original))
+    session.previewSize = CGSize(width: 256, height: 256)
+    await session.openAssetPipelineAsync()
     if tool == "maple_render_mask_overlay" { session.createWholeImageSkinMask() }
+    await session.flushPendingSidecarWrite()
+    _ = await session.latestRenderSchedule?.value
+    await session.renderActor.awaitCurrentRenderIfInFlight()
+    let preview = try XCTUnwrap(session.renderedPreview)
+    let context = await session.pipeline.context
+    let source = FencedAgentImageProvider(image: preview, context: context)
     session.renderedPreview = CIImage(
-      imageProvider: source, size: 256, 256,
+      imageProvider: source, size: source.width, source.height,
       format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB), options: nil)
     let service = AgentEditService()
     service.activate(session)
@@ -231,6 +245,8 @@ final class AgentInspectionRevisionTests: XCTestCase {
       return XCTFail("Inspection returned stale image/metrics after the editor changed")
     }
     XCTAssertEqual(error.code, "render_superseded")
+    await session.flushPendingSidecarWrite()
+    XCTAssertEqual(try Data(contentsOf: original), originalBytes)
   }
 }
 
@@ -239,6 +255,20 @@ private final class FencedAgentImageProvider: NSObject, @unchecked Sendable {
   let resume = DispatchSemaphore(value: 0)
   private let lock = NSLock()
   private var firstDraw = true
+  let width: Int
+  let height: Int
+  private let pixels: [UInt8]
+
+  init(image: CIImage, context: CIContext) {
+    width = Int(image.extent.width)
+    height = Int(image.extent.height)
+    var captured = [UInt8](repeating: 0, count: width * height * 4)
+    context.render(
+      image, toBitmap: &captured, rowBytes: width * 4, bounds: image.extent,
+      format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+    pixels = captured
+    super.init()
+  }
 
   override func provideImageData(
     _ data: UnsafeMutableRawPointer, bytesPerRow: Int, origin x: Int, _ y: Int,
@@ -253,7 +283,20 @@ private final class FencedAgentImageProvider: NSObject, @unchecked Sendable {
       started.signal()
       _ = resume.wait(timeout: .now() + 15)
     }
-    data.initializeMemory(as: UInt8.self, repeating: 255, count: bytesPerRow * height)
+    data.initializeMemory(as: UInt8.self, repeating: 0, count: bytesPerRow * height)
+    pixels.withUnsafeBytes { source in
+      guard let base = source.baseAddress else { return }
+      for row in 0..<height {
+        let sourceY = y + row
+        guard sourceY >= 0, sourceY < self.height else { continue }
+        let startX = max(0, x)
+        let endX = min(self.width, x + width)
+        guard endX > startX else { continue }
+        data.advanced(by: row * bytesPerRow + (startX - x) * 4).copyMemory(
+          from: base.advanced(by: (sourceY * self.width + startX) * 4),
+          byteCount: (endX - startX) * 4)
+      }
+    }
   }
 }
 
