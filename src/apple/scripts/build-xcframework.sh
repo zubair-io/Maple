@@ -137,7 +137,7 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 
 # Stable content hash over the inputs that affect the build:
 #   - every .rs, .wgsl, and .bin under raw-core/src, raw-ffi/src,
-#     maple-pano/src, and raw-gpu/src (the .bin blobs are include_bytes!-
+#     maple-pano/src, maple-removal/src, and raw-gpu/src (the .bin blobs are include_bytes!-
 #     embedded LUT / profile-bundle build inputs — #1946)
 #   - Cargo.lock (exact dependency versions)
 #   - the workspace + raw-core + raw-ffi Cargo.toml files
@@ -149,7 +149,7 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 # filesystem ordering.
 compute_input_hash() {
 	{
-		# raw-core, raw-ffi, (since M3 #1235) maple-pano, and raw-gpu — raw-ffi's
+		# raw-core, raw-ffi, maple-pano, maple-removal, and raw-gpu — raw-ffi's
 		# GPU live/present FFI delegates into raw-gpu (the wgpu/WGSL chain), so a
 		# raw-gpu change MUST trigger a rebuild. Omitting it (the bug #1513
 		# exposed) let a raw-gpu-only edit hash-skip and ship a stale xcframework.
@@ -166,6 +166,7 @@ compute_input_hash() {
 		find "$RAW_PIPELINE_DIR/raw-core/src" \
 			"$RAW_PIPELINE_DIR/raw-ffi/src" \
 			"$RAW_PIPELINE_DIR/maple-pano/src" \
+			"$RAW_PIPELINE_DIR/maple-removal/src" \
 			"$RAW_PIPELINE_DIR/raw-gpu/src" \
 			-type f \( -name '*.rs' -o -name '*.wgsl' -o -name '*.bin' \) -print0 2>/dev/null | sort -z | xargs -0 shasum
 		for f in \
@@ -174,6 +175,7 @@ compute_input_hash() {
 			"$RAW_PIPELINE_DIR/raw-core/Cargo.toml" \
 			"$RAW_PIPELINE_DIR/raw-ffi/Cargo.toml" \
 			"$RAW_PIPELINE_DIR/maple-pano/Cargo.toml" \
+			"$RAW_PIPELINE_DIR/maple-removal/Cargo.toml" \
 			"$RAW_PIPELINE_DIR/raw-gpu/Cargo.toml" \
 			"$RAW_FFI_DIR/cbindgen.toml" \
 			"$SCRIPT_DIR/fetch-ort-ios.sh"; do
@@ -222,7 +224,7 @@ if [[ "$ARG_CHECK_ONLY" == "1" ]]; then
 	{
 		echo ""
 		echo "ERROR: RawPipeline.xcframework is stale or incomplete."
-		echo "       raw-core/raw-ffi/raw-gpu/maple-pano sources have changed since the"
+		echo "       raw-core/raw-ffi/raw-gpu/maple-pano/maple-removal inputs changed since"
 		echo "       last successful build (or a slice is missing), so MapleCore would"
 		echo "       fail to compile against the checked-in header with a confusing"
 		echo "       \"value of type '...' has no member '...'\" error."

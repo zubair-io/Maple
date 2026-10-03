@@ -12,7 +12,9 @@ extension ReportedExportParityTests {
     let corpus = AutoProfileCanvasParityTests.fixtureDir(
       "test-fixtures/raws/removal-photographic")
     let source = corpus.appendingPathComponent("portrait.dng")
-    let autoFit = corpus.appendingPathComponent("auto-fit")
+    // Versioned controls include main's proxy sampling-density metadata.
+    // Earlier controls remain intact for historical attribution (#1472).
+    let autoFit = corpus.appendingPathComponent("auto-fit-20261003")
     guard FileManager.default.fileExists(atPath: source.path),
       FileManager.default.fileExists(atPath: autoFit.appendingPathComponent("manifest.json").path)
     else {
@@ -96,6 +98,13 @@ extension ReportedExportParityTests {
       noiseProfile: decoded.noiseProfile, iso: decoded.iso,
       wbFrame: decoded.wbFrame, whitesAnchorEv: decoded.whitesAnchorEv,
       targetPrimariesOverride: .srgb)
+    let manifest = try XCTUnwrap(
+      JSONSerialization.jsonObject(
+        with: Data(contentsOf: autoFit.appendingPathComponent("manifest.json"))) as? [String: Any])
+    let digest = String(try RemovalBridge.digest(Data(contentsOf: raw)).dropFirst(7))
+    XCTAssertEqual(manifest["sourceDigest"] as? String, digest)
+    XCTAssertEqual(manifest["quality"] as? String, "amaze")
+    let cubes = try XCTUnwrap(manifest["cubes"] as? [[String: Any]])
     for dimension in [33, 49, 65] {
       var lut = [Float](repeating: 0, count: dimension * dimension * dimension * 3)
       let rc = raw.path.withCString { path in
@@ -106,8 +115,8 @@ extension ReportedExportParityTests {
       }
       XCTAssertEqual(rc, 0)
       guard rc == 0 else { throw RemovalError.invalid("Auto cube diagnostic failed: \(rc)") }
-      let expectedProxy = try Data(
-        contentsOf: autoFit.appendingPathComponent("proxy-\(dimension).f32"))
+      let expectedProxy = try removalAutoControl(
+        autoFit: autoFit, cubes: cubes, fit: "proxy", dimension: dimension)
       XCTAssertEqual(
         lut.withUnsafeBytes { Data($0) }, expectedProxy,
         "The AMaZE FFI fit must match the independently generated AMaZE proxy control")
@@ -125,20 +134,9 @@ extension ReportedExportParityTests {
       let data = try JSONSerialization.data(withJSONObject: report, options: .sortedKeys)
       print("MAPLE_REMOVAL_EXPORT_DIAGNOSTIC \(String(decoding: data, as: UTF8.self))")
     }
-    let manifest = try XCTUnwrap(
-      JSONSerialization.jsonObject(
-        with: Data(contentsOf: autoFit.appendingPathComponent("manifest.json"))) as? [String: Any])
-    let digest = String(try RemovalBridge.digest(Data(contentsOf: raw)).dropFirst(7))
-    XCTAssertEqual(manifest["sourceDigest"] as? String, digest)
-    let cubes = try XCTUnwrap(manifest["cubes"] as? [[String: Any]])
     for dimension in [33, 49, 65] {
-      let name = "native-\(dimension).f32"
-      let bytes = try Data(contentsOf: autoFit.appendingPathComponent(name))
-      let entry = try XCTUnwrap(cubes.first { $0["path"] as? String == name })
-      let expectedDigest = try XCTUnwrap(entry["blake3"] as? String)
-      guard bytes.count == dimension * dimension * dimension * 3 * MemoryLayout<Float>.size,
-        try RemovalBridge.digest(bytes) == "blake3:\(expectedDigest)"
-      else { throw RemovalError.invalid("Native Auto cube control failed verification") }
+      let bytes = try removalAutoControl(
+        autoFit: autoFit, cubes: cubes, fit: "native", dimension: dimension)
       let lut = bytes.withUnsafeBytes { buffer in
         (0..<(bytes.count / 4)).map { buffer.loadUnaligned(fromByteOffset: $0 * 4, as: Float.self) }
       }
@@ -192,6 +190,19 @@ extension ReportedExportParityTests {
       await gpu.close()
       throw error
     }
+  }
+
+  private func removalAutoControl(
+    autoFit: URL, cubes: [[String: Any]], fit: String, dimension: Int
+  ) throws -> Data {
+    let name = "\(fit)-\(dimension).f32"
+    let bytes = try Data(contentsOf: autoFit.appendingPathComponent(name))
+    let entry = try XCTUnwrap(cubes.first { $0["path"] as? String == name })
+    let expectedDigest = try XCTUnwrap(entry["blake3"] as? String)
+    guard bytes.count == dimension * dimension * dimension * 3 * MemoryLayout<Float>.size,
+      try RemovalBridge.digest(bytes) == "blake3:\(expectedDigest)"
+    else { throw RemovalError.invalid("Auto cube control failed verification: \(name)") }
+    return bytes
   }
 
   private func removalExportDifference(_ image: CIImage, reference: MapleImageData)
