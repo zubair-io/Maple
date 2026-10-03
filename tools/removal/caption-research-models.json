@@ -1,0 +1,101 @@
+{
+  "releaseQualified": false,
+  "repo": "mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
+  "revision": "fdcc572e8b05ba9daeaf71be8c9e4267c826ff9b",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 671,
+      "sha256": "35388a167239645fa523c831f8d62d354e5a8ac256f5c25a9b07f1bc70e4ceb0",
+      "hubBlobId": "af83a30bd288f01ccca49e07b560692fe612cfda"
+    },
+    {
+      "path": "added_tokens.json",
+      "bytes": 605,
+      "sha256": "58b54bbe36fc752f79a24a271ef66a0a0830054b4dfad94bde757d851968060b",
+      "hubBlobId": "482ced4679301bf287ebb310bdd1790eb4514232"
+    },
+    {
+      "path": "chat_template.json",
+      "bytes": 1050,
+      "sha256": "ad60d90252ed0b0705ba14e2d0ad0fec0beac1ea955642b54059b36052d8bc96",
+      "hubBlobId": "732bd68bc5427d1fb6c06a59b3bf2456b2155d24"
+    },
+    {
+      "path": "config.json",
+      "bytes": 1660,
+      "sha256": "f14d63e180dbe3692f4be18f7a66ab9a75dce0e4814c1e36cec2ce705b758015",
+      "hubBlobId": "716640c58b6e31b6c86cf12e25978a9f578e4850"
+    },
+    {
+      "path": "merges.txt",
+      "bytes": 1671853,
+      "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+      "hubBlobId": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+    },
+    {
+      "path": "model-00001-of-00002.safetensors",
+      "bytes": 5330940405,
+      "sha256": "f80072ac0e82a2ace0740eab995f6f9ae2623adb55e6906e21c2f8edca537803",
+      "hubBlobId": "17d8f1f35edbd8c96a70c553742298b54d90fa44"
+    },
+    {
+      "path": "model-00002-of-00002.safetensors",
+      "bytes": 306561369,
+      "sha256": "016bd9d3596e9b824f5a527875e5830414552c950eee794e98efb44c1cd8dc6a",
+      "hubBlobId": "6f5d134d79301562e90011b4b4f0b0d747ab0649"
+    },
+    {
+      "path": "model.safetensors.index.json",
+      "bytes": 107528,
+      "sha256": "4bce2d33fff4203033576e2e35dbdd78fec40604879f256045c4204d3441e359",
+      "hubBlobId": "757757a2fcc2944665f9941049287bf1d4b46b86"
+    },
+    {
+      "path": "preprocessor_config.json",
+      "bytes": 350,
+      "sha256": "f2058c716eef96ccaed1cc1e2d0c08306b62586d535b28d9d08e691b2fab7ca0",
+      "hubBlobId": "7f3b746825e5eef53ed8ed57a91df9e86ee62c0a"
+    },
+    {
+      "path": "special_tokens_map.json",
+      "bytes": 613,
+      "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
+      "hubBlobId": "ac23c0aaa2434523c494330aeb79c58395378103"
+    },
+    {
+      "path": "tokenizer.json",
+      "bytes": 11421896,
+      "sha256": "9c5ae00e602b8860cbd784ba82a8aa14e8feecec692e7076590d014d7b7fdafa",
+      "hubBlobId": "51ebb3ba93988c73bbd83a3c163a14343fbc5b06"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "bytes": 7256,
+      "sha256": "2f58f4bbd7bbce15d683f525954ef3a92cd82f5e06415a9c513859bf8ab72436",
+      "hubBlobId": "df3a9d96759529ca1006eb6db024bbb099a97578"
+    },
+    {
+      "path": "vocab.json",
+      "bytes": 2776833,
+      "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+      "hubBlobId": "4783fe10ac3adce15ac8f358ef5462739852c569"
+    }
+  ],
+  "baseModel": {
+    "repo": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "revision": "cc594898137f460bfe9f0759e9844b3ce807cfb5",
+    "modelCard": {
+      "path": "MODEL-CARD-QWEN-OFFICIAL.md",
+      "bytes": 18574,
+      "sha256": "1fa65dbb08bc9ffe0b020409c8686f08b23008c5a68554353305fd2de6f2b81e"
+    },
+    "declaredLicense": "Apache-2.0"
+  },
+  "runtimePackage": {
+    "name": "mlx-vlm",
+    "version": "0.7.4",
+    "declaredLicense": "MIT"
+  },
+  "scope": "Pinned converted research checkpoint; production model/code/provenance/distribution review incomplete."
+}
