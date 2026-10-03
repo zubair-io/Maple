@@ -217,7 +217,7 @@ def build_bundle(exports, archive, output, pins, runtime, review, review_root):
                 "release_qualified": False,
                 "public_distribution_approved": False,
                 "files": files,
-                "import": "In the Mac editor, open Remove, choose Import model folder, and select this folder. Keep provenance alongside the bundle; the current app installer copies inference files only.",
+                "import": "In the Mac editor, open Remove, choose Import model folder, and select this folder. The Mac installer retains bundle.json and provenance documents alongside the app-owned inference files and verifies its local byte receipts on restore.",
             },
         )
         # A manifest is an inventory, not a signature or a notarization claim.

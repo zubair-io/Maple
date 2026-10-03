@@ -22,7 +22,8 @@ Included transitive license copies document this review's identified
 components; they are not a conclusion that the review is exhaustive.
 The official ONNX Runtime archive's LICENSE, ThirdPartyNotices.txt,
 Privacy.md, version and source commit are carried verbatim separately.
-The current app installer retains inference files only: keep this bundle's
-provenance directory alongside it while reviewing. Weight redistribution,
+The Mac installer snapshots bundle.json and provenance documents into app
+storage with a local byte receipt, and checks them again on restore. These
+documents do not replace hard-pinned inference verification. Weight redistribution,
 complete transitive scope, signing, photographic and hardware qualification
 remain open. This local bundle is not approved for public distribution.

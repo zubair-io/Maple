@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "issue": 1472,
+  "parent_commit": "487a0c299601b1d025d6f8c4ffa39066e5dced01",
+  "qualification": "Mac offline installation document retention only; no photographic, large-object, distribution or hardware qualification",
+  "source_sha256": {
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/MacRemovalModelFiles.swift": "3c1e55b44193ca9eb91d2c88669988b676911e90b450016ec1637c7a70933f9d",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/MacRemovalModelProvenance.swift": "6bbe03037d711b586971e0191781d74b4cd2daf066cbd0457ae56b425ec53e2e",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/MacRemovalModelStore.swift": "1ca871e5bdc974e936d9e238d270f93c2b7121c08a0d0cf8cd08afea90183be0",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/MacRemovalModelStoreTests.swift": "0b22af5492f377b3f6a16c1f3ee249d5cb65627b5c5ea5a428a644931ce018e9",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalAuthoringJobTests.swift": "ef3a5e1847972fca4cced0fd315b80b25eef802bde746d72382c64354b36b753",
+    "tools/removal/mac_model_bundle.py": "72ee3907fd9a7c157129dbfc8faf9ef914a362e276e748cfaff99580b40b9c77",
+    "tools/removal/model-distribution-review.json": "3d15d8570d1a4abac09907ffe3e5ab1d196688d7d98362f70d9e3b587d3ccfa4",
+    "tools/removal/notices/ATTRIBUTIONS.txt": "8bab97fc7c4acb750fa64ceb075263edab96d5c60e78c9592d915cd791cf3abf",
+    "docs/apple.md": "9d1cbe792d265c5b6817391872cf3e5129b64caf11bc3c8280f690a3219ad614"
+  },
+  "behavior": [
+    "Opaque bundle.json and regular provenance documents copied byte-for-byte with Apple-local receipts; model hard pins remain authoritative",
+    "Legacy five-file imports remain supported; existing provenance damage cannot be silently discarded",
+    "Bounded file/total/count/depth limits; links and special document files rejected; model regular-file symlink imports preserved",
+    "Verified restores survive external source folder deletion; explicit matching import repairs damaged snapshots/index"
+  ],
+  "checks": {
+    "filesystem_tests": {
+      "passed": 15,
+      "failed": 0,
+      "log": "/tmp/maple-removal-documents-path-fixed.log"
+    },
+    "actual_pinned_bundle_copy_restore": {
+      "passed": 1,
+      "failed": 0,
+      "log": "/tmp/maple-removal-documents-actual-final-tests.log"
+    },
+    "release_tool_tests": {
+      "passed": 58,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/maple-removal-documents-tooling-final.log"
+    },
+    "mac_ci_regressions": {
+      "classes": 249,
+      "passed": 2057,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/maple-removal-noop-regressions-20261002.log"
+    }
+  },
+  "bundle": {
+    "path": "/tmp/maple-removal-offline-arm64-1472-20261002-retained-documents",
+    "manifest_sha256": "20a150bf58f790df6b60ada26dbce616579d7286957775361747433c01369bb1",
+    "file_count": 28,
+    "bytes": 365280876
+  },
+  "limitations": [
+    "All releaseQualified flags remain false",
+    "Weight/checkpoint redistribution, complete transitive scope, public distribution, signing and notarization remain open",
+    "No inference behavior, Rust pipeline, ABI or XMP schema changes"
+  ]
+}
