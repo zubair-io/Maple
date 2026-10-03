@@ -10,7 +10,9 @@ from PIL import Image
 
 def comparator():
     path = Path(__file__).resolve().parents[2] / "scripts" / "compare_images.py"
-    sys.path.insert(0, str(path.parent))
+    directory = str(path.parent)
+    if directory not in sys.path:
+        sys.path.insert(0, directory)
     return importlib.import_module("compare_images")
 
 
