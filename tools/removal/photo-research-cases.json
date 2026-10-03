@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "issue": 3941,
+  "epic": 1472,
+  "releaseQualified": false,
+  "scope": "Public RAW photographic research fixtures. RAWs remain external and originals are read-only. Two native linear-calibration cases; night-tiger is acquisition/orientation triage only and has no claimed completed removal case. No photographic release acceptance budget or broad corpus claim.",
+  "raws": {
+    "coast": {
+      "file": "DSC06078.ARW",
+      "bytes": 24969216,
+      "sha256": "ec04e3ac69d54e7300ba0ff582d10ade0fc3ad28f48507b4c35cacc115e4ee86",
+      "photographer": "seume",
+      "source_page": "https://discuss.pixls.us/t/cabin-at-the-swedish-coast-and-a-spot-i-dont-know-how-to-remove/40822",
+      "download": "https://discuss.pixls.us/uploads/short-url/ao2rNLbM3YBzToH0w7Zsy5G3Z6v.ARW",
+      "publisher_license_statement": "License: CC0.",
+      "license": "CC0 as stated by publishing photographer",
+      "person_model_release_verified": false
+    },
+    "bologna": {
+      "file": "_DSC7409.NEF",
+      "bytes": 29019786,
+      "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "photographer": "anon42681393",
+      "source_page": "https://discuss.pixls.us/t/street-market-bologna-italy-december-2019/35639",
+      "download": "https://discuss.pixls.us/uploads/short-url/6teql8aZKoWNFt98Njj04VEP7w4.NEF",
+      "publisher_license_statement": "This file is licensed CC0.",
+      "license": "CC0 as stated by publishing photographer",
+      "person_model_release_verified": false
+    },
+    "night-tiger": {
+      "file": "DSC_0015.nef",
+      "bytes": 10981379,
+      "sha256": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+      "photographer": "thehatterman",
+      "source_page": "https://discuss.pixls.us/t/lights-tigers/47762",
+      "download": "https://discuss.pixls.us/uploads/short-url/aXYdkTfa4egMScDk15aeuye7vK2.nef",
+      "publisher_license_statement": "This file is marked with CC0 1.0 Universal.",
+      "license": "CC0 as stated by publishing photographer",
+      "person_model_release_verified": false
+    }
+  },
+  "cases": [
+    {
+      "id": "coast-head",
+      "raw": "coast",
+      "window_xywh": [1900, 1800, 1024, 1024],
+      "intent_rects_xywh": [[440, 437, 65, 44]],
+      "protected_rects_xywh": [[0, 481, 1024, 543]],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:50f65b33b413746281b59cb89be7dd221d6e06328c7fd7b99a8d60d283fd2f43",
+      "expected_model_input_blake3": "blake3:625c01c734ea6cab3afb6a295452f58c85b16b3669d56ac40d765861412c12d4",
+      "annotation": "Small partially occluded head above cabin railing; explicit Paint rectangle and protected wood below.",
+      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy."
+    },
+    {
+      "id": "bologna-paint",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "intent_rects_xywh": [[260, 210, 520, 480]],
+      "protected_rects_xywh": [[0, 0, 245, 1024]],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+      "annotation": "Paint rectangle over blue-coat shopper/bag and part of adjacent dark-coated shopper. Protected left foreground; partial unselected person fragments are a known annotation limit, not automatic mask truth.",
+      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy."
+    }
+  ]
+}
