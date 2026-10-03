@@ -339,3 +339,4 @@ SMBWorkflowPublicationTests # #4065: actual owned Samba transport; no mount or s
 SMBWorkflowAcceptanceTests # #4065: actual owned Samba transport; no mount or sidecar mock
 SMBWhiteBalanceAcceptanceTests # #4085: all WB modes, actual SMB variants/reconnect/export
 SMBWorkflowRecoveryTests # #4065: drop actual accepted SMB rename acknowledgement
+AgentEditServiceTests # live AI agent bridge: revision, undo, reject-not-clamp, real socket + .xmp

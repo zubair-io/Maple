@@ -50,6 +50,9 @@ struct MapleApp: App {
     // 2.0 is the default since the M2 flip). See Auto1Flag's module doc
     // for why `open -n` needs the launch-argument form.
     Auto1Flag.propagateToProcessEnvironmentIfNeeded()
+    #if os(macOS)
+      AgentBridgeController.shared.syncWithPreference()
+    #endif
 
     #if DEBUG
       // Note: the Plan 1 AgX-kernel load assertion was retired when the
@@ -503,6 +506,9 @@ struct GeneralSettingsTab: View {
         .accessibilityIdentifier("general.settings.canvasColorSpace")
       }
       .listRowBackground(MapleTokens.surface)
+      #if os(macOS)
+        AgentBridgeSettingsSection()
+      #endif
     }
     .formStyle(.grouped)
     .mapleSettingsBackground()
