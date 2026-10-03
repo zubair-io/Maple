@@ -346,3 +346,4 @@ jobs:
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/results.xml
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/tests.log
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/hang-diagnostics/
+            ${{ env.MAPLE_SWIFT_TEST_ROOT }}/smb-diagnostics/

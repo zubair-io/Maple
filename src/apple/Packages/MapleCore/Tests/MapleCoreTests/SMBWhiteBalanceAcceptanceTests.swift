@@ -14,18 +14,18 @@ final class SMBWhiteBalanceAcceptanceTests: EditorTestCase {
   }
 
   func testIdenticalNamesKeepIndependentSidecarsAfterRenameAndReconnect() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     do {
       try await qualifyDuplicateNames(fixture)
       await fixture.close()
     } catch {
-      await fixture.close()
+      await fixture.close(error: error)
       throw error
     }
   }
 
   func testOneHundredConsecutiveCyclesOnSelectedSMBVariant() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     do {
       let ref = try await fixture.image()
       let initial = editor(fixture.source, ref)
@@ -61,7 +61,7 @@ final class SMBWhiteBalanceAcceptanceTests: EditorTestCase {
         })
       await fixture.close()
     } catch {
-      await fixture.close()
+      await fixture.close(error: error)
       throw error
     }
   }
@@ -123,12 +123,12 @@ final class SMBWhiteBalanceAcceptanceTests: EditorTestCase {
   ) async throws {
     let input = NativeWorkflowControlFixture.input().replacingOccurrences(
       of: "papp:Profile=\"Auto\"", with: "papp:Profile=\"\(profile.rawValue)\"")
-    let fixture = try await OwnedSMBWorkflowFixture.open(initialXML: input)
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self, initialXML: input)
     do {
       try await qualify(preset: preset, fixture: fixture, autoTone: autoTone)
       await fixture.close()
     } catch {
-      await fixture.close()
+      await fixture.close(error: error)
       throw error
     }
   }

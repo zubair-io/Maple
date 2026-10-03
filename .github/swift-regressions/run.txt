@@ -345,3 +345,5 @@ NoiseSamplingScaleHostTests
 AgentEditServiceTests # live AI agent bridge: revision, undo, reject-not-clamp, real socket + .xmp
 AgentInspectorTests # render_and_inspect: JPEG + display metrics from the same pixels, ROI, revision tag
 AgentInspectionRevisionTests # real lazy-raster fences: discard replies after edits or photo switches
+
+SMBDisconnectDrainTests

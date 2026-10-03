@@ -130,7 +130,8 @@ public actor SMBSource {
 
   /// Disconnect from the share.
   public func disconnect() async {
-    try? await client?.disconnectShare(gracefully: false)
+    // #4110: publications and streams must release their handles before context teardown.
+    try? await client?.disconnectShare(gracefully: true)
     client = nil
     idCache = nil
     pathByMapleId = [:]
@@ -397,7 +398,7 @@ public actor SMBSource {
     // `SMB2FileHandle` and starts reading from byte 0 each time it's
     // called, so calling it again per chunk would silently re-read the
     // same leading bytes forever instead of advancing through the file.
-    var iterator = client.contents(atPath: asset.path).makeAsyncIterator()
+    var iterator: AsyncThrowingStream<Data, any Error>.Iterator?
 
     // `try?`: a mid-stream SMB read failure (dropped connection, etc.)
     // must not surface a partial/wrong id — `derive` is `rethrows`
@@ -410,7 +411,9 @@ public actor SMBSource {
       exifCreateDate: dates.createDate,
       filesize: UInt64(asset.size),
       nextChunk: {
-        (try await iterator.next()) ?? Data()
+        // Primary-form identity never requests a whole-file stream.
+        if iterator == nil { iterator = client.contents(atPath: asset.path).makeAsyncIterator() }
+        return (try await iterator?.next()) ?? Data()
       }
     )
   }

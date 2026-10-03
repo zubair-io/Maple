@@ -23,7 +23,7 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
   }
 
   private func exerciseStaleSave(semantic: Bool) async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     let ref = try await fixture.image()
     let stale = SMBSidecarStore(source: fixture.source, ref: ref)
     let loaded = try await stale.load()
@@ -58,7 +58,7 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
   }
 
   func testQueuedEditsAdvanceOnlyThroughTheirOwnConfirmedDocuments() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     let ref = try await fixture.image()
     let store = SMBSidecarStore(source: fixture.source, ref: ref)
     let loaded = try await store.load()
@@ -89,7 +89,7 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
   }
 
   func testOrdinarySaveRetriesTheIdenticalAcceptedDocument() async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     let proxy = try await OwnedSMBPublicationProxy.open(fixture)
     await fixture.source.disconnect()
     try await fixture.source.connect(credentials: proxy.credentials)
@@ -124,7 +124,7 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
   }
 
   private func exerciseLostAcknowledgement(concurrentSave: Bool) async throws {
-    let fixture = try await OwnedSMBWorkflowFixture.open()
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     let proxy = try await OwnedSMBPublicationProxy.open(fixture)
     await fixture.source.disconnect()
     try await fixture.source.connect(credentials: proxy.credentials)

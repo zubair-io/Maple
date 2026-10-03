@@ -39,6 +39,9 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
     fileprivate let connectLock = NSLock()
     fileprivate let operationLock = NSCondition()
     fileprivate var operationCount: Int = 0
+    // #4110: internal regression fence for the actual graceful-drain wait.
+    // Nil in application use; tests install it before starting disconnect.
+    internal var disconnectDrainObserver: (@Sendable () -> Void)?
 
     /// The timeout interval to use when doing an operation until getting response. Default value is 60 seconds.
     /// Set this to 0 or negative value in order to disable it.
@@ -288,6 +291,7 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
                 if gracefully {
                     self.operationLock.lock()
                     while self.operationCount > 0 {
+                        self.disconnectDrainObserver?()
                         self.operationLock.wait()
                     }
                     self.operationLock.unlock()
@@ -997,6 +1001,9 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
             var offset = range.lowerBound
             do {
                 let file = try SMB2FileHandle(forReadingAtPath: path, on: client)
+                // #4110: finish only after this stream relinquishes its file handle.
+                // Deinit alone can run after the consumer has already disconnected.
+                defer { file.close() }
                 try file.lseek(offset: range.lowerBound, whence: .set)
                 while offset < range.upperBound {
                     // Read optimal read size, or less if less is remaining.
@@ -1007,9 +1014,10 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
                     if data.isEmpty {
                         break
                     }
-                    continuation.yield(data.prefix(Int(range.upperBound - offset)))
+                    if case .terminated = continuation.yield(data.prefix(Int(range.upperBound - offset))) { break }
                     offset += Int64(data.count)
                 }
+                file.close()
                 continuation.finish()
             } catch {
                 continuation.finish(throwing: error)
