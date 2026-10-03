@@ -171,6 +171,7 @@ extension AppShell {
       displayName: asset.filename,
       hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
       stableID: asset.id,
+      captureDate: asset.captured_at.flatMap(parseTimelineISO8601),
       thumbnailProvenance: .cloud(server: server),
       // Same per-server `source` the byte fetch closes over, so the
       // 1280 px `/api/fs/preview` request lands on the server that
@@ -211,6 +212,7 @@ extension AppShell {
       displayName: ref.displayName,
       hintExtension: ext.isEmpty ? nil : ext,
       stableID: ref.id,
+      captureDate: ref.captureDate,
       thumbnailProvenance: .photoKit,
       bytesProvider: { try await source.rawBytes(for: ref) }
     )

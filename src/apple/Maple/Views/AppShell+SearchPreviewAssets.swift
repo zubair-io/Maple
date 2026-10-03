@@ -50,6 +50,7 @@ extension AppShell {
       displayName: image.name,
       hintExtension: ext.isEmpty ? nil : ext,
       stableID: id,
+      captureDate: image.exif?.capturedAt.flatMap(parseTimelineISO8601),
       thumbnailProvenance: .cloud(server: server),
       displayPreviewProvider: { try await source.preview(for: imageRef) },
       catalog: CatalogRef(

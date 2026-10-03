@@ -106,6 +106,8 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// `ImageRef.id` — a BLAKE3 maple:id hex string from the Bun API, or a
   /// PHAsset `localIdentifier`.
   public let stableID: String?
+  /// Capture date supplied by the owning source, without fetching original bytes.
+  public let captureDate: Date?
 
   /// Bookmark-resolved ancestor URL that grants security-scoped access to
   /// `primaryURL`. Set when the asset originated from a filesystem walk
@@ -332,7 +334,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     return nil
   }
 
-  public init(url: URL, scopeParentURL: URL? = nil) {
+  public init(url: URL, scopeParentURL: URL? = nil, captureDate: Date? = nil) {
     self.id = UUID()
     self.primaryURL = url
     self.displayNameOverride = nil
@@ -340,6 +342,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.bytesProvider = nil
     self.displayPreviewProvider = nil
     self.stableID = url.path
+    self.captureDate = captureDate
     self.scopeParentURL = scopeParentURL
     self.explicitIsRaw = nil
     self.thumbnailProvenance = nil
@@ -367,6 +370,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     displayName: String,
     hintExtension: String?,
     stableID: String? = nil,
+    captureDate: Date? = nil,
     explicitIsRaw: Bool? = nil,
     thumbnailProvenance: ThumbnailProvenance? = nil,
     displayPreviewProvider: DisplayPreviewProvider? = nil,
@@ -380,6 +384,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.bytesProvider = bytesProvider
     self.displayPreviewProvider = displayPreviewProvider
     self.stableID = stableID
+    self.captureDate = captureDate
     self.scopeParentURL = nil
     self.explicitIsRaw = explicitIsRaw
     self.thumbnailProvenance = thumbnailProvenance

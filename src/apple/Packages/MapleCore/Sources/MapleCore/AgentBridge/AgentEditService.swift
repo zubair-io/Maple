@@ -60,7 +60,7 @@ public final class AgentEditService {
       return try await AgentVectorscopeTool.getVectorscope(arguments, in: try session())
     case "maple_list_photos":
       return AgentPayload(
-        result: try AgentBrowseService.listPhotos(
+        result: try await AgentBrowseService.listPhotos(
           arguments, delegate: browseDelegate, activeSession: activeSession))
     case "maple_get_thumbnails":
       return try await AgentBrowseService.getThumbnails(

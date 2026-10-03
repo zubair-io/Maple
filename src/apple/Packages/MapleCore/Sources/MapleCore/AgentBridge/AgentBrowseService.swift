@@ -25,7 +25,7 @@ enum AgentBrowseService {
     _ arguments: [String: JSONValue],
     delegate: (any AgentBrowseDelegate)?,
     activeSession: EditSession?
-  ) throws -> JSONValue {
+  ) async throws -> JSONValue {
     guard let delegate else {
       throw AgentError(
         code: "browse_unavailable",
@@ -43,7 +43,9 @@ enum AgentBrowseService {
       slice = []
     }
 
-    let photos: [JSONValue] = slice.map { asset in
+    let collectionName = delegate.activeCollectionName ?? "Library"
+    let folderPath = delegate.activeFolderPath
+    let records: [JSONValue] = slice.map { asset in
       var photoObj: [String: JSONValue] = [
         "id": .string(asset.id.uuidString),
         "name": .string(asset.displayName),
@@ -58,10 +60,16 @@ enum AgentBrowseService {
       if let color = culling.colorLabel {
         photoObj["color_label"] = .string(color.rawValue)
       }
-      if let captureTime = captureTimestamp(for: asset) {
-        photoObj["capture_time"] = .string(captureTime)
-      }
       return .object(photoObj)
+    }
+
+    var photos: [JSONValue] = []
+    for (asset, record) in zip(slice, records) {
+      var fields = record.objectValue ?? [:]
+      if let captureTime = await captureTimestamp(for: asset) {
+        fields["capture_time"] = .string(captureTime)
+      }
+      photos.append(.object(fields))
     }
 
     var result: [String: JSONValue] = [
@@ -69,9 +77,9 @@ enum AgentBrowseService {
       "total_count": .int(totalCount),
       "offset": .int(offset),
       "limit": .int(limit),
-      "collection_name": .string(delegate.activeCollectionName ?? "Library"),
+      "collection_name": .string(collectionName),
     ]
-    if let folderPath = delegate.activeFolderPath {
+    if let folderPath {
       result["folder_path"] = .string(folderPath)
     }
     return .object(result)
@@ -287,14 +295,21 @@ enum AgentBrowseService {
     return CullingState()
   }
 
-  static func captureTimestamp(for asset: AssetRef) -> String? {
-    if let url = asset.primaryURL,
-      let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-      let date = attrs[.creationDate] as? Date
-    {
-      return ISO8601DateFormatter().string(from: date)
+  static func captureTimestamp(for asset: AssetRef) async -> String? {
+    if let date = asset.captureDate {
+      let formatter = ISO8601DateFormatter()
+      formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+      return formatter.string(from: date)
     }
-    return nil
+    guard let url = asset.primaryURL else { return nil }
+    let scope = asset.scopeParentURL
+    return await Task.detached(priority: .utility) {
+      let claimed = scope?.startAccessingSecurityScopedResource() ?? false
+      defer { if claimed { scope?.stopAccessingSecurityScopedResource() } }
+      let dates = ImageMetadataReader.readRawCaptureDateStrings(from: url)
+      return dates.dateTimeOriginal.flatMap(ExifCaptureDate.iso8601UTC(fromExifString:))
+        ?? dates.createDate.flatMap(ExifCaptureDate.iso8601UTC(fromExifString:))
+    }.value
   }
 
   static func loadThumbnailJPEG(
