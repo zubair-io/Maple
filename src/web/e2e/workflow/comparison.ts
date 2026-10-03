@@ -13,6 +13,10 @@ import { provideSelfHostedWorkspace } from '../../projects/maple-common/src/lib/
 import type { ApiFolder } from '../../projects/maple-common/src/lib/workspace/server-library-io';
 import { XmpSerializerService } from '../../projects/maple-common/src/lib/xmp/xmp-serializer.service';
 import { defaultAdjustmentModel } from '../../projects/maple-common/src/lib/models/adjustment-model';
+import {
+  CanvasColorSpacePref,
+  type CanvasColorSpace,
+} from '../../projects/maple-common/src/lib/raw-pipeline/canvas-color-space.pref';
 import { GpuLiveRenderGate } from '../../projects/maple-common/src/lib/raw-pipeline/gpu-live-render.gate';
 import { EditorStateService } from '../../projects/maple-common/src/lib/editor/editor-state.service';
 import { EditorWorkflowHistoryService } from '../../projects/maple-common/src/lib/editor/editor-workflow-history.service';
@@ -43,6 +47,8 @@ export async function comparisonWorkflow(
   backend: 'hosted' | 'self-hosted',
   gpu: boolean,
   camera = false,
+  camera100mp = false,
+  colorSpace?: CanvasColorSpace,
 ) {
   const initial = new XmpSerializerService().serialize({
     ...defaultAdjustmentModel(),
@@ -50,10 +56,24 @@ export async function comparisonWorkflow(
   });
   const fixture = await control<{ key: string; path: string; library: ApiFolder }>(
     '/workflow-fixture',
-    { xml: initial, synthetic: true, camera },
+    { xml: initial, synthetic: true, camera, camera100mp },
   );
-  const original = await control<{ original: number[] }>('/workflow-fixture/' + fixture.key);
-  const bytes = new Uint8Array(original.original);
+  const readOriginal = async () => {
+    const response = await fetch('/workflow-fixture/' + fixture.key + '/raw');
+    if (!response.ok) throw Error('Original read failed');
+    return new Uint8Array(await response.arrayBuffer());
+  };
+  const bytes = await readOriginal();
+  const sourceHash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('');
+  if (
+    camera100mp &&
+    (bytes.length !== 129467390 ||
+      sourceHash !== 'f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5')
+  ) {
+    throw Error('100MP fixture does not match the committed canonical fingerprint');
+  }
   const app = await createApplication({
     providers: [
       backend === 'hosted' ? provideHostedWorkspace() : provideSelfHostedWorkspace(),
@@ -75,6 +95,7 @@ export async function comparisonWorkflow(
     const access = app.injector.get(FolderAccessService);
     const editor = app.injector.get(EditorStateService);
     app.injector.get(GpuLiveRenderGate).apply(gpu);
+    if (colorSpace) app.injector.get(CanvasColorSpacePref).set(colorSpace);
     let id: string;
     if (backend === 'hosted') {
       await access.writeFile(folder, 'photo.dng', bytes);
@@ -118,6 +139,8 @@ export async function comparisonWorkflow(
     );
     if (canvas.gpuPresent.active() !== gpu)
       throw Error('Requested render path was not established');
+    if (colorSpace && canvas.gpuPresent.colorSpace() !== colorSpace)
+      throw Error('Requested canvas gamut was not established');
     const initialModel = structuredClone(library.adjustmentFor(id)());
     const drawCanvas = host.querySelector('canvas:not([data-gpu-live])') as HTMLCanvasElement;
     const liveCanvas = () =>
@@ -127,7 +150,8 @@ export async function comparisonWorkflow(
     const readXML = async () =>
       backend === 'hosted'
         ? new TextDecoder().decode(await access.readFile(folder, 'photo.xmp'))
-        : (await control<{ xml: string }>('/workflow-fixture/' + fixture.key)).xml;
+        : (await control<{ xml: string }>('/workflow-fixture/' + fixture.key + '?original=false'))
+            .xml;
     library.updateAdjustment(id, { exposure: 1.25 });
     await until(
       () => canvas.lastRenderedXmp === canvas.serializeForRender(library.adjustmentFor(id)()),
@@ -136,7 +160,57 @@ export async function comparisonWorkflow(
     await flush();
     const saved = await readXML();
     const editedPixel = pixel(liveCanvas(), liveCanvas().width, liveCanvas().height);
+    let baselineSubmitted = false;
+    const renderer = Reflect.get(canvas.comparison, 'renderer').bind(canvas.comparison);
+    const observed = new WeakSet<object>();
+    Reflect.set(canvas.comparison, 'renderer', () => {
+      const pipeline = renderer() as typeof canvas.pipeline;
+      if (!observed.has(pipeline)) {
+        observed.add(pipeline);
+        const exportImage = pipeline.exportImage.bind(pipeline);
+        const decode = pipeline.decode.bind(pipeline);
+        pipeline.exportImage = (...args: Parameters<typeof exportImage>) => {
+          const result = exportImage(...args);
+          baselineSubmitted = true;
+          return result;
+        };
+        pipeline.decode = (...args: Parameters<typeof decode>) => {
+          const result = decode(...args);
+          baselineSubmitted = true;
+          return result;
+        };
+      }
+      return pipeline;
+    });
+    let preparingTickMs: number | null = null;
+    let preparingAtTick = false;
+    let preparingTicks = 0;
     service.beforeAfterSplitX.set(1);
+    if (camera100mp && gpu) {
+      console.log('100MP comparison admission', canvas.gpuPresent.colorSpace());
+      await until(
+        () => baselineSubmitted || canvas.comparison.error() !== null,
+        'comparison admission',
+      );
+      if (canvas.comparison.error()) throw Error(canvas.comparison.error()!);
+    }
+    const comparisonXml = camera100mp && gpu ? await readXML() : null;
+    if (camera100mp && gpu) {
+      preparingAtTick = canvas.comparison.loading();
+      const deadline = performance.now() + 60000;
+      do {
+        const start = performance.now();
+        library.updateAdjustment(id, { exposure: preparingTicks % 2 === 0 ? 1.35 : 1.36 });
+        const target = canvas.serializeForRender(library.adjustmentFor(id)());
+        while (canvas.lastRenderedXmp !== target) {
+          if (performance.now() > deadline) throw Error('Preparing comparison blocked a live tick');
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        }
+        preparingTickMs = Math.max(preparingTickMs ?? 0, performance.now() - start);
+        preparingTicks++;
+      } while (canvas.comparison.loading() && performance.now() < deadline);
+      console.log('100MP preparation ticks', preparingTicks, 'maximum', preparingTickMs);
+    }
     await until(
       () => canvas.comparison.bitmap() !== null || canvas.comparison.error() !== null,
       'before pixels',
@@ -144,7 +218,8 @@ export async function comparisonWorkflow(
     if (canvas.comparison.error()) throw Error(canvas.comparison.error()!);
     const beforePixel = pixel(drawCanvas, drawCanvas.width, drawCanvas.height);
     const owned = canvas.comparison.bitmap()!;
-    const comparisonDoesNotWriteXMP = (await readXML()) === saved;
+    const comparisonDoesNotWriteXMP =
+      (camera100mp && gpu ? comparisonXml : await readXML()) === saved;
     for (const exposure of [1.5, 1.75, 2]) {
       library.updateAdjustment(id, { exposure });
       await until(
@@ -191,13 +266,14 @@ export async function comparisonWorkflow(
     const variantSource = history.capture(id, selectedModel)!;
     await variants.select(variantSource, 'primary');
     const originalAfter =
-      backend === 'hosted'
-        ? await access.readFile(folder, 'photo.dng')
-        : new Uint8Array(
-            (await control<{ original: number[] }>('/workflow-fixture/' + fixture.key)).original,
-          );
+      backend === 'hosted' ? await access.readFile(folder, 'photo.dng') : await readOriginal();
     return {
       gpu: canvas.gpuPresent.active(),
+      colorSpace: canvas.gpuPresent.colorSpace(),
+      preparingTickMs,
+      preparingAtTick,
+      preparingTicks,
+      sourceHash,
       initialPixel,
       editedPixel,
       beforePixel,

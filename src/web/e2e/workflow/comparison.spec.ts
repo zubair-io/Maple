@@ -64,3 +64,39 @@ for (const gpu of [false, true]) {
       expect(result[key], `${key}: ${JSON.stringify(result)}`).toBe(true);
   });
 }
+
+for (const colorSpace of ['srgb', 'display-p3'] as const) {
+  test(`canonical 100MP ${colorSpace}: comparison preparation preserves live GPU slider response`, async ({
+    page,
+  }) => {
+    test.skip(
+      !existsSync(resolve('../../test-fixtures/raws/test_0000.DNG')),
+      'Canonical 100MP RAW is gitignored.',
+    );
+    test.setTimeout(360000);
+    page.on('console', (message) => {
+      if (message.text().startsWith('100MP')) console.log(message.text());
+    });
+    await page.goto('http://localhost:4520');
+    await page.waitForFunction(() => Reflect.get(window, 'workflowUI'));
+    const result = await page.evaluate(
+      (colorSpace) =>
+        Reflect.get(window, 'workflowUI').comparisonWorkflow(
+          'hosted',
+          true,
+          true,
+          true,
+          colorSpace,
+        ),
+      colorSpace,
+    );
+    console.log('100MP comparison qualification', JSON.stringify(result));
+    expect(result.colorSpace).toBe(colorSpace);
+    expect(result.preparingAtTick).toBe(true);
+    expect(result.preparingTicks).toBeGreaterThan(1);
+    expect(result.preparingTickMs, JSON.stringify(result)).toBeLessThanOrEqual(50);
+    expect(result.actualDifferentPixels).toBe(true);
+    expect(result.baselineMatchesOpening).toBe(true);
+    expect(result.originalUnchanged).toBe(true);
+  });
+}
