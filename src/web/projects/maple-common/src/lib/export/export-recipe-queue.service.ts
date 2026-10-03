@@ -81,6 +81,7 @@ export class ExportRecipeQueueService {
       if (recipe.destination === 'directory' && !this.server) {
         record.directoryHandle = await this.directories.resolve(recipe.directory!);
         await this.directories.captureSources(targets);
+        record.protectedOriginals = targets.map((target) => target.sourceHandle ?? null);
       }
       await this.execute(record);
     });

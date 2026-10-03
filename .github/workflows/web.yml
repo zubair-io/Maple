@@ -423,6 +423,13 @@ jobs:
       - name: Install Playwright Chrome
         working-directory: src/web
         run: bun x playwright install --with-deps chrome
+      - name: Qualify browser export retry original protection
+        id: export_retry_report
+        working-directory: src/web
+        run: |
+          bun x playwright test --config playwright.workflow.config.ts export-retry.spec.ts
+          python3 ../../tools/check_export_retry_evidence.py test-results/workflow/results.json
+          cp test-results/workflow/results.json "$RUNNER_TEMP/export-retry-results.json"
       # Committed synthetic RAWs: no external fixture download or skip path.
       - name: Qualify white balance, Auto Tone and lens gestures
         working-directory: src/web
@@ -451,6 +458,12 @@ jobs:
           cp "$RUNNER_TEMP/wb-auto-tone-results.json" test-results/workflow/wb-auto-tone-results.json
           cp "$RUNNER_TEMP/lens-gesture-results.json" test-results/workflow/lens-gesture-results.json
           cp "$RUNNER_TEMP/editor-control-results.json" test-results/workflow/editor-control-results.json
+      - name: Restore export original protection report
+        if: always() && steps.export_retry_report.outcome == 'success'
+        working-directory: src/web
+        run: |
+          mkdir -p test-results/workflow
+          cp "$RUNNER_TEMP/export-retry-results.json" test-results/workflow/export-retry-results.json
       - name: Upload workflow acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4

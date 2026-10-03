@@ -28,6 +28,8 @@ export interface RecipeQueueRecord {
   serverJobId: string | null;
   cancelled: boolean;
   directoryHandle?: FileSystemDirectoryHandle;
+  /** All initial originals survive failed-item filtering and queue reloads (#4107). */
+  protectedOriginals?: (FileSystemFileHandle | null)[];
 }
 
 async function db(): Promise<IDBDatabase> {

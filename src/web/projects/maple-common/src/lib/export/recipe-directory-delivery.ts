@@ -35,10 +35,15 @@ async function guardOriginal(
   record: RecipeQueueRecord,
 ): Promise<void> {
   if (!handle) return;
-  for (const source of record.targets) {
-    if (!source.sourceHandle)
-      throw new Error('Original identity unavailable. Reopen the source folder.');
-    if (await handle.isSameEntry(source.sourceHandle))
+  const originals = record.protectedOriginals;
+  // Legacy records may already be filtered by a retry. Their full identity set is lost.
+  if (!originals?.length)
+    throw new Error(
+      'Original identity unavailable for this saved export. Reopen the source folder and start a new export.',
+    );
+  for (const source of originals) {
+    if (!source) throw new Error('Original identity unavailable. Reopen the source folder.');
+    if (await handle.isSameEntry(source))
       throw new Error(
         'Destination is an original photo. Choose another folder or naming template.',
       );
