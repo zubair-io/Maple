@@ -354,12 +354,8 @@ fn an_explicit_orientation_still_wins_after_auto_orient_end_to_end() {
 
 #[cfg(feature = "avif")]
 #[test]
-fn keep_with_no_input_icc_succeeds_on_avif_with_no_icc_embedded() {
-    // Ruling: the sRGB default-fill `keep: true` adds when the input has no
-    // ICC is a convenience, not a caller request — on AVIF (which this
-    // crate's encoder can't tag with ICC at all, #3580) that default must be
-    // skipped silently, matching sharp: keep-metadata on a no-ICC source
-    // converted to AVIF still succeeds.
+fn keep_with_no_input_icc_fills_the_avif_profile() {
+    // The default fill is writable and preserved on AVIF (#3580).
     let source = jpeg_source(None, None); // no ICC in the input at all
     let out = run(
         r#"{"v":1,"input":{"kind":"encoded"},"ops":[],
@@ -368,10 +364,11 @@ fn keep_with_no_input_icc_succeeds_on_avif_with_no_icc_embedded() {
         &source,
         &[],
     );
-    assert!(
-        crate::raster_meta::read_sidecars(&out.bytes).icc.is_none(),
-        "AVIF has no ICC box to read back — the default fill must not have \
-         been forced in some other way"
+    assert_eq!(
+        crate::raster_meta::read_sidecars(&out.bytes).icc,
+        Some(crate::icc::profile_for(
+            crate::view::encode::TargetPrimaries::Srgb
+        ))
     );
 }
 
@@ -380,12 +377,8 @@ fn keep_with_no_input_icc_succeeds_on_avif_with_no_icc_embedded() {
 /// names the missing feature rather than the ICC box.
 #[cfg(feature = "avif")]
 #[test]
-fn keep_with_a_real_input_icc_to_avif_drops_it_silently() {
-    // Swept up by `keep`, not named by the caller — so on AVIF (which this
-    // crate's encoder can't tag with ICC at all, #3580) it goes the same
-    // way as the default fill above: dropped, not an error. sharp's own
-    // `keepMetadata().avif()` on this source succeeds (#3507 final fix
-    // wave, item 6).
+fn keep_with_a_real_input_icc_to_avif_preserves_it() {
+    // A kept source profile is now writable on AVIF (#3580).
     let icc = p3_icc();
     let source = jpeg_source(Some(&icc), None);
     let out = run(
@@ -395,7 +388,7 @@ fn keep_with_a_real_input_icc_to_avif_drops_it_silently() {
         &source,
         &[],
     );
-    assert!(crate::raster_meta::read_sidecars(&out.bytes).icc.is_none());
+    assert_eq!(crate::raster_meta::read_sidecars(&out.bytes).icc, Some(icc));
 }
 
 /// `avif`-gated: without the feature `output_from_wire` rejects an AVIF
@@ -403,7 +396,7 @@ fn keep_with_a_real_input_icc_to_avif_drops_it_silently() {
 /// names the missing feature rather than the ICC box.
 #[cfg(feature = "avif")]
 #[test]
-fn an_explicit_icc_to_avif_is_a_named_error() {
+fn an_explicit_icc_to_avif_is_preserved() {
     let icc = p3_icc();
     let source = jpeg_source(None, None);
     let recipe = format!(
@@ -412,11 +405,8 @@ fn an_explicit_icc_to_avif_is_a_named_error() {
             "metadata":{{"icc":{{"off":0,"len":{}}}}}}}"#,
         icc.len()
     );
-    let err = run_err(&recipe, &source, &icc);
-    assert!(
-        format!("{err}").contains("AVIF cannot embed an ICC profile"),
-        "got: {err}"
-    );
+    let out = run(&recipe, &source, &icc);
+    assert_eq!(crate::raster_meta::read_sidecars(&out.bytes).icc, Some(icc));
 }
 
 // ---- the ICC precedence (#3507, ruled) ----

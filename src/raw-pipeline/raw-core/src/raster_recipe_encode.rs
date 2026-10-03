@@ -80,7 +80,7 @@ pub(crate) const TIFF_CAPS: Capabilities = Capabilities {
 #[cfg_attr(not(feature = "avif"), allow(dead_code))]
 pub(crate) const AVIF_CAPS: Capabilities = Capabilities {
     exif: true,
-    icc: false,
+    icc: true,
     xmp: false,
     density: false,
 };

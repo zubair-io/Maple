@@ -93,7 +93,7 @@ pub(super) fn parse_pitm(payload: &[u8]) -> Option<u32> {
 /// found, or a corrupt/truncated box) — callers compose an empty list the
 /// same way as "this item has no properties", which for `irot`/`imir`
 /// means orientation stays 1.
-fn parse_ipma_for_item(ipma: &[u8], item: u32) -> Vec<u32> {
+pub(super) fn parse_ipma_for_item(ipma: &[u8], item: u32) -> Vec<u32> {
     let Some(&version) = ipma.first() else {
         return Vec::new();
     };

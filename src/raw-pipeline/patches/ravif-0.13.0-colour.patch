@@ -1,0 +1,66 @@
+--- a/src/av1encoder.rs
++++ b/src/av1encoder.rs
+@@ -83,6 +83,8 @@
+     output_depth: BitDepth,
+     /// Dropped into MPEG infe BOX
+     exif: Option<Cow<'exif_slice, [u8]>>,
++    display_p3: bool,
++    icc_profile: Option<Vec<u8>>,
+ }
+
+ /// Builder methods
+@@ -99,10 +101,25 @@
+             color_model: ColorModel::YCbCr,
+             threads: None,
+             exif: None,
++            display_p3: false,
++            icc_profile: None,
+             alpha_color_mode: AlphaColorMode::UnassociatedClean,
+         }
+     }
+
++    /// Signal Display P3 D65 primaries with the existing sRGB transfer curve.
++    /// The samples must already be in Display P3.
++    pub fn with_display_p3(mut self) -> Self {
++        self.display_p3 = true;
++        self
++    }
++
++    /// Attach the actual sample-space ICC profile to the colour item only.
++    pub fn with_icc_profile(mut self, profile: Vec<u8>) -> Self {
++        self.icc_profile = Some(profile);
++        self
++    }
++
+     /// Quality `1..=100`. Panics if out of range.
+     #[inline(always)]
+     #[track_caller]
+@@ -393,7 +410,7 @@
+     ) -> Result<EncodedImage, Error> {
+         let color_description = Some(ColorDescription {
+             transfer_characteristics: TransferCharacteristics::SRGB,
+-            color_primaries: ColorPrimaries::BT709, // sRGB-compatible
++            color_primaries: if self.display_p3 { ColorPrimaries::SMPTE432 } else { ColorPrimaries::BT709 }, // Transfer is sRGB-compatible for both primaries.
+             matrix_coefficients,
+         });
+
+@@ -442,7 +459,19 @@
+         let (color, alpha) = (color?, alpha.transpose()?);
+
+         let mut serializer_config = avif_serialize::Aviffy::new();
++        // Keep container CICP and the sequence header identical (#3580).
++        serializer_config.set_color_primaries(if self.display_p3 {
++            avif_serialize::constants::ColorPrimaries::DisplayP3
++        } else {
++            avif_serialize::constants::ColorPrimaries::Bt709
++        });
+         serializer_config
++            .set_transfer_characteristics(avif_serialize::constants::TransferCharacteristics::Srgb);
++        serializer_config.set_full_color_range(color_pixel_range == PixelRange::Full);
++        if let Some(profile) = &self.icc_profile {
++            serializer_config.set_icc_profile(profile.clone());
++        }
++        serializer_config
+             .matrix_coefficients(match matrix_coefficients {
+                 MatrixCoefficients::Identity => avif_serialize::constants::MatrixCoefficients::Rgb,
+                 MatrixCoefficients::BT709 => avif_serialize::constants::MatrixCoefficients::Bt709,

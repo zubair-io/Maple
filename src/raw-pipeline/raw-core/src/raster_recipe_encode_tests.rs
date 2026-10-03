@@ -299,14 +299,9 @@ fn tiff_accepts_icc() {
 }
 
 #[test]
-fn avif_rejects_icc_xmp_and_density_by_name() {
+fn avif_accepts_icc_and_rejects_xmp_and_density_by_name() {
     let icc = p3();
-    let err =
-        require_supported(&meta(Some(&icc), None, None, None), "AVIF", &AVIF_CAPS).unwrap_err();
-    assert!(
-        format!("{err}").contains("AVIF cannot embed an ICC profile"),
-        "got: {err}"
-    );
+    require_supported(&meta(Some(&icc), None, None, None), "AVIF", &AVIF_CAPS).unwrap();
 
     let err = require_supported(
         &meta(None, None, Some(XMP_PACKET), None),

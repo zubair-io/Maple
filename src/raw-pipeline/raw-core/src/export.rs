@@ -180,7 +180,7 @@ pub(crate) fn encode_pixels(
             encode_tiff16(width, height, &rgb, profile)?
         }
         (ExportFormat::Avif, ExportPixels::Eight(rgb)) => {
-            encode_avif(width, height, &rgb, options.quality)?
+            encode_avif_tagged(width, height, &rgb, 3, options.quality, 6, options.target)?
         }
         (ExportFormat::Webp, ExportPixels::Eight(rgb)) => {
             encode_webp(width, height, &rgb, options.target)?
@@ -192,7 +192,7 @@ pub(crate) fn encode_pixels(
             return Err(Error::encode(
                 format.encoder_name(),
                 format!("export: render produced the wrong sample depth for {format:?}"),
-            ))
+            ));
         }
     };
 
@@ -302,6 +302,35 @@ pub fn encode_avif_with_speed(
     ))
 }
 
+/// RGB/RGBA AVIF with colour metadata matching the already-converted samples.
+#[cfg(feature = "avif")]
+pub fn encode_avif_tagged(
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+    channels: u8,
+    quality: u8,
+    speed: u8,
+    primaries: TargetPrimaries,
+) -> Result<Vec<u8>> {
+    crate::avif::encode_tagged(width, height, pixels, channels, quality, speed, primaries)
+}
+
+#[cfg(not(feature = "avif"))]
+pub fn encode_avif_tagged(
+    _width: u32,
+    _height: u32,
+    _pixels: &[u8],
+    _channels: u8,
+    _quality: u8,
+    _speed: u8,
+    _primaries: TargetPrimaries,
+) -> Result<Vec<u8>> {
+    Err(Error::UnsupportedFormat(
+        "AVIF export requires the 'avif' feature".into(),
+    ))
+}
+
 /// Lossless WebP. `image`'s `WebPEncoder` only writes an `ICCP` chunk when
 /// [`ImageEncoder::set_icc_profile`] is called before encoding, so a sRGB
 /// request skips that call entirely and produces the exact bytes this crate
@@ -345,26 +374,6 @@ pub fn encode_raster(
     )
 }
 
-/// AVIF's `colr` box (the ICC/CICP tag) is not written by this crate yet
-/// (#3503 Tier 2 leaves it out of scope) — every AVIF this crate emits is
-/// implicitly read back as sRGB by a colour-managed viewer. Encoding a
-/// Display-P3-rotated raster into that untagged container would silently
-/// reproduce the double-stretch defect `icc.rs` exists to prevent, so the
-/// combination is rejected by name instead.
-pub(crate) fn reject_untagged_avif_p3(
-    format: ExportFormat,
-    primaries: crate::view::encode::TargetPrimaries,
-) -> Result<()> {
-    if format == ExportFormat::Avif && primaries == crate::view::encode::TargetPrimaries::P3 {
-        return Err(Error::BitmapEncode(
-            "AVIF export cannot carry a Display P3 ICC profile yet (#3503) — export sRGB, \
-             or choose JPEG/PNG/TIFF/WebP for a Display P3 deliverable"
-                .into(),
-        ));
-    }
-    Ok(())
-}
-
 /// RGB-only raster encode. Callers with a possibly-4-channel raster go through
 /// [`crate::raster_encode::encode_raster_opts`], which decides per container
 /// whether to keep the alpha channel or flatten first (#3505). `primaries`
@@ -379,7 +388,6 @@ pub fn encode_raster_rgb(
     avif_speed: u8,
     primaries: crate::view::encode::TargetPrimaries,
 ) -> Result<Vec<u8>> {
-    reject_untagged_avif_p3(format, primaries)?;
     let rgb = raster.to_rgb_bytes();
     let profile = icc::profile_for(primaries);
     match format {
@@ -389,9 +397,15 @@ pub fn encode_raster_rgb(
             let rgb16: Vec<u16> = rgb.iter().map(|&v| (v as u16) * 257).collect();
             encode_tiff16(raster.width, raster.height, &rgb16, profile)
         }
-        ExportFormat::Avif => {
-            encode_avif_with_speed(raster.width, raster.height, &rgb, quality, avif_speed)
-        }
+        ExportFormat::Avif => encode_avif_tagged(
+            raster.width,
+            raster.height,
+            &rgb,
+            3,
+            quality,
+            avif_speed,
+            primaries,
+        ),
         ExportFormat::Webp => encode_webp(raster.width, raster.height, &rgb, primaries),
     }
 }

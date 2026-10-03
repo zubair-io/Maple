@@ -165,7 +165,7 @@ use `toRawAlpha()` to retain it.
 | `modulate()`                                       | ✅    | brightness/lightness on L\*, saturation on C\*, hue rotation, in CIELCh                                                                                                                                                                                                                                                                                                  |
 | `tint()`                                           | ✅    | linear-light luma as `greyscale`, then a\*/b\* from the tint; colour as `{r,g,b}` or `#rgb`/`#rrggbb`/`#rrggbbaa` (no CSS names); residual max 3, from the composed CIELAB matrices (#3581)                                                                                                                                                                              |
 | `toColourspace()` / `toColorspace()`               | ⚠️    | takes `srgb`, `display-p3`/`p3` and `b-w`; other libvips interpretation names error by name. Closer to sharp's `withIccProfile` than to its `toColourspace`, which takes interpretation names and silently ignores `display-p3`. `'b-w'` is byte-identical to sharp on the same sweep as `greyscale()` above, but its raw output is 3 identical bands where sharp's is 1 |
-| `toFormat('avif')` + `toColourspace('display-p3')` | ❌    | rejected by name. This crate does not write AVIF's `colr` box yet, and an untagged P3 AVIF reads back as sRGB and double-stretches; sharp tags it. Export sRGB, or use JPEG/PNG/TIFF/WebP for a P3 deliverable                                                                                                                                                           |
+| `toFormat('avif')` + `toColourspace('display-p3')` | ✅    | Matching Display P3 ICC and AV1/container CICP; Maple reopens P3 into its sRGB bitmap working space (#3580)                                                                                                                                                                                                                                                              |
 | `resize({ fit })`                                  | ✅\*  | `cover`, `contain`, `fill`, `inside`, `outside`; `contain` letterboxes with `background`                                                                                                                                                                                                                                                                                 |
 | `resize({ position })`                             | ✅    | nine gravities and eight `position` spellings; `entropy`/`attention` throw by name                                                                                                                                                                                                                                                                                       |
 | `resize({ kernel })`                               | ✅    | `nearest`, `linear`, `cubic`, `mitchell`, `lanczos2`, `lanczos3`; `filter` is an alias; `mks2013`/`mks2021` throw by name                                                                                                                                                                                                                                                |
@@ -549,13 +549,13 @@ match sharp on all nine, pixel for pixel.
 **AVIF metadata.** Reading is complete: `metadata()` reports the container's
 `irot`/`imir` transform in its dimensions (the transform itself is applied to
 the pixels, and `orientation` is `undefined` — see **Orientation** above), and
-returns the `Exif` and XMP items. Writing is
-EXIF-only: `avif-serialize`, the pure-Rust muxer behind Maple's AVIF encoder,
-can write an `Exif` item but has no writer for an ICC `colr` box or an XMP
-item (#3580), so an explicit `withIccProfile()` or `withXmp()` on AVIF output
-is a named error (`"AVIF cannot embed an ICC profile"` /
-`"AVIF cannot embed XMP"`), while the same blocks swept up by
-`keepMetadata()` are dropped silently. `withMetadata({ orientation: 6 })
+returns the `Exif` and XMP items and the primary image's associated ICC profile.
+Writing supports EXIF and ICC `colr` properties. Display P3 output has matching
+AV1 and container CICP values; its ICC is associated with the colour item,
+never the alpha item (#3580). Maple converts P3 samples to its sRGB bitmap
+working space on re-open and updates a kept profile accordingly. XMP writing
+remains unsupported: explicit `withXmp()` errors by name and swept XMP is
+omitted by `keepMetadata()`. `withMetadata({ orientation: 6 })
 .avif()` writes the value into the `Exif` item, where it stays readable in
 `metadata().exif`; the convenience `orientation` field stays `undefined` for
 an AVIF, which is what sharp reports too. That is how #3586 closes — matching

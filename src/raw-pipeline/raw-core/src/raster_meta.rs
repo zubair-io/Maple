@@ -189,10 +189,7 @@ pub(crate) fn read_sidecars_source<S: MetadataSource + ?Sized>(bytes: &S) -> Ras
             exif,
             exif_intro,
             xmp: boxes.xmp,
-            // See the module doc: `colr`/`prof` ICC is a real AVIF
-            // possibility this crate's own encoder never writes, so there is
-            // nothing to read back yet.
-            icc: None,
+            icc: boxes.icc,
             density: None,
         };
     }

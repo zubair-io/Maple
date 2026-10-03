@@ -1,6 +1,5 @@
 use crate::error::{Error, Result};
-use image::codecs::avif::AvifEncoder;
-use image::{ExtendedColorType, ImageEncoder};
+use crate::view::encode::TargetPrimaries;
 
 /// rav1e speed preset: 1 = slowest/best compression, 10 = fastest/worst.
 /// 6 favors encode throughput — this runs across the whole indexer backlog
@@ -16,8 +15,7 @@ const AVIF_SPEED: u8 = 6;
 /// disk. See `docs/spec/12-maple-apps-spec.md` §02: "The core is
 /// side-effect-free. It never reads or writes a file."
 ///
-/// Embeds no ICC profile (color-managed viewers assume sRGB for untagged
-/// AVIF, matching `jpeg::encode`'s convention).
+/// sRGB uses the implicit default CICP values; P3 uses `encode_tagged`.
 pub fn encode(width: u32, height: u32, rgb: &[u8], quality: u8) -> Result<Vec<u8>> {
     encode_with_speed(width, height, rgb, quality, AVIF_SPEED)
 }
@@ -35,16 +33,57 @@ pub fn encode_with_speed(
     if rgb.len() != expected_len {
         return Err(Error::encode(
             "AVIF",
-            format!("expected {} bytes, got {}", expected_len, rgb.len()),
+            format!("expected {expected_len} bytes, got {}", rgb.len()),
         ));
     }
-    let mut out: Vec<u8> = Vec::new();
-    // `write_image` asserts `data.len() == expected_buffer_len` internally —
-    // the length check above guards the FFI boundary before that assert.
-    AvifEncoder::new_with_speed_quality(&mut out, speed.clamp(1, 10), quality)
-        .write_image(rgb, width, height, ExtendedColorType::Rgb8)
+    use image::ImageEncoder;
+    let mut out = Vec::new();
+    image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut out, speed.clamp(1, 10), quality)
+        .write_image(rgb, width, height, image::ExtendedColorType::Rgb8)
         .map_err(|e| Error::encode("AVIF", e.to_string()))?;
     Ok(out)
+}
+
+/// The shared RAW/bitmap RGB and RGBA encoder. Samples are already in `primaries`.
+pub fn encode_tagged(
+    width: u32,
+    height: u32,
+    pixels: &[u8],
+    channels: u8,
+    quality: u8,
+    speed: u8,
+    primaries: TargetPrimaries,
+) -> Result<Vec<u8>> {
+    // Preserve existing sRGB derivatives byte-for-byte. Their default AV1
+    // colour description already identifies sRGB without an ICC payload.
+    if primaries == TargetPrimaries::Srgb {
+        return if channels == 3 {
+            encode_with_speed(width, height, pixels, quality, speed)
+        } else {
+            crate::export::encode_avif_rgba_with_speed(width, height, pixels, quality, speed)
+        };
+    }
+    let expected_len = (width as usize) * (height as usize) * usize::from(channels);
+    if pixels.len() != expected_len {
+        return Err(Error::encode(
+            "AVIF",
+            format!("expected {} bytes, got {}", expected_len, pixels.len()),
+        ));
+    }
+    let raster = crate::raster::RasterImage::from_raw(width, height, channels, pixels.to_vec())?;
+    let profile = crate::icc::profile_for(primaries);
+    crate::raster_encode_avif::encode_avif_opts(
+        &raster,
+        &crate::raster_encode_avif::AvifOptions {
+            quality,
+            effort: 10 - speed.clamp(1, 10),
+            ..Default::default()
+        },
+        &crate::raster_encode::EmbeddedMetadata {
+            icc: Some(&profile),
+            ..Default::default()
+        },
+    )
 }
 
 #[cfg(test)]
