@@ -123,6 +123,7 @@ def run(
     float_input=None,
     memory_experiment=None,
     prompt=PROMPT,
+    mask_reference=False,
 ):
     source_u8, hole = native_context(image_path, mask_path, crop)
     native_dimensions(crop)
@@ -175,19 +176,32 @@ def run(
     Image.fromarray(hole.astype(np.uint8) * 255).save(output / "hole.png")
     seen = []
     tensor_seen = []
+    reference_seen = []
+    reference_rgb = hole.astype(np.uint8)[:, :, None].repeat(3, axis=2) * 255
+    reference_path = output / "mask-reference.png"
+    if mask_reference:
+        Image.fromarray(reference_rgb).save(reference_path)
     original_scale = ImageUtil.scale_to_dimensions
     original_array = ImageUtil.to_array
 
     def checked_scale(image, target_width, target_height, **kwargs):
         result = original_scale(image, target_width, target_height, **kwargs)
-        if result.size != (width, height) or not np.array_equal(
-            np.asarray(result.convert("RGB")), source_u8
+        pixels = np.asarray(result.convert("RGB"))
+        is_reference = mask_reference and np.array_equal(pixels, reference_rgb)
+        if result.size != (width, height) or not (
+            np.array_equal(pixels, source_u8) or is_reference
         ):
             raise ValueError("Upstream source preprocessing resampled native pixels")
         seen.append(True)
         return result
 
     def checked_array(image, is_mask=False):
+        if mask_reference and np.array_equal(np.asarray(image), reference_rgb):
+            if is_mask:
+                raise ValueError("Visual reference must enter the image VAE")
+            reference_seen.append(True)
+            values = (hole.astype(np.float32) * 2 - 1)[None, None].repeat(3, axis=1)
+            return mx.array(values)
         if is_mask or not np.array_equal(np.asarray(image), source_u8):
             raise ValueError("Unexpected image submitted to the native VAE encoder")
         # For the Rust float context, the PNG is a locator/proxy only. Actual
@@ -242,6 +256,7 @@ def run(
             width=width,
             guidance=1.0,
             canvas_policy="exact-resize",
+            reference_image_paths=[reference_path] if mask_reference else None,
         )
         mx.synchronize()
     finally:
@@ -254,6 +269,7 @@ def run(
         or len(decoded_arrays) != 1
         or not seen
         or not tensor_seen
+        or bool(reference_seen) != mask_reference
     ):
         raise ValueError("Missing native generation/preprocessing evidence")
     raw = decoded_arrays[0]
@@ -278,6 +294,11 @@ def run(
         "native_extent_hw": [height, width],
         "source_preprocessor_samples_exact": bool(seen),
         "pixel_mask_preprocessor_exact": True,
+        "visual_mask_reference": mask_reference,
+        "visual_mask_reference_vae_verified": bool(reference_seen),
+        "visual_mask_reference_sha256": digest(reference_path)
+        if mask_reference
+        else None,
         "source_resampled": False,
         "selected_pixels": int(hole.sum()),
         "prompt": prompt,

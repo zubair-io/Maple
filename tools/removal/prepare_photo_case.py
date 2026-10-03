@@ -43,7 +43,30 @@ def write_mask(path, values, context):
     )
 
 
-def prepare(case_id, raw_root, output, scene_probe, orientation_probe=None):
+def selection(case, name, path):
+    pin = case.get(f"{name}_mask_sha256")
+    if pin is None:
+        if path is not None:
+            raise ValueError("This case requires its recorded rectangles")
+        return rectangles(case[f"{name}_rects_xywh"])
+    if path is None or digest(path) != pin:
+        raise ValueError("Photographic selection mask identity mismatch")
+    with Image.open(path) as image:
+        values = np.asarray(image)
+    if values.shape != (1024, 1024) or not np.isin(values, [0, 255]).all():
+        raise ValueError("Expected a binary native1024 selection mask")
+    return values
+
+
+def prepare(
+    case_id,
+    raw_root,
+    output,
+    scene_probe,
+    orientation_probe=None,
+    intent_mask=None,
+    protected_mask=None,
+):
     manifest = Path(__file__).with_name("photo-research-cases.json")
     data = json.loads(manifest.read_text())
     if data["version"] != 1 or data["releaseQualified"]:
@@ -65,8 +88,8 @@ def prepare(case_id, raw_root, output, scene_probe, orientation_probe=None):
     x, y, width, height = case["window_xywh"]
     if (width, height) != (1024, 1024):
         raise ValueError("These recorded RAW cases require native1024square")
-    intent = rectangles(case["intent_rects_xywh"])
-    protected = rectangles(case["protected_rects_xywh"])
+    intent = selection(case, "intent", intent_mask)
+    protected = selection(case, "protected", protected_mask)
     if not intent.any() or np.any((intent > 0) & (protected > 0)):
         raise ValueError("Empty intent or intent overlaps protected source")
     subprocess.run(
@@ -171,7 +194,15 @@ if __name__ == "__main__":
     for name in ["raw-root", "output", "scene-probe"]:
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--orientation-probe", type=Path)
+    parser.add_argument("--intent-mask", type=Path)
+    parser.add_argument("--protected-mask", type=Path)
     args = parser.parse_args()
     prepare(
-        args.case, args.raw_root, args.output, args.scene_probe, args.orientation_probe
+        args.case,
+        args.raw_root,
+        args.output,
+        args.scene_probe,
+        args.orientation_probe,
+        args.intent_mask,
+        args.protected_mask,
     )
