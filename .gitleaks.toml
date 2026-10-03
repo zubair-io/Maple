@@ -25,6 +25,11 @@ paths = [
 # detected secret. Preferred over path exemptions so the surrounding files
 # stay fully scanned for anything that ISN'T one of these exact strings.
 regexes = [
+    # Public NIST SP 800-38A AES-128 test vector in the pinned libsmb2
+    # aes_reference.c comment. Allow only this exact published value;
+    # the surrounding vendored source remains scanned.
+    '''^2b7e151628aed2a6abf7158809cf4f3c$''',
+
     # Apple CryptoKit type name used throughout the Maple TV pairing code
     # (`Curve25519.KeyAgreement.PrivateKey`). The generic-api-key rule reads
     # the `privateKey:` binding as a credential; it is a public type name.
