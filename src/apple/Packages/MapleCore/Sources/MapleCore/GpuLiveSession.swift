@@ -196,6 +196,7 @@ public actor GpuLiveSession {
   /// `quality` MUST match the decode quality (the editor decodes at `.preview`),
   /// or the fitted curve won't match the displayed pixels.
   public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) {
+    guard !Task.isCancelled else { return }
     let curveLen = Int(MAPLE_PROFILE_CURVE_FLAT_LEN)
     var curve = [Float](repeating: 0, count: curveLen)
     var present: Int32 = 0

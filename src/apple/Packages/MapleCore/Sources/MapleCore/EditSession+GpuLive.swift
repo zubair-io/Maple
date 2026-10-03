@@ -252,13 +252,23 @@ extension EditSession {
       let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-      if let prepared = preparedNativeAutoProfile(decodeGeneration: decodeGeneration) {
+      if let prepared = nativeAutoProfile.readyFor(
+        decodeGeneration: decodeGeneration, quality: AmazeFlag.isEnabled ? .amaze : .full)
+      {
         await driver.installNativeAutoProfile(prepared)
       } else {
         await driver.fitAutoProfileIfNeeded(rawPath: url.path, model: m, quality: quality)
-        if let prepared = nativeAutoProfile.readyFor(
-          decodeGeneration: decodeGeneration, quality: AmazeFlag.isEnabled ? .amaze : .full)
-        {
+        // #1472: the full native develop uses the same CPU workers as this
+        // provisional fit. Finish the fit before requesting a cold native job.
+        // A newer render can arrive during that await; never rewind its native
+        // request with this decode.
+        if let gen {
+          guard gen == (await renderActor.currentGeneration()), !Task.isCancelled else {
+            return true
+          }
+        }
+        guard !Task.isCancelled else { return true }
+        if let prepared = preparedNativeAutoProfile(decodeGeneration: decodeGeneration) {
           await driver.installNativeAutoProfile(prepared)
         }
       }

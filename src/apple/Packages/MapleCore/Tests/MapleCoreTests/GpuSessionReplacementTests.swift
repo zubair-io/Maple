@@ -233,6 +233,37 @@ final class GpuSessionReplacementTests: XCTestCase {
     XCTAssertFalse(driver.hasSession)
   }
 
+  func testReplacementWaitsForRetiredAutoFitBeforeAllocatingUpload() async throws {
+    let driver = GpuLiveDriver()
+    try await driver.open(width: 16, height: 16, identity: identity, pixels: Self.pixels)
+    let barrier = TeardownBarrier()
+    // Hold an already running fit's completion, like synchronous native work
+    // that cancellation cannot interrupt. Replacement must join its return.
+    driver.autoProfileFitTask = Task { await barrier.wait() }
+    let readbacks = ReadbackRecorder()
+    let started = expectation(description: "replacement requested")
+    let next = GpuUploadIdentity(decodeGeneration: 2, crop: .identity)
+    let replacement = Task {
+      started.fulfill()
+      try await driver.open(width: 16, height: 16, identity: next) {
+        readbacks.append(2)
+        return Self.pixels()
+      }
+    }
+    await fulfillment(of: [started], timeout: 5)
+    XCTAssertFalse(driver.hasSession, "Retired upload must not remain visible")
+    XCTAssertTrue(readbacks.values.isEmpty, "A live fit must not overlap a replacement upload")
+    barrier.release()
+    try await replacement.value
+    XCTAssertEqual(readbacks.values, [2])
+    XCTAssertTrue(driver.isOpen(coveringWidth: 16, height: 16, identity: next))
+    XCTAssertNil(driver.autoProfileFitTask)
+    XCTAssertFalse(driver.autoProfileFitDone)
+    let rendered = await driver.renderCurrentFrameBytes(model: .default)
+    XCTAssertEqual(rendered?.bytes.count, 16 * 16 * 3)
+    await driver.closeSession()
+  }
+
   nonisolated private static func pixels() -> [Float] {
     Array(repeating: [Float(0.18), 0.18, 0.18, 1], count: 16 * 16).flatMap { $0 }
   }
