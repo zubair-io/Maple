@@ -7,6 +7,7 @@ using Maple.UI.Atoms;
 using Maple.WinUI.Services.Xmp;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Media;
 
 namespace Maple.WinUI;
 
@@ -23,13 +24,14 @@ public sealed partial class MainWindow
         var depth = ViewModel.UndoCount;
         if (_activeGroup != "Light") ToggleGroupPanel("Light");
         ((FrameworkElement)Content).UpdateLayout();
-        var slider = FindDescendant<MuiAdjustmentSlider>(PanelSliders)
+        var slider = FindExposure(PanelSliders)
             ?? throw new InvalidOperationException("Keyboard check has no production Exposure slider.");
-        if (AutomationProperties.GetName(slider) != "Exposure" || !slider.Focus(FocusState.Keyboard))
+        if (!slider.Focus(FocusState.Keyboard))
             throw new InvalidOperationException("Production Exposure slider cannot receive keyboard focus.");
         var changed = exposure + slider.SmallChange;
         await CheckpointAsync("exposure-right", "Right", () =>
-            ViewModel.Adjustments.Exposure == changed && slider.Value == changed && ViewModel.UndoCount == depth + 1);
+            Math.Abs(ViewModel.Adjustments.Exposure - changed) < 1e-9
+            && Math.Abs(slider.Value - changed) < 1e-9 && ViewModel.UndoCount == depth + 1);
         var edited = Snapshot();
         await CheckpointAsync("exposure-undo", "Control_L+z", () => Snapshot() == original && ViewModel.UndoCount == depth);
         await CheckpointAsync("exposure-redo", "Control_L+Shift_L+z", () => Snapshot() == edited && ViewModel.UndoCount == depth + 1);
@@ -53,6 +55,15 @@ public sealed partial class MainWindow
         }));
 
         string Snapshot() => XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = ViewModel.Adjustments });
+
+        static MuiAdjustmentSlider? FindExposure(DependencyObject root)
+        {
+            if (root is MuiAdjustmentSlider candidate && AutomationProperties.GetName(candidate) == "Exposure")
+                return candidate;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+                if (FindExposure(VisualTreeHelper.GetChild(root, i)) is { } found) return found;
+            return null;
+        }
 
         async Task<byte[]> HashRawAsync()
         {
