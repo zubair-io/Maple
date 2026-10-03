@@ -303,25 +303,15 @@ pub fn fit_auto_profile_from_raw(
     fit_auto_profile_from_raw_at_cap(raw, model, quality, raw_source, FitCap::Proxy)
 }
 
-/// How large a develop the standalone fit samples (#3510).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[doc(hidden)]
-pub enum FitCap {
-    /// The production choice: [`AUTO_FIT_PROXY_LE`] (or the embedded
-    /// preview's own edge when smaller).
-    Proxy,
-    /// The pre-#3510 behaviour — native-resolution develop against the full
-    /// embedded JPEG. Kept ONLY so the ΔE evidence harness
-    /// (`raw-core/examples/auto-fit-proxy-delta.rs`) can measure the proxy
-    /// against it; never cached (see below) and never used by a host.
-    Native,
-}
+#[path = "auto_fit_cap.rs"]
+mod fit_cap;
+pub use fit_cap::FitCap;
 
 /// [`fit_auto_profile_from_raw`] with an explicit develop cap. `Native`
 /// bypasses the artifact cache entirely — its artifacts are not what a cold
 /// fit at the RAW-identity key recomputes, so they must never be served to
-/// (or read from) the production entries.
-#[doc(hidden)]
+/// (or read from) the production entries. `Render(edge)` matches the native
+/// sized renderer; zero is invalid, and its cache never aliases `Proxy`.
 pub fn fit_auto_profile_from_raw_at_cap(
     raw: &RawImage,
     model: &AdjustmentModel,
@@ -329,16 +319,20 @@ pub fn fit_auto_profile_from_raw_at_cap(
     raw_source: RawInput<'_>,
     cap: FitCap,
 ) -> Option<(Option<ProfileCurve>, Option<ColorLut>)> {
-    if model.profile != Profile::Auto {
+    if model.profile != Profile::Auto || cap == FitCap::Render(0) {
         return None;
     }
     let auto_cache_key = match (cap, &raw_source) {
         (FitCap::Native, _) => None,
-        (FitCap::Proxy, RawInput::Path(p)) => CacheKey::from_path(p, quality),
-        (FitCap::Proxy, RawInput::Bytes { bytes, .. }) => {
-            Some(CacheKey::from_bytes(bytes, quality))
+        (_, RawInput::Path(p)) => CacheKey::from_path(p, quality),
+        (_, RawInput::Bytes { bytes, .. }) => Some(CacheKey::from_bytes(bytes, quality)),
+    }
+    .map(|key| match cap {
+        FitCap::Render(edge) => {
+            key.with_origin(render_fit_origin(raw.width.max(raw.height), Some(edge)))
         }
-    };
+        _ => key,
+    });
 
     if let Some(pair) = cached_auto_profile_fit(model, auto_cache_key.as_ref()) {
         return Some(pair);
@@ -367,8 +361,15 @@ pub fn fit_auto_profile_from_raw_at_cap(
             let mle = match cap {
                 FitCap::Proxy => Some(auto_fit_max_long_edge(&preview)),
                 FitCap::Native => None,
+                FitCap::Render(edge) => Some(edge),
             };
-            let preview = downsample_preview_for_fit(preview, mle);
+            // The native render fits against the original embedded preview.
+            // Only the standalone proxy shrinks the JPEG (#3510).
+            let preview = if cap == FitCap::Proxy {
+                downsample_preview_for_fit(preview, mle)
+            } else {
+                preview
+            };
             let mut scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
@@ -560,3 +561,7 @@ fn fit_artifacts_from_pinned_develop(
 #[cfg(test)]
 #[path = "auto_fit_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "render_fit_tests.rs"]
+mod render_fit_tests;
