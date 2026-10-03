@@ -10,18 +10,36 @@ public final class AgentSocketServer: @unchecked Sendable {
 
   public let path: String
   private let handler: Handler
+  private let launchAcceptThread: @Sendable (Thread) -> Void
+  private let lifecycleLock = NSLock()
   private let lock = NSLock()
-  private var listenFD: Int32 = -1
+  private struct Listener {
+    let fd: Int32
+    let wakeRead: Int32
+    let wakeWrite: Int32
+    let finished: DispatchGroup
+  }
+  private var listener: Listener?
   private var clientFDs: Set<Int32> = []
 
-  public init(path: String, handler: @escaping Handler) {
-    self.path = path
-    self.handler = handler
+  public convenience init(path: String, handler: @escaping Handler) {
+    self.init(path: path, handler: handler, launchAcceptThread: { $0.start() })
   }
 
-  public var isRunning: Bool { lock.withLock { listenFD >= 0 } }
+  init(
+    path: String, handler: @escaping Handler,
+    launchAcceptThread: @escaping @Sendable (Thread) -> Void
+  ) {
+    self.path = path
+    self.handler = handler
+    self.launchAcceptThread = launchAcceptThread
+  }
+
+  public var isRunning: Bool { lock.withLock { listener != nil } }
 
   public func start() throws {
+    lifecycleLock.lock()
+    defer { lifecycleLock.unlock() }
     guard !isRunning else { return }
     var address = try UnixSocket.makeAddress(path)
     if FileManager.default.fileExists(atPath: path) {
@@ -49,35 +67,86 @@ public final class AgentSocketServer: @unchecked Sendable {
       unlink(path)
       throw AgentSocketError.system(call: "listen", errno: code)
     }
-    lock.withLock { listenFD = fd }
-    let thread = Thread { [weak self] in self?.acceptLoop(fd) }
+    guard fcntl(fd, F_SETFL, O_NONBLOCK) == 0 else {
+      let code = errno
+      close(fd)
+      unlink(path)
+      throw AgentSocketError.system(call: "fcntl", errno: code)
+    }
+    var wake = [Int32](repeating: -1, count: 2)
+    guard pipe(&wake) == 0 else {
+      let code = errno
+      close(fd)
+      unlink(path)
+      throw AgentSocketError.system(call: "pipe", errno: code)
+    }
+    let listener = Listener(
+      fd: fd, wakeRead: wake[0], wakeWrite: wake[1], finished: DispatchGroup())
+    listener.finished.enter()
+    lock.withLock { self.listener = listener }
+    let thread = Thread { [weak self] in
+      guard let self else {
+        listener.finished.leave()
+        return
+      }
+      acceptLoop(listener)
+    }
     thread.name = "maple-agent-accept"
-    thread.start()
+    launchAcceptThread(thread)
   }
 
   public func stop() {
-    let (fd, clients) = lock.withLock { () -> (Int32, Set<Int32>) in
+    lifecycleLock.lock()
+    defer { lifecycleLock.unlock() }
+    let retired = lock.withLock { () -> Listener? in
       defer {
-        listenFD = -1
+        listener = nil
         clientFDs.removeAll()
       }
-      return (listenFD, clientFDs)
+      // serve removes each descriptor under this same lock. Shutdown while
+      // ownership is pinned, rather than using a snapshot that can be reused.
+      for client in clientFDs { shutdown(client, SHUT_RDWR) }
+      return listener
     }
-    guard fd >= 0 else { return }
-    shutdown(fd, SHUT_RDWR)
-    close(fd)
+    guard let retired else { return }
+    // A pipe wakes poll even when the socket pathname has been removed.
+    // Darwin shutdown on a listening socket does not wake a blocked accept.
+    try? UnixSocket.writeAll(retired.wakeWrite, Data([1]))
+    // Retain ownership until even a not-yet-scheduled accept thread exits.
+    // Closing sooner lets a replacement listener reuse this descriptor and
+    // be accepted by the stopped server's old handler.
+    retired.finished.wait()
+    close(retired.fd)
+    close(retired.wakeRead)
+    close(retired.wakeWrite)
     unlink(path)
-    for client in clients { shutdown(client, SHUT_RDWR) }
   }
 
   deinit { stop() }
 
-  private func acceptLoop(_ fd: Int32) {
-    while true {
-      let client = accept(fd, nil, nil)
-      if client < 0 {
+  private func acceptLoop(_ listener: Listener) {
+    defer { listener.finished.leave() }
+    while lock.withLock({ self.listener?.fd == listener.fd }) {
+      var events = [
+        pollfd(fd: listener.fd, events: Int16(POLLIN), revents: 0),
+        pollfd(fd: listener.wakeRead, events: Int16(POLLIN), revents: 0),
+      ]
+      let ready = poll(&events, nfds_t(events.count), -1)
+      if ready < 0 {
         if errno == EINTR { continue }
         return
+      }
+      guard events[1].revents == 0, events[0].revents & Int16(POLLIN) != 0 else { return }
+      let client = accept(listener.fd, nil, nil)
+      if client < 0 {
+        if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK { continue }
+        return
+      }
+      // Darwin accepts inherit O_NONBLOCK; connection readers are blocking.
+      let flags = fcntl(client, F_GETFL)
+      guard flags >= 0, fcntl(client, F_SETFL, flags & ~O_NONBLOCK) == 0 else {
+        close(client)
+        continue
       }
       var uid: uid_t = 0
       var gid: gid_t = 0
@@ -87,8 +156,22 @@ public final class AgentSocketServer: @unchecked Sendable {
       }
       var on: Int32 = 1
       setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
-      lock.withLock { _ = clientFDs.insert(client) }
-      let thread = Thread { [weak self] in self?.serve(client) }
+      let admitted = lock.withLock {
+        guard self.listener?.fd == listener.fd else { return false }
+        _ = clientFDs.insert(client)
+        return true
+      }
+      guard admitted else {
+        close(client)
+        return
+      }
+      let thread = Thread { [weak self] in
+        guard let self else {
+          close(client)
+          return
+        }
+        serve(client)
+      }
       thread.name = "maple-agent-connection"
       thread.start()
     }
