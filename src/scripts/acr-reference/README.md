@@ -61,7 +61,9 @@ embedded DNG opcodes too. Do not propagate Adobe-only defaults into Maple inputs
 For #3633, effective PNG metadata revealed inherited lens/CA settings in five
 fixtures and Whites/Blacks/Clarity in test_0015, despite their omission from the
 paired XMP. `render.sh` now verifies every saved PNG against the explicit Adobe
-sidecar and fails on missing metadata or mismatched effective settings. Old
+sidecar and fails on missing metadata or mismatched effective settings. Explicitly
+authored Temperature and Tint are also checked, including partial pairs; As Shot
+cases do not acquire invented temperature/tint defaults (#4078). Old
 manifests must be regenerated before rendering. Reference replacements still
 require geometry and perceptual checks; existing budgets cannot increase.
 

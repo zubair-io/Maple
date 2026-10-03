@@ -120,6 +120,9 @@ REFERENCE_DEFAULTS = {
 
 
 REFERENCE_KEYS = {*REFERENCE_DEFAULTS, "CameraProfile"}
+# These axes have no universal default: As Shot is camera/file dependent.
+# Audit them when authored without inventing a pair for untouched cases (#4078).
+OPTIONAL_REFERENCE_KEYS = {"Temperature", "Tint"}
 
 
 def reference_settings(data: bytes | str) -> dict[str, str | tuple[str, ...]]:
@@ -127,7 +130,7 @@ def reference_settings(data: bytes | str) -> dict[str, str | tuple[str, ...]]:
     root = ET.fromstring(data)
     values = {}
     for element in root.iter():
-        for key in REFERENCE_KEYS:
+        for key in REFERENCE_KEYS | OPTIONAL_REFERENCE_KEYS:
             qualified = "{" + CRS + "}" + key
             value = element.attrib.get(qualified)
             if element.tag == qualified:
