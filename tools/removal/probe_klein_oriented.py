@@ -21,6 +21,22 @@ PAINT_PROMPT = (
     "Reconstruct the existing background naturally, preserving the scene's "
     "perspective, lighting, materials and photographic detail."
 )
+BACKGROUND_PROMPT = (
+    "Remove the selected person and their carried objects completely. "
+    "Fill the selected region with a continuous extension of the visible background. "
+    "The replacement contains only background surfaces, with no new people, faces, "
+    "bodies, clothing or bags. Preserve scene perspective, lighting, materials "
+    "and photographic detail."
+)
+MASK_REFERENCE_PROMPT = (
+    "Image 1 is the photograph. Image 2 is a binary edit mask: white marks "
+    "the selected region, black marks the region to preserve. Remove the "
+    "person and their carried objects inside the white region completely. "
+    "Fill that region with a continuous extension of the visible background, "
+    "containing only background surfaces and no people, faces, bodies, clothing "
+    "or bags. Preserve all unselected people, scene perspective, lighting, "
+    "materials and photographic detail."
+)
 
 
 def probe(
@@ -31,6 +47,8 @@ def probe(
     orientation_probe,
     output,
     erase_selected=False,
+    background_only=False,
+    mask_reference=False,
 ):
     if output.exists():
         raise ValueError("Choose a fresh diagnostic output directory")
@@ -100,6 +118,13 @@ def probe(
         output / "upright-nchw.f32"
     )
     generated = output / "generated"
+    prompt = (
+        MASK_REFERENCE_PROMPT
+        if mask_reference
+        else BACKGROUND_PROMPT
+        if background_only
+        else PAINT_PROMPT
+    )
     run(
         upstream,
         model,
@@ -109,7 +134,8 @@ def probe(
         generated,
         output / "upright-nchw.f32",
         PhaseMemory(True, True, True),
-        prompt=PAINT_PROMPT,
+        prompt=prompt,
+        mask_reference=mask_reference,
     )
     results = {}
     for name in ["prediction", "decoder-unclipped"]:
@@ -140,6 +166,14 @@ def probe(
         raise ValueError("Canonical composite changed known source samples")
     report = {
         "orientation": orientation,
+        "instruction": (
+            "background-with-mask-reference"
+            if mask_reference
+            else "background-only"
+            if background_only
+            else "generic-paint"
+        ),
+        "prompt": prompt,
         "conditioning": conditioning,
         "conditioned_input_sha256": digest(output / "upright-nchw.f32"),
         "orientation_metadata": metadata,
@@ -173,6 +207,8 @@ if __name__ == "__main__":
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--orientation", type=int, choices=range(1, 9), required=True)
     parser.add_argument("--erase-selected", action="store_true")
+    parser.add_argument("--background-only", action="store_true")
+    parser.add_argument("--mask-reference", action="store_true")
     args = parser.parse_args()
     probe(
         args.upstream,
@@ -182,4 +218,6 @@ if __name__ == "__main__":
         args.orientation_probe,
         args.output,
         args.erase_selected,
+        args.background_only,
+        args.mask_reference,
     )

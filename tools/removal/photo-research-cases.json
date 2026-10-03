@@ -3,7 +3,7 @@
   "issue": 3941,
   "epic": 1472,
   "releaseQualified": false,
-  "scope": "Public RAW photographic research fixtures. RAWs remain external and originals are read-only. Three native linear-calibration cases including portrait Paint; night-tiger-poster requires upright EXIF8 inference and exact canonical inverse. No photographic release acceptance budget or broad corpus claim.",
+  "scope": "Public RAW photographic research fixtures. Native linear-calibration Paint and refined person cases, with pinned external instance masks. No photographic release acceptance budget or broad corpus claim.",
   "raws": {
     "coast": {
       "file": "DSC06078.ARW",
@@ -84,6 +84,46 @@
       "expected_model_input_blake3": "blake3:79cd4e40b752cc92958c3eedd5b0fa7d444053c7fc58fedf98e8fed0907b7798",
       "annotation": "Complete left wall portrait poster. Canonical rectangle is the exact EXIF8 inverse of upright pixel-edge rectangle [267,496,143,267]. Adjacent posters and upper scene protected.",
       "annotation_scope": "Manual research Paint rectangle; no automatic silhouette, semantic role, text reconstruction, person model release, hidden-content ground truth or shipping mask policy claim."
+    },
+    {
+      "id": "bologna-person-refined",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:7a035c8376f84f5480a44e9b9a893791558aa49a995a360b81146e5146b8b423",
+      "annotation": "Detector proposal refined with positive painted head/coat/bag points and negative adjacent-shopper/produce points; two other SAM instance proposals explicitly kept. One visible blue-coat target, no rectangle crossing adjacent person.",
+      "annotation_scope": "Pinned model instance proposals and manual point intent; visually reviewed silhouette, not independently labeled closure or automated role/subject truth. Occluded anatomy, ambiguous ownership at touching hands/cuffs, shadows/reflections and hidden background remain unqualified.",
+      "orientation": 1,
+      "intent_mask_sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46",
+      "protected_mask_sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410",
+      "selection_provenance": {
+        "intent_mask": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/mask-1.png",
+          "sha256": "64cdb7af92e5d6c39c2d2475e6d13f84fd589bef83adeb796c25dea5b2894f46"
+        },
+        "protected_mask": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/protected.png",
+          "sha256": "cb0fa9be05df73b74f884e6c85c2b698647961d3b5e74701033e6669bd0f3410"
+        },
+        "detector_report": {
+          "path": "/tmp/maple-removal-bologna-detector-20261003/report.json",
+          "sha256": "c12efc6b3e04eb163358063c756733d8eeccb9d33d942fcf8f0541a2aa6350f8"
+        },
+        "selector_report": {
+          "path": "/tmp/maple-removal-bologna-person-sam-20261003/report.json",
+          "sha256": "e06d8736c779305e12efd5cd653eee73544d12f709b70b898bf644f3d1c73403"
+        },
+        "protection_report": {
+          "path": "/tmp/maple-removal-bologna-keep-sam-20261003/report.json",
+          "sha256": "78f406b34a207535e3742527fa082136d792ff60d26414721afed093c98f7ed5"
+        },
+        "display_proxy": {
+          "path": "/tmp/maple-removal-klein-bologna-erased-paint-bake-20261003/auto_ev+0_wb+0-identity.png",
+          "sha256": "c1f069bf69c120ea560a38e068dfa5320a8180e0762db5b354e0db20e478d4ff"
+        }
+      }
     }
   ]
 }
