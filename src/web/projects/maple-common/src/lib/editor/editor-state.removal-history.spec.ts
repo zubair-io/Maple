@@ -10,9 +10,17 @@ import {
   removal_saved_edit,
   removal_saved_list,
   removal_saved_prefix,
+  workflow_read_xmp,
+  workflow_embed_xmp,
+  workflow_checkpoint_xmp,
+  workflow_commit_xmp,
 } from '../raw-pipeline/pkg/raw_wasm';
 import { DiskDirectory } from './copy-paste/testing/batch-test-files';
-import { fsAccessReadFile, fsAccessWriteFile } from '../folder-access/fs-access-backend';
+import {
+  fsAccessReadFile,
+  fsAccessWriteFile,
+  fsAccessListEntries,
+} from '../folder-access/fs-access-backend';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { LibraryStateService } from '../state/library-state.service';
@@ -24,6 +32,8 @@ import { XmpParserService } from '../xmp/xmp-parser.service';
 import { LocalRemovalAssets } from '../removal/local-removal-assets';
 import { savedRemovalRecords } from '../removal/saved-removal-records';
 import { EditorStateService } from './editor-state.service';
+import { WorkflowXmpService } from '../xmp/workflow-xmp.service';
+import type { SidecarWorkflow, WorkflowHistoryEntry } from '../generated/workflow.generated';
 
 const fixtures = resolve(process.cwd(), '../../test-fixtures/removal/calibration');
 const bytes = (name: string) => new Uint8Array(readFileSync(join(fixtures, name)));
@@ -58,6 +68,7 @@ describe('confirmed Web removal history with real XMP and companions', () => {
     });
   });
   beforeEach(async () => {
+    TestBed.resetTestingModule();
     failWrite = false;
     held = undefined;
     entered = false;
@@ -99,6 +110,18 @@ describe('confirmed Web removal history with real XMP and companions', () => {
     };
     TestBed.configureTestingModule({
       providers: [
+        // Use the actual rebuilt WASM converters; Node has no browser Worker.
+        {
+          provide: WorkflowXmpService,
+          useValue: {
+            read: async (xml: string) => JSON.parse(workflow_read_xmp(xml)),
+            embed: async (workflow: SidecarWorkflow, xml: string) =>
+              workflow_embed_xmp(JSON.stringify(workflow), xml),
+            checkpoint: async (xml: string) => workflow_checkpoint_xmp(xml),
+            commit: async (entry: WorkflowHistoryEntry, xml: string) =>
+              workflow_commit_xmp(xml, JSON.stringify(entry)),
+          },
+        },
         {
           provide: LibraryStateService,
           useValue: { ...library, currentFolder: () => folder, asShotWbFor: () => undefined },
@@ -108,6 +131,7 @@ describe('confirmed Web removal history with real XMP and companions', () => {
           provide: FolderAccessService,
           useValue: {
             readFile: fsAccessReadFile,
+            listEntries: fsAccessListEntries,
             writeFile: async (scope: MapleFolderHandle, name: string, value: Uint8Array) => {
               if (name.endsWith('.xmp')) {
                 entered = true;

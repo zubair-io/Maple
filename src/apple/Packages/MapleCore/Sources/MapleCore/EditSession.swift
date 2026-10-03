@@ -29,16 +29,9 @@ public final class EditSession {
   var autoFitRevision: UInt64 = 0
   public internal(set) var hasLoadedSidecar = false
 
-  /// Byte-download progress for a remote (cloud) asset open (#822). Set by
-  /// the caller (`prepareCloudSession`) when the asset's bytes arrive over
-  /// HTTP, so the editor can show a determinate download bar while the
-  /// fetch is in flight. `nil` for local / PhotoKit assets — their bytes
-  /// are on disk or in Photos, so there's nothing to track and the editor
-  /// skips the bar. The progress-reporting bytes provider drives the same
-  /// instance; see `prepareCloudSession`.
+  /// Remote-original download progress, shared with `prepareCloudSession`.
+  /// Local/PhotoKit assets have no byte-download progress.
   @ObservationIgnored public let downloadProgress: DownloadProgress?
-
-  // MARK: Model
 
   public var model: AdjustmentModel {
     didSet {
@@ -96,15 +89,8 @@ public final class EditSession {
   /// Snapshot at session open — used by before/after toggle.
   public internal(set) var originalModel: AdjustmentModel
 
-  /// As-shot white balance read from the RAW file's metadata via
-  /// `CIRAWFilter`. `nil` when the file is not a recognized RAW or when
-  /// metadata is unreadable. Populated by `loadSidecar()` on session open;
-  /// used by:
-  ///   • `ImageEditPipeline.process(...)` — passed as the `neutral` input
-  ///     to `CITemperatureAndTint` so the Temperature slider behaves like
-  ///     Lightroom's (slider = scene white point, default = as-shot).
-  ///   • DetailPanel's Info tab — surfaced to the user as read-only
-  ///     metadata.
+  /// Camera white balance from the RAW metadata; nil before hydration or
+  /// when unavailable. It anchors pipeline and inspector As-Shot values.
   public internal(set) var asShotCCT: Double?
   public internal(set) var asShotTint: Double?
 

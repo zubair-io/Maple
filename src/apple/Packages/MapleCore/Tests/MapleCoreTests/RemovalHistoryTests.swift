@@ -267,4 +267,41 @@ final class RemovalHistoryTests: XCTestCase {
     XCTAssertNil(try reopen(session).inpaintRemovals)
     await session.releaseTransientMemory()
   }
+  func testWorkflowSnapshotRestoreRequiresRemovalCompanionsAndKeepsBothHistories() async throws {
+    let session = try stage()
+    try await keep(session)
+    await session.flushPendingSidecarWrite()
+    let accepted = session.model
+    await session.workflow.reload(session: session)
+    await session.workflow.saveSnapshot(name: "Accepted removal", session: session)
+    XCTAssertNil(session.workflow.errorText)
+    let snapshot = try XCTUnwrap(session.workflow.record?.snapshots.first)
+    session.undo()
+    await session.flushPendingSidecarWrite()
+    XCTAssertNil(try reopen(session).inpaintRemovals)
+    await session.workflow.reload(session: session)
+    session.workflow.prepareRestore(id: snapshot.id, snapshot: true)
+    let raw = try XCTUnwrap(session.asset.primaryURL)
+    let name = try XCTUnwrap(
+      RemovalBridge.assetNames(records: accepted.inpaintRemovals!.json).first)
+    let companion = raw.deletingLastPathComponent().appendingPathComponent(".maple/inpaint/\(name)")
+    let bytes = try Data(contentsOf: companion)
+    let sidecar = try XCTUnwrap(session.asset.sidecarURL)
+    let before = try Data(contentsOf: sidecar)
+    try FileManager.default.removeItem(at: companion)
+    await session.workflow.confirmRestore(session: session)
+    XCTAssertNotNil(session.workflow.errorText)
+    XCTAssertEqual(try Data(contentsOf: sidecar), before)
+    XCTAssertNil(session.model.inpaintRemovals)
+    try bytes.write(to: companion)
+    await session.workflow.confirmRestore(session: session)
+    XCTAssertNil(session.workflow.errorText)
+    XCTAssertEqual(try reopen(session).inpaintRemovals, accepted.inpaintRemovals)
+    XCTAssertEqual(session.model.inpaintRemovals, accepted.inpaintRemovals)
+    XCTAssertEqual(session.workflow.record?.snapshots, [snapshot])
+    XCTAssertEqual(session.workflow.record?.history.last?.action, "snapshot-restore")
+    XCTAssertEqual(try Data(contentsOf: raw), try data("source", "dng"))
+    await session.releaseTransientMemory()
+  }
+
 }

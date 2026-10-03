@@ -20,8 +20,20 @@ import Foundation
 public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   /// The canonical JSON key matches Web; older models without it decode as Custom.
   @WhiteBalancePresetValue public var whiteBalancePreset: WhiteBalancePreset = .custom
-  public var temperature: Double { didSet { temperatureSeen = true; partialWhiteBalance = nil } }  // default 6500
-  public var tint: Double { didSet { tintSeen = true; partialWhiteBalance = nil } }  // -150..150, default 0
+  public var temperature: Double {
+    didSet {
+      if partialWhiteBalance != nil { tintSeen = true }
+      temperatureSeen = true
+      partialWhiteBalance = nil
+    }
+  }  // default 6500
+  public var tint: Double {
+    didSet {
+      if partialWhiteBalance != nil { temperatureSeen = true }
+      tintSeen = true
+      partialWhiteBalance = nil
+    }
+  }  // -150..150, default 0
   /// Mirrors raw-core's per-component XMP authorship. Numerical slider writes
   /// author that component; imported omissions must survive unrelated edits.
   @WhiteBalancePresenceValue public var temperatureSeen: Bool = true

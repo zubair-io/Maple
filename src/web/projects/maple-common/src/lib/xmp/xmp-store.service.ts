@@ -1,13 +1,4 @@
-// XmpStoreService — P6.
-//
-// Coordinates debounced, atomic sidecar writes for the Develop tab.
-//
-// - scheduleWrite()     debounces at 150ms then atomically writes the sidecar via
-//                       FolderAccessService (FS Access writable-stream close is
-//                       atomic on Chromium; fallback backend writes to IndexedDB).
-// - rememberPassthrough stores the passthrough bucket from the last load so that
-//                       subsequent writes can reproduce unknown content verbatim.
-// - flushAll()          cancels all pending timers (call on beforeunload).
+// Debounced and confirmed XMP publication over one per-asset write queue.
 
 import { Injectable, inject, DestroyRef, signal } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
@@ -33,11 +24,12 @@ export interface HostedSidecarBinding {
   readonly filename: string;
   readonly variantId: string;
 }
-import { hasXmlParseError } from './xmp-dom-utils';
+import { SidecarFileIoService } from './sidecar-file-io.service';
 import { withRemovalWriteLock } from '../removal/removal-write-lock';
 
 @Injectable({ providedIn: 'root' })
 export class XmpStoreService {
+  private readonly files = inject(SidecarFileIoService);
   private folderAccess = inject(FolderAccessService);
   private serializer = inject(XmpSerializerService);
   private saveState = inject(SidecarSaveStateService);
@@ -101,21 +93,17 @@ export class XmpStoreService {
     const write = prior
       .then(async () => {
         const publish = async () => {
-          if (workflow.variantId !== 'primary')
-            throw Error('Variant identity does not match the primary sidecar.');
-          const name = this._sidecarFilename(rawFilename);
-          const xml = new TextDecoder('utf-8', { fatal: true }).decode(
-            await this.folderAccess.readFile(folder, name),
+          const passthrough = await this.files.writeWorkflow(
+            folder,
+            this._sidecarFilename(rawFilename),
+            workflow,
           );
-          const existing = await this.workflowCore.read(xml);
-          if ((existing?.variantId ?? 'primary') !== 'primary')
-            throw Error('Variant identity does not match the primary sidecar.');
-          const output = await this.workflowCore.embed(workflow, xml);
-          await this.folderAccess.writeFile(folder, name, new TextEncoder().encode(output));
-          this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
+          this.rememberPassthrough(assetId, passthrough);
         };
         if (folder.native && navigator.locks)
-          await navigator.locks.request('maple-workflow-variant:primary', publish);
+          await withRemovalWriteLock(folder, rawFilename, () =>
+            navigator.locks.request('maple-workflow-variant:primary', publish),
+          );
         else await publish();
       })
       .finally(() => {
@@ -136,8 +124,6 @@ export class XmpStoreService {
   rememberMetadata(assetId: AssetId, metadata: XmpMetadata): void {
     this._metadata.set(assetId, metadata);
   }
-
-  // ── Passthrough cache ───────────────────────────────────────────────────────
 
   /**
    * Store a passthrough bucket for an asset that was loaded externally
@@ -173,11 +159,7 @@ export class XmpStoreService {
     this.passthroughRevision.update((revision) => revision + 1);
   }
 
-  /**
-   * Look up the passthrough bucket previously stored for an asset (or undefined
-   * if none was ever loaded). Used by callers that bypass `loadSidecar` /
-   * `scheduleWrite` (e.g. the Self-Hosted API path in LibraryStateService).
-   */
+  /** Read source passthrough for callers that serialize outside this writer. */
   passthroughFor(assetId: AssetId): PassthroughBucket | undefined {
     this.passthroughRevision();
     return this._passthroughs.get(assetId);
@@ -418,7 +400,7 @@ export class XmpStoreService {
   ): Promise<string> {
     if (this._pendingWrites.has(assetId) || this._inFlightWrites.has(assetId))
       await this.flushAsset(assetId);
-    return this.removalRevision(folder, rawFilename);
+    return this.files.revision(folder, this._sidecarFilename(rawFilename));
   }
 
   async writeRemovalConfirmed(
@@ -447,12 +429,13 @@ export class XmpStoreService {
           await withRemovalWriteLock(folder, rawFilename, async () => {
             if (
               expectedRevision !== undefined &&
-              (await this.removalRevision(folder, rawFilename)) !== expectedRevision
+              (await this.files.revision(folder, this._sidecarFilename(rawFilename))) !==
+                expectedRevision
             )
               throw new Error(
                 'The photo changed before this removal could be saved. Reopen the photo to load its current edits.',
               );
-            const source = await this.sourcePassthrough(folder, rawFilename);
+            const source = await this.files.passthrough(folder, this._sidecarFilename(rawFilename));
             const current =
               source?.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value ??
               '[]';
@@ -482,11 +465,14 @@ export class XmpStoreService {
               this._sidecarFilename(rawFilename),
               new TextEncoder().encode(xml),
             );
-            const digest = await this.digestSidecar(new TextEncoder().encode(xml));
-            if ((await this.removalRevision(folder, rawFilename)) !== digest)
+            const digest = await this.files.digest(new TextEncoder().encode(xml));
+            if ((await this.files.revision(folder, this._sidecarFilename(rawFilename))) !== digest)
               throw new Error('Removal sidecar verification failed.');
             confirmedRevision = digest;
-            const reopened = await this.sourcePassthrough(folder, rawFilename);
+            const reopened = await this.files.passthrough(
+              folder,
+              this._sidecarFilename(rawFilename),
+            );
             if (
               reopened?.unknownAttributes.find((a) => a.name === 'papp:InpaintRemovals')?.value !==
               records
@@ -509,16 +495,7 @@ export class XmpStoreService {
     return confirmedRevision;
   }
 
-  // ── Flush all (beforeunload) ────────────────────────────────────────────────
-
-  /**
-   * Cancel all pending timers.
-   * Call from a beforeunload handler — modern Chromium will still finish any
-   * in-flight writable-stream operations that have already been flushed to
-   * the OS, but pending debounce timers that haven't fired yet are lost.
-   * For the common case (user pauses, then closes tab) the 150ms debounce means
-   * the write will already have fired before unload.
-   */
+  /** Flush timers and admitted writes before unload; callers await durable completion. */
   async flushAll(): Promise<void> {
     const writes: Promise<void>[] = [];
     for (const [id, pending] of this._pendingWrites.entries()) {
@@ -542,8 +519,6 @@ export class XmpStoreService {
       [...this.retryWrites.values()].flatMap((scope) => scope.map((write) => write.run())),
     );
   }
-
-  // ── Private ─────────────────────────────────────────────────────────────────
 
   private _startWrite(
     assetId: AssetId,
@@ -690,38 +665,6 @@ export class XmpStoreService {
 
   private _sidecarFilename(rawFilename: string): string {
     return rawFilename.replace(/\.[^.]+$/, '.xmp');
-  }
-
-  private async removalRevision(folder: MapleFolderHandle, rawFilename: string): Promise<string> {
-    try {
-      const bytes = await this.folderAccess.readFile(folder, this._sidecarFilename(rawFilename));
-      return this.digestSidecar(bytes);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'NotFoundError') return 'missing';
-      throw error;
-    }
-  }
-
-  private async digestSidecar(bytes: Uint8Array): Promise<string> {
-    const hash = await crypto.subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer);
-    return [...new Uint8Array(hash)].map((v) => v.toString(16).padStart(2, '0')).join('');
-  }
-
-  private async sourcePassthrough(
-    folder: MapleFolderHandle,
-    rawFilename: string,
-  ): Promise<PassthroughBucket | undefined> {
-    try {
-      const bytes = await this.folderAccess.readFile(folder, this._sidecarFilename(rawFilename));
-      const xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-      if (hasXmlParseError(new DOMParser().parseFromString(xml, 'application/xml'))) {
-        throw new Error('Cannot replace a malformed photo sidecar.');
-      }
-      return this.parser.parseAdjustmentModel(xml).passthrough;
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'NotFoundError') return undefined;
-      throw error;
-    }
   }
 }
 

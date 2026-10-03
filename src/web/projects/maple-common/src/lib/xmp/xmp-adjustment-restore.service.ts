@@ -123,6 +123,7 @@ export class XmpAdjustmentRestoreService {
     this._sidecars.set(id, Promise.resolve(sidecar));
     this._attempted.add(id);
     this.rememberParsed(id, sidecar);
+    this._markEdited(id);
   }
 
   private rememberParsed(id: AssetId, sidecar: HydratedSidecar | null): void {
@@ -138,19 +139,6 @@ export class XmpAdjustmentRestoreService {
   invalidateForAsset(id: AssetId): void {
     this._attempted.delete(id);
     this._sidecars.delete(id);
-  }
-
-  /** Confirmed authoring replaces the old read-before-write base atomically. */
-  rememberConfirmed(id: AssetId, xml: string): void {
-    const sidecar = {
-      ...this.parser.parseAdjustmentModel(xml),
-      culling: this.parser.parseCulling(xml),
-    };
-    this._sidecars.set(id, Promise.resolve(sidecar));
-    this._attempted.add(id);
-    this.xmpStore.rememberPassthrough(id, sidecar.passthrough);
-    this.xmpStore.rememberMetadata(id, sidecar.metadata);
-    this._markEdited(id);
   }
 
   /** Self-Hosted `slug:relPath` assets not yet attempted this session. */
