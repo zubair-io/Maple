@@ -320,13 +320,18 @@ pub fn resolve_metadata(
     // profile for every recipe that did not rotate, which is every recipe
     // sharp's own `keepMetadata()` is compared against.
     let rotated = primaries != TargetPrimaries::Srgb;
+    // The decoder changes P3/sRGB-transfer AVIF samples to sRGB regardless
+    // of the source ICC's byte representation. Keep must follow those samples.
+    #[cfg(feature = "avif")]
+    let normalized = metadata.keep
+        && crate::raster::is_avif(input)
+        && crate::avif_decode::normalizes_to_srgb(input)?;
+    #[cfg(not(feature = "avif"))]
+    let normalized = false;
     let icc = supplied_icc
         .or_else(|| rotated.then(|| crate::icc::profile_for(primaries)))
         .or_else(|| {
-            // AVIF decoding normalizes our Display P3 exports to sRGB.
-            // Keeping their source profile would mislabel those samples.
-            let p3 = crate::icc::profile_for(TargetPrimaries::P3);
-            if crate::raster::is_avif(input) && kept.icc.as_deref() == Some(p3.as_slice()) {
+            if normalized {
                 Some(default_icc(TargetPrimaries::Srgb))
             } else {
                 kept.icc.clone()
