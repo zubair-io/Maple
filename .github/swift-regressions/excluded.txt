@@ -13,6 +13,7 @@
 AddMapleCloudViewModelTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 AppleRenderHarnessTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 AuthClientMintDeviceSessionTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
+BrowseThumbnailResponsivenessTests fixture needs gitignored RAW files for the 250-image loading stress workload
 AuthContractTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 AuthSessionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 AuthenticatedHTTPClientInjectTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
