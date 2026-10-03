@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 
 #[path = "removal_scene/calibration.rs"]
 mod calibration;
+#[path = "removal_scene/editor_patch.rs"]
+mod editor_patch;
 #[path = "removal_scene/encoding.rs"]
 mod encoding;
 #[path = "removal_scene/masks.rs"]
@@ -66,6 +68,13 @@ enum Command {
         context: PathBuf,
         /// Native float32 NCHW model result, no quantization or resizing.
         model_result: PathBuf,
+        output: PathBuf,
+    },
+    /// #3941: develop the actual editor-produced patch after byte revalidation.
+    BakeEditorPatch {
+        raw: PathBuf,
+        context: PathBuf,
+        reconstruction: PathBuf,
         output: PathBuf,
     },
     Masks {
@@ -447,6 +456,12 @@ fn main() -> ProbeResult<()> {
             model_result,
             output,
         } => bake(&raw, &context, &model_result, &output),
+        Command::BakeEditorPatch {
+            raw,
+            context,
+            reconstruction,
+            output,
+        } => editor_patch::bake(&raw, &context, &reconstruction, &output),
         Command::Masks {
             context,
             intent,
