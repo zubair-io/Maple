@@ -13,9 +13,7 @@ final class NativeAutoProfileState {
     asset: AssetRef, source: RawRenderSource, quality: PipelineRenderer.Quality,
     decodeGeneration: UInt64, onReady: @escaping @MainActor () -> Void
   ) -> NativeAutoProfile? {
-    if let request, request.quality == quality.rawValue,
-      request.decodeGeneration == decodeGeneration
-    {
+    if isRequested(decodeGeneration: decodeGeneration, quality: quality) {
       return ready
     }
     task?.cancel()
@@ -46,10 +44,12 @@ final class NativeAutoProfileState {
 
   var hasRequested: Bool { request != nil }
 
+  func isRequested(decodeGeneration: UInt64, quality: PipelineRenderer.Quality) -> Bool {
+    request?.decodeGeneration == decodeGeneration && request?.quality == quality.rawValue
+  }
+
   func readyFor(decodeGeneration: UInt64, quality: PipelineRenderer.Quality) -> NativeAutoProfile? {
-    guard let request, request.decodeGeneration == decodeGeneration,
-      request.quality == quality.rawValue
-    else { return nil }
+    guard isRequested(decodeGeneration: decodeGeneration, quality: quality) else { return nil }
     return ready
   }
 

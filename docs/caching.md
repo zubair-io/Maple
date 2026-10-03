@@ -381,7 +381,7 @@ Five things the old document stated that the code does not support:
 
 Two things the old doc got right and this one preserves: the `RenderedPreviewCache` key composition, including sidecar mtime as the adjustment-version proxy, and the Hosted preview cache's descriptor-based validation. Separately, the `<sha16>_1600.jpg` naming that sometimes gets attributed to the preview cache is a retired scheme on both sides — `cache-gc`'s `LEGACY_PANO_PREVIEW_RE` recognizes it for reclamation and nothing writes it, and Apple's reader never consults the equivalent old path.
 
-### Mac native Auto preparation (#1472)
+### Maple TV Top Shelf
 
 `TopShelfCache` stores up to five JPEG covers and an atomic JSON manifest in the
 App Group's `TopShelf/<SHA256(server URL + library ID)>/` directory. The app and
@@ -390,6 +390,25 @@ fresh for six hours. Refresh publishes only covers downloaded successfully and
 removes images no longer referenced. The extension requires a paired server with
 Keychain credentials before reading a cache, so unpairing hides the shelf.
 Selecting another server or library uses a separate cache directory.
+
+### Mac native Auto preparation (#1472)
+
+The settled Mac canvas, CPU fallback and 1:1 detail use the full-export Auto
+curve/residual pair. Its pinned default-model develop ignores edits and accepted
+removal patches. The native fit uses the existing Rust `Render(None)` origin and
+Full/AMaZE quality key; the standalone 1536-pixel proxy cache remains separate.
+Until preparation completes, the existing proxy frame remains provisional and
+is not persisted as a completed preview. The GPU path finishes its provisional
+fit before requesting a cold native preparation, then rechecks render generation
+and cancellation so an older fit completion cannot rewind a newer request.
+Only a cold or replacement provisional fit resolves the RAW URL through the
+source actor. A completed GPU fit with a current pending native request, or
+ready native artifacts, reuses its owned state on slider ticks. Decode and
+native-quality changes still replace the request; a superseded source await
+cannot start fitting work.
+Editor exit joins preparation and ensures the resulting frame actually owns the
+ready tail before persisting; failed preparation retains the provisional frame
+and does not write it as settled.
 
 ## Linux native-detail session (#4317)
 
