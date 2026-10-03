@@ -17,7 +17,7 @@ public sealed partial class MainWindow
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "--keyboard-checkpoints") < 0) return;
         var photo = ViewModel.SelectedPhoto;
         var originalGroup = _activeGroup;
-        var originalHash = SHA256.HashData(await File.ReadAllBytesAsync(raw));
+        var originalHash = await HashRawAsync();
         var original = Snapshot();
         var exposure = ViewModel.Adjustments.Exposure;
         var depth = ViewModel.UndoCount;
@@ -38,7 +38,7 @@ public sealed partial class MainWindow
             throw new InvalidOperationException("Header comparison action cannot receive keyboard focus.");
         await CheckpointAsync("editor-to-preview", "Escape", () => _mode == ShellMode.Preview && Snapshot() == original);
         await CheckpointAsync("preview-to-editor", "e", () => _mode == ShellMode.Edit && Snapshot() == original);
-        var finalHash = SHA256.HashData(await File.ReadAllBytesAsync(raw));
+        var finalHash = await HashRawAsync();
         if (!originalHash.AsSpan().SequenceEqual(finalHash))
             throw new InvalidOperationException("Keyboard editing changed the original RAW.");
         CloseGroupPanel();
@@ -53,6 +53,12 @@ public sealed partial class MainWindow
         }));
 
         string Snapshot() => XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = ViewModel.Adjustments });
+
+        async Task<byte[]> HashRawAsync()
+        {
+            await using var stream = File.OpenRead(raw);
+            return await SHA256.HashDataAsync(stream);
+        }
 
         async Task CheckpointAsync(string name, string key, Func<bool> valid)
         {
