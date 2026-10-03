@@ -48,6 +48,8 @@ public final class AgentEditService {
       return AgentPayload(result: describe(try session()))
     case "maple_set_adjustments":
       return AgentPayload(result: try setAdjustments(arguments))
+    case "maple_render_and_inspect":
+      return try await renderAndInspect(arguments)
     case "maple_undo":
       let session = try editableSession(arguments)
       guard session.canUndo else {
@@ -78,6 +80,37 @@ public final class AgentEditService {
     var result = summaryFields(session)
     result["applied"] = .object(applied.mapValues(JSONValue.number))
     return .object(result)
+  }
+
+  /// The image, metrics and revision all describe one render: the
+  /// snapshot is taken after pending renders drain, and discarded if the
+  /// state moved while it was produced.
+  private func renderAndInspect(_ arguments: [String: JSONValue]) async throws -> AgentPayload {
+    let maxEdge = try AgentInspector.parseMaxEdge(arguments["max_edge"])
+    let region = try AgentInspector.Region.parse(arguments["region"])
+    let session = try session()
+    let revision = Self.revision(of: session)
+    guard let image = await session.agentCanvasSnapshot() else {
+      throw AgentError(
+        code: "render_unavailable",
+        message: "Maple hasn't finished rendering this photo yet. Retry in a moment.")
+    }
+    guard activeSession === session, Self.revision(of: session) == revision else {
+      throw AgentError(
+        code: "render_superseded",
+        message: "The photo changed while it was rendering. Call maple_render_and_inspect again.")
+    }
+    let context = session.pipeline.context
+    let inspection = try await Task.detached(priority: .userInitiated) {
+      try AgentInspector.inspect(image, maxEdge: maxEdge, region: region, context: context)
+    }.value
+    var result = summaryFields(session)
+    result["revision"] = .string(revision)
+    result["width"] = .int(inspection.width)
+    result["height"] = .int(inspection.height)
+    result["metrics"] = inspection.metrics
+    return AgentPayload(
+      result: .object(result), image: AgentImage(data: inspection.jpeg, mimeType: "image/jpeg"))
   }
 
   private func session() throws -> EditSession {
