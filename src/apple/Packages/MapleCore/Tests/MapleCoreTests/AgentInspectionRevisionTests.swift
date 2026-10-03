@@ -52,6 +52,36 @@ final class AgentInspectionRevisionTests: XCTestCase {
     }
   }
 
+  func testManualEditDuringSelectedMaskScopeDiscardsCanonicalMetrics() async throws {
+    try await inspectCanonicalWhileChanging(selectedMask: true) { _, session in
+      session.beginEdit(description: "Manual contrast")
+      session.model.contrast = 20
+      session.endEdit()
+    }
+  }
+
+  func testPhotoSwitchDuringSelectedMaskScopeDiscardsCanonicalMetrics() async throws {
+    let next = makeSession("next.dng")
+    try await inspectCanonicalWhileChanging(selectedMask: true) { service, _ in
+      service.activate(next)
+    }
+  }
+
+  func testManualEditDuringP3InspectionDiscardsCanonicalImageAndMetrics() async throws {
+    try await inspectCanonicalWhileChanging(selectedMask: false) { _, session in
+      session.beginEdit(description: "Manual contrast")
+      session.model.contrast = 20
+      session.endEdit()
+    }
+  }
+
+  func testPhotoSwitchDuringP3InspectionDiscardsCanonicalImageAndMetrics() async throws {
+    let next = makeSession("next.dng")
+    try await inspectCanonicalWhileChanging(selectedMask: false) { service, _ in
+      service.activate(next)
+    }
+  }
+
   func testManualEditDuringPersonDetectionDoesNotCommitAMask() async throws {
     try await createPersonWhileChanging { _, session in
       session.beginEdit(description: "Manual contrast")
@@ -195,6 +225,111 @@ final class AgentInspectionRevisionTests: XCTestCase {
       model: .default, culling: CullingState())
   }
 
+  private func inspectCanonicalWhileChanging(
+    selectedMask: Bool, _ change: (AgentEditService, EditSession) -> Void
+  ) async throws {
+    let saved = UserDefaults.standard.object(forKey: CanvasColorSpace.defaultsKey)
+    UserDefaults.standard.set(
+      CanvasColorSpace.displayP3.rawValue, forKey: CanvasColorSpace.defaultsKey)
+    defer {
+      if let saved {
+        UserDefaults.standard.set(saved, forKey: CanvasColorSpace.defaultsKey)
+      } else {
+        UserDefaults.standard.removeObject(forKey: CanvasColorSpace.defaultsKey)
+      }
+    }
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-canonical-revision")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let original = directory.appendingPathComponent("portrait.png")
+    try FileManager.default.copyItem(at: fixture, to: original)
+    let originalBytes = try Data(contentsOf: original)
+    let session = EditSession(asset: AssetRef(url: original))
+    session.previewSize = CGSize(width: 256, height: 256)
+    await session.openAssetPipelineAsync()
+    if selectedMask {
+      session.beginEdit(description: "Skin mask")
+      session.createWholeImageSkinMask()
+      session.endEdit()
+    }
+    await session.flushPendingSidecarWrite()
+    if selectedMask {
+      let reopened = EditSession(asset: AssetRef(url: original))
+      await reopened.loadSidecar()
+      XCTAssertEqual(reopened.model.localAdjustments.count, 1)
+      XCTAssertEqual(
+        reopened.model.localAdjustments.first?.mask, session.model.localAdjustments.first?.mask)
+      XCTAssertEqual(reopened.model.localAdjustments.first?.range, .skinTone)
+    }
+    session._scheduleRender(phase: .fast)
+    _ = await session.latestRenderSchedule?.value
+    await session.renderActor.awaitCurrentRenderIfInFlight()
+    let preview = try XCTUnwrap(session.renderedPreview)
+    XCTAssertEqual(
+      preview.colorSpace?.name, CGColorSpace.displayP3,
+      "P3 capture must enter the canonical CPU develop, not the sRGB preview fastpath.")
+    XCTAssertFalse(session.gpuFramePresented)
+    // Retire the pending normal refine before seeding: the first provider
+    // request must belong to this on-demand capture, not a scheduled canvas.
+    await session.renderActor.cancelAll()
+    let snapshot = await session.renderActor.snapshot(forAsset: session.asset)
+    XCTAssertTrue(snapshot.isFresh)
+    let resolvedIsRaw = await session.renderActor.resolvedIsRaw(for: session.asset.id)
+    XCTAssertFalse(resolvedIsRaw ?? session.asset.isRaw)
+    XCTAssertNil(snapshot.profile)
+    XCTAssertNil(snapshot.autoExposure)
+    let decoded = try XCTUnwrap(snapshot.image)
+    let context = await session.pipeline.context
+    let source = FencedAgentSceneProvider(image: decoded, context: context)
+    let lazy = CIImage(
+      imageProvider: source, size: source.width, source.height,
+      format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020),
+      options: nil)
+    await session.renderActor._testSeedDecodedCache(
+      asset: session.asset, decoded: lazy, rawResolution: snapshot.rawResolution,
+      decodedAtModel: snapshot.decodedAtModel, isFull: snapshot.isFull,
+      profile: snapshot.profile, autoExposure: snapshot.autoExposure, aeGain: snapshot.aeGain,
+      whitesAnchorEv: snapshot.whitesAnchorEv, nrSamplingScale: snapshot.nrSamplingScale)
+    let primed = await session.renderActor.snapshot(forAsset: session.asset)
+    XCTAssertTrue(primed.isFresh)
+    XCTAssertEqual(primed.iso, snapshot.iso)
+    XCTAssertEqual(primed.noiseProfile, snapshot.noiseProfile)
+    let primedIsRaw = await session.renderActor.resolvedIsRaw(for: session.asset.id)
+    XCTAssertEqual(primedIsRaw, resolvedIsRaw)
+    XCTAssertFalse(primedIsRaw ?? session.asset.isRaw)
+    let service = AgentEditService()
+    service.activate(session)
+    let maskID = selectedMask ? try XCTUnwrap(session.selectedMaskId) : nil
+    let response = Task {
+      await service.handle(
+        AgentRequest(
+          id: 1,
+          tool: selectedMask ? "maple_get_vectorscope" : "maple_render_and_inspect",
+          arguments: maskID.map { ["mask_id": .string($0.uuidString)] } ?? ["max_edge": 256]))
+    }
+    let started = await Task.detached {
+      source.started.wait(timeout: .now() + 10) == .success
+    }.value
+    defer { source.resume.signal() }
+    guard started else {
+      source.resume.signal()
+      _ = await response.value
+      return XCTFail("Canonical capture did not rasterize the actual cached scene provider")
+    }
+    // The actual scene-linear readback is held inside the detached canonical
+    // develop. The mutation cannot precede that ownership boundary.
+    change(service, session)
+    source.resume.signal()
+    let result = await response.value
+    guard case .failure(let error) = result.outcome else {
+      return XCTFail("Canonical capture returned stale image/metrics after the editor changed")
+    }
+    XCTAssertEqual(error.code, "render_superseded")
+    await session.flushPendingSidecarWrite()
+    XCTAssertEqual(try Data(contentsOf: original), originalBytes)
+  }
+
   private func inspectWhileChanging(
     tool: String = "maple_render_and_inspect",
     _ change: (AgentEditService, EditSession) -> Void
@@ -295,6 +430,61 @@ private final class FencedAgentImageProvider: NSObject, @unchecked Sendable {
         data.advanced(by: row * bytesPerRow + (startX - x) * 4).copyMemory(
           from: base.advanced(by: (sourceY * self.width + startX) * 4),
           byteCount: (endX - startX) * 4)
+      }
+    }
+  }
+}
+
+/// Copies the actual canonical decoded Rec.2020 scene; no replacement pixels.
+private final class FencedAgentSceneProvider: NSObject, @unchecked Sendable {
+  let started = DispatchSemaphore(value: 0)
+  let resume = DispatchSemaphore(value: 0)
+  private let lock = NSLock()
+  private var firstDraw = true
+  let width: Int
+  let height: Int
+  private let pixels: [Float]
+
+  init(image: CIImage, context: CIContext) {
+    width = Int(image.extent.width)
+    height = Int(image.extent.height)
+    var captured = [Float](repeating: 0, count: width * height * 4)
+    let rowBytes = width * 16
+    captured.withUnsafeMutableBytes { data in
+      context.render(
+        image, toBitmap: data.baseAddress!, rowBytes: rowBytes,
+        bounds: image.extent, format: .RGBAf,
+        colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020))
+    }
+    pixels = captured
+    super.init()
+  }
+
+  override func provideImageData(
+    _ data: UnsafeMutableRawPointer, bytesPerRow: Int, origin x: Int, _ y: Int,
+    size width: Int, _ height: Int, userInfo: Any?
+  ) {
+    let first = lock.withLock {
+      let first = firstDraw
+      firstDraw = false
+      return first
+    }
+    if first {
+      started.signal()
+      _ = resume.wait(timeout: .now() + 15)
+    }
+    data.initializeMemory(as: UInt8.self, repeating: 0, count: bytesPerRow * height)
+    pixels.withUnsafeBytes { source in
+      guard let base = source.baseAddress else { return }
+      for row in 0..<height {
+        let sourceY = y + row
+        guard sourceY >= 0, sourceY < self.height else { continue }
+        let startX = max(0, x)
+        let endX = min(self.width, x + width)
+        guard endX > startX else { continue }
+        data.advanced(by: row * bytesPerRow + (startX - x) * 16).copyMemory(
+          from: base.advanced(by: (sourceY * self.width + startX) * 16),
+          byteCount: (endX - startX) * 16)
       }
     }
   }
