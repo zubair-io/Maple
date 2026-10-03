@@ -165,7 +165,7 @@
             VStack(alignment: .leading) {
               Text("\(item.target.stem): \(item.status)")
               if let staging = item.staging, item.status == "failed" {
-                Text("Retained staging: \(staging.path)").font(.caption).textSelection(.enabled)
+                Text("Staging path: \(staging.path)").font(.caption).textSelection(.enabled)
               }
               if let reason = item.reason {
                 Text(reason).foregroundStyle(.red).textSelection(.enabled)
