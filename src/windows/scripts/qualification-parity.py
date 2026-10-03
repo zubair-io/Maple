@@ -22,7 +22,9 @@ def qualify(work: Path, budget: float) -> int:
         raise ValueError("Mean budget must be finite and non-negative")
     preview = work / "app-frame.png"
     reference = work / "ref-frame.png"
-    export_result = json.loads((work / "cpu" / "export-result.json").read_text())
+    export_result = json.loads(
+        (work / "cpu" / "export-result.json").read_text(encoding="utf-8")
+    )
     exported = Path(export_result["output"])
     with Image.open(exported) as export_image, Image.open(reference) as ref_image:
         if export_image.size != ref_image.size:
@@ -42,9 +44,13 @@ def qualify(work: Path, budget: float) -> int:
         mean = result["mean_deltaE"]
         if not math.isfinite(mean) or mean < 0 or result["n_pixels"] <= 0:
             raise ValueError(f"Invalid perceptual metrics for {name}")
-        (work / f"{name}-diff.json").write_text(json.dumps(result) + "\n")
+        (work / f"{name}-diff.json").write_text(
+            json.dumps(result) + "\n", encoding="utf-8"
+        )
         verdict[name.replace("-", "_") + "_parity_failed"] = mean > budget
-    (work / "parity-verdict.json").write_text(json.dumps(verdict) + "\n")
+    (work / "parity-verdict.json").write_text(
+        json.dumps(verdict) + "\n", encoding="utf-8"
+    )
     print(json.dumps(verdict))
     return int(any(value is True for value in verdict.values()))
 
