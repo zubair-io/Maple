@@ -114,6 +114,30 @@ final class AgentMaskScopeTests: XCTestCase {
     XCTAssertNil(result.warning)
   }
 
+  func testUnsafePersonIndexIsRejectedBeforeVisionWithoutMutatingMasks() async throws {
+    let service = AgentEditService()
+    let session = makeSession()
+    service.activate(session)
+    let initialRevision = try await revision(service)
+    for invalid in ["1e100", "-1e100", "9223372036854775808", "1.5", "null", "true", "\"5\"", "-1"]
+    {
+      let json = """
+        {"id":1,"tool":"maple_create_mask","arguments":{
+        "expected_revision":"\(initialRevision)","kind":"person_skin",
+        "params":{"person_index":\(invalid)}}}
+        """
+      let request = try XCTUnwrap(AgentRequest(json: JSONValue.decode(Data(json.utf8))))
+      guard case .failure(let error) = await service.handle(request).outcome else {
+        XCTFail("Accepted person_index=\(invalid)")
+        continue
+      }
+      XCTAssertEqual(error.code, "invalid_arguments", "person_index=\(invalid)")
+      XCTAssertTrue(session.model.localAdjustments.isEmpty)
+      let afterRevision = try await revision(service)
+      XCTAssertEqual(afterRevision, initialRevision)
+    }
+  }
+
   func testCreateGeometricLinearAndRadialMasks() async throws {
     let service = AgentEditService()
     let session = makeSession()
