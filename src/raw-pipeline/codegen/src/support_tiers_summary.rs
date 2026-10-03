@@ -94,13 +94,14 @@ pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String
 
     s.push_str("## Fixtured bodies\n\n");
     s.push_str(
-        "Every camera Maple holds a physical file for. No other body can reach `qualified`, because no other body has anything to measure.\n\n",
+        "Every camera Maple holds a physical file for. No other body can reach `qualified`, because no other body has anything to measure. Each fixture digest identifies the exact reviewed sample bytes; fixture validation rejects a different sample under the same filename before decoding it (#4080). These identities do not supply missing measurement-run evidence or the fixed C-suite requirements tracked by #2440 and #2439.\n\n",
     );
     for body in &registry.bodies {
         s.push_str(&format!("### {}\n\n", body.display_name));
         s.push_str(&format!("- Tier: **{}**\n", body.tier.id()));
         s.push_str(&format!("- Lookup key: `{}`\n", body.key));
         s.push_str(&format!("- Fixture: `{}`\n", body.fixture));
+        s.push_str(&format!("- Fixture digest: `{}`\n", body.fixture_digest));
         s.push_str(&format!(
             "- Profile resolution: `{}`\n",
             body.resolution.id()
@@ -127,6 +128,7 @@ fn body_json(body: &BodyClassification) -> J {
         ("key", J::Str(body.key.to_owned())),
         ("display_name", J::Str(body.display_name.to_owned())),
         ("fixture", J::Str(body.fixture.to_owned())),
+        ("fixture_digest", J::Str(body.fixture_digest.to_owned())),
         ("tier", J::Str(body.tier.id().to_owned())),
         ("lens", J::Str(body.lens.id().to_owned())),
         (

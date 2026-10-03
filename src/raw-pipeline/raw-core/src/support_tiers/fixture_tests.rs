@@ -12,7 +12,8 @@
 //! `codegen-drift`: a declaration that stops matching reality changes the
 //! generated registry, and the drift job fails until it is committed.
 
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::color::dcp::profile_for_with_source;
@@ -23,6 +24,41 @@ fn fixture_root() -> Option<PathBuf> {
         .canonicalize()
         .ok()?;
     root.is_dir().then_some(root)
+}
+
+fn verify_fixture_identity(path: &Path, expected: &str) -> Result<(), String> {
+    let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    let observed = format!("blake3:{}", hasher.finalize().to_hex());
+    if observed != expected {
+        return Err(format!(
+            "{}: fixture digest {observed}, expected {expected}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn replaced_fixture_bytes_cannot_reuse_the_declared_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("sample.dng");
+    let original = b"the measured physical sample bytes";
+    std::fs::write(&path, original).unwrap();
+    let expected = format!("blake3:{}", blake3::hash(original).to_hex());
+    assert!(verify_fixture_identity(&path, &expected).is_ok());
+    std::fs::write(&path, b"a different sample under the same filename").unwrap();
+    assert!(verify_fixture_identity(&path, &expected)
+        .unwrap_err()
+        .contains("fixture digest"));
 }
 
 /// Every declared fixture exists, decodes as declared, keys as declared,
@@ -43,6 +79,10 @@ fn declarations_match_the_fixtures_on_disk() {
             continue;
         }
         checked += 1;
+        if let Err(error) = verify_fixture_identity(&path, body.fixture_digest) {
+            mismatches.push(error);
+            continue;
+        }
         let decoded = match crate::decode::decode(&path) {
             Ok(raw) => raw,
             Err(e) => {

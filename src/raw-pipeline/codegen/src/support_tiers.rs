@@ -175,6 +175,7 @@ pub(crate) fn emit_swift(registry: &SupportRegistry, evidence: &Evidence) -> Str
     s.push_str("    public let key: String\n");
     s.push_str("    public let displayName: String\n");
     s.push_str("    public let fixture: String\n");
+    s.push_str("    public let fixtureDigest: String\n");
     s.push_str("    public let tier: CameraTier\n");
     s.push_str("    public let lens: LensSupport\n");
     s.push_str("    public let resolution: ProfileResolution\n");
@@ -212,6 +213,10 @@ pub(crate) fn emit_swift(registry: &SupportRegistry, evidence: &Evidence) -> Str
             escape_swift(body.display_name)
         ));
         s.push_str(&format!("            fixture: \"{}\",\n", body.fixture));
+        s.push_str(&format!(
+            "            fixtureDigest: \"{}\",\n",
+            body.fixture_digest
+        ));
         s.push_str(&format!(
             "            tier: .{},\n",
             camel_case(body.tier.id())
@@ -328,6 +333,7 @@ pub(crate) fn emit_ts(registry: &SupportRegistry, evidence: &Evidence) -> String
     s.push_str("  readonly key: string;\n");
     s.push_str("  readonly displayName: string;\n");
     s.push_str("  readonly fixture: string;\n");
+    s.push_str("  readonly fixtureDigest: string;\n");
     s.push_str("  readonly tier: CameraTier;\n");
     s.push_str("  readonly lens: LensSupport;\n");
     s.push_str("  readonly resolution: ProfileResolution;\n");
@@ -364,6 +370,7 @@ pub(crate) fn emit_ts(registry: &SupportRegistry, evidence: &Evidence) -> String
         s.push_str(&ts_string_prop(4, "key", body.key));
         s.push_str(&ts_string_prop(4, "displayName", body.display_name));
         s.push_str(&format!("    fixture: '{}',\n", body.fixture));
+        s.push_str(&ts_string_prop(4, "fixtureDigest", body.fixture_digest));
         s.push_str(&format!("    tier: '{}',\n", body.tier.id()));
         s.push_str(&format!("    lens: '{}',\n", body.lens.id()));
         s.push_str(&format!("    resolution: '{}',\n", body.resolution.id()));
