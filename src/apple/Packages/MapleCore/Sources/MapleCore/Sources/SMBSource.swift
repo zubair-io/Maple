@@ -317,6 +317,9 @@ public actor SMBSource {
           return Data(try WorkflowSidecarCore.embed(record, in: incoming).utf8)
         }
         return
+      } catch let error as WorkflowSidecarError {
+        // A changed semantic workflow requires refresh, not a network retry.
+        throw error
       } catch {
         lastError = error
         if attempt < maxAttempts - 1 {
