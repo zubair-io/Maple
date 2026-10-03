@@ -24,6 +24,48 @@ final class SMBWhiteBalanceAcceptanceTests: EditorTestCase {
     }
   }
 
+  func testOneHundredConsecutiveCyclesOnSelectedSMBVariant() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open()
+    do {
+      let ref = try await fixture.image()
+      let initial = editor(fixture.source, ref)
+      await initial.loadSidecar()
+      await initial.workflow.createVariant(name: "100 cycles", session: initial)
+      XCTAssertNil(initial.workflow.errorText)
+      let variant = initial.workflow.selectedVariantId
+      XCTAssertNotEqual(variant, WorkflowContract.primaryVariantID)
+      let primary = try await fixture.source.readWorkflowSidecar(
+        for: ref, variantId: WorkflowContract.primaryVariantID)
+      try await RepeatedNativeWorkflowAssertions.qualify(
+        initial: initial, adapter: "SMB-named-variant",
+        reopen: {
+          await fixture.source.disconnect()
+          try await fixture.source.connect(credentials: fixture.credentials)
+          let fresh = self.editor(fixture.source, try await fixture.image())
+          await fresh.loadSidecar()
+          await fresh.workflow.selectVariant(variant, session: fresh)
+          XCTAssertNil(fresh.workflow.errorText)
+          return fresh
+        },
+        readXML: {
+          let xml = try await fixture.source.readWorkflowSidecar(for: ref, variantId: variant)
+          return try XCTUnwrap(xml)
+        },
+        verifyOriginal: {
+          XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+          let bytes = try await fixture.source.rawBytes(for: ref)
+          XCTAssertEqual(bytes, fixture.original)
+          let currentPrimary = try await fixture.source.readWorkflowSidecar(
+            for: ref, variantId: WorkflowContract.primaryVariantID)
+          XCTAssertEqual(currentPrimary, primary)
+        })
+      await fixture.close()
+    } catch {
+      await fixture.close()
+      throw error
+    }
+  }
+
   private func qualifyDuplicateNames(_ fixture: OwnedSMBWorkflowFixture) async throws {
     let nested = fixture.share.appendingPathComponent("nested", isDirectory: true)
     try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)

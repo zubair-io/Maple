@@ -28,6 +28,32 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
     }
   }
 
+  func testOneHundredConsecutiveCyclesOnLocalAndPhotoKitSidecars() async throws {
+    for photos in [false, true] {
+      let files = try NativeWorkflowControlFixture.files()
+      defer { try? FileManager.default.removeItem(at: files.directory) }
+      let backing = AppSupportSidecarStore(root: files.directory.appendingPathComponent("sidecars"))
+      let path =
+        photos
+        ? backing.sidecarURL(phassetLocalId: "PHOTO/CYCLES")
+        : SidecarPath.sidecarURL(for: files.raw)
+      try FileManager.default.createDirectory(
+        at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try Data(NativeWorkflowControlFixture.input().utf8).write(to: path)
+      let initial = makeSession(files.raw, photos: photos, backing: backing, id: "PHOTO/CYCLES")
+      await initial.loadSidecar()
+      try await RepeatedNativeWorkflowAssertions.qualify(
+        initial: initial, adapter: photos ? "PhotoKit-sidecar" : "Filesystem",
+        reopen: {
+          let fresh = self.makeSession(
+            files.raw, photos: photos, backing: backing, id: "PHOTO/CYCLES")
+          await fresh.loadSidecar()
+          return fresh
+        }, readXML: { try NativeWorkflowControlFixture.xml(path) },
+        verifyOriginal: { XCTAssertEqual(try Data(contentsOf: files.raw), files.original) })
+    }
+  }
+
   private func qualify(
     preset: WhiteBalancePreset?, photos: Bool = false, autoTone: Bool = false,
     profile: Profile = .auto
