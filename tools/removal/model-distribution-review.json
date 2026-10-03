@@ -60,7 +60,7 @@
     },
     {
       "file": "notices/ATTRIBUTIONS.txt",
-      "sha256": "0a52e8b8ef2da0e4538b8ed26ee6fce2f68134caa133691f90afa4c53db15482",
+      "sha256": "8bab97fc7c4acb750fa64ceb075263edab96d5c60e78c9592d915cd791cf3abf",
       "source": "Maple export recipes and the pinned upstream file headers referenced below"
     }
   ],

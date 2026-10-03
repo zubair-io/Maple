@@ -4,6 +4,50 @@ import XCTest
 @testable import MapleCore
 
 final class NativeRemovalAuthoringJobTests: XCTestCase {
+  func testOfflineBundleDocumentsAreOwnedAndRestoredWithActualPinnedModels() async throws {
+    #if os(macOS)
+      let root = (0..<7).reduce(URL(fileURLWithPath: #filePath)) { value, _ in
+        value.deletingLastPathComponent()
+      }.appendingPathComponent("test-fixtures/raws/removal-mac-bundle")
+      guard FileManager.default.fileExists(atPath: root.appendingPathComponent("bundle.json").path)
+      else {
+        throw XCTSkip("Build and stage the actual offline Mac bundle (#1472 / #3941)")
+      }
+      let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString)
+      try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+      addTeardownBlock { try? FileManager.default.removeItem(at: temporary) }
+      let source = temporary.appendingPathComponent("source")
+      try FileManager.default.copyItem(at: root.resolvingSymlinksInPath(), to: source)
+      let destination = temporary.appendingPathComponent("models")
+      let installed = try await MacRemovalModelStore(root: destination).install(from: source)
+      let snapshots = try FileManager.default.contentsOfDirectory(
+        at: installed.appendingPathComponent("bundles"), includingPropertiesForKeys: nil)
+      let snapshot = try XCTUnwrap(snapshots.first)
+      XCTAssertEqual(snapshots.count, 1)
+      let manifest = try XCTUnwrap(
+        JSONSerialization.jsonObject(
+          with: Data(contentsOf: source.appendingPathComponent("bundle.json"))) as? [String: Any])
+      let inventory = try XCTUnwrap(manifest["files"] as? [[String: Any]])
+      for item in inventory {
+        let file = try XCTUnwrap(item["file"] as? String)
+        let retained = file.hasPrefix("provenance/") ? snapshot : installed
+        XCTAssertEqual(
+          try Data(contentsOf: retained.appendingPathComponent(file)),
+          try Data(contentsOf: source.appendingPathComponent(file)))
+      }
+      XCTAssertEqual(
+        try Data(contentsOf: snapshot.appendingPathComponent("bundle.json")),
+        try Data(contentsOf: source.appendingPathComponent("bundle.json")))
+      try FileManager.default.removeItem(at: source)
+      let restored = try await MacRemovalModelStore(root: destination).installedDirectory()
+      XCTAssertEqual(restored, installed)
+      XCTAssertTrue(ExperimentalRemovalModels.all.allSatisfy { !$0.releaseQualified })
+    #else
+      throw XCTSkip("macOS offline bundle installation test")
+    #endif
+  }
+
   @MainActor
   func testNativePeopleGroupUsesSequentialActualModelJobsAndOneKeep() async throws {
     #if os(macOS)

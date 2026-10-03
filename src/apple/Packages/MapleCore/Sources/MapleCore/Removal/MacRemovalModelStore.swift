@@ -51,6 +51,7 @@
       for artifact in artifacts {
         try verify(artifact, at: directory.appendingPathComponent(artifact.file))
       }
+      try MacRemovalModelProvenance.verifyInstalled(beside: directory)
       return directory
     }
 
@@ -69,11 +70,14 @@
       defer { try? fm.removeItem(at: staging) }
       for artifact in artifacts {
         let target = staging.appendingPathComponent(artifact.file)
-        try copyBytes(from: source.appendingPathComponent(artifact.file), to: target)
+        try MacRemovalModelFiles.copy(
+          from: source.appendingPathComponent(artifact.file), to: target, limit: artifact.size)
         try verify(artifact, at: target)
       }
+      let provenance = try MacRemovalModelProvenance.stage(from: source, in: staging)
       try Task.checkCancellation()
       try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+      if let provenance { try MacRemovalModelProvenance.publish(provenance, beside: directory) }
       for artifact in artifacts {
         let target = directory.appendingPathComponent(artifact.file)
         if (try? verify(artifact, at: target)) != nil { continue }
@@ -101,21 +105,5 @@
       else { throw RemovalError.invalid("\(artifact.file): model checksum or size mismatch") }
     }
 
-    /// Dereference imported symlinks and bound transient memory to one MiB.
-    /// The installed files must survive removal of the external model folder.
-    private func copyBytes(from source: URL, to target: URL) throws {
-      let input = try FileHandle(forReadingFrom: source)
-      defer { try? input.close() }
-      guard FileManager.default.createFile(atPath: target.path, contents: nil) else {
-        throw RemovalError.invalid("Could not stage \(target.lastPathComponent)")
-      }
-      let output = try FileHandle(forWritingTo: target)
-      defer { try? output.close() }
-      while let bytes = try input.read(upToCount: 1 << 20), !bytes.isEmpty {
-        try Task.checkCancellation()
-        try output.write(contentsOf: bytes)
-      }
-      try output.synchronize()
-    }
   }
 #endif
