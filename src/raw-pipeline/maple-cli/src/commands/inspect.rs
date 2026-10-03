@@ -55,10 +55,16 @@ pub fn run(path: &Path) -> Result<i32, Box<dyn std::error::Error>> {
     );
     // The bundled Lensfun match the develop path would apply, and every
     // bundled lens this body can carry (`maple-cli render --lens <slug>`).
-    match raw_core::lens_profile::evidence_for(&raw, &raw_core::AdjustmentModel::default()) {
-        Ok(Some(evidence)) => println!("  lens correction: {evidence}"),
-        Ok(None) => println!("  lens correction: none (no embedded or bundled calibration)"),
-        Err(error) => println!("  lens correction: {error}"),
+    // External evidence is absent when embedded corrections take precedence.
+    // That absence must not be reported as no correction source (#4084).
+    if raw.has_lens_corrections() {
+        println!("  lens correction: embedded DNG OpcodeList3");
+    } else {
+        match raw_core::lens_profile::evidence_for(&raw, &raw_core::AdjustmentModel::default()) {
+            Ok(Some(evidence)) => println!("  lens correction: {evidence}"),
+            Ok(None) => println!("  lens correction: none (no embedded or bundled calibration)"),
+            Err(error) => println!("  lens correction: {error}"),
+        }
     }
     let compatible = raw_core::lens_profile::compatible_lenses(&raw);
     println!(
