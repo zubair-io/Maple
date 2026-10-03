@@ -1,0 +1,97 @@
+Window: "Maple", App: Maple.DesignAudit321.exe.
+	0 window Maple Secondary Actions: Raise
+		1 pane Non Client Input Sink Window
+		2 pane AppWindow Custom Title Bar
+			3 button Minimize ID: Minimize
+			4 button Maximize ID: Maximize
+			5 button Close ID: Close
+		6 pane
+			7 pane
+				8 button File menu
+					9 text File
+				10 button Edit menu
+					11 text Edit
+				12 button View menu
+					13 text View
+				14 button Photo menu
+					15 text Photo
+				16 text Maple
+				82 text Info
+				83 button Close photo info
+				84 pane
+					85 text grey-l018-rggb.dng
+					86 text Rating
+					87 button Set rating 1
+					88 button Set rating 2
+					89 button Set rating 3
+					90 button Set rating 4
+					91 button Set rating 5
+					92 button Clear rating
+						93 text Clear
+					94 text Flag
+					95 button Unflagged ID: UnflaggedBtn
+						96 text Unflagged
+					97 button Flag as pick ID: PickBtn
+						98 text Pick
+					99 button Flag as reject ID: RejectBtn
+						100 text Reject
+					101 text CAMERA
+					141 text Camera
+					142 text —
+					143 text Dimensions
+					144 text —
+					145 text Lens
+					146 text —
+					147 text ISO
+					148 text —
+					149 text Aperture
+					150 text —
+					151 text Shutter
+					152 text —
+					153 text Captured
+					154 text —
+					116 text FILE
+					155 text Name
+					156 text grey-l018-rggb.dng
+					157 text Format
+					158 text DNG
+					159 text Size
+					160 text 0 B
+					161 text Modified
+					162 text —
+					163 text Pixels
+					164 text —
+					165 text Path
+					166 text C:\Users\zubai\AppData\Local\Temp\maple-shell321-20261003/input/grey-l018-rggb.dng
+					167 text Color label
+					168 text None
+					169 group Camera and lens support
+						170 text Camera and lens support
+					133 text No caption, keywords or location in the sidecar.
+					134 button Edit this photo’s metadata
+						135 text Edit this photo’s metadata…
+					136 scroll bar (settable, float) Vertical Value: 0 ID: VerticalScrollBar
+				66 group Filmstrip ID: FilmstripRail
+					67 text 01 / 01
+					68 button Collapse photo list
+					69 pane
+						70 group grey-l018-rggb.dng
+							71 group grey-l018-rggb.dng
+								72 image
+						171 text grey-l018-rggb.dng
+						172 text DNG · 0 B
+				73 pane ID: ViewerScroll
+					74 image Rendered preview canvas ID: ViewportImage
+				75 text Fit Description: Image zoom and detail status ID: ZoomReadout
+				76 button Back to browse
+				77 text grey-l018-rggb.dng
+				78 button Edit photo
+				79 button Photo info
+		38 title bar (settable, string) Value: Maple
+			39 menu bar System ID: MenuBar
+				40 menu item System
+			41 button Minimize
+			42 button Maximize
+			43 button Close
+
+The focused UI element is 142 text —.

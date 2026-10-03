@@ -32,7 +32,7 @@ public sealed partial class MainWindow
                 throw new InvalidOperationException("Shell visual window did not reach 1440x960");
             _infoPaneOpen = false;
             if (photo != null) RestoreBrowseSelection(new[] { photo }, photo);
-            foreach (var name in new[] { "browse-grid", "browse-list", "preview-rail", "preview-list", "preview-info" })
+            foreach (var name in new[] { "browse-grid", "browse-list", "preview-rail", "preview-list", "preview-info", "preview-list-info" })
             {
                 if (name.StartsWith("browse", StringComparison.Ordinal))
                 {
@@ -43,8 +43,8 @@ public sealed partial class MainWindow
                 else
                 {
                     SetMode(ShellMode.Preview);
-                    FilmstripRail.IsCollapsed = name != "preview-list";
-                    _infoPaneOpen = name == "preview-info";
+                    FilmstripRail.IsCollapsed = !name.StartsWith("preview-list", StringComparison.Ordinal);
+                    _infoPaneOpen = name.EndsWith("info", StringComparison.Ordinal);
                     UpdateInfoPane();
                 }
                 await Task.Delay(300);

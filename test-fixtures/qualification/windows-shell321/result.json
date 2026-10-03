@@ -1,0 +1,117 @@
+{
+  "issue": 3875,
+  "sourceBase": "5e0c6d90d82c5dbbbbb1e026ea94e411ea75a29e",
+  "mainBase": "89c88db906a42983552e0ac1a4621ee5ef451ac9",
+  "build": "Maple.DesignAudit321",
+  "sourceChanges": [
+    "MainWindow.ShellVisualSmoke.cs: added expanded-list-plus-Info checkpoint"
+  ],
+  "appHostSha256": "8DA0869B149A7868955213B884EE54141AD00873289BC778877A095E83292C65",
+  "managedAssemblySha256": "929A55658A39F9D8195BB754C35A057BABF3F29E0522D661EFF2E0E083A4DCEF",
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3",
+  "originalSha256": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276",
+  "stagedSha256": "C5B7B3324E55D5DD84693ED9384A6C9B464794AFBDF969E5EB8CC64452F35276",
+  "renderPath": "cpu",
+  "lifecycleReportPassed": true,
+  "processAbsentAfterShutdown": true,
+  "exitCode": null,
+  "checkpoints": [
+    {
+      "name": "browse-grid",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "browse-list",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-info",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-list-info",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-list",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    },
+    {
+      "name": "preview-rail",
+      "width": 1440,
+      "height": 960,
+      "logicalWidth": 945.3333129882812,
+      "logicalHeight": 632,
+      "scale": 1.5,
+      "photoCount": 1
+    }
+  ],
+  "captures": [
+    {
+      "sha256": "530BC00A388F9059080435AC4927A7B9C05BD91C8E2430173C017EF150156936",
+      "name": "browse-grid.png"
+    },
+    {
+      "sha256": "97D841FB0607DE0DC868570B60E2596459657D6358FDAADA65FFDBEB1887DA23",
+      "name": "browse-list.png"
+    },
+    {
+      "sha256": "DE412EBA1CEA1B4797D2DE32ABE9B4B68FD3A6CD34A85C38CE62B8C6823476E7",
+      "name": "preview-info.png"
+    },
+    {
+      "sha256": "651581C6EBCD4F7FD18F6178807B083383CAE4D0684FA9E289A66A2F578810B1",
+      "name": "preview-list-info.png"
+    },
+    {
+      "sha256": "6EB3D0554123028410C7DE9694450A985AF968A1BA5CE2849B8241559524A8A2",
+      "name": "preview-list.png"
+    },
+    {
+      "sha256": "9AEAAD140A6468686B02A56CB5A8A29A198FA4399D1B20C463021A84640775ED",
+      "name": "preview-rail.png"
+    }
+  ],
+  "observed": [
+    "Selected Browse grid outline and red/brown list row are visible.",
+    "Preview bar contains Back, filename, Edit and Info; it remains bounded and fits the available image workspace.",
+    "Compact rail and expanded list are both captured with Info closed and open.",
+    "Info shows rating and flag controls above metadata; its content scroll container is exposed in the accessibility tree.",
+    "Two real sidebar-toggle clicks preserve the visible selected filename and Info pane and stay in Preview.",
+    "CPU lifecycle report passed after all six captures; shutdown stage recorded, renderer stopped, panel released once; process no longer present."
+  ],
+  "limitations": [
+    "One synthetic grey RAW; these captures do not verify a populated grid or many-photo rail scrolling.",
+    "150 percent scale only. Physical window 1440x960, content about 945x632 DIPs, captured raster 948x634. This is not 100 percent reference geometry.",
+    "Fixture diagnostic creates PhotoItem without normal folder metadata. Its displayed 0 B and unknown EXIF are not a production metadata qualification pass.",
+    "Screenshot comparisons are visual chrome review, not measured pixel/color parity.",
+    "Browse source sidebar, Editor groups/dialogs, DPI 100/200, Narrator and live authenticated cloud remain incomplete.",
+    "Lifecycle success does not explain the retained XAML crash or GPU Map timeout.",
+    "Process exit code was not retained by this interactive launch; normal teardown is supported by the report/stages and absent process, not an exit-code assertion."
+  ]
+}
