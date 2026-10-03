@@ -62,6 +62,9 @@ async function waitForBlockedRead(path: string) {
   gate.arrived++;
   await gate.promise;
 }
+function blockedReadCount(path: string): number {
+  return blocked.get(path)?.arrived ?? 0;
+}
 function fixtureSchema(xml: string, future: boolean | undefined): string {
   return future ? xml.replace('<papp:SchemaVersion>1', '<papp:SchemaVersion>2') : xml;
 }
@@ -215,7 +218,7 @@ const app = new Elysia()
     const workflow = xml === null ? null : await callNative('workflowReadXmp', [xml]);
     return {
       xml,
-      blockedReads: blocked.get(source.path)?.arrived ?? 0,
+      blockedReads: blockedReadCount(source.path),
       workflow: workflow?.ok ? JSON.parse(workflow.value) : null,
       original: [...(await readFile(source.path))],
       state: live.db.query('SELECT has_xmp, sidecar_ver FROM assets WHERE id = ?').get(source.id),
