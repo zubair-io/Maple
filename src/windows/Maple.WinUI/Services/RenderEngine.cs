@@ -404,31 +404,21 @@ namespace Maple.WinUI.Services
             }
         }
 
-        /// <summary>Trilinear 3D-LUT application over display-encoded RGB —
+        /// <summary>Shared-core 3D-LUT application over display-encoded RGB —
         /// the CPU-fallback equivalent of Apple's post-encode CIColorCube.
         /// Layout: data[((b*n+g)*n+r)*3+c], R fastest.</summary>
         public static void ApplyDisplayLut(float[] rgba, int floatCount, float[] lut, int n)
         {
-            var maxIndex = n - 1;
-            for (var i = 0; i < floatCount; i += 4)
+            if (floatCount < 0 || floatCount > rgba.Length || floatCount % 4 != 0)
+                throw new ArgumentOutOfRangeException(nameof(floatCount));
+            if (floatCount == 0) return;
+            fixed (float* pixels = rgba)
+            fixed (float* grid = lut)
             {
-                var r = Math.Clamp(rgba[i], 0f, 1f) * maxIndex;
-                var g = Math.Clamp(rgba[i + 1], 0f, 1f) * maxIndex;
-                var b = Math.Clamp(rgba[i + 2], 0f, 1f) * maxIndex;
-                int r0 = (int)r, g0 = (int)g, b0 = (int)b;
-                int r1 = Math.Min(r0 + 1, maxIndex), g1 = Math.Min(g0 + 1, maxIndex), b1 = Math.Min(b0 + 1, maxIndex);
-                float fr = r - r0, fg = g - g0, fb = b - b0;
-                for (var c = 0; c < 3; c++)
-                {
-                    float At(int bi, int gi, int ri) => lut[(((bi * n) + gi) * n + ri) * 3 + c];
-                    var c00 = At(b0, g0, r0) * (1 - fr) + At(b0, g0, r1) * fr;
-                    var c01 = At(b0, g1, r0) * (1 - fr) + At(b0, g1, r1) * fr;
-                    var c10 = At(b1, g0, r0) * (1 - fr) + At(b1, g0, r1) * fr;
-                    var c11 = At(b1, g1, r0) * (1 - fr) + At(b1, g1, r1) * fr;
-                    var c0 = c00 * (1 - fg) + c01 * fg;
-                    var c1 = c10 * (1 - fg) + c11 * fg;
-                    rgba[i + c] = c0 * (1 - fb) + c1 * fb;
-                }
+                var rc = RawFfi.maple_apply_display_lut_rgba_f32(
+                    pixels, (nuint)floatCount, grid, (nuint)lut.Length, (uint)n);
+                if (rc != 0)
+                    throw new InvalidOperationException("display LUT failed: " + RawFfi.LastError());
             }
         }
 

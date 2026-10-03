@@ -47,6 +47,7 @@
 mod abi_layout;
 mod auto_adjustments;
 mod auto_profile;
+mod auto_profile_lut_apply;
 mod auto_tone;
 mod buffers;
 mod camera_support;
