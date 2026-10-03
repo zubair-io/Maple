@@ -38,7 +38,10 @@ final class NativeSavedRemovalSessionTests: XCTestCase {
       let preview = try await session.preview(xmp: xmp, maxLongEdge: cap)
       XCTAssertEqual(preview.width, cap == 4 ? 4 : 16)
       XCTAssertEqual(preview.height, cap == 4 ? 2 : 8)
-      XCTAssertEqual(preview.bytes, try data("preview-\(cap)", "rgb"))
+      let expected = try data("preview-\(cap)", "rgb")
+      XCTAssertEqual(
+        preview.bytes, expected,
+        "Saved preview cap \(cap): actual \(Array(preview.bytes)), expected \(Array(expected))")
       let options = """
         {"format":"png","quality":100,"color_space":"srgb","max_long_edge":\(cap)}
         """

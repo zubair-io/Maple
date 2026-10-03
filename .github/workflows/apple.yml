@@ -94,6 +94,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test release archive platform detection
         run: python3 src/apple/ci_scripts/test_post_xcodebuild.py
+      - name: Test native removal xcframework input invalidation
+        run: python3 tools/test_xcframework_removal_inputs.py
+      - name: Verify shared removal calibration fixture copies
+        run: |
+          python3 tools/test_removal_fixture_copies.py
+          python3 tools/check_removal_fixture_copies.py
 
       # The package is swift-tools-version 6.1; the image's default Xcode can
       # lag the newest installed one, so select the highest deterministically.

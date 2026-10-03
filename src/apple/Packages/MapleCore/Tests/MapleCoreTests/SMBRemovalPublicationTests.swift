@@ -14,7 +14,7 @@ final class SMBRemovalPublicationTests: XCTestCase {
     for existing in [false, true] {
       for semantic in [false, true] {
         let initial = existing ? savedXML : NativeWorkflowControlFixture.input()
-        let fixture = try await OwnedSMBWorkflowFixture.open(initialXML: initial)
+        let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self, initialXML: initial)
         do {
           let ref = try await fixture.image()
           let store = SMBSidecarStore(source: fixture.source, ref: ref)
