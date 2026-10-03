@@ -150,6 +150,10 @@ jobs:
       - name: Execute MapleUI tests
         working-directory: src/apple/Packages/MapleUI
         run: swift test
+      # Also dependency-free: the agent wire protocol over real Unix sockets.
+      - name: Execute MapleMCP tests
+        working-directory: src/apple/Packages/MapleMCP
+        run: swift test
       - name: Check native icon exceptions
         run: python3 tools/check-apple-icons.py
 
@@ -249,7 +253,7 @@ jobs:
             -output "$MAPLE_SWIFT_TEST_ROOT/Frameworks/RawPipeline.xcframework"
           # Keep the checkout's local framework untouched. Preserve package
           # relative paths, including the tiny committed synthetic RAW.
-          for package in MapleCore MapleBackup; do
+          for package in MapleCore MapleBackup MapleMCP; do
             rsync -a --exclude=.build --exclude=.swiftpm \
               "src/apple/Packages/$package" "$MAPLE_SWIFT_TEST_ROOT/Packages/"
           done

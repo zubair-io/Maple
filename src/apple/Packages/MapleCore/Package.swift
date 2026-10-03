@@ -36,6 +36,10 @@ let package = Package(
     // AMSMB2 — Swift SMB 2/3 client (MIT license; review before App Store submission).
     .package(path: "../../third_party/AMSMB2"),
     .package(path: "../MapleBackup"),
+    // Agent wire protocol + socket transport for the live AI editing
+    // bridge (AgentBridge/). Dependency-free, so the stdio bridge in the
+    // same package builds without RawPipeline.
+    .package(path: "../MapleMCP"),
     // swift-otel — OpenTelemetry SDK. Pinned to 1.2.1 (latest stable as of
     // 2026-05-30). We enable ONLY the `OTLPHTTP` trait — Maple exports
     // OTLP/HTTP to a self-hosted SigNoz, never OTLP/gRPC. Disabling the
@@ -61,6 +65,7 @@ let package = Package(
         "RawPipeline",
         .product(name: "AMSMB2", package: "AMSMB2"),
         .product(name: "MapleBackup", package: "MapleBackup"),
+        .product(name: "MapleAgentWire", package: "MapleMCP"),
         .product(name: "OTel", package: "swift-otel"),
       ],
       resources: [
@@ -90,6 +95,7 @@ let package = Package(
         "MapleCore",
         "MapleCloudKit",
         .product(name: "MapleBackup", package: "MapleBackup"),
+        .product(name: "MapleAgentWire", package: "MapleMCP"),
       ],
       resources: [
         .copy("Fixtures/auth-contract.json"),
