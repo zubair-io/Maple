@@ -14,12 +14,14 @@ extension ImageEditPipeline {
     iso: UInt32 = 0,
     wbFrame: WbSliderFrame? = nil,
     whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1,
     targetPrimariesOverride: CanvasColorSpace? = nil
   ) -> CIImage {
     processSceneLinearResolved(
       decoded: decoded, model: model, targetSize: targetSize, asShot: asShot,
       decodedAtModel: decodedAtModel, profileLUT: profileLUT, assetID: assetID,
       noiseProfile: noiseProfile, iso: iso, wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv,
+      nrSamplingScale: nrSamplingScale,
       targetPrimariesOverride: targetPrimariesOverride, nativeAutoProfile: nil) ?? decoded
   }
 
@@ -36,6 +38,7 @@ extension ImageEditPipeline {
     iso: UInt32 = 0,
     wbFrame: WbSliderFrame? = nil,
     whitesAnchorEv: Float = .nan,
+    nrSamplingScale: Float = 1,
     targetPrimariesOverride: CanvasColorSpace? = nil
   ) throws -> CIImage {
     guard
@@ -43,6 +46,7 @@ extension ImageEditPipeline {
         decoded: decoded, model: model, targetSize: targetSize, asShot: asShot,
         decodedAtModel: decodedAtModel, profileLUT: profileLUT, assetID: assetID,
         noiseProfile: noiseProfile, iso: iso, wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv,
+        nrSamplingScale: nrSamplingScale,
         targetPrimariesOverride: nativeAutoProfile?.artifacts != nil
           ? .srgb : targetPrimariesOverride, nativeAutoProfile: nativeAutoProfile)
     else {

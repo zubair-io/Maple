@@ -18,7 +18,8 @@ extension RenderActor {
 
     guard
       let (
-        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv, decodeNrSamplingScale,
+        decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv,
+        decodeNrSamplingScale,
         decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert,
         decodeCameraSupport, deliveredQuality
       ) = decodeResult

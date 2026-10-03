@@ -223,7 +223,7 @@ fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
     let ctx = raw_gpu::GpuContext::new_blocking()
         .expect("saved-prefix GPU qualification requires adapter");
     for cap in [4, 64] {
-        let (rgba, w, h, prefix, anchor) =
+        let (rgba, w, h, prefix, anchor, sampling) =
             develop_prefix_rgba_saved(&raw, RAW, "dng", &original, &model, cap, Some(&stack))
                 .unwrap();
         let expected = stack
@@ -246,6 +246,7 @@ fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
                 .collect::<Vec<_>>()
         );
         assert_eq!(Some(anchor), expected.whites_anchor_ev);
+        assert_eq!(sampling, expected.nr_sampling_scale);
         let ordinary = raw_core::xmp::AdjustmentModel {
             inpaint_removals: Vec::new(),
             ..model.clone()
@@ -260,16 +261,17 @@ fn saved_gpu_prefix_is_source_bound_and_reuses_hot_slider_base() {
                 exposure: ev,
                 ..model.clone()
             };
-            let (_, _, _, hot_prefix, _) =
+            let (_, _, _, hot_prefix, _, _) =
                 develop_prefix_rgba_saved(&raw, RAW, "dng", &original, &grade, cap, Some(&stack))
                     .unwrap();
             assert_eq!(
                 prefix, hot_prefix,
                 "WB/exposure must keep the resident base"
             );
-            let inputs = crate::gpu_render::chain_inputs_for_model(
+            let mut inputs = crate::gpu_render::chain_inputs_for_model(
                 &raw, RAW, "dng", &grade, None, 0, anchor,
             );
+            inputs.nr_sampling_scale = sampling;
             // The first activation of a chain signature may create its normal
             // pool bucket. A second tick must reuse it, as the existing live gate.
             let gpu = session

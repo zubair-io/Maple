@@ -133,16 +133,17 @@ impl WebLiveSession {
         // cached for the re-develop check. Native dims ride the handle so the
         // editor's zoom math stays full-res-aware (#1101 contract).
         let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale) = develop_prefix_rgba_saved(
-            &raw_img,
-            &raw,
-            &ext,
-            &original,
-            &model,
-            target_long_edge,
-            saved_removals.as_ref(),
-        )
-        .map_err(|e| JsError::new(&e))?;
+        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale) =
+            develop_prefix_rgba_saved(
+                &raw_img,
+                &raw,
+                &ext,
+                &original,
+                &model,
+                target_long_edge,
+                saved_removals.as_ref(),
+            )
+            .map_err(|e| JsError::new(&e))?;
 
         // Fallible (#1079): an image past the device's buffer/binding limits
         // surfaces as a JsError for the same CPU fallback.

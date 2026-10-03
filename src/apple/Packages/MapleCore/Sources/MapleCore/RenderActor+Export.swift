@@ -145,8 +145,8 @@ extension RenderActor {
           noiseProfile: exportNoiseProfile,
           iso: exportISO,
           wbFrame: exportWbFrame, whitesAnchorEv: exportDecodeResult.whitesAnchorEv,
-          targetPrimariesOverride: targetPrimariesOverride,
-          nrSamplingScale: exportDecodeResult.nrSamplingScale
+          nrSamplingScale: exportDecodeResult.nrSamplingScale,
+          targetPrimariesOverride: targetPrimariesOverride
         )
       }
     }.value

@@ -18,9 +18,9 @@ use crate::{
     image::RawImage,
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery_oklab, hsl, local_adjustments,
-        noise_reduction, retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, vignette, wb_camera, white_balance,
+        highlight_recovery_oklab, hsl, local_adjustments, noise_reduction, retouch, saturation,
+        scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette, wb_camera,
+        white_balance,
     },
     xmp::AdjustmentModel,
 };

@@ -31,7 +31,7 @@ fn saved_scene_tiles_match_unclipped_full_scene_and_reject_changed_inputs() {
                 grade.temperature_seen = true;
                 grade.tint_seen = true;
             }
-            let (width, height, full, _, _) = stack
+            let (width, height, full, _, _, _) = stack
                 .render_scene_linear_f32_with_anchors(
                     &raw,
                     &original,

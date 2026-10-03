@@ -177,16 +177,17 @@ impl WebLiveSession {
         // branch: same buffer, same LiveSession, zero new GPU buffers.
         let new_prefix = prefix_model_for(&self.raw_img, &self.raw, &self.ext, &model);
         if new_prefix != self.prefix_model {
-            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) = develop_prefix_rgba_saved(
-                &self.raw_img,
-                &self.raw,
-                &self.ext,
-                &self.original,
-                &model,
-                self.target_long_edge,
-                self.saved_removals.as_ref(),
-            )
-            .map_err(|e| JsError::new(&e))?;
+            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) =
+                develop_prefix_rgba_saved(
+                    &self.raw_img,
+                    &self.raw,
+                    &self.ext,
+                    &self.original,
+                    &model,
+                    self.target_long_edge,
+                    self.saved_removals.as_ref(),
+                )
+                .map_err(|e| JsError::new(&e))?;
             // Dims are stable across ticks (same image, same session-pinned
             // target), but assert so a future quality/target switch can't
             // silently desync the canvas surface.

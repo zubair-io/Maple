@@ -20,7 +20,7 @@ fn all_scene_handoffs_match_verified_full_and_sized_core_without_display_clippin
             .unwrap();
     let ext = CString::new("dng").unwrap();
     for cap in [None, Some(4)] {
-        let (w, h, expected, gain, whites) = saved
+        let (w, h, expected, gain, whites, sampling) = saved
             .render_scene_linear_f32_with_anchors(
                 &raw,
                 &original,
@@ -81,6 +81,7 @@ fn all_scene_handoffs_match_verified_full_and_sized_core_without_display_clippin
                 assert_eq!((image.width, image.height), (w, h));
                 assert_eq!(image.ae_gain, gain);
                 assert_eq!(image.whites_anchor_ev, whites);
+                assert_eq!(image.nr_sampling_scale, sampling);
                 assert_eq!(
                     std::slice::from_raw_parts(image.f32_rgba, image.len_bytes / 4),
                     expected
