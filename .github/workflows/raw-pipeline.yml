@@ -57,6 +57,12 @@ on:
       - 'src/scripts/test_banding.sh'
       - 'src/scripts/banding_check.py'
       - 'src/scripts/banding_check_test.py'
+      - 'src/scripts/halo_check.py'
+      - 'src/scripts/hue_stability.py'
+      - 'src/scripts/halo_check_test.py'
+      - 'src/scripts/test_diagnostic_evidence.py'
+      - 'src/scripts/test_halo_detection.sh'
+      - 'src/scripts/test_hue_stability.sh'
       - 'src/scripts/stage_stats*.py'
       - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
@@ -93,6 +99,12 @@ on:
       - 'src/scripts/test_banding.sh'
       - 'src/scripts/banding_check.py'
       - 'src/scripts/banding_check_test.py'
+      - 'src/scripts/halo_check.py'
+      - 'src/scripts/hue_stability.py'
+      - 'src/scripts/halo_check_test.py'
+      - 'src/scripts/test_diagnostic_evidence.py'
+      - 'src/scripts/test_halo_detection.sh'
+      - 'src/scripts/test_hue_stability.sh'
       - 'src/scripts/stage_stats*.py'
       - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
@@ -496,6 +508,8 @@ jobs:
       # stage_stats' narrower numpy-only need covers stage_diff too.
       - name: Install Python deps for the banding gate
         run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34' 'colour-science>=0.4.4'
+      - name: 'Diagnostic input integrity (real EXR/CLI, #4082)'
+        run: python3 -m unittest discover -s src/scripts -p test_diagnostic_evidence.py
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
         with:
