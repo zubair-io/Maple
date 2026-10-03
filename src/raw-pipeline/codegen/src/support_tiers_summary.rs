@@ -20,6 +20,7 @@ use raw_core::support_tiers::{
 };
 
 use crate::capability_summary::{json_string, md_findings, print_json, strs, J};
+use crate::support_evidence;
 use crate::support_tiers::fallback_rows;
 
 // -------------------------------------------------------------------------
@@ -93,6 +94,7 @@ pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String
     s.push('\n');
 
     s.push_str("## Fixtured bodies\n\n");
+    s.push_str("Each qualification verdict includes the actual recorded commit, corpus digest, backend and pipeline/schema versions when a record exists. Missing records have no measurement identity. Rejected records retain their recorded versions; the registry profile bundle identifies this build and is not a claim that stale evidence measured it (#4081).\n\n");
     s.push_str(
         "Every camera Maple holds a physical file for. No other body can reach `qualified`, because no other body has anything to measure. Each fixture digest identifies the exact reviewed sample bytes; fixture validation rejects a different sample under the same filename before decoding it (#4080). These identities do not supply missing measurement-run evidence or the fixed C-suite requirements tracked by #2440 and #2439.\n\n",
     );
@@ -107,7 +109,14 @@ pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String
             body.resolution.id()
         ));
         s.push_str(&format!("- Lens: `{}`\n", body.lens.id()));
+        s.push_str(&format!(
+            "- Registry profile bundle: format v{}, `{}`\n",
+            registry.profile_bundle_format, registry.profile_bundle_digest
+        ));
         s.push_str(&md_findings("Qualification evidence", &body.findings));
+        for finding in &body.findings {
+            s.push_str(&support_evidence::md(finding, evidence));
+        }
         s.push('\n');
     }
 
@@ -123,12 +132,16 @@ pub(crate) fn emit_md(registry: &SupportRegistry, evidence: &Evidence) -> String
 // JSON
 // -------------------------------------------------------------------------
 
-fn body_json(body: &BodyClassification) -> J {
+fn body_json(body: &BodyClassification, evidence: &Evidence, registry: &SupportRegistry) -> J {
     J::Obj(vec![
         ("key", J::Str(body.key.to_owned())),
         ("display_name", J::Str(body.display_name.to_owned())),
         ("fixture", J::Str(body.fixture.to_owned())),
         ("fixture_digest", J::Str(body.fixture_digest.to_owned())),
+        (
+            "profile_bundle_digest",
+            J::Str(registry.profile_bundle_digest.clone()),
+        ),
         ("tier", J::Str(body.tier.id().to_owned())),
         ("lens", J::Str(body.lens.id().to_owned())),
         (
@@ -145,6 +158,7 @@ fn body_json(body: &BodyClassification) -> J {
                             ("source", J::Str(f.source.id().to_owned())),
                             ("status", J::Str(f.status.id().to_owned())),
                             ("detail", J::Str(f.status.describe())),
+                            ("record", support_evidence::json(f, evidence)),
                         ])
                     })
                     .collect(),
@@ -220,7 +234,13 @@ pub(crate) fn emit_json(registry: &SupportRegistry, evidence: &Evidence) -> Stri
         ("profile_fallback_order", J::Arr(fallback)),
         (
             "fixtured_bodies",
-            J::Arr(registry.bodies.iter().map(body_json).collect()),
+            J::Arr(
+                registry
+                    .bodies
+                    .iter()
+                    .map(|b| body_json(b, evidence, registry))
+                    .collect(),
+            ),
         ),
         (
             "bundled_models",
