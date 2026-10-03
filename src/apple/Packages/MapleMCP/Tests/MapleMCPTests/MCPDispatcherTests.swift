@@ -63,6 +63,8 @@ final class MCPDispatcherTests: XCTestCase {
         "maple_get_active_photo", "maple_set_adjustments", "maple_render_and_inspect",
         "maple_create_mask", "maple_render_mask_overlay", "maple_get_vectorscope",
         "maple_undo", "maple_reset",
+        "maple_list_photos", "maple_get_thumbnails", "maple_set_rating",
+        "maple_set_flag", "maple_open_photo",
       ])
     for tool in tools {
       XCTAssertEqual(tool["inputSchema"]?["type"], "object", "\(tool)")
@@ -103,6 +105,40 @@ final class MCPDispatcherTests: XCTestCase {
           "mimeType": "image/jpeg",
         ],
         ["type": "text", "text": #"{"revision":"r2"}"#],
+      ])
+  }
+
+  func testSuccessfulCallReturnsMultipleImages() throws {
+    let d = dispatcher { request in
+      AgentResponse(
+        id: request.id,
+        outcome: .success(
+          AgentPayload(
+            result: ["count": 2],
+            images: [
+              AgentImage(data: Data([1]), mimeType: "image/jpeg"),
+              AgentImage(data: Data([2]), mimeType: "image/jpeg"),
+            ])))
+    }
+    let reply = try XCTUnwrap(
+      d.handle(
+        request(
+          "tools/call",
+          params: ["name": "maple_get_thumbnails", "arguments": [:]])))
+    let result = try XCTUnwrap(reply["result"])
+    XCTAssertEqual(result["isError"], false)
+    XCTAssertEqual(
+      result["content"],
+      [
+        [
+          "type": "image", "data": .string(Data([1]).base64EncodedString()),
+          "mimeType": "image/jpeg",
+        ],
+        [
+          "type": "image", "data": .string(Data([2]).base64EncodedString()),
+          "mimeType": "image/jpeg",
+        ],
+        ["type": "text", "text": #"{"count":2}"#],
       ])
   }
 

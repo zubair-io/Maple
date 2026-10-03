@@ -71,6 +71,7 @@ struct AppShell: View {
   // by `body` / layout code stay `private`.
   @State var browseVM = BrowseViewModel()
   @State var sessions: [AssetRef.ID: EditSession] = [:]
+  @State var agentBrowseAdapter = AppShellBrowseAdapter()
   /// Scene activation hook (#1769, iOS): Metal discards presents issued
   /// while the app is backgrounded, so a GPU-live canvas backgrounded
   /// mid-present can come back torn with nothing scheduled to repaint it.
@@ -748,6 +749,7 @@ struct AppShell: View {
       }
     }
     .task {
+      configureAgentBrowseAdapter()
       guard !hasRestoredInitialSource else { return }
       // UITest harness fast path lives in AppShell+UITestFixture
       // (#if DEBUG). Returns true if a fixture URL was consumed —
@@ -813,6 +815,11 @@ struct AppShell: View {
     // `releaseTransientMemoryForInactiveSessions()`.
     .onChange(of: memoryPressureSignal.pressureEventCount) { _, _ in
       releaseTransientMemoryForInactiveSessions()
+    }
+    .onDisappear {
+      if AgentEditService.shared.browseDelegate === agentBrowseAdapter {
+        AgentEditService.shared.browseDelegate = nil
+      }
     }
   }
 

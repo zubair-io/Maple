@@ -15,6 +15,7 @@ import MapleAgentWire
 public final class AgentEditService {
   public static let shared = AgentEditService()
 
+  public weak var browseDelegate: (any AgentBrowseDelegate)?
   private weak var activeSession: EditSession?
 
   public init() {}
@@ -57,6 +58,25 @@ public final class AgentEditService {
       return try await AgentMaskService.renderMaskOverlay(arguments, in: try session())
     case "maple_get_vectorscope":
       return try await AgentVectorscopeTool.getVectorscope(arguments, in: try session())
+    case "maple_list_photos":
+      return AgentPayload(
+        result: try AgentBrowseService.listPhotos(
+          arguments, delegate: browseDelegate, activeSession: activeSession))
+    case "maple_get_thumbnails":
+      return try await AgentBrowseService.getThumbnails(
+        arguments, delegate: browseDelegate, activeSession: activeSession)
+    case "maple_set_rating":
+      return AgentPayload(
+        result: try await AgentBrowseService.setRating(
+          arguments, delegate: browseDelegate, activeSession: activeSession))
+    case "maple_set_flag":
+      return AgentPayload(
+        result: try await AgentBrowseService.setFlag(
+          arguments, delegate: browseDelegate, activeSession: activeSession))
+    case "maple_open_photo":
+      let newSession = try await AgentBrowseService.openPhoto(arguments, delegate: browseDelegate)
+      activate(newSession)
+      return AgentPayload(result: describe(newSession))
     case "maple_undo":
       let session = try editableSession(arguments)
       guard session.canUndo else {
@@ -225,6 +245,12 @@ public final class AgentEditService {
           || session.selectedMaskLayer?.kindName == "person_skin"
           || session.selectedMaskLayer?.kindName == "whole_image_skin"),
     ]
+
+    fields["rating"] = .int(session.culling.stars)
+    fields["flag"] = .string(session.culling.flag.rawValue)
+    if let color = session.culling.colorLabel {
+      fields["color_label"] = .string(color.rawValue)
+    }
 
     return .object(fields)
   }
