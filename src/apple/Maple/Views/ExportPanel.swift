@@ -18,10 +18,19 @@ struct ExportPanel: View {
   let session: EditSession
   @Environment(\.dismiss) private var dismiss
   @State private var vm = ExportPanelVM()
+  #if os(macOS)
+    @State private var showsRecipes = false
+  #endif
 
   var body: some View {
     NavigationStack {
       Form {
+        #if os(macOS)
+          Section("Saved export recipes") {
+            Button("Saved recipes and export queue…") { showsRecipes = true }
+              .accessibilityIdentifier("export-open-recipes")
+          }
+        #endif
         Section("Format") {
           Picker("Format", selection: $vm.format) {
             ForEach(ExportFileFormat.allCases, id: \.self) { fmt in
@@ -108,6 +117,14 @@ struct ExportPanel: View {
       // Window-sheet floor on the Mac only: a 420pt minimum is wider than
       // an iPhone sheet and pushed the toolbar buttons past its edges (#3403).
       .frame(minWidth: 420, minHeight: 280)
+      .sheet(isPresented: $showsRecipes) {
+        NativeExportRecipePanel(assets: [session.asset]) { asset in
+          guard asset.id == session.asset.id else {
+            throw NativeExportError.message("The selected photo changed.")
+          }
+          return session
+        }
+      }
     #else
       .sheet(item: $vm.stagedFile) { file in
         ExportShareSheet(fileURL: file.url) { completed in
