@@ -24,9 +24,27 @@ def step(job, name):
     return next(s for s in JOBS[job]["steps"] if s.get("name") == name)
 
 
+def validate_rust_provisioning(jobs):
+    actual = [
+        (job, item["uses"])
+        for job, config in jobs.items()
+        for item in config.get("steps", [])
+        if item.get("uses", "").startswith("dtolnay/rust-toolchain@")
+    ]
+    expected = {
+        ("build-wasm", "dtolnay/rust-toolchain@nightly"),
+        ("web-workflow-acceptance", "dtolnay/rust-toolchain@stable"),
+    }
+    if len(actual) != len(expected) or set(actual) != expected:
+        raise ValueError(
+            f"Unexpected Rust provisioning (stable is only for native FFI): {actual}"
+        )
+
+
 class WebWorkflowTests(unittest.TestCase):
     def test_only_producer_provisions_wasm_and_artifact_is_same_run(self):
-        for action in ("dtolnay/rust-toolchain@nightly", "jetli/wasm-pack-action@"):
+        validate_rust_provisioning(JOBS)
+        for action in ("jetli/wasm-pack-action@",):
             owners = [
                 job
                 for job, config in JOBS.items()
@@ -45,6 +63,56 @@ class WebWorkflowTests(unittest.TestCase):
             self.assertFalse(
                 any("run raw-wasm" in s.get("run", "") for s in JOBS[job]["steps"])
             )
+
+    def test_accidental_stable_or_nightly_wasm_consumer_is_rejected(self):
+        import copy
+
+        for job, action in (
+            ("web-test", "dtolnay/rust-toolchain@stable"),
+            ("web-build", "dtolnay/rust-toolchain@nightly"),
+            ("build-wasm", "dtolnay/rust-toolchain@stable"),
+        ):
+            jobs = copy.deepcopy(JOBS)
+            if job == "build-wasm":
+                item = next(
+                    item
+                    for item in jobs[job]["steps"]
+                    if item.get("uses", "").startswith("dtolnay/rust-toolchain@")
+                )
+                item["uses"] = action
+            else:
+                jobs[job]["steps"].append({"uses": action})
+            with self.subTest(job=job, action=action), self.assertRaises(ValueError):
+                validate_rust_provisioning(jobs)
+
+    def test_repeated_cycles_preserve_the_separate_mode_report_and_gate_evidence(self):
+        steps = JOBS["web-workflow-acceptance"]["steps"]
+        modes = step("web-workflow-acceptance", "Qualify white balance and Auto Tone")
+        preserve = step(
+            "web-workflow-acceptance", "Preserve white balance and Auto Tone report"
+        )
+        cycles = step(
+            "web-workflow-acceptance",
+            "Qualify 100 repeated cycles on each Web deployment",
+        )
+        self.assertLess(steps.index(modes), steps.index(preserve))
+        self.assertLess(steps.index(preserve), steps.index(cycles))
+        self.assertIn("stats['expected'] == 24", modes["run"])
+        self.assertIn("wb-auto-tone-results.json", preserve["run"])
+        self.assertIn("repeated-workflow.spec.ts", cycles["run"])
+        self.assertIn(
+            "check_web_cycle_evidence.py test-results/workflow/results.json",
+            cycles["run"],
+        )
+        restored = step(
+            "web-workflow-acceptance", "Restore white balance and Auto Tone report"
+        )
+        self.assertIn("$RUNNER_TEMP/wb-auto-tone-results.json", preserve["run"])
+        self.assertLess(steps.index(cycles), steps.index(restored))
+        self.assertIn("always()", restored["if"])
+        self.assertIn("wb-auto-tone-results.json", restored["run"])
+        self.assertNotIn("continue-on-error", cycles)
+        self.assertIn("web-workflow-acceptance", JOBS["result"]["needs"])
 
     def test_fixture_probe_handles_both_paths_before_provisioning(self):
         steps = JOBS["web-webgpu-smoke"]["steps"]
