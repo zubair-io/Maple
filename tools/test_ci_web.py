@@ -87,7 +87,10 @@ class WebWorkflowTests(unittest.TestCase):
 
     def test_repeated_cycles_preserve_the_separate_mode_report_and_gate_evidence(self):
         steps = JOBS["web-workflow-acceptance"]["steps"]
-        modes = step("web-workflow-acceptance", "Qualify white balance and Auto Tone")
+        modes = step(
+            "web-workflow-acceptance",
+            "Qualify white balance, Auto Tone and lens gestures",
+        )
         preserve = step(
             "web-workflow-acceptance", "Preserve white balance and Auto Tone report"
         )
@@ -97,7 +100,11 @@ class WebWorkflowTests(unittest.TestCase):
         )
         self.assertLess(steps.index(modes), steps.index(preserve))
         self.assertLess(steps.index(preserve), steps.index(cycles))
-        self.assertIn("stats['expected'] == 24", modes["run"])
+        self.assertIn(
+            "white-balance-workflow.spec.ts lens-gesture-workflow.spec.ts", modes["run"]
+        )
+        self.assertIn("check_web_editor_evidence.py", modes["run"])
+        self.assertIn("lens-gesture-results.json", preserve["run"])
         self.assertIn("wb-auto-tone-results.json", preserve["run"])
         self.assertIn("repeated-workflow.spec.ts", cycles["run"])
         self.assertIn(
@@ -111,8 +118,46 @@ class WebWorkflowTests(unittest.TestCase):
         self.assertLess(steps.index(cycles), steps.index(restored))
         self.assertIn("always()", restored["if"])
         self.assertIn("wb-auto-tone-results.json", restored["run"])
+        self.assertIn("editor-control-results.json", restored["run"])
+        self.assertIn("lens-gesture-results.json", restored["run"])
         self.assertNotIn("continue-on-error", cycles)
         self.assertIn("web-workflow-acceptance", JOBS["result"]["needs"])
+
+    def test_editor_reports_survive_playwright_cycle_cleanup(self):
+        preserve = step(
+            "web-workflow-acceptance", "Preserve white balance and Auto Tone report"
+        )["run"]
+        restore = step(
+            "web-workflow-acceptance", "Restore white balance and Auto Tone report"
+        )["run"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reports = root / "test-results/workflow"
+            reports.mkdir(parents=True)
+            runner = root / "runner"
+            runner.mkdir()
+            env = {**os.environ, "RUNNER_TEMP": str(runner)}
+            expected = {
+                "wb-auto-tone-results.json": '{"expected":24}',
+                "lens-gesture-results.json": '{"expected":2}',
+                "editor-control-results.json": '{"expected":26}',
+            }
+            for name, content in expected.items():
+                source = (
+                    "results.json" if name == "editor-control-results.json" else name
+                )
+                (reports / source).write_text(content)
+            subprocess.run(
+                ["bash", "-e", "-c", preserve], cwd=root, env=env, check=True
+            )
+            shutil.rmtree(reports)
+            reports.mkdir()
+            cycles = reports / "results.json"
+            cycles.write_text("200 actual cycle evidence")
+            subprocess.run(["bash", "-e", "-c", restore], cwd=root, env=env, check=True)
+            self.assertEqual(cycles.read_text(), "200 actual cycle evidence")
+            for name, content in expected.items():
+                self.assertEqual((reports / name).read_text(), content)
 
     def test_fixture_probe_handles_both_paths_before_provisioning(self):
         steps = JOBS["web-webgpu-smoke"]["steps"]
