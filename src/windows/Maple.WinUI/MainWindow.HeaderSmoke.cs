@@ -46,7 +46,8 @@ public sealed partial class MainWindow
 
         var buttons = HeaderActionButtons(EditTopBar).ToArray();
         var names = buttons.Select(AutomationProperties.GetName).ToArray();
-        foreach (var name in new[] { "Back to preview", "Undo adjustment", "Compare before and after",
+        var comparisonName = _compare.ShowingBefore ? "Showing before; show edited photo" : "Compare before and after";
+        foreach (var name in new[] { "Back to preview", "Undo adjustment", comparisonName,
             "More editing actions", "Export photo" })
             if (names.Count(candidate => candidate == name) != 1)
                 throw new InvalidOperationException($"Missing or duplicated editor header action: {name}");

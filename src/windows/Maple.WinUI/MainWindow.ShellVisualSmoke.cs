@@ -22,6 +22,7 @@ public sealed partial class MainWindow
         var originalInfo = _infoPaneOpen;
         var originalCollapsed = FilmstripRail.IsCollapsed;
         var originalBrowse = _browseListDetail;
+        var originalGroup = _activeGroup;
         var photo = ViewModel.SelectedPhoto;
         var originalSelection = ViewModel.SelectedPhotos.ToArray();
         var adjustments = ViewModel.Adjustments;
@@ -36,13 +37,18 @@ public sealed partial class MainWindow
             _infoPaneOpen = false;
             if (photo != null) RestoreBrowseSelection(new[] { photo }, photo);
             await VerifyPreviewToggleScrollAsync(output);
-            foreach (var name in new[] { "browse-grid", "browse-list", "preview-rail", "preview-list", "preview-info", "preview-list-info" })
+            foreach (var name in new[] { "browse-grid", "browse-list", "preview-rail", "preview-list", "preview-info", "preview-list-info",
+                "editor-light", "editor-color", "editor-crop", "editor-comparison" })
             {
                 if (name.StartsWith("browse", StringComparison.Ordinal))
                 {
                     _browseListDetail = name == "browse-list";
                     SetMode(ShellMode.Browse);
                     UpdateBrowsePresentation();
+                }
+                else if (name.StartsWith("editor", StringComparison.Ordinal))
+                {
+                    await PrepareEditorVisualCheckpointAsync(name);
                 }
                 else
                 {
@@ -53,6 +59,7 @@ public sealed partial class MainWindow
                 }
                 await Task.Delay(300);
                 root.UpdateLayout();
+                if (name.StartsWith("editor", StringComparison.Ordinal)) VerifyEditorHeaderBounds();
                 if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(adjustments, ViewModel.Adjustments))
                     throw new InvalidOperationException($"Shell visual navigation changed the document: {name}");
                 var checkpoint = Path.Combine(output, $"visual-{name}");
@@ -62,7 +69,8 @@ public sealed partial class MainWindow
                 {
                     name, width = AppWindow.Size.Width, height = AppWindow.Size.Height,
                     logicalWidth = root.ActualWidth, logicalHeight = root.ActualHeight,
-                    scale = root.XamlRoot.RasterizationScale, photoCount = ViewModel.Photos.Count
+                    scale = root.XamlRoot.RasterizationScale, photoCount = ViewModel.Photos.Count,
+                    activeGroup = _activeGroup, comparison = _compare.ShowingBefore
                 }));
                 deadline = Environment.TickCount64 + 180000;
                 while (!File.Exists(checkpoint + ".continue"))
@@ -75,10 +83,16 @@ public sealed partial class MainWindow
         }
         finally
         {
+            ResetComparison();
             _browseListDetail = originalBrowse;
             _infoPaneOpen = originalInfo;
             FilmstripRail.IsCollapsed = originalCollapsed;
             SetMode(originalMode);
+            if (originalMode == ShellMode.Edit && originalGroup != _activeGroup)
+            {
+                CloseGroupPanel();
+                if (originalGroup != null) ToggleGroupPanel(originalGroup);
+            }
             UpdateBrowsePresentation();
             UpdateInfoPane();
             RestoreBrowseSelection(originalSelection, photo);
@@ -86,6 +100,36 @@ public sealed partial class MainWindow
             await Task.Delay(200);
             root.UpdateLayout();
         }
+    }
+
+    private async Task PrepareEditorVisualCheckpointAsync(string name)
+    {
+        _infoPaneOpen = false;
+        SetMode(ShellMode.Edit);
+        ResetZoom();
+        var fitDeadline = Environment.TickCount64 + 5000;
+        while (Math.Abs(ViewerScroll.ZoomFactor - 1) > .001 && Environment.TickCount64 < fitDeadline)
+            await Task.Delay(50);
+        if (Math.Abs(ViewerScroll.ZoomFactor - 1) > .001)
+            throw new InvalidOperationException("Editor visual checkpoint did not reach Fit zoom.");
+        var group = name switch
+        {
+            "editor-color" => "Color",
+            "editor-crop" => "Crop",
+            _ => "Light"
+        };
+        if (_activeGroup != group) ToggleGroupPanel(group);
+        if (name != "editor-comparison") return;
+        var before = Services.Xmp.XmpWriter.Serialize(
+            new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments });
+        await PrepareComparisonAsync();
+        if (ComparisonImage.Source == null || _compareLoading)
+            throw new InvalidOperationException("Editor visual comparison did not produce a real baseline frame.");
+        OnCompareClick(CompareButton, new RoutedEventArgs());
+        if (!_compare.ShowingBefore || ComparisonImage.Visibility != Visibility.Visible ||
+            before != Services.Xmp.XmpWriter.Serialize(
+                new Services.Xmp.XmpSidecarDocument { Adjustments = ViewModel.Adjustments }))
+            throw new InvalidOperationException("Editor visual comparison is hidden or mutated the document.");
     }
 
     private async Task VerifyPreviewToggleScrollAsync(string output)

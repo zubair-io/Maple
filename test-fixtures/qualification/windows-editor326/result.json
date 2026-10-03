@@ -1,0 +1,16 @@
+{
+  "sourceBase": "4705f6a19",
+  "limitations": [
+    "Fit mode can report 1406% native detail because the 64x64 fixture is enlarged beyond its native pixel size; this is not stale zoom state",
+    "Synthetic grey 64x64 source, no histogram-shape or image-color signoff",
+    "Only 150% DPI"
+  ],
+  "renderPath": "cpu",
+  "checkpointCount": 10,
+  "comparisonClick": "Observed Before label and active red icon; real header click returned to edited view, settled accessible label Compare before and after",
+  "build": "Maple.DesignAudit326",
+  "exitCode": 0,
+  "dpiScale": 1.5,
+  "managedSha256": "194668CDF3897CF42FACB95D59F818EE124A6BB4817B298339687BFB1E070A83",
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3"
+}

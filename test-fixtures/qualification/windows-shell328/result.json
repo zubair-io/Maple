@@ -1,0 +1,34 @@
+{
+  "managedSha256": "B0FCFB0CEDCCAA0A072A856FA6CA96251B11D25857E61B93F0CAA94EA05E741B",
+  "exitCode": 0,
+  "checkpointCount": 10,
+  "observed": [
+    "Centered bounded editor header with back, filename/status, histogram, undo, comparison, more and export",
+    "Compact left strip/count and upper-right labelled tool dock",
+    "Light: Profile Auto, Reset, Exposure/Contrast/Highlights/Shadows/Whites/Blacks with red thumbs",
+    "Color: Basic/HSL/B&W tabs, white-balance picker and Temp/Tint/Vibrance/Saturation",
+    "Crop: aspect choices, straighten ruler, Reset/Done and canvas handles/grid",
+    "Comparison: red active icon and Before state-at-open label; native baseline frame required and serialized document unchanged"
+  ],
+  "dpiScale": 1.5,
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3",
+  "workingChanges": [
+    "Ten-state shell visual matrix",
+    "Explicit Fit setup for editor captures",
+    "Restore original tool and reset comparison after capture",
+    "Header assertion accepts live comparison accessibility label"
+  ],
+  "photoCount": 64,
+  "build": "Maple.DesignAudit328",
+  "lifecyclePassed": true,
+  "sourceBase": "4705f6a19",
+  "limitations": [
+    "Not a full epic qualification pass",
+    "150% DPI only",
+    "Synthetic grey 64x64 files; square framing differs from landscape design references",
+    "Fit can report 1406% native detail because the small source is enlarged; no zoom-badge defect claimed",
+    "No histogram-distribution, color parity, alternate-accent, Narrator or physical-performance signoff",
+    "Interactive cursor overlays are retained; these are not pixel goldens"
+  ],
+  "renderPath": "cpu"
+}
