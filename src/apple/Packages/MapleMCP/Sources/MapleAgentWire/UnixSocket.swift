@@ -39,7 +39,7 @@ public enum AgentSocketLocation {
     let home =
       getpwuid(getuid()).flatMap { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
     return URL(fileURLWithPath: home)
-      .appendingPathComponent("Library/Group Containers/\(appGroup)/\(fileName)").path
+      .appending(path: "Library/Group Containers/\(appGroup)/\(fileName)").path
   }
 }
 

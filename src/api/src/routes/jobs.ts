@@ -11,7 +11,7 @@
  * §9, §11 for the design context.
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia, status, t } from 'elysia';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { ObjectId } from '../db/object-id.ts';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
@@ -145,30 +145,19 @@ export function createJobsRoutes(dbOverride?: SqliteDb) {
 
     .get(
       '/',
-      async ({ query, set }) => {
-        // Existing import/job route validation is parallel, but the DTOs and repositories differ.
-        // fallow-ignore-next-line code-duplication
+      async ({ query }) => {
         const filter = parseListFilter(query);
-        if (typeof filter === 'string') {
-          set.status = 400;
-          return { error: filter };
-        }
+        if (typeof filter === 'string') return status(400, { error: filter });
         const docs = await listJobs(filter, dbOverride);
         return { jobs: docs.map((doc) => projectJob(doc)) };
       },
       { query: ListQuery },
     )
 
-    .get('/:id', async ({ params, query, set }) => {
-      if (!ObjectId.isValid(params.id)) {
-        set.status = 400;
-        return { error: 'Invalid job id' };
-      }
+    .get('/:id', async ({ params, query }) => {
+      if (!ObjectId.isValid(params.id)) return status(400, { error: 'Invalid job id' });
       const doc = await getJob(new ObjectId(params.id), dbOverride);
-      if (!doc) {
-        set.status = 404;
-        return { error: 'Job not found' };
-      }
+      if (!doc) return status(404, { error: 'Job not found' });
       return projectJob(doc, query.summary === '1');
     })
 
