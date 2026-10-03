@@ -84,7 +84,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     let req = URLRequest(url: try sidecarURL)
     let (data, resp) = try await httpClient.data(for: req)
     if let http = resp as? HTTPURLResponse, http.statusCode == 404 {
-      if generation == cacheGeneration { try requirePrimaryAbsence() }
+      if generation == cacheGeneration { try requireIsPrimaryVariant() }
       return generation == cacheGeneration ? nil : cached
     }
     try Self.checkOK(resp, data: data)
@@ -209,7 +209,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     // the current sidecar's foreign XML and IPTC fields at the write boundary.
     let (bytes, response) = try await httpClient.data(for: URLRequest(url: try sidecarURL))
     let absent = (response as? HTTPURLResponse)?.statusCode == 404
-    if absent { try requirePrimaryAbsence() }
+    if absent { try requireIsPrimaryVariant() }
     if !absent { try Self.checkOK(response, data: bytes) }
     if absent {
       cachedMetadata = XmpMetadata()
@@ -382,7 +382,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     let (data, response) = try await httpClient.data(
       for: URLRequest(url: workflowURL(path: path, commit: false)))
     if (response as? HTTPURLResponse)?.statusCode == 404 {
-      try requirePrimaryAbsence()
+      try requireIsPrimaryVariant()
       return nil
     }
     try Self.checkOK(response, data: data)
@@ -396,7 +396,7 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId)
   }
 
-  private func requirePrimaryAbsence() throws {
+  private func requireIsPrimaryVariant() throws {
     guard variantId == WorkflowContract.primaryVariantID else {
       throw WorkflowSidecarError(
         message: "The selected variant sidecar is missing. Restore it before editing.")

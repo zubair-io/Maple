@@ -3,6 +3,7 @@ import { editorHistory } from './editor-history';
 import { variantWriter } from './variant-writer';
 import { variantPreviewCache } from './variant-preview-cache';
 import { whiteBalanceWorkflow } from './white-balance-workflow';
+import { selfHostedWhiteBalance } from './self-hosted-white-balance';
 import { selfHostedVariantWriter } from './self-hosted-variant-writer';
 import {
   selfHostedEditorHistory,
@@ -463,6 +464,7 @@ Object.assign(window, {
     },
     variantPreviewCache,
     whiteBalanceWorkflow,
+    selfHostedWhiteBalance,
     async checkpoints(row: unknown, input: string) {
       const environment = injector();
       const root = await navigator.storage.getDirectory();
