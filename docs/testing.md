@@ -568,6 +568,9 @@ bash src/scripts/test_halo_detection.sh
 # Hue drift across exposure: six primaries × six EVs = 36 renders.
 bash src/scripts/test_hue_stability.sh
 
+# Real EXR/CLI input-integrity regressions (also run in raw-pipeline CI).
+python3 -m unittest discover -s src/scripts -p test_diagnostic_evidence.py
+
 # Per-stage RGB trace at one pixel, and raw-value statistics vs the declared white level.
 cargo run --release -p raw-core --example stage-trace -- <DNG> <X> <Y>
 cargo run --release -p raw-core --example raw-stats   -- <DNG>

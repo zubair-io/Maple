@@ -29,7 +29,7 @@ sweep. The current Maple sigmoid rotates per-channel and shows large
 drifts on the magenta / cyan / red primaries — the signal this
 detector is designed to surface.
 
-This is a diagnostic, not a gate — exit 0 always.
+Numerical results are diagnostic. Missing or incomplete measurements fail.
 
 Falls back to Oklab hue angle if colour-science's CAM16-UCS path is
 unavailable on the platform (prints a `# fallback: oklab` line).
@@ -47,19 +47,22 @@ import numpy as np
 
 try:
     import colour
+
     _COLOUR_AVAILABLE = True
 except ImportError:
     _COLOUR_AVAILABLE = False
 
 try:
-    import OpenEXR
     import Imath
+    import OpenEXR
+
     _OPENEXR_AVAILABLE = True
 except ImportError:
     _OPENEXR_AVAILABLE = False
 
 try:
     import imageio.v3 as iio
+
     _IMAGEIO_AVAILABLE = True
 except ImportError:
     _IMAGEIO_AVAILABLE = False
@@ -67,6 +70,7 @@ except ImportError:
 
 DEFAULT_STAGE = "16_agx"
 PRIMARIES = ["r", "g", "b", "c", "m", "y"]
+EXPOSURES = [-3, -1, 0, 1, 3, 5]
 
 
 def load_exr_rgb(path: Path) -> np.ndarray:
@@ -160,8 +164,7 @@ def angular_spread(angles: list[float]) -> float:
         for j in range(i + 1, len(angles)):
             d = abs(angles[i] - angles[j])
             d = min(d, 360.0 - d)
-            if d > max_d:
-                max_d = d
+            max_d = max(max_d, d)
     return max_d
 
 
@@ -178,18 +181,31 @@ def main() -> int:
         description="Hue-stability detector across exposure for saturated primaries.",
     )
     p.add_argument("dump_root", type=Path)
-    p.add_argument("--stage", default=DEFAULT_STAGE,
-                   help=f"stage to analyse (default: {DEFAULT_STAGE})")
+    p.add_argument(
+        "--stage",
+        default=DEFAULT_STAGE,
+        help=f"stage to analyse (default: {DEFAULT_STAGE})",
+    )
     p.add_argument("--json", type=Path, help="optional path to write JSON")
+    p.add_argument("--primaries", nargs="+", choices=PRIMARIES, default=PRIMARIES)
+    p.add_argument("--evs", nargs="+", type=float, default=EXPOSURES)
     args = p.parse_args()
+    if len(set(args.primaries)) != len(args.primaries) or len(set(args.evs)) != len(
+        args.evs
+    ):
+        p.error("the declared primary/exposure selection contains duplicates")
+    if len(args.evs) < 2 or not np.isfinite(args.evs).all():
+        p.error("hue drift requires at least two distinct finite exposures")
 
     if not args.dump_root.is_dir():
         print(f"error: {args.dump_root} is not a directory", file=sys.stderr)
         return 2
 
     if not _COLOUR_AVAILABLE:
-        print("error: colour-science is required (pip install colour-science)",
-              file=sys.stderr)
+        print(
+            "error: colour-science is required (pip install colour-science)",
+            file=sys.stderr,
+        )
         return 2
 
     use_oklab = False
@@ -197,10 +213,12 @@ def main() -> int:
         _ = colour.XYZ_to_CAM16UCS
     except AttributeError:
         use_oklab = True
-        print("# fallback: oklab (XYZ_to_CAM16UCS unavailable on this colour-science version)")
+        print(
+            "# fallback: oklab (XYZ_to_CAM16UCS unavailable on this colour-science version)"
+        )
 
     # Gather (primary, ev, dir) triples.
-    by_primary: dict[str, list[tuple[float, Path]]] = {p: [] for p in PRIMARIES}
+    by_primary: dict[str, list[tuple[float, Path]]] = {p: [] for p in args.primaries}
     for sub in sorted(args.dump_root.iterdir()):
         if not sub.is_dir():
             continue
@@ -211,15 +229,24 @@ def main() -> int:
         if prim in by_primary:
             by_primary[prim].append((ev, sub))
 
-    if all(len(v) == 0 for v in by_primary.values()):
-        print(f"error: no recognised primary_EV subdirs under {args.dump_root}",
-              file=sys.stderr)
-        return 0
+    for prim, entries in by_primary.items():
+        exposures = [ev for ev, _ in entries]
+        if sorted(exposures) != sorted(args.evs):
+            print(
+                f"error: {prim} has exposures {sorted(exposures)}, expected {sorted(args.evs)}",
+                file=sys.stderr,
+            )
+            return 2
+        for _, sub in entries:
+            if not (sub / f"{args.stage}.exr").is_file():
+                print(f"error: missing {args.stage}.exr under {sub}", file=sys.stderr)
+                return 2
 
     results: dict = {
         "stage": args.stage,
         "metric": "oklab_hue" if use_oklab else "cam16ucs_hue",
         "primaries": {},
+        "expected_cases": len(args.primaries) * len(args.evs),
     }
 
     print(f"# Hue stability detector — stage {args.stage}")
@@ -229,7 +256,7 @@ def main() -> int:
     print("-" * 26)
 
     overall_max = 0.0
-    for prim in PRIMARIES:
+    for prim in args.primaries:
         entries = sorted(by_primary[prim])
         if not entries:
             continue
@@ -237,10 +264,14 @@ def main() -> int:
         ev_to_angle: dict[float, float] = {}
         for ev, sub in entries:
             exr = sub / f"{args.stage}.exr"
-            if not exr.exists():
-                continue
             rgb = load_exr_rgb(exr)
+            if rgb.size == 0 or not np.isfinite(rgb).all():
+                print(f"error: {exr} has empty or non-finite pixels", file=sys.stderr)
+                return 2
             h = hue_angle_oklab(rgb) if use_oklab else hue_angle_cam16ucs(rgb)
+            if not np.isfinite(h):
+                print(f"error: non-finite hue at {prim}, EV {ev}", file=sys.stderr)
+                return 2
             angles.append(h)
             ev_to_angle[ev] = h
             print(f"{prim:<6} {ev:+5.1f} {h:+9.3f}")
@@ -255,7 +286,12 @@ def main() -> int:
         print()
 
     print(f"# Worst-primary hue drift: {overall_max:.3f}°")
-    print("# (Sobotka AgX target < 3°; values above ~5° indicate per-channel hue rotation.)")
+    print(
+        "# (Sobotka AgX target < 3°; values above ~5° indicate per-channel hue rotation.)"
+    )
+    results["executed_cases"] = sum(
+        row["n_samples"] for row in results["primaries"].values()
+    )
 
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
