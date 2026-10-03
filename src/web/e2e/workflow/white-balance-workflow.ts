@@ -1,3 +1,4 @@
+import { workflowExportPixels } from './workflow-export-pixels';
 import { createApplication } from '@angular/platform-browser';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
@@ -68,23 +69,7 @@ export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled')
     await writer.settleAsset(id);
     const applied = JSON.stringify(library.adjustmentFor(id)());
     const saved = new TextDecoder().decode(await access.readFile(folder, 'photo.xmp'));
-    const exportPixels = async (xml: string) => {
-      const output = await pipeline.exportImage(
-        bytes,
-        'dng',
-        { format: 'png', quality: 100, colorSpace: 'srgb' },
-        xml,
-      );
-      const bitmap = await createImageBitmap(output.blob);
-      try {
-        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-        const context = canvas.getContext('2d')!;
-        context.drawImage(bitmap, 0, 0);
-        return JSON.stringify([...context.getImageData(0, 0, bitmap.width, bitmap.height).data]);
-      } finally {
-        bitmap.close();
-      }
-    };
+    const exportPixels = (xml: string) => workflowExportPixels(pipeline, bytes, xml);
     const exported = await exportPixels(saved);
     editor.undo();
     await writer.settleAsset(id);
@@ -111,6 +96,8 @@ export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled')
     if (!summary || summary.failed.length)
       throw new Error(batch.error() ?? JSON.stringify(summary));
     const copied = new TextDecoder().decode(await access.readFile(folder, 'copy.xmp'));
+    const sourceBytes = await access.readFile(folder, 'photo.dng');
+    const copiedBytes = await access.readFile(folder, 'copy.dng');
     return {
       changed,
       undone,
@@ -122,12 +109,10 @@ export async function whiteBalanceWorkflow(mode: WhiteBalancePreset | 'Sampled')
       reopenPixels: (await exportPixels(reopened)) === exported,
       copyApplied: summary.applied.length === 1 && summary.applied[0] === targetId,
       copyPixels: (await exportPixels(copied)) === exported,
-      copyOriginalUnchanged: (await access.readFile(folder, 'copy.dng')).every(
-        (v, i) => v === bytes[i],
-      ),
-      originalUnchanged: (await access.readFile(folder, 'photo.dng')).every(
-        (v, i) => v === bytes[i],
-      ),
+      copyOriginalUnchanged:
+        copiedBytes.length === bytes.length && copiedBytes.every((v, i) => v === bytes[i]),
+      originalUnchanged:
+        sourceBytes.length === bytes.length && sourceBytes.every((v, i) => v === bytes[i]),
       model: parser.parseAdjustmentModel(saved).model,
       copiedModel: parser.parseAdjustmentModel(copied).model,
     };

@@ -1,5 +1,6 @@
 import CoreImage
 import Foundation
+import MapleBackup
 import XCTest
 
 @testable import MapleCore
@@ -13,13 +14,26 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
     try await qualify(preset: nil)
   }
 
-  private func qualify(preset: WhiteBalancePreset?) async throws {
+  func testEveryModeUsesCanonicalPhotoKitSidecarAndCopiesWithoutChangingPixels() async throws {
+    for preset in WhiteBalancePreset.allCases {
+      try await qualify(preset: preset, photos: true)
+    }
+    try await qualify(preset: nil, photos: true)
+  }
+
+  private func qualify(preset: WhiteBalancePreset?, photos: Bool = false) async throws {
     let files = try NativeWorkflowControlFixture.files()
     defer { try? FileManager.default.removeItem(at: files.directory) }
-    let primary = SidecarPath.sidecarURL(for: files.raw)
+    let backing = AppSupportSidecarStore(root: files.directory.appendingPathComponent("sidecars"))
+    let primary =
+      photos
+      ? backing.sidecarURL(phassetLocalId: "PHOTO/WB/SOURCE")
+      : SidecarPath.sidecarURL(for: files.raw)
+    try FileManager.default.createDirectory(
+      at: primary.deletingLastPathComponent(), withIntermediateDirectories: true)
     let input = NativeWorkflowControlFixture.input()
     try Data(input.utf8).write(to: primary)
-    let session = EditSession(asset: AssetRef(url: files.raw))
+    let session = makeSession(files.raw, photos: photos, backing: backing, id: "PHOTO/WB/SOURCE")
     await session.loadSidecar()
     await session.latestRenderSchedule?.value
     await session.renderActor.awaitCurrentRenderIfInFlight()
@@ -60,7 +74,7 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
       let replayedPixels = try await pixels(session)
       XCTAssertEqual(replayedPixels, expectedPixels, label)
     }
-    let reopened = EditSession(asset: AssetRef(url: files.raw))
+    let reopened = makeSession(files.raw, photos: photos, backing: backing, id: "PHOTO/WB/SOURCE")
     await reopened.loadSidecar()
     let roundtrip = try XMPParser.parse(
       XMPSerializer.serialize(model: applied, culling: session.culling)
@@ -71,13 +85,16 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
 
     let targetURL = files.directory.appendingPathComponent("copy.dng")
     try Data(files.original).write(to: targetURL)
-    let target = EditSession(asset: AssetRef(url: targetURL))
+    let target = makeSession(targetURL, photos: photos, backing: backing, id: "PHOTO/WB/TARGET")
     await target.loadSidecar()
     let patch = try AdjustmentTransfer.prepare(
       source: applied, groups: [.whiteBalance], relativeWhiteBalance: false)
     try await target.applyAdjustmentTransfer(patch)
     let copied = try XMPParser.parse(
-      NativeWorkflowControlFixture.xml(SidecarPath.sidecarURL(for: targetURL))
+      NativeWorkflowControlFixture.xml(
+        photos
+          ? backing.sidecarURL(phassetLocalId: "PHOTO/WB/TARGET")
+          : SidecarPath.sidecarURL(for: targetURL))
     ).0
     XCTAssertEqual(
       copied,
@@ -93,6 +110,21 @@ final class WhiteBalanceWorkflowAcceptanceTests: EditorTestCase {
       await current.renderActor.cancelAll()
       await current.releaseTransientMemory()
     }
+  }
+
+  private func makeSession(
+    _ raw: URL, photos: Bool, backing: AppSupportSidecarStore, id: String
+  ) -> EditSession {
+    let asset =
+      photos
+      ? AssetRef(
+        displayName: raw.lastPathComponent, hintExtension: "dng", stableID: id,
+        bytesProvider: { try Data(contentsOf: raw) })
+      : AssetRef(url: raw)
+    return EditSession(
+      asset: asset,
+      remoteSidecarStore: photos
+        ? PhotoKitSidecarStore(phassetLocalId: id, sidecars: backing) : nil)
   }
 
   private func pixels(_ session: EditSession) async throws -> [UInt8] {

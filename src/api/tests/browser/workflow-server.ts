@@ -1,6 +1,6 @@
 /** Private real API/SQLite/filesystem fixture for Self Hosted editor qualification (#4053). */
 import { Elysia, status, t } from 'elysia';
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from '../../src/fs/mirrored';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { xmpPathRoutes } from '../../src/routes/xmp';
@@ -11,6 +11,9 @@ import { createLiveTestDatabase } from '../../src/db/sqlite/test-sqlite.test-hel
 import { registerLibrary, seedRouteAsset } from '../helpers/assets-route-fixtures';
 import { listChangesSince } from '../../src/db/repos/changes.repo';
 import { callNative, shutdownMaplePool } from 'maple';
+import { imageRoutes } from '../../src/routes/library/image';
+import { jobsRoutes } from '../../src/routes/jobs';
+import { JobRunner } from '../../src/job-runner/runner';
 
 const root = await realpath(await mkdtemp(join(tmpdir(), 'maple-editor-api-')));
 // The native consumer uses an ephemeral port and this ready receipt (#4056).
@@ -19,6 +22,8 @@ process.env.MAPLE_ROOTS = root;
 registerRoot(root);
 const live = await createLiveTestDatabase();
 const libraryId = registerLibrary(live.db, root, 'workflow-fixture');
+const jobs = new JobRunner();
+jobs.start();
 const fixtures = new Map<
   string,
   { path: string; id: string; input: string | null; cursor: number }
@@ -107,6 +112,8 @@ const app = new Elysia()
   .onAfterHandle(({ request }) => dropAcceptedResponse(request))
   .get('/workflow-fixture/health', () => ({ ready: true }))
   .use(xmpPathRoutes)
+  .use(jobsRoutes)
+  .group('/api', (api) => api.use(imageRoutes))
   .group('/api/assets', (api) => api.use(metadataRoutes).use(xmpRoutes))
   .post(
     '/workflow-fixture',
@@ -235,6 +242,7 @@ if (receipt)
   await writeFile(receipt, JSON.stringify({ url: `http://127.0.0.1:${app.server!.port}` }));
 async function close() {
   for (const latch of [...blocked.values(), ...races.values()]) latch.release();
+  await jobs.stop();
   await app.stop(true);
   shutdownMaplePool();
   live.close();
