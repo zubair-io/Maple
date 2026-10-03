@@ -1,4 +1,4 @@
-"""#3941: pinned PowerPaint v2-1 removal conditioning on native SDR pixels.
+"""#3941: pinned PowerPaint v2-1 removal conditioning on native model-RGB pixels.
 
 Local MPS research only. Uses verified upstream models, task-token wrapper and
 pipeline without importing its Gradio controller or resizing to its demo size.
@@ -22,8 +22,9 @@ import torch
 import transformers
 from accelerate import init_empty_weights
 from diffusers import AutoencoderKL, UniPCMultistepScheduler
+from native_probe_pixels import digest, float_source, native_context, save_result
 from PIL import Image
-from native_probe_pixels import digest, native_context, save_result
+from powerpaint_native_pixels import VaeBoundaries, conditioning, raw_candidate
 from safetensors.torch import load_file
 from transformers import CLIPTextConfig, CLIPTextModel
 
@@ -137,8 +138,9 @@ def open_pipeline(model_path, source_path):
     return pipe
 
 
-def run(model_path, source_path, image_path, mask_path, crop, output):
+def run(model_path, source_path, image_path, mask_path, crop, output, float_input=None):
     source_u8, hole = native_context(image_path, mask_path, crop)
+    source = float_source(float_input, source_u8)
     if output.exists():
         raise ValueError("Choose a fresh diagnostic output directory")
     if not torch.backends.mps.is_available():
@@ -152,31 +154,18 @@ def run(model_path, source_path, image_path, mask_path, crop, output):
     torch.mps.synchronize()
     model_open_ms = (time.perf_counter() - started) * 1000
     height, width = hole.shape
-    masked = source_u8.copy()
-    masked[hole] = 0
-    image = Image.fromarray(masked)
-    mask = Image.fromarray(hole.astype(np.uint8) * 255).convert("RGB")
-    preprocessed = pipe.image_processor.preprocess(image, height=height, width=width)
-    expected = torch.from_numpy(
-        (masked.astype(np.float32) / 255 * 2 - 1).transpose(2, 0, 1)[None].copy()
+    image, mask, expected, masked = conditioning(
+        source, hole, pipe.image_processor, float_input is not None
     )
-    preprocessed_mask = pipe.image_processor.preprocess(
-        mask, height=height, width=width
-    )
-    if not torch.equal(preprocessed, expected) or not torch.equal(
-        preprocessed_mask,
-        torch.from_numpy(
-            np.repeat((hole.astype(np.float32) * 2 - 1)[None, None], 3, axis=1)
-        ),
-    ):
-        raise ValueError(
-            "Pipeline preprocessing changed native source or mask geometry"
-        )
     output.mkdir(parents=True, exist_ok=False)
     Image.fromarray(source_u8).save(output / "source.png")
-    image.save(output / "conditioning.png")
+    Image.fromarray(np.floor(masked * 255 + 0.5).astype(np.uint8)).save(
+        output / "conditioning.png"
+    )
+    source.transpose(2, 0, 1).copy().astype("<f4").tofile(output / "source-nchw.f32")
     mask.convert("L").save(output / "hole.png")
-    steps, decoded = [], []
+    steps = []
+    boundaries = VaeBoundaries(expected, output)
     infer_started = time.perf_counter()
 
     def step_finished(pipeline, index, timestep, tensors):
@@ -201,51 +190,40 @@ def run(model_path, source_path, image_path, mask_path, crop, output):
         )
         return tensors
 
-    def decoded_finished(module, arguments, result):
-        if (
-            tuple(result.shape) != (1, 3, height, width)
-            or not torch.isfinite(result).all()
-        ):
-            raise ValueError("Invalid native pre-clamp decoder output")
-        decoded.append(
-            {
-                "shape": list(result.shape),
-                "finite": True,
-                "minimum": float(result.min()),
-                "maximum": float(result.max()),
-            }
-        )
-
-    hook = pipe.vae.decoder.register_forward_hook(decoded_finished)
+    encoder_hook = pipe.vae.encoder.register_forward_pre_hook(boundaries.encode)
+    decoder_hook = pipe.vae.decoder.register_forward_hook(boundaries.decode)
     random.seed(SEED)
     np.random.seed(SEED)
     torch.manual_seed(SEED)
-    with torch.inference_mode():
-        generated = pipe(
-            promptA=POSITIVE,
-            promptB=POSITIVE,
-            promptU=" empty scene blur",
-            negative_promptA=NEGATIVE,
-            negative_promptB=NEGATIVE,
-            negative_promptU="",
-            tradoff=1.0,
-            tradoff_nag=1.0,
-            image=image,
-            mask=mask,
-            width=width,
-            height=height,
-            guidance_scale=GUIDANCE,
-            brushnet_conditioning_scale=1.0,
-            num_inference_steps=STEPS,
-            generator=torch.Generator(device="cpu").manual_seed(SEED),
-            output_type="np",
-            callback_on_step_end=step_finished,
-            callback_on_step_end_tensor_inputs=["latents"],
-        ).images[0]
-    hook.remove()
+    try:
+        with torch.inference_mode():
+            generated = pipe(
+                promptA=POSITIVE,
+                promptB=POSITIVE,
+                promptU=" empty scene blur",
+                negative_promptA=NEGATIVE,
+                negative_promptB=NEGATIVE,
+                negative_promptU="",
+                tradoff=1.0,
+                tradoff_nag=1.0,
+                image=image,
+                mask=mask,
+                width=width,
+                height=height,
+                guidance_scale=GUIDANCE,
+                brushnet_conditioning_scale=1.0,
+                num_inference_steps=STEPS,
+                generator=torch.Generator(device="cpu").manual_seed(SEED),
+                output_type="np",
+                callback_on_step_end=step_finished,
+                callback_on_step_end_tensor_inputs=["latents"],
+            ).images[0]
+    finally:
+        encoder_hook.remove()
+        decoder_hook.remove()
+    boundaries.verify_complete(steps, STEPS)
     torch.mps.synchronize()
     inference_ms = (time.perf_counter() - infer_started) * 1000
-    source = source_u8.astype(np.float32) / np.float32(255)
     if (
         generated.shape != source.shape
         or generated.dtype != np.float32
@@ -257,6 +235,10 @@ def run(model_path, source_path, image_path, mask_path, crop, output):
     Image.fromarray(np.rint(generated * 255).astype(np.uint8)).save(
         output / "prediction.png"
     )
+    generated.transpose(2, 0, 1).copy().astype("<f4").tofile(
+        output / "prediction-nchw.f32"
+    )
+    raw_result = raw_candidate(output, source, hole)
     report = {
         "model_repo": pins["repository"],
         "model_revision": pins["revision"],
@@ -266,6 +248,9 @@ def run(model_path, source_path, image_path, mask_path, crop, output):
         ),
         "model_files_bytes": sum(item["bytes"] for item in pins["files"]),
         "source_sha256": digest(image_path),
+        "float_input_sha256": digest(float_input) if float_input is not None else None,
+        "model_input_quantized_to_u8": float_input is None,
+        "float_layout": "NCHW little-endian f32, native encoded model-RGB",
         "mask_sha256": digest(mask_path),
         "crop_xywh": list(crop),
         "native_extent_hw": [height, width],
@@ -285,7 +270,11 @@ def run(model_path, source_path, image_path, mask_path, crop, output):
         "model_open_ms": model_open_ms,
         "inference_ms": inference_ms,
         "steps": steps,
-        "decoded": decoded,
+        "encoded": boundaries.encoded,
+        "decoded": boundaries.decoded,
+        "postprocessor_clamps_model_output": True,
+        "raw_bake_input": "raw-candidate-nchw.f32; strict range validation required",
+        "raw_candidate": raw_result,
         "process_peak_resident_bytes": resource.getrusage(
             resource.RUSAGE_SELF
         ).ru_maxrss
@@ -306,7 +295,7 @@ def run(model_path, source_path, image_path, mask_path, crop, output):
         "result": result,
         "prediction_sha256": digest(output / "prediction.f32"),
         "releaseQualified": False,
-        "qualification": "Single seed, native local MPS SDR diagnostic. No canonical RAW/HDR, corpus, deployed adapter, lower-memory device or distribution qualification.",
+        "qualification": "Single seed, native local MPS model-RGB diagnostic. Float transport evidence alone does not qualify canonical RAW inversion, photographic quality, corpus, deployed adapter, device or distribution.",
     }
     (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2), flush=True)
@@ -323,5 +312,14 @@ if __name__ == "__main__":
         required=True,
         metavar=("X", "Y", "WIDTH", "HEIGHT"),
     )
+    parser.add_argument("--float-input", type=Path)
     args = parser.parse_args()
-    run(args.model, args.upstream, args.image, args.mask, tuple(args.crop), args.output)
+    run(
+        args.model,
+        args.upstream,
+        args.image,
+        args.mask,
+        tuple(args.crop),
+        args.output,
+        args.float_input,
+    )

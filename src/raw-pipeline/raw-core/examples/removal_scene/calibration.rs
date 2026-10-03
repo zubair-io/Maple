@@ -34,7 +34,35 @@ pub(super) fn crop(image: &Image, window: NativeWindow) -> ProbeResult<Image> {
         pixels,
         space: image.space,
         whites_anchor_ev: image.whites_anchor_ev,
+        nr_sampling_scale: image.nr_sampling_scale,
     })
+}
+
+#[cfg(test)]
+mod crop_tests {
+    use super::*;
+    use raw_core::image::ColorSpace;
+
+    #[test]
+    fn native_crop_retains_full_frame_sampling_and_white_anchor() {
+        let mut image = Image::new(4, 3, ColorSpace::SceneLinearRec2020);
+        image.nr_sampling_scale = 0.25;
+        image.whites_anchor_ev = Some(3.0);
+        image.pixels[5] = [-0.1, 0.5, 2.0];
+        let cropped = crop(
+            &image,
+            NativeWindow {
+                x: 1,
+                y: 1,
+                width: 2,
+                height: 1,
+            },
+        )
+        .unwrap();
+        assert_eq!(cropped.nr_sampling_scale, 0.25);
+        assert_eq!(cropped.whites_anchor_ev, Some(3.0));
+        assert_eq!(cropped.pixels[0], [-0.1, 0.5, 2.0]);
+    }
 }
 
 pub(super) struct Bake<'a> {

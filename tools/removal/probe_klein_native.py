@@ -17,7 +17,7 @@ from pathlib import Path
 
 import mlx.core as mx
 import numpy as np
-from native_probe_pixels import digest, native_context, save_result
+from native_probe_pixels import digest, float_source, native_context, save_result
 from PIL import Image
 
 SEED = 3941
@@ -65,26 +65,6 @@ def verify_model(root, pins):
 def native_dimensions(crop):
     if crop[2] % 16 or crop[3] % 16:
         raise ValueError("Klein requires native dimensions divisible by 16")
-
-
-def float_source(path, source_u8):
-    if path is None:
-        return source_u8.astype(np.float32) / np.float32(255)
-    # The existing Rust scene probe emits channel-first f32, never a display JPEG.
-    height, width = source_u8.shape[:2]
-    values = np.fromfile(path, dtype="<f4")
-    if values.size != height * width * 3:
-        raise ValueError("Float model input differs from native context geometry")
-    source = values.reshape(3, height, width).transpose(1, 2, 0).copy()
-    if (
-        not np.isfinite(source).all()
-        or source.min() < 0
-        or source.max() > 1
-        # Match Rust f32::round for the diagnostic PNG, including positive ties.
-        or not np.array_equal(np.floor(source * 255 + 0.5).astype(np.uint8), source_u8)
-    ):
-        raise ValueError("Float input is invalid or differs from its native proxy")
-    return source
 
 
 class NativeSteps:
@@ -141,11 +121,11 @@ def run(
         raise ValueError("Unexpected runtime package version")
     verification_ms = (time.perf_counter() - verify_started) * 1000
     sys.path.insert(0, str(upstream / "src"))
-    from mlx.utils import tree_flatten
     from mflux.models.common.weights.loading.weight_applier import WeightApplier
     from mflux.models.flux2.variants.edit.flux2_klein_inpaint import Flux2KleinInpaint
     from mflux.utils.image_util import ImageUtil
     from mflux.utils.mask_util import MaskUtil
+    from mlx.utils import tree_flatten
 
     if memory_experiment is not None:
         memory_experiment.prepare()
