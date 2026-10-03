@@ -382,7 +382,7 @@ jobs:
           if-no-files-found: ignore
 
   web-workflow-acceptance:
-    name: web-workflow-acceptance (WB and Auto Tone persistence + export)
+    name: web-workflow-acceptance (WB, Auto Tone and lens persistence)
     needs: [changes, build-wasm]
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
@@ -424,34 +424,33 @@ jobs:
         working-directory: src/web
         run: bun x playwright install --with-deps chrome
       # Committed synthetic RAWs: no external fixture download or skip path.
-      - name: Qualify white balance and Auto Tone
+      - name: Qualify white balance, Auto Tone and lens gestures
         working-directory: src/web
         run: |
-          bun x playwright test --config playwright.workflow.config.ts white-balance-workflow.spec.ts
-          python3 - <<'PYCODE'
-          import json
-          from pathlib import Path
-          stats = json.loads(Path('test-results/workflow/results.json').read_text())['stats']
-          assert stats['expected'] == 24, stats
-          assert stats['unexpected'] == stats['skipped'] == stats['flaky'] == 0, stats
-          PYCODE
+          bun x playwright test --config playwright.workflow.config.ts white-balance-workflow.spec.ts lens-gesture-workflow.spec.ts
+          python3 ../../tools/check_web_editor_evidence.py test-results/workflow/results.json
       - name: Preserve white balance and Auto Tone report
         id: wb_report
         working-directory: src/web
-        run: cp test-results/workflow/results.json "$RUNNER_TEMP/wb-auto-tone-results.json"
+        run: |
+          cp test-results/workflow/wb-auto-tone-results.json "$RUNNER_TEMP/wb-auto-tone-results.json"
+          cp test-results/workflow/lens-gesture-results.json "$RUNNER_TEMP/lens-gesture-results.json"
+          cp test-results/workflow/results.json "$RUNNER_TEMP/editor-control-results.json"
       - name: Qualify 100 repeated cycles on each Web deployment
         working-directory: src/web
         run: |
           bun x playwright test --config playwright.workflow.config.ts repeated-workflow.spec.ts
           python3 ../../tools/check_web_cycle_evidence.py test-results/workflow/results.json
       # Playwright cleans test-results before its next run. Restore the separate
-      # mode report afterwards, including when the cycle gate failed.
+      # editor reports afterwards, including when the cycle gate failed.
       - name: Restore white balance and Auto Tone report
         if: always() && steps.wb_report.outcome == 'success'
         working-directory: src/web
         run: |
           mkdir -p test-results/workflow
           cp "$RUNNER_TEMP/wb-auto-tone-results.json" test-results/workflow/wb-auto-tone-results.json
+          cp "$RUNNER_TEMP/lens-gesture-results.json" test-results/workflow/lens-gesture-results.json
+          cp "$RUNNER_TEMP/editor-control-results.json" test-results/workflow/editor-control-results.json
       - name: Upload workflow acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
