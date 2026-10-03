@@ -334,3 +334,7 @@ NativeVariantControlsTests
 NativeVariantExportTests
 WorkflowVariantCacheTests
 NativeCloudVariantWriterTests
+
+TopShelfBuilderTests
+TopShelfCacheTests
+TopShelfLinkTests
