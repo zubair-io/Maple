@@ -1,4 +1,4 @@
-//! Per-image color LUT: a smooth Nᶟ RGB→RGB grid applied by trilinear interpolation.
+//! Per-image color LUT: a smooth Nᶟ RGB→RGB grid applied by tetrahedral interpolation.
 //! Value-keyed (no atan2 / ÷L) + smooth ⇒ spatially coherent (cannot blotch).
 //!
 //! In the render path this layers **after** the #550 per-channel curve: the fit
@@ -39,7 +39,7 @@ impl ColorLut {
         Self { size: n, data }
     }
 
-    #[inline]
+    #[cfg(test)]
     fn node(&self, r: usize, g: usize, b: usize) -> [f32; 3] {
         let n = self.size;
         let i = ((b * n + g) * n + r) * 3;
@@ -48,7 +48,16 @@ impl ColorLut {
 
     /// Tetrahedral lookup of one RGB triplet (inputs clamped to [0,1]).
     pub fn sample(&self, rgb: [f32; 3]) -> [f32; 3] {
-        let n = self.size;
+        Self::sample_grid(self.size, &self.data, rgb)
+    }
+
+    /// Borrowed grid lookup lets FFI callers reuse host-owned LUT storage.
+    /// Requires `n >= 2` and `data.len() == n * n * n * 3`.
+    pub fn sample_grid(n: usize, data: &[f32], rgb: [f32; 3]) -> [f32; 3] {
+        let node = |r: usize, g: usize, b: usize| {
+            let i = ((b * n + g) * n + r) * 3;
+            [data[i], data[i + 1], data[i + 2]]
+        };
         let last = (n - 1) as f32;
         let mut lo = [0usize; 3];
         let mut f = [0f32; 3];
@@ -64,14 +73,14 @@ impl ColorLut {
         let fz = f[2];
 
         let mut out = [0.0f32; 3];
-        let c000 = self.node(lo[0], lo[1], lo[2]);
-        let c100 = self.node(lo[0] + 1, lo[1], lo[2]);
-        let c010 = self.node(lo[0], lo[1] + 1, lo[2]);
-        let c110 = self.node(lo[0] + 1, lo[1] + 1, lo[2]);
-        let c001 = self.node(lo[0], lo[1], lo[2] + 1);
-        let c101 = self.node(lo[0] + 1, lo[1], lo[2] + 1);
-        let c011 = self.node(lo[0], lo[1] + 1, lo[2] + 1);
-        let c111 = self.node(lo[0] + 1, lo[1] + 1, lo[2] + 1);
+        let c000 = node(lo[0], lo[1], lo[2]);
+        let c100 = node(lo[0] + 1, lo[1], lo[2]);
+        let c010 = node(lo[0], lo[1] + 1, lo[2]);
+        let c110 = node(lo[0] + 1, lo[1] + 1, lo[2]);
+        let c001 = node(lo[0], lo[1], lo[2] + 1);
+        let c101 = node(lo[0] + 1, lo[1], lo[2] + 1);
+        let c011 = node(lo[0], lo[1] + 1, lo[2] + 1);
+        let c111 = node(lo[0] + 1, lo[1] + 1, lo[2] + 1);
 
         for c in 0..3 {
             out[c] = if fx >= fy {
@@ -163,9 +172,7 @@ pub fn lut_strength_from_env() -> f32 {
     if strength.is_finite() && (0.0..=2.0).contains(&strength) {
         strength
     } else {
-        eprintln!(
-            "MAPLE_AUTO_LUT_STRENGTH={env_val} out of range [0,2] or non-finite — using 1.0"
-        );
+        eprintln!("MAPLE_AUTO_LUT_STRENGTH={env_val} out of range [0,2] or non-finite — using 1.0");
         1.0
     }
 }
