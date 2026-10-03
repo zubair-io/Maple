@@ -7,6 +7,24 @@ import XCTest
 @testable import MapleCore
 
 final class NativeExportRecipeTests: XCTestCase {
+  func testRealPngOriginalExportsThroughSharedRasterDispatchAndRetainsBytes() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "native-png-original")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let source = root.appendingPathComponent("photo.png")
+    try SidecarContractIO.makeSyntheticOriginal(at: source)
+    let original = try Data(contentsOf: source)
+    let record = try NativeExportQueueFixture.record(source, root: root)
+    let queue = NativeExportQueue(directory: root.appendingPathComponent("ledger"))
+    try await queue.enqueue(record)
+    try await queue.run()
+    let finished = try await queue.load()
+    XCTAssertEqual(finished?.successes, 1, finished?.items.first?.reason ?? "")
+    let output = try XCTUnwrap(finished?.items.first?.output)
+    let encoded = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL, nil))
+    XCTAssertNotNil(CGImageSourceCreateImageAtIndex(encoded, 0, nil))
+    XCTAssertEqual(try Data(contentsOf: source), original)
+  }
+
   func testStrictGeneratedRecipeRoundTripRetainsUnsupportedChoicesAndNullFields() async throws {
     var recipe = ExportRecipe.defaults
     recipe.format = "future-encoder"

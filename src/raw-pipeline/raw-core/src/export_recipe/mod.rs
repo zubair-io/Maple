@@ -251,8 +251,11 @@ pub fn export_bytes_with_recipe(
     film: Option<&FilmLut>,
 ) -> Result<ExportedImage, String> {
     let options = recipe.options()?;
-    let jpeg = bytes.starts_with(&[0xff, 0xd8]);
-    if !jpeg {
+    // PNG and JPEG use the existing raster develop chain. TIFF remains
+    // ambiguous because camera RAWs also use it; try the RAW decoder first.
+    let raster = bytes.starts_with(&[0xff, 0xd8])
+        || matches!(image::guess_format(bytes), Ok(image::ImageFormat::Png));
+    if !raster {
         match crate::decode::decode_bytes(bytes, ext) {
             Ok(raw) => {
                 return export_with_recipe(
