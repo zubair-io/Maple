@@ -15,10 +15,24 @@ extension GpuLiveDriver {
       nativeAutoProfileID = nil
       autoProfileFitDone = false
     }
-    if model.profile == .auto && !autoProfileFitDone {
-      autoProfileFitDone = true
-      await s.fitAutoProfile(rawPath: rawPath, quality: quality)
+    guard model.profile == .auto else { return }
+    if let fit = autoProfileFitTask {
+      await fit.value
+      return
     }
+    guard !autoProfileFitDone else { return }
+    // #1472: later requests join actual fit completion. Marking done before
+    // the actor call returns let them launch native development during the
+    // provisional fit. A retired session cannot clear its replacement's job.
+    let fit = Task { [weak self] in
+      guard !Task.isCancelled else { return }
+      await s.fitAutoProfile(rawPath: rawPath, quality: quality)
+      guard !Task.isCancelled, let self, self.session === s else { return }
+      self.autoProfileFitDone = true
+      self.autoProfileFitTask = nil
+    }
+    autoProfileFitTask = fit
+    await fit.value
   }
 
   func installNativeAutoProfile(_ prepared: NativeAutoProfile) async {

@@ -1,0 +1,800 @@
+{
+  "issue": 1472,
+  "date": "2026-10-02",
+  "baseRevision": "70548de36891735e4f57029e17b19a619ce12bed",
+  "scope": "Mac native Auto fit ordering, actual completion joining and upload retirement; performance qualification remains open",
+  "changes": [
+    "The first cold provisional fit completes before native preparation is requested; current generation/cancellation is checked after the await.",
+    "Concurrent driver requests join the same provisional fit task; completion is published only after the session actor returns.",
+    "Retirement cancels and joins the actual fit before closing the old GPU session or allocating a replacement upload; queued canceled fits do not start FFI.",
+    "Already running provisional FFI is not interruptible; joining preserves resource ownership until its actual return.",
+    "No color math, quality policy, Rust/WGSL/ABI/XMP schema, model or threshold changes. Native Auto artifact identity and all measured frame digests remain unchanged."
+  ],
+  "sourceHashes": {
+    "docs/caching.md": "3303be2a64473d27ed6964f768c464ea6943dcf2e9ddbb6ac0a4fbcf3fda3e17",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+GpuLive.swift": "467fff4ae2328ff862d1f7d3fa405040d6f78e95e3991404c9ca47294f91feb2",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/GpuLiveDriver+AutoProfile.swift": "43d117472f9289f1fdfddd132833d19576c17ccf5f43e082682ac92639113468",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/GpuLiveDriver.swift": "f53b33d2ca9dccfbdc91a0fbd14faa5802766792b092fc174d5b01f0a1b8f980",
+    "src/apple/Packages/MapleCore/Sources/MapleCore/GpuLiveSession.swift": "ed6c82c54d0c536cf443ab68dc14591776642b7a8b6c4c920d2a58984c29b53d",
+    "src/apple/Packages/MapleCore/Tests/MapleCoreTests/GpuSessionReplacementTests.swift": "dd6340214ed0509bdf3b3341a7d029b6be0fede8ae28076af09f2db968d6d830"
+  },
+  "releaseTestBinary": {
+    "path": "src/apple/Packages/MapleCore/.build/out/Products/Release/MapleCoreTests.xctest/Contents/MacOS/MapleCoreTests",
+    "sha256": "71a734084d90be4da8809cf5d28d3eebc1a47f0e88c8be00534577b7769d78d6"
+  },
+  "sourceNote": "Final test binary includes all behavior changes; only comment wrapping and documentation formatting changed after it was built.",
+  "profile": {
+    "revision": "70548de36891735e4f57029e17b19a619ce12bed",
+    "template": "Time Profiler; 1ms running-only CPU samples and Points of Interest",
+    "recordLog": {
+      "path": "/tmp/maple-native-auto-live-time-20261002.log",
+      "sha256": "724d26006678131a68cb1813cea5c06d4f9bb426055fc228deff964fafb63c48"
+    },
+    "targetLog": {
+      "path": "/tmp/maple-native-auto-live-time-20261002-target.log",
+      "sha256": "a4b39d18407bbdb54c7cf543f7e29ddf221c18f84429a69b0ffa9ea133781cc6"
+    },
+    "cpuExport": {
+      "path": "/tmp/maple-native-auto-live-time-20261002-samples.xml",
+      "sha256": "e95f607abfb3785085d86475f482e702e9a7276a34fdd0b9c6ee4cadda76aa1d"
+    },
+    "signpostExport": {
+      "path": "/tmp/maple-native-auto-live-time-20261002-signposts.xml",
+      "sha256": "7612dabd743b7f9b037d09b86945b18827d29c87493e7d5655c51021f1d9c7f6"
+    },
+    "cpu": {
+      "method": "Running CPU samples only, 1ms sampling weights; inclusive categories overlap and cannot be summed; first interval aligns existing target timestamps to trace origin. No waiting-thread or queue attribution.",
+      "windows": [
+        {
+          "phase": "first-GPU-wait",
+          "traceTimeSeconds": [
+            2.605,
+            4.14
+          ],
+          "samples": 17043,
+          "categories": {
+            "Auto-host-or-FFI-inclusive": 369,
+            "HalfRes-inclusive": 1030,
+            "lens-warp-inclusive": 2950,
+            "AMaZE-inclusive": 9585,
+            "NLM-strip-self": 425
+          },
+          "categoryPercent": {
+            "Auto-host-or-FFI-inclusive": 2.165111776095758,
+            "HalfRes-inclusive": 6.043536935985449,
+            "lens-warp-inclusive": 17.30915918558939,
+            "AMaZE-inclusive": 56.24009857419468,
+            "NLM-strip-self": 2.4936924250425396
+          }
+        },
+        {
+          "phase": "early-drag",
+          "traceTimeSeconds": [
+            4.14,
+            6.7
+          ],
+          "samples": 40739,
+          "categories": {
+            "Auto-host-or-FFI-inclusive": 145,
+            "NLM-strip-self": 33796,
+            "bounded-NLM-inclusive": 34487
+          },
+          "categoryPercent": {
+            "Auto-host-or-FFI-inclusive": 0.35592429858366675,
+            "NLM-strip-self": 82.95736272368,
+            "bounded-NLM-inclusive": 84.65352610520631
+          }
+        },
+        {
+          "phase": "all",
+          "traceTimeSeconds": [
+            0,
+            100
+          ],
+          "samples": 271090,
+          "categories": {
+            "Auto-host-or-FFI-inclusive": 2473,
+            "HalfRes-inclusive": 11425,
+            "lens-warp-inclusive": 10261,
+            "AMaZE-inclusive": 29323,
+            "NLM-strip-self": 165476,
+            "bounded-NLM-inclusive": 167489
+          },
+          "categoryPercent": {
+            "Auto-host-or-FFI-inclusive": 0.9122431664760781,
+            "HalfRes-inclusive": 4.214467520011804,
+            "lens-warp-inclusive": 3.7850898225681506,
+            "AMaZE-inclusive": 10.816702939983031,
+            "NLM-strip-self": 61.0409826994725,
+            "bounded-NLM-inclusive": 61.78354052159799
+          }
+        }
+      ]
+    },
+    "signposts": {
+      "GpuPresentExecution": {
+        "samples": 1356,
+        "p50Ms": 0.6537080000016431,
+        "p95Ms": 6.979875000000902,
+        "maxMs": 22.365459000000556
+      },
+      "GpuPresentRequest": {
+        "samples": 1356,
+        "p50Ms": 0.7127089999994496,
+        "p95Ms": 7.063791000000492,
+        "maxMs": 28.470416999999543
+      },
+      "GpuFrameReadback": {
+        "samples": 12,
+        "p50Ms": 26.96616599999834,
+        "p95Ms": 29.937332999999853,
+        "maxMs": 29.937332999999853
+      },
+      "XCTestCase": {
+        "samples": 2,
+        "p50Ms": 29511.435542000003,
+        "p95Ms": 29511.435542000003,
+        "maxMs": 29511.435542000003
+      }
+    },
+    "limits": [
+      "Inclusive CPU categories overlap; CPU sample weights are not wall time.",
+      "No waiting-thread or Rayon queue-starvation attribution was captured.",
+      "Request and execution signposts have different IDs; do not subtract percentiles or pair them as exact queue delays.",
+      "The baseline profiled run is instrumentation evidence, not release qualification."
+    ]
+  },
+  "performanceCommand": "MAPLE_PERF=1 MAPLE_GPU_LIVE=1 swift test --package-path src/apple/Packages/MapleCore --configuration release -Xswiftc -enable-testing --skip-build --filter EditorWorkflowPerfTests.test100MPAcceptedRemovalStacksAt60Hz",
+  "runs": [
+    {
+      "path": "/tmp/maple-native-auto-proxy-first-perf-20261002.log",
+      "sha256": "47c357b05c2963d08f4e8e22ebbbd646e12874943757fad749943458ff73040f",
+      "version": "ordering only; rejected: completion marked before the actual fit returned",
+      "failedAssertions": 1,
+      "durationSeconds": 34.578,
+      "aggregates": {
+        "immediate": {
+          "inputs": 360,
+          "published": 317,
+          "over16ms": 4,
+          "maxMs": 59.596584
+        },
+        "native": {
+          "inputs": 360,
+          "published": 360,
+          "over16ms": 0,
+          "maxMs": 4.360333
+        }
+      },
+      "rows": [
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 983.155958,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 983.147791,
+          "firstSeedMs": 133.228541,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:1ac222350decd802f4cc045a72212b94b0efa00e914f698b3a254794841b576a",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:f530d28dbe37f8214fd7acf541f2b83f84cdfe9319ee2acb6f8d2c7631c415d8",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 7330.864583,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 0,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "nominal",
+          "tickContrast": {
+            "maxMs": 8.347333,
+            "over16": 0,
+            "p50Ms": 1.585125,
+            "p95Ms": 7.173375,
+            "published": 48
+          },
+          "tickExposure": {
+            "maxMs": 59.596584,
+            "over16": 3,
+            "p50Ms": 1.526708,
+            "p95Ms": 19.502333,
+            "published": 56
+          },
+          "tickNativeContrast": {
+            "maxMs": 3.424666,
+            "over16": 0,
+            "p50Ms": 1.34775,
+            "p95Ms": 2.638416,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 3.241667,
+            "over16": 0,
+            "p50Ms": 1.154833,
+            "p95Ms": 3.022917,
+            "published": 60
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        },
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 1401.211334,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 1401.21,
+          "firstSeedMs": 48.975084,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:927ee2ff25acefae518fc67bddd9ac07d1f7862bb607364317f382c2a0598792",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:d3d69e422dc452b858a070fce0e7f5a1485cb936ace5c59f3414cc385579055f",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 8689.78125,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 1,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "nominal",
+          "tickContrast": {
+            "maxMs": 6.207083,
+            "over16": 0,
+            "p50Ms": 1.624,
+            "p95Ms": 5.426125,
+            "published": 51
+          },
+          "tickExposure": {
+            "maxMs": 10.430584,
+            "over16": 0,
+            "p50Ms": 1.38425,
+            "p95Ms": 5.906792,
+            "published": 47
+          },
+          "tickNativeContrast": {
+            "maxMs": 3.405833,
+            "over16": 0,
+            "p50Ms": 1.154375,
+            "p95Ms": 2.092083,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 4.360333,
+            "over16": 0,
+            "p50Ms": 1.284708,
+            "p95Ms": 3.481584,
+            "published": 60
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        },
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 1637.6141659999998,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 1637.613333,
+          "firstSeedMs": 49.131041,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:be3f4249c38a72b7e74033981515157b043afe0e553ff4a3ae4da26f22eba97a",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:ff77997720694e20ee1e2396cb4c6adc15b974cee4ff20f2436e675fef448121",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 8841.856541,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 10,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "nominal",
+          "tickContrast": {
+            "maxMs": 3.564791,
+            "over16": 0,
+            "p50Ms": 1.410916,
+            "p95Ms": 3.314708,
+            "published": 60
+          },
+          "tickExposure": {
+            "maxMs": 20.852041,
+            "over16": 1,
+            "p50Ms": 1.224667,
+            "p95Ms": 3.642625,
+            "published": 55
+          },
+          "tickNativeContrast": {
+            "maxMs": 2.48725,
+            "over16": 0,
+            "p50Ms": 1.166333,
+            "p95Ms": 2.219542,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 3.262417,
+            "over16": 0,
+            "p50Ms": 1.120084,
+            "p95Ms": 2.372,
+            "published": 60
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        }
+      ]
+    },
+    {
+      "path": "/tmp/maple-native-auto-proxy-joined-perf-20261002.log",
+      "sha256": "6e29114f4d22b11b1fa02fb83e4f9731a40bfdcee95eab4ef2ffbbbf470d5128",
+      "version": "joined fit; preliminary, before retirement join/cancellation guard",
+      "failedAssertions": 0,
+      "durationSeconds": 29.613,
+      "aggregates": {
+        "immediate": {
+          "inputs": 360,
+          "published": 292,
+          "over16ms": 7,
+          "maxMs": 38.399833
+        },
+        "native": {
+          "inputs": 360,
+          "published": 360,
+          "over16ms": 0,
+          "maxMs": 11.151833
+        }
+      },
+      "rows": [
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 1041.564666,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 1041.561583,
+          "firstSeedMs": 133.147541,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:1ac222350decd802f4cc045a72212b94b0efa00e914f698b3a254794841b576a",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:f530d28dbe37f8214fd7acf541f2b83f84cdfe9319ee2acb6f8d2c7631c415d8",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 6407.403791,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 0,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "nominal",
+          "tickContrast": {
+            "maxMs": 38.399833,
+            "over16": 2,
+            "p50Ms": 3.381833,
+            "p95Ms": 15.7345,
+            "published": 48
+          },
+          "tickExposure": {
+            "maxMs": 12.324083,
+            "over16": 0,
+            "p50Ms": 1.593875,
+            "p95Ms": 10.422875,
+            "published": 56
+          },
+          "tickNativeContrast": {
+            "maxMs": 4.713,
+            "over16": 0,
+            "p50Ms": 1.926167,
+            "p95Ms": 4.307833,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 4.493334,
+            "over16": 0,
+            "p50Ms": 2.342125,
+            "p95Ms": 4.176208,
+            "published": 60
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        },
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 1224.197875,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 1224.195667,
+          "firstSeedMs": 49.456292,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:927ee2ff25acefae518fc67bddd9ac07d1f7862bb607364317f382c2a0598792",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:d3d69e422dc452b858a070fce0e7f5a1485cb936ace5c59f3414cc385579055f",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 7268.115208,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 1,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "nominal",
+          "tickContrast": {
+            "maxMs": 19.829167,
+            "over16": 1,
+            "p50Ms": 1.352875,
+            "p95Ms": 11.954875,
+            "published": 50
+          },
+          "tickExposure": {
+            "maxMs": 16.31525,
+            "over16": 1,
+            "p50Ms": 1.603792,
+            "p95Ms": 14.728583,
+            "published": 48
+          },
+          "tickNativeContrast": {
+            "maxMs": 5.079208,
+            "over16": 0,
+            "p50Ms": 2.380959,
+            "p95Ms": 4.467083,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 4.333417,
+            "over16": 0,
+            "p50Ms": 2.064209,
+            "p95Ms": 4.1045,
+            "published": 60
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        },
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 1547.296,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 1547.294292,
+          "firstSeedMs": 43.040292,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:be3f4249c38a72b7e74033981515157b043afe0e553ff4a3ae4da26f22eba97a",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:ff77997720694e20ee1e2396cb4c6adc15b974cee4ff20f2436e675fef448121",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 7281.070708,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 10,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "nominal",
+          "tickContrast": {
+            "maxMs": 25.462583,
+            "over16": 1,
+            "p50Ms": 1.401916,
+            "p95Ms": 14.431042,
+            "published": 39
+          },
+          "tickExposure": {
+            "maxMs": 24.547125,
+            "over16": 2,
+            "p50Ms": 1.345583,
+            "p95Ms": 12.411708,
+            "published": 51
+          },
+          "tickNativeContrast": {
+            "maxMs": 11.151833,
+            "over16": 0,
+            "p50Ms": 2.332625,
+            "p95Ms": 4.37425,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 4.294333,
+            "over16": 0,
+            "p50Ms": 1.846333,
+            "p95Ms": 3.712375,
+            "published": 60
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        }
+      ]
+    },
+    {
+      "path": "/tmp/maple-native-auto-proxy-joined-final-perf-20261002.log",
+      "sha256": "12641a1402090e0942daa8a9599254889e5db3b57c8d24b16382956249a29c14",
+      "version": "final implementation, including retirement join/cancellation guard",
+      "failedAssertions": 1,
+      "durationSeconds": 46.279,
+      "aggregates": {
+        "immediate": {
+          "inputs": 360,
+          "published": 247,
+          "over16ms": 5,
+          "maxMs": 73.692625
+        },
+        "native": {
+          "inputs": 360,
+          "published": 358,
+          "over16ms": 0,
+          "maxMs": 8.72425
+        }
+      },
+      "rows": [
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 3023.186916,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 3023.112541,
+          "firstSeedMs": 186.971416,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:1ac222350decd802f4cc045a72212b94b0efa00e914f698b3a254794841b576a",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:f530d28dbe37f8214fd7acf541f2b83f84cdfe9319ee2acb6f8d2c7631c415d8",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 18678.253375,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 0,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "fair",
+          "tickContrast": {
+            "maxMs": 24.909583,
+            "over16": 1,
+            "p50Ms": 3.621333,
+            "p95Ms": 11.454667,
+            "published": 50
+          },
+          "tickExposure": {
+            "maxMs": 73.692625,
+            "over16": 2,
+            "p50Ms": 7.929417,
+            "p95Ms": 24.380458,
+            "published": 37
+          },
+          "tickNativeContrast": {
+            "maxMs": 6.50125,
+            "over16": 0,
+            "p50Ms": 2.989083,
+            "p95Ms": 4.258292,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 4.492792,
+            "over16": 0,
+            "p50Ms": 2.056583,
+            "p95Ms": 4.219541,
+            "published": 60
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        },
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 1734.056834,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 1734.0551249999999,
+          "firstSeedMs": 57.613584,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:927ee2ff25acefae518fc67bddd9ac07d1f7862bb607364317f382c2a0598792",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:d3d69e422dc452b858a070fce0e7f5a1485cb936ace5c59f3414cc385579055f",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 10024.309792,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 1,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "fair",
+          "tickContrast": {
+            "maxMs": 7.595417,
+            "over16": 0,
+            "p50Ms": 1.627625,
+            "p95Ms": 4.106791,
+            "published": 43
+          },
+          "tickExposure": {
+            "maxMs": 19.198,
+            "over16": 1,
+            "p50Ms": 5.415375,
+            "p95Ms": 12.577125,
+            "published": 40
+          },
+          "tickNativeContrast": {
+            "maxMs": 4.298958,
+            "over16": 0,
+            "p50Ms": 2.091208,
+            "p95Ms": 4.141792,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 8.72425,
+            "over16": 0,
+            "p50Ms": 1.855208,
+            "p95Ms": 4.058458,
+            "published": 58
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        },
+        {
+          "case": "100MP-accepted-removals",
+          "chip": "Apple M5 Max",
+          "coldOpenMs": 1652.350375,
+          "commitSha": "70548de36891735e4f57029e17b19a619ce12bed",
+          "deviceModel": "Mac17,6",
+          "excludes": "gesture dispatch, scanout, allocation trace, inference and AI quality",
+          "firstGPUMs": 1652.347792,
+          "firstSeedMs": 48.786667,
+          "fixture": "dji-mavic3pro-100mp.dng",
+          "frameDigest": "blake3:be3f4249c38a72b7e74033981515157b043afe0e553ff4a3ae4da26f22eba97a",
+          "gpu": "Apple M5 Max",
+          "hardLimitMs": 50,
+          "nativeFrameDigest": "blake3:ff77997720694e20ee1e2396cb4c6adc15b974cee4ff20f2436e675fef448121",
+          "nativeReadyAtImmediateEnd": false,
+          "nativeSettledMs": 8260.88175,
+          "osVersion": "Version 27.0 (Build 26A428)",
+          "patchCount": 10,
+          "patchHeight": 512,
+          "patchWidth": 512,
+          "profile": "auto",
+          "refreshRateHz": 60,
+          "sourceDigest": "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
+          "targetMs": 16,
+          "thermalState": "fair",
+          "tickContrast": {
+            "maxMs": 3.511334,
+            "over16": 0,
+            "p50Ms": 1.407916,
+            "p95Ms": 3.451667,
+            "published": 43
+          },
+          "tickExposure": {
+            "maxMs": 23.25225,
+            "over16": 1,
+            "p50Ms": 6.56775,
+            "p95Ms": 15.270583,
+            "published": 34
+          },
+          "tickNativeContrast": {
+            "maxMs": 4.610125,
+            "over16": 0,
+            "p50Ms": 2.042542,
+            "p95Ms": 3.421875,
+            "published": 60
+          },
+          "tickNativeExposure": {
+            "maxMs": 4.211666,
+            "over16": 0,
+            "p50Ms": 1.665416,
+            "p95Ms": 3.777291,
+            "published": 60
+          },
+          "viewportHeight": 1280,
+          "viewportWidth": 1920
+        }
+      ]
+    }
+  ],
+  "performanceVerdict": {
+    "finalResult": "FAIL: immediate exposure max 73.692625ms exceeds the unchanged 50ms hard assertion",
+    "target16ms": "OPEN: observed immediate over-budget ticks and coalesced inputs",
+    "nativePhase": "Final observed worst 8.72425ms; not a per-input, quiet-machine, fleet or physical-scanout qualification",
+    "coldOpen": "Final first GPU readiness 3.023/1.734/1.652 seconds; checked native settlement 18.678/10.024/8.261 seconds includes initial drags and explicit native publication",
+    "limits": "Retain all failed/preliminary points. Shared M5 Max 128GB desktop, fair thermal state in final run; other user applications were untouched. The ordering fix does not establish a stable latency improvement or remove all background contention."
+  },
+  "validation": {
+    "selected": {
+      "path": "/tmp/maple-native-auto-proxy-joined-regressions-20261002.log",
+      "sha256": "88617000ff7ae5564170523de44c4b71d8d2ee7d188aeb4a786620cde05356bc",
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "photographicRows": [
+        "MAPLE_PRODUCTION_NATIVE_AUTO_CPU accepted=false max=1 over1=0 sum=29297450 lanes=117158976",
+        "MAPLE_PRODUCTION_NATIVE_AUTO accepted=false max=1 over1=0 sum=3353 lanes=117158976",
+        "MAPLE_PRODUCTION_NATIVE_AUTO_CPU accepted=true max=1 over1=0 sum=29296887 lanes=117158976",
+        "MAPLE_PRODUCTION_NATIVE_AUTO accepted=true max=1 over1=0 sum=3348 lanes=117158976"
+      ]
+    },
+    "macBuild": {
+      "path": "/tmp/maple-native-auto-proxy-joined-mac-build-20261002.log",
+      "sha256": "4ac9f7ba396bc487c6828bc0385b3d32786730860097d03fabe48c3aaf2db319",
+      "result": "BUILD SUCCEEDED",
+      "scheme": "Maple"
+    },
+    "fullCI": {
+      "path": "/tmp/maple-native-auto-proxy-joined-swift-ci-confirm-20261002.log",
+      "sha256": "7fd89085de49c1c0018258beab5c778261b189ff257b110615024a787d5f883e",
+      "classes": 248,
+      "passed": 2035,
+      "failed": 0,
+      "skipped": 0
+    },
+    "earlierCIStall": {
+      "path": "/tmp/maple-native-auto-proxy-joined-swift-ci-20261002.log",
+      "sha256": "dd468fca3632d90a7a10187633e443afceb6f9e54750da6a7f34ce7676f413a0",
+      "result": "Incomplete: owned runner terminated after confirmed idle stall, not an observation timeout",
+      "sample": {
+        "path": "/tmp/maple-native-auto-proxy-joined-swift-ci-hang-20261002.sample.txt",
+        "sha256": "522421e28c30d6ff933e64ecd7792d3f20b9c5d2b53381181c7f587a045f07cc"
+      },
+      "diagnosis": "Actual stack: ChangeFeedClientRestartTests.Server.stop / NSConcreteTask.waitUntilExit. No child remained under owned runner pid10428. Buffered stdout misleadingly ended at ChangeCursorStoreTests. No product source changed to waive this stall.",
+      "remainder": {
+        "path": "/tmp/maple-native-auto-proxy-joined-swift-remainder-20261002.log",
+        "sha256": "6109d899f5f2a6c96849b4d4b3c62346d7e263e3bc122657addee644fdc644e1",
+        "classes": 247,
+        "passed": 2033,
+        "failed": 0,
+        "skipped": 0
+      },
+      "isolatedRestart": {
+        "path": "/tmp/maple-native-auto-proxy-joined-swift-restart-isolated-20261002.log",
+        "sha256": "5826b0aa0a4ff8b29a4a1d3a5e7e82742492afd57dc8aded7bfb4de43805c845",
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "resolution": "Both cases pass separately, followed by a complete unchanged 248-class allowlist passing together. Earlier stalled run remains recorded."
+    },
+    "fixtures": {
+      "original100MPSha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "controlledFilesUnchanged": 24,
+      "original39MPSha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "portraitXmpSha256": "eafcb3022d6de1c7cc8e6b7af2ed9301b86ae6b37f6b81af9fdd05b87b5b426d",
+      "portraitCompanionsUnchanged": 4,
+      "baselineFrameDigestsUnchanged": true
+    }
+  },
+  "remaining": [
+    "Mac 16ms target and reliable 50ms hard limit during native preparation; causal admission/contention profiling",
+    "Consented labeled photographic background-people and reconstruction-quality corpus",
+    "Model distribution/signing/license review and lower-memory device qualification",
+    "Existing canonical ACR Neutral #3633 gate; no budget change or release claim",
+    "Full goal active, Mac first; other platform ports deferred"
+  ]
+}

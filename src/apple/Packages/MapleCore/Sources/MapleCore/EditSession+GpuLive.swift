@@ -107,14 +107,13 @@ extension EditSession {
     targetSize: CGSize?,
     gen: UInt64?,
     decodeGeneration: UInt64,
+    quality: PipelineRenderer.Quality,
     appliedCrop: Crop,
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
     whitesAnchorEv: Float = .nan,
     nrSamplingScale: Float = 1
   ) async -> Bool {
-    let fitRevision = autoFitRevision
-    let fitAssetID = asset.id
     guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else {
       editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
       return false
@@ -245,7 +244,6 @@ extension EditSession {
       }
     }
 
-    let achievedAutoFit: Bool?
     // Cloud RAWs need the same fit as local files. The session stages
     // their bytes once for the path-only FFI (#3357).
     if resolvedIsRaw, m.profile == .auto,
@@ -254,10 +252,26 @@ extension EditSession {
       let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
       let accessing = scope.startAccessingSecurityScopedResource()
       defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-      achievedAutoFit = await driver.fitAutoProfileIfNeeded(
-        rawPath: url.path, model: m, quality: .preview)
-    } else {
-      achievedAutoFit = false
+      if let prepared = nativeAutoProfile.readyFor(
+        decodeGeneration: decodeGeneration, quality: AmazeFlag.isEnabled ? .amaze : .full)
+      {
+        await driver.installNativeAutoProfile(prepared)
+      } else {
+        await driver.fitAutoProfileIfNeeded(rawPath: url.path, model: m, quality: quality)
+        // #1472: the full native develop uses the same CPU workers as this
+        // provisional fit. Finish the fit before requesting a cold native job.
+        // A newer render can arrive during that await; never rewind its native
+        // request with this decode.
+        if let gen {
+          guard gen == (await renderActor.currentGeneration()), !Task.isCancelled else {
+            return true
+          }
+        }
+        guard !Task.isCancelled else { return true }
+        if let prepared = preparedNativeAutoProfile(decodeGeneration: decodeGeneration) {
+          await driver.installNativeAutoProfile(prepared)
+        }
+      }
     }
 
     // Film look (epic #2683, Task 10): resolve + push BEFORE this present,
@@ -401,10 +415,6 @@ extension EditSession {
     // pixels. Do not wake histograms or claim that a stale frame is ready.
     guard didPresent, !Task.isCancelled else { return true }
     if let gen, gen != (await renderActor.currentGeneration()) { return true }
-    if let achievedAutoFit {
-      publishAutoFit(
-        achievedAutoFit, assetID: fitAssetID, profile: m.profile, revision: fitRevision)
-    }
     editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
     lastPublishedRenderGeneration = gen
     if !gpuFramePresented { gpuFramePresented = true }
