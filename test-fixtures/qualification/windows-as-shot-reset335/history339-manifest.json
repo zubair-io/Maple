@@ -1,0 +1,50 @@
+{
+  "issue": 4114,
+  "backend": "cpu",
+  "screenshots": "Earlier build335 Color screenshot retained separately; no new visual signoff claimed for build339.",
+  "sourceFiles": [
+    {
+      "path": "src/windows/Maple.WinUI/ViewModels/EditSessionViewModel.DecodeMetadata.cs",
+      "sha256": "045A6E226143DE2AB077576FD7F40B45BC2DC9B4FDE6D50CCF5866DABD8C9FC2"
+    },
+    {
+      "path": "src/windows/Maple.WinUI/ViewModels/AdjustmentSectionViewModel.cs",
+      "sha256": "7CD8DC9CAD19F94A9C31593A241B03F5B9F6FF4D6C25FBD17D998D40C4FDAA3E"
+    },
+    {
+      "path": "src/windows/Maple.WinUI/ViewModels/EditSessionViewModel.WhiteBalanceSmoke.cs",
+      "sha256": "73AB24B961F4EACF396EB387475B2F723C67F5A3A88C682344C11CB0A25BDC3C"
+    },
+    {
+      "path": "src/windows/Maple.WinUI/MainWindow.LifecycleSmoke.cs",
+      "sha256": "808BD7945A0193A07C72FF31904C7DC8841C18D4FE271D4CE5AED426EC8283DC"
+    }
+  ],
+  "executableSha256": "AC00168769223D6F1166C7191AAD1EAC5BE514130AFB9F52C3F6FE2CC79391E3",
+  "base": "057bc604c619f2ef6e071a7ae38d25dfb1fa5d64",
+  "pr": 4115,
+  "cases": [
+    "Early Exposure Undo restores decoded as-shot identity",
+    "Early Exposure Redo retains decoded as-shot identity",
+    "Early manual 7000 K survives metadata normalization and Undo/Redo",
+    "Early manual 6500 K survives metadata normalization and Undo/Redo"
+  ],
+  "nativeSha256": "FE4E86A1D5141C769144BB379F7D648D55231DEBE92EF64ED0CBC1D321924CF3",
+  "fixtureSha256": "52A10D80F571AF72A1B115AB02D60A8500B55FD8F55D91627378B1128F9C12C5",
+  "build": "Maple.DesignAudit339",
+  "pipelineOutputVersion": 7,
+  "limitations": [
+    "150% DPI CPU functional lifecycle on synthetic RAW; no hardware performance or ACR parity qualification.",
+    "Fixtures with schema-default as-shot values explicitly report these regression cases skipped."
+  ],
+  "historyCasesExecuted": 4,
+  "historyCasesSkipped": 0,
+  "lifecyclePassed": true,
+  "method": "Deterministically reconstruct pre-decode history in the real native session, exercise production normalization and Undo/Redo using decoded photo identity, then restore its original document/history.",
+  "hardware": {
+    "cpu": "Intel Core i7-1255U",
+    "gpu": "Intel Iris Xe Graphics",
+    "osBuild": "28120"
+  },
+  "processExit": 0
+}
