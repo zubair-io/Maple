@@ -362,6 +362,100 @@
           "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
         }
       }
+    },
+    {
+      "id": "bologna-person-accepted-hole-8-hard",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 0,
+      "fringe_radius": 0,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+      "annotation": "Controlled acceptance of the previous native radius8 reconstruction hole as an opaque selection. The actual prior model run, generation conditioning, source pixels and kept-person protection remain unchanged; this isolates accepted coverage versus the earlier intent/fringe4 bake.",
+      "annotation_scope": "Research coverage control, not independent instance closure/ownership truth or a shipping expansion policy.",
+      "orientation": 1,
+      "intent_mask_sha256": "baf75848d898a3a9e078f3ec1c5dafbb8f3961b4b74b374f153c83d558f2089b",
+      "protected_mask_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+      "model_encoding": "photographic-contrast",
+      "selection_provenance": {
+        "parent_case": "bologna-person-current-contrast-hole-8",
+        "intent_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/accepted-hole-8.png",
+          "sha256": "baf75848d898a3a9e078f3ec1c5dafbb8f3961b4b74b374f153c83d558f2089b"
+        },
+        "protected_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/protected.png",
+          "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
+        },
+        "parent_generation_masks": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-r1-20261003/masks.f32",
+          "sha256": "1e9d2db047829583fafd910e1f38e5c537e3d04a15bb9caa641de2b16577bd1e"
+        },
+        "held_inference": "test-fixtures/qualification/removal-powerpaint-native-float-3941.json; radius8 actual run"
+      }
+    },
+    {
+      "id": "bologna-person-expanded-16-contrast-hole-8",
+      "raw": "bologna",
+      "window_xywh": [2850, 1300, 1024, 1024],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:f920aac4690f61e12ac296d120ee1895e3023816e2d9393d20ebb4e7fff80ccb",
+      "expected_model_input_blake3": "blake3:9bd6ca0d3cf29a6b5a2bb9834e03e320b25b3a4f895edc21183cb7b8f19f4864",
+      "annotation": "Research accepted intent expands the refined target16 native pixels using the shared Rust Euclidean generator, clipped against the exact same kept-person protection. Generation expands this derived intent8 more pixels and coverage uses exterior fringe4. A fresh actual model run is required.",
+      "annotation_scope": "Controlled mask-expansion sensitivity, not independent object ownership/closure truth or shipping native thresholds. Both accepted coverage and inference hole change relative to the original case; conclusions must not attribute differences to only one factor.",
+      "orientation": 1,
+      "intent_mask_sha256": "d813e38f68dbc1b063aa12cd8ad4d2d60c0cc93cd9c52d94bbcc2f7677df42ac",
+      "protected_mask_sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a",
+      "model_encoding": "photographic-contrast",
+      "selection_provenance": {
+        "parent_case": "bologna-person-current-contrast-hole-8",
+        "intent_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-edge-coverage-3941/expanded-intent-16.png",
+          "sha256": "d813e38f68dbc1b063aa12cd8ad4d2d60c0cc93cd9c52d94bbcc2f7677df42ac"
+        },
+        "protected_mask": {
+          "path": "test-fixtures/qualification/removal-powerpaint-native-float-3941/protected.png",
+          "sha256": "672ba107c33d616765d3a683625422e2a3974984d2393da40f0a0f0f3f2ad55a"
+        },
+        "derivation": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/bologna-edge16-derivation-20261003/derivation.json",
+          "sha256": "9fbbce373b4e3f5fdc511b516668e7aa38eb50f7657a4b094a154d9beae38c60"
+        }
+      }
+    },
+    {
+      "id": "coast-head-photographic-contrast",
+      "raw": "coast",
+      "window_xywh": [1900, 1800, 1024, 1024],
+      "intent_rects_xywh": [[440, 437, 65, 44]],
+      "protected_rects_xywh": [[0, 481, 1024, 543]],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:50f65b33b413746281b59cb89be7dd221d6e06328c7fd7b99a8d60d283fd2f43",
+      "expected_model_input_blake3": "blake3:f7ac7b659be89b25c02b088fe4a6168faf82f01480475e419aa8a71a4c2c914c",
+      "annotation": "Small partially occluded head above cabin railing; explicit Paint rectangle and protected wood below.",
+      "annotation_scope": "Manual research Paint/protection control, not background-role, Smart paint, silhouette closure, hidden-content ground truth or shipping mask policy.",
+      "orientation": 1,
+      "model_encoding": "photographic-contrast"
+    },
+    {
+      "id": "night-tiger-poster-photographic-contrast",
+      "raw": "night-tiger",
+      "orientation": 8,
+      "window_xywh": [2800, 1650, 1024, 1024],
+      "intent_rects_xywh": [[261, 267, 267, 143]],
+      "protected_rects_xywh": [
+        [0, 435, 1024, 589],
+        [610, 0, 414, 435]
+      ],
+      "hole_radius": 8,
+      "fringe_radius": 4,
+      "expected_scene_blake3": "blake3:a3b247c266eb5106c64096c99f9f2b6026bced854d95f0477b9fe5e072d33781",
+      "expected_model_input_blake3": "blake3:b76280514e3c4deb42b200c475e28d778d50f8857f49c22bae2f483ce43de55b",
+      "annotation": "Complete left wall portrait poster. Canonical rectangle is the exact EXIF8 inverse of upright pixel-edge rectangle [267,496,143,267]. Adjacent posters and upper scene protected.",
+      "annotation_scope": "Manual research Paint rectangle; no automatic silhouette, semantic role, text reconstruction, person model release, hidden-content ground truth or shipping mask policy claim.",
+      "model_encoding": "photographic-contrast"
     }
   ]
 }
