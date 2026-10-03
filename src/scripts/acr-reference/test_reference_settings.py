@@ -112,6 +112,51 @@ class ReferenceSettingsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify_png(path, expected | {"Sharpness": "40"})
 
+    def test_authored_white_balance_axes_match_saved_png_metadata(self):
+        for axes in (
+            b'crs:Temperature="6500" crs:Tint="150" ',
+            b'crs:Temperature="6500" ',
+            b'crs:Tint="-150" ',
+        ):
+            with self.subTest(axes=axes), tempfile.TemporaryDirectory() as temp:
+                source = MINIMAL.replace(
+                    b"crs:Unknown=",
+                    b'crs:WhiteBalance="Custom" ' + axes + b"crs:Unknown=",
+                )
+                authored = explicit_reference_defaults(source)
+                expected = reference_settings(authored)
+                self.assertIn(axes, authored)
+                self.assertEqual(
+                    {key for key in expected if key in {"Temperature", "Tint"}},
+                    {key for key in ("Temperature", "Tint") if key.encode() in axes},
+                )
+                path = Path(temp) / "reference.png"
+
+                def save(metadata, destination=path):
+                    info = PngImagePlugin.PngInfo()
+                    info.add_text("XML:com.adobe.xmp", metadata.decode())
+                    Image.new("RGB", (2, 2)).save(destination, pnginfo=info)
+
+                # ACR may write an equivalent number in element form.
+                nested = authored
+                for key in ("Temperature", "Tint"):
+                    if key in expected:
+                        attribute = f' crs:{key}="{expected[key]}"'.encode()
+                        nested = nested.replace(attribute, b"").replace(
+                            b"</rdf:Description>",
+                            f"<crs:{key}>{expected[key]}.00</crs:{key}></rdf:Description>".encode(),
+                        )
+                save(nested)
+                verify_png(path, expected)
+                for key in ("Temperature", "Tint"):
+                    if key not in expected:
+                        continue
+                    attribute = f' crs:{key}="{expected[key]}"'.encode()
+                    for wrong in (b"", f' crs:{key}="10"'.encode()):
+                        save(authored.replace(attribute, wrong))
+                        with self.assertRaisesRegex(ValueError, f"effective {key}="):
+                            verify_png(path, expected)
+
     def test_profile_reused_from_effective_baseline_then_recorded_sidecar(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
