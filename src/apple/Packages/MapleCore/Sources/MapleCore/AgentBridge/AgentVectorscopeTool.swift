@@ -9,15 +9,11 @@ public enum AgentVectorscopeTool {
     _ arguments: [String: JSONValue],
     in session: EditSession
   ) async throws -> AgentPayload {
-    guard let canvasCiImage = await session.agentCanvasSnapshot() else {
-      throw AgentError(
-        code: "render_unavailable",
-        message: "Maple hasn't finished rendering this photo yet. Retry in a moment."
-      )
-    }
-
     let region = try AgentInspector.Region.parse(arguments["region"])
 
+    if let value = arguments["mask_id"], value.stringValue == nil {
+      throw AgentError(code: "invalid_arguments", message: "mask_id must be a UUID string.")
+    }
     let targetLayer: LocalAdjustment?
     if let maskIdStr = arguments["mask_id"]?.stringValue {
       guard let uuid = UUID(uuidString: maskIdStr),
@@ -30,29 +26,16 @@ public enum AgentVectorscopeTool {
       targetLayer = session.selectedMaskLayer
     }
 
-    let maskCoverage: CGImage?
-    if let targetLayer {
-      maskCoverage = await session.maskCoveragePreview(for: targetLayer.mask)
-    } else {
-      maskCoverage = nil
-    }
-
-    let context = session.pipeline.context
     let hasSkinTarget =
       targetLayer?.range == .skinTone || targetLayer?.kindName == "person_skin"
       || targetLayer?.kindName == "whole_image_skin"
     let maskId = targetLayer?.id.uuidString
 
-    let result = try await Task.detached(priority: .userInitiated) {
-      try AgentVectorscope.evaluate(
-        canvasCiImage: canvasCiImage,
-        maskCoverageCgImage: maskCoverage,
-        region: region,
-        hasSkinTarget: hasSkinTarget,
-        maskId: maskId,
-        context: context
-      )
-    }.value
+    let pixels = try await session.agentScopePixels(maskID: targetLayer?.id, region: region)
+    let evidence = try AgentVectorscope.reduce(
+      rgba: pixels.rgba, width: pixels.width,
+      height: pixels.height, weighted: pixels.weighted)
+    let result = AgentVectorscope.result(evidence, hasSkinTarget: hasSkinTarget, maskId: maskId)
 
     var dict = AgentEditService.summaryFields(session)
     for (k, v) in result.json.objectValue ?? [:] {

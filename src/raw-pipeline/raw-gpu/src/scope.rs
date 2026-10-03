@@ -84,6 +84,12 @@ struct SnapshotParams {
     src_h: u32,
     dst_w: u32,
     dst_h: u32,
+    origin_x: u32,
+    origin_y: u32,
+    region_w: u32,
+    region_h: u32,
+    use_alpha: u32,
+    _pad: [u32; 3],
 }
 
 /// Box-mean `src` (RGBA f32, `src_dims`) into `out` (one packed-RGB8 `u32`
@@ -97,7 +103,29 @@ pub fn encode_snapshot(
     out: &wgpu::Buffer,
     src_dims: (u32, u32),
 ) -> (u32, u32) {
-    let (dst_w, dst_h) = snapshot_dims(src_dims.0, src_dims.1);
+    encode_scope_region(
+        ctx,
+        encoder,
+        src,
+        out,
+        src_dims,
+        (0, 0, src_dims.0, src_dims.1),
+        false,
+    )
+}
+
+/// Paired RGB/coverage readback of a validated ROI; ordinary HUD snapshots
+/// continue to ignore coverage. Called on demand, never from slider polling.
+pub fn encode_scope_region(
+    ctx: &GpuContext,
+    encoder: &mut wgpu::CommandEncoder,
+    src: &wgpu::Buffer,
+    out: &wgpu::Buffer,
+    src_dims: (u32, u32),
+    region: (u32, u32, u32, u32),
+    use_alpha: bool,
+) -> (u32, u32) {
+    let (dst_w, dst_h) = snapshot_dims(region.2, region.3);
     let count = dst_w * dst_h;
     if count == 0 {
         return (dst_w, dst_h);
@@ -107,6 +135,12 @@ pub fn encode_snapshot(
         src_h: src_dims.1,
         dst_w,
         dst_h,
+        origin_x: region.0,
+        origin_y: region.1,
+        region_w: region.2,
+        region_h: region.3,
+        use_alpha: use_alpha as u32,
+        _pad: [0; 3],
     };
     encode_simple(
         ctx,

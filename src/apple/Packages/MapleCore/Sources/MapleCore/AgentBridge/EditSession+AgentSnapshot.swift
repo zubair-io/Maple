@@ -12,7 +12,7 @@ extension EditSession {
     _ = await latestRenderSchedule?.value
     await renderActor.awaitCurrentRenderIfInFlight()
     guard gpuFramePresented, !gpuPresentFailed, let driver = gpuLiveDriver else {
-      return renderedPreview
+      return try? await agentCPUFrame(maskID: nil).canvas
     }
     let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
     let anchor = wbDeltaAnchor

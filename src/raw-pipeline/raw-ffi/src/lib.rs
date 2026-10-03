@@ -124,7 +124,11 @@ mod scene_linear_chain;
 // The C-visible vectorscope statistics block (#3272) — `MapleScopeStats` +
 // `write_stats`. No `gpu` gate: the CPU fused entry (`scene_linear_chain_fused`)
 // writes through it too, so it stays available in every build.
+mod scope_inspection;
 mod scope_panel;
+pub use scope_inspection::{
+    maple_apply_chain_scope_rgba_f32, maple_scope_evidence, MapleScopeEvidence,
+};
 mod scope_stats;
 // #2092 (follow-on to #1959 / PR #2083): the fused per-tick FFI entry —
 // chain + display-encode in one call over one buffer, no intervening
@@ -277,3 +281,6 @@ mod scene_linear_tests;
 #[cfg(test)]
 #[path = "thumbnail_tests.rs"]
 mod thumbnail_tests;
+
+#[cfg(test)]
+mod scope_inspection_tests;

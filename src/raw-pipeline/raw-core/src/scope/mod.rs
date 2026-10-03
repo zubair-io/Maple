@@ -3,6 +3,8 @@
 //! in the display-ENCODED image (the values the dither quantizes), never a
 //! scene-linear one.
 
+pub mod inspection;
+pub mod inspection_snapshot;
 pub mod panel;
 pub mod snapshot;
 pub mod vectorscope;

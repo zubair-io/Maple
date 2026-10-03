@@ -75,7 +75,7 @@ public final class GpuLiveDriver {
   /// The current session (one set of dims). `nil` until the first open; replaced
   /// on a dims change. Held strongly — it owns the uploaded image + GPU buffers.
   private(set) var session: GpuLiveSession?
-  private var sessionRevision: UInt64 = 0
+  var sessionRevision: UInt64 = 0
   private var sessionPreparation: Task<GpuLiveSession, Error>?
   // Shared teardown barrier: queued replacements retain no f32 readback.
   // Internal so concurrency tests can suspend teardown deterministically.
@@ -158,7 +158,7 @@ public final class GpuLiveDriver {
   /// (RAW, all stages), 1 = LinearRec2020Fp16 (pano PNG, skip WB+CS). Stored at
   /// `open` time and forwarded to every `present` so the chain knows which leading
   /// stages to run. 0 is the safe default (preserves pre-#1331 RAW behaviour).
-  private var inputShape: UInt32 = 0
+  var inputShape: UInt32 = 0
 
   /// Rolling per-tick GPU render+present latency for the in-app frame-time HUD
   /// (#1053). The driver records every REAL present's elapsed ms here (cancelled
@@ -480,7 +480,7 @@ public final class GpuLiveDriver {
           asShotCCT: asShotCCT,
           asShotTint: asShotTint,
           inputShape: inputShape,
-          wbFrame: wbFrame
+          wbFrame: wbFrame, targetColorSpace: .srgb
         )
       else { return nil }
       guard !Task.isCancelled, revision == sessionRevision else { return nil }
