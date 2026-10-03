@@ -803,6 +803,13 @@ smb2_read_from_socket(struct smb2_context *smb2)
                 if (count) {
                         return count;
                 }
+                /* #4110: a successful LOGOFF callback closes the socket.
+                 * Do not turn that completed disconnect into readv(-1).
+                 * Read/protocol errors above still propagate unchanged.
+                 */
+                if (!SMB2_VALID_SOCKET(smb2->fd)) {
+                        return 0;
+                }
         }
 }
 

@@ -42,6 +42,12 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
     // #4110: internal regression fence for the actual graceful-drain wait.
     // Nil in application use; tests install it before starting disconnect.
     internal var disconnectDrainObserver: (@Sendable () -> Void)?
+    internal var disconnectBeforeTeardownObserver: (@Sendable () -> Void)?
+    internal var activeOperationCountForTesting: Int {
+        operationLock.lock()
+        defer { operationLock.unlock() }
+        return operationCount
+    }
 
     /// The timeout interval to use when doing an operation until getting response. Default value is 60 seconds.
     /// Set this to 0 or negative value in order to disable it.
@@ -245,14 +251,16 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
             if self.client == nil || self.client?.fileDescriptor == -1
                 || self.client?.share != name
             {
-                self.client = try self.connect(shareName: name, encrypted: encrypted)
+                let connectedClient = try self.connect(shareName: name, encrypted: encrypted)
+                self.operationLock.withLock { self.client = connectedClient }
             }
 
             // Workaround disgraceful disconnect issue (e.g. server timeout)
             do {
                 try self.client!.echo()
             } catch {
-                self.client = try self.connect(shareName: name, encrypted: encrypted)
+                let connectedClient = try self.connect(shareName: name, encrypted: encrypted)
+                self.operationLock.withLock { self.client = connectedClient }
             }
         }
     }
@@ -288,16 +296,19 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
             do {
                 self.connectLock.lock()
                 defer { self.connectLock.unlock() }
+                self.operationLock.lock()
                 if gracefully {
-                    self.operationLock.lock()
                     while self.operationCount > 0 {
                         self.disconnectDrainObserver?()
                         self.operationLock.wait()
                     }
-                    self.operationLock.unlock()
                 }
-                try self.client?.disconnect()
+                // #4110: close admission atomically with the final ownership check.
+                let retiringClient = self.client
                 self.client = nil
+                self.operationLock.unlock()
+                if gracefully { self.disconnectBeforeTeardownObserver?() }
+                try retiringClient?.disconnect()
                 completionHandler?(nil)
             } catch {
                 completionHandler?(error)
@@ -996,10 +1007,10 @@ public class SMB2Manager: NSObject, NSSecureCoding, Codable, NSCopying, CustomRe
         let range = range?.int64Range ?? 0..<Int64.max
         let (result, continuation) = AsyncThrowingStream<Data, any Error>.makeStream(bufferingPolicy: .unbounded)
         
-        queue { [client] in
-            guard let client = client else { return }
+        queue { client in
             var offset = range.lowerBound
             do {
+                let client = try client.unwrap()
                 let file = try SMB2FileHandle(forReadingAtPath: path, on: client)
                 // #4110: finish only after this stream relinquishes its file handle.
                 // Deinit alone can run after the consumer has already disconnected.
@@ -1478,12 +1489,14 @@ extension SMB2Manager {
     }
   }
 
-    private func queue(_ closure: @Sendable @escaping () -> Void) {
+    private func queue(_ closure: @Sendable @escaping (SMB2Client?) -> Void) {
         operationLock.lock()
+        // A queued operation keeps its admitted context, including nil during retirement.
+        let connectedClient = client
         operationCount += 1
         operationLock.unlock()
         q.async {
-            closure()
+            closure(connectedClient)
             self.operationLock.lock()
             self.operationCount -= 1
             self.operationLock.broadcast()
@@ -1505,7 +1518,6 @@ extension SMB2Manager {
 
     private func connect(shareName: String, encrypted: Bool) throws -> SMB2Client {
         let client = try SMB2Client(timeout: _timeout)
-        self.client = client
         initClient(client, encrypted: encrypted)
         let server = url.host! + (url.port.map { ":\($0)" } ?? "")
         try client.connect(server: server, share: shareName, user: _user)
@@ -1515,7 +1527,9 @@ extension SMB2Manager {
     private func with(
         completionHandler: SimpleCompletionHandler, handler: @Sendable @escaping () throws -> Void
     ) {
-        queue {
+        // Connection work waits on connectLock; counting it would deadlock a
+        // graceful drain that already owns that lock while waiting for files.
+        q.async {
             do {
                 try handler()
                 completionHandler?(nil)
@@ -1529,9 +1543,9 @@ extension SMB2Manager {
         completionHandler: SimpleCompletionHandler,
         handler: @Sendable @escaping (_ client: SMB2Client) throws -> Void
     ) {
-        queue {
+        queue { client in
             do {
-                try handler(self.client.unwrap())
+                try handler(client.unwrap())
                 completionHandler?(nil)
             } catch {
                 completionHandler?(error)
@@ -1543,10 +1557,10 @@ extension SMB2Manager {
         completionHandler: @Sendable @escaping (Result<T, any Error>) -> Void,
         handler: @Sendable @escaping (_ client: SMB2Client) throws -> T
     ) {
-        queue {
+        queue { client in
             completionHandler(
                 .init(catching: { () -> T in
-                    try handler(self.client.unwrap())
+                    try handler(client.unwrap())
                 })
             )
         }
@@ -1556,7 +1570,7 @@ extension SMB2Manager {
         shareName: String, encrypted: Bool, completionHandler: @Sendable @escaping (Result<T, any Error>) -> Void,
         handler: @Sendable @escaping (_ client: SMB2Client) throws -> T
     ) {
-        queue {
+        queue { _ in
             do {
                 let client = try self.connect(shareName: shareName, encrypted: encrypted)
                 defer { try? client.disconnect() }

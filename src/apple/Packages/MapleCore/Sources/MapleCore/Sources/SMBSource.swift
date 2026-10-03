@@ -131,10 +131,11 @@ public actor SMBSource {
   /// Disconnect from the share.
   public func disconnect() async {
     // #4110: publications and streams must release their handles before context teardown.
-    try? await client?.disconnectShare(gracefully: true)
+    let retiringClient = client
     client = nil
     idCache = nil
     pathByMapleId = [:]
+    try? await retiringClient?.disconnectShare(gracefully: true)
   }
 
   // createFolder(named:in:) / createFolderAtShareRoot / listSubdirectories
