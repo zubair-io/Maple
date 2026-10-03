@@ -361,3 +361,6 @@ AgentExportTests # default JPEG export, originals, revision races and cancellati
 TopShelfBuilderTests
 TopShelfCacheTests
 TopShelfLinkTests
+NativeExportRecipeTests
+NativeExportQueueTests
+NativeExportSnapshotTests

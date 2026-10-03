@@ -69,14 +69,56 @@ pub fn emit_swift() -> String {
             WireKind::OptionalText => "String?",
             WireKind::OptionalNumber => "UInt32?",
         };
-        out.push_str(&format!("    public var {}: {}\n", f.name, ty));
+        out.push_str(&format!("  public var {}: {}\n", f.name, ty));
+    }
+    let defaults = serde_json::to_value(ExportRecipe::default()).expect("recipe defaults");
+    out.push_str("\n  public init(\n");
+    for (index, f) in RECIPE_FIELDS.iter().enumerate() {
+        let ty = match f.kind {
+            WireKind::Text => "String",
+            WireKind::Number => "UInt32",
+            WireKind::OptionalText => "String?",
+            WireKind::OptionalNumber => "UInt32?",
+        };
+        let value = if defaults[f.name].is_null() {
+            "nil".into()
+        } else {
+            defaults[f.name].to_string()
+        };
+        let suffix = if index + 1 == RECIPE_FIELDS.len() {
+            ""
+        } else {
+            ","
+        };
+        out.push_str(&format!("    {}: {} = {}{}\n", f.name, ty, value, suffix));
+    }
+    out.push_str("  ) {\n");
+    for f in RECIPE_FIELDS {
+        out.push_str(&format!("    self.{} = {}\n", f.name, f.name));
+    }
+    out.push_str("  }\n\n  public static let defaults = ExportRecipe()\n");
+    out.push_str("  public static let encoders: [(format: String, bitDepth: UInt32, fileExtension: String)] = [\n");
+    for (format, depth, ext) in ENCODERS {
+        out.push_str(&format!("    (\"{format}\", {depth}, \"{ext}\"),\n"));
+    }
+    out.push_str("  ]\n");
+    for (name, values) in [
+        ("outputProfiles", OUTPUT_PROFILES),
+        ("renderingIntents", RENDERING_INTENTS),
+        ("metadataPolicies", METADATA_POLICIES),
+    ] {
+        let strings: Vec<_> = values.iter().map(|v| format!("\"{v}\"")).collect();
+        out.push_str(&format!(
+            "  public static let {name}: [String] = [{}]\n",
+            strings.join(", ")
+        ));
     }
     // Synthesized encodeIfPresent would DROP explicit null fields, so serialize each field.
-    out.push_str("\n    enum CodingKeys: String, CodingKey, CaseIterable {\n");
+    out.push_str("\n  enum CodingKeys: String, CodingKey, CaseIterable {\n");
     for f in RECIPE_FIELDS {
-        out.push_str(&format!("        case {}\n", f.name));
+        out.push_str(&format!("    case {}\n", f.name));
     }
-    out.push_str("    }\n\n    private struct AnyKey: CodingKey {\n        let stringValue: String\n        var intValue: Int? { nil }\n        init?(stringValue: String) { self.stringValue = stringValue }\n        init?(intValue: Int) { return nil }\n    }\n\n    public init(from decoder: Decoder) throws {\n        let all = try decoder.container(keyedBy: AnyKey.self)\n        guard Set(all.allKeys.map(\\.stringValue)) == Set(CodingKeys.allCases.map(\\.rawValue)) else {\n            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: \"Recipe has missing or unknown fields\"))\n        }\n        let values = try decoder.container(keyedBy: CodingKeys.self)\n");
+    out.push_str("  }\n\n  private struct AnyKey: CodingKey {\n    let stringValue: String\n    var intValue: Int? { nil }\n    init?(stringValue: String) { self.stringValue = stringValue }\n    init?(intValue: Int) { return nil }\n  }\n\n  public init(from decoder: Decoder) throws {\n    let all = try decoder.container(keyedBy: AnyKey.self)\n    guard Set(all.allKeys.map(\\.stringValue)) == Set(CodingKeys.allCases.map(\\.rawValue)) else {\n      throw DecodingError.dataCorrupted(\n        .init(\n          codingPath: decoder.codingPath, debugDescription: \"Recipe has missing or unknown fields\"))\n    }\n    let values = try decoder.container(keyedBy: CodingKeys.self)\n");
     for f in RECIPE_FIELDS {
         let ty = match f.kind {
             WireKind::Text => "String",
@@ -85,18 +127,21 @@ pub fn emit_swift() -> String {
             WireKind::OptionalNumber => "UInt32?",
         };
         out.push_str(&format!(
-            "        {} = try values.decode({}.self, forKey: .{})\n",
+            "    {} = try values.decode({}.self, forKey: .{})\n",
             f.name, ty, f.name
         ));
     }
-    out.push_str("        guard schemaVersion == 1 else {\n            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: \"Unsupported recipe schemaVersion\"))\n        }\n    }\n\n    public func encode(to encoder: Encoder) throws {\n        var values = encoder.container(keyedBy: CodingKeys.self)\n");
+    out.push_str(&format!(
+        "    guard schemaVersion == {RECIPE_VERSION} else {{\n"
+    ));
+    out.push_str("      throw DecodingError.dataCorrupted(\n        .init(codingPath: decoder.codingPath, debugDescription: \"Unsupported recipe schemaVersion\"))\n    }\n  }\n\n  public func encode(to encoder: Encoder) throws {\n    var values = encoder.container(keyedBy: CodingKeys.self)\n");
     for f in RECIPE_FIELDS {
         out.push_str(&format!(
-            "        try values.encode({}, forKey: .{})\n",
+            "    try values.encode({}, forKey: .{})\n",
             f.name, f.name
         ));
     }
-    out.push_str("    }\n}\n");
+    out.push_str("  }\n}\n");
     out
 }
 

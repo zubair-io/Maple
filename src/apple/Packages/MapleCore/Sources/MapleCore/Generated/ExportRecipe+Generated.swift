@@ -2,85 +2,132 @@
 import Foundation
 
 public struct ExportRecipe: Codable, Equatable, Sendable {
-    public var schemaVersion: UInt32
-    public var name: String
-    public var format: String
-    public var quality: UInt32?
-    public var bitDepth: UInt32
-    public var maxLongEdge: UInt32?
-    public var outputProfile: String
-    public var renderingIntent: String
-    public var metadataPolicy: String
-    public var namingTemplate: String
-    public var destination: String
-    public var directory: String?
-    public var watermark: String?
-    public var overwritePolicy: String
+  public var schemaVersion: UInt32
+  public var name: String
+  public var format: String
+  public var quality: UInt32?
+  public var bitDepth: UInt32
+  public var maxLongEdge: UInt32?
+  public var outputProfile: String
+  public var renderingIntent: String
+  public var metadataPolicy: String
+  public var namingTemplate: String
+  public var destination: String
+  public var directory: String?
+  public var watermark: String?
+  public var overwritePolicy: String
 
-    enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion
-        case name
-        case format
-        case quality
-        case bitDepth
-        case maxLongEdge
-        case outputProfile
-        case renderingIntent
-        case metadataPolicy
-        case namingTemplate
-        case destination
-        case directory
-        case watermark
-        case overwritePolicy
-    }
+  public init(
+    schemaVersion: UInt32 = 1,
+    name: String = "JPEG sharing",
+    format: String = "jpeg",
+    quality: UInt32? = 92,
+    bitDepth: UInt32 = 8,
+    maxLongEdge: UInt32? = nil,
+    outputProfile: String = "srgb",
+    renderingIntent: String = "maple-display",
+    metadataPolicy: String = "strip",
+    namingTemplate: String = "{original}.{ext}",
+    destination: String = "download",
+    directory: String? = nil,
+    watermark: String? = nil,
+    overwritePolicy: String = "browser"
+  ) {
+    self.schemaVersion = schemaVersion
+    self.name = name
+    self.format = format
+    self.quality = quality
+    self.bitDepth = bitDepth
+    self.maxLongEdge = maxLongEdge
+    self.outputProfile = outputProfile
+    self.renderingIntent = renderingIntent
+    self.metadataPolicy = metadataPolicy
+    self.namingTemplate = namingTemplate
+    self.destination = destination
+    self.directory = directory
+    self.watermark = watermark
+    self.overwritePolicy = overwritePolicy
+  }
 
-    private struct AnyKey: CodingKey {
-        let stringValue: String
-        var intValue: Int? { nil }
-        init?(stringValue: String) { self.stringValue = stringValue }
-        init?(intValue: Int) { return nil }
-    }
+  public static let defaults = ExportRecipe()
+  public static let encoders: [(format: String, bitDepth: UInt32, fileExtension: String)] = [
+    ("jpeg", 8, "jpg"),
+    ("tiff", 16, "tif"),
+    ("png", 8, "png"),
+    ("avif", 8, "avif"),
+    ("webp", 8, "webp"),
+  ]
+  public static let outputProfiles: [String] = ["srgb", "display-p3"]
+  public static let renderingIntents: [String] = ["maple-display"]
+  public static let metadataPolicies: [String] = ["strip"]
 
-    public init(from decoder: Decoder) throws {
-        let all = try decoder.container(keyedBy: AnyKey.self)
-        guard Set(all.allKeys.map(\.stringValue)) == Set(CodingKeys.allCases.map(\.rawValue)) else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Recipe has missing or unknown fields"))
-        }
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try values.decode(UInt32.self, forKey: .schemaVersion)
-        name = try values.decode(String.self, forKey: .name)
-        format = try values.decode(String.self, forKey: .format)
-        quality = try values.decode(UInt32?.self, forKey: .quality)
-        bitDepth = try values.decode(UInt32.self, forKey: .bitDepth)
-        maxLongEdge = try values.decode(UInt32?.self, forKey: .maxLongEdge)
-        outputProfile = try values.decode(String.self, forKey: .outputProfile)
-        renderingIntent = try values.decode(String.self, forKey: .renderingIntent)
-        metadataPolicy = try values.decode(String.self, forKey: .metadataPolicy)
-        namingTemplate = try values.decode(String.self, forKey: .namingTemplate)
-        destination = try values.decode(String.self, forKey: .destination)
-        directory = try values.decode(String?.self, forKey: .directory)
-        watermark = try values.decode(String?.self, forKey: .watermark)
-        overwritePolicy = try values.decode(String.self, forKey: .overwritePolicy)
-        guard schemaVersion == 1 else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Unsupported recipe schemaVersion"))
-        }
-    }
+  enum CodingKeys: String, CodingKey, CaseIterable {
+    case schemaVersion
+    case name
+    case format
+    case quality
+    case bitDepth
+    case maxLongEdge
+    case outputProfile
+    case renderingIntent
+    case metadataPolicy
+    case namingTemplate
+    case destination
+    case directory
+    case watermark
+    case overwritePolicy
+  }
 
-    public func encode(to encoder: Encoder) throws {
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(schemaVersion, forKey: .schemaVersion)
-        try values.encode(name, forKey: .name)
-        try values.encode(format, forKey: .format)
-        try values.encode(quality, forKey: .quality)
-        try values.encode(bitDepth, forKey: .bitDepth)
-        try values.encode(maxLongEdge, forKey: .maxLongEdge)
-        try values.encode(outputProfile, forKey: .outputProfile)
-        try values.encode(renderingIntent, forKey: .renderingIntent)
-        try values.encode(metadataPolicy, forKey: .metadataPolicy)
-        try values.encode(namingTemplate, forKey: .namingTemplate)
-        try values.encode(destination, forKey: .destination)
-        try values.encode(directory, forKey: .directory)
-        try values.encode(watermark, forKey: .watermark)
-        try values.encode(overwritePolicy, forKey: .overwritePolicy)
+  private struct AnyKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
+  }
+
+  public init(from decoder: Decoder) throws {
+    let all = try decoder.container(keyedBy: AnyKey.self)
+    guard Set(all.allKeys.map(\.stringValue)) == Set(CodingKeys.allCases.map(\.rawValue)) else {
+      throw DecodingError.dataCorrupted(
+        .init(
+          codingPath: decoder.codingPath, debugDescription: "Recipe has missing or unknown fields"))
     }
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    schemaVersion = try values.decode(UInt32.self, forKey: .schemaVersion)
+    name = try values.decode(String.self, forKey: .name)
+    format = try values.decode(String.self, forKey: .format)
+    quality = try values.decode(UInt32?.self, forKey: .quality)
+    bitDepth = try values.decode(UInt32.self, forKey: .bitDepth)
+    maxLongEdge = try values.decode(UInt32?.self, forKey: .maxLongEdge)
+    outputProfile = try values.decode(String.self, forKey: .outputProfile)
+    renderingIntent = try values.decode(String.self, forKey: .renderingIntent)
+    metadataPolicy = try values.decode(String.self, forKey: .metadataPolicy)
+    namingTemplate = try values.decode(String.self, forKey: .namingTemplate)
+    destination = try values.decode(String.self, forKey: .destination)
+    directory = try values.decode(String?.self, forKey: .directory)
+    watermark = try values.decode(String?.self, forKey: .watermark)
+    overwritePolicy = try values.decode(String.self, forKey: .overwritePolicy)
+    guard schemaVersion == 1 else {
+      throw DecodingError.dataCorrupted(
+        .init(codingPath: decoder.codingPath, debugDescription: "Unsupported recipe schemaVersion"))
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var values = encoder.container(keyedBy: CodingKeys.self)
+    try values.encode(schemaVersion, forKey: .schemaVersion)
+    try values.encode(name, forKey: .name)
+    try values.encode(format, forKey: .format)
+    try values.encode(quality, forKey: .quality)
+    try values.encode(bitDepth, forKey: .bitDepth)
+    try values.encode(maxLongEdge, forKey: .maxLongEdge)
+    try values.encode(outputProfile, forKey: .outputProfile)
+    try values.encode(renderingIntent, forKey: .renderingIntent)
+    try values.encode(metadataPolicy, forKey: .metadataPolicy)
+    try values.encode(namingTemplate, forKey: .namingTemplate)
+    try values.encode(destination, forKey: .destination)
+    try values.encode(directory, forKey: .directory)
+    try values.encode(watermark, forKey: .watermark)
+    try values.encode(overwritePolicy, forKey: .overwritePolicy)
+  }
 }
