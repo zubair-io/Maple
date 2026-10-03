@@ -140,6 +140,12 @@ jobs:
         working-directory: src/apple/Packages/MapleCore
         run: swift build
 
+      - name: Build Maple TV and embedded Top Shelf extension
+        run: |
+          xcodebuild -project src/apple/Maple.xcodeproj -scheme 'Maple TV' \
+            -destination 'generic/platform=tvOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/maple-tv-build" CODE_SIGNING_ALLOWED=NO build
+
   swift-ui:
     name: swift-ui (MapleUI tests)
     runs-on: macos-latest
