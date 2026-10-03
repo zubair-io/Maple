@@ -76,11 +76,12 @@ public sealed partial class MainWindow
             var path = Path.Combine(output, "keyboard-" + name);
             if (File.Exists(path + ".continue"))
                 throw new InvalidOperationException("Keyboard qualification requires fresh checkpoints.");
-            await File.WriteAllTextAsync(path + ".ready", JsonSerializer.Serialize(new
+            await File.WriteAllTextAsync(path + ".ready.tmp", JsonSerializer.Serialize(new
             {
                 name, key, exposure = ViewModel.Adjustments.Exposure, undoDepth = ViewModel.UndoCount,
                 mode = _mode.ToString(), scale = Content.XamlRoot.RasterizationScale
             }));
+            File.Move(path + ".ready.tmp", path + ".ready");
             var deadline = Environment.TickCount64 + 180000;
             while (!File.Exists(path + ".continue"))
             {
