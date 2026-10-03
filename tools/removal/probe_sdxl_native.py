@@ -19,7 +19,7 @@ import torch
 import transformers
 from diffusers import StableDiffusionXLInpaintPipeline
 from PIL import Image
-from probe_lama_refinement import digest, native_context, save_result
+from native_probe_pixels import digest, native_context, save_result
 
 SEED = 3941
 STEPS = 20
