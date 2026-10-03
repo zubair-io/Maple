@@ -50,6 +50,13 @@ public final class AgentEditService {
       return AgentPayload(result: try setAdjustments(arguments))
     case "maple_render_and_inspect":
       return try await renderAndInspect(arguments)
+    case "maple_create_mask":
+      let session = try editableSession(arguments)
+      return AgentPayload(result: try await AgentMaskService.createMask(arguments, in: session))
+    case "maple_render_mask_overlay":
+      return try await AgentMaskService.renderMaskOverlay(arguments, in: try session())
+    case "maple_get_vectorscope":
+      return try await AgentVectorscopeTool.getVectorscope(arguments, in: try session())
     case "maple_undo":
       let session = try editableSession(arguments)
       guard session.canUndo else {
@@ -72,12 +79,33 @@ public final class AgentEditService {
         code: "invalid_arguments", message: "`adjustments` must be an object of slider → number.")
     }
     let session = try editableSession(arguments)
-    let (merged, applied) = try AgentAdjustmentPatch.apply(patch, to: session.model)
     let label = arguments["description"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+
+    if let maskIdStr = arguments["mask_id"]?.stringValue {
+      guard let maskId = UUID(uuidString: maskIdStr) else {
+        throw AgentError(code: "invalid_arguments", message: "`mask_id` must be a valid UUID.")
+      }
+      guard let layerIndex = session.model.localAdjustments.firstIndex(where: { $0.id == maskId })
+      else {
+        throw AgentError(code: "mask_not_found", message: "No mask found with ID `\(maskIdStr)`.")
+      }
+      let currentLayer = session.model.localAdjustments[layerIndex]
+      let (updatedAdjustments, applied) = try AgentAdjustmentPatch.applyLocal(
+        patch, to: currentLayer.adjustments)
+      session.beginEdit(kind: .adjustment, description: "AI: \(label ?? "Adjust mask")")
+      session.model.localAdjustments[layerIndex].adjustments = updatedAdjustments
+      session.endEdit()
+      var result = Self.summaryFields(session)
+      result["mask_id"] = .string(maskIdStr)
+      result["applied"] = .object(applied.mapValues(JSONValue.number))
+      return .object(result)
+    }
+
+    let (merged, applied) = try AgentAdjustmentPatch.apply(patch, to: session.model)
     session.beginEdit(kind: .adjustment, description: "AI: \(label ?? "Adjust")")
     session.model = merged
     session.endEdit()
-    var result = summaryFields(session)
+    var result = Self.summaryFields(session)
     result["applied"] = .object(applied.mapValues(JSONValue.number))
     return .object(result)
   }
@@ -111,7 +139,7 @@ public final class AgentEditService {
         code: "render_superseded",
         message: "The photo changed during inspection. Call maple_render_and_inspect again.")
     }
-    var result = summaryFields(session)
+    var result = Self.summaryFields(session)
     result["revision"] = .string(revision)
     result["width"] = .int(inspection.width)
     result["height"] = .int(inspection.height)
@@ -151,7 +179,7 @@ public final class AgentEditService {
     return session
   }
 
-  private func summaryFields(_ session: EditSession) -> [String: JSONValue] {
+  public static func summaryFields(_ session: EditSession) -> [String: JSONValue] {
     [
       "photo_id": .string(session.asset.id.uuidString),
       "revision": .string(Self.revision(of: session)),
@@ -159,16 +187,45 @@ public final class AgentEditService {
     ]
   }
 
-  private func summary(_ session: EditSession) -> JSONValue { .object(summaryFields(session)) }
+  private func summary(_ session: EditSession) -> JSONValue { .object(Self.summaryFields(session)) }
 
   private func describe(_ session: EditSession) -> JSONValue {
-    var fields = summaryFields(session)
+    var fields = Self.summaryFields(session)
     fields["file_name"] = .string(session.asset.displayName)
     let size = session.nativeImageSize
     if size.width > 0, size.height > 0 {
       fields["image_size"] = ["width": .int(Int(size.width)), "height": .int(Int(size.height))]
     }
     fields["adjustments"] = AgentAdjustmentPatch.describe(session.model)
+
+    if !session.model.localAdjustments.isEmpty {
+      fields["masks"] = .array(
+        session.model.localAdjustments.map { layer in
+          var m: [String: JSONValue] = [
+            "id": .string(layer.id.uuidString),
+            "kind": .string(layer.kindName),
+            "is_selected": .bool(session.selectedMaskId == layer.id),
+            "enabled": .bool(session.isMaskEnabled(id: layer.id)),
+          ]
+          if layer.range == .skinTone {
+            m["is_skin_tone"] = .bool(true)
+          }
+          return .object(m)
+        })
+    }
+    if let selected = session.selectedMaskId {
+      fields["selected_mask_id"] = .string(selected.uuidString)
+    }
+
+    fields["vectorscope"] = [
+      "target_hint_deg": .number(AgentVectorscope.skinToneLineAngleDeg),
+      "target_wedge_deg": .number(AgentVectorscope.skinToneLineWedgeDeg),
+      "has_skin_target": .bool(
+        session.selectedMaskLayer?.range == .skinTone
+          || session.selectedMaskLayer?.kindName == "person_skin"
+          || session.selectedMaskLayer?.kindName == "whole_image_skin"),
+    ]
+
     return .object(fields)
   }
 
