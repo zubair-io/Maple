@@ -446,14 +446,13 @@ jobs:
           key: raw-gpu-metal-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
       # The parity gate proper, on the real backend. No lavapipe install, no
       # Vulkan probe — `macos-latest` carries Metal natively, and wgpu's
-      # Metal backend needs no software ICD. Not serialised with
-      # --test-threads=1 (#2336 is specific to lavapipe/llvmpipe's software
-      # rasterizer under concurrent context churn); Metal is a real,
-      # concurrency-validated driver, so the default parallel run is the
-      # cheaper choice unless this job's own history says otherwise.
+      # Metal backend needs no software ICD. Serial execution also keeps the
+      # histogram's existing 50ms elapsed-time gate from competing with other
+      # tests' GPU work and pipeline compilation (#4079). All tests and their
+      # thresholds remain enabled; this is not a retry of a failed sample.
       - name: cargo test -p raw-gpu (raw-core↔WGSL parity, Metal)
         working-directory: src/raw-pipeline
-        run: cargo test -p raw-gpu
+        run: cargo test -p raw-gpu -- --test-threads=1
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
