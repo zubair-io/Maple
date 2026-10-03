@@ -1,3 +1,4 @@
+import { geometryGestureWorkflow } from './geometry-gesture-workflow';
 import { lensGestureWorkflow } from './lens-gesture-workflow';
 import { comparisonWorkflow } from './comparison';
 import { Component, createComponent, inject, type ApplicationRef } from '@angular/core';
@@ -192,6 +193,7 @@ function attach(app: ApplicationRef, local: HostedFixture | null, server: Fixtur
 }
 Reflect.set(window, 'workflowUI', {
   lensGestureWorkflow,
+  geometryGestureWorkflow,
   comparisonWorkflow,
   async mount(input: string | null, backend: 'hosted' | 'self-hosted') {
     await dispose();

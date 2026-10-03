@@ -450,6 +450,13 @@ jobs:
           cp test-results/workflow/wb-auto-tone-results.json "$RUNNER_TEMP/wb-auto-tone-results.json"
           cp test-results/workflow/lens-gesture-results.json "$RUNNER_TEMP/lens-gesture-results.json"
           cp test-results/workflow/results.json "$RUNNER_TEMP/editor-control-results.json"
+      - name: Qualify geometry gesture ownership on both Web deployments
+        id: geometry_report
+        working-directory: src/web
+        run: |
+          bun x playwright test --config playwright.workflow.config.ts '(^|/)geometry-gesture-workflow\.spec\.ts$'
+          python3 ../../tools/check_web_geometry_evidence.py test-results/workflow/results.json
+          cp test-results/workflow/results.json "$RUNNER_TEMP/geometry-gesture-results.json"
       - name: Qualify 100 repeated cycles on each Web deployment
         working-directory: src/web
         run: |
@@ -465,6 +472,12 @@ jobs:
           cp "$RUNNER_TEMP/wb-auto-tone-results.json" test-results/workflow/wb-auto-tone-results.json
           cp "$RUNNER_TEMP/lens-gesture-results.json" test-results/workflow/lens-gesture-results.json
           cp "$RUNNER_TEMP/editor-control-results.json" test-results/workflow/editor-control-results.json
+      - name: Restore geometry gesture ownership report
+        if: always() && steps.geometry_report.outcome == 'success'
+        working-directory: src/web
+        run: |
+          mkdir -p test-results/workflow
+          cp "$RUNNER_TEMP/geometry-gesture-results.json" test-results/workflow/geometry-gesture-results.json
       - name: Restore export original protection report
         if: always() && steps.export_retry_report.outcome == 'success'
         working-directory: src/web

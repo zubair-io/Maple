@@ -179,6 +179,18 @@ class WebWorkflowTests(unittest.TestCase):
             for name, content in expected.items():
                 self.assertEqual((reports / name).read_text(), content)
 
+    def test_geometry_ownership_is_separate_and_evidence_survives_cycle_run(self):
+        gate = step("web-workflow-acceptance", "Qualify geometry gesture ownership on both Web deployments")
+        self.assertNotIn("continue-on-error", gate)
+        self.assertIn("check_web_geometry_evidence.py", gate["run"])
+        self.assertIn("geometry-gesture-workflow", gate["run"])
+        editor = step("web-workflow-acceptance", "Qualify white balance, Auto Tone and lens gestures")
+        self.assertNotIn("geometry-gesture-workflow", editor["run"])
+        restore = step("web-workflow-acceptance", "Restore geometry gesture ownership report")
+        self.assertEqual(restore["if"], "always() && steps.geometry_report.outcome == 'success'")
+        self.assertIn('"$RUNNER_TEMP/geometry-gesture-results.json"', restore["run"])
+        self.assertIn("test-results/workflow/geometry-gesture-results.json", restore["run"])
+
     def test_fixture_probe_handles_both_paths_before_provisioning(self):
         steps = JOBS["web-webgpu-smoke"]["steps"]
         probe = step("web-webgpu-smoke", "Probe smoke RAW fixture")

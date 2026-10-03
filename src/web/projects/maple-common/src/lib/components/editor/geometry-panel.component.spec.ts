@@ -1,3 +1,5 @@
+import { By } from '@angular/platform-browser';
+import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 // GeometryPanelComponent spec (#3410).
 //
 // What is worth pinning here is the contract the panel owes the rest of the
@@ -21,12 +23,13 @@ import { GuidedGeometrySessionService } from '../guided-geometry/guided-geometry
 const DEFAULTS = defaultAdjustmentModel();
 
 function harness(focusedAssetId: string | null = 'asset-1') {
+  const focus = signal(focusedAssetId);
   const model = signal({ ...DEFAULTS });
   const updateAdjustment = vi.fn((_id: string, patch: Record<string, unknown>) => {
     model.set({ ...model(), ...patch } as typeof DEFAULTS);
   });
   const library = {
-    focusedAssetId: () => focusedAssetId,
+    focusedAssetId: focus,
     adjustmentFor: () => model,
     updateAdjustment,
   };
@@ -48,6 +51,7 @@ function harness(focusedAssetId: string | null = 'asset-1') {
   const fixture = TestBed.createComponent(GeometryPanelComponent);
   fixture.detectChanges();
   return {
+    focus,
     fixture,
     component: fixture.componentInstance,
     updateAdjustment,
@@ -91,6 +95,7 @@ describe('GeometryPanelComponent (#3410)', () => {
 
   it('writes each slider to its own field', () => {
     const { component, model } = harness();
+    component.onDragStart();
     GEOMETRY_SLIDERS.forEach((s, index) => {
       component.onValueChange(s.field, index + 1);
     });
@@ -115,6 +120,7 @@ describe('GeometryPanelComponent (#3410)', () => {
 
   it('resets a slider to the value that makes its factor the identity', () => {
     const { component, model, commit } = harness();
+    component.onDragStart();
     component.onValueChange('perspectiveScale', 130);
     expect(model().perspectiveScale).toBe(130);
     component.onReset('perspectiveScale');
@@ -127,6 +133,7 @@ describe('GeometryPanelComponent (#3410)', () => {
   it('resets every slider to a neutral homography', () => {
     const { component, model } = harness();
     for (const s of GEOMETRY_SLIDERS) {
+      component.onDragStart();
       component.onValueChange(s.field, 42);
       component.onReset(s.field);
     }
@@ -145,3 +152,55 @@ describe('GeometryPanelComponent (#3410)', () => {
     expect(commit).not.toHaveBeenCalled();
   });
 });
+
+for (const slider of GEOMETRY_SLIDERS) {
+  describe(`${slider.field} gesture ownership (#4121)`, () => {
+    beforeEach(() => TestBed.resetTestingModule());
+    for (const route of ['other', 'roundtrip', 'none'] as const) {
+      it(`discards late ticks and releases after ${route} focus`, () => {
+        const { component, focus, updateAdjustment, endGesture } = harness('photo-A');
+        component.onDragStart();
+        component.onValueChange(slider.field, 12);
+        updateAdjustment.mockClear();
+        focus.set(route === 'none' ? null : 'photo-B');
+        if (route === 'roundtrip') focus.set('photo-A');
+        component.onValueChange(slider.field, 17);
+        component.onDragEnd();
+        expect(updateAdjustment).not.toHaveBeenCalled();
+        expect(endGesture).not.toHaveBeenCalled();
+      });
+    }
+    it('actual slider outputs retain immediate ticks and discard stale ones', () => {
+      const { fixture, focus, updateAdjustment } = harness('photo-A');
+      const index = GEOMETRY_SLIDERS.findIndex((entry) => entry.field === slider.field);
+      const control = fixture.debugElement.queryAll(By.directive(MuiLivingSliderComponent))[index]
+        .componentInstance as MuiLivingSliderComponent;
+      control.dragStart.emit();
+      control.value.set(12);
+      expect(updateAdjustment).toHaveBeenCalledExactlyOnceWith('photo-A', { [slider.field]: 12 });
+      updateAdjustment.mockClear();
+      focus.set('photo-B');
+      control.value.set(17);
+      control.dragEnd.emit();
+      expect(updateAdjustment).not.toHaveBeenCalled();
+    });
+    it('reset invalidates the old continuous gesture', () => {
+      const { component, updateAdjustment } = harness();
+      component.onDragStart();
+      component.onValueChange(slider.field, 12);
+      component.onReset(slider.field);
+      updateAdjustment.mockClear();
+      component.onValueChange(slider.field, 17);
+      component.onDragEnd();
+      expect(updateAdjustment).not.toHaveBeenCalled();
+    });
+    it('does not revive a gesture started without focus', () => {
+      const { component, focus, updateAdjustment } = harness(null);
+      component.onDragStart();
+      focus.set('photo-A');
+      component.onValueChange(slider.field, 17);
+      component.onDragEnd();
+      expect(updateAdjustment).not.toHaveBeenCalled();
+    });
+  });
+}
