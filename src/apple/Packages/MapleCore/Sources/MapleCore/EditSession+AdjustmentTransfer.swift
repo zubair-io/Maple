@@ -18,6 +18,10 @@ extension EditSession {
       model = merged
       endEdit()
     }
+    // endEdit enqueues the semantic checkpoint. A batch acknowledgement must
+    // include that publication, including any pending retry retained by the store.
+    await sidecarUpdateTask?.value
     try await store.writeConfirmed(model: model, culling: culling)
+    sidecarError = nil
   }
 }

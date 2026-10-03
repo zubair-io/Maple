@@ -11,7 +11,6 @@
 # tools/check-swift-regressions-coverage.py's initial sweep (#3460); a
 # note that turns out wrong is a one-line fix, not a gate failure.
 AddMapleCloudViewModelTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-AdjustmentTransferRenderTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 AppleRenderHarnessTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 AuthClientMintDeviceSessionTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 AuthContractTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
