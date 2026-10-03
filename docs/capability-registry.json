@@ -829,7 +829,14 @@
       "covers": [],
       "accepted_backends": ["cpu-reference"],
       "expected_cases": 796,
-      "corpus": ["test-fixtures/budgets.json"],
+      "corpus": [
+        "test-fixtures/budgets.json",
+        "src/raw-pipeline/raw-core/src/color/profiles/profiles.bin",
+        "src/scripts/test_color_pipeline.sh",
+        "src/scripts/compare_images.py",
+        "src/scripts/acr-reference/verify_settings.py",
+        "src/scripts/acr-reference/write_xmp.py"
+      ],
       "corpus_hash": null,
       "status": "missing",
       "record": null

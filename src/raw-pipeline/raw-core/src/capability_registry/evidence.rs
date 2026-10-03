@@ -177,7 +177,7 @@ impl Evidence {
         // once per emitted target, and the corpora include binary fixtures.
         let corpus_hashes = records
             .keys()
-            .map(|s| hash_corpus(repo_root, s.corpus()).map(|h| (*s, h)))
+            .map(|s| s.corpus_hash(repo_root).map(|h| (*s, h)))
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         Ok(Self {
             records,

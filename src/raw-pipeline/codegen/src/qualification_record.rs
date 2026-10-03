@@ -21,7 +21,7 @@ use std::process::exit;
 
 use clap::Parser;
 use raw_core::capability_registry::{
-    current_schema_version, hash_corpus, EvidenceRecord, EvidenceSource,
+    current_schema_version, hash_color_manifest, EvidenceRecord, EvidenceSource,
 };
 use raw_core::PIPELINE_OUTPUT_VERSION;
 
@@ -61,6 +61,15 @@ struct Cli {
     /// The command the harness ran (informational).
     #[arg(long, default_value = "")]
     command: String,
+    /// Actual colour manifest selected by the harness; other suites reject it.
+    #[arg(long)]
+    color_manifest: Option<PathBuf>,
+    /// Print input identity without creating evidence (recorder preflight).
+    #[arg(long)]
+    print_corpus_hash: bool,
+    /// Reject a corpus that changed since the run began.
+    #[arg(long)]
+    expected_corpus_hash: Option<String>,
     /// Compare against the committed record instead of writing.
     #[arg(long, default_value_t = false)]
     check: bool,
@@ -80,7 +89,17 @@ fn main() {
         );
         exit(2);
     };
-    let corpus_hash = match hash_corpus(&cli.repo_root, source.corpus()) {
+    let corpus = match (&cli.color_manifest, source) {
+        (Some(manifest), EvidenceSource::ColorHarness) => {
+            hash_color_manifest(&cli.repo_root, manifest)
+        }
+        (Some(_), _) => {
+            eprintln!("--color-manifest is only valid for color_harness");
+            exit(2);
+        }
+        (None, _) => source.corpus_hash(&cli.repo_root),
+    };
+    let corpus_hash = match corpus {
         Ok(h) => h,
         Err(e) => {
             eprintln!(
@@ -90,6 +109,20 @@ fn main() {
             exit(2);
         }
     };
+    if cli.print_corpus_hash {
+        println!("{corpus_hash}");
+        return;
+    }
+    if cli
+        .expected_corpus_hash
+        .as_ref()
+        .is_some_and(|before| before != &corpus_hash)
+    {
+        eprintln!(
+            "qualification-record: measured corpus changed during the run; no evidence written"
+        );
+        exit(2);
+    }
     let record = EvidenceRecord {
         source,
         backend: cli.backend,

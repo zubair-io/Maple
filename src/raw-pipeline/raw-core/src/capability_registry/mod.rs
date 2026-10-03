@@ -27,11 +27,13 @@
 //! exact rule and `docs/testing.md` § "Capability registry" for the
 //! operator workflow.
 
+mod color_corpus;
 mod evidence;
 mod registry;
 #[cfg(test)]
 mod tests;
 
+pub use color_corpus::hash_manifest as hash_color_manifest;
 pub use evidence::{
     classify, hash_corpus, judge, BuildIdentity, Classification, Evidence, EvidenceRecord, Finding,
     RecordStatus,
@@ -451,6 +453,15 @@ impl EvidenceSource {
         }
     }
 
+    /// Hash the actual measured inputs; colour additionally resolves its
+    /// manifest, reference files and compiled calibration bundle (#4074).
+    pub fn corpus_hash(self, repo: &std::path::Path) -> Result<String, String> {
+        match self {
+            Self::ColorHarness => color_corpus::hash(repo),
+            _ => hash_corpus(repo, self.corpus()),
+        }
+    }
+
     /// Repo-relative files (or directories, walked recursively) whose
     /// contents define the source's corpus. A record is stale the moment
     /// any of them changes — see [`hash_corpus`].
@@ -467,7 +478,14 @@ impl EvidenceSource {
             EvidenceSource::ColorChart => {
                 &["src/raw-pipeline/raw-core/tests/color_chart_invariants.rs"]
             }
-            EvidenceSource::ColorHarness => &["test-fixtures/budgets.json"],
+            EvidenceSource::ColorHarness => &[
+                "test-fixtures/budgets.json",
+                "src/raw-pipeline/raw-core/src/color/profiles/profiles.bin",
+                "src/scripts/test_color_pipeline.sh",
+                "src/scripts/compare_images.py",
+                "src/scripts/acr-reference/verify_settings.py",
+                "src/scripts/acr-reference/write_xmp.py",
+            ],
             EvidenceSource::SidecarContractApple => &[
                 "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarContractSupport.swift",
                 "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractCloudTests.swift",
