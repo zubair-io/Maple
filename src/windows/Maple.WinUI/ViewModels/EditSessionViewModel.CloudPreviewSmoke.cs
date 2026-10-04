@@ -64,8 +64,16 @@ public partial class EditSessionViewModel
         handler.Reject = false;
         session.SelectedPhoto = null;
         await session._cloudMetadataWrites.DrainAsync(retryFailed: true);
-        await Wait(() => handler.Published.Count == 2);
+        // #4151: the real 100MP offline render exceeds the saved-thumbnail
+        // polling deadline. Join the publication owner before inspecting its
+        // uploads, exactly as for the first publication and explicit retry.
+        var latePublication = Stopwatch.StartNew();
         await session._cloudPreviewPublication;
+        await File.WriteAllTextAsync(Path.Combine(output, "late-cloud-publication.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+                { elapsedMs = latePublication.ElapsedMilliseconds, expected = 2, actual = handler.Published.Count, writes = handler.Writes }));
+        if (handler.Published.Count != 2)
+            throw new InvalidOperationException($"Late publication count: expected=2 actual={handler.Published.Count}");
         if (session._cloudPreviewPending != null)
             throw new InvalidOperationException("Late cloud acknowledgement waited for another navigation");
 
