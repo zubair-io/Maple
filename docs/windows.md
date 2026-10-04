@@ -220,10 +220,12 @@ The imported-lens-profile tests split the same way: `XmpLensProfileTests` and `L
 
 For list-row accessibility, launch `Maple.WinUI.exe --lifecycle-smoke unused OUT list-row`
 to check native peers in an attached WinUI window. `list-row-input` additionally waits
-up to 120 seconds for actual OS input: Enter or Space on the navigation row, Space on its nested
+up to 240 seconds for actual OS input: Enter or Space on the navigation row, Space on its nested
 toggle, Enter and Space on the passive Metadata row, and a pointer click on the decorative
 trailing chevron. The passive keys must reach the parent unhandled. Missing input fails the
-run. The JSON results distinguish provider checks from actual input; neither mode
+run. The harness records and requires that ordered keyboard/pointer sequence. Provider checks
+verify passive rows skip Tab; input mode temporarily makes its Metadata probe focusable solely
+to check the passive routed-key guard. The JSON results distinguish provider checks from actual input; neither mode
 establishes Narrator announcement or qualification at other display scales.
 
 `src/windows/scripts/qualify-winui.ps1` is the Windows counterpart of the Apple UITest visual harness. It drives `MainWindow.Qualify.cs`, which runs headless-ish under environment variables: `MAPLE_QUALIFY_RAW` names the photo to open in Edit, `MAPLE_QUALIFY_OUT` the directory for `report.json`. Two app runs:
