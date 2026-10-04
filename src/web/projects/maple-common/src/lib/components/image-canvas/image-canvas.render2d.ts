@@ -1,3 +1,4 @@
+import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
 import { seedColdOpenMetadata } from './image-canvas.cold-open-metadata';
 // image-canvas.render2d.ts — the 2D-canvas decode/paint paths for
@@ -212,6 +213,7 @@ export async function runRender2d(
       });
   } catch (e) {
     console.error('[image-canvas] adjustment re-render failed:', e);
+    settleFailedAutoFit(host, fitAsset, generation, fitRevision);
   }
 }
 

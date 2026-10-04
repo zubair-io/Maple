@@ -1,3 +1,4 @@
+import { settleFailedAutoFit } from './image-canvas.fit-failure';
 import { probeWebGlPresent, probeWebGpuPresent } from './image-canvas.present-probes';
 import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
 import { seedColdOpenMetadata } from './image-canvas.cold-open-metadata';
@@ -362,6 +363,7 @@ export class ImageCanvasGpuPresent {
       return true;
     } catch (e) {
       console.error('[image-canvas] GPU session re-render failed:', e);
+      settleFailedAutoFit(this.host, fitAsset, generation, fitRevision);
       return false;
     }
   }
