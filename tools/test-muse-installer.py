@@ -82,7 +82,11 @@ class InstallerTests(unittest.TestCase):
                 text=True,
             )
             installed = destination / "opencode"
-            binary = installed.read_bytes()[:4] if installed.exists() else None
+            if installed.exists():
+                with installed.open("rb") as executable:
+                    binary = executable.read(4)
+            else:
+                binary = None
             return result, binary
 
     def test_official_archive_installs_verified_linux_binary(self):
