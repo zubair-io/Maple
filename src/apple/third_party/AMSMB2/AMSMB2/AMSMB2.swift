@@ -1429,19 +1429,31 @@ extension SMB2Manager {
   /// writes and namespace deletion until disposition is committed.
   public func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
-    try await withVerifiedRestoreFile(path, identity: expectedIdentity, validate: validate) { file in
+    try await withVerifiedRestoreFile(path, identity: expectedIdentity, consume: consume, validate: validate) { file in
       try file.setInfo(smb2_file_disposition_info(delete_pending: 1), infoClass: .disposition)
     }
+  }
+
+  /// Bounded verification reads keep one server handle through both stat checks.
+  public func readRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    consume: @Sendable @escaping (Data) -> Void
+  ) async throws {
+    try await withVerifiedRestoreFile(
+      path, identity: expectedIdentity, consume: consume, validate: { _ in true }
+    ) { _ in }
   }
 
   /// Exclusive rename of the verified handle also closes the rollback race.
   public func moveRestoreFile(
     atPath path: String, toPath destination: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
-    try await withVerifiedRestoreFile(path, identity: expectedIdentity, validate: validate) { file in
+    try await withVerifiedRestoreFile(path, identity: expectedIdentity, consume: consume, validate: validate) { file in
       var name = Data(destination.canonical.replacingOccurrences(of: "/", with: "\\").utf8)
       name.append(0)
       try name.withUnsafeMutableBytes { buffer in
@@ -1454,7 +1466,8 @@ extension SMB2Manager {
   }
 
   private func withVerifiedRestoreFile(
-    _ path: String, identity: UInt64, validate: @Sendable @escaping (Data) -> Bool,
+    _ path: String, identity: UInt64, consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool,
     action: @Sendable @escaping (SMB2FileHandle) throws -> Void
   ) async throws {
     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -1467,16 +1480,21 @@ extension SMB2Manager {
         let before = try file.fstat()
         guard before.smb2_type == UInt32(SMB2_TYPE_FILE), before.smb2_ino == identity,
           identity != 0 else { throw POSIXError(.ESTALE) }
-        var bytes = Data()
+        let readSize = min(file.optimizedReadSize, 1024 * 1024)
+        guard readSize > 0 else { throw POSIXError(.EIO) }
+        var count: UInt64 = 0
         while true {
-          let chunk = try file.read()
+          let chunk = try file.read(length: readSize)
           if chunk.isEmpty { break }
-          bytes.append(chunk)
+          guard count <= before.smb2_size,
+            UInt64(chunk.count) <= before.smb2_size - count else { throw POSIXError(.ESTALE) }
+          count += UInt64(chunk.count)
+          consume(chunk)
         }
         let after = try file.fstat()
-        guard after.smb2_ino == identity, after.smb2_size == UInt64(bytes.count),
+        guard after.smb2_ino == identity, after.smb2_size == count, before.smb2_size == count,
           after.smb2_mtime == before.smb2_mtime, after.smb2_mtime_nsec == before.smb2_mtime_nsec,
-          validate(bytes) else { throw POSIXError(.ESTALE) }
+          validate(count) else { throw POSIXError(.ESTALE) }
         try action(file)
       }
     }

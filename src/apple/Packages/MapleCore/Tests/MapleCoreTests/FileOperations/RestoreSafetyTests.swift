@@ -42,6 +42,36 @@ final class RestoreSafetyTests: XCTestCase {
     }
   }
 
+  private static func restoreCorpusURL(from source: URL) -> URL {
+    var root = source.deletingLastPathComponent()
+    while root.path != "/" {
+      let candidate = root.appendingPathComponent(
+        "test-fixtures/file-operations/restore-collisions.json")
+      if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+      root.deleteLastPathComponent()
+    }
+    return root.appendingPathComponent("test-fixtures/file-operations/restore-collisions.json")
+  }
+
+  func testRestoreCorpusIsReadableFromTheActualIsolatedCIPackageLayout() throws {
+    let stage = try SidecarContractIO.makeTempDirectory(prefix: "restore-ci-layout")
+    defer { try? FileManager.default.removeItem(at: stage) }
+    let source = stage.appendingPathComponent(
+      "Packages/MapleCore/Tests/MapleCoreTests/FileOperations/RestoreSafetyTests.swift")
+    let corpus = stage.appendingPathComponent(
+      "test-fixtures/file-operations/restore-collisions.json")
+    for file in [source, corpus] {
+      try FileManager.default.createDirectory(
+        at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+    }
+    try FileManager.default.copyItem(at: URL(fileURLWithPath: #filePath), to: source)
+    let original = Self.restoreCorpusURL(from: URL(fileURLWithPath: #filePath))
+    try FileManager.default.copyItem(at: original, to: corpus)
+    let located = Self.restoreCorpusURL(from: source)
+    XCTAssertEqual(located.standardizedFileURL, corpus.standardizedFileURL)
+    XCTAssertEqual(try Data(contentsOf: located), try Data(contentsOf: original))
+  }
+
   func testSharedRestoreNamingCorpusUsesActualLocalFiles() async throws {
     struct Corpus: Decodable { let cases: [Case] }
     struct Case: Decodable {
@@ -51,13 +81,9 @@ final class RestoreSafetyTests: XCTestCase {
       let expected: String
       let incoming: [String]?
     }
-    var root = URL(fileURLWithPath: #filePath)
-    for _ in 0..<8 { root.deleteLastPathComponent() }
     let corpus = try JSONDecoder().decode(
       Corpus.self,
-      from: Data(
-        contentsOf: root.appendingPathComponent(
-          "test-fixtures/file-operations/restore-collisions.json")))
+      from: Data(contentsOf: Self.restoreCorpusURL(from: URL(fileURLWithPath: #filePath))))
     for item in corpus.cases {
       let folder = try SidecarContractIO.makeTempDirectory(prefix: "restore-corpus")
       defer { try? FileManager.default.removeItem(at: folder) }

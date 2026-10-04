@@ -133,24 +133,37 @@ actor FakeSMBTransport: SMBFileTransport {
     throw FakeSMBTransportError.notFound(path)
   }
 
+  func readRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    consume: @Sendable @escaping (Data) -> Void
+  ) async throws {
+    guard let file = files[path], file.inode == expectedIdentity else { throw POSIXError(.ESTALE) }
+    consume(file.data)
+  }
   func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
-    guard let captured = files[path], captured.inode == expectedIdentity, validate(captured.data)
+    guard let captured = files[path], captured.inode == expectedIdentity
     else {
       throw POSIXError(.ESTALE)
     }
+    consume(captured.data)
+    guard validate(UInt64(captured.data.count)) else { throw POSIXError(.ESTALE) }
     files.removeValue(forKey: path)
   }
   func moveRestoreFile(
     atPath path: String, toPath: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
-    guard let captured = files[path], captured.inode == expectedIdentity, validate(captured.data)
+    guard let captured = files[path], captured.inode == expectedIdentity
     else {
       throw POSIXError(.ESTALE)
     }
+    consume(captured.data)
+    guard validate(UInt64(captured.data.count)) else { throw POSIXError(.ESTALE) }
     guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
     files[toPath] = captured
     files.removeValue(forKey: path)

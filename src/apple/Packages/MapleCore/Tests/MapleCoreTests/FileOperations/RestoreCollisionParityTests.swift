@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 
@@ -160,6 +161,37 @@ final class RestoreCollisionParityTests: XCTestCase {
       XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: fixture.raw)), xml)
       let retained = share.appendingPathComponent(String(trash.primaryPath.dropFirst()))
       XCTAssertEqual(try Data(contentsOf: retained), foreign.original)
+      await fixture.close()
+    } catch {
+      await fixture.close(error: error)
+      throw error
+    }
+  }
+
+  func testAuthenticatedSMBRestoreVerificationDeliversBoundedPhysicalRAWChunks() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    do {
+      let original = try physicalRAW()
+      try original.write(to: fixture.raw)
+      let connected = await fixture.source.client
+      let client = try XCTUnwrap(connected)
+      let attributes = try await client.attributesOfItem(atPath: "photo.dng")
+      let inode = try XCTUnwrap(attributes[.documentIdentifierKey] as? NSNumber).uint64Value
+      let probe = RestoreChunkProbe()
+      try await client.readRestoreFile(
+        atPath: "photo.dng", expectedIdentity: inode, consume: probe.update)
+      XCTAssertGreaterThan(probe.calls, 1)
+      XCTAssertEqual(probe.count, UInt64(original.count))
+      XCTAssertEqual(probe.digest(), SHA256.hash(data: original))
+      XCTAssertLessThanOrEqual(probe.maximum, 1024 * 1024)
+      do {
+        try await client.removeRestoreFile(
+          atPath: "photo.dng", expectedIdentity: inode,
+          consume: { XCTAssertLessThanOrEqual($0.count, 1024 * 1024) },
+          validate: { _ in false })
+        XCTFail("Rejected verification removed the physical original")
+      } catch let error as POSIXError { XCTAssertEqual(error.code, .ESTALE) }
+      XCTAssertEqual(try Data(contentsOf: fixture.raw), original)
       await fixture.close()
     } catch {
       await fixture.close(error: error)
@@ -490,4 +522,24 @@ final class RestoreCollisionParityTests: XCTestCase {
     }
   }
 
+}
+
+private final class RestoreChunkProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private var hash = SHA256()
+  private var total: UInt64 = 0
+  private var reads = 0
+  private var largest = 0
+  var count: UInt64 { lock.withLock { total } }
+  var calls: Int { lock.withLock { reads } }
+  var maximum: Int { lock.withLock { largest } }
+  func update(_ chunk: Data) {
+    lock.withLock {
+      hash.update(data: chunk)
+      total += UInt64(chunk.count)
+      reads += 1
+      largest = max(largest, chunk.count)
+    }
+  }
+  func digest() -> SHA256.Digest { lock.withLock { hash.finalize() } }
 }
