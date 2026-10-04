@@ -15,6 +15,7 @@ use raw_core::view::auto_profile::{
 /// Nonnull inputs must address the specified readable floats; `out` must
 /// address `out_capacity_floats` writable floats. Buffers must remain valid
 /// throughout this synchronous call. Alignment and dimensions are checked.
+/// Output may overlap either input: all input reads finish before publication.
 #[no_mangle]
 pub unsafe extern "C" fn maple_compose_auto_profile_lut(
     curve: *const f32,
@@ -41,14 +42,17 @@ pub unsafe extern "C" fn maple_compose_auto_profile_lut(
                 && (residual.is_null()
                     || !aligned(residual as usize)
                     || !(2..=MAX_LUT_SIZE).contains(&residual_size)
-                    || residual_len != residual_size * residual_size * residual_size * 3))
+                    || Some(residual_len)
+                        != residual_size.checked_pow(3).and_then(|n| n.checked_mul(3))))
         {
             return -1;
         }
         if no_curve && no_residual {
             return 1;
         }
-        let required = size * size * size * 3;
+        let Some(required) = size.checked_pow(3).and_then(|n| n.checked_mul(3)) else {
+            return -1;
+        };
         if out_capacity_floats < required {
             return -2;
         }
