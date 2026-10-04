@@ -10,6 +10,7 @@ struct RemovalOverlay: View {
   @State private var protectedImage: CGImage?
   @State private var candidateImage: CGImage?
   @State private var points: [[Double]] = []
+  @State private var brushCursor: CGPoint?
   @State private var projectionError = ""
   private var removal: RemovalSession { state.removal }
 
@@ -58,12 +59,21 @@ struct RemovalOverlay: View {
                 lineCap: .round, lineJoin: .round)
             ).allowsHitTesting(false)
           }
-          if removal.phase == .ready, removal.canPaint, projectionError.isEmpty {
+          if removal.phase == .ready || removal.phase == .selecting,
+            removal.canPaint, projectionError.isEmpty
+          {
             #if os(macOS)
               RemovalPointerSurface(
-                onChanged: { appendPoint($0, frame: frame) }, onEnded: finishStroke)
+                focusOwner: removal, imageFrame: frame,
+                inputEnabled: removal.phase == .ready,
+                brushDiameter: CGFloat(removal.radius) * 2 * min(frame.width, frame.height),
+                color: NSColor(MuiTokens.primary), cursor: brushCursor,
+                onCursorChanged: { brushCursor = $0 },
+                onChanged: { appendPoint($0, frame: frame) }, onEnded: finishStroke,
+                onCancelled: { points = [] })
             #else
               Color.clear.contentShape(Rectangle()).gesture(paintGesture(frame))
+                .allowsHitTesting(removal.phase == .ready)
             #endif
           }
           if !projectionError.isEmpty {
@@ -77,6 +87,10 @@ struct RemovalOverlay: View {
         .accessibilityLabel("Paint to select objects")
         .accessibilityIdentifier("removal-overlay")
         .onChange(of: removal.mode) { _, _ in points = [] }
+        .onChange(of: state.session.asset.id) { _, _ in
+          points = []
+          brushCursor = nil
+        }
         .onChange(of: removal.refiningPersonID) { _, _ in points = [] }
         .onChange(of: removal.phase) { _, phase in
           if phase != .ready { points = [] }

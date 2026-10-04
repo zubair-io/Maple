@@ -53,8 +53,19 @@ people, model availability, review pixels and confirmed save/error state.
 Number labels match accessible Person N buttons. Brush size exposes its
 label/value and adjustable actions. Every selection, review and model action
 has an accessible label. The Web operation status is a polite live region;
-Apple exposes a status element beside its progress control. Keyboard painting,
-and broader announcements remain tracked by #1472. Accepted Web removal undo/redo uses the normal editor history and announces the action without shifting the canvas. Failed saves retain the current model and history and show an alert even after closing Remove.
+Apple exposes a status element beside its progress control. The following Mac
+keyboard implementation is preserved research under #3984: it builds, but its
+live UI test fails before reaching the brush and it is not qualified. **Focus brush**
+places keyboard input on the painting canvas. Arrow keys move one screen point;
+Shift moves ten. Space starts or finishes one whole stroke, Return paints a point,
+and Escape cancels an unfinished stroke. Losing focus also cancels that stroke.
+The visible brush cursor and accessible percentage position follow the shared
+source-coordinate mapper. The canvas retains focus while a committed selection
+is processed and disables painting until ready. Assistive technology can press
+the canvas to paint a point and invoke four named brush movement actions.
+Keyboard input feeds the same Add/Subtract, protection and whole-gesture history
+as pointer input. Web keyboard painting, live VoiceOver qualification and broader
+announcements remain tracked by #1472. Accepted Web removal undo/redo uses the normal editor history and announces the action without shifting the canvas. Failed saves retain the current model and history and show an alert even after closing Remove.
 
 ## Persistence and scope
 
