@@ -18,28 +18,40 @@ public sealed partial class MainWindow
         {
             Directory.CreateDirectory(directory);
             var sourceHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(raw)));
+            var sourceSidecar = Services.Xmp.SidecarStore.SidecarPathFor(raw);
+            var sourceSidecarHash = SidecarHash(raw);
             var files = Enumerable.Range(0, 64).Select(index =>
             {
                 var path = Path.Combine(directory, $"Photo-{index:D3}.dng");
                 File.Copy(raw, path);
                 // Rich inspector qualification must start with its real sidecar,
                 // before the production watcher and document snapshot are active.
-                var sidecar = Services.Xmp.SidecarStore.SidecarPathFor(raw);
-                if (File.Exists(sidecar))
-                    File.Copy(sidecar, Services.Xmp.SidecarStore.SidecarPathFor(path));
+                if (sourceSidecarHash != "absent")
+                    File.Copy(sourceSidecar, Services.Xmp.SidecarStore.SidecarPathFor(path));
+                if (SidecarHash(path) != sourceSidecarHash)
+                    throw new InvalidOperationException("Visual fixture sidecar differs from its source snapshot.");
                 return path;
             }).ToArray();
             File.WriteAllText(Path.Combine(output, "visual-library.json"), JsonSerializer.Serialize(new
             {
                 sourceHash,
+                sourceSidecarHash,
                 fileCount = files.Length,
                 files = files.Select(path => new
                 {
                     name = Path.GetFileName(path),
-                    sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)))
+                    sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))),
+                    sidecarSha256 = SidecarHash(path)
                 })
             }));
             return files;
+
+            static string SidecarHash(string photo)
+            {
+                var sidecar = Services.Xmp.SidecarStore.SidecarPathFor(photo);
+                return File.Exists(sidecar)
+                    ? Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(sidecar))) : "absent";
+            }
         });
         await ViewModel.LoadDirectoryAsync(directory);
         if (ViewModel.Photos.Count != paths.Length || ViewModel.Photos.Any(item => item.FileSizeBytes <= 0))
