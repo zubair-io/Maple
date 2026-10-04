@@ -49,9 +49,9 @@
 //! - `local_adjustments` (#1698): omit unless some layer in the flat stack sets
 //!   some control — see [`crate::local_adjustments_are_active`].
 //! - `capture_sharpening`: already gated via `Option` (generalised here).
-//! - View tail (`agx`, `display_encode`, `srgb_gamma`, `auto_profile_curve`,
-//!   `residual_lut`) ALWAYS run — even a neutral image must go through the view
-//!   transform to become a display image. `dither` (P4b terminal) is appended by
+//! - RAW view tail always runs `agx`, `display_encode`, `srgb_gamma`, and
+//!   `residual_lut`; `auto_profile_curve` runs only when a fitted curve is
+//!   present. `dither` (P4b terminal) is appended by
 //!   the live session, not here (this builder is f32-RGBA, like `build_split`).
 
 use crate::agx::AgxPass;
@@ -426,20 +426,16 @@ pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
     inputs.dehaze.abs() >= SLIDER_EPS
 }
 
-/// The number of view-tail passes for a RAW input shape (`agx`, `display_encode`,
-/// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). A neutral RAW chain has
-/// exactly this many passes; each engaged slider adds one (or, for the spatial
-/// stages, still one `Pass` — they orchestrate their own sub-dispatches). NON-RAW
-/// shapes skip the whole LOOK portion — `agx` (#1513) plus `auto_profile_curve`
-/// + `residual_lut` (#1516) — leaving only the colorimetric encode
-/// (`display_encode` + `srgb_gamma`), so a neutral non-RAW chain has
-/// `VIEW_TAIL_PASS_COUNT - 3`. Public so the live-session terminal-`dither`
-/// wiring (C2/C3) and the tests can assert the floor without re-counting by hand.
+/// Maximum view-tail pass count for RAW with a present Auto curve: `agx`,
+/// `display_encode`, `srgb_gamma`, `auto_profile_curve`, and `residual_lut`.
+/// An absent curve removes one pass; this constant is not the neutral floor.
+/// NON-RAW shapes omit the RAW look stages, leaving colorimetric encode only
+/// (`display_encode` + `srgb_gamma`), or `VIEW_TAIL_PASS_COUNT - 3` passes.
 pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 
 /// The active-stage bitmask — which gated passes [`build_live_split`] includes
-/// for `inputs`, one bit per scene-linear stage (the view tail is always-on, so
-/// it isn't represented). SINGLE-SOURCED with the builder: every bit uses the
+/// for `inputs`, one bit per gated stage, including optional Auto curve presence.
+/// Always-present view stages need no bit. Every bit uses the builder's
 /// exact same predicate the corresponding `if` in `build_live_split` uses, so the
 /// mask can't disagree with which passes actually get pushed. Used by
 /// [`chain_signature`] to key the live pool's bind-group cache.
@@ -527,6 +523,11 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     // needed below — only presence changes the dispatch/bind-group shape.
     if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
         m |= 1 << 18;
+    }
+    // Bit 20: Auto curve presence changes the RAW view-tail dispatch sequence.
+    // Curve values keep the same storage shape and do not enter the signature.
+    if is_raw_shape && !inputs.profile_curve_flat.is_empty() {
+        m |= 1 << 20;
     }
     m
 }

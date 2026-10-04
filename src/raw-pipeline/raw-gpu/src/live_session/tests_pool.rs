@@ -364,3 +364,105 @@ fn interleaved_sessions_do_not_share_pool_buckets() {
          in chain_signature, #1929)"
     );
 }
+
+/// Optional Auto curves alter the dispatch sequence even when the residual LUT
+/// keeps the same dimensions. Both profile shapes must retain their own warm
+/// bucket; the pipeline-mismatch fallback is safe but allocates on every switch.
+#[test]
+fn auto_neutral_auto_curve_presence_retains_warm_pool_shapes() {
+    let (w, h) = (8, 8);
+    let image: Vec<f32> = [0.2, 0.5, 1.0, 4.0]
+        .into_iter()
+        .cycle()
+        .take((w * h) as usize)
+        .flat_map(|v| [v, v, v, 1.0])
+        .collect();
+    let mut auto_case = neutral_case();
+    auto_case.curve = Some(nonidentity_curve());
+    auto_case.lut = raw_core::view::auto_profile::lut::ColorLut::identity(2);
+    let mut neutral_case = neutral_case();
+    neutral_case.curve = None;
+    neutral_case.lut = raw_core::view::auto_profile::lut::ColorLut::identity(2);
+    let auto = auto_case.gpu_inputs();
+    let neutral = neutral_case.gpu_inputs();
+    assert_eq!(auto.residual_lut_size, neutral.residual_lut_size);
+    let cancel = CancelToken::new();
+    // References use fresh sessions on another context, so opening them cannot
+    // reset the pool whose within-session reuse is under test.
+    let reference_ctx = GpuContext::new_blocking().expect("reference context");
+    let expected: Vec<_> = [&auto, &neutral]
+        .into_iter()
+        .map(|inputs| {
+            let fresh = LiveSession::new(&reference_ctx, &image, w, h).unwrap();
+            fresh
+                .render_to_buffer(&reference_ctx, inputs, &cancel)
+                .unwrap()
+                .unwrap()
+        })
+        .collect();
+    assert_ne!(
+        expected[0], expected[1],
+        "curve presence must affect highlights"
+    );
+    let ctx = GpuContext::new_blocking().expect("live context");
+    let session = LiveSession::new(&ctx, &image, w, h).unwrap();
+    for (inputs, reference) in [(&auto, &expected[0]), (&neutral, &expected[1])] {
+        let actual = session
+            .render_to_buffer(&ctx, inputs, &cancel)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            &actual, reference,
+            "first profile must match a fresh session"
+        );
+    }
+    let warmed = session.pool_alloc_count(&ctx);
+    assert!(warmed > 0, "allocation accounting must be nonvacuous");
+    for _ in 0..3 {
+        for (inputs, reference) in [(&auto, &expected[0]), (&neutral, &expected[1])] {
+            let actual = session
+                .render_to_buffer(&ctx, inputs, &cancel)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                &actual, reference,
+                "profile transition must match a fresh session"
+            );
+            assert_eq!(
+                session.pool_alloc_count(&ctx),
+                warmed,
+                "warmed Auto/Neutral transition must allocate no GPU resources"
+            );
+        }
+    }
+}
+
+#[test]
+fn curve_presence_changes_raw_signature_without_hashing_curve_values() {
+    let mut present = neutral_case().gpu_inputs();
+    let mut absent = neutral_case().gpu_inputs();
+    absent.profile_curve_flat = std::borrow::Cow::Borrowed(&[]);
+    assert_ne!(
+        crate::chain_signature(&present, (8, 8), 0),
+        crate::chain_signature(&absent, (8, 8), 0)
+    );
+    let signature = crate::chain_signature(&present, (8, 8), 0);
+    present.profile_curve_flat.to_mut()[0] += 0.01;
+    assert_eq!(
+        crate::chain_signature(&present, (8, 8), 0),
+        signature,
+        "curve content changes reuse fixed-size storage"
+    );
+    for shape in [
+        crate::InputShape::LinearRec2020Fp16,
+        crate::InputShape::SrgbGammaEncoded8,
+    ] {
+        present.input_shape = shape;
+        absent.input_shape = shape;
+        assert_eq!(
+            crate::chain_signature(&present, (8, 8), 0),
+            crate::chain_signature(&absent, (8, 8), 0),
+            "nonRAW omits the curve regardless of supplied bytes"
+        );
+    }
+}

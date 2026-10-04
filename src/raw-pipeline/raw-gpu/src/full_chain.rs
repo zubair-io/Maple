@@ -45,26 +45,16 @@
 //!   and `dither_and_quantize` (the f32 → u8 display-OUTPUT step, P4b — outside
 //!   this f32-RGBA crate's scope).
 //!
-//! With `srgb_gamma_encode` ported, the assembled chain's tail runs
-//! `display_encode → srgb_gamma → auto_profile_curve → residual_lut` — the full
-//! f32 view tail (sans the f32 → u8 dither). The end-to-end parity test mirrors
-//! that exactly on the CPU side (it also runs `srgb_gamma_encode` in the same
-//! position) so the comparison is GPU-vs-CPU of the *same* composed stages —
-//! see `full_chain/tests.rs`.
+//! The f32 tail is `display_encode → srgb_gamma → optional auto_profile_curve
+//! → residual_lut`, without terminal u8 dither. The CPU oracle follows the same
+//! stage order and skips the curve only when absent (`full_chain/tests.rs`).
 //!
 //! ## Dehaze airlight
 //!
-//! `DehazePass` needs an atmospheric-light vector derived from the EXACT buffer
-//! the chain feeds it as `src` (the post-texture buffer), because raw-core's
-//! `dehaze::apply` computes its airlight internally from that same buffer. In a
-//! single composed Vec the airlight isn't known until the upstream passes have
-//! run, so [`build_full_chain_passes`] takes the airlight as a parameter; the
-//! parity test sources it via a genuine **mid-chain GPU readback** (run the
-//! pre-dehaze prefix, read back, `compute_airlight`, then run the dehaze suffix).
-//! **LIVE-path (P4b) requirement:** an interactive chain cannot pay a CPU
-//! readback per slider tick — it needs an on-GPU parallel reduction at dehaze's
-//! position to produce the airlight without leaving the device. The readback here
-//! is a HEADLESS test affordance, explicitly sanctioned for this milestone.
+//! Airlight must come from the exact post-texture buffer dehaze consumes.
+//! Headless parity tests read the prefix back to derive that reference vector.
+//! Live rendering instead uses on-GPU reduction at dehaze's position, avoiding
+//! a CPU readback per slider tick.
 
 use crate::agx::AgxPass;
 use crate::auto_profile_curve::AutoProfileCurvePass;
