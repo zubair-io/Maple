@@ -246,6 +246,7 @@
     <Compile Include="..\Maple.WinUI\Services\ScopeReadback.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\ScopeSampleTracker.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.DecodeOwned.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\RenderEngine.ProfileReuse.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Raster.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\NativeDetailDecoder.cs" LinkBase="Services" />
     <!-- LensProfileStore.cs (#3480) — the %LOCALAPPDATA% LCP store

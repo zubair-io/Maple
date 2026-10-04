@@ -113,6 +113,7 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
                 WbFrame = anchor.WbFrame, CameraSupport = anchor.CameraSupport, LensProfile = anchor.LensProfile,
                 ProfileCurve = anchor.ProfileCurve, ResidualLut = anchor.ResidualLut, ResidualLutSize = anchor.ResidualLutSize,
                 DisplayLut = anchor.DisplayLut, DisplayLutN = anchor.DisplayLutN,
+                ProfileSource = anchor.ProfileSource,
             };
             return new NativeDetailImage(region, _geometry, image);
         }
