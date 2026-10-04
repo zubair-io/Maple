@@ -88,6 +88,42 @@ pub unsafe extern "C" fn maple_removal_generation_plan_buf(
     })
 }
 
+/// Complete painted-area intents, as u32 count and u32 length/MIMF records
+/// in little-endian order. Every context is preflighted; failure emits no prefix.
+/// 0 success, 1 null length, 5 invalid, 100 size probe.
+/// # Safety
+/// Same source, input/output allocation and disjointness contract as plan_buf.
+#[no_mangle]
+pub unsafe extern "C" fn maple_removal_paint_intents_buf(
+    source: *const c_char,
+    intent: *const u8,
+    intent_len: usize,
+    hole_radius: u32,
+    fringe_radius: f32,
+    output: *mut u8,
+    cap: usize,
+    length: *mut usize,
+) -> i32 {
+    catch_panic_rc("maple_removal_paint_intents_buf", || {
+        if length.is_null() {
+            return 1;
+        }
+        *length = 0;
+        let result = (|| {
+            raw_core::pipeline::paint_generation_intents_packed(
+                text(source)?,
+                values(intent, intent_len)?,
+                hole_radius,
+                fringe_radius,
+            )
+        })();
+        match result {
+            Ok(value) => write(&value, output, cap, length),
+            Err(e) => failed(e),
+        }
+    })
+}
+
 /// Prepare an immutable native context. No model inference or file I/O.
 /// 0 success, 1 null owner output, 5 invalid input, 99 caught panic.
 /// # Safety

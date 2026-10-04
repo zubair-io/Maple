@@ -63,6 +63,8 @@ mod removal_proposal;
 pub use removal_proposal::PreparedRemovalGeneration;
 mod removal_proposal_plan;
 pub use removal_proposal_plan::plan_removal_generation;
+mod removal_paint_groups;
+pub use removal_paint_groups::{paint_generation_intents, paint_generation_intents_packed};
 mod render;
 mod scene_linear_chain;
 pub use accepted_removal::{
