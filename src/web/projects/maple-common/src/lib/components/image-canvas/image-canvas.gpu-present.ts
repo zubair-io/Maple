@@ -62,6 +62,8 @@ export interface GpuPresentHost {
   /** Serialize a model for the renderer, stripping the crop while the crop
    *  tool is armed (#638) so cold-open dedup matches the 2D path. */
   serializeForRender(model: AdjustmentModel): string;
+  /** Freeze crop posture for both dispatch and WB-hydrated frame identity. */
+  captureRenderSerializer(): (model: AdjustmentModel) => string;
   readonly loading: WritableSignal<boolean>;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
 
@@ -313,9 +315,8 @@ export class ImageCanvasGpuPresent {
       // contract: the Rust side treats `None` as the As-Shot sentinel, and passing
       // a serialized default instead could perturb that WB path.
       const openModel = this.host.state.adjustmentFor(assetId)();
-      const openXmp = isDefaultAdjustment(openModel)
-        ? undefined
-        : this.host.serializeForRender(openModel);
+      const serializeOpened = this.host.captureRenderSerializer();
+      const openXmp = isDefaultAdjustment(openModel) ? undefined : serializeOpened(openModel);
       // Develop fit to the viewport (#1080): pass the wrap's long edge in real
       // pixels so the session never develops (or sizes a surface at) full sensor
       // res. The session pins this target for its lifetime; CSS scales the
@@ -373,9 +374,7 @@ export class ImageCanvasGpuPresent {
       );
       // Release queued edits only after recording the frame's actual intent (#4101).
       if (this.host.lastRenderedXmp === null) {
-        this.host.lastRenderedXmp = this.host.serializeForRender(
-          coldOpenRenderedModel(openModel, info),
-        );
+        this.host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, info));
       }
       this.host.markColdOpenDone();
       performance.mark(`maple:open:${assetId}:paint`);
