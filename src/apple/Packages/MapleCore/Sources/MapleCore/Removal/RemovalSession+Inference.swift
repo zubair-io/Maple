@@ -30,14 +30,20 @@ extension RemovalSession {
           id: $0.offset + 1, detection: $0.element.detection,
           keep: $0.element.keep, role: $0.element.role)
       }
-      let masks = try await masksForPeople(suggestedPeople, context: context, token: token)
+      let discovered = try await masksForPeople(suggestedPeople, context: context, token: token)
       guard current(token) else { return }
-      people = suggestedPeople
+      let reviewedPeople = try await engine.peopleMaskSuggestions(
+        suggestedPeople, masks: discovered.detected, width: context.width, height: context.height)
+      guard current(token) else { return }
+      let masks = try await engine.peopleSelection(
+        reviewedPeople, masks: discovered.detected, manualProtection: manualProtection)
+      guard current(token) else { return }
+      people = reviewedPeople
       personChoicesNeedApply = false
       selection = masks.selection
       protection = masks.protection
-      personMasks = masks.people
-      detectedPersonMasks = masks.detected
+      personMasks = masks.bases.map(\.mask)
+      detectedPersonMasks = discovered.detected
       resetPersonRefinement(masks.bases)
       personProtectionConflicts = masks.conflicts
       operation = nil

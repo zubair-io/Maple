@@ -73,6 +73,7 @@ pub use accepted_removal::{
 mod tile;
 
 pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, patches_to_blob};
+pub(crate) use removal_mask_store::{packed_removal_mask, PackedRemovalMask};
 pub use removal_mask_store::{removal_mask_from_bytes, removal_mask_to_bytes};
 
 /// Phase-1 end-to-end seam test (#1484): baked patch composited at the

@@ -1,0 +1,171 @@
+{
+  "issue": 3941,
+  "engineeringIssue": 3984,
+  "epic": 1472,
+  "recordedAt": "2026-10-04T00:28:20.979128+00:00",
+  "headBeforeCommit": "3f155869220e5bb7fd92bc54c235dc6c6c840cb3",
+  "releaseQualified": false,
+  "scope": "Shared mask-aware default role policy after segmentation. Same confidence/prominence thresholds; no automatic duplicate ownership or reconstruction model change. Manual choices remain editable.",
+  "checks": {
+    "coreRoles": {
+      "passed": 17,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-core-20261003.log",
+        "sha256": "819a7fd4791bf3bec9432431c024424e79c97e4d694cfd85620342bbc9c2f816",
+        "bytes": 6785
+      }
+    },
+    "legacyCodec": {
+      "passed": 4,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-codec-20261003.log",
+        "sha256": "205657cc4c06ae949bc2e086bc06c7cefc9e090c39a83aeb3363ef0ec9c759da",
+        "bytes": 5377
+      }
+    },
+    "ffi": {
+      "passed": 2,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-ffi-20261003.log",
+        "sha256": "00902bfc3bc38162d542586d9d353443d8c81aaa524e482d359b169f4f21bcb7",
+        "bytes": 40121
+      }
+    },
+    "swift": {
+      "passed": 26,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-native-tests-20261003.log",
+        "sha256": "13c592c7e46363e6e5be06b36364481d50df5a53ffa66d555bc99157390841aa",
+        "bytes": 116661
+      }
+    },
+    "web": {
+      "passed": 23,
+      "failed": 0,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-web-tests-20261003.log",
+        "sha256": "a83ccd6ec4ed07a9f6e12e6f3483db7ff19cd4635580f9de6540fdd8f5d7d822",
+        "bytes": 5441
+      }
+    },
+    "clippy": {
+      "strict": false,
+      "completed": true,
+      "existingWarnings": 171,
+      "editedModulesWarned": false,
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-core-clippy-20261003.log",
+        "sha256": "06d8624d3520be93f6dd92c836ff35a6949c3bd3bc259f4e9f396f2c74d62fc1",
+        "bytes": 85625
+      }
+    }
+  },
+  "nativePhotographic": {
+    "report": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/group-runs/03356A62-91C8-4A1D-88D0-9EE2A6254F7E/report.json",
+      "sha256": "59b4c0e473ff170f680c3734fe6cd551f1df25f913a95c8cb7d56efb3f7b2c63",
+      "bytes": 12792
+    },
+    "initialSelectedIDs": [6],
+    "detectedMaskCount": 15,
+    "allRetainedMasksByteEqualToPreviousRun": true,
+    "originalUnchanged": true,
+    "reviewDigest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "reopenedDigest": "blake3:56d7c48751a53faeb5fb5637e81d385f7921aa458e62a1388f3c8b8b2cc62985",
+    "undoSteps": 1,
+    "records": 2,
+    "assets": 4,
+    "preparationSeconds": "0.803461541 seconds",
+    "removeSeconds": "22.862819833000003 seconds",
+    "timingScope": "One observed uncontrolled M5 Max run; no p50/p95 or supported-device performance qualification."
+  },
+  "browser": {
+    "report": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-browser-20261003.json",
+      "sha256": "fef4c5a72a83dc5ab5cdd0ae03b0476950c8bb1bc36aa31e51c149dfabe5af8e",
+      "bytes": 4486
+    },
+    "all15RoleAndKeepValuesMatchNative": true,
+    "scope": "Actual fresh WASM in isolated Chromium with retained native photographic SAM masks. No browser authoring UI or browser-produced SAM parity qualification."
+  },
+  "nativeBuild": {
+    "xcframeworkStamp": "d28f86a39ec9f2dfd28ba5c94f854fc06312ab08",
+    "exportedSymbolsVerified": 183,
+    "xcframeworkLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-xcframework-20261003.log",
+      "sha256": "562201982cbb85d1640afd1f9e7b17c88b18629b43b2b379f2815c2108c51928",
+      "bytes": 197089
+    },
+    "wasmLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-wasm-build-20261003.log",
+      "sha256": "6c09a4ccc1473f9cf6e30f24129d53eb193e3a90a1e4431e41503943a94a157b",
+      "bytes": 5640
+    },
+    "macLog": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-mac-build-20261003.log",
+      "sha256": "73dfc0fe6fb7023668b06b64c121c13f4497b64479fee8eb95359282d7056a50",
+      "bytes": 877328
+    }
+  },
+  "macUI": {
+    "bundleID": "app.justmaple.aperture.removalqa2",
+    "scope": "Sandboxed QA copy with unique identity, ad-hoc signature, copied extensions removed. File-backed Mach-O sections equal built app; production signing, extensions, account and app-group integration unqualified.",
+    "automaticDetection": {
+      "people": 15,
+      "selectedIDs": [6],
+      "foreground1Through4Kept": true
+    },
+    "normalRemoveReachedReview": true,
+    "compareToggled": true,
+    "cancelReturnedToSelection": true,
+    "originalSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+    "noXMPAfterCancel": true,
+    "artifacts": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-ui-20261003/auto-selection.ax.txt",
+        "sha256": "fe4d8136a8cfa86bbb08a061a65e7c120950c56d8285bcdfca550a7e054a1e01",
+        "bytes": 5812
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-ui-20261003/auto-selection.png",
+        "sha256": "14d7d33752d053793928a1749de511cf1999dcd6d92eee912d423d39a11c9f1f",
+        "bytes": 298992
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-ui-20261003/review.ax.txt",
+        "sha256": "9e4c9ea2e106d301358a203d72eaae89f675612eb76eaa159497f1be1db7defc",
+        "bytes": 3979
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-ui-20261003/review.png",
+        "sha256": "9acb72d6c495299632951402f39d1f95b4e70c2e7514dfec5fb82a2f1871a8dc",
+        "bytes": 284697
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-ui-20261003/compare.png",
+        "sha256": "78e556563d777d5a41c910a047e82a6a57f8ab55085e87e4cf0cfd041a2b8a40",
+        "bytes": 281003
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-ui-20261003/cancelled.ax.txt",
+        "sha256": "971a10b234af65e0f59d9f72a796b17611ff195cc9ee4c42bda99ff17dfa0755",
+        "bytes": 5700
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/mask-aware-person-ui-20261003/executable-sections.json",
+        "sha256": "c40893a99de0c021ccbe4d9b28927b1608164329bb27e4326963511b4fe98234",
+        "bytes": 6951
+      }
+    ]
+  },
+  "limitations": [
+    "The blue-coat fill still leaves a visible smear; no photographic fill admission.",
+    "Crowd duplicate/partial-instance ownership and independent role/closure labels remain unqualified.",
+    "Full Mac brush accessibility, supported-device performance, signing/distribution and Web interaction port remain unfinished.",
+    "No color stage, shader or MIMF encoding format change."
+  ]
+}

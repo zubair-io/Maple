@@ -81,6 +81,10 @@ final class PhotographicRemovalGroupTests: XCTestCase {
       let context = try XCTUnwrap(removal.context)
       XCTAssertEqual([context.width, context.height], [6000, 4000])
       XCTAssertEqual(removal.detectedPersonMasks.count, removal.people.count)
+      // Actual mask overlap frees the blue-coat proposal from an intersecting
+      // foreground box. This is one scene regression, not role-intent truth.
+      XCTAssertEqual(removal.people.filter { !$0.keep }.map(\.id), [6])
+      XCTAssertEqual(removal.people.first { $0.id == 6 }?.role, .background)
       let detectedMasks = removal.detectedPersonMasks
       let detected = removal.people.map { person -> [String: Any] in
         [

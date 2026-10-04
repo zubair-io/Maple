@@ -110,11 +110,19 @@ pub fn suggest_json(request: &str) -> Result<String, String> {
             unique.push(d);
         }
     }
-    let largest = unique
+    let mut roles = role_defaults(&unique);
+    protect_overlaps(&mut roles, |a, b| {
+        intersection(&unique[a], &unique[b]) > 0.0
+    });
+    serialize_suggestions(unique, roles)
+}
+
+pub(super) fn role_defaults(detections: &[Detection]) -> Vec<PersonRole> {
+    let largest = detections
         .iter()
         .filter(|d| d.score >= 0.8)
         .max_by(|a, b| area(a).total_cmp(&area(b)));
-    let mut roles = unique
+    detections
         .iter()
         .map(|d| {
             let Some(largest) = largest else {
@@ -133,17 +141,19 @@ pub fn suggest_json(request: &str) -> Result<String, String> {
                 PersonRole::Uncertain
             }
         })
-        .collect::<Vec<_>>();
-    // Propagate uncertainty across overlapping boxes until no suggested
-    // background instance touches a kept instance, including newly kept ones.
+        .collect::<Vec<_>>()
+}
+
+/// Iterate to a fixed point so a newly kept instance also protects neighbors.
+pub(super) fn protect_overlaps(roles: &mut [PersonRole], touches: impl Fn(usize, usize) -> bool) {
     loop {
-        let touching = unique
+        let touching = roles
             .iter()
             .enumerate()
-            .filter_map(|(index, d)| {
-                (roles[index] == PersonRole::Background
-                    && unique.iter().zip(&roles).any(|(other, role)| {
-                        *role != PersonRole::Background && intersection(d, other) > 0.0
+            .filter_map(|(index, role)| {
+                (*role == PersonRole::Background
+                    && roles.iter().enumerate().any(|(other, other_role)| {
+                        *other_role != PersonRole::Background && touches(index, other)
                     }))
                 .then_some(index)
             })
@@ -155,7 +165,13 @@ pub fn suggest_json(request: &str) -> Result<String, String> {
             roles[index] = PersonRole::Uncertain;
         }
     }
-    let suggestions = unique
+}
+
+pub(super) fn serialize_suggestions(
+    detections: Vec<Detection>,
+    roles: Vec<PersonRole>,
+) -> Result<String, String> {
+    let suggestions = detections
         .into_iter()
         .zip(roles)
         .map(|(detection, role)| PersonSuggestion {
@@ -173,7 +189,7 @@ fn height(d: &Detection) -> f32 {
 fn area(d: &Detection) -> f32 {
     (d.bounds[2] - d.bounds[0]) * height(d)
 }
-fn intersection(a: &Detection, b: &Detection) -> f32 {
+pub(super) fn intersection(a: &Detection, b: &Detection) -> f32 {
     (a.bounds[2].min(b.bounds[2]) - a.bounds[0].max(b.bounds[0])).max(0.0)
         * (a.bounds[3].min(b.bounds[3]) - a.bounds[1].max(b.bounds[1])).max(0.0)
 }

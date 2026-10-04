@@ -139,6 +139,7 @@ mod removal_generation;
 mod removal_geometry;
 #[cfg(any(feature = "removal", feature = "removal-ios"))]
 mod removal_inference;
+mod removal_people_masks;
 mod removal_prepare;
 mod removal_saved;
 mod removal_selection;
@@ -254,6 +255,7 @@ pub use removal_inference::{
     maple_removal_reconstructor_digest_buf, maple_removal_reconstructor_open,
     MapleRemovalInference, MapleRemovalReconstructor,
 };
+pub use removal_people_masks::maple_removal_people_mask_suggestions_buf;
 pub use removal_prepare::{maple_removal_content_digest, maple_removal_prepare_buf};
 pub use removal_proposal::{
     maple_removal_generation_close, maple_removal_generation_finish_buf,

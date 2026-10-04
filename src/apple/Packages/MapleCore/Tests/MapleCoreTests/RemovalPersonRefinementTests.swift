@@ -13,6 +13,33 @@ final class RemovalPersonRefinementTests: XCTestCase {
     )
   }
 
+  func testMaskRolesDistinguishIntersectingBoxesFromActualProtectionOverlap() async throws {
+    let people = [
+      RemovalSession.Person(
+        id: 1, detection: NativeRemovalDetection(class: 0, bounds: [0, 0, 8, 8], score: 0.98),
+        keep: true),
+      RemovalSession.Person(
+        id: 2, detection: NativeRemovalDetection(class: 0, bounds: [6, 2, 7, 5], score: 0.92),
+        keep: true),
+    ]
+    let left = try circle(3.5 / 16, 3.5 / 8)
+    let right = try circle(6.5 / 16, 3.5 / 8)
+    let engine = NativeRemovalEditorEngine()
+    let disjoint = try await engine.peopleMaskSuggestions(
+      people, masks: [.init(id: 1, mask: left), .init(id: 2, mask: right)], width: 16, height: 8)
+    XCTAssertEqual(disjoint.map(\.id), [1, 2])
+    XCTAssertEqual(disjoint.map(\.role), [.subject, .background])
+    XCTAssertEqual(disjoint.map(\.keep), [true, false])
+    let overlapping = try await engine.peopleMaskSuggestions(
+      people, masks: [.init(id: 1, mask: left), .init(id: 2, mask: left)], width: 16, height: 8)
+    XCTAssertEqual(overlapping.map(\.role), [.subject, .uncertain])
+    XCTAssertEqual(overlapping.map(\.keep), [true, true])
+    let missingSubject = try await engine.peopleMaskSuggestions(
+      people, masks: [.init(id: 1, mask: Data()), .init(id: 2, mask: right)], width: 16, height: 8)
+    XCTAssertEqual(missingSubject.map(\.keep), [true, true])
+    XCTAssertTrue(people.allSatisfy(\.keep))
+  }
+
   func testPersonRefinementKeepsIndependentWindowsAndProtectedPixelsWithUndoRedo() async throws {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
