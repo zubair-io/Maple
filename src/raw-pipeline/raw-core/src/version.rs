@@ -107,7 +107,10 @@
 ///   from all surviving channels, and use the SDK cubic lens-warp kernel (#3633).
 /// - 7 — render ordered mask-group components instead of only their first
 ///   recognised shape; modern radial Version 2 geometry is interpreted (#3408).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 7;
+/// - 8 — GPU tails preserve absent Auto curves rather than applying a fitted
+///   identity curve's highlight knee (PR #4193); Neutral/unavailable Auto now
+///   match the CPU no-curve tail.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 8;
 
 #[cfg(test)]
 mod tests {

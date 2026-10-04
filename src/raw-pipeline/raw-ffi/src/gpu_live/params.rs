@@ -393,15 +393,9 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         defringe: crate::model::gpu_defringe_inputs(p),
         contrast: p.contrast,
         capture_sharpening,
-        // The view tail ALWAYS runs the Auto Profile curve + residual-LUT passes
-        // (`build_live_chain`), and both require valid runtime data:
-        // `AutoProfileCurvePass` asserts a `PROFILE_CURVE_FLAT_LEN` curve, and
-        // `ResidualLutPass` asserts `size >= 2` + `size³·3` data. When the host
-        // supplies NO Auto artifacts (Neutral, or an image with no Auto tail), the
-        // pointers are NULL → empty here, which would panic the passes. Default to
-        // the IDENTITY curve + an identity 2³ LUT: both are exact no-ops, so the
-        // tail collapses to plain AgX — the canonical `Profile::Neutral` render.
-        profile_curve_flat: curve_flat_or_identity(p),
+        // Empty curve explicitly means absent; the composer skips its soft knee.
+        // Residual data remains independent and retains its borrowed fallback.
+        profile_curve_flat: curve_flat_or_absent(p),
         residual_lut_size,
         residual_lut_data,
         // Marshal the target_primaries tag (#1337). Unknown values default to
@@ -480,18 +474,16 @@ unsafe fn film_lut_or_off(p: &MapleGpuLiveParams) -> (u32, Cow<'_, [f32]>) {
     )
 }
 
-/// The host's immutable Auto curve, or a process-lifetime identity curve.
-/// The latter also avoids allocating a default curve on every Neutral frame.
-unsafe fn curve_flat_or_identity(p: &MapleGpuLiveParams) -> Cow<'_, [f32]> {
-    use raw_core::view::auto_profile::{ProfileCurve, PROFILE_CURVE_FLAT_LEN};
+/// Borrow the host's fitted curve; an empty slice means no curve, with no allocation.
+unsafe fn curve_flat_or_absent(p: &MapleGpuLiveParams) -> Cow<'_, [f32]> {
+    use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
     if !p.profile_curve_ptr.is_null() && p.profile_curve_len == PROFILE_CURVE_FLAT_LEN {
         return Cow::Borrowed(std::slice::from_raw_parts(
             p.profile_curve_ptr,
             p.profile_curve_len,
         ));
     }
-    static IDENTITY: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
-    Cow::Borrowed(IDENTITY.get_or_init(|| ProfileCurve::identity().to_flat()))
+    Cow::Borrowed(&[])
 }
 
 /// Validate edge and length together; invalid data must use the matching 2³

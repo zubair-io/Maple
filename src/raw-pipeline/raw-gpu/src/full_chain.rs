@@ -233,7 +233,7 @@ pub struct FullChainInputs<'a> {
     /// pass is omitted, exactly as develop omits the stage).
     pub capture_sharpening: Option<CaptureSharpeningParams>,
     /// Flat Auto Profile curve (`ProfileCurve::to_flat()`,
-    /// [`crate::PROFILE_CURVE_FLAT_LEN`] floats).
+    /// [`crate::PROFILE_CURVE_FLAT_LEN`] floats). Empty means no fitted curve.
     pub profile_curve_flat: std::borrow::Cow<'a, [f32]>,
     /// Auto Profile residual LUT node count per axis.
     pub residual_lut_size: usize,
@@ -541,9 +541,11 @@ pub fn build_split<'a>(
     // space (matches raw-core's render tail: rec2020_to_srgb → srgb_gamma_encode →
     // apply_curve → ColorLut::apply).
     suffix.push(Box::new(SrgbGammaPass));
-    suffix.push(Box::new(AutoProfileCurvePass {
-        flat_curve: inputs.profile_curve_flat.as_ref().into(),
-    }));
+    if !inputs.profile_curve_flat.is_empty() {
+        suffix.push(Box::new(AutoProfileCurvePass {
+            flat_curve: inputs.profile_curve_flat.as_ref().into(),
+        }));
+    }
     suffix.push(Box::new(ResidualLutPass {
         size: inputs.residual_lut_size,
         data: inputs.residual_lut_data.as_ref().into(),
@@ -566,3 +568,7 @@ pub(crate) mod oracle;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "full_chain/tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "full_chain/tests_absent_curve.rs"]
+mod tests_absent_curve;

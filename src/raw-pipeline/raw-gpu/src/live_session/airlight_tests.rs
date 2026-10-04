@@ -39,7 +39,7 @@ fn dehaze_only_case() -> Case {
     Case {
         model,
         capture: None,
-        curve: nonidentity_curve(),
+        curve: Some(nonidentity_curve()),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None,

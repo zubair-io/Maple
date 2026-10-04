@@ -111,7 +111,7 @@ pub fn rc_capture(
 pub struct Case {
     pub model: AdjustmentModel,
     pub capture: Option<CaptureSharpeningParams>,
-    pub curve: ProfileCurve,
+    pub curve: Option<ProfileCurve>,
     pub lut: ColorLut,
     /// WB method (the model carries temp/tint; method is a separate enum field).
     pub wb_method: WbMethod,
@@ -270,7 +270,12 @@ impl Case {
             nr_color: self.model.nr_color,
             contrast: self.model.contrast,
             capture_sharpening: self.capture,
-            profile_curve_flat: self.curve.to_flat().into(),
+            profile_curve_flat: self
+                .curve
+                .as_ref()
+                .map(ProfileCurve::to_flat)
+                .unwrap_or_default()
+                .into(),
             residual_lut_size: self.lut.size,
             residual_lut_data: self.lut.data.clone().into(),
             // sRGB primaries — oracle always uses the default (#1337).
@@ -453,7 +458,9 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     for p in &img.pixels {
         rgb.extend_from_slice(&[p[0], p[1], p[2]]);
     }
-    apply_curve(&mut rgb, &case.curve);
+    if let Some(curve) = &case.curve {
+        apply_curve(&mut rgb, curve);
+    }
     case.lut.apply(&mut rgb);
 
     // Repack to RGBA (alpha 1.0) to match the GPU readback shape.

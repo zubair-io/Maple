@@ -5,7 +5,7 @@ use super::*;
 /// entry `apply_auto_profile` shares a cache with — see #924 / #972) and flatten
 /// them into the `(profile_curve_flat, residual_lut_size, residual_lut_data)` shape
 /// [`build_full_chain_inputs`] consumes. A `None` (Neutral, no preview, degenerate
-/// fit) collapses to identity → the chain's view tail is pure AgX, matching
+/// fit) carries an empty curve → the chain skips that stage, matching
 /// `Profile::Neutral`. The fit is keyed on the RAW BYTES (not the model), so after
 /// the first call it is cache-served — re-running it per slider tick is cheap.
 #[cfg(any(target_arch = "wasm32", test))]
@@ -26,10 +26,17 @@ pub(crate) fn fit_profile_artifacts_with_status(
         .unwrap_or((None, None)),
         _ => (None, None),
     };
-    let auto_fit = (model.profile == Profile::Auto).then_some(curve.is_some() || lut.is_some());
-    let profile_curve_flat = curve
-        .map(|c| c.to_flat())
-        .unwrap_or_else(|| auto_profile::curve::ProfileCurve::identity().to_flat());
+    flatten_profile_artifacts(curve, lut, model.profile)
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn flatten_profile_artifacts(
+    curve: Option<auto_profile::curve::ProfileCurve>,
+    lut: Option<auto_profile::lut::ColorLut>,
+    profile: Profile,
+) -> (Vec<f32>, usize, Vec<f32>, Option<bool>) {
+    let auto_fit = (profile == Profile::Auto).then_some(curve.is_some() || lut.is_some());
+    let profile_curve_flat = curve.map(|c| c.to_flat()).unwrap_or_default();
     let (residual_lut_size, residual_lut_data) = match lut {
         Some(l) => (l.size, l.data),
         None => {
@@ -84,4 +91,41 @@ pub(crate) fn chain_inputs_with_status(
         whites_anchor_ev,
     );
     (inputs, auto_fit)
+}
+
+#[cfg(test)]
+mod absence_tests {
+    use super::*;
+
+    #[test]
+    fn neutral_and_unavailable_auto_emit_empty_curve_with_truthful_status() {
+        for (profile, status) in [(Profile::Neutral, None), (Profile::Auto, Some(false))] {
+            let (curve, size, lut, achieved) = flatten_profile_artifacts(None, None, profile);
+            assert!(curve.is_empty());
+            assert_eq!(achieved, status);
+            assert_eq!(lut.len(), size * size * size * 3);
+        }
+    }
+
+    #[test]
+    fn residual_only_is_active_without_inventing_a_curve() {
+        let residual = auto_profile::lut::ColorLut::identity(9);
+        let expected = residual.data.clone();
+        let (curve, size, lut, achieved) =
+            flatten_profile_artifacts(None, Some(residual), Profile::Auto);
+        assert!(curve.is_empty());
+        assert_eq!(size, 9);
+        assert_eq!(lut, expected);
+        assert_eq!(achieved, Some(true));
+    }
+
+    #[test]
+    fn fitted_identity_remains_present() {
+        let identity = auto_profile::curve::ProfileCurve::identity();
+        let expected = identity.to_flat();
+        let (curve, _, _, achieved) =
+            flatten_profile_artifacts(Some(identity), None, Profile::Auto);
+        assert_eq!(curve, expected);
+        assert_eq!(achieved, Some(true));
+    }
 }

@@ -398,18 +398,15 @@ pub fn build_live_split<'a>(
         target_primaries: inputs.target_primaries,
     }));
     suffix.push(Box::new(SrgbGammaPass));
-    // Auto-Profile curve + residual LUT are the per-image AUTO-profile LOOK
-    // artifacts (fit in gamma space from a camera JPEG). NON-RAW input has no
-    // JPEG to fit, so there is no look to apply — and applying the default
-    // "identity" artifacts is NOT a no-op: it crushes white from 1.0 to ~0.973
-    // (byte 248 instead of 255). The CPU non-RAW path runs ONLY display_encode +
-    // srgb_gamma for exactly this reason. Skip them for non-RAW so the colorimetric
-    // encode is the whole tail; RAW keeps them (its fitted per-image tone curve).
-    // #1516 (completes the #1513 non-RAW view-tail skip — AgX above + look here).
+    // RAW Auto artifacts are independent: empty curve means no fitted curve,
+    // not an identity curve (which still compresses highlights). A residual-only
+    // fit retains its LUT. Non-RAW bypasses both, matching the CPU display tail.
     if is_raw_shape {
-        suffix.push(Box::new(AutoProfileCurvePass {
-            flat_curve: inputs.profile_curve_flat.as_ref().into(),
-        }));
+        if !inputs.profile_curve_flat.is_empty() {
+            suffix.push(Box::new(AutoProfileCurvePass {
+                flat_curve: inputs.profile_curve_flat.as_ref().into(),
+            }));
+        }
         suffix.push(Box::new(ResidualLutPass {
             size: inputs.residual_lut_size,
             data: inputs.residual_lut_data.as_ref().into(),
