@@ -49,11 +49,15 @@ jobs:
 
       # Secret-free on purpose: no env block, so MUSE is absent here. The base
       # ref travels via env, not interpolation, so a hostile branch name can't
-      # inject into the command line.
+      # inject into the command line. The action commits any `git status
+      # --porcelain` output back to the PR branch, so the helper file is hidden
+      # from git (the agent's read tool is unaffected).
       - name: Generate PR diff
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: git diff "origin/${BASE_REF}...HEAD" > .pr-review-diff.patch
+        run: |
+          git diff "origin/${BASE_REF}...HEAD" > .pr-review-diff.patch
+          echo .pr-review-diff.patch >> .git/info/exclude
 
       - uses: anomalyco/opencode/github@aec0b9a6d8898f68f923aaf08b7306d931fd9d76 # v1.18.34
         env:
