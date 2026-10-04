@@ -42,27 +42,37 @@ actor RestoreRealSMBTransport: SMBFileTransport {
     }
     try await client.removeItem(atPath: path)
   }
+  func readRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    consume: @Sendable @escaping (Data) -> Void
+  ) async throws {
+    try await client.readRestoreFile(
+      atPath: path, expectedIdentity: expectedIdentity, consume: consume)
+  }
   func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
     if !removed && path.contains("/.maple/trash/") && path.hasSuffix(".dng") {
       removed = true
       try removalMutation?(path)
     }
     try await client.removeRestoreFile(
-      atPath: path, expectedIdentity: expectedIdentity, validate: validate)
+      atPath: path, expectedIdentity: expectedIdentity, consume: consume, validate: validate)
   }
   func moveRestoreFile(
     atPath path: String, toPath: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
     if !intercepted && path.contains(".tmp.") && toPath.lowercased().hasSuffix(".dng") {
       intercepted = true
       try mutation(path, toPath)
     }
     try await client.moveRestoreFile(
-      atPath: path, toPath: toPath, expectedIdentity: expectedIdentity, validate: validate)
+      atPath: path, toPath: toPath, expectedIdentity: expectedIdentity, consume: consume,
+      validate: validate)
   }
   func createDirectory(atPath path: String) async throws {
     try await client.createDirectory(atPath: path)

@@ -167,18 +167,20 @@ private struct RestoreSMBFile {
       throw FileOperationError.verificationFailed(
         "Restore requires a regular file identity: \(path)")
     }
-    let bytes = try await transport.readFile(atPath: path)
+    let digest = RestoreSMBDigest()
+    try await transport.readRestoreFile(
+      atPath: path, expectedIdentity: inode, consume: digest.update)
     let after = try await transport.attributesOfItem(atPath: path)
     guard (after[.documentIdentifierKey] as? NSNumber)?.uint64Value == inode,
       (after[.isRegularFileKey] as? NSNumber)?.boolValue == true,
       (after[.isSymbolicLinkKey] as? NSNumber)?.boolValue != true,
-      (after[.fileSizeKey] as? NSNumber)?.intValue == bytes.count,
+      (after[.fileSizeKey] as? NSNumber)?.uint64Value == digest.count,
       (attributes[.contentModificationDateKey] as? Date)
         == (after[.contentModificationDateKey] as? Date)
     else {
       throw FileOperationError.verificationFailed("Restore file changed while reading: \(path)")
     }
-    return Self(inode: inode, hash: SHA256.hash(data: bytes))
+    return Self(inode: inode, hash: digest.finalize())
   }
 
   func assertUnchanged(_ path: String, transport: SMBFileTransport) async throws {
@@ -192,16 +194,34 @@ private struct RestoreSMBFile {
     async throws
   {
     let expected = hash
-    try await transport.moveRestoreFile(atPath: path, toPath: destination, expectedIdentity: inode)
-    {
-      SHA256.hash(data: $0) == expected
-    }
+    let digest = RestoreSMBDigest()
+    try await transport.moveRestoreFile(
+      atPath: path, toPath: destination, expectedIdentity: inode, consume: digest.update
+    ) { digest.count == $0 && digest.finalize() == expected }
   }
 
   func removeIfUnchanged(_ path: String, transport: SMBFileTransport) async throws {
     let expected = hash
-    try await transport.removeRestoreFile(atPath: path, expectedIdentity: inode) {
-      SHA256.hash(data: $0) == expected
+    let digest = RestoreSMBDigest()
+    try await transport.removeRestoreFile(
+      atPath: path, expectedIdentity: inode, consume: digest.update
+    ) { digest.count == $0 && digest.finalize() == expected }
+  }
+}
+
+/// The SDK delivers chunks on its serial worker; locks also protect reads after
+/// the async completion and custom transport delivery from a different executor.
+private final class RestoreSMBDigest: @unchecked Sendable {
+  private let lock = NSLock()
+  private var hash = SHA256()
+  private var bytes: UInt64 = 0
+
+  var count: UInt64 { lock.withLock { bytes } }
+  func update(_ chunk: Data) {
+    lock.withLock {
+      hash.update(data: chunk)
+      bytes += UInt64(chunk.count)
     }
   }
+  func finalize() -> SHA256.Digest { lock.withLock { hash.finalize() } }
 }
