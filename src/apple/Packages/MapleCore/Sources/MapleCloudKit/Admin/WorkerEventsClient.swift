@@ -200,7 +200,8 @@ public actor WorkerEventsClient {
       // Whatever ended the connection, the consumer is no longer live.
       continuation.yield(.disconnected)
       guard !Task.isCancelled else { break }
-      try? await Task.sleep(for: .seconds(backoff.nextDelay()))
+      let delayNs = UInt64(clamping: Int64(backoff.nextDelay() * 1_000_000_000))
+      try? await Task.sleep(nanoseconds: delayNs)
     }
     continuation.finish()
   }
@@ -249,7 +250,11 @@ public actor WorkerEventsClient {
     try await withThrowingTaskGroup(of: URLSessionWebSocketTask.Message.self) { group in
       group.addTask { try await socket.receive() }
       group.addTask {
-        try await Task.sleep(for: timeout)
+        let (seconds, attoseconds) = timeout.components
+        let secNs = UInt64(clamping: seconds) * 1_000_000_000
+        let attoNs = UInt64(clamping: attoseconds / 1_000_000_000)
+        let totalNs = secNs.addingReportingOverflow(attoNs).partialValue
+        try await Task.sleep(nanoseconds: totalNs)
         throw FeedWentSilent()
       }
       defer { group.cancelAll() }
