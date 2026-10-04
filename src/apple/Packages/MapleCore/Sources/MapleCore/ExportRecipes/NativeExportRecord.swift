@@ -44,6 +44,8 @@ public struct NativeExportRecord: Codable, Equatable, Sendable {
   public internal(set) var items: [NativeExportItem]
   public internal(set) var phase: String = "queued"
   public internal(set) var cancelRequested = false
+  var ownedJob: NativeExportOwnedJob?
+  var retiredJobs: [NativeExportOwnedJob]?
 
   public var processed: Int {
     items.filter { ["applied", "failed", "skipped"].contains($0.status) }.count
@@ -83,6 +85,18 @@ public struct NativeExportRecord: Codable, Equatable, Sendable {
     else {
       throw NativeExportError.message(
         "Saved export has incomplete byte proofs. Start a new export from the full selection.")
+    }
+    for job in [ownedJob].compactMap({ $0 }) + (retiredJobs ?? []) {
+      guard !job.identity.isEmpty, Set(job.files.map(\.path)).count == job.files.count,
+        job.files.allSatisfy({ file in
+          let pieces = file.path.split(separator: "/", omittingEmptySubsequences: false)
+          return pieces.count == 2 && ["Sources", "Film"].contains(String(pieces[0]))
+            && !pieces[1].isEmpty && pieces[1] != "." && pieces[1] != ".."
+            && validHash(file.hash) && !file.identity.isEmpty
+        })
+      else {
+        throw NativeExportError.message("Private capture retirement has invalid ownership proofs.")
+      }
     }
     try NativeExportRecipeBridge.validate(recipe)
     guard recipe.destination == "directory" else {

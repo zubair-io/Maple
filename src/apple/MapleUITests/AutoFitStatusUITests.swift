@@ -5,8 +5,6 @@ import XCTest
   final class AutoFitStatusUITests: XCTestCase {
     func testActualAutoFitStatusInCpuAndGpuProfileControls() throws {
       continueAfterFailure = false
-      let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
       for gpu in ["0", "1"] {
         for (name, expected) in [
           (
@@ -15,7 +13,7 @@ import XCTest
           ),
           ("test_0018.dng", "Auto matching is unavailable for this image."),
         ] {
-          let source = root.appendingPathComponent("test-fixtures/raws/\(name)")
+          let source = try UITestFixtureRoot.locate(name)
           let original = try Data(contentsOf: source)
           let staged = FileManager.default.temporaryDirectory
             .appendingPathComponent("maple-auto-fit-ui-\(UUID().uuidString)", isDirectory: true)
