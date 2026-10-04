@@ -338,3 +338,31 @@ among healthy connections with capacity, and retain per-connection concurrency a
 Each request uses the selected connection's model and records its provider/model in result metadata.
 Older assignments without `connection_models` retain their shared model until edited.
 Generated search and semantic search remain single-connection Ollama workers.
+
+### Person and literal reading diversity (#2386)
+
+People remain above content in the searchable-attribute order. When the first
+two native results match the `people` field and neither matches `filename`,
+Maple alternates up to two independent content matches into the opening results,
+keeping the original person leader first. Independence requires an actual query
+match in transcript, OCR, description, or place, with no filename or people-field
+match. Thus a caption mentioning the tagged person's name does not masquerade as
+a literal reading. Case and the submitted query remain unchanged; there is no
+name dictionary, query expansion, or guessed intent.
+
+The candidate head is bounded to the ordinary 100-hit client page. This is a
+useful diversity policy within that native head, not an exhaustive disambiguator:
+a literal beyond it retains its native position. The same fixed permutation is
+sliced on every page; the native tail beyond position 100 stays unchanged. IDs,
+native scores, membership, filters and estimated totals are preserved. A failure
+fetching either part uses the existing route fallback, never a partial page.
+Meilisearch's [`showMatchesPosition`](https://specs.meilisearch.dev/specifications/text/0118-search-api.html)
+provides query-match evidence; semantic-only similarity is insufficient to attest
+a literal reading.
+
+The four collision guards in the committed relevance corpus supplement the
+unchanged eight judged-query Recall/MRR floors. The real-service diversity suite
+adds 25 tagged photos per name, repeats with captions that mention the person,
+and checks pages across the head boundary, native scores, explicit person filters,
+Greyson and exact filenames. It requires actual Meilisearch and Ollama/bge-m3;
+skips without them do not qualify this behavior.

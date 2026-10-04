@@ -55,24 +55,64 @@
     "query": "Rose",
     "relevantIds": [],
     "observeIds": ["person-rose-1", "flowers-roses-1"],
-    "note": "UNASSERTED \u2014 owned by #2386. Person-name-vs-common-noun collision. relevantIds is empty so this contributes nothing to Recall@10 or MRR; the harness only records where each document landed so #2386 starts from measured data. Do not add mustBeInTop here."
+    "note": "#2386 bounded native-head diversity: tagged person remains near the top and independent literal content must also appear in the top ten. Keep unjudged to preserve the existing eight-query aggregate floors.",
+    "readingGuards": [
+      {
+        "id": "person-rose-1",
+        "k": 3
+      },
+      {
+        "id": "flowers-roses-1",
+        "k": 10
+      }
+    ]
   },
   {
     "query": "Mark",
     "relevantIds": [],
     "observeIds": ["person-mark-1", "ink-mark-1"],
-    "note": "Unasserted #2386 name/common-noun observation; measure before choosing the ranking policy."
+    "note": "#2386 bounded native-head diversity: tagged person remains near the top and independent literal content must also appear in the top ten. Keep unjudged to preserve the existing eight-query aggregate floors.",
+    "readingGuards": [
+      {
+        "id": "person-mark-1",
+        "k": 3
+      },
+      {
+        "id": "ink-mark-1",
+        "k": 10
+      }
+    ]
   },
   {
     "query": "Summer",
     "relevantIds": [],
     "observeIds": ["person-summer-1", "season-summer-1"],
-    "note": "Unasserted #2386 name/common-noun observation; measure before choosing the ranking policy."
+    "note": "#2386 bounded native-head diversity: tagged person remains near the top and independent literal content must also appear in the top ten. Keep unjudged to preserve the existing eight-query aggregate floors.",
+    "readingGuards": [
+      {
+        "id": "person-summer-1",
+        "k": 3
+      },
+      {
+        "id": "season-summer-1",
+        "k": 10
+      }
+    ]
   },
   {
     "query": "Hunter",
     "relevantIds": [],
     "observeIds": ["person-hunter-1", "role-hunter-1"],
-    "note": "Unasserted #2386 name/common-noun observation; measure before choosing the ranking policy."
+    "note": "#2386 bounded native-head diversity: tagged person remains near the top and independent literal content must also appear in the top ten. Keep unjudged to preserve the existing eight-query aggregate floors.",
+    "readingGuards": [
+      {
+        "id": "person-hunter-1",
+        "k": 3
+      },
+      {
+        "id": "role-hunter-1",
+        "k": 10
+      }
+    ]
   }
 ]

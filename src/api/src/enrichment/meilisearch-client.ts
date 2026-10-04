@@ -45,7 +45,10 @@ import {
   DEFAULT_MEILISEARCH_SEMANTIC_ENABLED,
   DEFAULT_MEILISEARCH_SEMANTIC_RATIO,
 } from './meilisearch-config.ts';
-import { MeilisearchSearchError } from './meilisearch-search-error.ts';
+import {
+  searchWithReadingDiversity,
+  type MeiliSearchResponse,
+} from './meilisearch-search-diversity.ts';
 import { assetsIndexSettings, assetsIndexSettingsMatch } from './meilisearch-index-settings.ts';
 import {
   vectorFingerprint as computeVectorFingerprint,
@@ -172,11 +175,6 @@ function fingerprintFor(config: ClientConfig): string | null {
     model: config.embedderModel,
   };
   return computeVectorFingerprint(input);
-}
-
-interface MeiliSearchResponse {
-  hits: Array<{ id: string; _rankingScore?: number }>;
-  estimatedTotalHits: number;
 }
 
 function createIndexAlreadySatisfied(
@@ -414,18 +412,12 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       if (!isLiveConfig(cfg)) {
         return { ids: [], estimatedTotal: 0 };
       }
-      const r = await meilisearchHttp<MeiliSearchResponse>(
+      const body = await searchWithReadingDiversity(
         cfg,
-        'POST',
-        `/indexes/${cfg.indexName}/search`,
+        cfg.indexName,
         searchRequest(cfg, q, opts),
       );
-      if (!r.ok || !r.body) {
-        // Throw so the search route's try/catch falls back to the built-in
-        // full-text search. The route logs the fallback at warn level.
-        throw new MeilisearchSearchError(r.status, r.errorText);
-      }
-      return parseSearchResult(r.body);
+      return parseSearchResult(body);
     },
 
     async semanticStatus(): Promise<MeilisearchSemanticStatus> {
