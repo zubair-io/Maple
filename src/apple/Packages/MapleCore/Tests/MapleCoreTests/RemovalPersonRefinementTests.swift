@@ -131,6 +131,90 @@ final class RemovalPersonRefinementTests: XCTestCase {
     XCTAssertEqual(try RemovalBridge.refineSelection(base, strokes: []), base)
   }
 
+  func testChangingAnotherPersonChoicePreservesRefinementAndItsUndoRedo() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(
+        forResource: "source", withExtension: "dng", subdirectory: "removal/calibration"))
+    let raw = directory.appendingPathComponent("photo.dng")
+    try FileManager.default.copyItem(at: fixture, to: raw)
+    let original = try Data(contentsOf: raw)
+    let session = EditSession(asset: AssetRef(url: raw))
+    let removal = RemovalSession(session: session)
+    await removal.open()
+    await removal.setMode(.people)
+    let left = try circle(3.5 / 16, 3.5 / 8)
+    let right = try circle(12.5 / 16, 3.5 / 8)
+    removal.people = (1...2).map {
+      RemovalSession.Person(
+        id: $0, detection: NativeRemovalDetection(class: 0, bounds: [0, 0, 16, 8], score: 0.9),
+        keep: false)
+    }
+    removal.detectedPersonMasks = [.init(id: 1, mask: left), .init(id: 2, mask: right)]
+    removal.personChoicesNeedApply = true
+    await removal.beginPersonRefinement(1)
+    removal.radius = 0.07
+    await removal.paint([[3.5 / 16, 6.5 / 8]], cropInputSize: [16, 8])
+    let refinedLeft = try RemovalBridge.refineSelection(
+      left, strokes: [RemovalStroke(points: [[3.5 / 16, 6.5 / 8]], radius: 0.07, subtract: false)])
+    XCTAssertEqual(removal.personMasks[0], refinedLeft)
+    removal.keepPerson(2)
+    let pending = try await removal.overlay(cropInputSize: [16, 8], aspect: 2)
+    XCTAssertEqual(pending.selection[(104 * 256 + 56) * 4 + 3], 255)
+    XCTAssertEqual(pending.protection[(56 * 256 + 200) * 4 + 3], 255)
+    await removal.beginPersonRefinement(1)
+    XCTAssertEqual(removal.phase, .ready, removal.message)
+    XCTAssertEqual(removal.selection, refinedLeft, "Another checkbox cannot discard painted edges")
+    XCTAssertEqual(removal.protection, right)
+    XCTAssertTrue(removal.canUndoSelection)
+    await removal.undoSelection()
+    XCTAssertEqual(removal.selection, left)
+    XCTAssertEqual(removal.protection, right, "Selection undo cannot undo list choices")
+    await removal.redoSelection()
+    XCTAssertEqual(removal.selection, refinedLeft)
+    // Undo/redo also apply a pending checkbox change before replaying a brush.
+    removal.keepPerson(2)
+    await removal.undoSelection()
+    XCTAssertEqual(removal.selection, try RemovalBridge.combineMasks(left, right))
+    removal.keepPerson(2)
+    await removal.redoSelection()
+    XCTAssertEqual(removal.selection, refinedLeft)
+    XCTAssertEqual(removal.detectedPersonMasks.map(\.mask), [left, right])
+    XCTAssertEqual(try Data(contentsOf: raw), original)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: raw).path))
+    removal.close()
+    await session.releaseTransientMemory()
+  }
+
+  func testRetainedRefinementRechecksChangedProtectionFromOriginalMasks() async throws {
+    let left = try circle(3.5 / 16, 3.5 / 8)
+    let below = try circle(3.5 / 16, 6.5 / 8)
+    let masks = [RemovalPersonSelection(id: 1, mask: left), .init(id: 2, mask: below)]
+    let gesture = RemovalPersonGesture(
+      id: 1, strokes: [RemovalStroke(points: [[3.5 / 16, 6.5 / 8]], radius: 0.07, subtract: false)])
+    let engine = NativeRemovalEditorEngine()
+    func choices(keepSecond: Bool) -> [RemovalSession.Person] {
+      (1...2).map {
+        .init(
+          id: $0, detection: .init(class: 0, bounds: [0, 0, 16, 8], score: 0.9),
+          keep: $0 == 2 && keepSecond)
+      }
+    }
+    let kept = try await engine.refinedPeopleSelection(
+      choices(keepSecond: true), masks: masks, gestures: [gesture], manualProtection: Data())
+    XCTAssertEqual(kept.selection, left, "A retained Add cannot paint over a newly kept person")
+    XCTAssertEqual(kept.protection, below)
+    let removed = try await engine.refinedPeopleSelection(
+      choices(keepSecond: false), masks: masks, gestures: [gesture], manualProtection: Data())
+    XCTAssertEqual(removed.selection, try RemovalBridge.combineMasks(left, below))
+    XCTAssertEqual(removed.people[0], try RemovalBridge.combineMasks(left, below))
+    XCTAssertEqual(removed.people[1], below)
+    XCTAssertEqual(
+      masks.map(\.mask), [left, below], "Replaying choices never rewrites detector masks")
+  }
+
   func testMultiselectMasksKeepUnselectedPeopleAndManualProtection() async throws {
     let left = try circle(3.5 / 16, 3.5 / 8)
     let middle = try circle(7.5 / 16, 3.5 / 8)
