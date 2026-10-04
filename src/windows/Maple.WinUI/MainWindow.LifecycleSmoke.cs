@@ -55,6 +55,13 @@ namespace Maple.WinUI
                         { passed = true, scope = "settings-sidebar-only" }));
                     return;
                 }
+                if (expectedPath == "list-row")
+                {
+                    await VerifyListRowAutomationAsync(output);
+                    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
+                        { passed = true, scope = "list-row-provider-only" }));
+                    return;
+                }
                 if (expectedPath is "native-detail-checkpoint" or "native-tile-fallback")
                 {
                     await VerifyNativeDetailCheckpointAsync(raw, output, expectedPath == "native-tile-fallback");
