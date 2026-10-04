@@ -48,10 +48,13 @@ enum AgentBrowseService {
     // Capture the page and its sessions before any I/O suspension. Folder
     // navigation cannot redirect an already-requested asset to another source.
     let snapshots = slice.map { asset in
-      (asset, activeSession?.asset.id == asset.id ? activeSession : delegate.session(for: asset))
+      let existing =
+        activeSession?.asset.id == asset.id ? activeSession : delegate.session(for: asset)
+      let session = existing ?? (asset.primaryURL == nil ? delegate.ensureSession(for: asset) : nil)
+      return (asset, session, session?.sidecarStore)
     }
     var photos: [JSONValue] = []
-    for (asset, session) in snapshots {
+    for (asset, session, store) in snapshots {
       try Task.checkCancellation()
       var fields: [String: JSONValue] = [
         "id": .string(asset.id.uuidString),
@@ -59,7 +62,7 @@ enum AgentBrowseService {
         "is_active": .bool(activeSession?.asset.id == asset.id),
       ]
       if let path = asset.primaryURL?.path { fields["path"] = .string(path) }
-      let culling = await cullingState(for: asset, session: session)
+      let culling = await cullingState(for: asset, session: session, store: store)
       fields["rating"] = .int(culling.stars)
       fields["flag"] = .string(culling.flag.rawValue)
       if let color = culling.colorLabel { fields["color_label"] = .string(color.rawValue) }
@@ -269,28 +272,37 @@ enum AgentBrowseService {
     return integer
   }
 
-  static func cullingState(for asset: AssetRef, session: EditSession?) async -> CullingState {
+  static func cullingState(
+    for asset: AssetRef, session: EditSession?, store: (any SidecarStoreProtocol)?
+  ) async -> CullingState {
     // A realized Browse cell may exist while hydration is still pending. Only
     // loaded or explicitly edited state can outrank the persisted sidecar.
     if let session, session.hasLoadedSidecar || session.sidecarUpdateTask != nil {
       return session.culling
     }
     let startingCulling = session?.culling
-    let task = Task.detached(priority: .utility) { () -> CullingState? in
-      guard !Task.isCancelled, let url = asset.primaryURL else { return nil }
-      let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-      let claimed = scope.startAccessingSecurityScopedResource()
-      defer { if claimed { scope.stopAccessingSecurityScopedResource() } }
-      let sidecar = SidecarPath.sidecarURL(for: url)
-      guard let xml = try? String(contentsOf: sidecar, encoding: .utf8),
-        !Task.isCancelled, let (_, culling) = try? XMPParser.parse(xml)
-      else { return nil }
-      return culling
-    }
-    let persisted = await withTaskCancellationHandler {
-      await task.value
-    } onCancel: {
-      task.cancel()
+    let persisted: CullingState?
+    if asset.primaryURL == nil {
+      // The configured actor owns remote/PhotoKit sidecar access. Reading it
+      // does not hydrate the editor or open/decode the original image.
+      persisted = try? await store?.loadIfPresent()?.1
+    } else {
+      let task = Task.detached(priority: .utility) { () -> CullingState? in
+        guard !Task.isCancelled, let url = asset.primaryURL else { return nil }
+        let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+        let claimed = scope.startAccessingSecurityScopedResource()
+        defer { if claimed { scope.stopAccessingSecurityScopedResource() } }
+        let sidecar = SidecarPath.sidecarURL(for: url)
+        guard let xml = try? String(contentsOf: sidecar, encoding: .utf8),
+          !Task.isCancelled, let (_, culling) = try? XMPParser.parse(xml)
+        else { return nil }
+        return culling
+      }
+      persisted = await withTaskCancellationHandler {
+        await task.value
+      } onCancel: {
+        task.cancel()
+      }
     }
     // Rehydrate/edit completion during the disk read owns the newer state.
     // This query never writes disk results into the edit session.

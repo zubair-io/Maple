@@ -314,7 +314,7 @@ extension AppShell {
     await session.loadSidecar()
   }
 
-  private func browseSession(for asset: AssetRef) -> EditSession {
+  func browseSession(for asset: AssetRef) -> EditSession {
     if let existing = sessions[asset.id] { return existing }
     let remoteStore: (any SidecarStoreProtocol)? = {
       guard let assetID = asset.stableID else { return nil }

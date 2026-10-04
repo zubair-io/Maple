@@ -7,8 +7,7 @@ extension AppShell {
     agentBrowseAdapter.browseVM = browseVM
     agentBrowseAdapter.getSessions = { sessions }
     agentBrowseAdapter.ensureSessionHandler = { asset in
-      ensureSession(for: asset)
-      return sessions[asset.id] ?? EditSession(asset: asset)
+      browseSession(for: asset)
     }
     agentBrowseAdapter.openPhotoHandler = { asset in
       openEditor(for: asset)
