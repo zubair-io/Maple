@@ -6,6 +6,15 @@ public enum NativeExportCapture {
   public static func target(session: EditSession, index: UInt64, workspace: URL, jobID: UUID)
     async throws -> NativeExportTarget
   {
+    try await captureTarget(
+      session: session, index: index, workspace: workspace, jobID: jobID, artifacts: nil)
+  }
+
+  @MainActor
+  private static func captureTarget(
+    session: EditSession, index: UInt64, workspace: URL,
+    jobID: UUID, artifacts: NativeExportArtifacts?
+  ) async throws -> NativeExportTarget {
     let asset = session.asset
     guard !asset.isVideo, !asset.isAudio, !asset.isStub else {
       throw NativeExportError.message("Select available photos for export.")
@@ -59,7 +68,11 @@ public enum NativeExportCapture {
           throw NativeExportError.message("The source file type is invalid.")
         }
         let url = directory.appendingPathComponent(asset.id.uuidString + "." + ext)
-        try bytes.write(to: url, options: .withoutOverwriting)
+        if let artifacts {
+          try artifacts.write(bytes, to: url)
+        } else {
+          try bytes.write(to: url, options: .withoutOverwriting)
+        }
         guard let hash = try NativeExportStorage.hash(url) else {
           throw NativeExportError.message("Could not capture original bytes.")
         }
@@ -91,25 +104,53 @@ public enum NativeExportCapture {
     }
     try NativeExportRecipeBridge.validate(recipe)
     let id = UUID()
-    var targets: [NativeExportTarget] = []
-    var films = Set<String>()
-    for (index, session) in sessions.enumerated() {
-      let target = try await target(
-        session: session, index: UInt64(index), workspace: workspace, jobID: id)
-      targets.append(target)
-      let model = try XMPParser.parse(data: Data(target.xmp.utf8)).0
-      if !model.filmLook.isEmpty && model.filmStrength > 0 { films.insert(model.filmLook) }
+    let artifacts = try await BlockingWork.run {
+      try NativeExportArtifacts(workspace: workspace, id: id)
     }
-    let film = try await captureFilms(ids: films, workspace: workspace, jobID: id, bundle: bundle)
-    let bookmark = try await BlockingWork.run { try NativeExportAccess.bookmark(destination) }
-    return NativeExportRecord(
-      version: 1, id: id, recipe: recipe, destinationBookmark: bookmark,
-      originals: targets.map(\.source), filmDirectory: film.directory, filmHashes: film.hashes,
-      items: targets.map { NativeExportItem(target: $0) })
+    do {
+      var targets: [NativeExportTarget] = []
+      var films = Set<String>()
+      for (index, session) in sessions.enumerated() {
+        let target = try await captureTarget(
+          session: session, index: UInt64(index), workspace: workspace, jobID: id,
+          artifacts: artifacts)
+        targets.append(target)
+        let model = try XMPParser.parse(data: Data(target.xmp.utf8)).0
+        if !model.filmLook.isEmpty && model.filmStrength > 0 { films.insert(model.filmLook) }
+      }
+      let film = try await captureFilms(
+        ids: films, workspace: workspace, jobID: id, bundle: bundle, artifacts: artifacts)
+      let bookmark = try await BlockingWork.run { try NativeExportAccess.bookmark(destination) }
+      return NativeExportRecord(
+        version: 1, id: id, recipe: recipe, destinationBookmark: bookmark,
+        originals: targets.map(\.source), filmDirectory: film.directory, filmHashes: film.hashes,
+        items: targets.map { NativeExportItem(target: $0) }, ownedJob: artifacts.snapshot())
+    } catch {
+      let failure = error
+      do {
+        let snapshot = artifacts.snapshot()
+        try await BlockingWork.run {
+          try NativeExportArtifacts.remove(snapshot, workspace: workspace)
+        }
+      } catch {
+        throw NativeExportError.message(
+          "\(NativeExportStorage.failure(failure)) Private capture cleanup could not be verified; its files were preserved for review. \(NativeExportStorage.failure(error))"
+        )
+      }
+      throw failure
+    }
   }
 
   public static func captureFilms(
     ids: Set<String>, workspace: URL, jobID: UUID, bundle: Bundle = .main
+  ) async throws -> (directory: URL?, hashes: [String: String]) {
+    try await captureFilms(
+      ids: ids, workspace: workspace, jobID: jobID, bundle: bundle, artifacts: nil)
+  }
+
+  private static func captureFilms(
+    ids: Set<String>, workspace: URL, jobID: UUID, bundle: Bundle,
+    artifacts: NativeExportArtifacts?
   ) async throws -> (directory: URL?, hashes: [String: String]) {
     if ids.isEmpty { return (nil, [:]) }
     return try await BlockingWork.run {
@@ -128,7 +169,12 @@ public enum NativeExportCapture {
         }
         let name = id + ".mlut"
         let destination = directory.appendingPathComponent(name)
-        try Data(contentsOf: source).write(to: destination, options: .withoutOverwriting)
+        let bytes = try Data(contentsOf: source)
+        if let artifacts {
+          try artifacts.write(bytes, to: destination)
+        } else {
+          try bytes.write(to: destination, options: .withoutOverwriting)
+        }
         hashes[name] = try NativeExportStorage.hash(destination)
       }
       return (directory, hashes)

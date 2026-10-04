@@ -26,8 +26,14 @@ public actor NativeExportQueue {
   }
   private var ledger: URL { directory.appendingPathComponent("queue.json") }
 
-  public func load() throws -> NativeExportRecord? {
+  public func load() async throws -> NativeExportRecord? {
     guard !running else { return record }
+    let lock = try NativeExportRunLock(directory: directory)
+    defer { withExtendedLifetime(lock) {} }
+    return try await loadRecord()
+  }
+
+  private func loadRecord() async throws -> NativeExportRecord? {
     guard FileManager.default.fileExists(atPath: ledger.path) else {
       record = nil
       return nil
@@ -36,7 +42,8 @@ public actor NativeExportQueue {
     try loaded.validate()
     if loaded.phase == "running" { loaded.phase = "interrupted" }
     record = loaded
-    return loaded
+    try await retireArtifacts()
+    return record
   }
   public func updates() -> AsyncStream<NativeExportRecord?> {
     let id = UUID()
@@ -53,34 +60,60 @@ public actor NativeExportQueue {
     for observer in observers.values { observer.yield(record) }
   }
 
-  public func enqueue(_ value: NativeExportRecord) throws {
+  public func enqueue(_ value: NativeExportRecord) async throws {
     guard !running else {
       throw NativeExportError.message("Wait for the active export to stop.")
     }
     let lock = try NativeExportRunLock(directory: directory)
     defer { withExtendedLifetime(lock) {} }
-    guard (try load())?.remaining ?? 0 == 0 else {
+    let previous = try await loadRecord()
+    guard previous?.remaining ?? 0 == 0 else {
       throw NativeExportError.message("Resume or cancel the saved export before starting another.")
     }
     try value.validate()
-    record = value
+    var replacement = value
+    let candidates = (previous?.retiredJobs ?? []) + [previous?.ownedJob].compactMap { $0 }
+    replacement.retiredJobs = candidates.filter {
+      !NativeExportArtifacts.referenced($0, by: replacement, workspace: directory)
+    }
+    record = replacement
+    do { try persist() } catch {
+      record = previous
+      throw error
+    }
+    await didPersist()  // New references and retirement proofs are durable before deletion.
+    try await retireArtifacts()
+  }
+
+  private func retireArtifacts() async throws {
+    guard let current = record, let jobs = current.retiredJobs, !jobs.isEmpty else { return }
+    for job in jobs {
+      guard !NativeExportArtifacts.referenced(job, by: current, workspace: directory) else {
+        continue
+      }
+      if let claimed = try NativeExportArtifacts.claim(job, workspace: directory) {
+        await didPersist()  // Genuine crash/namespace substitution fence after exclusive custody.
+        try await BlockingWork.run { try NativeExportArtifacts.removeClaimed(job, root: claimed) }
+      }
+    }
+    record!.retiredJobs = nil
     try persist()
   }
-  public func cancel() throws {
+  public func cancel() async throws {
     let lock = running ? nil : try NativeExportRunLock(directory: directory)
     defer { withExtendedLifetime(lock) {} }
-    if !running { _ = try load() }
+    if !running { _ = try await loadRecord() }
     guard record != nil else { return }
     cancellation.cancel()
     record!.cancelRequested = true
     if !running { record!.phase = "cancelled" }
     try persist()
   }
-  public func retryFailed() throws {
+  public func retryFailed() async throws {
     guard !running else { throw NativeExportError.message("Wait for the active export to stop.") }
     let lock = try NativeExportRunLock(directory: directory)
     defer { withExtendedLifetime(lock) {} }
-    guard let previous = try load(), previous.remaining == 0 else {
+    guard let previous = try await loadRecord(), previous.remaining == 0 else {
       throw NativeExportError.message("Wait for the export to stop before retrying failures.")
     }
     let failed = previous.items.filter { $0.status == "failed" }.map {
@@ -92,7 +125,8 @@ public actor NativeExportQueue {
     record = NativeExportRecord(
       version: 1, id: UUID(), recipe: previous.recipe,
       destinationBookmark: previous.destinationBookmark, originals: previous.originals,
-      filmDirectory: previous.filmDirectory, filmHashes: previous.filmHashes, items: failed)
+      filmDirectory: previous.filmDirectory, filmHashes: previous.filmHashes, items: failed,
+      ownedJob: previous.ownedJob, retiredJobs: previous.retiredJobs)
     try persist()
   }
 
@@ -119,14 +153,14 @@ public actor NativeExportQueue {
     return archived
   }
 
-  public func discardRemaining() throws {
+  public func discardRemaining() async throws {
     guard !running else {
       throw NativeExportError.message(
         "Cancel and wait for the active export before discarding remaining work.")
     }
     let lock = try NativeExportRunLock(directory: directory)
     defer { withExtendedLifetime(lock) {} }
-    guard var value = try load() else { return }
+    guard var value = try await loadRecord() else { return }
     for index in value.items.indices
     where !["applied", "failed", "skipped"].contains(value.items[index].status) {
       value.items[index].status = "skipped"
@@ -137,25 +171,26 @@ public actor NativeExportQueue {
     try persist()
   }
 
-  public func authorizeDestination(_ url: URL) throws {
+  public func authorizeDestination(_ url: URL) async throws {
     guard !running else {
       throw NativeExportError.message("Stop this export before changing its grant.")
     }
     let lock = try NativeExportRunLock(directory: directory)
     defer { withExtendedLifetime(lock) {} }
-    guard var value = try load() else { return }
+    guard var value = try await loadRecord() else { return }
     value.destinationBookmark = try NativeExportAccess.bookmark(url)
     record = value
     try persist()
   }
 
-  public func authorizeSource(id: String, url: URL) throws {
+  public func authorizeSource(id: String, url: URL) async throws {
     guard !running else {
       throw NativeExportError.message("Stop this export before changing its grant.")
     }
     let lock = try NativeExportRunLock(directory: directory)
     defer { withExtendedLifetime(lock) {} }
-    guard var value = try load(), let index = value.originals.firstIndex(where: { $0.id == id })
+    guard var value = try await loadRecord(),
+      let index = value.originals.firstIndex(where: { $0.id == id })
     else {
       throw NativeExportError.message("This original is not part of the saved selection.")
     }
@@ -187,7 +222,7 @@ public actor NativeExportQueue {
   public func run() async throws {
     guard !running else { return }
     let lock = try NativeExportRunLock(directory: directory)
-    guard let loaded = try load() else { return }
+    guard let loaded = try await loadRecord() else { return }
     try loaded.validate()
     running = true
     cancellation = NativeExportCancellation()

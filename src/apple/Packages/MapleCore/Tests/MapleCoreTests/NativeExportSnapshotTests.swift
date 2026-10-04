@@ -9,6 +9,281 @@ import XCTest
 
 @MainActor
 final class NativeExportSnapshotTests: EditorTestCase {
+  func testFailedRecordCaptureRemovesPrivateSourcesWithoutChangingOriginal() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "native-capture-cleanup")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = try Self.jpeg(root)
+    let before = try Data(contentsOf: original)
+    let session = try await Self.byteSession(original, root: root)
+    session.model.filmLook = "missing_native_export_film"
+    session.model.filmStrength = 100
+    let directory = root.appendingPathComponent("queue")
+    let recipe = ExportRecipe(
+      destination: "directory", directory: root.path, overwritePolicy: "error")
+    do {
+      _ = try await NativeExportCapture.record(
+        sessions: [session], recipe: recipe, destination: root, workspace: directory)
+      XCTFail("Missing film must fail the real record capture")
+    } catch { XCTAssertTrue(error.localizedDescription.contains("unavailable")) }
+    let jobs = directory.appendingPathComponent("Jobs")
+    let remaining =
+      FileManager.default.fileExists(atPath: jobs.path)
+      ? try FileManager.default.contentsOfDirectory(atPath: jobs.path) : []
+    XCTAssertEqual(remaining, [], "Failed capture must not retain private original copies")
+    XCTAssertEqual(try Data(contentsOf: original), before)
+  }
+
+  func testSupersededCompletedQueueRemovesOnlyUnreferencedPrivateCapture() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "native-superseded-cleanup")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = try Self.jpeg(root)
+    let before = try Data(contentsOf: original)
+    let session = try await Self.byteSession(original, root: root)
+    let directory = root.appendingPathComponent("queue")
+    let recipe = ExportRecipe(
+      destination: "directory", directory: root.path, overwritePolicy: "error")
+    var old = try await NativeExportCapture.record(
+      sessions: [session], recipe: recipe, destination: root, workspace: directory)
+    old.items[0].status = "failed"
+    old.phase = "done"
+    let queue = NativeExportQueue(directory: directory)
+    try await queue.enqueue(old)
+    let next = try await NativeExportCapture.record(
+      sessions: [session], recipe: recipe, destination: root, workspace: directory)
+    try await queue.enqueue(next)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: old.originals[0].url.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: next.originals[0].url.path))
+    XCTAssertEqual(try Data(contentsOf: original), before)
+    XCTAssertEqual(try Data(contentsOf: next.originals[0].url), before)
+  }
+
+  func testFailedOnlyRetryRetainsFullPrivateSnapshotUntilSuperseded() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "native-retry-cleanup")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = try Self.jpeg(root)
+    let before = try Data(contentsOf: original)
+    let session = try await Self.byteSession(original, root: root)
+    let directory = root.appendingPathComponent("queue")
+    let recipe = ExportRecipe(
+      destination: "directory", directory: root.path, overwritePolicy: "error")
+    var old = try await NativeExportCapture.record(
+      sessions: [session], recipe: recipe,
+      destination: root, workspace: directory)
+    old.items[0].status = "failed"
+    old.phase = "done"
+    let queue = NativeExportQueue(directory: directory)
+    try await queue.enqueue(old)
+    try await queue.retryFailed()
+    let loadedRetry = try await queue.load()
+    let retry = try XCTUnwrap(loadedRetry)
+    XCTAssertNotEqual(retry.id, old.id)
+    XCTAssertEqual(retry.ownedJob, old.ownedJob)
+    XCTAssertEqual(retry.originals, old.originals)
+    XCTAssertEqual(try Data(contentsOf: retry.originals[0].url), before)
+    try await queue.discardRemaining()
+    let next = try await NativeExportCapture.record(
+      sessions: [session], recipe: recipe,
+      destination: root, workspace: directory)
+    try await queue.enqueue(next)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: old.originals[0].url.path))
+    XCTAssertEqual(try Data(contentsOf: original), before)
+  }
+
+  func testRetirementPreservesReplacedPrivateCaptureAndRealOriginal() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "native-replaced-cleanup")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = try Self.jpeg(root)
+    let before = try Data(contentsOf: original)
+    let session = try await Self.byteSession(original, root: root)
+    let directory = root.appendingPathComponent("queue")
+    let recipe = ExportRecipe(
+      destination: "directory", directory: root.path, overwritePolicy: "error")
+    var old = try await NativeExportCapture.record(
+      sessions: [session], recipe: recipe,
+      destination: root, workspace: directory)
+    old.items[0].status = "failed"
+    old.phase = "done"
+    let queue = NativeExportQueue(directory: directory)
+    try await queue.enqueue(old)
+    let next = try await NativeExportCapture.record(
+      sessions: [session], recipe: recipe,
+      destination: root, workspace: directory)
+    let source = old.originals[0].url
+    try FileManager.default.removeItem(at: source)
+    try FileManager.default.moveItem(at: original, to: source)
+    do {
+      try await queue.enqueue(next)
+      XCTFail("Unowned replacement must block retirement")
+    } catch { XCTAssertTrue(error.localizedDescription.contains("preserved")) }
+    let preserved = directory.appendingPathComponent(
+      "Jobs/Retired-\(old.id.uuidString)/Sources/\(source.lastPathComponent)")
+    XCTAssertEqual(try Data(contentsOf: preserved), before)
+    XCTAssertEqual(try Data(contentsOf: next.originals[0].url), before)
+    let durable = try JSONDecoder().decode(
+      NativeExportRecord.self,
+      from: Data(contentsOf: directory.appendingPathComponent("queue.json")))
+    XCTAssertEqual(durable.id, next.id)
+    XCTAssertEqual(durable.retiredJobs?.count, 1)
+    do {
+      _ = try await queue.load()
+      XCTFail("Changed retired artifacts must remain visibly fail closed")
+    } catch { XCTAssertTrue(error.localizedDescription.contains("preserved")) }
+    let archived = try await queue.archiveSavedQueue()
+    XCTAssertNotNil(archived)
+    XCTAssertEqual(try Data(contentsOf: preserved), before)
+    XCTAssertEqual(try Data(contentsOf: next.originals[0].url), before)
+  }
+
+  func testProcessCrashAfterSupersedingLedgerRecoversArtifactRetirement() async throws {
+    let marker = "native-retirement-process-child"
+    if let path = ProcessInfo.processInfo.environment["MAPLE_SWIFT_TEST_ROOT"],
+      URL(fileURLWithPath: path).lastPathComponent == marker
+    {
+      let root = URL(fileURLWithPath: path)
+      let directory = root.appendingPathComponent("queue")
+      let next = try JSONDecoder().decode(
+        NativeExportRecord.self,
+        from: Data(contentsOf: root.appendingPathComponent("next.json")))
+      let afterClaim = ProcessInfo.processInfo.environment["MAPLE_RETIRE_AFTER_CLAIM"] == "1"
+      let queue = NativeExportQueue(directory: directory) { value in
+        guard let retired = value.retiredJobs?.first else { return }
+        if !afterClaim { Darwin._exit(78) }
+        let claimed = directory.appendingPathComponent("Jobs/Retired-\(retired.id.uuidString)")
+        guard FileManager.default.fileExists(atPath: claimed.path) else { return }
+        let replacement = directory.appendingPathComponent("Jobs/\(retired.id.uuidString)")
+        do {
+          try FileManager.default.createDirectory(
+            at: replacement, withIntermediateDirectories: false)
+          try Data("foreign public namespace replacement".utf8).write(
+            to: replacement.appendingPathComponent("foreign.txt"))
+          Darwin._exit(79)
+        } catch { Darwin._exit(80) }
+      }
+      try await queue.enqueue(next)
+      XCTFail("Child must exit after durable replacement, before retirement")
+      return
+    }
+    for afterClaim in [false, true] {
+      let fixture = try SidecarContractIO.makeTempDirectory(prefix: "native-retirement-crash")
+      defer { try? FileManager.default.removeItem(at: fixture) }
+      let root = fixture.appendingPathComponent(marker)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      let original = try Self.jpeg(root)
+      let before = try Data(contentsOf: original)
+      let session = try await Self.byteSession(original, root: root)
+      let directory = root.appendingPathComponent("queue")
+      let recipe = ExportRecipe(
+        destination: "directory", directory: root.path, overwritePolicy: "error")
+      var old = try await NativeExportCapture.record(
+        sessions: [session], recipe: recipe,
+        destination: root, workspace: directory)
+      old.items[0].status = "failed"
+      old.phase = "done"
+      try await NativeExportQueue(directory: directory).enqueue(old)
+      let next = try await NativeExportCapture.record(
+        sessions: [session], recipe: recipe,
+        destination: root, workspace: directory)
+      try JSONEncoder().encode(next).write(to: root.appendingPathComponent("next.json"))
+      let child = Process()
+      child.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+      child.arguments = [
+        "-XCTest",
+        "MapleCoreTests.NativeExportSnapshotTests/testProcessCrashAfterSupersedingLedgerRecoversArtifactRetirement",
+        Bundle(for: NativeExportSnapshotTests.self).bundlePath,
+      ]
+      var environment = ProcessInfo.processInfo.environment
+      environment["MAPLE_SWIFT_TEST_ROOT"] = root.path
+      environment["MAPLE_RETIRE_AFTER_CLAIM"] = afterClaim ? "1" : "0"
+      child.environment = environment
+      child.standardOutput = FileHandle.nullDevice
+      child.standardError = FileHandle.nullDevice
+      try child.run()
+      await Task.detached { child.waitUntilExit() }.value
+      XCTAssertEqual(child.terminationStatus, afterClaim ? 79 : 78)
+      let oldCopy =
+        afterClaim
+        ? directory.appendingPathComponent(
+          "Jobs/Retired-\(old.id.uuidString)/Sources/\(old.originals[0].url.lastPathComponent)")
+        : old.originals[0].url
+      XCTAssertEqual(try Data(contentsOf: oldCopy), before)
+      let durable = try JSONDecoder().decode(
+        NativeExportRecord.self,
+        from: Data(contentsOf: directory.appendingPathComponent("queue.json")))
+      XCTAssertEqual(durable.id, next.id)
+      XCTAssertEqual(durable.retiredJobs?.count, 1)
+      let recovered = try await NativeExportQueue(directory: directory).load()
+      XCTAssertEqual(recovered?.id, next.id)
+      XCTAssertNil(recovered?.retiredJobs)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: oldCopy.path))
+      if afterClaim {
+        let foreign = directory.appendingPathComponent("Jobs/\(old.id.uuidString)/foreign.txt")
+        XCTAssertEqual(
+          try Data(contentsOf: foreign), Data("foreign public namespace replacement".utf8))
+      }
+      XCTAssertEqual(try Data(contentsOf: next.originals[0].url), before)
+      XCTAssertEqual(try Data(contentsOf: original), before)
+    }
+  }
+
+  func testLaterUnavailableSourceCleansEarlierPrivateCopy() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "native-later-source-cleanup")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = try Self.jpeg(root)
+    let before = try Data(contentsOf: original)
+    let first = try await Self.byteSession(original, root: root)
+    let second = try await Self.byteSession(root.appendingPathComponent("missing.jpg"), root: root)
+    let directory = root.appendingPathComponent("queue")
+    let recipe = ExportRecipe(
+      destination: "directory", directory: root.path, overwritePolicy: "error")
+    do {
+      _ = try await NativeExportCapture.record(
+        sessions: [first, second], recipe: recipe,
+        destination: root, workspace: directory)
+      XCTFail("Unavailable later source must fail capture")
+    } catch { XCTAssertFalse(error.localizedDescription.contains("cleanup could not")) }
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(
+        atPath: directory.appendingPathComponent("Jobs").path), [])
+    XCTAssertEqual(try Data(contentsOf: original), before)
+  }
+
+  func testCanonicalAliasReferencePreventsRetirementWithoutNewOwnershipField() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "native-canonical-retention")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let original = try Self.jpeg(root)
+    let before = try Data(contentsOf: original)
+    let session = try await Self.byteSession(original, root: root)
+    let directory = root.appendingPathComponent("queue")
+    let recipe = ExportRecipe(
+      destination: "directory", directory: root.path, overwritePolicy: "error")
+    var old = try await NativeExportCapture.record(
+      sessions: [session], recipe: recipe,
+      destination: root, workspace: directory)
+    old.items[0].status = "failed"
+    old.phase = "done"
+    let queue = NativeExportQueue(directory: directory)
+    try await queue.enqueue(old)
+    let captured = old.originals[0]
+    let canonical = NativeExportSource(
+      id: captured.id, url: captured.url.resolvingSymlinksInPath(),
+      scopeURL: captured.scopeURL, bookmark: captured.bookmark, relativePath: captured.relativePath,
+      originalHash: captured.originalHash, identity: captured.identity,
+      ownedDirectory: captured.ownedDirectory)
+    let previousTarget = old.items[0].target
+    let target = NativeExportTarget(
+      source: canonical, stem: previousTarget.stem, xmp: previousTarget.xmp,
+      capturedAt: previousTarget.capturedAt, index: previousTarget.index)
+    let next = NativeExportRecord(
+      version: 1, id: UUID(), recipe: recipe,
+      destinationBookmark: old.destinationBookmark, originals: [canonical], filmDirectory: nil,
+      filmHashes: [:], items: [NativeExportItem(target: target)])
+    XCTAssertTrue(
+      NativeExportArtifacts.referenced(try XCTUnwrap(old.ownedJob), by: next, workspace: directory))
+    try await queue.enqueue(next)
+    XCTAssertEqual(try Data(contentsOf: canonical.url), before)
+    XCTAssertEqual(try Data(contentsOf: original), before)
+  }
+
   func testAuthoredVariantAndRealSidecarFreezeAcrossFailedOnlyRetry() async throws {
     let fixture = try NativeWorkflowControlFixture.files()
     defer { try? FileManager.default.removeItem(at: fixture.directory) }
