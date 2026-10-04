@@ -7,6 +7,71 @@ import XCTest
 
 @MainActor
 final class NativeAutoProfilePhotographicTests: XCTestCase {
+  /// #1472: main's canonical inspector must consume the same settled native
+  /// Auto tail as a saved-removal canvas, retaining independent mask coverage.
+  func testCanonicalCaptureMatchesSettledSavedRemovalCPUCanvas() async throws {
+    let corpus = AutoProfileCanvasParityTests.fixtureDir("test-fixtures/raws/removal-photographic")
+    let source = corpus.appendingPathComponent("portrait.dng")
+    guard FileManager.default.fileExists(atPath: source.path) else {
+      throw XCTSkip("39MP photographic RAW absent (#1472)")
+    }
+    let original = try SidecarContractIO.sha256(of: source)
+    XCTAssertEqual(original, "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe")
+    let sidecar = try Data(contentsOf: corpus.appendingPathComponent("portrait.xmp"))
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "canonical-removal-auto")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let raw = directory.appendingPathComponent("portrait.dng")
+    try FileManager.default.copyItem(at: source, to: raw)
+    try FileManager.default.copyItem(
+      at: corpus.appendingPathComponent(".maple"), to: directory.appendingPathComponent(".maple"))
+    try sidecar.write(to: SidecarPath.sidecarURL(for: raw))
+    var model = try XMPParser.parse(data: sidecar).0
+    XCTAssertNotNil(model.inpaintRemovals)
+    model.profile = .auto
+    model.sharpenAmount = 0
+    model.nrColor = 0
+    model.filmLook = "test_lut"
+    model.filmStrength = 70
+    model.crop = Crop(top: 0.125, left: 0.125, bottom: 0.875, right: 0.875, angle: 3)
+    let session = EditSession(
+      asset: AssetRef(url: raw), model: model, filmLutStore: FilmLutStore(bundle: .module))
+    // Exercise the real CPU fallback, not a synthetic raster or mocked sidecar.
+    session.gpuPresentFailed = true
+    session.previewSize = CGSize(width: 256, height: 192)
+    session.createWholeImageSkinMask()
+    await session.flushPendingSidecarWrite()
+    session._scheduleRender(phase: .fast)
+    _ = await session.latestRenderSchedule?.value
+    await session.renderActor.awaitCurrentRenderIfInFlight()
+    await session.nativeAutoProfile.awaitPreparation()
+    let prepared = try XCTUnwrap(session.nativeAutoProfile.ready)
+    XCTAssertNotNil(prepared.artifacts, "An absent/provisional Auto fit is not this regression")
+    session._scheduleRender(phase: .fast)
+    _ = await session.latestRenderSchedule?.value
+    await session.renderActor.awaitCurrentRenderIfInFlight()
+    XCTAssertTrue(session.hasSettledCPUAutoProfile)
+    XCTAssertEqual(session.nativeAutoFrameID, prepared.id)
+    let displayed = try XCTUnwrap(session.renderedPreview)
+    let maskID = try XCTUnwrap(session.selectedMaskId)
+    let frame = try await session.agentCPUFrame(maskID: maskID)
+    let context = CIContext()
+    let expected = try AgentVectorscope.capturePixels(
+      canvas: displayed, weights: nil, region: nil, context: context)
+    let captured = try AgentVectorscope.capturePixels(
+      canvas: frame.canvas, weights: nil, region: nil, context: context)
+    XCTAssertEqual(captured.width, expected.width)
+    XCTAssertEqual(captured.height, expected.height)
+    XCTAssertEqual(captured.rgba.count, expected.rgba.count)
+    let worst = zip(captured.rgba, expected.rgba).map { abs(Int($0) - Int($1)) }.max() ?? 0
+    XCTAssertLessThanOrEqual(worst, 2, "Settled native Auto/film/crop canvas and capture differ")
+    XCTAssertNotNil(frame.weights)
+    print("MAPLE_CANONICAL_SAVED_NATIVE_AUTO max=\(worst) lanes=\(captured.rgba.count)")
+    await session.nativeAutoProfile.cancelAndWait()
+    XCTAssertEqual(try SidecarContractIO.sha256(of: raw), original)
+    XCTAssertEqual(try SidecarContractIO.sha256(of: source), original)
+    XCTAssertEqual(try Data(contentsOf: corpus.appendingPathComponent("portrait.xmp")), sidecar)
+  }
+
   func testProductionNativeArtifactsAndMetalMatchOriginalAndAcceptedPhoto() async throws {
     let corpus = AutoProfileCanvasParityTests.fixtureDir("test-fixtures/raws/removal-photographic")
     let source = corpus.appendingPathComponent("portrait.dng")
