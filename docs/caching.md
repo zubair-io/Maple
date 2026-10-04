@@ -20,7 +20,7 @@ Every layer agrees on this layout, sitting inside the folder that holds the phot
 
 `sha256_prefix16` is the first 16 lowercase hex characters (8 bytes) of `SHA-256` over the **basename with its extension** — UTF-8, no path. Four implementations must agree byte-for-byte, and cross-platform hash vectors pin them: `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleThumbCacheKey.swift`, `src/api/src/fs/xmp.ts`, `src/web/projects/maple-common/src/lib/maple-cache/sha.ts`, `src/windows/Maple.WinUI/Services/ThumbCachePaths.cs`.
 
-Previews preserve the original filename, including its extension, and append the current pipeline version: `IMG_1234.CR2` becomes `IMG_1234.CR2.v6.avif`. Thumbnails use the same `.v<N>` suffix after their frozen basename hash. Readers open only the exact current version; unversioned, older, and future derivatives are misses. A warm shared read needs no companion version-marker request, including over SMB. Path composition lives in `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleSidecarPaths.swift` and `src/api/src/fs/xmp.ts` (`cachePathFor` / `cachePathForAsset`).
+Previews preserve the original filename, including its extension, and append the current pipeline version: `IMG_1234.CR2` becomes `IMG_1234.CR2.v8.avif`. Thumbnails use the same `.v<N>` suffix after their frozen basename hash. Readers open only the exact current version; unversioned, older, and future derivatives are misses. A warm shared read needs no companion version-marker request, including over SMB. Path composition lives in `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleSidecarPaths.swift` and `src/api/src/fs/xmp.ts` (`cachePathFor` / `cachePathForAsset`).
 
 ### The on-share write contract
 
@@ -30,7 +30,7 @@ Previews have their own agreed parameters: **1280 px long edge, AVIF quality ~0.
 
 ## Pipeline output version
 
-`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **6**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
+`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **8**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
 
 The `codegen` crate (`tools/codegen.sh`) emits the mirrors, and the `codegen-drift` CI job fails if a hand edit makes them diverge:
 
@@ -42,7 +42,7 @@ The counter reaches every shared derivative reader and writer through generated 
 - **Apple's `RenderedPreviewCache`** includes it in its local key (`pv<N>`).
 - **Shared thumb and preview filenames** include `.v<N>` before the actual format extension. Web's JPEG/WebP/PNG fallback artifacts and their preview descriptors and source identities carry the same version. The old `.v` text markers are retired; their presence cannot make an old artifact current.
 - **HTTP clients** request `?pv=<N>`. The origin rejects an explicitly incompatible version with `409`, includes `X-Maple-Pipeline-Version` on successful derivative responses, and versions thumbnail ETags. Preview uploads require the same version header before any cache publication.
-- **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, each `4 + PIPELINE_OUTPUT_VERSION` (currently 10). A pipeline bump re-arms generation and edge synchronization.
+- **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, each `4 + PIPELINE_OUTPUT_VERSION` (currently 12). A pipeline bump re-arms generation and edge synchronization.
 
 The cache sweep retires legacy and older-version derivatives, including their markers, while preserving current and newer versions for live originals. Keeping newer files prevents an older app from destroying a newer client's cache. Exact-source cleanup on removal reclaims all recognized versions without matching another filename that shares a prefix.
 
@@ -253,7 +253,7 @@ There is **no in-memory LRU of decoded images or FFI handles in the API**. `src/
 
 Each pipeline stage (see [indexer and enrichment](indexer-enrichment.md)) carries a `targetVersion` (`src/api/src/workers/stage-config.ts`). There is no boolean "done" marker — the marker _is_ the integer `stages.<name>.version`, and the claim query is a `<` comparison against `targetVersion`, so raising the constant makes every previously-complete asset eligible again without deleting anything from the database. A bump on deploy also triggers a dead-row reset at boot.
 
-`thumb` and `preview` use `4 + PIPELINE_OUTPUT_VERSION` (currently 10), sharing those constants with the audit and edge dependency. Their historical bump lineages are recorded in each stage file: thumb v2 baked orientation into the embedded preview, v3 moved JPEG → AVIF, v4 moved the cache key from `maple_id` back to the path-keyed `sha256_prefix16(filename)` every reader actually computes; preview v3 was the path-keyed AVIF migration and v4 collapsed `<filename>.1280.avif` to `<filename>.avif`. Old-scheme files are never renamed — they orphan out through `cache-gc`.
+`thumb` and `preview` use `4 + PIPELINE_OUTPUT_VERSION` (currently 12), sharing those constants with the audit and edge dependency. Their historical bump lineages are recorded in each stage file: thumb v2 baked orientation into the embedded preview, v3 moved JPEG → AVIF, v4 moved the cache key from `maple_id` back to the path-keyed `sha256_prefix16(filename)` every reader actually computes; preview v3 was the path-keyed AVIF migration and v4 collapsed `<filename>.1280.avif` to `<filename>.avif`. Old-scheme files are never renamed — they orphan out through `cache-gc`.
 
 The `thumb` stage also cascades: every successful write resets `cf-thumb-sync` to version 0 (clearing attempts, last error, processed-at, and the dead flag) so a re-rendered thumbnail re-uploads instead of leaving a stale edge copy. That reset is atomic with marking the thumb stage complete.
 
