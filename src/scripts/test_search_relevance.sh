@@ -33,8 +33,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../api"
 
 if [[ -z "${MAPLE_MEILISEARCH_INTEGRATION_URL:-}" || -z "${MAPLE_OLLAMA_INTEGRATION_URL:-}" ]]; then
-  echo "MAPLE_MEILISEARCH_INTEGRATION_URL / MAPLE_OLLAMA_INTEGRATION_URL unset — skipping"
-  exit 0
+	echo "MAPLE_MEILISEARCH_INTEGRATION_URL / MAPLE_OLLAMA_INTEGRATION_URL unset — skipping"
+	exit 0
 fi
 
-MAPLE_SEARCH_RELEVANCE=1 bun test tests/search-relevance.integration.test.ts
+MAPLE_SEARCH_RELEVANCE=1 bun test \
+	tests/search-relevance.integration.test.ts \
+	tests/search-name-diversity.integration.test.ts
