@@ -111,6 +111,44 @@ class ActualLargeContextTests(unittest.TestCase):
             "model input differs from recorded source and encoding recipe"
         )
 
+    def refused_reference_encode(self, reason):
+        output = self.root / "no-reference-context-publication"
+        result = subprocess.run(
+            [
+                str(PROBE.resolve()),
+                "large-encode",
+                str(RAW.resolve()),
+                str(CONTEXT.resolve() / "inputs.json"),
+                str(CONTEXT.resolve() / "intent.mimf"),
+                str(CONTEXT.resolve() / "protected.mimf"),
+                str(output),
+                "--reference-context",
+                str(self.root / "context.json"),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(reason, result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_reference_context_wrong_source_refuses_before_publication(self):
+        self.edit(
+            "context.json", lambda value: value.update(original="blake3:" + "0" * 64)
+        )
+        self.refused_reference_encode("reference context source or calibration recipe")
+
+    def test_reference_context_changed_scene_refuses_before_publication(self):
+        self.edit(
+            "context.json", lambda value: value.update(scene="blake3:" + "0" * 64)
+        )
+        self.refused_reference_encode("reference context pixels or model input recipe")
+
+    def test_reference_context_cannot_clip_complete_intent_or_expansion(self):
+        self.edit("context.json", lambda value: value["window"].update(x=0))
+        self.refused_reference_encode("window or protection source differs")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)

@@ -10,6 +10,21 @@ const HOLE_RADIUS: u32 = 8;
 const FRINGE_RADIUS: f32 = 4.0;
 
 pub(super) fn window(mask: &RemovalMask) -> Result<NativeWindow, String> {
+    let bounds = expanded(mask)?;
+    let centered = |start: u32, extent: u32| {
+        ((u64::from(start) * 2 + u64::from(extent)).saturating_sub(u64::from(SIDE)) / 2) as u32
+    };
+    let x = centered(bounds.x, bounds.width).min(mask.source_width - SIDE);
+    let y = centered(bounds.y, bounds.height).min(mask.source_height - SIDE);
+    Ok(NativeWindow {
+        x,
+        y,
+        width: SIDE,
+        height: SIDE,
+    })
+}
+
+fn expanded(mask: &RemovalMask) -> Result<NativeWindow, String> {
     mask.validate()?;
     if mask.source_width < SIDE || mask.source_height < SIDE || !mask.pixels.contains(&255) {
         return Err("large research requires a nonempty native 2048 source context".into());
@@ -25,13 +40,11 @@ pub(super) fn window(mask: &RemovalMask) -> Result<NativeWindow, String> {
     if right - left > SIDE || bottom - top > SIDE {
         return Err("complete selection and expansion exceed native 2048 research context".into());
     }
-    let x = ((left + right).saturating_sub(SIDE) / 2).min(mask.source_width - SIDE);
-    let y = ((top + bottom).saturating_sub(SIDE) / 2).min(mask.source_height - SIDE);
     Ok(NativeWindow {
-        x,
-        y,
-        width: SIDE,
-        height: SIDE,
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
     })
 }
 
@@ -42,7 +55,10 @@ pub(super) fn planes(
 ) -> Result<Vec<f32>, String> {
     mask.validate()?;
     protection.validate()?;
-    if window != self::window(mask)?
+    window.validate(mask.source_width, mask.source_height)?;
+    if window.width != SIDE
+        || window.height != SIDE
+        || !window.contains(&expanded(mask)?)
         || (mask.source_width, mask.source_height)
             != (protection.source_width, protection.source_height)
     {
@@ -186,5 +202,46 @@ mod tests {
         assert!(planes(&intent, &protection, window).is_err());
         protection.source_width += 1;
         assert!(planes(&intent, &protection, window).is_err());
+    }
+
+    #[test]
+    fn retained_context_translates_exact_masks_without_clipping_intent_or_expansion() {
+        let intent = line();
+        let original = window(&intent).unwrap();
+        let retained = NativeWindow {
+            x: original.x + 35,
+            y: original.y - 21,
+            ..original
+        };
+        let a = planes(&intent, &protected(), original).unwrap();
+        let b = planes(&intent, &protected(), retained).unwrap();
+        let count = (SIDE * SIDE) as usize;
+        assert_eq!(
+            a[..count].iter().sum::<f32>(),
+            b[..count].iter().sum::<f32>()
+        );
+        for y in retained.y.max(original.y)..(retained.y + SIDE).min(original.y + SIDE) {
+            for x in retained.x.max(original.x)..(retained.x + SIDE).min(original.x + SIDE) {
+                let ai = ((y - original.y) * SIDE + x - original.x) as usize;
+                let bi = ((y - retained.y) * SIDE + x - retained.x) as usize;
+                assert_eq!(a[ai].to_bits(), b[bi].to_bits());
+                assert_eq!(a[count + ai].to_bits(), b[count + bi].to_bits());
+            }
+        }
+        let clipped = NativeWindow {
+            x: intent.x,
+            ..original
+        };
+        assert!(planes(&intent, &protected(), clipped).is_err());
+        let wrong_extent = NativeWindow {
+            width: 1024,
+            ..original
+        };
+        assert!(planes(&intent, &protected(), wrong_extent).is_err());
+        let outside_source = NativeWindow {
+            x: 1000,
+            ..original
+        };
+        assert!(planes(&intent, &protected(), outside_source).is_err());
     }
 }

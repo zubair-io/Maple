@@ -43,6 +43,9 @@ enum Command {
         intent: PathBuf,
         protected: PathBuf,
         output: PathBuf,
+        /// #3941: retain an earlier source-bound context to isolate mask edits.
+        #[arg(long)]
+        reference_context: Option<PathBuf>,
     },
     /// Validate and bake one joint native 2048 result; never writes XMP.
     LargeBake {
@@ -448,7 +451,15 @@ fn main() -> ProbeResult<()> {
             intent,
             protected,
             output,
-        } => large::encode(&raw, &inputs, &intent, &protected, &output),
+            reference_context,
+        } => large::encode(
+            &raw,
+            &inputs,
+            &intent,
+            &protected,
+            &output,
+            reference_context.as_deref(),
+        ),
         Command::LargeBake {
             raw,
             context,
