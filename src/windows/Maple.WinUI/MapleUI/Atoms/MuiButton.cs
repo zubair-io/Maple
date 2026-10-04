@@ -126,8 +126,8 @@ namespace Maple.UI.Atoms
 
         private bool _isPointerOver;
         private bool _isPressed;
-        private Style? _sizedStyle;
-        private MuiButtonSize _styledSize;
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Style,
+            System.Collections.Generic.Dictionary<MuiButtonSize, Style>> SizedStyles = new();
 
         // See the IsLoading/IsEnabled interplay comment at the tail of
         // Rebuild() for why these exist: we force the platform IsEnabled
@@ -145,6 +145,7 @@ namespace Maple.UI.Atoms
             _content.Children.Add(_spinner);
             _content.Children.Add(_label);
             Content = _content;
+            RegisterPropertyChangedCallback(FontSizeProperty, (_, _) => _label.FontSize = FontSize);
 
             IsEnabledChanged += (_, _) =>
             {
@@ -208,18 +209,19 @@ namespace Maple.UI.Atoms
                 MuiButtonSize.Lg => (new Thickness(24, 12, 24, 12), 15.0, 44.0),
                 _ => (new Thickness(16, 8, 16, 8), 13.0, 36.0),
             };
-            Padding = padding;
-            FontSize = fontSize;
             var baseStyle = (Style)Application.Current.Resources[StyleKey(Variant)];
-            if (_sizedStyle == null || _sizedStyle.BasedOn != baseStyle || _styledSize != ButtonSize)
+            var styles = SizedStyles.GetOrCreateValue(baseStyle);
+            if (!styles.TryGetValue(ButtonSize, out var sizedStyle))
             {
                 // #4209: size defaults belong below local values and bindings
                 // in WinUI precedence; rebuilds must not replace caller minima.
-                _sizedStyle = new Style(typeof(MuiButton)) { BasedOn = baseStyle };
-                _sizedStyle.Setters.Add(new Setter { Property = MinHeightProperty, Value = minimumHeight });
-                _styledSize = ButtonSize;
+                sizedStyle = new Style(typeof(MuiButton)) { BasedOn = baseStyle };
+                sizedStyle.Setters.Add(new Setter { Property = MinHeightProperty, Value = minimumHeight });
+                sizedStyle.Setters.Add(new Setter { Property = PaddingProperty, Value = padding });
+                sizedStyle.Setters.Add(new Setter { Property = FontSizeProperty, Value = fontSize });
+                styles.Add(ButtonSize, sizedStyle);
             }
-            Style = _sizedStyle;
+            Style = sizedStyle;
             ApplyColors();
 
             var hasIcon = !string.IsNullOrEmpty(IconName);

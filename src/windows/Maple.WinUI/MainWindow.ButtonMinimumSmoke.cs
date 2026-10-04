@@ -67,6 +67,32 @@ public sealed partial class MainWindow
             await CheckAsync(28);
             if (button.Tag != null)
                 throw new InvalidOperationException("Button size style retained a superseded base-style setter.");
+
+            var peer = new MuiButton { Label = "Shared size style", ButtonSize = button.ButtonSize, Variant = button.Variant };
+            host.Children.Add(peer);
+            if (!ReferenceEquals(button.Style, peer.Style))
+                throw new InvalidOperationException("Identical button variants and sizes did not reuse their style.");
+            button.Padding = new Thickness(30, 14, 30, 14);
+            button.FontSize = 24;
+            button.ButtonSize = MuiButtonSize.Lg;
+            button.Label = "Caller typography";
+            button.IsLoading = true;
+            button.IsLoading = false;
+            await CheckTypographyAsync(new Thickness(30, 14, 30, 14), 24);
+            button.ClearValue(Control.PaddingProperty);
+            button.ClearValue(Control.FontSizeProperty);
+            await CheckTypographyAsync(new Thickness(24, 12, 24, 12), 15);
+            button.SetBinding(Control.FontSizeProperty, new Binding
+            {
+                Source = source, Path = new PropertyPath("Value"), Mode = BindingMode.OneWay,
+            });
+            source.Value = 22;
+            button.ButtonSize = MuiButtonSize.Sm;
+            await CheckTypographyAsync(new Thickness(8, 4, 8, 4), 22);
+            source.Value = 26;
+            await CheckTypographyAsync(new Thickness(8, 4, 8, 4), 26);
+            button.ClearValue(Control.FontSizeProperty);
+            await CheckTypographyAsync(new Thickness(8, 4, 8, 4), 11);
         }
         finally { root.Children.Remove(host); }
 
@@ -77,6 +103,15 @@ public sealed partial class MainWindow
             if (Math.Abs(button.MinHeight - expected) > .5 || button.ActualHeight < expected - .5)
                 throw new InvalidOperationException($"Button minimum was overwritten or not realized: expected={expected}, "
                     + $"minimum={button.MinHeight}, actual={button.ActualHeight}");
+        }
+
+        async Task CheckTypographyAsync(Thickness padding, double fontSize)
+        {
+            await Task.Delay(30);
+            root.UpdateLayout();
+            var label = (TextBlock)((StackPanel)button.Content).Children[2];
+            if (button.Padding != padding || button.FontSize != fontSize || label.FontSize != fontSize || label.ActualHeight <= 0)
+                throw new InvalidOperationException("Caller typography was overwritten or not propagated to the rendered label.");
         }
     }
 }
