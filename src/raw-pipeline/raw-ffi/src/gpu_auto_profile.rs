@@ -27,7 +27,7 @@ use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::decode::decode_bytes;
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 use raw_core::pipeline::{
-    cached_auto_profile_fit, fit_auto_profile_from_raw, RawInput, RenderQuality,
+    cached_auto_profile_fit, fit_auto_profile_from_raw_at_cap, FitCap, RawInput, RenderQuality,
 };
 use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
 use std::ffi::{c_char, CStr};
@@ -111,6 +111,30 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
     lut_capacity_floats: usize,
     lut_size: *mut u32,
 ) -> i32 {
+    fit_auto_profile(
+        raw_path,
+        xmp_path,
+        quality_preview,
+        curve_out,
+        curve_present,
+        lut_out,
+        lut_capacity_floats,
+        lut_size,
+        FitCap::Proxy,
+    )
+}
+
+unsafe fn fit_auto_profile(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    quality_preview: i32,
+    curve_out: *mut f32,
+    curve_present: *mut i32,
+    lut_out: *mut f32,
+    lut_capacity_floats: usize,
+    lut_size: *mut u32,
+    cap: FitCap,
+) -> i32 {
     use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
 
     if raw_path.is_null()
@@ -189,7 +213,15 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
         // develop quality, so a Preview host can never be served Full-fit
         // artifacts (or vice versa).
         let auto_key = AutoCacheKey::from_path(raw_path, quality);
-        let fit_result = match cached_auto_profile_fit(&model, auto_key.as_ref()) {
+        // Preserve the legacy cache-only hit. A render-size origin also needs
+        // sensor dimensions to normalize caps; the decoded-RAW cache below
+        // supplies those before the core probes its size-specific artifact key.
+        let cached = if cap == FitCap::Proxy {
+            cached_auto_profile_fit(&model, auto_key.as_ref())
+        } else {
+            None
+        };
+        let fit_result = match cached {
             Some(pair) => Some(pair),
             None => {
                 // Miss (or no tail) — the pre-#2035 read + decode + fit path.
@@ -234,7 +266,13 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
                         }
                     }
                 };
-                fit_auto_profile_from_raw(&raw_img, &model, quality, RawInput::Path(raw_path))
+                fit_auto_profile_from_raw_at_cap(
+                    &raw_img,
+                    &model,
+                    quality,
+                    RawInput::Path(raw_path),
+                    cap,
+                )
             }
         };
         let (curve_opt, residual_opt) = match fit_result {
@@ -303,6 +341,9 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
         0
     })
 }
+
+#[path = "gpu_auto_profile_sized.rs"]
+mod sized;
 
 #[cfg(test)]
 #[path = "gpu_auto_profile_tests.rs"]
