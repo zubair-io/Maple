@@ -37,7 +37,7 @@
                             <Ellipse Width="6" Height="6" Fill="{StaticResource MaplePrimary}"
                                      Visibility="{Binding IsModified, Converter={StaticResource BoolVisible}}"
                                      VerticalAlignment="Center" />
-                            <Button Content="{Binding FormattedValue}" Background="Transparent" BorderThickness="0" Padding="4,0" MinHeight="22" FontSize="11" Click="OnEditSliderValue" AutomationProperties.Name="{Binding Label}" ToolTipService.ToolTip="Enter a numeric value" />
+                            <Button Content="{Binding FormattedValue}" Background="Transparent" BorderThickness="0" Padding="4,0" MinHeight="22" FontSize="11" Click="OnEditSliderValue" AutomationProperties.Name="{Binding AccessibleName}" ToolTipService.ToolTip="Enter a numeric value" />
                         </StackPanel>
                     </Grid>
                     <!-- Gesture-end signals a commit-on-release row needs
@@ -53,7 +53,7 @@
                             SmallChange="{Binding StepFrequency}"
                             Value="{Binding Value, Mode=TwoWay}"
                             IsEnabled="{Binding IsEnabled}"
-                            AutomationProperties.Name="{Binding Label}"
+                            AutomationProperties.Name="{Binding AccessibleName}"
                             GestureStarted="OnSliderGestureStarted"
                             GestureCompleted="OnSliderGestureCompleted"
                             KeyUp="OnSliderKeyUp"
