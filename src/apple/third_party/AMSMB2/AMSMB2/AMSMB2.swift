@@ -7,6 +7,7 @@
 //  All rights reserved.
 //
 
+import CryptoKit
 import Foundation
 #if !canImport(Darwin)
 import FoundationNetworking
@@ -1429,7 +1430,7 @@ extension SMB2Manager {
   /// writes and namespace deletion until disposition is committed.
   public func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool
   ) async throws {
     try await withVerifiedRestoreFile(path, identity: expectedIdentity, validate: validate) { file in
       try file.setInfo(smb2_file_disposition_info(delete_pending: 1), infoClass: .disposition)
@@ -1439,7 +1440,7 @@ extension SMB2Manager {
   /// Exclusive rename of the verified handle also closes the rollback race.
   public func moveRestoreFile(
     atPath path: String, toPath destination: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool
   ) async throws {
     try await withVerifiedRestoreFile(path, identity: expectedIdentity, validate: validate) { file in
       var name = Data(destination.canonical.replacingOccurrences(of: "/", with: "\\").utf8)
@@ -1454,7 +1455,7 @@ extension SMB2Manager {
   }
 
   private func withVerifiedRestoreFile(
-    _ path: String, identity: UInt64, validate: @Sendable @escaping (Data) -> Bool,
+    _ path: String, identity: UInt64, validate: @Sendable @escaping (SHA256.Digest) -> Bool,
     action: @Sendable @escaping (SMB2FileHandle) throws -> Void
   ) async throws {
     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -1467,16 +1468,22 @@ extension SMB2Manager {
         let before = try file.fstat()
         guard before.smb2_type == UInt32(SMB2_TYPE_FILE), before.smb2_ino == identity,
           identity != 0 else { throw POSIXError(.ESTALE) }
-        var bytes = Data()
+        // #4142: hash incrementally in 1 MiB-capped reads. A multi-GB asset
+        // must never sit whole in memory here — only the digest crosses to
+        // the caller for comparison against the captured restore hash.
+        var digest = SHA256()
+        var count = 0
+        let length = min(max(file.optimizedReadSize, 1), 1_048_576)
         while true {
-          let chunk = try file.read()
+          let chunk = try file.read(length: length)
           if chunk.isEmpty { break }
-          bytes.append(chunk)
+          digest.update(data: chunk)
+          count += chunk.count
         }
         let after = try file.fstat()
-        guard after.smb2_ino == identity, after.smb2_size == UInt64(bytes.count),
+        guard after.smb2_ino == identity, after.smb2_size == UInt64(count),
           after.smb2_mtime == before.smb2_mtime, after.smb2_mtime_nsec == before.smb2_mtime_nsec,
-          validate(bytes) else { throw POSIXError(.ESTALE) }
+          validate(digest.finalize()) else { throw POSIXError(.ESTALE) }
         try action(file)
       }
     }

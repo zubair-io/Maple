@@ -14,6 +14,7 @@
 // this module's job.
 
 import AMSMB2
+import CryptoKit
 import Foundation
 
 public protocol SMBFileTransport: Sendable {
@@ -26,10 +27,18 @@ public protocol SMBFileTransport: Sendable {
   func removeItem(atPath path: String) async throws
   func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool) async throws
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool) async throws
   func moveRestoreFile(
     atPath path: String, toPath destination: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool) async throws
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool) async throws
+  /// Bounded streaming hash (#4139/#4142): reads the file in
+  /// `chunkSize`-capped pieces and folds them into one SHA256, so restore
+  /// verification never holds a multi-GB asset whole the way `readFile`
+  /// does. Returns the total bytes hashed alongside the digest, for the
+  /// caller's size check.
+  func hashFileContents(atPath path: String, chunkSize: Int) async throws -> (
+    byteCount: Int, digest: SHA256.Digest
+  )
   func createDirectory(atPath path: String) async throws
   func moveItem(atPath path: String, toPath: String) async throws
   func setAttributes(attributes: [URLResourceKey: Any], ofItemAtPath path: String) async throws
@@ -53,24 +62,49 @@ extension SMB2Manager: SMBFileTransport {
     try await contents(atPath: path, range: Range<UInt64>?.none)
   }
 
+  public func hashFileContents(atPath path: String, chunkSize: Int) async throws -> (
+    byteCount: Int, digest: SHA256.Digest
+  ) {
+    var digest = SHA256()
+    var offset: UInt64 = 0
+    var count = 0
+    let size = UInt64(max(chunkSize, 1))
+    while true {
+      let chunk: Data = try await contents(atPath: path, range: offset..<(offset + size))
+      if chunk.isEmpty { break }
+      digest.update(data: chunk)
+      count += chunk.count
+      offset += UInt64(chunk.count)
+      if UInt64(chunk.count) < size { break }
+    }
+    return (count, digest.finalize())
+  }
+
   public func writeFile(data: Data, toPath path: String) async throws {
     try await write(data: data, toPath: path, progress: nil)
   }
 }
 
-// A custom transport lacking server-handle custody must fail closed; path
-// read/then-unlink fallback would reintroduce the proven #4139 replacement loss.
+// A custom transport lacking server-handle custody or bounded streaming
+// reads must fail closed; a path read/then-unlink fallback would
+// reintroduce the proven #4139 replacement loss, and a whole-file hash
+// would reintroduce the #4142 memory exhaustion.
 extension SMBFileTransport {
   public func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool
   ) async throws {
     throw POSIXError(.ENOTSUP)
   }
   public func moveRestoreFile(
     atPath path: String, toPath destination: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool
   ) async throws {
+    throw POSIXError(.ENOTSUP)
+  }
+  public func hashFileContents(atPath path: String, chunkSize: Int) async throws -> (
+    byteCount: Int, digest: SHA256.Digest
+  ) {
     throw POSIXError(.ENOTSUP)
   }
 }

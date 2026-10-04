@@ -7,6 +7,7 @@
 // the sidecar layer itself (that rule is about XMP read/write, which this
 // isn't).
 
+import CryptoKit
 import Foundation
 
 @testable import MapleCore
@@ -135,9 +136,10 @@ actor FakeSMBTransport: SMBFileTransport {
 
   func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool
   ) async throws {
-    guard let captured = files[path], captured.inode == expectedIdentity, validate(captured.data)
+    guard let captured = files[path], captured.inode == expectedIdentity,
+      validate(SHA256.hash(data: captured.data))
     else {
       throw POSIXError(.ESTALE)
     }
@@ -145,9 +147,10 @@ actor FakeSMBTransport: SMBFileTransport {
   }
   func moveRestoreFile(
     atPath path: String, toPath: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool
   ) async throws {
-    guard let captured = files[path], captured.inode == expectedIdentity, validate(captured.data)
+    guard let captured = files[path], captured.inode == expectedIdentity,
+      validate(SHA256.hash(data: captured.data))
     else {
       throw POSIXError(.ESTALE)
     }
@@ -189,6 +192,24 @@ actor FakeSMBTransport: SMBFileTransport {
   func readFile(atPath path: String) async throws -> Data {
     guard let entry = files[path] else { throw FakeSMBTransportError.notFound(path) }
     return entry.data
+  }
+
+  func hashFileContents(atPath path: String, chunkSize: Int) async throws -> (
+    byteCount: Int, digest: SHA256.Digest
+  ) {
+    // The fake already holds the bytes; chunked hashing is the real
+    // transport's job. Honor the chunk size by folding the same way so a
+    // wrong digest here still fails verification loudly.
+    guard let entry = files[path] else { throw FakeSMBTransportError.notFound(path) }
+    var digest = SHA256()
+    var offset = 0
+    let size = max(chunkSize, 1)
+    while offset < entry.data.count {
+      let end = min(entry.data.count, offset + size)
+      digest.update(data: entry.data[offset..<end])
+      offset = end
+    }
+    return (entry.data.count, digest.finalize())
   }
 
   func writeFile(data: Data, toPath path: String) async throws {

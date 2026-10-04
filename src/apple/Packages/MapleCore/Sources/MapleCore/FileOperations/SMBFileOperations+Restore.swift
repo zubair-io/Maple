@@ -167,18 +167,20 @@ private struct RestoreSMBFile {
       throw FileOperationError.verificationFailed(
         "Restore requires a regular file identity: \(path)")
     }
-    let bytes = try await transport.readFile(atPath: path)
+    // #4142: 1 MiB-capped reads folded into one SHA256, mirroring
+    // `RestoreLocalFile.captureDescriptor` — a multi-GB asset is never held whole.
+    let hashed = try await transport.hashFileContents(atPath: path, chunkSize: 1_048_576)
     let after = try await transport.attributesOfItem(atPath: path)
     guard (after[.documentIdentifierKey] as? NSNumber)?.uint64Value == inode,
       (after[.isRegularFileKey] as? NSNumber)?.boolValue == true,
       (after[.isSymbolicLinkKey] as? NSNumber)?.boolValue != true,
-      (after[.fileSizeKey] as? NSNumber)?.intValue == bytes.count,
+      (after[.fileSizeKey] as? NSNumber)?.intValue == hashed.byteCount,
       (attributes[.contentModificationDateKey] as? Date)
         == (after[.contentModificationDateKey] as? Date)
     else {
       throw FileOperationError.verificationFailed("Restore file changed while reading: \(path)")
     }
-    return Self(inode: inode, hash: SHA256.hash(data: bytes))
+    return Self(inode: inode, hash: hashed.digest)
   }
 
   func assertUnchanged(_ path: String, transport: SMBFileTransport) async throws {
@@ -193,15 +195,15 @@ private struct RestoreSMBFile {
   {
     let expected = hash
     try await transport.moveRestoreFile(atPath: path, toPath: destination, expectedIdentity: inode)
-    {
-      SHA256.hash(data: $0) == expected
+    { digest in
+      digest == expected
     }
   }
 
   func removeIfUnchanged(_ path: String, transport: SMBFileTransport) async throws {
     let expected = hash
-    try await transport.removeRestoreFile(atPath: path, expectedIdentity: inode) {
-      SHA256.hash(data: $0) == expected
+    try await transport.removeRestoreFile(atPath: path, expectedIdentity: inode) { digest in
+      digest == expected
     }
   }
 }

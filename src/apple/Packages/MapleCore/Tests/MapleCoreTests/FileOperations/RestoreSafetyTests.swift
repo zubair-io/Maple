@@ -51,13 +51,8 @@ final class RestoreSafetyTests: XCTestCase {
       let expected: String
       let incoming: [String]?
     }
-    var root = URL(fileURLWithPath: #filePath)
-    for _ in 0..<8 { root.deleteLastPathComponent() }
     let corpus = try JSONDecoder().decode(
-      Corpus.self,
-      from: Data(
-        contentsOf: root.appendingPathComponent(
-          "test-fixtures/file-operations/restore-collisions.json")))
+      Corpus.self, from: Data(contentsOf: try Self.restoreCorpusURL()))
     for item in corpus.cases {
       let folder = try SidecarContractIO.makeTempDirectory(prefix: "restore-corpus")
       defer { try? FileManager.default.removeItem(at: folder) }
@@ -225,6 +220,47 @@ final class RestoreSafetyTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: source), original)
     XCTAssertFalse(
       FileManager.default.fileExists(atPath: outside.appendingPathComponent("photo.dng").path))
+  }
+
+  func testCorpusLookupSupportsAnIsolatedCIPackageLayout() throws {
+    let stage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: stage) }
+    let fixtures = stage.appendingPathComponent("test-fixtures/file-operations")
+    try FileManager.default.createDirectory(at: fixtures, withIntermediateDirectories: true)
+    let committed = fixtures.appendingPathComponent("restore-collisions.json")
+    try FileManager.default.copyItem(at: try Self.restoreCorpusURL(), to: committed)
+    let source = stage.appendingPathComponent(
+      "Packages/MapleCore/Tests/MapleCoreTests/FileOperations/RestoreSafetyTests.swift")
+    XCTAssertEqual(try Self.restoreCorpusURL(from: source).path, committed.path)
+    try FileManager.default.removeItem(at: committed)
+    XCTAssertThrowsError(try Self.restoreCorpusURL(from: source))
+  }
+
+  /// Committed shared corpus (`test-fixtures/file-operations/`), resolved by
+  /// walking up from this file like `WorkflowFixture`/`MaskGroupFixture` — a
+  /// fixed climb breaks in CI's isolated package stage, where the sources
+  /// live outside the checkout. Absence fails: the corpus is committed.
+  private static func restoreCorpusURL(from file: URL = URL(fileURLWithPath: #filePath)) throws
+    -> URL
+  {
+    let parents = sequence(first: file.standardizedFileURL.deletingLastPathComponent()) {
+      directory -> URL? in
+      let parent = directory.deletingLastPathComponent().standardizedFileURL
+      return parent.path == directory.path ? nil : parent
+    }
+    let relative = "test-fixtures/file-operations/restore-collisions.json"
+    guard
+      let corpus = parents.lazy.map({ $0.appendingPathComponent(relative) }).first(where: {
+        FileManager.default.fileExists(atPath: $0.path)
+      })
+    else {
+      throw NSError(
+        domain: "RestoreSafetyTests", code: 1,
+        userInfo: [
+          NSLocalizedDescriptionKey: "Missing committed restore corpus above \(file.path)"
+        ])
+    }
+    return corpus
   }
 
   func testFailedDestinationRetainsForeignXmpAndOriginal() async throws {

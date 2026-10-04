@@ -1,4 +1,5 @@
 import AMSMB2
+import CryptoKit
 import Foundation
 
 @testable import MapleCore
@@ -44,7 +45,7 @@ actor RestoreRealSMBTransport: SMBFileTransport {
   }
   func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool
   ) async throws {
     if !removed && path.contains("/.maple/trash/") && path.hasSuffix(".dng") {
       removed = true
@@ -55,7 +56,7 @@ actor RestoreRealSMBTransport: SMBFileTransport {
   }
   func moveRestoreFile(
     atPath path: String, toPath: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    validate: @Sendable @escaping (SHA256.Digest) -> Bool
   ) async throws {
     if !intercepted && path.contains(".tmp.") && toPath.lowercased().hasSuffix(".dng") {
       intercepted = true
@@ -79,6 +80,11 @@ actor RestoreRealSMBTransport: SMBFileTransport {
   }
   func readFile(atPath path: String) async throws -> Data {
     try await client.readFile(atPath: path)
+  }
+  func hashFileContents(atPath path: String, chunkSize: Int) async throws -> (
+    byteCount: Int, digest: SHA256.Digest
+  ) {
+    try await client.hashFileContents(atPath: path, chunkSize: chunkSize)
   }
   func writeFile(data: Data, toPath path: String) async throws {
     try await client.writeFile(data: data, toPath: path)
