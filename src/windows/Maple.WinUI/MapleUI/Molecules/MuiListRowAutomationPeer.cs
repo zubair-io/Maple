@@ -1,4 +1,3 @@
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
@@ -15,9 +14,6 @@ internal sealed class MuiListRowAutomationPeer : FrameworkElementAutomationPeer,
     protected override AutomationControlType GetAutomationControlTypeCore() =>
         Row.HasPressAction ? AutomationControlType.Button : AutomationControlType.Group;
     protected override string GetItemStatusCore() => Row.Active ? "Current" : string.Empty;
-    protected override bool IsKeyboardFocusableCore() => Row.IsEnabled && Row.IsTabStop;
-    protected override bool HasKeyboardFocusCore() => Row.FocusState != FocusState.Unfocused;
-    protected override void SetFocusCore() => Row.Focus(FocusState.Keyboard);
     protected override object GetPatternCore(PatternInterface patternInterface) =>
         patternInterface == PatternInterface.Invoke && Row.HasPressAction ? this : base.GetPatternCore(patternInterface);
 

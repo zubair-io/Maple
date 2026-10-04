@@ -41,6 +41,11 @@ public sealed partial class MainWindow
             Check("row-target", row.ActualHeight >= 44);
             Check("keyboard-focus", row.Focus(FocusState.Keyboard) && peer.IsKeyboardFocusable()
                 && peer.HasKeyboardFocus() && ReferenceEquals(FocusManager.GetFocusedElement(host.XamlRoot), row));
+            Check("focused-peer", ReferenceEquals(peer.GetFocusedElement(), peer));
+            toggle.Focus(FocusState.Keyboard);
+            peer.SetFocus();
+            Check("automation-set-focus", peer.HasKeyboardFocus()
+                && ReferenceEquals(FocusManager.GetFocusedElement(host.XamlRoot), row));
             var invoke = peer.GetPattern(PatternInterface.Invoke) as IInvokeProvider;
             Check("invoke-provider", invoke != null);
             invoke!.Invoke();
