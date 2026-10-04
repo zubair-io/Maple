@@ -199,27 +199,4 @@ public enum AgentVectorscope {
       rgba: Array(rgba.prefix(Int(outWidth * outHeight * 4))),
       width: Int(outWidth), height: Int(outHeight), weighted: weights != nil)
   }
-
-  /// Extracts 8-bit alpha/weight bytes rescaled to target dimensions.
-  static func extractMaskWeights(_ maskImage: CGImage, width: Int, height: Int) -> [UInt8]? {
-    var bytes = [UInt8](repeating: 0, count: width * height)
-    let colorSpace = CGColorSpaceCreateDeviceGray()
-    let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
-      guard
-        let ctx = CGContext(
-          data: buffer.baseAddress,
-          width: width,
-          height: height,
-          bitsPerComponent: 8,
-          bytesPerRow: width,
-          space: colorSpace,
-          bitmapInfo: CGImageAlphaInfo.none.rawValue
-        )
-      else { return false }
-      ctx.interpolationQuality = .high
-      ctx.draw(maskImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-      return true
-    }
-    return drawn ? bytes : nil
-  }
 }

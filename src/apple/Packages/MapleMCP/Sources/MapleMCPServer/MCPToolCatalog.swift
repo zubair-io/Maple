@@ -226,7 +226,7 @@ public enum MCPToolCatalog {
       "name": "maple_get_vectorscope",
       "title": "Get vectorscope",
       "description":
-        "Return display-referred Rec.709 chroma distribution and vectorscope metrics for the active photo or a selected mask. Reports sample coverage, mean Cb/Cr, and (when evaluating a skin region or mask) skin locus angle compared to the traditional 123° colorist reference line.",
+        "Return display-referred Rec.709 chroma distribution and vectorscope metrics for the active photo or a selected mask. Reports sample coverage, mean Cb/Cr, and (when evaluating a skin region or mask) skin locus angle compared to the advisory traditional 123° colorist reference line.",
       "inputSchema": [
         "type": "object",
         "properties": [
