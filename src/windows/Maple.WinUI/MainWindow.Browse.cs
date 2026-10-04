@@ -23,8 +23,11 @@ namespace Maple.WinUI
                 UpdateResponsiveShell();
                 return;
             }
-            var hidden = SidebarColDef.Width.Value > 0;
-            SidebarColDef.Width = new GridLength(hidden ? 0 : Math.Max(_settings.LeftPanelWidth, 200));
+            SetSidebarHidden(!_settings.LeftPanelHidden);
+        }
+
+        private void SetSidebarHidden(bool hidden)
+        {
             // Keeps the in-memory _settings field (read elsewhere this
             // session, e.g. SetMode above) in sync too — AppSettings.Update
             // below only fixes what actually goes to disk.

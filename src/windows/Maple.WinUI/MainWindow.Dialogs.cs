@@ -24,7 +24,7 @@ namespace Maple.WinUI
                 var window = new SettingsWindow(
                     ViewModel,
                     openCloudConnect: () => OnConnectCloud(this, new RoutedEventArgs()),
-                    toggleSidebar: () => OnToggleSidebar(this, new RoutedEventArgs()),
+                    setSidebarVisible: visible => SetSidebarHidden(!visible),
                     setCloudFiles: SetCloudFilesEnabled);
                 window.Closed += (_, _) => _settingsWindow = null;
                 _settingsWindow = window;
