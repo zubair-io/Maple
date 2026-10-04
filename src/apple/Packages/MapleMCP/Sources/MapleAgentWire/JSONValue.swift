@@ -21,6 +21,11 @@ public enum JSONValue: Sendable, Equatable, Hashable {
     return nil
   }
 
+  public var arrayValue: [JSONValue]? {
+    if case .array(let values) = self { return values }
+    return nil
+  }
+
   public var stringValue: String? {
     if case .string(let value) = self { return value }
     return nil

@@ -80,9 +80,12 @@ public final class MapViewModel {
   public func regionChanged(_ region: MapViewportRegion) {
     lastRegion = region
     debounceTask?.cancel()
-    let delay = debounceDelay
+    let (seconds, attoseconds) = debounceDelay.components
+    let secNs = UInt64(clamping: seconds) * 1_000_000_000
+    let attoNs = UInt64(clamping: attoseconds / 1_000_000_000)
+    let totalNs = secNs.addingReportingOverflow(attoNs).partialValue
     debounceTask = Task { [weak self] in
-      try? await Task.sleep(for: delay)
+      try? await Task.sleep(nanoseconds: totalNs)
       guard !Task.isCancelled else { return }
       await self?.fetch(region: region)
     }

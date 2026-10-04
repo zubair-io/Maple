@@ -38,7 +38,7 @@
 
 #if DEBUG
   import SwiftUI
-  import MapleCore
+  @testable import MapleCore
 
   @MainActor
   extension AppShell {
@@ -75,6 +75,18 @@
         let session = EditSession(asset: asset)
         sessions[asset.id] = session
         await session.loadSidecar()
+        #if os(macOS)
+          // #4140: only the existing valid copied-fixture launch can serve
+          // the isolated GUI qualification; no preference or App Group access.
+          if MapleApp.isAgentUIQualification {
+            let socket = fixtureURL.deletingLastPathComponent().appendingPathComponent("agent.sock")
+            precondition(
+              socket.path.utf8.count < 104,
+              "#4140 requires an owned socket path shorter than sockaddr_un.sun_path."
+            )
+            AgentBridgeController.shared.start(path: socket.path)
+          }
+        #endif
         browseVM.selectedID = asset.id
         #if os(iOS)
           if MapleShellKind.current == .phoneTab {

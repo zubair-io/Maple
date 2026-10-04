@@ -51,7 +51,7 @@ extension EditSession {
   /// path develops at `.preview` (RenderActor's sharedDecode +
   /// decodeSceneLinear* default to `.preview`), so the curve is fit at
   /// `.preview` to match the displayed buffer (#844).
-  private func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async
+  func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async
     -> CIFilter?
   {
     guard asset.isRaw, m.profile == .auto else { return nil }

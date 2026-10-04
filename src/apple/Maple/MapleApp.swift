@@ -32,7 +32,11 @@ struct MapleApp: App {
 
   init() {
     // Preserve the published early-feature default for Panorama (#3773).
-    FeatureFlags.publishResolvedFlags()
+    #if DEBUG && os(macOS)
+      if !Self.isAgentUIQualification { FeatureFlags.publishResolvedFlags() }
+    #else
+      FeatureFlags.publishResolvedFlags()
+    #endif
     Self.registerBundledFonts()
     Self.installMemoryPressureObserver()
     BGTaskRegistration.register()
@@ -51,7 +55,15 @@ struct MapleApp: App {
     // for why `open -n` needs the launch-argument form.
     Auto1Flag.propagateToProcessEnvironmentIfNeeded()
     #if os(macOS)
-      AgentBridgeController.shared.syncWithPreference()
+      #if DEBUG
+        // #4140: a fixture-only qualification owns its temporary socket and
+        // must never start the production app-group endpoint or write its toggle.
+        if !Self.isAgentUIQualification {
+          AgentBridgeController.shared.syncWithPreference()
+        }
+      #else
+        AgentBridgeController.shared.syncWithPreference()
+      #endif
     #endif
 
     #if DEBUG
@@ -83,6 +95,14 @@ struct MapleApp: App {
           MapleApp.uitestFixtureURL = url
         }
       }
+      #if os(macOS)
+        if Self.isAgentUIQualification {
+          precondition(
+            Self.uitestFixtureURL != nil,
+            "#4140 requires an owned accessible UITest fixture; normal source restore is forbidden."
+          )
+        }
+      #endif
     #endif
   }
 
@@ -91,6 +111,10 @@ struct MapleApp: App {
     /// existing file. AppShell consumes via `.task` on the macOS shell.
     /// Nil in production (the env var is read inside `#if DEBUG`).
     nonisolated(unsafe) static var uitestFixtureURL: URL?
+
+    static var isAgentUIQualification: Bool {
+      ProcessInfo.processInfo.arguments.contains("--maple-agent-ui-qualification")
+    }
 
     /// Best-effort default for `MAPLE_UITEST_FIXTURE_ROOT`. Used only when
     /// the env var is unset; matches the layout the harness expects. The

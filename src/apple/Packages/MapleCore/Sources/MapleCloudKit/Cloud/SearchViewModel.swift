@@ -136,7 +136,7 @@ public final class SearchViewModel {
   public func queryChanged() {
     debounceTask?.cancel()
     debounceTask = Task { [weak self] in
-      try? await Task.sleep(for: .milliseconds(250))
+      try? await Task.sleep(nanoseconds: 250_000_000)
       guard !Task.isCancelled else { return }
       await self?.submit()
     }

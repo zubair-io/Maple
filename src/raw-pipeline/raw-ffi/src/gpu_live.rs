@@ -211,6 +211,8 @@ pub unsafe extern "C" fn maple_gpu_live_open(
 }
 
 mod entries;
+mod inspection;
+pub use inspection::*;
 // The moved entries are `#[no_mangle] extern "C"` and reach the C ABI by symbol,
 // so the lib target never names them — the re-export exists so this module's own
 // test children still resolve them unqualified after the split.

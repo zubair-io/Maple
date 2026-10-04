@@ -114,25 +114,45 @@ final class AgentInspectorTests: XCTestCase {
   }
 
   func testServiceInspectsTheCanvasAndTagsTheRevision() async throws {
-    let session = EditSession(
-      asset: AssetRef(displayName: "t.dng", hintExtension: "dng") { Data() },
-      model: .default, culling: CullingState())
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-inspector")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let original = directory.appendingPathComponent("portrait.png")
+    try FileManager.default.copyItem(at: fixture, to: original)
+    let originalBytes = try Data(contentsOf: original)
+    let session = EditSession(asset: AssetRef(url: original))
+    session.previewSize = CGSize(width: 256, height: 256)
     let service = AgentEditService()
-    service.activate(session)
+    // A supported source can be developed on demand before the canvas opens.
+    // Use a genuinely unavailable source to retain the recoverable empty-render contract.
+    let unavailable = EditSession(
+      asset: AssetRef(displayName: "unavailable.dng", hintExtension: "dng") { Data() },
+      model: .default, culling: CullingState())
+    service.activate(unavailable)
 
     let empty = await service.handle(
       AgentRequest(id: 1, tool: "maple_render_and_inspect", arguments: [:]))
     guard case .failure(let error) = empty.outcome else { return XCTFail("expected failure") }
     XCTAssertEqual(error.code, "render_unavailable")
 
-    session.renderedPreview = splitImage()
+    service.activate(session)
+    await session.openAssetPipelineAsync()
+    _ = await session.latestRenderSchedule?.value
+    await session.renderActor.awaitCurrentRenderIfInFlight()
+    XCTAssertNotNil(session.renderedPreview)
     let response = await service.handle(
       AgentRequest(id: 2, tool: "maple_render_and_inspect", arguments: ["max_edge": 256]))
     let payload = try response.outcome.get()
     XCTAssertEqual(payload.result["revision"]?.stringValue, AgentEditService.revision(of: session))
-    XCTAssertEqual(payload.result["width"], 256)
+    // The authentic fixture is portrait: max_edge bounds its height.
+    XCTAssertEqual(payload.result["height"], 256)
+    XCTAssertEqual(payload.result["width"], 170)
     XCTAssertNotNil(payload.result["metrics"]?["near_white_fraction"])
     XCTAssertEqual(payload.image?.mimeType, "image/jpeg")
     XCTAssertEqual(payload.image?.data.prefix(2), Data([0xFF, 0xD8]))
+    await session.renderActor.cancelAll()
+    await session.flushPendingSidecarWrite()
+    XCTAssertEqual(try Data(contentsOf: original), originalBytes)
   }
 }

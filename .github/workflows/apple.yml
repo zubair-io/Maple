@@ -274,6 +274,8 @@ jobs:
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
             ~/Library/Caches/org.swift.swiftpm
           key: apple-test-swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', 'src/apple/Packages/MapleBackup/Package.resolved', '.github/workflows/apple.yml') }}
+      - name: Build the real stdio bridge for Core regression tests
+        run: swift build --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleMCP" --configuration release --product maple-mcp
       - name: Execute the regression allowlist (.github/swift-regressions/run.txt)
         run: |
           set -euo pipefail
@@ -289,6 +291,7 @@ jobs:
             [ -n "$line" ] && classes+=("$line")
           done < .github/swift-regressions/run.txt
           FILTER="MapleCoreTests\.($(IFS='|'; echo "${classes[*]}"))/"
+          touch "$MAPLE_SWIFT_TEST_ROOT/test-started"
           test_status=0
           python3 tools/run-swift-regressions.py \
             --log "$MAPLE_SWIFT_TEST_ROOT/tests.log" \
@@ -337,6 +340,38 @@ jobs:
           print(f'Passed {len(results)} regression cases; no failures or skips')
           PYCODE
           exit "$test_status"
+      - name: Preserve fresh XCTest crash reports (#4159)
+        if: failure()
+        run: |
+          python3 - "$MAPLE_SWIFT_TEST_ROOT" <<'PYCODE'
+          from pathlib import Path
+          import json, shutil, sys
+          root = Path(sys.argv[1])
+          marker = root / 'test-started'
+          destination = root / 'crash-reports'
+          destination.mkdir(parents=True, exist_ok=True)
+          reports = []
+          if marker.exists():
+              started = marker.stat().st_mtime_ns
+              source = Path.home() / 'Library/Logs/DiagnosticReports'
+              for directory in (source, source / 'Retired'):
+                  if not directory.is_dir():
+                      continue
+                  for report in sorted(directory.iterdir()):
+                      if (report.is_symlink() or not report.is_file()
+                          or report.suffix not in ('.ips', '.crash')
+                          or not report.name.startswith(('MapleCorePackageTests', 'xctest'))
+                          or report.stat().st_mtime_ns < started):
+                          continue
+                      copied = destination / f'{directory.name}-{report.name}'
+                      shutil.copy2(report, copied)
+                      reports.append({'source': str(report), 'artifact': copied.name})
+          (destination / 'manifest.json').write_text(json.dumps({
+              'test_started': marker.exists(), 'reports': reports,
+              'status': 'captured' if reports else 'no matching fresh crash report'
+          }, indent=2) + '\n')
+          print(f'Preserved {len(reports)} fresh XCTest crash reports')
+          PYCODE
       - name: Upload regression results
         if: always()
         uses: actions/upload-artifact@v4
@@ -346,4 +381,5 @@ jobs:
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/results.xml
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/tests.log
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/hang-diagnostics/
+            ${{ env.MAPLE_SWIFT_TEST_ROOT }}/crash-reports/
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/smb-diagnostics/
