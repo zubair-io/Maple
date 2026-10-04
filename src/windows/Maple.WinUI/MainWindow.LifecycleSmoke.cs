@@ -138,6 +138,8 @@ namespace Maple.WinUI
                             passed = earlyWbCases == 4, skipReason = earlyWbCases == 0 ? "Fixture has schema-default as-shot identity" : null }));
                     RecordSmokeStage(output, "adjustment-gesture");
                     await VerifyAdjustmentGestureUndoAsync();
+                    RecordSmokeStage(output, "crop-history-aspect");
+                    await VerifyCropHistoryAspectAsync();
                     RecordSmokeStage(output, "retouch-undo");
                     // Repeat within one XAML lifetime: the intermittent repair
                     // failure was not covered by a single successful invocation.
@@ -236,6 +238,7 @@ namespace Maple.WinUI
                     nativeDetailActualSize = expectedPath != "empty",
                     presetUndoRedoAndReset = expectedPath != "empty",
                     adjustmentGestureUndoRedo = expectedPath != "empty",
+                    cropHistoryAspect = expectedPath != "empty",
                     repairControlsUndoRedo = expectedPath != "empty",
                     scopesLifecycle = expectedPath != "empty",
                     transferWatcherUndoRedo = expectedPath != "empty",

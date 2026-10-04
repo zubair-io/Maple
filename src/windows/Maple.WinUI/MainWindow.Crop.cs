@@ -251,6 +251,9 @@ namespace Maple.WinUI
         /// <summary>Model → crop UI (undo, sidecar reload, photo switch).</summary>
         private void SyncCropFromModel()
         {
+            // Aspect is a transient tool constraint, not part of the restored
+            // document. Undo/Redo or reload must not retain a stale lock.
+            CropToolbar.SelectedAspectId = "free";
             CropToolbar.StraightenAngle = ViewModel.Adjustments.Crop.Angle;
             UpdateCropDisplay();
         }
