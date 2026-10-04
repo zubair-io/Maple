@@ -60,6 +60,9 @@ public final class EditSession {
   public var model: AdjustmentModel {
     didSet {
       guard model != oldValue else { return }
+      if let selectedMaskId, !model.localAdjustments.contains(where: { $0.id == selectedMaskId }) {
+        self.selectedMaskId = nil
+      }
       guard !isHydratingInitialState else { return }
       // Slider → render wire. If this log doesn't fire on a slider
       // drag, the @Bindable write never landed on `session.model` (the
