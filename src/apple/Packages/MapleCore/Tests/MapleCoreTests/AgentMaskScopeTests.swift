@@ -34,6 +34,52 @@ final class AgentMaskScopeTests: XCTestCase {
     return try XCTUnwrap(state["revision"]?.stringValue)
   }
 
+  func testUndoClearsRemovedMaskSelectionAndRedoPreservesValidSelection() async throws {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-mask-undo")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
+    let original = directory.appendingPathComponent("portrait.png")
+    try FileManager.default.copyItem(at: fixture, to: original)
+    let bytes = try Data(contentsOf: original)
+    let session = EditSession(asset: AssetRef(url: original))
+    let service = AgentEditService()
+    service.activate(session)
+    let initial = session.model
+    let initialRevision = try await revision(service)
+    let created = try await call(
+      service, "maple_create_mask",
+      [
+        "expected_revision": .string(initialRevision), "kind": "radial",
+        "params": ["center": ["x": 0.5, "y": 0.5], "radii": ["x": 0.3, "y": 0.3]],
+      ]
+    ).get().result
+    let maskID = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(created["mask_id"]?.stringValue)))
+    let edited = session.model
+    XCTAssertEqual(session.selectedMaskId, maskID)
+    session.undo()
+    XCTAssertEqual(session.model, initial)
+    XCTAssertNil(session.selectedMaskId)
+    XCTAssertFalse(session.showsMaskOverlay)
+    let restoredState = try await call(service, "maple_get_active_photo").get().result
+    XCTAssertNil(restoredState["selected_mask_id"])
+    let restoredRevision = try await revision(service)
+    XCTAssertEqual(restoredRevision, initialRevision)
+    session.redo()
+    XCTAssertEqual(session.model, edited)
+    XCTAssertNil(session.selectedMaskId, "Redo restores the model without inventing a selection")
+    session.selectedMaskId = maskID
+    session.beginEdit()
+    session.model.exposure = 0.25
+    session.endEdit()
+    session.undo()
+    XCTAssertEqual(session.selectedMaskId, maskID, "Undo retains a mask that still exists")
+    session.redo()
+    XCTAssertEqual(session.selectedMaskId, maskID)
+    await session.flushPendingSidecarWrite()
+    XCTAssertEqual(try Data(contentsOf: original), bytes)
+  }
+
   func testChromaRec709Math() {
     // Pure red (1, 0, 0)
     let red = AgentVectorscope.compute(
