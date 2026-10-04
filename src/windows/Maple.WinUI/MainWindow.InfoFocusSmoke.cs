@@ -18,6 +18,8 @@ public sealed partial class MainWindow
         var photo = ViewModel.SelectedPhoto;
         var adjustments = ViewModel.Adjustments;
         var originalMode = _mode;
+        if (originalMode != ShellMode.Edit)
+            throw new InvalidOperationException("Info focus qualification must start in Edit mode.");
         var originalInfo = _infoPaneOpen;
         var originalBrowse = _browseListDetail;
         var original = Snapshot();
@@ -63,6 +65,7 @@ public sealed partial class MainWindow
             throw new InvalidOperationException("Restored Edit mode has no visible Compare focus.");
         await File.WriteAllTextAsync(Path.Combine(output, "inspector-focus-result.json"), JsonSerializer.Serialize(new
         {
+            // Caption activation is setup; the remaining checkpoints exercise 15 focus transitions.
             passed = true, casesExecuted = 15, casesSkipped = 0, originalRawSha256 = Convert.ToHexString(hash),
             documentPreserved = Snapshot() == original, undoDepth = undo, scale = Content.XamlRoot.RasterizationScale,
             restoredFocus = AutomationProperties.GetName(CompareButton)

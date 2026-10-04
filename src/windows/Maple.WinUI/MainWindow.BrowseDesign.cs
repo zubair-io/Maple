@@ -283,6 +283,6 @@ public sealed partial class MainWindow
     private void OnBrowseOpenInfo(object sender, RoutedEventArgs e)
     {
         EnterPreview();
-            SetInspectorOpen(true);
+        SetInspectorOpen(true);
     }
 }
