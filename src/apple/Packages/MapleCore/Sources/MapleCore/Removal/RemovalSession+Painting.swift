@@ -96,6 +96,9 @@ extension RemovalSession {
       mask = try RemovalBridge.refineSelection(
         replacementBase, strokes: strokes,
         protection: protection)
+    } else if mode == .paint, !paintedSelectionBase.isEmpty {
+      mask = try RemovalBridge.refineSelection(
+        paintedSelectionBase, strokes: strokes, protection: protection)
     } else if strokes.isEmpty {
       mask = Data()
     } else if mode == .paint {

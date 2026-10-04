@@ -48,6 +48,7 @@ public final class RemovalSession {
   public internal(set) var savedRemovals: [SavedRemovalEntry] = []
   public internal(set) var replacingRemovalID: String?
   @ObservationIgnored var replacementBase = Data()
+  @ObservationIgnored var paintedSelectionBase = Data()
   @ObservationIgnored var replacementOriginal: NativeRemovalEditorContext?
   public internal(set) var refiningPersonID: Int?
   public private(set) var modelFolderName: String?
@@ -171,6 +172,7 @@ public final class RemovalSession {
     savedRemovals = []
     replacingRemovalID = nil
     replacementBase = Data()
+    paintedSelectionBase = Data()
     replacementOriginal = nil
     personMasks = []
     detectedPersonMasks = []
@@ -232,12 +234,27 @@ public final class RemovalSession {
     revision &+= 1
     selection = Data()
     replacementBase = Data()
+    paintedSelectionBase = Data()
     strokes = []
     personMasks = []
     personChoicesNeedApply = false
     resetPersonRefinement()
     gestureSizes = []
     redoGestures = []
+  }
+
+  /// Freeze an explicit Smart paint result for precise brush corrections
+  /// (#3984). No model failure is silently converted into painted intent.
+  public func refineWithPaint() {
+    guard phase == .ready, mode == .smart, !selection.isEmpty,
+      replacingRemovalID == nil
+    else { return }
+    let base = selection
+    clearSelection()
+    mode = .paint
+    paintedSelectionBase = base
+    selection = base
+    message = "Refine the selection with Add or Subtract, then click Remove."
   }
 
   public func protectSelection() {

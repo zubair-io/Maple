@@ -96,6 +96,55 @@ final class RemovalSessionTests: XCTestCase {
     await session.releaseTransientMemory()
   }
 
+  func testExplicitPaintRefinementRetainsSmartMaskAndResetsWithTheTool() async throws {
+    let session = try stage()
+    let removal = RemovalSession(session: session)
+    await removal.open()
+    removal.refineWithPaint()
+    XCTAssertEqual(removal.mode, .paint, "No Smart result is available")
+    removal.radius = 0.1
+    await removal.paint([[0.4, 0.5]], cropInputSize: [16, 8])
+    let protection = removal.selection
+    removal.protectSelection()
+    await removal.setMode(.smart)
+    removal.refineWithPaint()
+    XCTAssertEqual(removal.mode, .smart, "An empty result cannot be frozen")
+    // This fixture-free control supplies a real shared-rasterized native mask;
+    // the photographic test exercises the actual model and its rejected stroke.
+    let base = try await removal.engine.paint(
+      [RemovalStroke(points: [[0.8, 0.5]], radius: 0.1, subtract: false)],
+      context: XCTUnwrap(removal.context))
+    removal.selection = base
+    removal.phase = .selecting
+    removal.refineWithPaint()
+    XCTAssertEqual(removal.mode, .smart, "An in-flight result cannot be frozen")
+    removal.phase = .ready
+    removal.refineWithPaint()
+    XCTAssertEqual(removal.mode, .paint)
+    XCTAssertEqual(removal.selection, base)
+    XCTAssertEqual(removal.protection, protection)
+    XCTAssertFalse(removal.canUndoSelection)
+    removal.subtract = true
+    await removal.paint([[0.8, 0.5]], cropInputSize: [16, 8])
+    XCTAssertTrue(removal.selection.isEmpty)
+    await removal.undoSelection()
+    XCTAssertEqual(removal.selection, base)
+    await removal.redoSelection()
+    XCTAssertTrue(removal.selection.isEmpty)
+    removal.clearSelection()
+    XCTAssertTrue(removal.paintedSelectionBase.isEmpty)
+    removal.subtract = false
+    await removal.paint([[0.8, 0.5]], cropInputSize: [16, 8])
+    await removal.undoSelection()
+    XCTAssertTrue(removal.selection.isEmpty, "Clear cannot resurrect the frozen result")
+    removal.close()
+    XCTAssertTrue(removal.paintedSelectionBase.isEmpty)
+    XCTAssertTrue(session.undoHistory.isEmpty)
+    let raw = try XCTUnwrap(session.asset.primaryURL)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: raw).path))
+    await session.releaseTransientMemory()
+  }
+
   func testSurroundBreaksStrokesInsteadOfPaintingAConnectingLine() async throws {
     let session = try stage()
     let removal = RemovalSession(session: session)
