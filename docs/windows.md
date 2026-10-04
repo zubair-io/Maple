@@ -218,6 +218,13 @@ The imported-lens-profile tests split the same way: `XmpLensProfileTests` and `L
 
 ### Qualification harness
 
+For list-row accessibility, launch `Maple.WinUI.exe --lifecycle-smoke unused OUT list-row`
+to check native peers in an attached WinUI window. `list-row-input` additionally waits
+up to 120 seconds for actual OS input: Space on the navigation row, Space on its nested
+toggle, and a pointer click on the decorative trailing chevron. Missing input fails the
+run. The JSON results distinguish provider checks from actual input; neither mode
+establishes Narrator announcement or qualification at other display scales.
+
 `src/windows/scripts/qualify-winui.ps1` is the Windows counterpart of the Apple UITest visual harness. It drives `MainWindow.Qualify.cs`, which runs headless-ish under environment variables: `MAPLE_QUALIFY_RAW` names the photo to open in Edit, `MAPLE_QUALIFY_OUT` the directory for `report.json`. Two app runs:
 
 1. **GPU** — times ticks wiggling Exposure ±0.01 through the real render loop; reports median and p95 against the 16ms target and 50ms hard limit.
