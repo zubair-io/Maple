@@ -372,7 +372,12 @@ jobs:
         working-directory: src/raw-pipeline
         run: cargo test -p raw-ffi --features gpu --lib auto_profile_compose -- --test-threads=1
 
-      # 4. The other feature-gated GPU surface: raw-wasm's `gpu` module tree.
+      # 4. CPU-only guards for borrowed optional profile inputs.
+      - name: GPU live optional profile ABI guards
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-ffi --features gpu --lib gpu_live::params -- --test-threads=1
+
+      # 5. The other feature-gated GPU surface: raw-wasm's `gpu` module tree.
       - name: cargo check -p raw-wasm --all-features --all-targets
         working-directory: src/raw-pipeline
         run: cargo check -p raw-wasm --all-features --all-targets
