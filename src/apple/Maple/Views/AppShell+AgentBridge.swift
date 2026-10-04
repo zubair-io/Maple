@@ -12,7 +12,12 @@ extension AppShell {
     agentBrowseAdapter.openPhotoHandler = { asset in
       openEditor(for: asset)
       mode = .editing
-      let session = sessions[asset.id] ?? EditSession(asset: asset)
+      guard let session = sessions[asset.id] else {
+        throw AgentError(
+          code: "session_unavailable",
+          message: "Failed to open or resolve edit session for \(asset.displayName).")
+      }
+      await session.loadSidecar()
       AgentEditService.shared.activate(session)
       return session
     }

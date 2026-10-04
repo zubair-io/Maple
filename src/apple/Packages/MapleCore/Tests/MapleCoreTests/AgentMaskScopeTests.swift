@@ -439,6 +439,38 @@ final class AgentMaskScopeTests: XCTestCase {
     XCTAssertEqual(overlayRes.image?.mimeType, "image/jpeg")
     XCTAssertEqual(overlayRes.image?.data.prefix(2), Data([0xFF, 0xD8]))
     XCTAssertEqual(try Data(contentsOf: url), original)
+
+    // Whole image skin mask uses range refinement
+    let skinMaskRes = try await call(
+      service, "maple_create_mask",
+      ["expected_revision": .string(try await revision(service)), "kind": "whole_image_skin"]
+    ).get().result
+    let skinMaskId = try XCTUnwrap(skinMaskRes["mask_id"]?.stringValue)
+
+    let skinOverlayRes = try await call(
+      service, "maple_render_mask_overlay",
+      ["mask_id": .string(skinMaskId), "max_edge": 256]
+    ).get()
+
+    XCTAssertEqual(skinOverlayRes.result["mask_id"]?.stringValue, skinMaskId)
+    XCTAssertEqual(skinOverlayRes.result["kind"]?.stringValue, "whole_image_skin")
+    XCTAssertNotNil(skinOverlayRes.result["coverage_pct"])
+    XCTAssertEqual(skinOverlayRes.image?.mimeType, "image/jpeg")
+
+    // Cropped session reflects cropped dimensions in overlay
+    session.beginEdit(kind: .crop, description: "Crop")
+    session.model.crop = Crop(top: 0, left: 0, bottom: 1, right: 0.5)
+    session.endEdit()
+    _ = await session.latestRenderSchedule?.value
+    await session.renderActor.awaitCurrentRenderIfInFlight()
+
+    let croppedOverlayRes = try await call(
+      service, "maple_render_mask_overlay",
+      ["mask_id": .string(maskId), "max_edge": 256]
+    ).get()
+    let w = try XCTUnwrap(croppedOverlayRes.result["width"]?.numberValue)
+    let h = try XCTUnwrap(croppedOverlayRes.result["height"]?.numberValue)
+    XCTAssertTrue(w < h, "Cropped width (\(w)) should be smaller than height (\(h))")
   }
 
   func testGetVectorscopeToolWithMask() async throws {

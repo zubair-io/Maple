@@ -26,8 +26,12 @@ extension EditSession {
     let frame = wbSliderFrame
     let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
     if gpuFramePresented, !gpuPresentFailed, let driver = gpuLiveDriver {
+      let crop = effectiveCrop
+      let appliedCrop = CropImageStage.shouldApply(crop) ? crop : Crop.identity
+      let gpuModel = await renderModel(
+        remappedThrough: MaskAffine.cropToFullFrame(appliedCrop, nativeSize: nativeImageSize))
       return try await driver.agentScopePixels(
-        model: model,
+        model: gpuModel,
         asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500,
         asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0,
         wbFrame: resolvedIsRaw ? frame : nil, layer: layer, region: region)
