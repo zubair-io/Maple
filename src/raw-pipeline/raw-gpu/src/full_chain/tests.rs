@@ -410,6 +410,31 @@ fn full_gpu_chain_matches_composed_cpu_oracle() {
 /// stage class measurably changed the pixels. (Separate from the parity gate so a
 /// vacuous-input regression is a distinct, legible failure.)
 #[test]
+fn absent_auto_curve_full_chain_matches_cpu_residual_only() {
+    let (w, h) = (8, 8);
+    let input = scene_linear_rgba(w, h);
+    for mut case in [mild_case(), aggressive_case()] {
+        for lut in [
+            raw_core::view::auto_profile::lut::ColorLut::identity(9),
+            nonidentity_lut(9),
+        ] {
+            case.lut = lut;
+            let mut inputs = case.gpu_inputs_for(&input);
+            inputs.profile_curve_flat = Vec::new().into();
+            let gpu = run_gpu_chain(&input, w as u32, h as u32, &inputs);
+            let cpu = crate::full_chain::oracle::cpu_oracle_with_auto_curve(
+                &input, w as u32, h as u32, &case, None,
+            );
+            assert!(gpu.iter().all(|v| v.is_finite()));
+            let diff = max_abs_diff(&gpu, &cpu);
+            assert!(diff < FULL_CHAIN_BUDGET, "absent curve max diff {diff:e}");
+            let present = cpu_oracle(&input, w as u32, h as u32, &case);
+            assert!(max_abs_diff(&cpu, &present) > FULL_CHAIN_BUDGET);
+        }
+    }
+}
+
+#[test]
 fn aggressive_case_is_non_vacuous() {
     let (w, h) = (8usize, 8usize);
     let input = scene_linear_rgba(w, h);

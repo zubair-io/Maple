@@ -389,6 +389,17 @@ pub fn shared_airlight(input: &[f32], w: u32, h: u32, case: &Case) -> [f32; 3] {
 /// `build_full_chain_passes` produces (which runs them unconditionally). That
 /// gap is exactly what `live_chain/tests.rs` measures.
 pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
+    cpu_oracle_with_auto_curve(input, w, h, case, Some(&case.curve))
+}
+
+/// Run the real CPU stages with explicit Auto curve presence (#4216).
+pub fn cpu_oracle_with_auto_curve(
+    input: &[f32],
+    w: u32,
+    h: u32,
+    case: &Case,
+    curve: Option<&ProfileCurve>,
+) -> Vec<f32> {
     let mut img = pre_dehaze_image(input, w, h, case);
     raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);
     // Defringe (#3411) — develop's 12a slot, between dehaze and local
@@ -453,7 +464,9 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     for p in &img.pixels {
         rgb.extend_from_slice(&[p[0], p[1], p[2]]);
     }
-    apply_curve(&mut rgb, &case.curve);
+    if let Some(curve) = curve {
+        apply_curve(&mut rgb, curve);
+    }
     case.lut.apply(&mut rgb);
 
     // Repack to RGBA (alpha 1.0) to match the GPU readback shape.
