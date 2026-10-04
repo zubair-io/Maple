@@ -67,7 +67,7 @@
 //! is a HEADLESS test affordance, explicitly sanctioned for this milestone.
 
 use crate::agx::AgxPass;
-use crate::auto_profile_curve::AutoProfileCurvePass;
+use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 use crate::chain::Pass;
 use crate::clarity::ClarityPass;
@@ -94,7 +94,7 @@ pub(crate) fn hsl_pass_for(inputs: &FullChainInputs) -> HslPass {
 }
 use crate::color_grade::{ColorGradePass, ColorGradeSliders};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
-use crate::residual_lut::ResidualLutPass;
+use crate::residual_lut::{residual_lut_is_active, ResidualLutPass};
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
@@ -232,12 +232,13 @@ pub struct FullChainInputs<'a> {
     /// develop's `capture_sharpening_params_from_model(model)` gate — `None` ⇒ the
     /// pass is omitted, exactly as develop omits the stage).
     pub capture_sharpening: Option<CaptureSharpeningParams>,
-    /// Flat Auto Profile curve (`ProfileCurve::to_flat()`,
-    /// [`crate::PROFILE_CURVE_FLAT_LEN`] floats).
+    /// Flat Auto Profile curve ([`crate::PROFILE_CURVE_FLAT_LEN`] floats).
+    /// EMPTY = absent (Neutral/unfitted): composers omit the pass (raw-core's
+    /// `if let Some` skip). Never substitute identity (knee crushes 1.0→0.975).
     pub profile_curve_flat: std::borrow::Cow<'a, [f32]>,
-    /// Auto Profile residual LUT node count per axis.
+    /// Residual LUT edge; 0 + empty data = absent: composers omit the pass.
     pub residual_lut_size: usize,
-    /// Auto Profile residual LUT flat grid (`size³ × 3` floats).
+    /// Residual LUT flat grid (`size³ × 3` floats).
     pub residual_lut_data: std::borrow::Cow<'a, [f32]>,
     /// Target display primaries for the `display_encode` view-tail stage
     /// (ticket #1337): `0` = sRGB (default, legacy-compatible), `1` = Display P3.
@@ -312,31 +313,10 @@ pub struct FullChainInputs<'a> {
     pub defringe: DefringeInputs,
 }
 
-/// How the GPU-resident image was produced. Drives which leading stages the live
-/// chain must run at the start of each render tick.
-///
-/// The zero-value `PostDcpRec2020Fp16` is the *default* — the historic RAW path
-/// that ran before this enum was introduced — so any `FullChainInputs` zeroed
-/// by a legacy caller correctly resolves to the full RAW chain. The non-zero
-/// values engage the two new non-RAW branches.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum InputShape {
-    /// Scene-linear Rec.2020 fp16 after the full RAW decode (DCP + WB at D65/
-    /// 6500K). All chain stages run: WB delta → scene tone → … → view tail.
-    /// Value 0 — the historic default.
-    #[default]
-    PostDcpRec2020Fp16 = 0,
-    /// 16-bit linear Rec.2020 input (pano PNG output). The WB / DCP / AE
-    /// stages have no meaning — the buffer is already in the correct colour
-    /// space — so the live chain starts at the first user-edit stage
-    /// (scene_tone_controls). WB and capture_sharpening are skipped.
-    LinearRec2020Fp16 = 1,
-    /// 8-bit sRGB gamma-encoded input (JPEG / HEIF / 8-bit PNG). A CPU
-    /// pre-pass at session-open time converts to scene-linear Rec.2020
-    /// (`sRGB→linear + sRGB→Rec.2020 primaries matrix`), after which the
-    /// same stage subset as `LinearRec2020Fp16` runs.
-    SrgbGammaEncoded8 = 2,
-}
+// `InputShape` lives in a sibling file to keep this module inside the
+// file-size budget (same split shape as `live_chain`'s `noop` / `signature`).
+mod shape;
+pub use shape::InputShape;
 
 /// Where the scene-linear / view boundary sits in the assembled Vec, expressed
 /// as the count of passes that run BEFORE `dehaze` (the prefix whose output
@@ -512,10 +492,10 @@ pub fn build_split<'a>(
     }));
     // Film look (epic #2683, Task 7) — display-linear, post-color_grade,
     // pre-grain (raw-core's `render` runs it between the two — module docs
-    // there). Gated on the grid being PRESENT (`film_lut_size > 0`): unlike
-    // the always-present residual-LUT grid, an empty film LUT has no data to
-    // bind, so this composer omits the pass rather than binding an empty
-    // buffer — the same data-presence gate `local_adjustments` uses above.
+    // there). Gated on the grid being PRESENT (`film_lut_size > 0`): an empty
+    // film LUT has no data to bind, so this composer omits the pass rather
+    // than binding an empty buffer — the same data-presence gate
+    // `local_adjustments` uses above, and the Auto Profile look below.
     if inputs.film_lut_size > 0 {
         suffix.push(Box::new(FilmLutPass {
             size: inputs.film_lut_size,
@@ -539,15 +519,19 @@ pub fn build_split<'a>(
     // srgb_gamma_encode: per-channel IEC OETF before Auto Profile tail.
     // AutoProfileCurvePass is omitted when absent (#4216).
     suffix.push(Box::new(SrgbGammaPass));
-    if inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
+    // Auto Profile look — presence-gated per artifact (raw-core's `if let
+    // Some` skips); absence is empty/0, never substituted identity (knee).
+    if profile_curve_is_active(&inputs.profile_curve_flat) {
         suffix.push(Box::new(AutoProfileCurvePass {
             flat_curve: inputs.profile_curve_flat.as_ref().into(),
         }));
     }
-    suffix.push(Box::new(ResidualLutPass {
-        size: inputs.residual_lut_size,
-        data: inputs.residual_lut_data.as_ref().into(),
-    }));
+    if residual_lut_is_active(inputs.residual_lut_size, &inputs.residual_lut_data) {
+        suffix.push(Box::new(ResidualLutPass {
+            size: inputs.residual_lut_size,
+            data: inputs.residual_lut_data.as_ref().into(),
+        }));
+    }
 
     (prefix, suffix)
 }

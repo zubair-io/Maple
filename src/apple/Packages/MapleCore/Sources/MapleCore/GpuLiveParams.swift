@@ -292,8 +292,9 @@ extension PipelineRenderer {
     p.capture_sharpening_strength = 0
 
     // Variable-length arrays — wired by the caller in a live `withUnsafe…`
-    // scope (NULL/zero here so a forgotten wire is an explicit identity, not a
-    // dangling read). Point tone curves are not mirrored on Swift yet.
+    // scope (NULL/zero here so a forgotten wire is an explicit absence, not a
+    // dangling read; the composers omit passes for absent Auto artifacts).
+    // Point tone curves are not mirrored on Swift yet.
     p.tone_curve_luma_ptr = nil
     p.tone_curve_luma_len = 0
     p.tone_curve_red_ptr = nil

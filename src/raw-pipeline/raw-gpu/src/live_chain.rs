@@ -49,14 +49,16 @@
 //! - `local_adjustments` (#1698): omit unless some layer in the flat stack sets
 //!   some control — see [`crate::local_adjustments_are_active`].
 //! - `capture_sharpening`: already gated via `Option` (generalised here).
-//! - View tail (`agx`, `display_encode`, `srgb_gamma`, and when present,
-//!   `auto_profile_curve` + `residual_lut`) — an image must go through the view
-//!   transform to become a display image. When the Auto curve is absent (e.g.
-//!   in neutral RAW rendering), `auto_profile_curve` is omitted. `dither`
-//!   (P4b terminal) is appended by the live session, not here.
+//! - View tail (`agx`, `display_encode`, `srgb_gamma`) ALWAYS runs — even a
+//!   neutral image must go through the view transform to become a display
+//!   image — but the Auto Profile look (`auto_profile_curve`, `residual_lut`)
+//!   runs only when its artifacts are PRESENT (RAW shape + non-empty curve /
+//!   non-zero LUT size), matching raw-core's `if let Some` skips. `dither`
+//!   (P4b terminal) is appended by the live session, not here (this builder is
+//!   f32-RGBA, like `build_split`).
 
 use crate::agx::AgxPass;
-use crate::auto_profile_curve::AutoProfileCurvePass;
+use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::color_grade::{color_grade_is_identity, ColorGradePass};
@@ -74,7 +76,7 @@ use crate::local_adjustments::{
 };
 use crate::local_spatial::{layer_needs_spatial, LocalSpatialPass};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
-use crate::residual_lut::ResidualLutPass;
+use crate::residual_lut::{residual_lut_is_active, ResidualLutPass};
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
@@ -131,6 +133,10 @@ fn push_local_adjustments(suffix: &mut BoxedPasses, inputs: &FullChainInputs<'_>
 mod noop;
 pub use noop::scene_tone_is_noop;
 use noop::*;
+
+// `active_mask` lives in a sibling file to keep this module inside the
+// file-size budget (same split shape as `noop` / `signature` / `tests`).
+mod mask;
 
 // `chain_signature` lives in a sibling file to keep this module inside the
 // file-size budget (same split shape as `noop` / `tests`).
@@ -393,14 +399,17 @@ pub fn build_live_split<'a>(
     // "identity" artifacts is NOT a no-op: it crushes white from 1.0 to ~0.973
     // (byte 248 instead of 255). The CPU non-RAW path runs ONLY display_encode +
     // srgb_gamma for exactly this reason. Skip them for non-RAW so the colorimetric
-    // encode is the whole tail; RAW keeps them (its fitted per-image tone curve).
+    // encode is the whole tail; RAW keeps them — but ONLY when actually fitted
+    // (Neutral / unavailable-Auto carry empty/0 artifacts, and the CPU RAW path
+    // `if let Some`s past them too). Each artifact gates independently, via the
+    // same presence predicates the full composer uses.
     // #1516 (completes the #1513 non-RAW view-tail skip — AgX above + look here).
-    if is_raw_shape {
-        if inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
-            suffix.push(Box::new(AutoProfileCurvePass {
-                flat_curve: inputs.profile_curve_flat.as_ref().into(),
-            }));
-        }
+    if is_raw_shape && profile_curve_is_active(&inputs.profile_curve_flat) {
+        suffix.push(Box::new(AutoProfileCurvePass {
+            flat_curve: inputs.profile_curve_flat.as_ref().into(),
+        }));
+    }
+    if is_raw_shape && residual_lut_is_active(inputs.residual_lut_size, &inputs.residual_lut_data) {
         suffix.push(Box::new(ResidualLutPass {
             size: inputs.residual_lut_size,
             data: inputs.residual_lut_data.as_ref().into(),
@@ -420,29 +429,31 @@ pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
     inputs.dehaze.abs() >= SLIDER_EPS
 }
 
-/// The maximum number of view-tail passes for a RAW input shape when an Auto
-/// profile curve is present (`agx`, `display_encode`, `srgb_gamma`,
-/// `auto_profile_curve`, `residual_lut`). When the Auto curve is absent (e.g.
-/// in neutral RAW rendering without an Auto curve), `AutoProfileCurvePass` is
-/// omitted, yielding `VIEW_TAIL_PASS_COUNT - 1` (4 passes). Each engaged slider
-/// adds one (or, for spatial stages, one orchestrating pass). NON-RAW shapes skip
-/// the LOOK portion — `agx` plus `auto_profile_curve` + `residual_lut` — leaving
-/// only the colorimetric encode (`display_encode` + `srgb_gamma`), so a neutral
-/// non-RAW chain has `VIEW_TAIL_PASS_COUNT - 3` (2 passes). Public so terminal-dither
-/// wiring and tests can assert expected floors without re-counting by hand.
+/// The number of view-tail passes for a RAW input shape with Auto Profile
+/// artifacts present (`agx`, `display_encode`, `srgb_gamma`,
+/// `auto_profile_curve`, `residual_lut`). A neutral RAW chain with fitted
+/// artifacts has exactly this many passes; each engaged slider adds one (or,
+/// for the spatial stages, still one `Pass` — they orchestrate their own
+/// sub-dispatches). Absent Auto artifacts (Neutral / unavailable-Auto) omit
+/// the two look passes even for RAW (`VIEW_TAIL_PASS_COUNT - 2`); NON-RAW
+/// shapes skip the whole LOOK portion — `agx` (#1513) plus
+/// `auto_profile_curve` + `residual_lut` (#1516) — leaving only the
+/// colorimetric encode (`display_encode` + `srgb_gamma`), so a neutral
+/// non-RAW chain has `VIEW_TAIL_PASS_COUNT - 3`. Public so the live-session
+/// terminal-`dither` wiring (C2/C3) and the tests can assert the floor without
+/// re-counting by hand.
 pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 
-/// Returns the expected view-tail pass count for `inputs` based on input shape
-/// and Auto curve presence.
+/// Expected view-tail passes for the actual input shape and fitted artifacts.
 pub fn view_tail_pass_count(inputs: &FullChainInputs) -> usize {
     if inputs.input_shape != InputShape::PostDcpRec2020Fp16 {
-        VIEW_TAIL_PASS_COUNT - 3
-    } else if inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
-        VIEW_TAIL_PASS_COUNT
-    } else {
-        VIEW_TAIL_PASS_COUNT - 1
+        return VIEW_TAIL_PASS_COUNT - 3;
     }
+    VIEW_TAIL_PASS_COUNT - 2
+        + usize::from(profile_curve_is_active(&inputs.profile_curve_flat))
+        + usize::from(residual_lut_is_active(inputs.residual_lut_size, &inputs.residual_lut_data))
 }
+
 
 // Parity tests live in a sibling file to keep this module under the 600-LOC
 // budget (mirrors full_chain / dehaze's tests.rs split). They drive the SHARED

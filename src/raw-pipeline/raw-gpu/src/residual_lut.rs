@@ -39,6 +39,18 @@ pub fn residual_lut_flat_len(size: usize) -> usize {
     size * size * size * 3
 }
 
+/// Presence gate for [`ResidualLutPass`]: size `0` (or empty data) = the fit
+/// is absent and both composers must OMIT the pass, exactly as raw-core's
+/// `if let Some(lut)` skips the LUT apply. Mirrors the `film_lut_size > 0`
+/// convention. Presence alone gates here — a PRESENT but malformed grid still
+/// trips the pass's own asserts, as before. Single-sourced here so both
+/// composers and the live `active_mask` bit can't disagree about whether the
+/// pass was pushed.
+#[inline]
+pub fn residual_lut_is_active(size: usize, data: &[f32]) -> bool {
+    size > 0 && !data.is_empty()
+}
+
 /// One grid node's RGB triplet at `(r, g, b)`. Mirrors `ColorLut::node`: manual
 /// flat index, no bounds clamp (the caller caps `lo` at `last - 1`, so `lo + 1`
 /// never exceeds `size - 1`).

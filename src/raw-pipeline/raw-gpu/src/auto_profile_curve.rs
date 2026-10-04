@@ -289,6 +289,19 @@ pub fn apply_auto_profile_curve(buf: &mut [f32], flat: &[f32]) {
     }
 }
 
+/// Presence gate for [`AutoProfileCurvePass`]: EMPTY flat = the fit is absent
+/// (Neutral, or Auto with no usable preview) and both composers must OMIT the
+/// pass, exactly as raw-core's `if let Some(curve)` skips `apply_curve`. A
+/// PRESENT curve — even an identity one — runs the pass, exactly as raw-core
+/// applies a present curve. Do NOT substitute identity for absence: the pass
+/// (like `apply_curve`) runs `compress_input` first, whose soft knee maps
+/// white 1.0 → 0.975. Single-sourced here so both composers and the live
+/// `active_mask` bit can't disagree about whether the pass was pushed.
+#[inline]
+pub fn profile_curve_is_active(flat_curve: &[f32]) -> bool {
+    !flat_curve.is_empty()
+}
+
 /// A GPU-resident Auto Profile curve stage. Carries the flat `ProfileCurve`
 /// ([`PROFILE_CURVE_FLAT_LEN`] floats). Computes the `identity` / `apply_chroma`
 /// branch flags itself (replicating apply.rs's predicates) so the production Pass
