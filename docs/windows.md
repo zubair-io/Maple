@@ -218,7 +218,7 @@ The imported-lens-profile tests split the same way: `XmpLensProfileTests` and `L
 
 ### Qualification harness
 
-For list-row accessibility, launch `Maple.WinUI.exe --lifecycle-smoke unused OUT list-row`
+For list-row accessibility, use a fresh, empty output directory for `OUT` on each run; the JSONL ledger appends checks and must not mix results from separate runs. Launch `Maple.WinUI.exe --lifecycle-smoke unused OUT list-row`
 to check native peers in an attached WinUI window. `list-row-input` additionally waits
 up to 240 seconds for actual OS input: Enter or Space on the navigation row, Space on its nested
 toggle, Enter and Space on the passive Metadata row, and a pointer click on the decorative
