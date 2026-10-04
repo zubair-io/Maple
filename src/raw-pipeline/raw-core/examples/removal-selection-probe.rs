@@ -4,6 +4,13 @@ use std::path::PathBuf;
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).map(PathBuf::from).collect();
+    if args.len() == 3 && args[0] == std::path::Path::new("--prompts") {
+        let prompts = raw_core::stages::removal_smart::model_prompts_json(
+            &std::fs::read_to_string(&args[1])?,
+        )?;
+        std::fs::write(&args[2], prompts)?;
+        return Ok(());
+    }
     if args.len() == 2 {
         let prepared = raw_core::stages::removal_smart::prepare_strokes_json(
             &std::fs::read_to_string(&args[0])?,
@@ -17,7 +24,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.len() != 4 {
         return Err(
-            "usage: removal-selection-probe GESTURES.json PREPARED.json | REQUEST.json LOGITS.f32 SCORES.json OUTPUT.mimf".into(),
+            "usage: removal-selection-probe --prompts REQUEST.json PROMPTS.json | GESTURES.json PREPARED.json | REQUEST.json LOGITS.f32 SCORES.json OUTPUT.mimf".into(),
         );
     }
     let request = std::fs::read_to_string(&args[0])?;
