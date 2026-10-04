@@ -38,8 +38,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -137,8 +137,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -263,8 +263,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -366,8 +366,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -448,8 +448,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -511,8 +511,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -628,8 +628,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -680,8 +680,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -692,8 +692,8 @@
       "qualification": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v7, current is v8"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -855,19 +855,19 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift"
       ],
       "corpus_hash": "blake3:287a591997e0eeacc4a82411e114093f472af2560a8573a23789e77d1022c60b",
-      "status": "stale_pipeline",
+      "status": "satisfied",
       "record": {
         "backend": "xctest-macos",
-        "pipeline_version": 7,
+        "pipeline_version": 8,
         "schema_version": 5,
         "corpus_hash": "blake3:287a591997e0eeacc4a82411e114093f472af2560a8573a23789e77d1022c60b",
         "expected_cases": 12,
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "6a43f6e804af0f1bd46f40368fe4fcd21733ad73",
-        "recorded_at": "2026-10-01T22:01:39Z",
-        "command": "swift test --package-path src/apple/Packages/MapleCore --disable-automatic-resolution --jobs 4 --filter SidecarTransactionContract"
+        "git_sha": "93002813d35346e9814d74240799b154227cc456",
+        "recorded_at": "2026-10-04T20:19:52Z",
+        "command": "swift test --package-path src/apple/Packages/MapleCore --configuration release -Xswiftc -enable-testing --no-parallel --jobs 2 --filter SidecarTransactionContract"
       }
     },
     {
