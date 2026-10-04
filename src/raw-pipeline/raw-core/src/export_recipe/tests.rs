@@ -3,7 +3,7 @@ mod tests {
     use super::super::*;
     #[test]
     fn lossy_recipes_preserve_requested_quality_including_shared_avif_thumbs() {
-        for format in ["jpeg", "avif", "webp"] {
+        for format in ["jpeg", "avif"] {
             let recipe = ExportRecipe {
                 format: format.into(),
                 quality: Some(55),
@@ -31,6 +31,25 @@ mod tests {
                 .is_err());
             }
         }
+    }
+    #[test]
+    fn lossless_webp_preserves_imported_quality_but_rejects_execution() {
+        let recipe = ExportRecipe {
+            format: "webp".into(),
+            quality: Some(55),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&recipe).unwrap();
+        let imported = ExportRecipe::parse(&json).unwrap();
+        assert_eq!(imported, recipe);
+        assert!(imported.options().err().unwrap().contains("lossless"));
+        assert_eq!(serde_json::to_string(&imported).unwrap(), json);
+        ExportRecipe {
+            quality: None,
+            ..imported
+        }
+        .validate()
+        .unwrap();
     }
     #[test]
     fn recipe_round_trip_preserves_every_declared_field_and_rejects_unknowns() {

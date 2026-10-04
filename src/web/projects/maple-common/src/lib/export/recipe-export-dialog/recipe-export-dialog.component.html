@@ -58,14 +58,35 @@
       (valueChange)="patch({ name: $event })"
       [disabled]="queue.running()"
     />
+    @if (qualitySupported() && automaticQualitySupported()) {
+      <mui-segmented-toggle
+        [options]="qualityModes"
+        [value]="recipe().quality === null ? 'automatic' : 'explicit'"
+        (valueChange)="setQualityMode($event)"
+        ariaLabel="Export quality mode"
+        [disabled]="queue.running()"
+      />
+      @if (recipe().quality === null) {
+        <mui-text color="muted">{{ automaticQualityHint }}</mui-text>
+      }
+    }
+    @if (!qualitySupported() && automaticQualitySupported() && recipe().quality !== null) {
+      <mui-text color="error">
+        This lossless format cannot apply the imported quality {{ recipe().quality }}. The saved
+        value is preserved until you change it.
+      </mui-text>
+      <mui-button variant="ghost" [disabled]="queue.running()" (pressed)="patch({ quality: null })">
+        Use lossless quality
+      </mui-button>
+    }
     <mui-export-options-fields
       [formatOptions]="formats"
       [colorSpaceOptions]="profiles"
       [format]="recipe().format"
       (formatChange)="setFormat($event)"
-      [quality]="recipe().quality ?? 100"
+      [quality]="recipe().quality ?? defaultQuality"
       (qualityChange)="patch({ quality: $event })"
-      [qualityVisible]="recipe().format === 'jpeg'"
+      [qualityVisible]="qualitySupported() && recipe().quality !== null"
       [colorSpace]="recipe().outputProfile"
       (colorSpaceChange)="patch({ outputProfile: $event })"
       [sizeOptions]="sizes"

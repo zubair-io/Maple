@@ -60,6 +60,26 @@ final class NativeExportRecipeTests: XCTestCase {
     XCTAssertTrue(empty.isEmpty)
   }
 
+  func testImportedWebPQualitySurvivesStorageButRequiresExplicitLosslessCorrection() async throws {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "native-webp-quality")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let recipe = ExportRecipe(format: "webp", quality: 55)
+    let bytes = try JSONEncoder().encode(recipe)
+    XCTAssertEqual(try JSONDecoder().decode(ExportRecipe.self, from: bytes), recipe)
+    let store = NativeExportRecipeStore(directory: directory)
+    let saved = SavedNativeExportRecipe(recipe: recipe)
+    try await store.save(saved)
+    let values = try await store.list()
+    XCTAssertEqual(values, [saved])
+    XCTAssertThrowsError(try NativeExportRecipeBridge.validate(recipe)) { error in
+      XCTAssertTrue(error.localizedDescription.contains("lossless"))
+    }
+    var corrected = recipe
+    corrected.quality = nil
+    try NativeExportRecipeBridge.validate(corrected)
+    XCTAssertEqual(recipe.quality, 55)
+  }
+
   func testSharedFilenameAndCapabilityErrors() throws {
     var recipe = ExportRecipe.defaults
     recipe.namingTemplate = "{original}-{n}-{date:YYYYMMDD}.{ext}"
@@ -168,7 +188,7 @@ final class NativeExportRecipeTests: XCTestCase {
         var recipe = record.recipe
         recipe.format = encoder.format
         recipe.bitDepth = encoder.bitDepth
-        recipe.quality = ["jpeg", "avif", "webp"].contains(encoder.format) ? 90 : nil
+        recipe.quality = ["jpeg", "avif"].contains(encoder.format) ? 90 : nil
         recipe.outputProfile = profile
         recipe.maxLongEdge = 32
         record = NativeExportQueueFixture.replacingRecipe(record, recipe)

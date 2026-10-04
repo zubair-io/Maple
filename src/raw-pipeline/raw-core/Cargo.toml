@@ -85,11 +85,12 @@ stage-dump = ["dep:exr"]
 # — enable with `--features gpu`. Build-time only; no default impact.
 gpu = ["dep:raw-gpu"]
 # Pulls in the `image` crate's AVIF codec (pure-Rust `ravif`/`rav1e`, no C
-# toolchain) for the thumbnail encoder. OFF by default so raw-wasm — which
-# only ever needs raw-core's JPEG/decode path — never pulls ravif/rav1e into
-# the wasm32 build; raw-ffi and maple-pano opt in explicitly since they're
-# the only real consumers of `raw_core::avif::encode`.
-avif = ["image/avif", "dep:rav1d", "dep:avif-parse", "dep:libc", "dep:ravif", "dep:rgb", "dep:imgref"]
+# toolchain) for thumbnails and exports. OFF by default; raw-ffi,
+# maple-pano and the shipping raw-wasm wrapper opt in explicitly.
+# Browser exports need encoding, while rav1d's native libc API cannot compile
+# for wasm32-unknown-unknown (#4197). Native avif retains encode + decode.
+avif-encode = ["image/avif", "dep:ravif", "dep:rgb", "dep:imgref"]
+avif = ["avif-encode", "dep:rav1d", "dep:avif-parse", "dep:libc"]
 
 [[example]]
 name = "synth-grey"

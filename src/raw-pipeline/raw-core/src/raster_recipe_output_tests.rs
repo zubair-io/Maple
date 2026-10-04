@@ -236,7 +236,7 @@ fn out_of_range_numerics_are_named_with_their_range() {
 
 /// AVIF's two numerics live behind the feature gate, so they get their own
 /// case rather than sitting in the table above.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn out_of_range_avif_numerics_are_named() {
     for (body, field) in [
@@ -295,7 +295,7 @@ fn an_out_of_range_tiff_bitdepth_names_the_value_the_caller_sent() {
 /// `u8::try_from(..).unwrap_or(u8::MAX)` bug (in `bit_depth_for`'s caller),
 /// same fix (`bitdepth: u16` all the way from the wire schema through
 /// `AvifOptions` to `bit_depth_for`).
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn an_out_of_range_avif_bitdepth_names_the_value_the_caller_sent() {
     use crate::raster_recipe_exec::run_recipe;
@@ -316,7 +316,7 @@ fn an_out_of_range_avif_bitdepth_names_the_value_the_caller_sent() {
 /// cannot produce — must be a named rejection rather than a silent
 /// 10-bit file. The default (no key at all) must land on 8: that is the
 /// depth libheif's prebuilt decoders can read.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn avif_bitdepth_reaches_the_pixi_box_and_twelve_is_named() {
     use crate::raster_recipe_exec::run_recipe;
@@ -350,7 +350,7 @@ fn avif_bitdepth_reaches_the_pixi_box_and_twelve_is_named() {
     assert!(format!("{err}").contains("12"), "got: {err}");
 }
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn an_unsupported_avif_chroma_subsampling_is_named() {
     let r = parse_recipe(&output_json(
@@ -361,14 +361,17 @@ fn an_unsupported_avif_chroma_subsampling_is_named() {
     assert!(format!("{err}").contains("4:1:1"), "got: {err}");
 }
 
-/// Without the `avif` feature, AVIF output fails by name rather than
+/// Without the `avif-encode` feature, AVIF output fails by name rather than
 /// failing to compile — `RasterOutput::Avif` simply doesn't exist in
 /// that build, so `output_from_wire` must route to the named error
 /// instead.
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-encode"))]
 #[test]
 fn avif_output_without_the_feature_is_a_named_error() {
     let r = parse_recipe(&output_json(r#"{"format":"avif"}"#)).unwrap();
     let err = output_from_wire(&r.output).unwrap_err();
-    assert!(format!("{err}").contains("avif"), "got: {err}");
+    assert!(
+        format!("{err}").contains("AVIF encoding is unavailable"),
+        "got: {err}"
+    );
 }
