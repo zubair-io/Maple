@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Maple.UI.Atoms;
@@ -165,8 +166,13 @@ namespace Maple.UI
 
         private bool IsFromTrailing(object source)
         {
+            var interactive = false;
             for (var current = source as DependencyObject; current != null; current = VisualTreeHelper.GetParent(current))
-                if (ReferenceEquals(current, _trailingHost)) return true;
+            {
+                if (ReferenceEquals(current, _trailingHost)) return interactive;
+                if (current is Control control && (control.IsTabStop || control is ButtonBase or ToggleSwitch))
+                    interactive = true;
+            }
             return false;
         }
 

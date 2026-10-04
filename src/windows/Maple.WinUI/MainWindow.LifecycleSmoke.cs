@@ -55,11 +55,11 @@ namespace Maple.WinUI
                         { passed = true, scope = "settings-sidebar-only" }));
                     return;
                 }
-                if (expectedPath == "list-row")
+                if (expectedPath is "list-row" or "list-row-input")
                 {
-                    await VerifyListRowAutomationAsync(output);
+                    await VerifyListRowAutomationAsync(output, expectedPath == "list-row-input");
                     await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
-                        { passed = true, scope = "list-row-provider-only" }));
+                        { passed = true, scope = expectedPath == "list-row-input" ? "list-row-provider-and-OS-input" : "list-row-provider-only" }));
                     return;
                 }
                 if (expectedPath is "native-detail-checkpoint" or "native-tile-fallback")

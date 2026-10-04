@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Maple.UI;
+using Maple.UI.Atoms;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
@@ -14,7 +15,7 @@ namespace Maple.WinUI;
 
 public sealed partial class MainWindow
 {
-    private static async Task VerifyListRowAutomationAsync(string output)
+    private static async Task VerifyListRowAutomationAsync(string output, bool nativeInput)
     {
         var actionCount = 0;
         var toggle = new ToggleSwitch { Header = "Trailing option" };
@@ -22,9 +23,17 @@ public sealed partial class MainWindow
         row.Pressed += (_, _) => actionCount++;
         AutomationProperties.SetName(row, "Consumer navigation");
         var passive = new MuiListRow { Label = "Metadata" };
+        var decorativeActions = 0;
+        var decorative = new MuiListRow
+        {
+            Label = "Decorative trailing",
+            TrailingContent = new MuiIcon { IconName = "chevron-right" },
+        };
+        decorative.Pressed += (_, _) => decorativeActions++;
         var host = new StackPanel { Padding = new Thickness(24), Spacing = 16 };
         host.Children.Add(row);
         host.Children.Add(passive);
+        host.Children.Add(decorative);
         var window = new Window { Title = "Maple list-row qualification", Content = host };
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 480));
         window.Activate();
@@ -71,14 +80,29 @@ public sealed partial class MainWindow
             var passivePeer = FrameworkElementAutomationPeer.CreatePeerForElement(passive);
             Check("passive-row", passivePeer!.GetAutomationControlType() == AutomationControlType.Group
                 && passivePeer.GetPattern(PatternInterface.Invoke) == null);
+            if (nativeInput)
+            {
+                actionCount = 0;
+                toggle.IsOn = false;
+                row.Focus(FocusState.Keyboard);
+                await File.WriteAllTextAsync(Path.Combine(output, "input-ready.json"),
+                    JsonSerializer.Serialize(new { title = window.Title, scope = "requires-actual-OS-input" }));
+                var inputDeadline = Environment.TickCount64 + 120000;
+                while ((actionCount != 1 || decorativeActions != 1 || !toggle.IsOn)
+                    && Environment.TickCount64 < inputDeadline) await Task.Delay(50);
+                await File.WriteAllTextAsync(Path.Combine(output, "native-input-result.json"),
+                    JsonSerializer.Serialize(new { actionCount, decorativeActions, toggleOn = toggle.IsOn }));
+                Check("native-keyboard-and-trailing-pointer", actionCount == 1 && decorativeActions == 1 && toggle.IsOn,
+                    "actual-keyboard-and-pointer");
+            }
         }
         finally { window.Close(); }
 
-        void Check(string name, bool passed)
+        void Check(string name, bool passed, string scope = "native-provider-not-OS-input")
         {
             if (!passed) throw new InvalidOperationException($"List-row provider regression: {name}");
             File.AppendAllText(Path.Combine(output, "list-row-provider.jsonl"),
-                JsonSerializer.Serialize(new { name, passed, scope = "native-provider-not-OS-input" }) + Environment.NewLine);
+                JsonSerializer.Serialize(new { name, passed, scope }) + Environment.NewLine);
         }
     }
 }
