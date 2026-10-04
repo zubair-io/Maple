@@ -173,7 +173,9 @@ Registration uses the Win32 `CfRegisterSyncRoot` path rather than the WinRT `Sto
 
 `Services/AppSettings.cs` persists to a JSON file under `%LOCALAPPDATA%\Maple`. Its invariant: every partial write goes through `AppSettings.Update`, which reloads then writes — a long-lived cached instance calling `Save()` would serialize a stale snapshot over fields other code paths had since changed. Cloud refresh tokens are protected with DPAPI.
 
-`SettingsWindow.cs` composes the Settings surface directly on Maple.UI (`MuiSettingsShell` + `MuiListRow` nav + one `MuiSettingsSection` per section) with six sections: Library, Maple Cloud, Interface, Panorama, Storage, About. Actions that already have an owner in `MainWindow` (cloud connect, sidebar toggle) are passed in as callbacks rather than reimplemented.
+`SettingsWindow.cs` composes the Settings surface directly on Maple.UI (`MuiSettingsShell` + `MuiListRow` nav + one `MuiSettingsSection` per section) with six sections: Library, Maple Cloud, Interface, Panorama, Storage, About. Actions that already have an owner in `MainWindow` (cloud connect, sidebar preference) are passed in as callbacks rather than reimplemented.
+
+Run `Maple.exe --lifecycle-smoke RAW OUT settings-sidebar` with a fresh output directory to qualify sidebar preference persistence and layout in a real WinUI window. The check exercises Preview off → on → off, wide Browse visibility, and compact Browse's temporary drawer under both saved preferences. It restores the original sidebar preference and records each assertion in `sidebar-preference.jsonl`, with the result in `lifecycle.json`. This covers the production state owner and layout; actual Settings checkbox input and reopening still require live UI qualification.
 
 `Services/FileTypeRegistrar.cs` registers the ProgId `Maple.Exposure.Image` under `HKCU\Software\Classes` for the extensions in `DropMountLogic.SupportedExtensions` — additive only (an `OpenWithProgids` entry, never the default handler), the counterpart of Apple's document-type claims. `ProtocolRegistrar.cs` does the same for `maple-app://`. Both self-register at launch so the exe path stays fresh across rebuilds.
 
@@ -238,6 +240,8 @@ The wrapper regenerates declarations, explicitly targets both Rust builds, and s
 Direct builds shown above retain the csproj's legacy `src/raw-pipeline/target/release/` lookup. With `-p:MapleRustTarget=<triple>`, the csproj reads only that target's release directory and fails if the core DLL is absent. The optional panorama CLI is copied from the same directory when present; the wrapper does not build it. Build `maple-cli` separately with `--features pano --target <triple>` before invoking the wrapper when packaging panorama support.
 
 Wrapper contract tests run without native tools: `python3 src/windows/scripts/test_build_windows.py`. Windows CI also runs the actual x64 wrapper; those compilation checks do not qualify interactive GPU or color performance.
+
+For Info focus qualification (#4190), run the built executable with `--lifecycle-smoke <owned-RAW-copy> <fresh-output-directory> gpu --inspector-focus-checkpoints`. Each `inspector-focus-*.ready` file requests one real keyboard or pointer input; capture the native window and accessibility state after that input, then write its `.continue` acknowledgment. A caption-click checkpoint establishes foreground activation before the harness assigns initial keyboard focus. The harness then checks actual native focus, Preview/Info state, document identity, undo depth and RAW hash across fifteen transitions, including Enter/Space activation after pointer transitions and the Browse Info / Rating entry point. `inspector-focus-result.json` covers these transitions; inspect terminal `lifecycle.json` separately for the full lifecycle result. This does not establish Narrator speech, cloud enrichment or other DPI qualification.
 
 ```powershell
 # Qualification run (Windows, after building the app and maple-cli)

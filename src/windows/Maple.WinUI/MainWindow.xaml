@@ -667,7 +667,7 @@
                                         <StackPanel Orientation="Horizontal" Spacing="12">
                                             <mui:MuiButton Label="Open in editor" Variant="Primary" Click="OnBrowseOpenEditor" />
                                             <mui:MuiButton Label="Preview" Variant="Secondary" Click="OnBrowseOpenPreview" />
-                                            <mui:MuiButton Label="Info / Rating" Variant="Secondary" Click="OnBrowseOpenInfo" />
+                                            <mui:MuiButton x:Name="BrowseInfoButton" Label="Info / Rating" Variant="Secondary" Click="OnBrowseOpenInfo" />
                                             <mui:MuiButton Label="Share" Variant="Secondary" ToolTipService.ToolTip="Share with another application">
                                                 <mui:MuiButton.Flyout><MenuFlyout>
                                                     <MenuFlyoutItem Text="Share original files" Click="OnShareOriginals" />
@@ -694,13 +694,13 @@
                         <ColumnDefinition x:Name="InfoColDef" Width="0" />
                     </Grid.ColumnDefinitions>
 
-                    <Border x:Name="InfoPane" Grid.Column="1" Canvas.ZIndex="3" Visibility="Collapsed"
+                    <Border x:Name="InfoPane" Grid.Column="1" Canvas.ZIndex="3" Visibility="Collapsed" KeyDown="OnInfoPaneKeyDown"
                             Background="{StaticResource MapleSidebar}" BorderBrush="{StaticResource MapleBorder}" BorderThickness="1,0,0,0">
                         <Grid>
                             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                             <Grid Margin="16,16,16,22">
                                 <TextBlock Text="Info" FontSize="20" Foreground="{StaticResource MapleTextMain}" />
-                                <mui:MuiButton IconName="x" Variant="Ghost" ButtonSize="Sm" HorizontalAlignment="Right"
+                                <mui:MuiButton x:Name="InfoCloseButton" IconName="x" Variant="Ghost" ButtonSize="Sm" HorizontalAlignment="Right"
                                                Click="OnToggleInfoPane" AutomationProperties.Name="Close photo info" />
                             </Grid>
                             <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16,0,16,16">
@@ -832,7 +832,7 @@
                                            VerticalAlignment="Center" Foreground="{StaticResource MapleTextMain}" />
                                 <mui:MuiButton Grid.Column="2" IconName="edit" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" Click="OnEnterEdit"
                                                ToolTipService.ToolTip="Edit photo" AutomationProperties.Name="Edit photo" />
-                                <mui:MuiButton Grid.Column="3" IconName="info" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" Click="OnToggleInfoPane" ToolTipService.ToolTip="Show or hide photo info" AutomationProperties.Name="Photo info" />
+                                <mui:MuiButton x:Name="PreviewInfoButton" Grid.Column="3" IconName="info" IconSize="Md24" Variant="Ghost" ButtonSize="Sm" Click="OnToggleInfoPane" ToolTipService.ToolTip="Show or hide photo info" AutomationProperties.Name="Photo info" />
                             </Grid>
                         </Border>
 

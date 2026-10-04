@@ -7,7 +7,7 @@ using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
 {
-    /// <summary>Browse mode: sidebar toggle, single-selection sync between the
+    /// <summary>Browse mode: sidebar visibility preference, single-selection sync between the
     /// grid, the filmstrip rail and the viewer's embedded-JPEG placeholder, and the
     /// sources-tree/timeline/format/rating/flag/search filters that drive
     /// ViewModel.Photos.</summary>
@@ -23,10 +23,13 @@ namespace Maple.WinUI
                 UpdateResponsiveShell();
                 return;
             }
-            var hidden = SidebarColDef.Width.Value > 0;
-            SidebarColDef.Width = new GridLength(hidden ? 0 : Math.Max(_settings.LeftPanelWidth, 200));
+            SetSidebarHidden(!_settings.LeftPanelHidden);
+        }
+
+        private void SetSidebarHidden(bool hidden)
+        {
             // Keeps the in-memory _settings field (read elsewhere this
-            // session, e.g. SetMode above) in sync too — AppSettings.Update
+            // session, e.g. SetMode in MainWindow.xaml.cs) in sync too — AppSettings.Update
             // below only fixes what actually goes to disk.
             _settings.LeftPanelHidden = hidden;
             // #2948: NOT `_settings.Save()`. _settings is loaded once at

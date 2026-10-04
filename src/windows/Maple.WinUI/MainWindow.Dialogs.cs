@@ -14,7 +14,7 @@ namespace Maple.WinUI
 
         /// <summary>File → Settings… (MN3, #3052). One window at a time —
         /// reopening just activates the existing one. Actions that already
-        /// have an owner here (cloud connect dialog, sidebar toggle) are
+        /// have an owner here (cloud connect dialog, sidebar preference) are
         /// handed over as callbacks so Settings never duplicates their
         /// state handling.</summary>
         private void OnOpenSettings(object sender, RoutedEventArgs e)
@@ -24,7 +24,7 @@ namespace Maple.WinUI
                 var window = new SettingsWindow(
                     ViewModel,
                     openCloudConnect: () => OnConnectCloud(this, new RoutedEventArgs()),
-                    toggleSidebar: () => OnToggleSidebar(this, new RoutedEventArgs()),
+                    setSidebarVisible: visible => SetSidebarHidden(!visible),
                     setCloudFiles: SetCloudFilesEnabled);
                 window.Closed += (_, _) => _settingsWindow = null;
                 _settingsWindow = window;

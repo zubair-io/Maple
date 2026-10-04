@@ -1,3 +1,7 @@
+import {
+  cameraWhiteBalanceReading,
+  seedWhiteBalanceModel,
+} from '../../state/library-store-white-balance';
 // ImageCanvasComponent — flag-ON GPU live-render path (epic #925, P4b-web /
 // #1038). With `gpuLiveRenderEnabled` true and a session-capable pipeline
 // stub, a RAW asset routes cold-open through `openLiveSession` (transferring
@@ -64,6 +68,21 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.stubGlobal(
+      'ImageData',
+      class {
+        constructor(
+          readonly data: Uint8ClampedArray,
+          readonly width: number,
+          readonly height: number,
+        ) {}
+      },
+    );
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async () => ({ close: vi.fn() }) as unknown as ImageBitmap),
+    );
+
     // This suite exercises a secure, GPU-capable browser (the happy path) —
     // the #2415 insecure-context short-circuit is covered in
     // `image-canvas.gpu-present.spec.ts`'s "GPU fallback notice" suite.
@@ -123,7 +142,17 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
         return models.get(id)!;
       },
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
-      seedAsShotWhiteBalance: vi.fn(),
+      seedAsShotWhiteBalance: vi.fn(
+        (id: AssetId, temperature: number, tint: number, calibrated: boolean) => {
+          const model = models.get(id)!;
+          model.set(
+            seedWhiteBalanceModel(
+              model(),
+              cameraWhiteBalanceReading(temperature, tint, calibrated),
+            ),
+          );
+        },
+      ),
       seedLensCorrections: vi.fn(),
       seedLensProfile: vi.fn(),
       updateAssetDimensions: vi.fn(),
@@ -160,6 +189,7 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
   afterEach(() => {
     fixture.destroy();
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
     gpuContext.restore();

@@ -1,3 +1,4 @@
+import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
 import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 // ImageCanvasGpuPresent — the GPU live-render present path for ImageCanvasComponent
 // (epic #925, P4b-web / #1038). Extracted from the component to keep it under the
@@ -370,11 +371,13 @@ export class ImageCanvasGpuPresent {
         support.cameraSupport,
         support.lensProfile,
       );
-      this.host.markColdOpenDone();
-      const liveXmp = this.host.serializeForRender(this.host.state.adjustmentFor(assetId)());
+      // Release queued edits only after recording the frame's actual intent (#4101).
       if (this.host.lastRenderedXmp === null) {
-        this.host.lastRenderedXmp = liveXmp;
+        this.host.lastRenderedXmp = this.host.serializeForRender(
+          coldOpenRenderedModel(openModel, info),
+        );
       }
+      this.host.markColdOpenDone();
       performance.mark(`maple:open:${assetId}:paint`);
       performance.measure(
         `maple:open`,

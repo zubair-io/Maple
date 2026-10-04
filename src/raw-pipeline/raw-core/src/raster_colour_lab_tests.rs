@@ -110,6 +110,41 @@ fn tint_leaves_a_four_channel_image_alpha_alone_across_the_luma_lut() {
 }
 
 #[test]
+fn tint_orange_matches_sharp_within_one_code() {
+    // #3581: orange tint over greys — including every level that drifts
+    // by 1 — plus saturated colours to exercise the luma-reduction path.
+    // Expected bytes measured against real sharp 0.34.5 on this exact
+    // 19-pixel fixture (reproduce with the noise/ramp sweep in that
+    // ticket); Maple holds max abs drift 1 here.
+    let greys = [0u8, 4, 12, 19, 21, 25, 26, 29, 34, 64, 128, 192, 255];
+    let colours = [
+        [255u8, 0, 0],
+        [0, 255, 0],
+        [0, 0, 255],
+        [255, 255, 0],
+        [255, 128, 0],
+        [123, 45, 200],
+    ];
+    let mut data = Vec::with_capacity(19 * 3);
+    for v in greys {
+        data.extend_from_slice(&[v, v, v]);
+    }
+    for px in colours {
+        data.extend_from_slice(&px);
+    }
+    let out = RasterImage::new_rgb(19, 1, data).tint([255, 128, 0]).data;
+    let want: [u8; 57] = [
+        0, 0, 0, 13, 2, 0, 27, 7, 0, 38, 13, 0, 41, 14, 0, 50, 16, 0, 52, 16, 0, 57, 17, 0, 66, 20,
+        0, 119, 36, 0, 211, 93, 0, 255, 169, 97, 255, 255, 255, 210, 92, 0, 255, 206, 160, 139, 44,
+        0, 255, 244, 232, 247, 133, 37, 160, 56, 0,
+    ];
+    assert_eq!(out.len(), want.len());
+    for (i, (&got, &want)) in out.iter().zip(want.iter()).enumerate() {
+        assert!(got.abs_diff(want) <= 1, "byte {i}: got {got}, sharp {want}");
+    }
+}
+
+#[test]
 fn modulate_identity_changes_nothing() {
     let img = RasterImage::new_rgb(1, 1, vec![90, 130, 70]);
     let out = img.modulate(1.0, 1.0, 0.0, 0.0);
@@ -138,6 +173,41 @@ fn saturation_zero_produces_a_neutral_pixel() {
         out[0].abs_diff(out[1]) <= 1 && out[1].abs_diff(out[2]) <= 1,
         "{out:?}"
     );
+}
+
+#[test]
+fn modulate_saturation_and_hue_match_sharp_within_one_code() {
+    // #3555: saturation scaling and hue rotation over primaries plus mixed
+    // colours. Expected bytes measured against real sharp 0.34.5 on this
+    // exact 8-pixel fixture (`.modulate({ saturation })` /
+    // `.modulate({ hue })` object form); Maple holds max abs drift 1 here.
+    let data = vec![
+        255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0, 255, 128, 0, 123, 45, 200, 128, 128, 128, 16,
+        32, 64,
+    ];
+    let img = RasterImage::new_rgb(8, 1, data);
+    let cases = [
+        (
+            img.modulate(1.0, 1.2, 0.0, 0.0).data,
+            [
+                255, 0, 0, 0, 255, 0, 0, 0, 255, 251, 255, 0, 255, 119, 0, 125, 22, 223, 128, 128,
+                128, 5, 32, 71,
+            ],
+        ),
+        (
+            img.modulate(1.0, 1.0, 30.0, 0.0).data,
+            [
+                203, 99, 0, 0, 255, 160, 204, 0, 164, 148, 255, 96, 196, 160, 0, 192, 0, 135, 128,
+                128, 128, 43, 25, 56,
+            ],
+        ),
+    ];
+    for (out, want) in cases {
+        assert_eq!(out.len(), want.len());
+        for (i, (&got, &want)) in out.iter().zip(want.iter()).enumerate() {
+            assert!(got.abs_diff(want) <= 1, "byte {i}: got {got}, sharp {want}");
+        }
+    }
 }
 
 #[test]
@@ -291,10 +361,12 @@ fn normalise_takes_the_true_min_and_max_at_0_and_100() {
 
 #[test]
 fn normalise_stretches_the_luminance_to_the_full_range() {
-    // Measured against sharp 0.34.5 on this exact fixture: the darkest
-    // pixel lands at 1 (not 0) and the brightest at 254 (not 255) —
-    // sharp does not nudge the percentile bounds to force an exact
-    // touch of both ends.
+    // Measured against real sharp 0.34.5 `.normalise({ lower: 0, upper: 100 })`
+    // on this exact fixture: both ends touch (1 and 255). NOTE the object
+    // form — sharp silently ignores positional `.normalise(0, 100)` args and
+    // runs its (1, 99) defaults instead, which is what produced #3555's
+    // original 2-code reading. (An older comment pinned 254 here from a
+    // mis-measured oracle call.)
     let out = compressed_ramp().normalise(0.0, 100.0);
     assert!(
         out.data[0] <= 1,
@@ -306,6 +378,36 @@ fn normalise_stretches_the_luminance_to_the_full_range() {
         "the brightest should near white, got {}",
         out.data[out.data.len() - 1]
     );
+}
+
+#[test]
+fn normalise_zero_hundred_matches_sharp_within_one_code() {
+    // #3555: full-range stretch over a narrow fixture (greys 60..160 plus
+    // muted colours) so the bounds actually bite. Expected bytes measured
+    // against real sharp 0.34.5 `.normalise({ lower: 0, upper: 100 })` —
+    // object form (see the positional-args trap noted above); Maple holds
+    // max abs drift 1 here.
+    let mut data = Vec::with_capacity(10 * 3);
+    for v in [60u8, 80, 100, 120, 140, 160] {
+        data.extend_from_slice(&[v, v, v]);
+    }
+    for px in [
+        [200u8, 60, 60],
+        [60, 200, 60],
+        [60, 60, 200],
+        [200, 200, 60],
+    ] {
+        data.extend_from_slice(&px);
+    }
+    let out = RasterImage::new_rgb(10, 1, data).normalise(0.0, 100.0).data;
+    let want: [u8; 30] = [
+        2, 2, 2, 42, 42, 42, 77, 77, 77, 114, 114, 114, 152, 152, 152, 190, 190, 190, 182, 42, 47,
+        114, 246, 104, 0, 23, 155, 255, 255, 122,
+    ];
+    assert_eq!(out.len(), want.len());
+    for (i, (&got, &want)) in out.iter().zip(want.iter()).enumerate() {
+        assert!(got.abs_diff(want) <= 1, "byte {i}: got {got}, sharp {want}");
+    }
 }
 
 #[test]

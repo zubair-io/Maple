@@ -17,8 +17,11 @@ public partial class EditSessionViewModel
     internal static async Task VerifySavedCloudPreviewAsync(string raw, string output)
     {
         var sidecar = Path.Combine(output, "cloud-saved-preview.xmp");
-        await File.WriteAllTextAsync(sidecar, XmpWriter.Serialize(new XmpSidecarDocument
-            { Adjustments = new() { Profile = ProfileMode.Neutral } }));
+        const string unknown = "<audit:Note xmlns:audit=\"urn:maple:qualification\">  keep &amp; intact  </audit:Note>";
+        var initialDocument = new XmpSidecarDocument
+            { Adjustments = new() { Profile = ProfileMode.Neutral } };
+        initialDocument.PassthroughNodes.Add(unknown);
+        await File.WriteAllTextAsync(sidecar, XmpWriter.Serialize(initialDocument));
         using var handler = new SavedPreviewResponses(sidecar);
         using var client = new CloudClient("https://cloud-preview.invalid", handler, Path.Combine(output, "saved-cloud-cache"));
         using var session = new EditSessionViewModel(restoreSources: false) { _cloud = client };
@@ -48,6 +51,8 @@ public partial class EditSessionViewModel
         var publication = session._cloudPreviewPending ?? throw new InvalidOperationException("Acknowledged preview was not retained");
         if (XmpParser.Parse(publication.Xmp)?.Adjustments.Exposure != 2)
             throw new InvalidOperationException("Rejected save replaced the acknowledged publication");
+        if (!publication.Xmp.Contains(unknown, StringComparison.Ordinal))
+            throw new InvalidOperationException("Cloud publication changed unknown XMP bytes");
         session.PublishPendingCloudPreview();
         session._cloudDoc!.Adjustments.Exposure = 9;
         await session._cloudPreviewPublication;
@@ -64,8 +69,16 @@ public partial class EditSessionViewModel
         handler.Reject = false;
         session.SelectedPhoto = null;
         await session._cloudMetadataWrites.DrainAsync(retryFailed: true);
-        await Wait(() => handler.Published.Count == 2);
+        // #4151: the real 100MP offline render exceeds the saved-thumbnail
+        // polling deadline. Join the publication owner before inspecting its
+        // uploads, exactly as for the first publication and explicit retry.
+        var latePublication = Stopwatch.StartNew();
         await session._cloudPreviewPublication;
+        await File.WriteAllTextAsync(Path.Combine(output, "late-cloud-publication.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+                { elapsedMs = latePublication.ElapsedMilliseconds, expected = 2, actual = handler.Published.Count, writes = handler.Writes }));
+        if (handler.Published.Count != 2)
+            throw new InvalidOperationException($"Late publication count: expected=2 actual={handler.Published.Count}");
         if (session._cloudPreviewPending != null)
             throw new InvalidOperationException("Late cloud acknowledgement waited for another navigation");
 

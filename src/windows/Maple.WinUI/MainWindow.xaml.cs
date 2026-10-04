@@ -141,6 +141,7 @@ namespace Maple.WinUI
                 }
             };
             BuildStarRow();
+            InitializeInspectorFocus();
             BuildEditRail();
             BuildGradePanel();
             BuildProfilePanel();

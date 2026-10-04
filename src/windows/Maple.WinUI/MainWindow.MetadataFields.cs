@@ -91,7 +91,7 @@ public sealed partial class MainWindow
             }
             _current.Text = $"Current: rating {Mixed(v => v.Rating == 0 ? "none" : v.Rating.ToString())}; " +
                 $"flag {Mixed(v => v.Flag)}; label {Mixed(v => v.Label ?? "none")}; " +
-                $"keywords {Mixed(v => v.Keywords.Length == 0 ? "none" : string.Join(", ", v.Keywords.OrderBy(k => k, StringComparer.Ordinal)))}.\n" +
+                $"keywords {MetadataValues.KeywordSummary(items.Select(i => i.Before))}.\n" +
                 "Only fields you change will be applied to the captured selection.";
         }
 

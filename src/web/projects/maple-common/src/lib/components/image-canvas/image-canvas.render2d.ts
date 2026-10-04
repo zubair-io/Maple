@@ -1,3 +1,4 @@
+import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
 import { hasCalibratedWhiteBalance } from '../../state/camera-support';
 // image-canvas.render2d.ts — the 2D-canvas decode/paint paths for
 // ImageCanvasComponent, extracted behind a host interface so the component
@@ -99,11 +100,6 @@ export function decodeSupportFrom(reply: {
  * included. A fresh import (default model) stays `undefined` to keep the
  * #1892 As-Shot seeding contract.
  */
-function coldOpenXmp(host: Render2dHost, assetId: AssetId): string | undefined {
-  const openModel = host.state.adjustmentFor(assetId)();
-  return isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
-}
-
 export async function coldOpen2d(
   host: Render2dHost,
   assetId: AssetId,
@@ -120,7 +116,8 @@ export async function coldOpen2d(
   try {
     // Viewport-sized cold open (#1101): decode at the fast-phase target so first
     // pixels land at viewport resolution; the refine pass sharpens past fit.
-    const openXmp = coldOpenXmp(host, assetId);
+    const openModel = host.state.adjustmentFor(assetId)();
+    const openXmp = isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
     const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
 
@@ -153,17 +150,12 @@ export async function coldOpen2d(
       support.lensProfile,
     );
 
-    // Open the gate + record what this initial render reflects (the seed's effect
-    // re-fire dedups against it). Guard on still-current asset.
-    if (assetId === host.currentAssetId) {
-      host.markColdOpenDone();
-      const liveXmp = host.serializeForRender(host.state.adjustmentFor(assetId)());
-      if (host.lastRenderedXmp === null) {
-        // Normal cold open: record the seeded baseline so the gate-driven +
-        // As-Shot-seed effect re-fires dedup against it.
-        host.lastRenderedXmp = liveXmp;
-      }
+    // Record the dispatched intent before releasing queued edits (#4101).
+    // As-Shot hydration describes this frame; a later live edit does not.
+    if (host.lastRenderedXmp === null) {
+      host.lastRenderedXmp = host.serializeForRender(coldOpenRenderedModel(openModel, decoded));
     }
+    host.markColdOpenDone();
 
     host.canvasSvc.currentPixels.set(decoded);
 

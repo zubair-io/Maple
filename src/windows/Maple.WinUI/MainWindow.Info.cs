@@ -55,11 +55,45 @@ namespace Maple.WinUI
         // --- Docked Preview inspector ---
 
         private bool _infoPaneOpen;
+        private FocusState _infoActivationFocusState = FocusState.Programmatic;
+
+        private void InitializeInspectorFocus()
+        {
+            foreach (var button in new[] { PreviewInfoButton, InfoCloseButton, BrowseInfoButton })
+            {
+                button.PreviewKeyDown += (_, e) =>
+                {
+                    if (e.Key is Windows.System.VirtualKey.Enter or Windows.System.VirtualKey.Space)
+                        _infoActivationFocusState = FocusState.Keyboard;
+                };
+                button.AddHandler(UIElement.PointerPressedEvent,
+                    new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) =>
+                        _infoActivationFocusState = FocusState.Programmatic), true);
+            }
+        }
 
         private void OnToggleInfoPane(object sender, RoutedEventArgs e)
+            => SetInspectorOpen(!_infoPaneOpen);
+
+        private void SetInspectorOpen(bool open)
         {
-            _infoPaneOpen = !_infoPaneOpen;
+            var focusState = _infoActivationFocusState;
+            _infoActivationFocusState = FocusState.Programmatic;
+            _infoPaneOpen = open;
             UpdateInfoPane();
+            ((FrameworkElement)Content).UpdateLayout();
+            (_infoPaneOpen ? InfoCloseButton : PreviewInfoButton).Focus(focusState);
+        }
+
+        private void OnInfoPaneKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+        {
+            // #4190: dismiss the focused inspector before Preview's outer
+            // Escape navigation. Modal metadata flows keep their own keys.
+            if (e.Key != Windows.System.VirtualKey.Escape || _modalFlowGate.IsEntered) return;
+            _infoPaneOpen = false;
+            UpdateInfoPane();
+            PreviewInfoButton.Focus(FocusState.Keyboard);
+            e.Handled = true;
         }
 
         private void UpdateInfoPane()

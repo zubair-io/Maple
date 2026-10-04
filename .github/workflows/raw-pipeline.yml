@@ -356,6 +356,12 @@ jobs:
         working-directory: src/raw-pipeline
         run: cargo build -p raw-ffi --features gpu
 
+      # These GPU-feature ABI guards are CPU-only; the ordinary FFI test job
+      # compiles them out. Real-RAW fit coverage still needs the local fixtures.
+      - name: Render-sized profile ABI guards
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-ffi --features gpu --lib gpu_auto_profile::sized::tests
+
       # 2. The other feature-gated GPU surface: raw-wasm's `gpu` module tree.
       - name: cargo check -p raw-wasm --all-features --all-targets
         working-directory: src/raw-pipeline
