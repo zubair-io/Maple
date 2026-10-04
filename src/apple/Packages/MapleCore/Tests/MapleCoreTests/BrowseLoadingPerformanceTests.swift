@@ -117,20 +117,24 @@ final class BrowseLoadingPerformanceTests: XCTestCase {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: folder) }
+    let original = Data("owned superseded listing original".utf8)
+    let photo = folder.appendingPathComponent("photo.dng")
+    try original.write(to: photo)
+    let fence = FolderListingPublicationFence()
     let browser = BrowseViewModel()
+    browser.folderEnumerationCheckpoint = { await fence.enter() }
     let listing = Task { await browser.loadFolder(url: folder) }
-    // The detached directory walk necessarily suspends its MainActor caller.
-    // Invalidate it at that boundary, before its result can be published.
-    for _ in 0..<10_000 {
-      if browser.isLoading { break }
-      await Task.yield()
-    }
+    // #4171: hold the actual walk after directory I/O and before publication.
+    // An empty directory can finish before a yield loop observes isLoading.
+    await fulfillment(of: [fence.entered], timeout: 5)
     XCTAssertTrue(browser.isLoading)
     browser.setPhotosAuthNeeded(canRequest: false)
+    await fence.release()
     await listing.value
     XCTAssertTrue(browser.photosAuthNeeded)
     XCTAssertFalse(browser.photosAuthCanRequest)
     XCTAssertTrue(browser.assets.isEmpty)
+    XCTAssertEqual(try Data(contentsOf: photo), original)
   }
 
   @MainActor
@@ -176,5 +180,25 @@ final class BrowseLoadingPerformanceTests: XCTestCase {
       await Task.yield()
     }
     XCTFail("Producer never reached the thumbnail queue")
+  }
+}
+
+private actor FolderListingPublicationFence {
+  nonisolated let entered = XCTestExpectation(description: "Actual folder walk reached publication")
+  private var continuation: CheckedContinuation<Void, Never>?
+  private var released = false
+
+  func enter() async {
+    guard !released else { return }
+    await withCheckedContinuation { continuation in
+      self.continuation = continuation
+      entered.fulfill()
+    }
+  }
+
+  func release() {
+    released = true
+    continuation?.resume()
+    continuation = nil
   }
 }
