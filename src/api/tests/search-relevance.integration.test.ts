@@ -40,6 +40,7 @@ interface QueryCase {
   relevantIds: string[];
   mustBeInTop?: { id: string; k: number };
   observeIds?: string[];
+  readingGuards?: { id: string; k: number }[];
   note?: string;
 }
 
@@ -72,7 +73,10 @@ describe('hybrid search relevance gate (#2384)', () => {
       // itself if the index were still settling.
       const ranked = new Map<string, string[]>();
       for (const testCase of cases) {
-        const result = await client.search(testCase.query, { semantic: true, limit: 50 });
+        const result = await client.search(testCase.query, {
+          semantic: true,
+          limit: 50,
+        });
         ranked.set(testCase.query, result.ids);
       }
 
@@ -100,6 +104,13 @@ describe('hybrid search relevance gate (#2384)', () => {
         };
       });
 
+      for (const testCase of cases) {
+        for (const guard of testCase.readingGuards ?? []) {
+          const rank = ranked.get(testCase.query)!.indexOf(guard.id) + 1;
+          expect(rank, `${testCase.query}: ${guard.id} must occur`).toBeGreaterThan(0);
+          expect(rank, `${testCase.query}: ${guard.id} rank`).toBeLessThanOrEqual(guard.k);
+        }
+      }
       const scores = scoreRankings(evaluated);
       console.error(JSON.stringify({ semanticRatio: ratio, ...scores, report }, null, 2));
 

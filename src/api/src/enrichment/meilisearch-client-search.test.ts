@@ -60,7 +60,7 @@ describe('Meilisearch client — search()', () => {
     const body = calls[0]!.body as Record<string, unknown>;
     expect(body.q).toBe('Musum');
     expect(body.offset).toBe(0);
-    expect(body.limit).toBe(50);
+    expect(body.limit).toBe(100);
     expect(body.filter).toBe(
       'deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false) AND folderId = "0123456789abcdef01234567"',
     );
@@ -280,7 +280,9 @@ describe('Meilisearch client — search()', () => {
       fetchImpl,
       semantic: true,
     });
-    const result = await client.search('HVAC air conditioning installation', { semantic: true });
+    const result = await client.search('HVAC air conditioning installation', {
+      semantic: true,
+    });
     expect(result.ids).toEqual(['semantic', 'exact-lexical']);
     expect(result.scores).toEqual({ semantic: 0.91 });
   });
