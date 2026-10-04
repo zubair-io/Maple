@@ -16,9 +16,9 @@ public sealed class InspectorFocalLengthTests
     [InlineData(double.NaN, "—")]
     [InlineData(double.PositiveInfinity, "—")]
     [InlineData(35.0, "35 mm")]
-    [InlineData(24.75, "24.75 mm")]
-    [InlineData(0.004, "0.004 mm")]
-    [InlineData(0.0004, "0.0004 mm")]
+    [InlineData(24.75, "24,75 mm")]
+    [InlineData(0.004, "0,004 mm")]
+    [InlineData(0.0004, "0,0004 mm")]
     public void FocalLengthHasUnitsAndHonestAbsentState(double? value, string expected)
     {
         var previous = CultureInfo.CurrentCulture;
@@ -26,6 +26,26 @@ public sealed class InspectorFocalLengthTests
         {
             CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
             Assert.Equal(expected, new PhotoItem { FocalLengthMm = value }.FocalLengthDisplay);
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
+    }
+
+    [Theory]
+    [InlineData("en-US", "24.75 mm", "f/2.8")]
+    [InlineData("fr-FR", "24,75 mm", "f/2,8")]
+    public void FocalLengthUsesTheSameLocaleAsCameraMetadata(string culture, string focal, string aperture)
+    {
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+            var photo = CloudPhotoMapper.FromDirectory(new CloudDirImage
+            {
+                Name = "photo.CR3", Path = "/library/photo.CR3",
+                Exif = new CloudDirExif { FocalLengthMm = 24.75, Aperture = 2.8 },
+            }, "library:photo.CR3");
+            Assert.Equal(focal, photo.FocalLengthDisplay);
+            Assert.Equal(aperture, photo.Aperture);
         }
         finally { CultureInfo.CurrentCulture = previous; }
     }
