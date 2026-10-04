@@ -168,15 +168,15 @@ final class SceneLinearPipelineTests: XCTestCase {
         }
         if fp16Exp <= 0 {
             // Subnormal / underflow.
-            if fp16Exp < -10 { return sign }
-            // Add the implicit 1 and shift right to align in fp16 space.
-            // fp16 subnormal precision = 10 bits below 2^-14.
-            let mantWithImplicit = mantBits | 0x00800000
-            let shift = UInt32(14 - unbiasedExp)
-            // Round-to-nearest-even on the shifted-out bits.
-            let shifted = mantWithImplicit >> (shift - 10 - 1) // keep 1 guard bit
-            let rounded = (shifted + 1) >> 1                    // round half-up; good enough for synth data
-            return sign | UInt16(rounded & 0x03ff)
+            if 14 - fp16Exp > 24 { return sign }
+            let man = mantBits | 0x00800000
+            let shift = UInt32(14 - fp16Exp)
+            var halfMan = man >> shift
+            let roundBit: UInt32 = 1 << (shift - 1)
+            if (man & roundBit) != 0 && (man & (3 * roundBit - 1)) != 0 {
+                halfMan += 1
+            }
+            return sign | UInt16(halfMan)
         }
         // Normal range. Extract top 10 mantissa bits, with round-to-nearest
         // on the next bit.

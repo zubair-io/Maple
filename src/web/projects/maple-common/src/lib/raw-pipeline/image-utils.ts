@@ -183,17 +183,16 @@ export function f32ToF16(value: number): number {
   }
 
   if (fp16Exp <= 0) {
-    // Subnormal / underflow to zero (scene-linear values are >= 0 and small
-    // negatives from the gamut rotation flush to 0 — acceptable, matches clamp).
-    if (fp16Exp < -10) return sign;
-    // Add the implicit 1 and shift right to align in fp16 space (fp16
-    // subnormal precision = 10 bits below 2^-14), keeping 1 guard bit for a
-    // round-half-up on the shifted-out bit.
-    const mantWithImplicit = mantBits | 0x00800000;
-    const shift = 14 - unbiasedExp;
-    const shifted = mantWithImplicit >>> (shift - 10 - 1);
-    const rounded = (shifted + 1) >>> 1;
-    return sign | (rounded & 0x03ff);
+    // Subnormal / underflow.
+    if (14 - fp16Exp > 24) return sign;
+    const man = mantBits | 0x00800000;
+    const shift = 14 - fp16Exp;
+    let halfMan = man >>> shift;
+    const roundBit = 1 << (shift - 1);
+    if ((man & roundBit) !== 0 && (man & (3 * roundBit - 1)) !== 0) {
+      halfMan += 1;
+    }
+    return sign | halfMan;
   }
 
   // Normal range. Extract top 10 mantissa bits, rounding to nearest-even on

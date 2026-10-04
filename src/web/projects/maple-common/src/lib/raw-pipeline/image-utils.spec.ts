@@ -103,6 +103,20 @@ describe('f32ToF16 (#1944 — round-to-nearest-even, ports raw_core::pipeline::f
     expect(f32ToF16(1e30)).toBe(0x7c00);
     expect(f32ToF16(-1e-10)).toBe(0x8000);
   });
+
+  it('encodes subnormal half-float values faithfully including 2^-15 and carries into minimum normal (#4211)', () => {
+    // 2^-15 encodes as 0x0200 (subnormal, fraction = 512). Buggy arithmetic encoded 0x0010.
+    expect(f32ToF16(Math.pow(2, -15))).toBe(0x0200);
+    // Smallest normal 2^-14 is 0x0400.
+    expect(f32ToF16(Math.pow(2, -14))).toBe(0x0400);
+    // Smallest subnormal 2^-24 is 0x0001.
+    expect(f32ToF16(Math.pow(2, -24))).toBe(0x0001);
+    // Underflow tie at 2^-25 rounds to even (0x0000 / 0x8000).
+    expect(f32ToF16(Math.pow(2, -25))).toBe(0x0000);
+    expect(f32ToF16(-Math.pow(2, -25))).toBe(0x8000);
+    // Subnormal-to-normal carry: 2^-14 - 2^-25 rounds UP to 0x0400 under tie-to-even.
+    expect(f32ToF16(Math.pow(2, -14) - Math.pow(2, -25))).toBe(0x0400);
+  });
 });
 
 describe('canvasToBlob (thumbnail encoder: AVIF-first with verified JPEG fallback)', () => {
