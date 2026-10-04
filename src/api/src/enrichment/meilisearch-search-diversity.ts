@@ -70,6 +70,11 @@ export async function searchWithReadingDiversity(
       throw new MeilisearchSearchError(result.status, result.errorText);
     return result.body;
   };
+  // None of these requests can consume the permuted head. Preserve the
+  // original wire request and avoid gathering unused match metadata.
+  if (offset >= HEAD_SIZE || limit === 0 || (request.q as string).trim().length === 0) {
+    return search(offset, limit, false);
+  }
   // The same permutation is recomputed for every page. Never insert a new ID
   // on page one and leave its old occurrence behind on subsequent pages.
   const head = await search(0, HEAD_SIZE, true);

@@ -353,7 +353,9 @@ name dictionary, query expansion, or guessed intent.
 The candidate head is bounded to the ordinary 100-hit client page. This is a
 useful diversity policy within that native head, not an exhaustive disambiguator:
 a literal beyond it retains its native position. The same fixed permutation is
-sliced on every page; the native tail beyond position 100 stays unchanged. IDs,
+sliced on every page; the native tail beyond position 100 stays unchanged. Requests starting at or beyond
+100, zero-size pages, and empty/whitespace queries go directly to the native
+request, without a head fetch or match metadata. IDs,
 native scores, membership, filters and estimated totals are preserved. A failure
 fetching either part uses the existing route fallback, never a partial page.
 Meilisearch's [`showMatchesPosition`](https://specs.meilisearch.dev/specifications/text/0118-search-api.html)
