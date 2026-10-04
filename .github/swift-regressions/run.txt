@@ -351,3 +351,5 @@ SMBDisconnectDrainTests
 AgentMaskScopeTests # vectorscope & mask tools: Rec.709 chroma, skin locus, mask creation, overlay render, local edits
 AgentBrowseTests # browse mode & culling tools: list_photos, get_thumbnails, set_rating, set_flag, open_photo
 AgentScopeColorTests # #4104: paired ROI and canonical range coverage
+
+BrowseCancellationOwnershipTests
