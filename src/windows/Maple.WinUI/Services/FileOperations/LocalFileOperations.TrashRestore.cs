@@ -188,12 +188,12 @@ namespace Maple.WinUI.Services.FileOperations
             var ext = Path.GetExtension(basename);
             var stem = ext.Length > 0 ? basename[..^ext.Length] : basename;
 
-            var first = $"{stem}.restored{ext}";
+            var first = $"{stem}{FilenameVocabulary.RestoreCollisionSuffix}{ext}";
             if (!Occupied(destinationDir, first)) return first;
 
             for (var n = 1; n <= CollisionResolver.MaxAttempts; n++)
             {
-                var candidate = $"{stem}.restored.{n}{ext}";
+                var candidate = $"{stem}{FilenameVocabulary.RestoreCollisionSuffix}.{n}{ext}";
                 if (!Occupied(destinationDir, candidate)) return candidate;
             }
 

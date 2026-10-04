@@ -87,14 +87,17 @@ extension LocalFileOperations {
     -> RelocateOutcome
   {
     let originalDir = try originalDestinationDir(for: trashedPrimaryURL, libraryRoot: libraryRoot)
-    let realRoot = libraryRoot.resolvingSymlinksInPath().standardizedFileURL.path
-    let realTrash = realRoot + "/.maple/trash/"
+    let realRoot = libraryRoot.resolvingSymlinksInPath().standardizedFileURL
+    let rootPath = realRoot.path
+    let realTrash =
+      realRoot.appendingPathComponent(".maple").appendingPathComponent("trash").path + "/"
     guard trashedPrimaryURL.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(realTrash)
     else {
       throw FileOperationError.invalidDestination(trashedPrimaryURL.path)
     }
     let realDestination = originalDir.resolvingSymlinksInPath().standardizedFileURL.path
-    guard realDestination == realRoot || realDestination.hasPrefix(realRoot + "/") else {
+    let rootPrefix = rootPath == "/" ? "/" : rootPath + "/"
+    guard realDestination == rootPath || realDestination.hasPrefix(rootPrefix) else {
       throw FileOperationError.invalidDestination(originalDir.path)
     }
     let job = Task.detached(priority: .userInitiated) {
