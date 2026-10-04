@@ -179,6 +179,31 @@ pub fn mask_from_logits_json(
     scores: &[f32],
 ) -> Result<Vec<u8>, String> {
     let request = parse_request(request)?;
+    let choice = candidate_choice(&request, logits, scores)?;
+    let plane = SIDE * SIDE;
+    let values = &logits[choice * plane..(choice + 1) * plane];
+    let mask = native_mask(&request, values)?;
+    match super::removal_selection::apply_to_mask(&mask, &request.strokes)? {
+        Some(mask) => crate::pipeline::removal_mask_to_bytes(&mask),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Rank only finite, nonempty candidates honoring every source prompt. Native
+/// mask-conditioned passes use the same admission as the original proposal.
+pub fn candidate_choice_json(
+    request: &str,
+    logits: &[f32],
+    scores: &[f32],
+) -> Result<usize, String> {
+    candidate_choice(&parse_request(request)?, logits, scores)
+}
+
+fn candidate_choice(
+    request: &SmartMaskRequest,
+    logits: &[f32],
+    scores: &[f32],
+) -> Result<usize, String> {
     let prompts = request.model_prompts()?;
     if logits.len() != CANDIDATES * SIDE * SIDE
         || scores.len() != CANDIDATES
@@ -187,7 +212,7 @@ pub fn mask_from_logits_json(
         return Err("smart selection: invalid candidate shape or non-finite output".into());
     }
     let plane = SIDE * SIDE;
-    let choice = (0..CANDIDATES)
+    (0..CANDIDATES)
         .filter(|candidate| {
             let content_nonempty = (0..request.input_height as usize).any(|y| {
                 logits[candidate * plane + y * SIDE
@@ -211,13 +236,9 @@ pub fn mask_from_logits_json(
                     })
         })
         .reduce(|a, b| if scores[b] > scores[a] { b } else { a })
-        .ok_or("smart selection: no candidate honors the positive and negative prompts")?;
-    let values = &logits[choice * plane..(choice + 1) * plane];
-    let mask = native_mask(&request, values)?;
-    match super::removal_selection::apply_to_mask(&mask, &request.strokes)? {
-        Some(mask) => crate::pipeline::removal_mask_to_bytes(&mask),
-        None => Ok(Vec::new()),
-    }
+        .ok_or_else(|| {
+            "smart selection: no candidate honors the positive and negative prompts".into()
+        })
 }
 
 /// Convert continuous ordered Smart paint gestures into a bounded prompt set.
