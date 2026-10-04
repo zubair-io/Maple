@@ -3,7 +3,7 @@
 //! inputs are the same `FullChainInputs` and the same `active_mask` the
 //! gating builder uses — nothing here is independent of that module.
 
-use super::active_mask;
+use super::mask::active_mask;
 use super::noop::scene_tone_dispatch_shape;
 use crate::full_chain::FullChainInputs;
 

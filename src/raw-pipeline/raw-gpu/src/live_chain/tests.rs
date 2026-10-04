@@ -47,7 +47,7 @@ use raw_core::xmp::AdjustmentModel;
 /// whole epic gates at; the gated neutral chain runs FEWER accumulation stages
 /// than `full_chain`'s `mild` case (only the view tail), so it lands comfortably
 /// under. The measured value is printed so any regression toward it is visible.
-const LIVE_CHAIN_BUDGET: f32 = 1e-4;
+pub(super) const LIVE_CHAIN_BUDGET: f32 = 1e-4;
 
 /// The lower bound the UNGATED composition's neutral divergence must clear, so
 /// the gating proof is non-vacuous: `build_full_chain_passes` runs WB / tone /

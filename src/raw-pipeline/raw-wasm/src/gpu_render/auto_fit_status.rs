@@ -5,9 +5,11 @@ use super::*;
 /// entry `apply_auto_profile` shares a cache with — see #924 / #972) and flatten
 /// them into the `(profile_curve_flat, residual_lut_size, residual_lut_data)` shape
 /// [`build_full_chain_inputs`] consumes. A `None` (Neutral, no preview, degenerate
-/// fit) carries an empty curve → the chain skips that stage, matching
-/// `Profile::Neutral`. The fit is keyed on the RAW BYTES (not the model), so after
-/// the first call it is cache-served — re-running it per slider tick is cheap.
+/// fit) stays ABSENT (empty flat / size-0 LUT) so the composers omit the look
+/// passes — matching raw-core's `if let Some` skips. Never substitute identity:
+/// the curve knee crushes white 1.0 → 0.975 even on an identity curve. The fit
+/// is keyed on the RAW BYTES (not the model), so after the first call it is
+/// cache-served — re-running it per slider tick is cheap.
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) fn fit_profile_artifacts_with_status(
     raw_img: &raw_core::image::RawImage,
@@ -39,10 +41,7 @@ fn flatten_profile_artifacts(
     let profile_curve_flat = curve.map(|c| c.to_flat()).unwrap_or_default();
     let (residual_lut_size, residual_lut_data) = match lut {
         Some(l) => (l.size, l.data),
-        None => {
-            let id = auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE);
-            (id.size, id.data)
-        }
+        None => (0, Vec::new()),
     };
     (
         profile_curve_flat,
@@ -103,6 +102,8 @@ mod absence_tests {
             let (curve, size, lut, achieved) = flatten_profile_artifacts(None, None, profile);
             assert!(curve.is_empty());
             assert_eq!(achieved, status);
+            assert_eq!(size, 0);
+            assert!(lut.is_empty());
             assert_eq!(lut.len(), size * size * size * 3);
         }
     }

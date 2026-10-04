@@ -56,7 +56,9 @@ const _: () = assert!(
 /// Writes, on success:
 /// - `*curve_present` = 1 and `curve_out[0..PROFILE_CURVE_FLAT_LEN]` = the fitted
 ///   `ProfileCurve::to_flat()`, OR `*curve_present` = 0 (the fit produced no curve
-///   — too few pairs; the host uses the identity curve, i.e. the residual alone).
+///   — too few pairs; the host passes the curve as ABSENT (nil/NULL), i.e. the
+///   residual alone — the composers omit the curve pass. Never substitute an
+///   identity curve: its compress knee crushes white 1.0 → 0.975).
 /// - `*lut_size` = the residual LUT edge `n` (0 if no residual), and
 ///   `lut_out[0..n³·3]` = `ColorLut.data` (R fastest — `data[((b*n+g)*n+r)*3+c]`,
 ///   the same layout the residual-LUT pass / the cube bake use).

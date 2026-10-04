@@ -49,13 +49,16 @@
 //! - `local_adjustments` (#1698): omit unless some layer in the flat stack sets
 //!   some control — see [`crate::local_adjustments_are_active`].
 //! - `capture_sharpening`: already gated via `Option` (generalised here).
-//! - RAW view tail always runs `agx`, `display_encode`, `srgb_gamma`, and
-//!   `residual_lut`; `auto_profile_curve` runs only when a fitted curve is
-//!   present. `dither` (P4b terminal) is appended by
-//!   the live session, not here (this builder is f32-RGBA, like `build_split`).
+//! - View tail (`agx`, `display_encode`, `srgb_gamma`) ALWAYS runs — even a
+//!   neutral image must go through the view transform to become a display
+//!   image — but the Auto Profile look (`auto_profile_curve`, `residual_lut`)
+//!   runs only when its artifacts are PRESENT (RAW shape + non-empty curve /
+//!   non-zero LUT size), matching raw-core's `if let Some` skips. `dither`
+//!   (P4b terminal) is appended by the live session, not here (this builder is
+//!   f32-RGBA, like `build_split`).
 
 use crate::agx::AgxPass;
-use crate::auto_profile_curve::AutoProfileCurvePass;
+use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::color_grade::{color_grade_is_identity, ColorGradePass};
@@ -73,7 +76,7 @@ use crate::local_adjustments::{
 };
 use crate::local_spatial::{layer_needs_spatial, LocalSpatialPass};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
-use crate::residual_lut::ResidualLutPass;
+use crate::residual_lut::{residual_lut_is_active, ResidualLutPass};
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
@@ -83,21 +86,6 @@ use crate::tone_curves::ToneCurvesPass;
 use crate::vibrance::VibrancePass;
 use crate::vignette::VignettePass;
 use crate::white_balance::WhiteBalancePass;
-
-// Compile-time guard: `active_mask` packs `input_shape` into the top 2 bits
-// of a u32 (shift left by 30). That encoding supports at most 4 variants
-// (discriminants 0–3). If a 5th variant (discriminant 4) is ever added, the
-// shift would produce a value with bit 32 set, which is out-of-range for u32
-// in debug (overflow panic) or silently truncated in release. The assert below
-// turns that scenario into a compile error with a clear message instead.
-// There is no `const fn` way to iterate an enum's discriminants in stable Rust,
-// so we assert on the known highest discriminant value directly.
-const _: () = assert!(
-    InputShape::SrgbGammaEncoded8 as u32 <= 3,
-    "InputShape has a variant with discriminant > 3; active_mask's 2-bit \
-     `input_shape` pack in the top 2 bits of u32 (shift 30) would overflow. \
-     Widen the encoding or increase the shift before adding a 5th variant."
-);
 
 /// Push the local-adjustments stage (#1698) in whichever of its two shapes
 /// this model needs.
@@ -144,6 +132,10 @@ fn push_local_adjustments(suffix: &mut BoxedPasses, inputs: &FullChainInputs<'_>
 
 mod noop;
 use noop::*;
+
+// `active_mask` lives in a sibling file to keep this module inside the
+// file-size budget (same split shape as `noop` / `signature` / `tests`).
+mod mask;
 
 // `chain_signature` lives in a sibling file to keep this module inside the
 // file-size budget (same split shape as `noop` / `tests`).
@@ -398,15 +390,23 @@ pub fn build_live_split<'a>(
         target_primaries: inputs.target_primaries,
     }));
     suffix.push(Box::new(SrgbGammaPass));
-    // RAW Auto artifacts are independent: empty curve means no fitted curve,
-    // not an identity curve (which still compresses highlights). A residual-only
-    // fit retains its LUT. Non-RAW bypasses both, matching the CPU display tail.
-    if is_raw_shape {
-        if !inputs.profile_curve_flat.is_empty() {
-            suffix.push(Box::new(AutoProfileCurvePass {
-                flat_curve: inputs.profile_curve_flat.as_ref().into(),
-            }));
-        }
+    // Auto-Profile curve + residual LUT are the per-image AUTO-profile LOOK
+    // artifacts (fit in gamma space from a camera JPEG). NON-RAW input has no
+    // JPEG to fit, so there is no look to apply — and applying the default
+    // "identity" artifacts is NOT a no-op: it crushes white from 1.0 to ~0.973
+    // (byte 248 instead of 255). The CPU non-RAW path runs ONLY display_encode +
+    // srgb_gamma for exactly this reason. Skip them for non-RAW so the colorimetric
+    // encode is the whole tail; RAW keeps them — but ONLY when actually fitted
+    // (Neutral / unavailable-Auto carry empty/0 artifacts, and the CPU RAW path
+    // `if let Some`s past them too). Each artifact gates independently, via the
+    // same presence predicates the full composer uses.
+    // #1516 (completes the #1513 non-RAW view-tail skip — AgX above + look here).
+    if is_raw_shape && profile_curve_is_active(&inputs.profile_curve_flat) {
+        suffix.push(Box::new(AutoProfileCurvePass {
+            flat_curve: inputs.profile_curve_flat.as_ref().into(),
+        }));
+    }
+    if is_raw_shape && residual_lut_is_active(inputs.residual_lut_size, &inputs.residual_lut_data) {
         suffix.push(Box::new(ResidualLutPass {
             size: inputs.residual_lut_size,
             data: inputs.residual_lut_data.as_ref().into(),
@@ -426,111 +426,20 @@ pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
     inputs.dehaze.abs() >= SLIDER_EPS
 }
 
-/// Maximum view-tail pass count for RAW with a present Auto curve: `agx`,
-/// `display_encode`, `srgb_gamma`, `auto_profile_curve`, and `residual_lut`.
-/// An absent curve removes one pass; this constant is not the neutral floor.
-/// NON-RAW shapes omit the RAW look stages, leaving colorimetric encode only
-/// (`display_encode` + `srgb_gamma`), or `VIEW_TAIL_PASS_COUNT - 3` passes.
+/// The number of view-tail passes for a RAW input shape with Auto Profile
+/// artifacts present (`agx`, `display_encode`, `srgb_gamma`,
+/// `auto_profile_curve`, `residual_lut`). A neutral RAW chain with fitted
+/// artifacts has exactly this many passes; each engaged slider adds one (or,
+/// for the spatial stages, still one `Pass` — they orchestrate their own
+/// sub-dispatches). Absent Auto artifacts (Neutral / unavailable-Auto) omit
+/// the two look passes even for RAW (`VIEW_TAIL_PASS_COUNT - 2`); NON-RAW
+/// shapes skip the whole LOOK portion — `agx` (#1513) plus
+/// `auto_profile_curve` + `residual_lut` (#1516) — leaving only the
+/// colorimetric encode (`display_encode` + `srgb_gamma`), so a neutral
+/// non-RAW chain has `VIEW_TAIL_PASS_COUNT - 3`. Public so the live-session
+/// terminal-`dither` wiring (C2/C3) and the tests can assert the floor without
+/// re-counting by hand.
 pub const VIEW_TAIL_PASS_COUNT: usize = 5;
-
-/// The active-stage bitmask — which gated passes [`build_live_split`] includes
-/// for `inputs`, one bit per gated stage, including optional Auto curve presence.
-/// Always-present view stages need no bit. Every bit uses the builder's
-/// exact same predicate the corresponding `if` in `build_live_split` uses, so the
-/// mask can't disagree with which passes actually get pushed. Used by
-/// [`chain_signature`] to key the live pool's bind-group cache.
-fn active_mask(inputs: &FullChainInputs) -> u32 {
-    let mut m = 0u32;
-    let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
-    // Encode input_shape in the top 2 bits of the mask so a shape change lands
-    // in a fresh pool bucket (different passes = different bind-group layouts).
-    // The 2-bit mask `& 0b11` is defensive: variant values 0/1/2 are safe, but
-    // a future 4th variant (discriminant 3) would still fit; variant 4 (next
-    // power of two) would shift into bit 32 and overflow a u32 in debug mode
-    // (silent truncation in release). The mask guarantees correctness today and
-    // turns any future out-of-range discriminant into a collision (detectable)
-    // rather than UB. See also the compile-time assert below.
-    m |= ((inputs.input_shape as u32) & 0b11) << 30;
-    // Bit 0: capture_sharpening — RAW-only (#1331); always 0 for non-RAW shapes.
-    if is_raw_shape && inputs.capture_sharpening.is_some() {
-        m |= 1 << 0;
-    }
-    // Bit 1: WB — engaged for ALL shapes when the slider is outside the skip
-    // band (the builder now includes WB unconditionally for non-RAW too).
-    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
-        m |= 1 << 1;
-    }
-    if !scene_tone_is_noop(&inputs.tone) {
-        m |= 1 << 2;
-    }
-    if !tone_curves_is_noop(&inputs.tone_curves) {
-        m |= 1 << 3;
-    }
-    if inputs.vibrance.abs() >= SLIDER_EPS {
-        m |= 1 << 4;
-    }
-    if inputs.saturation.abs() >= SLIDER_EPS {
-        m |= 1 << 5;
-    }
-    if !hsl_pass_for(inputs).is_noop() {
-        m |= 1 << 15;
-    }
-    if inputs.clarity.abs() >= SLIDER_EPS {
-        m |= 1 << 6;
-    }
-    if inputs.texture.abs() >= SLIDER_EPS {
-        m |= 1 << 7;
-    }
-    if inputs.dehaze.abs() >= SLIDER_EPS {
-        m |= 1 << 8;
-    }
-    if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
-        m |= 1 << 16;
-    }
-    // Bit 19: defringe (#3411) — same predicate as the `build_live_split`
-    // gate above. Only presence changes the dispatch/bind-group shape (the
-    // six sliders ride a fixed-size params uniform), so no content hash is
-    // folded in.
-    if inputs.defringe.is_engaged() {
-        m |= 1 << 19;
-    }
-    if inputs.vignette_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 9;
-    }
-    if inputs.sharpen_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 10;
-    }
-    if inputs.nr_luminance.abs() >= SLIDER_EPS {
-        m |= 1 << 11;
-    }
-    if inputs.nr_color.abs() >= SLIDER_EPS {
-        m |= 1 << 12;
-    }
-    if inputs.grain_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 13;
-    }
-    if !color_grade_is_identity(&crate::full_chain::color_grade_sliders(inputs)) {
-        m |= 1 << 14;
-    }
-    // Bit 17: film look (epic #2683, Task 7) — same predicate as the
-    // `build_live_split` gate (loaded LUT + engaged strength).
-    if inputs.film_lut_size > 0 && inputs.film_strength > SLIDER_EPS {
-        m |= 1 << 17;
-    }
-    // Bit 18: display-referred tone curves (#2232) — same predicate as the
-    // `build_live_split` gate above. Fixed-stride pooled buffer (NUM_SLOTS ×
-    // SLOT_STRIDE, like `tone_curves`'), so no extra content-hash fold is
-    // needed below — only presence changes the dispatch/bind-group shape.
-    if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
-        m |= 1 << 18;
-    }
-    // Bit 20: Auto curve presence changes the RAW view-tail dispatch sequence.
-    // Curve values keep the same storage shape and do not enter the signature.
-    if is_raw_shape && !inputs.profile_curve_flat.is_empty() {
-        m |= 1 << 20;
-    }
-    m
-}
 
 // Parity tests live in a sibling file to keep this module under the 600-LOC
 // budget (mirrors full_chain / dehaze's tests.rs split). They drive the SHARED

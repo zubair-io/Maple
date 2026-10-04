@@ -94,3 +94,49 @@ fn absent_and_present_identity_curves_match_optional_cpu_tail_on_both_composers(
         }
     }
 }
+
+/// Exercise the encoded-f32 look boundary from both actual composers. Values
+/// above one distinguish a genuinely absent residual from a present identity
+/// grid: raw-core skips None, while ColorLut::sample clamps a present grid.
+#[test]
+fn absent_residual_preserves_hdr_while_present_identity_matches_cpu_clamping() {
+    let ctx = GpuContext::new_blocking().expect("actual GPU required");
+    let input: Vec<f32> = (0..64)
+        .flat_map(|i| [1.25 + i as f32 / 64.0, 0.5, -0.25, 0.75])
+        .collect();
+    let sample = case(Profile::Neutral, None, false);
+    let identity = identity_lut(9);
+    let expected_present: Vec<f32> = input
+        .chunks_exact(4)
+        .flat_map(|px| {
+            let rgb = identity.sample([px[0], px[1], px[2]]);
+            [rgb[0], rgb[1], rgb[2], px[3]]
+        })
+        .collect();
+    assert!(max_abs_diff(&input, &expected_present) > 0.25);
+    for live in [false, true] {
+        for present in [false, true] {
+            let mut inputs = sample.gpu_inputs();
+            if !present {
+                inputs.residual_lut_size = 0;
+                inputs.residual_lut_data = Vec::new().into();
+            }
+            let suffix = if live {
+                crate::live_chain::build_live_split(&inputs, AirlightSource::Cpu([0.0; 3])).1
+            } else {
+                build_split(&inputs, [0.0; 3]).1
+            };
+            // AgX, display primaries and gamma precede the look boundary.
+            // Existing whole-chain controls qualify those stages separately.
+            assert_eq!(suffix.len(), 3 + usize::from(present));
+            let refs: Vec<&dyn Pass> = suffix.iter().skip(3).map(|pass| pass.as_ref()).collect();
+            let image = GpuImage::upload(&ctx, &input, 8, 8);
+            let actual = ChainRunner::new(&ctx, &image).run_blocking(&refs);
+            let expected = if present { &expected_present } else { &input };
+            assert!(
+                max_abs_diff(&actual, expected) < 1e-4,
+                "residual presence={present} live={live} must match raw-core optional sampling"
+            );
+        }
+    }
+}

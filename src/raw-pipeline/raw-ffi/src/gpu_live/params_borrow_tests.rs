@@ -32,19 +32,26 @@ fn live_frames_borrow_large_host_artifacts_without_copying() {
 }
 
 #[test]
-fn absent_curve_is_empty_and_residual_fallback_storage_is_shared() {
+fn absent_or_malformed_artifacts_signal_absence_without_allocating() {
     let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
-    let first_curve = unsafe { curve_flat_or_absent(&params) }.as_ptr();
-    let first_lut = unsafe { residual_or_identity(&params) }.1.as_ptr();
+    // Zeroed params (the Neutral host path): empty curve + size-0 LUT, both
+    // borrowed — the composers omit the look passes (raw-core's `if let Some`
+    // skips). Never a substituted identity: the curve knee is not a no-op.
+    let empty_curve = unsafe { curve_flat_or_empty(&params) };
+    assert!(empty_curve.is_empty());
+    assert!(matches!(empty_curve, Cow::Borrowed(_)));
+    let (size, empty_lut) = unsafe { residual_or_empty(&params) };
+    assert_eq!(size, 0);
+    assert!(empty_lut.is_empty());
+    assert!(matches!(empty_lut, Cow::Borrowed(_)));
+
     // A partial/stale caller can supply an edge without its array. Size must
     // fall back alongside the array, rather than presenting a mismatched grid.
     params.residual_lut_size = 49;
-    let (size, second_lut) = unsafe { residual_or_identity(&params) };
-    assert_eq!(size, 2);
-    assert_eq!(second_lut.len(), 2 * 2 * 2 * 3);
-    assert_eq!(first_lut, second_lut.as_ptr());
-    let second_curve = unsafe { curve_flat_or_absent(&params) };
-    assert_eq!(first_curve, second_curve.as_ptr());
+    let (size, second_lut) = unsafe { residual_or_empty(&params) };
+    assert_eq!(size, 0);
+    assert!(second_lut.is_empty());
+    let second_curve = unsafe { curve_flat_or_empty(&params) };
     assert!(second_curve.is_empty());
     assert!(matches!(second_curve, Cow::Borrowed(_)));
     assert!(matches!(second_lut, Cow::Borrowed(_)));
@@ -57,7 +64,7 @@ fn absent_curve_is_empty_and_residual_fallback_storage_is_shared() {
     params.film_lut_ptr = truncated.as_ptr();
     params.film_lut_len = truncated.len();
     params.film_lut_size = 33;
-    assert_eq!(unsafe { residual_or_identity(&params) }.0, 2);
+    assert_eq!(unsafe { residual_or_empty(&params) }.0, 0);
     assert_eq!(unsafe { film_lut_or_off(&params) }.0, 0);
 }
 
