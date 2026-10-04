@@ -42,7 +42,8 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
   private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
   private var nextSubscriberID: UInt64 = 0
 
-  static let debounceInterval: Duration = .milliseconds(750)
+  static let debounceNanoseconds: UInt64 = 750_000_000
+  static let debounceInterval: Duration = .nanoseconds(debounceNanoseconds)
 
   public init(server: URL, assetID: String, httpClient: AuthenticatedHTTPClient) {
     self.server = server
@@ -106,15 +107,17 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
     pendingTask?.cancel()
     pendingTask = Task { [weak self] in
       do {
-        try await Task.sleep(for: CloudSidecarStore.debounceInterval)
+        try await Task.sleep(nanoseconds: CloudSidecarStore.debounceNanoseconds)
         await self?.writePending()
       } catch {}
     }
   }
 
   public func flush() async {
-    pendingTask?.cancel()
+    let task = pendingTask
     pendingTask = nil
+    task?.cancel()
+    _ = await task?.result
     await writePending()
   }
 
@@ -157,8 +160,10 @@ public actor CloudSidecarStore: WorkflowSidecarStoreProtocol {
   }
 
   public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
-    pendingTask?.cancel()
+    let task = pendingTask
     pendingTask = nil
+    task?.cancel()
+    _ = await task?.result
     pendingModel = nil
     pendingCulling = nil
 

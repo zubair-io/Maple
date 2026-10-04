@@ -15,7 +15,8 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
   private var pendingEdits: [SMBModelPublication] = []
   private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
   private var nextSubscriberID: UInt64 = 0
-  static let debounceInterval: Duration = .milliseconds(750)
+  static let debounceNanoseconds: UInt64 = 750_000_000
+  static let debounceInterval: Duration = .nanoseconds(debounceNanoseconds)
 
   public init(source: SMBSource, ref: ImageRef) {
     self.source = source
@@ -43,14 +44,16 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
     pendingTask?.cancel()
     pendingTask = Task { [weak self] in
       do {
-        try await Task.sleep(for: Self.debounceInterval)
+        try await Task.sleep(nanoseconds: Self.debounceNanoseconds)
         await self?.writePending()
       } catch {}
     }
   }
   public func flush() async {
-    pendingTask?.cancel()
+    let task = pendingTask
     pendingTask = nil
+    task?.cancel()
+    _ = await task?.result
     await writePending()
     _ = await writeTail?.result
   }
@@ -67,8 +70,10 @@ public actor SMBSidecarStore: WorkflowVariantSidecarStoreProtocol {
   private func removeSubscriber(_ id: UInt64) { subscribers.removeValue(forKey: id) }
 
   public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
-    pendingTask?.cancel()
+    let task = pendingTask
     pendingTask = nil
+    task?.cancel()
+    _ = await task?.result
     pendingModel = model
     pendingCulling = culling
     cached = (model, culling)
