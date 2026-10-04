@@ -23,7 +23,9 @@ const FIXTURE_QUERY = 'HVAC air conditioning installation';
 function capturingClient(sink: Array<Record<string, unknown>>) {
   const fetchImpl = (async (_url: string, init?: { body?: string }) => {
     sink.push(JSON.parse(init?.body ?? '{}'));
-    return new Response(JSON.stringify({ hits: [], estimatedTotalHits: 0 }), { status: 200 });
+    return new Response(JSON.stringify({ hits: [], estimatedTotalHits: 0 }), {
+      status: 200,
+    });
   }) as unknown as typeof fetch;
   return createMeilisearchClient({
     url: 'http://meili.test',
@@ -38,14 +40,20 @@ function capturingClient(sink: Array<Record<string, unknown>>) {
 describe('query verbatim contract (#2384)', () => {
   it('sends the submitted query byte-for-byte in hybrid mode', async () => {
     const bodies: Array<Record<string, unknown>> = [];
-    await capturingClient(bodies).search(FIXTURE_QUERY, { semantic: true, limit: 20 });
+    await capturingClient(bodies).search(FIXTURE_QUERY, {
+      semantic: true,
+      limit: 20,
+    });
     expect(bodies).toHaveLength(1);
     expect(bodies[0]!.q).toBe(FIXTURE_QUERY);
   });
 
   it('sends the submitted query byte-for-byte in lexical mode', async () => {
     const bodies: Array<Record<string, unknown>> = [];
-    await capturingClient(bodies).search(FIXTURE_QUERY, { semantic: false, limit: 20 });
+    await capturingClient(bodies).search(FIXTURE_QUERY, {
+      semantic: false,
+      limit: 20,
+    });
     expect(bodies).toHaveLength(1);
     expect(bodies[0]!.q).toBe(FIXTURE_QUERY);
   });
@@ -66,6 +74,7 @@ describe('query verbatim contract (#2384)', () => {
           'limit',
           'offset',
           'q',
+          'showMatchesPosition',
           'showRankingScore',
         ]);
       });
