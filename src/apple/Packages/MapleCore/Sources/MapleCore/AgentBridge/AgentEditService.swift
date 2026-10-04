@@ -116,6 +116,9 @@ public final class AgentEditService {
     let session = try editableSession(arguments)
     let label = arguments["description"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
 
+    if let value = arguments["mask_id"], value.stringValue == nil {
+      throw AgentError(code: "invalid_arguments", message: "mask_id must be a UUID string.")
+    }
     if let maskIdStr = arguments["mask_id"]?.stringValue {
       guard let maskId = UUID(uuidString: maskIdStr) else {
         throw AgentError(code: "invalid_arguments", message: "`mask_id` must be a valid UUID.")
