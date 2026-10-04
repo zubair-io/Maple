@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-04",
+  "status": "unfinished-research-preserved-in-draft",
+  "releaseQualified": false,
+  "tracking": {
+    "epic": 1472,
+    "model": 3941,
+    "interaction": 3984,
+    "persistence": 3940,
+    "extractedCodecFix": 4211,
+    "prd": 4237,
+    "rfc": 4238
+  },
+  "refinement": {
+    "releaseQualified": false,
+    "resultSHA256": "85ac68a28253d88e54544f9a84274ab04a253a980778fb9e1a59a5b3b8166d07",
+    "weightsChanged": false,
+    "knownModelInputBitsChanged": 0,
+    "seconds": 3159.3339548749937,
+    "processPeakRSSBytes": 80351215616
+  },
+  "refinementAssessment": "Final RAW bake completed; visual assessment rejected the large person-shaped flat/textured fill. Independent 18-grade verification of this final refined bake remains unrun. Earlier baseline preservation checks do not prove fill quality. Timing and memory are uncontrolled research observations.",
+  "colorGate": {
+    "comparisons": 806,
+    "budgetBreaches": 96,
+    "noReferenceSkips": 171,
+    "provenance": "Earlier pre-rebase executable plus half codec fix; not a current-base pass. Similar failures existed in earlier qualification; matched-main attribution remains undone."
+  },
+  "macKeyboard": {
+    "builds": "Mac and arm64 iOS simulator builds passed before preservation-only comments; focused keyboard UI test failed waiting for Clear selection after clicking Remove. Cause unresolved.",
+    "sourcePreserved": true,
+    "liveUIQualified": false
+  },
+  "extraction": "Only independent fp16 arithmetic and existing patch codec regression test extracted onto current main. Removal assets, XMP publication/recovery and history remain coupled to the unfinished feature; no generic storage framework extracted.",
+  "releaseGatesRemaining": [
+    "Model quality and supported limits",
+    "Current-base color and platform parity",
+    "Complete persistence/recovery and consumer portability",
+    "Supported-device performance and memory",
+    "Complete UI and accessibility qualification"
+  ]
+}

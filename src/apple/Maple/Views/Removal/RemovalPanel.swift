@@ -261,6 +261,17 @@ struct RemovalPanel: View {
         value: Binding(
           get: { removal.radius * 100 }, set: { removal.radius = $0 / 100 }),
         range: 0.2...20, step: 0.2, unit: "%", disabled: removal.busy)
+      #if os(macOS)
+        MuiButton(
+          label: "Focus brush", size: .sm,
+          disabled: removal.phase != .ready || !removal.canPaint
+        ) {
+          NotificationCenter.default.post(
+            name: RemovalPointerSurface.focusNotification, object: removal)
+        }.accessibilityIdentifier("removal-focus-brush")
+        Text("Arrows move · Space starts/finishes a stroke · Return paints · Esc cancels")
+          .font(.caption).foregroundStyle(ProTokens.textMuted)
+      #endif
       HStack {
         MuiButton(label: "Undo selection", size: .sm, disabled: !removal.canUndoSelection) {
           Task { await removal.undoSelection() }

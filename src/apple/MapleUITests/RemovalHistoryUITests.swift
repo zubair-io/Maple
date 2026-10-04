@@ -6,6 +6,99 @@ import XCTest
   final class RemovalHistoryUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
+    func testKeyboardPaintingCancelsAndReplaysWholeStrokesWithoutPublishing() throws {
+      let root = (0..<4).reduce(URL(fileURLWithPath: #filePath)) { url, _ in
+        url.deletingLastPathComponent()
+      }
+      let raw = root.appendingPathComponent("test-fixtures/raws/removal-photographic/bologna.nef")
+        .resolvingSymlinksInPath()
+      guard FileManager.default.fileExists(atPath: raw.path) else {
+        throw XCTSkip("Photographic keyboard workflow needs the Bologna RAW")
+      }
+      let staged = try StagedFixture.stage(
+        raw: raw,
+        sidecar: root.appendingPathComponent("test-fixtures/removal/calibration/prior.xmp"),
+        label: "removal-keyboard")
+      defer { staged.remove() }
+      let original = try Data(contentsOf: staged.raw)
+      let originalSidecar = try Data(contentsOf: staged.sidecar)
+      let app = XCUIApplication()
+      app.launchArguments = ["-editor.showsScope", "NO", "-editor.showsScopesPanel", "NO"]
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = ""
+      app.launchEnvironment["MAPLE_GPU_LIVE"] = "1"
+      app.launch()
+      app.activate()
+      // A restored frame from another display can leave inspector controls
+      // off-screen. Use the standard window action before exercising input.
+      app.menuBars.menuBarItems["Window"].click()
+      try clickEnabled(app.menuItems["Fill"])
+      defer {
+        captureTree(app, name: "Keyboard painting final accessibility tree")
+        capture(app, name: "Keyboard painting final photo")
+        app.terminate()
+      }
+      try openFolderAndEditor(app, staged: staged)
+      XCTAssertTrue(app.otherElements["canvas-render-ready"].waitForExistence(timeout: 60))
+      let dock = app.scrollViews.matching(
+        NSPredicate(format: "identifier == %@ AND label == %@", "editor-tool-dock", "Editor tools")
+      ).firstMatch
+      XCTAssertTrue(dock.waitForExistence(timeout: 10))
+      dock.scroll(byDeltaX: 0, deltaY: -700)
+      try clickEnabled(app.buttons["editor-dock-tool-remove"])
+      let clear = app.buttons["Clear selection"]
+      let undo = app.buttons["Undo selection"]
+      let redo = app.buttons["Redo selection"]
+      XCTAssertTrue(clear.waitForExistence(timeout: 60))
+      XCTAssertFalse(clear.isEnabled)
+      XCTAssertFalse(undo.isEnabled)
+      try clickEnabled(app.buttons["removal-focus-brush"])
+      let canvas = app.buttons["removal-paint-canvas"]
+      XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+      XCTAssertTrue((canvas.value as? String)?.hasPrefix("Brush ") == true)
+      capture(app, name: "Keyboard brush before painting")
+      app.typeKey(" ", modifierFlags: [])
+      XCTAssertTrue((canvas.value as? String)?.contains("stroke active") == true)
+      app.typeKey(.rightArrow, modifierFlags: .shift)
+      app.typeKey(.escape, modifierFlags: [])
+      XCTAssertFalse(clear.isEnabled)
+      XCTAssertFalse(undo.isEnabled)
+      app.typeKey(" ", modifierFlags: [])
+      app.typeKey(.rightArrow, modifierFlags: .shift)
+      app.typeKey(.downArrow, modifierFlags: .shift)
+      app.typeKey(" ", modifierFlags: [])
+      try waitForEnabled(undo, true)
+      XCTAssertTrue(clear.isEnabled)
+      capture(app, name: "Keyboard whole stroke selected")
+      // Return uses the same press action exposed to assistive technology.
+      // Its second gesture must be undoable independently of the first.
+      let position = canvas.value as? String
+      app.typeKey(.leftArrow, modifierFlags: .shift)
+      XCTAssertNotEqual(canvas.value as? String, position)
+      app.typeKey(.return, modifierFlags: [])
+      try waitForEnabled(app.buttons["removal-focus-brush"], true)
+      try clickEnabled(undo)
+      try waitForEnabled(app.buttons["removal-focus-brush"], true)
+      XCTAssertTrue(clear.isEnabled)
+      try clickEnabled(undo)
+      try waitForEnabled(clear, false)
+      try clickEnabled(redo)
+      try waitForEnabled(clear, true)
+      XCTAssertEqual(try Data(contentsOf: staged.raw), original)
+      XCTAssertEqual(try Data(contentsOf: staged.sidecar), originalSidecar)
+      XCTAssertFalse(
+        FileManager.default.fileExists(
+          atPath: staged.directory.appendingPathComponent(".maple/inpaint").path))
+      XCTAssertFalse(app.staticTexts["editor-sidecar-save-error"].exists)
+    }
+
+    private func waitForEnabled(_ element: XCUIElement, _ value: Bool) throws {
+      let expectation = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "enabled == %@", NSNumber(value: value)), object: element)
+      _ = try XCTUnwrap(
+        XCTWaiter.wait(for: [expectation], timeout: 30) == .completed ? true : nil,
+        element.description)
+    }
+
     func testResetUndoRedoPersistTheAcceptedRemovalFromEditorControls() throws {
       let staged = try stageSavedRemoval()
       defer { staged.remove() }
@@ -135,7 +228,8 @@ import XCTest
       if app.sheets["GoToWindow"].exists { app.typeKey(.return, modifierFlags: []) }
       _ = try XCTUnwrap(app.sheets["GoToWindow"].waitForNonExistence(timeout: 10) ? true : nil)
       try clickEnabled(app.buttons["OKButton"])
-      let photo = app.descendants(matching: .any)["thumb-source"]
+      let name = staged.raw.deletingPathExtension().lastPathComponent
+      let photo = app.descendants(matching: .any)["thumb-\(name)"]
       _ = try XCTUnwrap(photo.waitForExistence(timeout: 30) ? true : nil)
       photo.click()
       try clickEnabled(app.buttons["preview-edit"])
