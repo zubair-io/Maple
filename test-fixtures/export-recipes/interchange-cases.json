@@ -1,0 +1,224 @@
+{
+  "semantic": [
+    {
+      "id": "jpeg-default",
+      "supported": true,
+      "fields": {}
+    },
+    {
+      "id": "tiff16-directory-skip",
+      "supported": true,
+      "fields": {
+        "format": "tiff",
+        "quality": null,
+        "bitDepth": 16,
+        "maxLongEdge": 2048,
+        "outputProfile": "display-p3",
+        "destination": "directory",
+        "directory": "/exports",
+        "overwritePolicy": "skip"
+      }
+    },
+    {
+      "id": "png-directory-error",
+      "supported": true,
+      "fields": {
+        "format": "png",
+        "quality": null,
+        "destination": "directory",
+        "directory": "/exports",
+        "overwritePolicy": "error"
+      }
+    },
+    {
+      "id": "avif-automatic-p3",
+      "supported": true,
+      "fields": {
+        "format": "avif",
+        "quality": null,
+        "outputProfile": "display-p3"
+      }
+    },
+    {
+      "id": "avif-quality55",
+      "supported": true,
+      "fields": {
+        "format": "avif",
+        "quality": 55
+      }
+    },
+    {
+      "id": "webp-lossless",
+      "supported": true,
+      "fields": {
+        "format": "webp",
+        "quality": null
+      }
+    },
+    {
+      "id": "unicode-name-and-directory",
+      "supported": true,
+      "fields": {
+        "name": "Café portrait 日本語",
+        "maxLongEdge": 4096,
+        "destination": "directory",
+        "directory": "/Exports/日本語",
+        "overwritePolicy": "replace",
+        "namingTemplate": "{date:YYYYMMDD}_{original}_{n}.{ext}"
+      }
+    },
+    {
+      "id": "unsupported-format",
+      "supported": false,
+      "fields": {
+        "format": "future-encoder"
+      }
+    },
+    {
+      "id": "unsupported-bit-depth",
+      "supported": false,
+      "fields": {
+        "bitDepth": 12
+      }
+    },
+    {
+      "id": "unsupported-webp-quality",
+      "supported": false,
+      "fields": {
+        "format": "webp",
+        "quality": 55
+      }
+    },
+    {
+      "id": "unsupported-profile",
+      "supported": false,
+      "fields": {
+        "outputProfile": "future-profile"
+      }
+    },
+    {
+      "id": "unsupported-intent",
+      "supported": false,
+      "fields": {
+        "renderingIntent": "perceptual"
+      }
+    },
+    {
+      "id": "unsupported-metadata",
+      "supported": false,
+      "fields": {
+        "metadataPolicy": "copy"
+      }
+    },
+    {
+      "id": "unsupported-watermark",
+      "supported": false,
+      "fields": {
+        "watermark": "© Photographer 日本語"
+      }
+    },
+    {
+      "id": "unsupported-destination",
+      "supported": false,
+      "fields": {
+        "destination": "future-destination"
+      }
+    },
+    {
+      "id": "unsupported-overwrite",
+      "supported": false,
+      "fields": {
+        "overwritePolicy": "future-policy"
+      }
+    },
+    {
+      "id": "unsupported-zero-size",
+      "supported": false,
+      "fields": {
+        "maxLongEdge": 0
+      }
+    },
+    {
+      "id": "unsupported-jpeg-null",
+      "supported": false,
+      "fields": {
+        "quality": null
+      }
+    },
+    {
+      "id": "unsupported-u32-boundary",
+      "supported": false,
+      "fields": {
+        "bitDepth": 4294967295
+      }
+    },
+    {
+      "id": "unsupported-all-authored",
+      "supported": false,
+      "fields": {
+        "format": "future-encoder",
+        "quality": null,
+        "bitDepth": 4294967295,
+        "maxLongEdge": 4294967295,
+        "outputProfile": "future-profile",
+        "renderingIntent": "perceptual",
+        "metadataPolicy": "copy",
+        "namingTemplate": "{original}_{n}.{ext}",
+        "destination": "future-destination",
+        "directory": "device-local:日本語",
+        "watermark": "© 日本語",
+        "overwritePolicy": "future-policy"
+      }
+    }
+  ],
+  "malformed": [
+    {
+      "id": "missing-quality",
+      "operation": "remove",
+      "field": "quality",
+      "value": null
+    },
+    {
+      "id": "unknown-field",
+      "operation": "set",
+      "field": "extra",
+      "value": true
+    },
+    {
+      "id": "future-version",
+      "operation": "set",
+      "field": "schemaVersion",
+      "value": 2
+    },
+    {
+      "id": "fractional-quality",
+      "operation": "set",
+      "field": "quality",
+      "value": 1.5
+    },
+    {
+      "id": "negative-size",
+      "operation": "set",
+      "field": "maxLongEdge",
+      "value": -1
+    },
+    {
+      "id": "u32-overflow",
+      "operation": "set",
+      "field": "bitDepth",
+      "value": 4294967296
+    },
+    {
+      "id": "wrong-format-type",
+      "operation": "set",
+      "field": "format",
+      "value": 7
+    },
+    {
+      "id": "invalid-required-null",
+      "operation": "set",
+      "field": "bitDepth",
+      "value": null
+    }
+  ]
+}
