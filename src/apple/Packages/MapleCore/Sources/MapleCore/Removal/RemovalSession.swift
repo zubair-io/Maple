@@ -287,6 +287,10 @@ public final class RemovalSession {
 
   func fail(_ error: Error, token: UInt64, phase: Phase = .ready) {
     guard current(token) else { return }
+    job?.cancel()
+    operation?.cancel()
+    job = nil
+    operation = nil
     message = error.localizedDescription
     self.phase = phase
   }

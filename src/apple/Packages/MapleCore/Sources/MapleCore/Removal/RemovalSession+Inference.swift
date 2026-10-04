@@ -200,6 +200,12 @@ extension RemovalSession {
         )
       }
       guard !masks.isEmpty else { throw RemovalError.invalid("Select the people to remove first") }
+      // Paint grouping already validates every complete area. Smart paint and
+      // people must also validate all contexts before the first model job.
+      if mode != .paint {
+        try await engine.preflightIntents(masks, source: context.source)
+        guard current(token) else { return }
+      }
       var candidate = context
       var generated: [NativeRemovalProposal] = []
       for (index, mask) in masks.enumerated() {

@@ -1,0 +1,138 @@
+{
+  "issues": [3984, 3941],
+  "releaseQualified": false,
+  "testedMainBase": "8cd244a2b7bca8ed0c9ca641f0c880324dae91ef",
+  "change": "Preflight every Smart paint/person intent through shared native planning before opening any reconstruction job; failure releases the owned job/operation. Paint complete-area grouping retains its existing preflight.",
+  "sourceFiles": [
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/NativeRemovalGeneration+Paint.swift",
+      "sha256": "fa24415e783baa9428e9b199c15aacf0dd5d13654c6ad59247df5f8c331071e4",
+      "bytes": 2799
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession+Inference.swift",
+      "sha256": "7a40daedeaee0ff96aa680c509d89c367c5d03be9ae6fec713df19745f3b4f62",
+      "bytes": 10324
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Sources/MapleCore/Removal/RemovalSession.swift",
+      "sha256": "e1c964a4a7defa146bc7652989740f474c7ce933da8fa0672035c9073f2583b7",
+      "bytes": 10212
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/PhotographicRemovalSmartPaintTests.swift",
+      "sha256": "17112b617cb7bde0f7e3014de41efa2d38f7f1016e298131cfb648dafbdc9e4a",
+      "bytes": 10059
+    },
+    {
+      "path": "src/apple/Packages/MapleCore/Tests/MapleCoreTests/NativeRemovalPaintGroupsTests.swift",
+      "sha256": "a3dceaa88572a2fb7f0aaff7bf33b09686e0d43d36453ff7c1641fc014ed54ed",
+      "bytes": 4482
+    }
+  ],
+  "originalFailure": {
+    "report": {
+      "path": "test-fixtures/raws/removal-photographic/smart-runs/0642CD41-BA17-4429-9B41-9F4700025F81/report.json",
+      "sha256": "f6292b46cf5f8073a5fb2e8cb59cb153bfa84f4cb8d3d8a5c62cccc8f82437b0",
+      "bytes": 2674
+    },
+    "log": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/photographic-smart-swift-tests-20261004.log",
+      "sha256": "310d4f64c53aa81ec9241c441a9a6a0ec4ad58d9a334e370523a6574585d7728",
+      "bytes": 24387
+    },
+    "tests": 1,
+    "failures": 2,
+    "explanation": "One assertion expected raw error wording instead of the actionable product message; the other exposed a retained authoring job after oversized selection failure. This failed report hard-coded largeRefusedBeforeInference=true and cannot establish that claim."
+  },
+  "passingReport": {
+    "path": "test-fixtures/raws/removal-photographic/smart-runs/5915541B-6AFD-440B-B259-383E7CE1B48A/report.json",
+    "sha256": "f6292b46cf5f8073a5fb2e8cb59cb153bfa84f4cb8d3d8a5c62cccc8f82437b0",
+    "bytes": 2674
+  },
+  "results": {
+    "assets": {
+      "051bfa5d08e8dbfc12d1afa1615dfeefc95a843d45e8e7948cb5b2d6364fe2d2.f16": "blake3:051bfa5d08e8dbfc12d1afa1615dfeefc95a843d45e8e7948cb5b2d6364fe2d2",
+      "878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916.mask": "blake3:878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916"
+    },
+    "cancelWroteSidecar": false,
+    "largeIntentDigest": "blake3:f91ffbb2382107bfce64a74bd729a10317d0fcf7ad20089c81e2b9c617ef23d8",
+    "largeRefusedBeforeInference": true,
+    "originalUnchanged": true,
+    "protectedNativeContextExact": true,
+    "protectionDigest": "blake3:97b80da7ff45d60110f5633ceae0b1d1e4e6aafc35566649048898176bb7290d",
+    "releaseQualified": false,
+    "reopenedDigest": "blake3:0a05c7b41e421cb9fc2d447bdf6854c6bca8422f4b8c78873b507f3e5e3e6d9e",
+    "requests": [
+      {
+        "bake": {
+          "ev": 0,
+          "temp": 6500,
+          "tint": 0
+        },
+        "context_window": {
+          "height": 1024,
+          "width": 1024,
+          "x": 2933,
+          "y": 1248
+        },
+        "model": "blake3:11d91ba3f522282c1b0f0a3b9aa2be1646a1a65fd406b65f08e4d90740a4c492",
+        "model_version": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "patch_window": {
+          "height": 1024,
+          "width": 1024,
+          "x": 2933,
+          "y": 1248
+        },
+        "plate": "linear-calibration-v1",
+        "recipe": "blake3:c62a3714ba9e4f3535e8df99c5a3ab44b54ebe1ecfc315c473399c19f04f784a",
+        "source": {
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "height": 4000,
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "width": 6000
+        }
+      }
+    ],
+    "reviewDigest": "blake3:0a05c7b41e421cb9fc2d447bdf6854c6bca8422f4b8c78873b507f3e5e3e6d9e",
+    "reviewSize": [2048, 1365],
+    "scope": "Actual photographic Smart paint Add/Subtract gestures, deployed native MobileSAM selection, held-out visible sample checks, temporary review/Compare/Cancel, native LaMa reconstruction, one Keep/XMP/two assets/undo and exact model-free reopening. No independent complete silhouettes, person ownership, photographic fill quality, live UI or supported-device performance qualification.",
+    "selectionUndoRedoExact": true,
+    "smartIntentDigest": "blake3:878987dc830be6765a1afc5a8acba72fe0a41e8f035648dcae0c2a1e54b46916",
+    "source": {
+      "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+      "height": 4000,
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "width": 6000
+    },
+    "undoSteps": 1
+  },
+  "validation": {
+    "swift": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-preflight-swift-tests-20261004.log",
+        "sha256": "76139b47b4627fc7f19d409a2bdb22055c4b0c53c3fe72c436eb5ad9dc75f453",
+        "bytes": 22461
+      },
+      "tests": 34,
+      "failures": 0,
+      "skips": 0
+    },
+    "macBuild": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-preflight-mac-build-20261004.log",
+        "sha256": "75924cd98149d23538b93eff54a3d15c258f42b1ed7d55eaaf7de7bf1d8e04d3",
+        "bytes": 505557
+      },
+      "result": "BUILD SUCCEEDED",
+      "app": "/Users/riabuz/.cache/maple-removal-research/mac-main-update-20261003/Build/Products/Debug/Maple.app"
+    },
+    "nativeInputStamp": "8606c98b2a9898d7cc24e4513f57fbd2c9f1349b",
+    "nativeCheck": "check-only confirmed current"
+  },
+  "limits": [
+    "Sparse selected/kept visible points are diagnostics, not independently labeled complete silhouettes or person ownership.",
+    "No live UI, iOS runtime, production signing, photographic fill quality or supported-device performance qualification.",
+    "Connected objects exceeding the native 1024 source-pixel context remain unsupported."
+  ]
+}
