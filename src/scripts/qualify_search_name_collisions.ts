@@ -64,7 +64,8 @@ try {
     JSON.stringify(
       {
         ticket: '#2386',
-        protocol: 'Synthetic crowding diagnostic; reports ranks, not an acceptance gate',
+        protocol:
+          'Production-client crowding diagnostic; acceptance is gated by the corpus and real-service diversity tests',
         semanticRatio: budgets.semanticRatio,
         documents: corpus.length + extra.length,
         copiesPerName,
