@@ -7,6 +7,8 @@ import { sidecarRenameTarget } from './sidecar-rename';
 import corpus from '../../../../test-fixtures/file-operations/restore-collisions.json';
 
 describe('shared restore collision corpus (#4139)', () => {
+  if (corpus.schemaVersion !== 1)
+    throw new Error(`Unsupported restore corpus schemaVersion: ${corpus.schemaVersion}`);
   for (const item of corpus.cases) {
     test(item.name, async () => {
       const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-restore-parity-'));
