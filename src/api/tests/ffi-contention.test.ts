@@ -55,44 +55,60 @@ function setup(size: number) {
   return { workers, clock, observer, pool, raw, bitmap, validate };
 }
 
-describe('mixed RAW / bitmap / validation shared queue (#3721)', () => {
-  it('one worker blocks bitmap and validation behind RAW in FIFO order', async () => {
+describe('mixed RAW / bitmap / validation lane routing (#3721 instrumentation, #3527 policy)', () => {
+  // #3721 pinned the shared FIFO queue as the pre-decision baseline. The #3527
+  // decision replaced it with lanes: RAW requests ride the operator-sized RAW
+  // lane, bitmap renders + AVIF validations ride a pinned single-child bitmap
+  // lane, so cheap bitmap work never queues behind a RAW demosaic. These tests
+  // pin that routing, per-lane FIFO, and per-lane stats.
+  it('one RAW worker never blocks bitmap and validation; the bitmap lane runs them in FIFO', async () => {
     const s = setup(1);
     try {
       const raw = s.raw();
       s.clock.value = 10;
       const bitmap = s.bitmap();
       const validation = s.validate();
-      expect(s.pool.stats()).toEqual({ target: 1, spawned: 1, busy: 1, queued: 2 });
+      expect(s.pool.stats()).toEqual({
+        target: 1,
+        spawned: 1,
+        busy: 1,
+        queued: 0,
+        bitmap: { target: 1, spawned: 1, busy: 1, queued: 1 },
+      });
       expect(s.workers[0].posted.map((x) => x.type)).toEqual(['renderDevelop']);
+      expect(s.workers[1].posted.map((x) => x.type)).toEqual(['renderBitmap']);
+      // The bitmap lane drains on its own child while RAW is still busy.
       s.clock.value = 100;
-      s.workers[0].reply();
-      await raw;
-      expect(s.workers[0].posted.at(-1)?.type).toBe('renderBitmap');
-      s.clock.value = 120;
-      s.workers[0].reply();
+      s.workers[1].reply();
       await bitmap;
-      expect(s.workers[0].posted.at(-1)?.type).toBe('validateAvif');
+      expect(s.workers[1].posted.at(-1)?.type).toBe('validateAvif');
+      s.clock.value = 120;
+      s.workers[1].reply();
+      await validation;
       s.clock.value = 130;
       s.workers[0].reply();
-      await validation;
-      expect(s.observer.report().map((x) => x.queueMs)).toEqual([0, 90, 110]);
-      expect(s.observer.report().map((x) => x.dispatchToReplyMs)).toEqual([100, 20, 10]);
-      expect(s.observer.report().map((x) => x.totalMs)).toEqual([100, 110, 120]);
+      await raw;
+      // Bitmap dispatched the moment it was submitted (queue 0); only the
+      // validation waited, and only behind the bitmap ahead of it in its lane.
+      expect(s.observer.report().map((x) => x.queueMs)).toEqual([0, 0, 90]);
+      expect(s.observer.report().map((x) => x.dispatchToReplyMs)).toEqual([130, 90, 20]);
+      expect(s.observer.report().map((x) => x.totalMs)).toEqual([130, 90, 110]);
       expect(s.pool.stats().queued).toBe(0);
+      expect(s.pool.stats().bitmap.queued).toBe(0);
     } finally {
       s.pool.shutdown();
     }
   });
 
-  it('two workers finish bitmap and validation while RAW remains busy', async () => {
+  it('bitmap and validation finish on their lane while RAW remains busy', async () => {
     const s = setup(2);
     try {
       const raw = s.raw();
       const bitmap = s.bitmap();
       const validation = s.validate();
       expect(s.workers.map((w) => w.posted[0].type)).toEqual(['renderDevelop', 'renderBitmap']);
-      expect(s.pool.stats().queued).toBe(1);
+      expect(s.pool.stats().queued).toBe(0);
+      expect(s.pool.stats().bitmap.queued).toBe(1);
       s.workers[1].reply();
       await bitmap;
       expect(s.workers[1].posted.at(-1)?.type).toBe('validateAvif');
@@ -107,7 +123,7 @@ describe('mixed RAW / bitmap / validation shared queue (#3721)', () => {
     }
   });
 
-  it('RAW crash rejects only its request and drains the queue through a replacement', async () => {
+  it('RAW crash rejects only the RAW request; the bitmap lane is untouched', async () => {
     const s = setup(1);
     try {
       const raw = s.raw();
@@ -115,7 +131,11 @@ describe('mixed RAW / bitmap / validation shared queue (#3721)', () => {
       const validation = s.validate();
       s.workers[0].crash();
       await expect(raw).rejects.toThrow('native child died');
+      // The bitmap was already dispatched to the other lane's child — no
+      // replacement spawn, no requeue, and the bitmap child survives.
+      expect(s.workers.length).toBe(2);
       expect(s.workers[1].posted[0].type).toBe('renderBitmap');
+      expect(s.workers[1].terminated).toBe(false);
       s.workers[1].reply();
       await bitmap;
       s.workers[1].reply();
@@ -130,7 +150,7 @@ describe('mixed RAW / bitmap / validation shared queue (#3721)', () => {
     }
   });
 
-  it('four workers dispatch four mixed requests and queue the fifth until one is free', async () => {
+  it('four RAW workers take the RAWs; bitmap ops share the one bitmap child in FIFO', async () => {
     const s = setup(4);
     try {
       const first = [
@@ -144,11 +164,26 @@ describe('mixed RAW / bitmap / validation shared queue (#3721)', () => {
       const fifth = s.observer.measure('validation-second', '/second.avif', () =>
         s.pool.validateAvif('/second.avif', 512),
       );
-      expect(s.pool.stats()).toEqual({ target: 4, spawned: 4, busy: 4, queued: 1 });
-      s.workers[2].reply();
-      expect(s.workers[2].posted.at(-1)?.type).toBe('validateAvif');
-      s.workers[2].reply();
-      for (const index of [0, 1, 3]) s.workers[index].reply();
+      expect(s.pool.stats()).toEqual({
+        target: 4,
+        spawned: 2,
+        busy: 2,
+        queued: 0,
+        bitmap: { target: 1, spawned: 1, busy: 1, queued: 2 },
+      });
+      expect(s.workers.map((w) => w.posted[0].type)).toEqual([
+        'renderDevelop',
+        'renderBitmap',
+        'renderDevelop',
+      ]);
+      // Bitmap lane drains FIFO on its single child: bitmap, validate,
+      // validation-second.
+      s.workers[1].reply();
+      expect(s.workers[1].posted.at(-1)?.type).toBe('validateAvif');
+      s.workers[1].reply();
+      expect(s.workers[1].posted.at(-1)?.type).toBe('validateAvif');
+      s.workers[1].reply();
+      for (const index of [0, 2]) s.workers[index].reply();
       await Promise.all([...first, fifth]);
       expect(s.observer.report().every((row) => row.status === 'ok')).toBe(true);
     } finally {
@@ -181,12 +216,15 @@ describe('mixed RAW / bitmap / validation shared queue (#3721)', () => {
     s.pool.shutdown();
     expect((await all).map((x) => x.status)).toEqual(['rejected', 'rejected', 'rejected']);
     expect(s.observer.report().map((x) => x.status)).toEqual(['failed', 'failed', 'failed']);
-    expect(s.observer.report()[1]).toMatchObject({
+    // RAW + bitmap were in flight on their lanes; only the validation (queued
+    // in the bitmap lane behind the bitmap) never dispatched.
+    expect(s.observer.report()[2]).toMatchObject({
       dispatchedMs: null,
       queueMs: null,
       repliedMs: null,
     });
     expect(s.workers[0].terminated).toBe(true);
+    expect(s.workers[1].terminated).toBe(true);
   });
 
   it('ok:false bitmap replies count as failed measurements', async () => {
