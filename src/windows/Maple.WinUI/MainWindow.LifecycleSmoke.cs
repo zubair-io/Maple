@@ -332,6 +332,7 @@ namespace Maple.WinUI
             var photo = ViewModel.SelectedPhoto;
             if (_activeGroup != "Light") ToggleGroupPanel("Light");
             Content.UpdateLayout();
+            await VerifyHslAccessibilityAsync();
             var slider = FindDescendant<Maple.UI.Atoms.MuiAdjustmentSlider>(EditPanel);
             if (slider == null || slider.ActualWidth <= 0 ||
                 FindDescendant<Microsoft.UI.Xaml.Controls.Primitives.Thumb>(slider)?.Width != 12)
