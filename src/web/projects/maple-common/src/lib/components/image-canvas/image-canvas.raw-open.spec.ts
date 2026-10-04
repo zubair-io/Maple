@@ -52,7 +52,9 @@ describe('ImageCanvasRawOpen', () => {
       state: {
         updateAssetDimensions: vi.fn(),
         seedAsShotWhiteBalance: vi.fn(),
+        resetAutoFit: vi.fn(),
         seedLensCorrections: vi.fn(),
+        autoFitRevisionFor: vi.fn(() => 0),
         seedLensProfile: vi.fn(),
         lensCorrectionsFor: vi.fn(() => ({
           hasLensCorrections: true,

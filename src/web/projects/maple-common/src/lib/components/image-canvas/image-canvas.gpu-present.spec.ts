@@ -102,7 +102,9 @@ function makeHost(
   const state = {
     updateAssetDimensions: vi.fn(),
     seedAsShotWhiteBalance: vi.fn(),
+    resetAutoFit: vi.fn(),
     seedLensCorrections: vi.fn(),
+    autoFitRevisionFor: vi.fn(() => 0),
     seedLensProfile: vi.fn(),
     lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
     adjustmentFor: vi.fn(() => signal(model)),
@@ -214,7 +216,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     });
     const params = new Float32Array(19);
     await present.render('Auto', 1, params);
-    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, true);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, true, 0);
     const count = vi.mocked(host.state.seedLensProfile).mock.calls.length;
     await present.render('Auto', 1, params);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
@@ -222,7 +224,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     await present.render('Auto', 0);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
     await present.render('Auto', 1);
-    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, false);
+    expect(host.state.seedLensProfile).toHaveBeenLastCalledWith('asset-1', null, false, 0);
   });
 
   it('(a) successful GPU present test -> open() returns true and active stays set', async () => {

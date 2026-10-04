@@ -10,6 +10,7 @@ import { Router } from '@angular/router';
 
 import { FilmstripComponent } from './filmstrip.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LibraryCache } from '../../state/library-cache.service';
 import { editRouteCommands, viewRouteCommands } from '../../addressing/route-address';
 import type { Asset } from '../../models/asset';
 
@@ -41,6 +42,7 @@ function setup() {
     imports: [FilmstripComponent],
     providers: [
       { provide: LibraryStateService, useValue: state },
+      { provide: LibraryCache, useValue: { cancelQueuedThumbnail: state.cancelQueuedThumbnail } },
       { provide: Router, useValue: { navigate } },
     ],
   });

@@ -17,6 +17,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 import { AssetThumbComponent } from './asset-thumb.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LibraryCache } from '../../state/library-cache.service';
 import type { Asset, AssetId } from '../../models/asset';
 
 type ThumbCb = (url: string | undefined) => void;
@@ -31,10 +32,13 @@ function configure(subscribeThumbUrl: (id: AssetId, cb: ThumbCb) => () => void) 
     imports: [AssetThumbComponent],
     providers: [
       {
+        provide: LibraryCache,
+        useValue: { cancelQueuedThumbnail: (id: AssetId) => cancelCallsRef.push(id) },
+      },
+      {
         provide: LibraryStateService,
         useValue: {
           ensureThumbnailUrl: (a: Asset) => ensureCallsRef.push(a.id),
-          cancelQueuedThumbnail: (id: AssetId) => cancelCallsRef.push(id),
           subscribeThumbUrl,
         },
       },
@@ -150,10 +154,13 @@ describe('AssetThumbComponent — accessible name and focus state (#2414)', () =
       imports: [AssetThumbComponent],
       providers: [
         {
+          provide: LibraryCache,
+          useValue: { cancelQueuedThumbnail: (id: AssetId) => cancelCallsRef.push(id) },
+        },
+        {
           provide: LibraryStateService,
           useValue: {
             ensureThumbnailUrl: () => {},
-            cancelQueuedThumbnail: () => {},
             subscribeThumbUrl,
           },
         },

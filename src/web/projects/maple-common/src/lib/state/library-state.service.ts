@@ -17,7 +17,7 @@ import type { LensProfileResolution } from '../lens/lens-profile.types';
 // are migrated component-by-component in follow-up tickets.
 
 import { Injectable, Signal, inject } from '@angular/core';
-import { Asset, AssetId, Flag, ColorLabel } from '../models/asset';
+import { Asset, AssetId, Flag } from '../models/asset';
 import { AdjustmentModel } from '../models/adjustment-model';
 import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
@@ -70,14 +70,6 @@ export class LibraryStateService {
     this.store.closeLibraryPicker();
   }
 
-  readonly adminVisible = this.store.adminVisible;
-  openIndexerAdmin(): void {
-    this.store.openIndexerAdmin();
-  }
-  closeIndexerAdmin(): void {
-    this.store.closeIndexerAdmin();
-  }
-
   // ── Library data ───────────────────────────────────────────────────────────
   readonly assets = this.store.assets;
   readonly gridFolders = this.store.gridFolders;
@@ -119,19 +111,12 @@ export class LibraryStateService {
 
   // ── Panel visibility (persisted) ──────────────────────────────────────────
   readonly sidebarVisible = this.prefs.sidebarVisible;
-  readonly inspectorVisible = this.prefs.inspectorVisible;
-
-  // ── Active detail tab ─────────────────────────────────────────────────────
-  readonly activeTab = this.prefs.activeTab;
 
   // ── Browse-shell view mode (Folder vs Timeline vs Map) ────────────────────
   readonly viewMode = this.prefs.viewMode;
   setViewMode(mode: BrowseViewMode): void {
     this.prefs.setViewMode(mode);
   }
-
-  // ── Thumbnail URL cache ────────────────────────────────────────────────────
-  readonly thumbnailUrls = this.cache_.thumbnailUrls;
 
   // ── Adjustment models (per-asset develop settings) ────────────────────────
   readonly adjustmentModels = this.store.adjustmentModels;
@@ -171,10 +156,6 @@ export class LibraryStateService {
 
   rescanCurrentFolder(): void {
     this.fetch_.rescanCurrentFolder();
-  }
-
-  openSelfHostedFolder(folder: ApiFolder): void {
-    this.fetch_.openSelfHostedFolder(folder);
   }
 
   openSelfHostedSubfolder(relPath: string, sourceId?: string, selectAssetId?: AssetId): void {
@@ -239,7 +220,15 @@ export class LibraryStateService {
     return this.fetch_.enterSingleFileWorkspace(bytes, filename, explicitId, memoryOnly, xmp);
   }
 
-  // ── Asset mutations ────────────────────────────────────────────────────────
+  autoFitRevisionFor(id: AssetId): number {
+    return this.store.lensCorrections.autoFitRevisionFor(id);
+  }
+
+  resetAutoFit(id: AssetId): void {
+    this.store.lensCorrections.resetAutoFit(id);
+  }
+
+  // ── Decode metadata ────────────────────────────────────────────────────────
   updateAssetDimensions(id: AssetId, width: number, height: number): void {
     this.store.updateAssetDimensions(id, width, height);
   }
@@ -253,14 +242,8 @@ export class LibraryStateService {
     return this.store.asShotWbFor(id);
   }
 
-  /** Record `id`'s decode-time lens-correction capability (#3182) — call
-   *  from the cold-open call sites right beside `seedAsShotWhiteBalance`.
-   *  Reached only through the `Render2dHost`/`GpuPresentHost` interface (see
-   *  `image-canvas.render2d.ts` / `image-canvas.gpu-present.ts`), which
-   *  static analysis can't trace back to this concrete method — same
-   *  false-positive class as `seedAsShotWhiteBalance` above and
-   *  `RawPipelineService.openLiveSession`. */
-  // fallow-ignore-next-line unused-class-member
+  /** Record `id`'s decode-time lens-correction capability (#3182),
+   * shared by CPU decode and GPU session-open metadata publication. */
   seedLensCorrections(
     id: AssetId,
     hasLensCorrections: boolean,
@@ -268,6 +251,7 @@ export class LibraryStateService {
     cameraSupport?: CameraSupport | null,
     lensProfile?: LensProfileResolution | null,
     autoFit?: boolean,
+    fitRevision?: number,
   ): void {
     this.store.lensCorrections.seed(
       id,
@@ -276,15 +260,19 @@ export class LibraryStateService {
       cameraSupport,
       lensProfile,
       autoFit,
+      fitRevision,
     );
   }
 
   /** Record the latest render's verdict on `id`'s imported lens profile
-   *  (#3479); `null` clears it. Same interface-only reachability as
-   *  `seedLensCorrections` above. */
-  // fallow-ignore-next-line unused-class-member
-  seedLensProfile(id: AssetId, lensProfile: LensProfileResolution | null, autoFit?: boolean): void {
-    this.store.lensCorrections.seedProfile(id, lensProfile, autoFit);
+   *  (#3479); `null` clears it. */
+  seedLensProfile(
+    id: AssetId,
+    lensProfile: LensProfileResolution | null,
+    autoFit?: boolean,
+    fitRevision?: number,
+  ): void {
+    this.store.lensCorrections.seedProfile(id, lensProfile, autoFit, fitRevision);
   }
 
   /** Per-asset lens-correction capability (#3182); the fail-closed default
@@ -292,14 +280,6 @@ export class LibraryStateService {
    *  `LensCorrectionsPanelComponent`) to stay reactive. */
   lensCorrectionsFor(id: AssetId): LensCorrectionCapability {
     return this.store.lensCorrections.for(id);
-  }
-
-  cacheThumbnailUrl(id: AssetId, url: string): void {
-    this.cache_.cacheThumbnailUrl(id, url);
-  }
-
-  thumbnailUrlFor(id: AssetId): string | undefined {
-    return this.cache_.thumbnailUrlFor(id);
   }
 
   /** Subscribe a tile to thumbnail-URL changes for `id`; see LibraryCache. */
@@ -316,11 +296,6 @@ export class LibraryStateService {
     this.cache_.ensureThumbnailUrl(asset, (id, sha) => this.fetch_.updateIndexThumb(id, sha));
   }
 
-  /** Drop `id`'s queued thumbnail load when a tile unmounts; see LibraryCache. */
-  cancelQueuedThumbnail(id: AssetId): void {
-    this.cache_.cancelQueuedThumbnail(id);
-  }
-
   // ── Adjustment models ──────────────────────────────────────────────────────
   adjustmentFor(id: AssetId): Signal<AdjustmentModel> {
     return this.store.adjustmentFor(id);
@@ -335,10 +310,6 @@ export class LibraryStateService {
     // since those don't touch pixels. See EditPreviewPersistService's module
     // doc for the write-policy contract (idle debounce, not per-tick).
     this.previewPersist.schedule(id);
-  }
-
-  isEdited(id: AssetId): Signal<boolean> {
-    return this.store.isEdited(id);
   }
 
   // ── Derived signals ────────────────────────────────────────────────────────
@@ -362,14 +333,9 @@ export class LibraryStateService {
     this.fetch_.scheduleSidecarWrite(id);
   }
 
-  setColorLabel(id: AssetId, colorLabel: ColorLabel): void {
-    this.store.setCulling(id, { colorLabel });
-    this.fetch_.scheduleSidecarWrite(id);
-  }
-
   /**
    * Replace the IPTC keyword list on the asset (#632). Routes through the
-   * same debounced sidecar-write the rating/flag/colorLabel mutators use —
+   * same debounced sidecar-write the rating/flag mutators use —
    * keywords have zero pixel impact, so the develop render path is
    * intentionally not kicked. Duplicates are stripped preserving
    * first-occurrence order; whitespace-only entries are dropped (the
@@ -419,11 +385,6 @@ export class LibraryStateService {
    * `EditPreviewPersistService.flushAll`'s doc. */
   flushPendingPreviewWrites(): void {
     this.previewPersist.flushAll();
-  }
-
-  // ── Index write helper (called by AssetGridComponent post-write) ──────────
-  updateIndexThumb(assetId: AssetId, sha: string): Promise<void> {
-    return this.fetch_.updateIndexThumb(assetId, sha);
   }
 
   // ── Selection ──────────────────────────────────────────────────────────────

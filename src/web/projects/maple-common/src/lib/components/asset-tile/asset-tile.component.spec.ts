@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 import { AssetTileComponent } from './asset-tile.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LibraryCache } from '../../state/library-cache.service';
 import type { Asset, AssetId } from '../../models/asset';
 
 type ThumbCb = (url: string | undefined) => void;
@@ -47,10 +48,13 @@ function configure(
     deferBlockBehavior: DeferBlockBehavior.Manual,
     providers: [
       {
+        provide: LibraryCache,
+        useValue: { cancelQueuedThumbnail: overrides.cancelQueuedThumbnail ?? (() => {}) },
+      },
+      {
         provide: LibraryStateService,
         useValue: {
           ensureThumbnailUrl: overrides.ensureThumbnailUrl ?? (() => {}),
-          cancelQueuedThumbnail: overrides.cancelQueuedThumbnail ?? (() => {}),
           subscribeThumbUrl,
           isSelecting: overrides.isSelecting ?? (() => false),
         },

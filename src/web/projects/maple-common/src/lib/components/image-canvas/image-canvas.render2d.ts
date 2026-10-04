@@ -1,5 +1,5 @@
 import { coldOpenRenderedModel } from './image-canvas.cold-open-intent';
-import { hasCalibratedWhiteBalance } from '../../state/camera-support';
+import { seedColdOpenMetadata } from './image-canvas.cold-open-metadata';
 // image-canvas.render2d.ts — the 2D-canvas decode/paint paths for
 // ImageCanvasComponent, extracted behind a host interface so the component
 // stays inside the file-size budget. Same precedent as image-canvas.gpu-present.ts
@@ -15,8 +15,6 @@ import type { LibraryStateService } from '../../state/library-state.service';
 import type { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import type { ImageCanvasService } from './image-canvas.service';
 import type { AssetId } from '../../models/asset';
-import type { CameraSupport } from '../../state/camera-support';
-import type { LensProfileResolution } from '../../lens/lens-profile.types';
 import { isDefaultAdjustment, type AdjustmentModel } from '../../models/adjustment-model';
 import type { RenderSizing } from './image-canvas.two-phase';
 import type { ImageCanvasNativeDetail } from './image-canvas.native-detail';
@@ -65,33 +63,6 @@ export interface Render2dHost {
 }
 
 /**
- * #3182 fallback defaults for a decode/session-open reply that predates the
- * lens-correction fields (older worker builds, minimal test fakes): no known
- * corrections ⇒ the panel reads as disabled, CA reads as inert. Shared by the
- * 2D cold open below and the GPU live-session open (`image-canvas.gpu-present.ts`).
- * A decode without camera metadata explicitly clears any prior assessment,
- * and one without an imported-profile verdict (#3479) clears that too.
- */
-export function decodeSupportFrom(reply: {
-  hasLensCorrections?: boolean;
-  lensCorrectionCaInert?: boolean;
-  cameraSupport?: CameraSupport;
-  lensProfile?: LensProfileResolution;
-}): {
-  hasLensCorrections: boolean;
-  lensCorrectionCaInert: boolean;
-  cameraSupport: CameraSupport | null;
-  lensProfile: LensProfileResolution | null;
-} {
-  return {
-    hasLensCorrections: reply.hasLensCorrections ?? false,
-    lensCorrectionCaInert: reply.lensCorrectionCaInert ?? true,
-    cameraSupport: reply.cameraSupport ?? null,
-    lensProfile: reply.lensProfile ?? null,
-  };
-}
-
-/**
  * WASM-CPU cold open (#1101): decode at the fast-phase target, seed the asset
  * dims + As-Shot WB, open the cold-open gate, paint, and kick a refine if the
  * view is already zoomed past fit. Mirrors the inlined `loadReal` 2D tail.
@@ -111,6 +82,8 @@ export async function coldOpen2d(
 ): Promise<void> {
   host.loading.set(true);
   const generation = host.renderGeneration;
+  const state: LibraryStateService = host.state;
+  const fitRevision = state.autoFitRevisionFor(assetId);
   const sizing = { maxLongEdge: host.fastTargetPx(), qualityPreview: true };
   // Bracket the whole click → pixels path. `maple:open` is the outer measure;
   // `maple:decode` (service) and `maple:wasm` (worker) are nested sub-intervals.
@@ -133,26 +106,7 @@ export async function coldOpen2d(
       host.recordNativeDims(nativeW, nativeH);
     }
 
-    // Seed WB sliders from the camera "As Shot" metadata (cosmetic sync with
-    // what Rust used; guarded on "still default" so it never clobbers edits).
-    host.state.seedAsShotWhiteBalance(
-      assetId,
-      decoded.asShotTemperature,
-      decoded.asShotTint,
-      hasCalibratedWhiteBalance(decoded.cameraSupport),
-    );
-    // #3182: record the decode-time lens-correction signal for the Lens
-    // Corrections panel. Absent (older stubs / non-updated fakes) reads as
-    // the fail-closed default (see `decodeSupportFrom` above).
-    const support = decodeSupportFrom(decoded);
-    host.state.seedLensCorrections(
-      assetId,
-      support.hasLensCorrections,
-      support.lensCorrectionCaInert,
-      support.cameraSupport,
-      support.lensProfile,
-      decoded.autoFit,
-    );
+    seedColdOpenMetadata(host.state, assetId, fitRevision, decoded);
 
     // Record the dispatched intent before releasing queued edits (#4101).
     // As-Shot hydration describes this frame; a later live edit does not.
@@ -188,17 +142,7 @@ export async function coldOpen2d(
     }
   } catch (e) {
     console.error('Decode failed for', filename, e);
-    if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
-    if (host.state.adjustmentFor(assetId)().profile === 'Auto')
-      host.state.seedLensProfile(
-        assetId,
-        host.state.lensCorrectionsFor(assetId).lensProfile ?? null,
-        false,
-      );
-    if (!host.hasProvisionalPreview(assetId)) {
-      host.imageBitmap()?.close();
-      host.imageBitmap.set(null);
-    }
+    handleColdOpenFailure(host, assetId, generation, fitRevision);
   } finally {
     host.loading.set(false);
   }
@@ -222,6 +166,9 @@ export async function runRender2d(
   bytes: Uint8Array,
   ext: string,
 ): Promise<void> {
+  const fitAsset = host.currentAssetId;
+  const state: LibraryStateService = host.state;
+  const fitRevision = fitAsset ? state.autoFitRevisionFor(fitAsset) : undefined;
   try {
     const filmLut = host.filmSync.cpuLutBytesForCurrent();
     const decoded = await host.pipeline.decode(
@@ -238,7 +185,12 @@ export async function runRender2d(
     // #3479: every render reply is authoritative about the imported profile
     // it consumed — the panel enables per calibrated family from this.
     if (host.currentAssetId)
-      host.state.seedLensProfile(host.currentAssetId, decoded.lensProfile ?? null, decoded.autoFit);
+      host.state.seedLensProfile(
+        host.currentAssetId,
+        decoded.lensProfile ?? null,
+        decoded.autoFit,
+        fitRevision,
+      );
     host.canvasSvc.currentPixels.set(decoded);
     const bitmap = await imageDataToBitmap(decoded);
     if (generation !== host.renderGeneration) {
@@ -260,5 +212,25 @@ export async function runRender2d(
       });
   } catch (e) {
     console.error('[image-canvas] adjustment re-render failed:', e);
+  }
+}
+
+function handleColdOpenFailure(
+  host: Render2dHost,
+  assetId: AssetId,
+  generation: number,
+  fitRevision: number,
+): void {
+  if (assetId !== host.currentAssetId || generation !== host.renderGeneration) return;
+  if (host.state.adjustmentFor(assetId)().profile === 'Auto')
+    host.state.seedLensProfile(
+      assetId,
+      host.state.lensCorrectionsFor(assetId).lensProfile ?? null,
+      false,
+      fitRevision,
+    );
+  if (!host.hasProvisionalPreview(assetId)) {
+    host.imageBitmap()?.close();
+    host.imageBitmap.set(null);
   }
 }

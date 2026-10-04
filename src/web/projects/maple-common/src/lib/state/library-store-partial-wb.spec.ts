@@ -67,6 +67,29 @@ describe('real editor and store partial WB authors (#3434)', () => {
   });
   afterEach(() => rmSync(directory, { recursive: true, force: true }));
 
+  it('invalidates fit on profile transitions and preserves it on scalar edits or reselect', () => {
+    load();
+    store.lensCorrections.seedProfile(ID, null, true, store.lensCorrections.autoFitRevisionFor(ID));
+    store.setAdjustment(ID, { exposure: 1 });
+    expect(store.lensCorrections.for(ID).autoFit).toBe(true);
+    store.setAdjustment(ID, { profile: 'Auto' });
+    expect(store.lensCorrections.for(ID).autoFit).toBe(true);
+    store.setAdjustment(ID, { profile: 'Neutral' });
+    expect(store.lensCorrections.for(ID).autoFit).toBeUndefined();
+    store.lensCorrections.seedProfile(
+      ID,
+      null,
+      false,
+      store.lensCorrections.autoFitRevisionFor(ID),
+    );
+    store.setAdjustment(ID, { profile: 'Auto' });
+    expect(store.lensCorrections.for(ID).autoFit).toBeUndefined();
+    expect(store.adjustmentFor(ID)().profile).toBe('Auto');
+    store.lensCorrections.seedProfile(ID, null, true, store.lensCorrections.autoFitRevisionFor(ID));
+    store.setAdjustment(ID, { tint: 2 });
+    expect(store.lensCorrections.for(ID).autoFit).toBe(true);
+  });
+
   function load(attrs = 'crs:Temperature="8500"'): void {
     writeFileSync(path, xml(attrs));
     store.restoreAdjustment(ID, parser.parseAdjustmentModel(readFileSync(path, 'utf8')).model);

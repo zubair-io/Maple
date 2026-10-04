@@ -113,6 +113,8 @@ describe('EditorShellComponent — parity with the S5 editor (epic #1807 slice 5
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
+      autoFitRevisionFor: vi.fn(() => 0),
+      resetAutoFit: vi.fn(),
       seedLensProfile: vi.fn(),
       lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
       updateAssetDimensions: vi.fn(),

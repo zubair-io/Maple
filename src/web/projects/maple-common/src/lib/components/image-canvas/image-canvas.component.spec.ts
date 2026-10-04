@@ -112,7 +112,9 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
           );
         },
       ),
+      resetAutoFit: vi.fn(),
       seedLensCorrections: vi.fn(),
+      autoFitRevisionFor: vi.fn(() => 0),
       seedLensProfile: vi.fn(),
       updateAssetDimensions: updateDimsSpy,
       openDownloadProgress: signal(null),

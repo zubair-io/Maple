@@ -63,13 +63,31 @@ describe('LensCorrectionCapabilities', () => {
   it('retains actual Auto results per image without changing them on scalar ticks', () => {
     const caps = new LensCorrectionCapabilities();
     expect(caps.for(ASSET_A).autoFit).toBeUndefined();
-    caps.seed(ASSET_A, false, true, undefined, undefined, true);
-    caps.seedProfile(ASSET_B, null, false);
+    caps.seed(ASSET_A, false, true, undefined, undefined, true, caps.autoFitRevisionFor(ASSET_A));
+    caps.seedProfile(ASSET_B, null, false, caps.autoFitRevisionFor(ASSET_B));
     caps.seedProfile(ASSET_A, null);
     expect(caps.for(ASSET_A).autoFit).toBe(true);
     expect(caps.for(ASSET_B).autoFit).toBe(false);
-    caps.seedProfile(ASSET_A, null, false);
+    caps.seedProfile(ASSET_A, null, false, caps.autoFitRevisionFor(ASSET_A));
     expect(caps.for(ASSET_A).autoFit).toBe(false);
+  });
+
+  it('clears only the reopened image fit while retaining camera and lens facts', () => {
+    const caps = new LensCorrectionCapabilities();
+    caps.seed(ASSET_A, true, false, undefined, undefined, true, caps.autoFitRevisionFor(ASSET_A));
+    caps.seedProfile(ASSET_B, null, false, caps.autoFitRevisionFor(ASSET_B));
+    caps.resetAutoFit(ASSET_A);
+    expect(caps.for(ASSET_A)).toEqual({
+      hasLensCorrections: true,
+      lensCorrectionCaInert: false,
+      autoFit: undefined,
+    });
+    expect(caps.for(ASSET_B).autoFit).toBe(false);
+    const unchanged = caps.byAsset();
+    caps.resetAutoFit(ASSET_A);
+    expect(caps.byAsset()).toBe(unchanged);
+    caps.seedProfile(ASSET_A, null, true, caps.autoFitRevisionFor(ASSET_A));
+    expect(caps.for(ASSET_A).autoFit).toBe(true);
   });
 
   it('keeps per-asset capabilities independent', () => {

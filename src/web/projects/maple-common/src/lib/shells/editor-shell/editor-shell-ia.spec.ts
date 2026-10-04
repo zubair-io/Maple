@@ -23,6 +23,7 @@ import { provideHttpClientTesting } from '@angular/common/http/testing';
 
 import { EditorShellComponent } from './editor-shell.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LibraryCache } from '../../state/library-cache.service';
 import { ImageCanvasService } from '../../components/image-canvas/image-canvas.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
@@ -87,6 +88,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
   let models: Map<AssetId, WritableSignal<AdjustmentModel>>;
   let focused: WritableSignal<Asset | null>;
   const originalInnerWidth = window.innerWidth;
+  let cancelThumbnail: ReturnType<typeof vi.fn>;
 
   function modelFor(id: AssetId): WritableSignal<AdjustmentModel> {
     if (!models.has(id)) models.set(id, signal(defaultAdjustmentModel()));
@@ -101,6 +103,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
     stubGlobals();
     setWindowWidth(width);
 
+    cancelThumbnail = vi.fn();
     models = new Map();
     focused = signal<Asset | null>(asset(ASSET_A, 'a.dng'));
     const folder = [asset(ASSET_A, 'a.dng'), asset(ASSET_B, 'b.dng')];
@@ -123,6 +126,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
       seedLensCorrections: vi.fn(),
+      autoFitRevisionFor: vi.fn(() => 0),
+      resetAutoFit: vi.fn(),
       seedLensProfile: vi.fn(),
       lensCorrectionsFor: vi.fn(() => ({ hasLensCorrections: true, lensCorrectionCaInert: false })),
       updateAssetDimensions: vi.fn(),
@@ -134,7 +139,6 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
       thumbnailUrlFor: vi.fn(() => null),
       ensureThumbnailUrl: vi.fn(),
       subscribeThumbUrl: vi.fn(() => () => {}),
-      cancelQueuedThumbnail: vi.fn(),
       peekNext: vi.fn(() => null),
       peekPrev: vi.fn(() => null),
     } as unknown as Partial<LibraryStateService>;
@@ -148,6 +152,7 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
         { provide: ActivatedRoute, useValue: route },
         { provide: Router, useValue: { navigate: vi.fn() } },
         { provide: LibraryStateService, useValue: stateStub },
+        { provide: LibraryCache, useValue: { cancelQueuedThumbnail: cancelThumbnail } },
         { provide: LIBRARY_BACKEND, useValue: 'hosted' },
         {
           provide: RawPipelineService,
@@ -220,6 +225,8 @@ describe('EditorShellComponent — responsive IA (#2449)', () => {
         fixture.nativeElement.querySelector('[role="toolbar"][aria-label="Editor top bar"]'),
       ).not.toBeNull();
       expect(fixture.nativeElement.querySelector('nav[aria-label="Editor tools"]')).not.toBeNull();
+      fixture.destroy();
+      expect(cancelThumbnail.mock.calls.map(([id]) => id)).toEqual([ASSET_A, ASSET_B]);
     }, 20000);
 
     it('phone exposes the same regions in the same order, with the bottom dock and no filmstrip', () => {

@@ -14,6 +14,7 @@
 import { Signal, effect, inject, signal } from '@angular/core';
 import { Asset } from '../models/asset';
 import { LibraryStateService } from './library-state.service';
+import { LibraryCache } from './library-cache.service';
 
 /** Returns a signal tracking `asset`'s thumbnail blob URL — `undefined`
  * until it loads (gradient placeholder stays). The returned signal is
@@ -31,6 +32,7 @@ import { LibraryStateService } from './library-state.service';
  */
 export function createAssetThumbnailUrlSignal(asset: Signal<Asset>): Signal<string | undefined> {
   const state = inject(LibraryStateService);
+  const cache = inject(LibraryCache);
   const thumbUrl = signal<string | undefined>(undefined);
 
   // Order matters in the cleanup below: unsubscribe FIRST.
@@ -47,7 +49,7 @@ export function createAssetThumbnailUrlSignal(asset: Signal<Asset>): Signal<stri
       });
       onCleanup(() => {
         unsub();
-        state.cancelQueuedThumbnail(currentAsset.id);
+        cache.cancelQueuedThumbnail(currentAsset.id);
       });
     }
   });

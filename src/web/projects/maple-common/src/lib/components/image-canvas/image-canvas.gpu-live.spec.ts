@@ -153,7 +153,9 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
           );
         },
       ),
+      resetAutoFit: vi.fn(),
       seedLensCorrections: vi.fn(),
+      autoFitRevisionFor: vi.fn(() => 0),
       seedLensProfile: vi.fn(),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),

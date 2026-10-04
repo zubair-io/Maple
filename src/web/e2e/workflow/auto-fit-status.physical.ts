@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const files = ['test_0007.DNG', 'test_0018.dng'];
 for (const gpu of [false, true])
@@ -7,6 +7,10 @@ for (const gpu of [false, true])
     page,
   }) => {
     test.setTimeout(240000);
+    test.skip(
+      files.some((filename) => !existsSync(resolve('../../test-fixtures/raws', filename))),
+      'Physical RAW fixtures are not installed',
+    );
     for (const filename of files) {
       const bytes = readFileSync(resolve('../../test-fixtures/raws', filename));
       await page.route('**/physical-raw/' + filename, (route) =>

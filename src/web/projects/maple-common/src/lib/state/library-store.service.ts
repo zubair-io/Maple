@@ -142,17 +142,6 @@ export class LibraryStore {
     this.pickerVisible.set(false);
   }
 
-  /** True while the indexer admin panel is open. */
-  readonly adminVisible = signal(false);
-
-  openIndexerAdmin(): void {
-    this.adminVisible.set(true);
-  }
-
-  closeIndexerAdmin(): void {
-    this.adminVisible.set(false);
-  }
-
   /**
    * Map from AssetId to the remote API asset id (Self-Hosted only).
    */
@@ -257,9 +246,12 @@ export class LibraryStore {
   }
 
   setAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): Partial<AdjustmentModel> {
-    // Every setAdjustment call site is user-driven (sliders, WB pad, AUTO,
-    // RESET, undo, paste) — record it so a late sidecar restore (#2406)
-    // can never overwrite what the user is looking at.
+    // User edits must win over a late sidecar restore (#2406).
+    if (
+      patch.profile !== undefined &&
+      patch.profile !== (this.adjustmentModels().get(id)?.profile ?? 'Auto')
+    )
+      this.lensCorrections.resetAutoFit(id);
     this._sessionEdited.add(id);
     // A temperature/tint value in the patch WITHOUT an explicit preset is a
     // user WB edit — leave 'As Shot' for it and the serializer would drop
