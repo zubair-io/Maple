@@ -284,4 +284,85 @@ final class RestoreSafetyTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: source)), fixture.xml)
     XCTAssertEqual(try Data(contentsOf: directory), Data("occupied directory path".utf8))
   }
+
+  func testConfinedRestoreRejectsEscapingAncestorAtAnchorCapture() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "restore-anchor")
+    let outside = try SidecarContractIO.makeTempDirectory(prefix: "restore-anchor-outside")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outside)
+    }
+    let trash = root.appendingPathComponent(".maple/trash/sub")
+    try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+    let source = trash.appendingPathComponent("photo.dng")
+    let original = Data("owned source".utf8)
+    try original.write(to: source)
+    try FileManager.default.createSymbolicLink(
+      at: root.appendingPathComponent("sub"), withDestinationURL: outside)
+    // Direct call bypasses restoreFromMapleTrash's snapshot containment
+    // gate, proving the O_NOFOLLOW anchor itself refuses the escape.
+    do {
+      _ = try await Task.detached {
+        try LocalFileOperations.restoreFilePair(
+          source, to: root.appendingPathComponent("sub"), confinedTo: root)
+      }.value
+      XCTFail("Restore published through an escaping ancestor")
+    } catch let error as FileOperationError {
+      guard case .invalidDestination = error else {
+        return XCTFail("Unexpected error: \(error)")
+      }
+    }
+    XCTAssertEqual(try Data(contentsOf: source), original)
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: outside.appendingPathComponent("photo.dng").path))
+  }
+
+  func testAncestorSwapDuringPublicationFailsClosedAndRetainsTrashOriginals() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "restore-swap")
+    let outside = try SidecarContractIO.makeTempDirectory(prefix: "restore-swap-outside")
+    defer {
+      try? FileManager.default.removeItem(at: root)
+      try? FileManager.default.removeItem(at: outside)
+    }
+    let sub = root.appendingPathComponent("sub")
+    try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+    let trash = root.appendingPathComponent(".maple/trash/sub")
+    try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+    let source = trash.appendingPathComponent("photo.dng")
+    let original = Data("owned source".utf8)
+    try original.write(to: source)
+    let mirror = outside.appendingPathComponent("mirror")
+    try FileManager.default.createDirectory(at: mirror, withIntermediateDirectories: true)
+    do {
+      _ = try await Task.detached {
+        try LocalFileOperations.restoreFilePair(
+          source, to: sub, confinedTo: root,
+          beforeClaim: { _, _ in
+            let fm = FileManager.default
+            let stage = try fm.contentsOfDirectory(at: sub, includingPropertiesForKeys: nil)
+              .first { $0.lastPathComponent.hasPrefix(".maple-restore.tmp.") }
+            if let stage {
+              // Hardlink-preserving mirror: published files keep the
+              // staged identity, so only the directory anchor can catch
+              // the swap — every file-identity check still passes.
+              let target = mirror.appendingPathComponent(stage.lastPathComponent)
+              if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+              try fm.createDirectory(at: target, withIntermediateDirectories: true)
+              for item in try fm.contentsOfDirectory(at: stage, includingPropertiesForKeys: nil) {
+                try fm.linkItem(
+                  at: item, to: target.appendingPathComponent(item.lastPathComponent))
+              }
+              try fm.removeItem(at: sub)
+              try fm.createSymbolicLink(at: sub, withDestinationURL: mirror)
+            }
+          })
+      }.value
+      XCTFail("Restore published through a swapped ancestor")
+    } catch let error as FileOperationError {
+      guard case .verificationFailed = error else {
+        return XCTFail("Unexpected error: \(error)")
+      }
+    }
+    XCTAssertEqual(try Data(contentsOf: source), original)
+  }
 }

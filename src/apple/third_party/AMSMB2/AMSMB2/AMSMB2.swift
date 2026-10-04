@@ -1471,7 +1471,13 @@ extension SMB2Manager {
     action: @Sendable @escaping (SMB2FileHandle) throws -> Void
   ) async throws {
     try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-      with(completionHandler: { continuation.resume(with: $0) }) { client in
+      // Explicit Result pins the Result-based `with` overload. The handler
+      // returns Void, so the Error?-style overload is also shape-compatible
+      // and an untyped `$0` reads as the wrong bridging (#4173 review).
+      let completionHandler: @Sendable (Result<Void, any Error>) -> Void = {
+        continuation.resume(with: $0)
+      }
+      with(completionHandler: completionHandler) { client in
         let file = try SMB2FileHandle(
           path: path.canonical, desiredAccess: [.read, .delete, .synchronize],
           shareAccess: [.read], createDisposition: .open,

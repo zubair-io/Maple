@@ -123,7 +123,7 @@ final class RestoreCollisionParityTests: XCTestCase {
     do {
       _ = try await Task.detached {
         try LocalFileOperations.restoreFilePair(
-          trashed, to: root, beforeClaim: nil,
+          trashed, to: root, confinedTo: root, beforeClaim: nil,
           beforeRemoval: { url in
             if url.pathExtension == "dng" {
               try FileManager.default.removeItem(at: url)
@@ -258,7 +258,7 @@ final class RestoreCollisionParityTests: XCTestCase {
     do {
       _ = try await Task.detached {
         try LocalFileOperations.restoreFilePair(
-          trashed, to: root,
+          trashed, to: root, confinedTo: root,
           beforeClaim: { stage, target in
             if target.pathExtension == "dng" {
               try FileManager.default.removeItem(at: stage)
@@ -334,7 +334,7 @@ final class RestoreCollisionParityTests: XCTestCase {
     do {
       _ = try await Task.detached {
         try LocalFileOperations.restoreFilePair(
-          trashed, to: root,
+          trashed, to: root, confinedTo: root,
           beforeClaim: { stage, target in
             if target.pathExtension == "dng" {
               let sidecar = SidecarPath.sidecarURL(for: target)
