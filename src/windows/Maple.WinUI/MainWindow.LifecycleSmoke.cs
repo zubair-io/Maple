@@ -34,6 +34,13 @@ namespace Maple.WinUI
             var reportPath = Path.Combine(output, "lifecycle.json");
             try
             {
+                if (expectedPath is "native-detail-checkpoint" or "native-tile-fallback")
+                {
+                    await VerifyNativeDetailCheckpointAsync(raw, output, expectedPath == "native-tile-fallback");
+                    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
+                        { passed = true, scope = expectedPath }));
+                    return;
+                }
                 if (expectedPath == "source-size-fallback")
                 {
                     await VerifySourceSizeFallbackAsync(raw, output);
