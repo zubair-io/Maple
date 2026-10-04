@@ -82,18 +82,32 @@ public sealed partial class MainWindow
                 && passivePeer.GetPattern(PatternInterface.Invoke) == null);
             if (nativeInput)
             {
+                var passiveEnter = false;
+                var passiveSpace = false;
+                var passiveHandled = false;
+                host.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) =>
+                {
+                    if (!ReferenceEquals(FocusManager.GetFocusedElement(host.XamlRoot), passive)) return;
+                    if (e.Key == Windows.System.VirtualKey.Enter) passiveEnter = true;
+                    else if (e.Key == Windows.System.VirtualKey.Space) passiveSpace = true;
+                    else return;
+                    passiveHandled |= e.Handled;
+                }), true);
                 actionCount = 0;
                 toggle.IsOn = false;
                 row.Focus(FocusState.Keyboard);
                 await File.WriteAllTextAsync(Path.Combine(output, "input-ready.json"),
                     JsonSerializer.Serialize(new { title = window.Title, scope = "requires-actual-OS-input" }));
                 var inputDeadline = Environment.TickCount64 + 120000;
-                while ((actionCount != 1 || decorativeActions != 1 || !toggle.IsOn)
+                while ((actionCount != 1 || decorativeActions != 1 || !toggle.IsOn || !passiveEnter || !passiveSpace)
                     && Environment.TickCount64 < inputDeadline) await Task.Delay(50);
                 await File.WriteAllTextAsync(Path.Combine(output, "native-input-result.json"),
-                    JsonSerializer.Serialize(new { actionCount, decorativeActions, toggleOn = toggle.IsOn }));
+                    JsonSerializer.Serialize(new { actionCount, decorativeActions, toggleOn = toggle.IsOn,
+                        passiveEnter, passiveSpace, passiveHandled }));
                 Check("native-keyboard-and-trailing-pointer", actionCount == 1 && decorativeActions == 1 && toggle.IsOn,
                     "actual-keyboard-and-pointer");
+                Check("passive-activation-keys-bubble", passiveEnter && passiveSpace && !passiveHandled,
+                    "actual-keyboard-routed-through-passive-row");
             }
         }
         finally { window.Close(); }

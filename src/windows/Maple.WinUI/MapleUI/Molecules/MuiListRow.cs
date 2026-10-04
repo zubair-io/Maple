@@ -149,7 +149,7 @@ namespace Maple.UI
 
         private void OnKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (!IsEnabled || IsFromTrailing(e.OriginalSource)) return;
+            if (!IsEnabled || !HasPressAction || IsFromTrailing(e.OriginalSource)) return;
             if (e.Key != Windows.System.VirtualKey.Enter && e.Key != Windows.System.VirtualKey.Space) return;
             e.Handled = true;
             InvokeAction();
@@ -162,8 +162,9 @@ namespace Maple.UI
         internal void InvokeAction()
         {
             if (!IsEnabled) throw new ElementNotEnabledException();
-            if (Pressed == null) return;
-            Pressed.Invoke(this, EventArgs.Empty);
+            var handler = Pressed;
+            if (handler == null) return;
+            handler.Invoke(this, EventArgs.Empty);
             if (FrameworkElementAutomationPeer.FromElement(this) is MuiListRowAutomationPeer peer)
                 peer.RaiseAutomationEvent(AutomationEvents.InvokePatternOnInvoked);
         }
