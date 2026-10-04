@@ -123,4 +123,49 @@ final class SMBCopyChunkWireTests: XCTestCase {
     }
   }
 
+  func testSuccessfulCopyChunkCannotConsumeFollowingSocketBytes() throws {
+    let context = try XCTUnwrap(smb2_init_context())
+    defer { smb2_destroy_context(context) }
+    var sockets: [Int32] = [-1, -1]
+    XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets), 0)
+    context.pointee.fd = sockets[0]
+    defer { close(sockets[1]) }
+    XCTAssertEqual(fcntl(sockets[0], F_SETFL, O_NONBLOCK), 0)
+    let probe = dup(sockets[0])
+    XCTAssertGreaterThanOrEqual(probe, 0)
+    defer { close(probe) }
+    var request = smb2_ioctl_request()
+    request.ctl_code = UInt32(SMB2_FSCTL_SRV_COPYCHUNK)
+    request.max_output_response = 12
+    let pdu = try XCTUnwrap(smb2_cmd_ioctl_async(context, &request, { _, _, _, _ in }, nil))
+    context.pointee.waitqueue = pdu
+    var bytes = [UInt8](repeating: 0, count: 129)
+    bytes[3] = 124
+    func little(_ value: UInt64, at offset: Int, width: Int) {
+      for index in 0..<width {
+        bytes[offset + index] = UInt8(truncatingIfNeeded: value >> (index * 8))
+      }
+    }
+    bytes.replaceSubrange(4..<8, with: [0xfe, 0x53, 0x4d, 0x42])
+    little(64, at: 8, width: 2)
+    little(UInt64(SMB2_IOCTL.rawValue), at: 16, width: 2)
+    little(UInt64(SMB2_FLAGS_SERVER_TO_REDIR), at: 20, width: 4)
+    little(pdu.pointee.header.message_id, at: 28, width: 8)
+    little(49, at: 68, width: 2)
+    little(UInt64(SMB2_FSCTL_SRV_COPYCHUNK), at: 72, width: 4)
+    little(112, at: 100, width: 4)
+    little(13, at: 104, width: 4)
+    little(1, at: 116, width: 4)
+    little(1024, at: 124, width: 4)
+    bytes[128] = 0x7f
+    XCTAssertEqual(
+      bytes.withUnsafeBytes { write(sockets[1], $0.baseAddress!, $0.count) }, bytes.count)
+    XCTAssertLessThan(smb2_service(context, Int32(POLLIN)), 0)
+    var remaining = [UInt8](repeating: 0, count: 13)
+    let available = remaining.withUnsafeMutableBytes {
+      recv(probe, $0.baseAddress!, $0.count, MSG_PEEK)
+    }
+    XCTAssertGreaterThan(available, 0, "Malformed ACK consumed bytes after its declared packet")
+  }
+
 }
