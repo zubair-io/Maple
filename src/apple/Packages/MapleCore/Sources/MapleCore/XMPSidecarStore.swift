@@ -27,11 +27,12 @@ import Foundation
 public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   let primarySidecarURL: URL
   let rawURL: URL?
-  private let sidecarURL: URL
-  private let variantId: String
+  let sidecarURL: URL
+  let variantId: String
 
   private var cached: (AdjustmentModel, CullingState)?
   private var removalObservedRevision: RemovalSidecarRevision?
+  private var removalRecovery = LocalRemovalCommitRecovery()
   private var pendingTask: Task<Void, Never>?
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
@@ -210,6 +211,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   /// Validation finishes before the prior sidecar or pending state is changed.
   public func writeWorkflowConfirmed(_ workflow: SidecarWorkflow) throws {
     try coordinateSidecarWrite { destination, existing in
+      try self.removalRecovery.requireOrdinaryWrite(xml: existing)
       let xml: String
       if let model = self.pendingModel, let culling = self.pendingCulling {
         xml = try self.serializedSidecar(model: model, culling: culling, existingXML: existing)
@@ -243,6 +245,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   public func publishWorkflow(_ command: WorkflowPublication) throws -> String {
     try settleWorkflowWrites()
     return try coordinateSidecarWrite { destination, existing in
+      try self.removalRecovery.requireOrdinaryWrite(xml: existing)
       let output = try command.output(current: existing, variantId: self.variantId)
       // Parse before publication; a failure never changes the original checkpoint.
       let restored = try XMPParser.parse(output)
@@ -305,6 +308,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       model: model, culling: culling, removalChange: (expectedRecords, records),
       expectedSidecarRevision: expectedSidecarRevision)
     cached = (saved, culling)
+    removalRecovery.clear()
   }
 
   /// Returns an async stream of errors encountered during background writes.
@@ -329,19 +333,6 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   public var url: URL { sidecarURL }
 
   // MARK: Private
-
-  /// The sidecar text currently on disk, or nil when there is none.
-  ///
-  /// The write path reads it for the two things a model+culling write must
-  /// not destroy: the IPTC/EXIF metadata block, and the passthrough bucket
-  /// (#2233). Disk is the carrier for both rather than in-memory state
-  /// threaded down from `EditSession`, so an externally-edited sidecar
-  /// contributes its current contents instead of a stale snapshot taken at
-  /// open time.
-  private func existingSidecarXML(at url: URL) throws -> String? {
-    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    return try String(contentsOf: url, encoding: .utf8)
-  }
 
   private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
     guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
@@ -383,6 +374,20 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     expectedSidecarRevision: RemovalSidecarRevision? = nil
   ) throws -> AdjustmentModel {
     try coordinateSidecarWrite { destination, existing in
+      let attempt = removalChange.map {
+        LocalRemovalCommitAttempt(
+          model: model, expected: $0.expected, records: $0.records,
+          revision: expectedSidecarRevision)
+      }
+      if let existing { try self.requireVariantWorkflow(in: existing) }
+      if let recovered = try self.removalRecovery.recover(
+        attempt, xml: existing, rawURL: self.rawURL, at: destination)
+      {
+        self.pendingSemanticEdits.removeAll()
+        self.pendingMetadata = nil
+        self.removalObservedRevision = try RemovalSidecarRevision(xml: existing)
+        return recovered
+      }
       if let expectedSidecarRevision {
         guard try RemovalSidecarRevision(xml: existing) == expectedSidecarRevision else {
           throw RemovalError.saveConflict
@@ -390,19 +395,22 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       }
       return try self.writeSidecar(
         model: model, culling: culling, existingXML: existing, at: destination,
-        removalChange: removalChange)
+        removalChange: removalChange, attempt: attempt)
     }
   }
 
   private func writeSidecar(
     model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL,
-    removalChange: (expected: String, records: String)? = nil
+    removalChange: (expected: String, records: String)? = nil,
+    attempt: LocalRemovalCommitAttempt? = nil
   ) throws -> AdjustmentModel {
+    if attempt == nil { try removalRecovery.requireOrdinaryWrite(xml: existingXML) }
     if let existingXML { try requireVariantWorkflow(in: existingXML) }
     let xml = try appendingSemanticHistory(
       to: serializedSidecar(
         model: model, culling: culling, existingXML: existingXML, removalChange: removalChange))
     let saved = try XMPParser.parse(xml).0
+    if let attempt { removalRecovery.begin(attempt, xml: xml, priorXML: existingXML) }
     try publishSidecarXML(xml, at: destination, durable: removalChange != nil)
     pendingSemanticEdits.removeAll()
     pendingMetadata = nil
@@ -425,47 +433,6 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       throw WorkflowSidecarError(message: "Committed history did not produce a workflow record")
     }
     return try WorkflowSidecarCore.embed(workflow, in: xml)
-  }
-
-  private func requireVariantWorkflow(in xml: String) throws {
-    _ = try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId)
-  }
-
-  private func requirePrimaryAbsence() throws {
-    guard variantId == WorkflowContract.primaryVariantID else {
-      throw WorkflowSidecarError(
-        message:
-          "Variant sidecar is missing: \(sidecarURL.lastPathComponent). Restore it before editing.")
-    }
-  }
-
-  /// Cooperate with separate editor/variant store instances on this same file.
-  private func coordinateSidecarWrite<T>(_ write: (URL, String?) throws -> T) throws -> T {
-    let lockURL = sidecarURL.deletingLastPathComponent().appendingPathComponent(
-      ".\(sidecarURL.lastPathComponent).lock")
-    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, 0o600)
-    guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-    defer { close(descriptor) }
-    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-      throw RemovalError.saveConflict
-    }
-    defer { flock(descriptor, LOCK_UN) }
-    let coordinator = NSFileCoordinator(filePresenter: nil)
-    var error: NSError?
-    var result: Result<T, Error>?
-    coordinator.coordinate(writingItemAt: sidecarURL, options: [], error: &error) { url in
-      result = Result {
-        let existing = try self.existingSidecarXML(at: url)
-        if existing == nil { try self.requirePrimaryAbsence() }
-        return try write(url, existing)
-      }
-    }
-    if let error { throw error }
-    guard let result else {
-      throw WorkflowSidecarError(
-        message: "Unable to coordinate the sidecar save. Reopen and retry.")
-    }
-    return try result.get()
   }
 
   private func serializedSidecar(

@@ -290,6 +290,15 @@ without adding another history entry. When it carries removal records, the local
 writer verifies and syncs its companions, then rereads and syncs the exact existing
 XMP inode and photo folder before acknowledging it. Restored matching XML alone
 does not establish durability; missing companions or different XML refuse confirmation.
+If local Keep, undo or redo replaces XMP but loses directory access before
+confirmation, the writer retains the exact attempted model, removal transition,
+complete XML and prior revision in memory. Retrying that same command verifies
+the original and target companions again, syncs the existing XMP and photo folder,
+and only then acknowledges the model and history. Matching removal records alone
+cannot authorize changed external XML. Ordinary model/workflow writes refuse to
+overwrite this uncertain checkpoint; a failure before replacement leaves the exact
+prior XML and permits ordinary saving. This retry identity belongs to the open
+writer and does not establish recovery after process death or remote storage loss.
 The shared core and Apple resolve owned removal attributes and direct scalar
 property elements on RDF descriptions by namespace URI, including renamed
 prefixes and the legacy Maple URI. Duplicate owned fields and nested XML

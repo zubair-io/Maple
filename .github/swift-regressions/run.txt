@@ -387,6 +387,7 @@ LocalRelocationJournalTests
 LocalRemovalAssetStoreTests
 LocalRemovalDirectoryPublicationTests
 LocalRemovalRestoredPublicationTests
+LocalRemovalCommitRecoveryTests
 RemovalWorkflowRetryTests
 LocalRemovalRelocateTests
 NativeDetailRemovalTests
