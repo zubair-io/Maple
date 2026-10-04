@@ -268,6 +268,14 @@ smb2_process_ioctl_fixed(struct smb2_context *smb2,
         smb2_get_uint32(iov, 36, &rep->output_count);
         smb2_get_uint32(iov, 40, &rep->flags);
 
+        if (pdu->copychunk_limits_reply &&
+            (rep->output_count != 12 || rep->input_count != 0)) {
+                smb2_set_error(smb2, "Invalid COPYCHUNK limits response size");
+                pdu->payload = NULL;
+                free(rep);
+                return -1;
+        }
+
         if (rep->output_count == 0) {
                 return 0;
         }
@@ -298,7 +306,7 @@ smb2_process_ioctl_variable(struct smb2_context *smb2,
         struct smb2_iovec vec;
         void *ptr;
 
-        if (rep->output_count > iov->len - IOV_OFFSET) {
+        if (IOV_OFFSET > iov->len || rep->output_count > iov->len - IOV_OFFSET) {
                 return -EINVAL;
         }
 
@@ -321,7 +329,7 @@ smb2_process_ioctl_variable(struct smb2_context *smb2,
                 if (ptr == NULL) {
                         return -ENOMEM;
                 }
-                memcpy(ptr, &iov->buf[IOV_OFFSET], iov->len - IOV_OFFSET);
+                memcpy(ptr, &iov->buf[IOV_OFFSET], rep->output_count);
         }
 
         rep->output = ptr;

@@ -23,6 +23,7 @@ import { deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
+import { PAIRED_SIDECAR_SUFFIX_PATTERN } from '../generated/filename-vocabulary.generated';
 
 /** Sanitize a device name for use in a conflict-copy filename. */
 function sanitizeDeviceName(raw: string | undefined): string {
@@ -197,10 +198,7 @@ export async function listPairedSidecarsStrict(rawAbsPath: string): Promise<stri
   // sidecar and must not match, otherwise trash/purge would move
   // unrelated XMP files with that name.
   const escaped = escapeRegex(rawBase);
-  const pattern = new RegExp(
-    `^${escaped}(?:\\.xmp| \\(conflict from [^)]+\\)(?: \\(\\d+\\))?\\.xmp)$`,
-    'i',
-  );
+  const pattern = new RegExp(`^${escaped}${PAIRED_SIDECAR_SUFFIX_PATTERN}$`, 'i');
   return entries
     .filter((name) => pattern.test(name) || workflowSidecarBase(name) === rawBase)
     .map((name) => path.join(dir, name));

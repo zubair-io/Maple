@@ -190,3 +190,6 @@ WorkingSetListCacheTests slow render or decode workload that costs minutes on th
 
 PartialWhiteBalanceRenderTests gpu compares real Metal live pixels with core on committed calibrated RAW fixtures
 NativeExportMemoryTests slow Requires explicitly staged owned 100MP fixture; records native serial export memory under #4113.
+
+# Owned physical RAW + authenticated Samba restore qualification (#4139).
+RestoreCollisionParityTests fixture owned physical RAW plus authenticated disposable Samba qualification (#4139/#4142)
