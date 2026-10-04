@@ -21,9 +21,22 @@
 // `ffi-pool-config.repo.ts`) — default 1 keeps the historical single-decode
 // behaviour, pure opt-in.
 //
+// Why TWO lanes (not one pool): since #3499 the cheap bitmap ops
+// (`renderBitmap`, `validateAvif`) share the same queue as multi-second RAW
+// demosaics, so one RAW decode head-of-line-blocks every JPEG thumb behind
+// it (measured #3527: 4 bitmaps fired with one CR2 develop finished at
+// 8.3–8.7s on a 1-wide pool vs ~0.18s unblocked). The bitmap lane is a second
+// `WorkerSlotPool` pinned at 1 child, so bitmap work always has a child that
+// RAW work can never occupy — the pre-#3499 property (bitmaps ran
+// concurrently with RAW in the retired imgdecode child) restored without
+// raising RAW decode parallelism or its RAM ceiling. Same child script serves
+// both lanes; the dispatch arms already live side by side in
+// `raw_ffi-dispatch.ts`, and every heavy arm re-restores its lens profile per
+// request, so no request has affinity for a particular child.
+//
 // Dispatch model, resize semantics and crash recovery live in
 // `ffi-pool-slots.ts` — this file is the typed request surface (one method
-// per protocol message) over that engine.
+// per protocol message) over that engine, plus the lane routing.
 
 import { nativeLibAvailable } from './raw_ffi.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
@@ -37,14 +50,46 @@ import type { PendingRequest, PoolWorker, WorkerFactory } from './ffi-pool-slots
  * pool tests) even though the engine now lives in its own module. */
 export type { PoolWorker, WorkerFactory };
 
+/** Which lane a request rides: the operator-sized RAW lane, or the pinned
+ * single-child bitmap lane that RAW work can never occupy (#3527). */
+type FfiLane = 'raw' | 'bitmap';
+
+/** Bitmap-lane width. Fixed at 1 — deliberately NOT operator-tunable. Bitmap
+ * ops are ~0.1s and ~70MB peak (measured #3527), so one serial child clears
+ * the whole thumb+preview backlog without ever stalling behind a RAW
+ * demosaic, and the extra child costs one 54MB idle process (lazy-spawned:
+ * RAW-only libraries never pay it). Raising this would buy nothing the RAW
+ * knob doesn't already cover; the knob keeps meaning RAW decode parallelism.
+ * Kept as a named constant (not a literal) so the pinning is greppable. */
+const BITMAP_POOL_SIZE = 1;
+
+/** One lane's live snapshot — the shape `WorkerSlotPool.stats()` returns. */
+export interface FfiLaneStats {
+  target: number;
+  spawned: number;
+  busy: number;
+  queued: number;
+}
+
+/** `FfiWorkerPool.stats()`: the RAW lane's numbers at the top level (so
+ * `target` still reads as the `ffi_workers` knob, and existing consumers are
+ * unaffected) plus the bitmap lane's breakdown under `bitmap`. */
+export interface FfiPoolStats extends FfiLaneStats {
+  bitmap: FfiLaneStats;
+}
+
 class FfiWorkerPool {
   private nextId = 1;
   private readonly slotPool: WorkerSlotPool;
+  private readonly bitmapPool: WorkerSlotPool;
   /** When set, availability is forced (tests bypass the real dylib probe). */
   private readonly availableOverride: boolean | null;
 
   constructor(opts?: { workerFactory?: WorkerFactory; availableOverride?: boolean }) {
-    this.slotPool = new WorkerSlotPool(opts?.workerFactory ?? defaultChildWorkerFactory);
+    const factory = opts?.workerFactory ?? defaultChildWorkerFactory;
+    this.slotPool = new WorkerSlotPool(factory);
+    this.bitmapPool = new WorkerSlotPool(factory);
+    this.bitmapPool.setPoolSize(BITMAP_POOL_SIZE);
     this.availableOverride = opts?.availableOverride ?? null;
   }
 
@@ -75,19 +120,22 @@ class FfiWorkerPool {
     });
   }
 
-  /** Effective pool size (lazy spawn ceiling). */
+  /** Effective RAW-lane pool size (lazy spawn ceiling) — the `ffi_workers`
+   * knob. The bitmap lane is pinned at `BITMAP_POOL_SIZE` and never resized. */
   poolSize(): number {
     return this.slotPool.poolSize();
   }
 
-  /** Live snapshot for diagnostics: configured target, spawned worker count,
-   * how many are busy, and the queue depth. */
-  stats(): { target: number; spawned: number; busy: number; queued: number } {
-    return this.slotPool.stats();
+  /** Live snapshot for diagnostics: the RAW lane's configured target, spawned
+   * worker count, busy count, and queue depth at the top level, plus the
+   * bitmap lane's breakdown under `bitmap`. */
+  stats(): FfiPoolStats {
+    return { ...this.slotPool.stats(), bitmap: this.bitmapPool.stats() };
   }
 
-  /** Set the target pool size (clamped to [MIN, MAX]); see `ffi-pool-slots.ts`
-   * for the grow/shrink semantics. */
+  /** Set the RAW lane's target pool size (clamped to [MIN, MAX]); see
+   * `ffi-pool-slots.ts` for the grow/shrink semantics. The bitmap lane stays
+   * pinned at `BITMAP_POOL_SIZE`. */
   setPoolSize(n: number): void {
     this.slotPool.setPoolSize(n);
   }
@@ -176,7 +224,8 @@ class FfiWorkerPool {
   }
 
   /** Render a non-RAW bitmap (JPEG/PNG/WebP/TIFF/AVIF/HEIC/PSD/HDR) to a
-   * resized AVIF on disk inside the FFI child. Resolves the child's
+   * resized AVIF on disk inside the FFI child. Rides the bitmap lane, so it
+   * never queues behind a RAW demosaic (#3527). Resolves the child's
    * `{ ok, error }` (never rejects on a render failure — only on infra
    * failure), matching what the retired imgdecode pool returned so call
    * sites keep their error handling. */
@@ -189,45 +238,52 @@ class FfiWorkerPool {
   ): Promise<{ ok: boolean; error?: string }> {
     const id = this.requestId();
     return new Promise((resolve, reject) => {
-      this.enqueue({
-        id,
-        post: (w) =>
-          w.postMessage({
-            type: 'renderBitmap',
-            id,
-            srcPath,
-            outPath,
-            maxPx,
-            quality,
-            ext,
-          }),
-        onResponse: (msg) => {
-          if (msg.type !== 'renderBitmap') return false;
-          resolve({ ok: msg.ok, error: msg.error });
-          return true;
+      this.enqueue(
+        {
+          id,
+          post: (w) =>
+            w.postMessage({
+              type: 'renderBitmap',
+              id,
+              srcPath,
+              outPath,
+              maxPx,
+              quality,
+              ext,
+            }),
+          onResponse: (msg) => {
+            if (msg.type !== 'renderBitmap') return false;
+            resolve({ ok: msg.ok, error: msg.error });
+            return true;
+          },
+          onError: reject,
         },
-        onError: reject,
-      });
+        'bitmap',
+      );
     });
   }
 
-  /** Decode-validate an AVIF this pipeline just wrote (see `thumbs/avif-checks.ts`). */
+  /** Decode-validate an AVIF this pipeline just wrote (see `thumbs/avif-checks.ts`).
+   * Rides the bitmap lane with the render it validates, never behind RAW (#3527). */
   async validateAvif(
     filePath: string,
     expectedLongEdgePx: number,
   ): Promise<{ ok: boolean; reason?: string }> {
     const id = this.requestId();
     return new Promise((resolve, reject) => {
-      this.enqueue({
-        id,
-        post: (w) => w.postMessage({ type: 'validateAvif', id, filePath, expectedLongEdgePx }),
-        onResponse: (msg) => {
-          if (msg.type !== 'validateAvif') return false;
-          resolve({ ok: msg.ok, reason: msg.reason });
-          return true;
+      this.enqueue(
+        {
+          id,
+          post: (w) => w.postMessage({ type: 'validateAvif', id, filePath, expectedLongEdgePx }),
+          onResponse: (msg) => {
+            if (msg.type !== 'validateAvif') return false;
+            resolve({ ok: msg.ok, reason: msg.reason });
+            return true;
+          },
+          onError: reject,
         },
-        onError: reject,
-      });
+        'bitmap',
+      );
     });
   }
 
@@ -269,16 +325,18 @@ class FfiWorkerPool {
     });
   }
 
-  /** True once `shutdown()` has run — `ffiPool()` uses this (#3524). */
+  /** True once `shutdown()` has run — `ffiPool()` uses this (#3524). Either
+   * lane shut down means the pool is done; `shutdown()` always stops both. */
   get isShutDown(): boolean {
-    return this.slotPool.isShutDown;
+    return this.slotPool.isShutDown || this.bitmapPool.isShutDown;
   }
 
-  /** Terminate every child and stop spawning new ones — the server's graceful
-   * shutdown path; see `ffi-pool-slots.ts` for why the children must be reaped
-   * explicitly and what happens to in-flight work. */
+  /** Terminate every child in both lanes and stop spawning new ones — the
+   * server's graceful shutdown path; see `ffi-pool-slots.ts` for why the
+   * children must be reaped explicitly and what happens to in-flight work. */
   shutdown(): void {
     this.slotPool.shutdown();
+    this.bitmapPool.shutdown();
   }
 
   // ── internals ─────────────────────────────────────────────
@@ -289,8 +347,10 @@ class FfiWorkerPool {
     return this.nextId++;
   }
 
-  private enqueue(req: PendingRequest): void {
-    this.slotPool.enqueue(req);
+  /** Route one request onto its lane's queue. RAW is the default; only the
+   * cheap bitmap ops (`renderBitmap`, `validateAvif`) pass `'bitmap'`. */
+  private enqueue(req: PendingRequest, lane: FfiLane = 'raw'): void {
+    (lane === 'bitmap' ? this.bitmapPool : this.slotPool).enqueue(req);
   }
 }
 
