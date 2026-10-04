@@ -29,7 +29,7 @@ namespace Maple.WinUI
         private void SetSidebarHidden(bool hidden)
         {
             // Keeps the in-memory _settings field (read elsewhere this
-            // session, e.g. SetMode above) in sync too — AppSettings.Update
+            // session, e.g. SetMode in MainWindow.xaml.cs) in sync too — AppSettings.Update
             // below only fixes what actually goes to disk.
             _settings.LeftPanelHidden = hidden;
             // #2948: NOT `_settings.Save()`. _settings is loaded once at

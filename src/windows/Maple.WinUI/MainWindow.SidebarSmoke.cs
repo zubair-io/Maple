@@ -66,10 +66,14 @@ public sealed partial class MainWindow
         }
         finally
         {
-            SetSidebarHidden(originalHidden);
-            _compactSourcesOpen = originalDrawer;
-            SetMode(originalMode);
-            AppWindow.Resize(originalSize);
+            // Setup can fail before attachment, before any preference mutation.
+            if (root.XamlRoot != null)
+            {
+                SetSidebarHidden(originalHidden);
+                _compactSourcesOpen = originalDrawer;
+                SetMode(originalMode);
+                AppWindow.Resize(originalSize);
+            }
         }
 
         async Task ResizeAsync(int logicalWidth, bool compact)
@@ -91,6 +95,7 @@ public sealed partial class MainWindow
         {
             root.UpdateLayout();
             var saved = AppSettings.Load();
+            // UpdateResponsiveShell owns this layout rule (MainWindow.Responsive.cs).
             var expectedColumn = _mode == ShellMode.Browse && !IsCompactShell && !hidden
                 ? _settings.LeftPanelWidth : 0;
             if (_settings.LeftPanelHidden != hidden || saved.LeftPanelHidden != hidden ||
