@@ -274,6 +274,8 @@ jobs:
             ${{ env.MAPLE_SWIFT_TEST_ROOT }}/Packages/MapleCore/.build
             ~/Library/Caches/org.swift.swiftpm
           key: apple-test-swift-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.build }}-${{ hashFiles('src/apple/Packages/MapleCore/Package.resolved', 'src/apple/Packages/MapleBackup/Package.resolved', '.github/workflows/apple.yml') }}
+      - name: Build the real stdio bridge for Core regression tests
+        run: swift build --package-path "$MAPLE_SWIFT_TEST_ROOT/Packages/MapleMCP" --configuration release --product maple-mcp
       - name: Execute the regression allowlist (.github/swift-regressions/run.txt)
         run: |
           set -euo pipefail
