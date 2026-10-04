@@ -69,6 +69,7 @@ namespace Maple.WinUI.ViewModels
                         item.IsoDisplay = exif.Iso is { } iso ? $"ISO {iso}" : "—";
                         item.Aperture = exif.FNumber is { } f ? $"f/{f:0.#}" : "—";
                         item.ShutterSpeed = FormatShutter(exif.ExposureTimeSeconds);
+                        item.FocalLengthMm = exif.FocalLengthMm;
                         item.CaptureDate = exif.DateTimeOriginal;
                         item.DateTaken = exif.DateTimeOriginal?.ToString("yyyy-MM-dd HH:mm")
                             ?? "—";

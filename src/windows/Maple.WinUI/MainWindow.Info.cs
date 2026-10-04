@@ -136,6 +136,7 @@ namespace Maple.WinUI
             AddRow(ExifRows, "ISO", photo.IsoDisplay);
             AddRow(ExifRows, "Aperture", photo.Aperture);
             AddRow(ExifRows, "Shutter", photo.ShutterSpeed);
+            AddRow(ExifRows, "Focal length", photo.FocalLengthDisplay);
             AddRow(ExifRows, "Captured", photo.DateTaken);
             AddRow(FileRows, "Name", photo.FileName);
             AddRow(FileRows, "Format", photo.Format);

@@ -189,6 +189,7 @@ namespace Maple.WinUI.ViewModels
                     CapturedAt = image.CapturedAt, CameraMake = image.Camera?.Make,
                     CameraModel = image.Camera?.Model, Lens = image.Lens, Iso = image.Iso,
                     Aperture = image.Aperture, Shutter = image.Shutter,
+                    FocalLengthMm = image.FocalLengthMm,
                 },
             }, new CloudFolderNode(), image.Address);
             item.Rating = image.Rating;
