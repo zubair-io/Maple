@@ -49,6 +49,41 @@ public sealed class InspectorFocalLengthTests
         Assert.Null(JsonSerializer.Deserialize<CloudTimelinePhoto>("{}")!.FocalLengthMm);
     }
 
+    [Theory]
+    [InlineData(24.75, "24.75 mm")]
+    [InlineData(null, "—")]
+    public void ProductionCloudProjectionsRetainFocalLengthAndPhotoIdentity(double? focal, string display)
+    {
+        var directory = CloudPhotoMapper.FromDirectory(new CloudDirImage
+        {
+            Name = "photo.CR3", Path = "/library/photo.CR3", Ext = "cr3", Size = 123,
+            Mtime = "2026-01-02T03:04:05Z",
+            Exif = focal.HasValue ? new CloudDirExif { FocalLengthMm = focal } : null,
+        }, "library:photo.CR3");
+        var timeline = CloudPhotoMapper.FromTimeline(new CloudTimelinePhoto
+        {
+            Filename = "photo.CR3", Path = "/library/photo.CR3", Address = "library:photo.CR3",
+            Size = 123, Mtime = 1767323045000, FocalLengthMm = focal,
+            Rating = 4, Flag = -1, ColorLabel = "red",
+        });
+        foreach (var photo in new[] { directory, timeline })
+        {
+            Assert.Equal(focal, photo.FocalLengthMm);
+            Assert.Equal(display, photo.FocalLengthDisplay);
+            Assert.True(photo.IsCloud);
+            Assert.Equal("library:photo.CR3", photo.CloudAddress);
+            Assert.Equal("/library/photo.CR3", photo.FilePath);
+            Assert.Equal("photo.CR3", photo.FileName);
+            Assert.Equal("CR3", photo.Format);
+            Assert.Equal(123, photo.FileSizeBytes);
+            Assert.Equal(new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc), photo.FileModifiedUtc);
+        }
+        Assert.Equal(0, directory.Rating);
+        Assert.Equal(4, timeline.Rating);
+        Assert.Equal("reject", timeline.FlagStatus);
+        Assert.Equal("red", timeline.ColorLabel);
+    }
+
     [Fact]
     public void LocalTiffRationalReachesDisplayWithoutDevelopingOrWritingOriginal()
     {
