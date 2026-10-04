@@ -81,8 +81,16 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(FocalLengthDisplay))]
         private double? _focalLengthMm;
-        public string FocalLengthDisplay => FocalLengthMm is { } mm && double.IsFinite(mm) && mm > 0
-            ? mm.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " mm" : "—";
+        public string FocalLengthDisplay
+        {
+            get
+            {
+                if (FocalLengthMm is not { } mm || !double.IsFinite(mm) || mm <= 0) return "—";
+                var display = mm.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                if (display == "0") display = mm.ToString("G", System.Globalization.CultureInfo.InvariantCulture);
+                return display + " mm";
+            }
+        }
         [ObservableProperty] private string _dateTaken = "—";
         [ObservableProperty] private string _dimensions = "—";
         public DateTime? CaptureDate { get; set; }
