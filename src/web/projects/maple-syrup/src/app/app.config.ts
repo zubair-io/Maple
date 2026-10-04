@@ -23,11 +23,14 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withFetch()),
     provideHostedWorkspace(),
     provideServiceWorker('ngsw-worker.js', {
-      enabled: !isDevMode(),
+      enabled: !isDevMode() && !window.location.pathname.startsWith('/connect/google-drive'),
       registrationStrategy: 'registerWhenStable:30000',
     }),
     // Background app-update flow: detect a freshly-downloaded version, toast
     // the user, and hard-navigate onto the new build on the next route change.
-    provideAppInitializer(() => inject(AppUpdateService).init()),
+    provideAppInitializer(() => {
+      if (!window.location.pathname.startsWith('/connect/google-drive'))
+        inject(AppUpdateService).init();
+    }),
   ],
 };

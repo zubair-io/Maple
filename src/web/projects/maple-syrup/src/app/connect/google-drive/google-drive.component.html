@@ -1,0 +1,45 @@
+<main class="mx-auto max-w-xl p-6 space-y-6">
+  <h1 class="text-2xl font-semibold">Connect Google Drive</h1>
+  <p class="text-text-muted">
+    Maple backs up your photos to its own visible folder in Google Drive. Your server exchanges and
+    stores the credentials.
+  </p>
+  @if (vm$ | async; as vm) {
+    @if (vm.error) {
+      <p role="alert" class="text-error-text">{{ vm.error }}</p>
+    } @else if (vm.ticket) {
+      <p>Paste the callback URL shown in Backup settings on your Maple server.</p>
+      <mui-input
+        inputId="maple-callback"
+        ariaLabel="Maple callback URL"
+        size="lg"
+        [(value)]="callback"
+        placeholder="https://photos.example.com/api/cloud-backup/google/callback"
+        autocomplete="off"
+        [maxLength]="2048"
+      />
+      <p class="break-all text-sm text-text-muted">
+        This connection returns to {{ vm.ticket.returnUrl }}
+      </p>
+      <mui-button
+        variant="primary"
+        size="lg"
+        [disabled]="!matchesCallback(vm.ticket.returnUrl)"
+        (pressed)="continue(vm.authorizationUrl)"
+        >Continue to Google</mui-button
+      >
+    } @else {
+      <p>
+        Open Settings → Backup on your Maple server, provide your Google application’s client ID and
+        client secret, and choose Connect Google Drive. Then paste the displayed callback URL here.
+      </p>
+      <p class="text-text-muted">
+        For the relay flow, register
+        <code class="break-all">https://mapleeditor.com/api/connect/google-drive/callback</code> as
+        your Google application’s authorized redirect URI.
+      </p>
+    }
+  } @else {
+    <p role="status">Checking connection…</p>
+  }
+</main>

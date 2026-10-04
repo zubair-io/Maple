@@ -1,0 +1,27 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "maple-drive-connect",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-04",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"enabled": false,
+	},
+	"upload_source_maps": false,
+	"routes": [
+		{
+			"pattern": "https://mapleeditor.com/api/connect/google-drive/*",
+			"zone_name": "mapleeditor.com",
+		},
+		{
+			"pattern": "https://maple-editor.com/api/connect/google-drive/*",
+			"zone_name": "maple-editor.com",
+		},
+		{
+			"pattern": "https://mapleaperture.com/api/connect/google-drive/*",
+			"zone_name": "mapleaperture.com",
+		},
+	],
+}

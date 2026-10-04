@@ -46,9 +46,15 @@ describe('Hosted SSR Worker', () => {
 		const bytes = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0xff, 0x00, 0x80]);
 		fetchMock
 			.get('https://origin.test')
-			.intercept({ path: '/mapleaperture/assets/fonts/Lato-Regular.woff2', method: 'GET' })
+			.intercept({
+				path: '/mapleaperture/assets/fonts/Lato-Regular.woff2',
+				method: 'GET',
+			})
 			.reply(200, bytes, {
-				headers: { 'content-type': 'application/octet-stream', 'cache-control': 'no-cache' },
+				headers: {
+					'content-type': 'application/octet-stream',
+					'cache-control': 'no-cache',
+				},
 			});
 		const response = await worker.fetch(
 			new IncomingRequest('https://mapleaperture.com/assets/fonts/Lato-Regular.woff2'),
@@ -65,7 +71,10 @@ describe('Hosted SSR Worker', () => {
 		async (extension) => {
 			fetchMock
 				.get('https://origin.test')
-				.intercept({ path: `/mapleaperture/missing.${extension}`, method: 'GET' })
+				.intercept({
+					path: `/mapleaperture/missing.${extension}`,
+					method: 'GET',
+				})
 				.reply(404, '<Error>BlobNotFound</Error>', {
 					headers: { 'content-type': 'application/xml' },
 				});
@@ -100,7 +109,9 @@ describe('Hosted SSR Worker', () => {
 		fetchMock
 			.get('https://origin.test')
 			.intercept({ path: '/mapleaperture/main.abc123.js', method: 'GET' })
-			.reply(200, 'console.log(1)', { headers: { 'content-type': 'text/javascript' } });
+			.reply(200, 'console.log(1)', {
+				headers: { 'content-type': 'text/javascript' },
+			});
 
 		const request = new IncomingRequest('https://mapleaperture.com/main.abc123.js');
 		const ctx = createExecutionContext();
@@ -138,7 +149,10 @@ describe('Hosted SSR Worker', () => {
 			.get('https://origin.test')
 			.intercept({ path: '/mapleaperture/main.abc123.js', method: 'GET' })
 			.reply(200, 'console.log(1)', {
-				headers: { 'content-type': 'text/javascript', 'cache-control': 'public, max-age=3600' },
+				headers: {
+					'content-type': 'text/javascript',
+					'cache-control': 'public, max-age=3600',
+				},
 			});
 
 		const request = new IncomingRequest('https://mapleaperture.com/main.abc123.js');
@@ -180,7 +194,9 @@ describe('Hosted SSR Worker', () => {
 		fetchMock
 			.get('https://origin.test')
 			.intercept({ path: '/mapleaperture/index.html', method: 'GET' })
-			.reply(200, '<html>app shell</html>', { headers: { 'content-type': 'text/html' } });
+			.reply(200, '<html>app shell</html>', {
+				headers: { 'content-type': 'text/html' },
+			});
 
 		const request = navigationRequest('https://mapleaperture.com/browse/lib/photo.dng');
 		const ctx = createExecutionContext();
@@ -196,7 +212,10 @@ describe('Hosted SSR Worker', () => {
 	it('passes a real 404 through for a missing subresource (not a navigation)', async () => {
 		fetchMock
 			.get('https://origin.test')
-			.intercept({ path: '/mapleaperture/pkg/does-not-exist.js', method: 'GET' })
+			.intercept({
+				path: '/mapleaperture/pkg/does-not-exist.js',
+				method: 'GET',
+			})
 			.reply(404, 'not found', { headers: { 'content-type': 'text/plain' } });
 
 		const request = new IncomingRequest('https://mapleaperture.com/pkg/does-not-exist.js', {
@@ -214,7 +233,9 @@ describe('Hosted SSR Worker', () => {
 		fetchMock
 			.get('https://origin.test')
 			.intercept({ path: '/mapleaperture/', method: 'GET' })
-			.reply(200, '<html>app shell</html>', { headers: { 'content-type': 'text/html' } });
+			.reply(200, '<html>app shell</html>', {
+				headers: { 'content-type': 'text/html' },
+			});
 
 		const request = navigationRequest('https://mapleaperture.com/');
 		const ctx = createExecutionContext();
@@ -275,7 +296,9 @@ describe('Hosted SSR Worker', () => {
 		fetchMock
 			.get('https://origin.test')
 			.intercept({ path: '/mapleaperture/index.html', method: 'GET' })
-			.reply(200, '<html>app shell</html>', { headers: { 'content-type': 'text/html' } });
+			.reply(200, '<html>app shell</html>', {
+				headers: { 'content-type': 'text/html' },
+			});
 
 		const request = new IncomingRequest('https://mapleaperture.com/browse/lib/photo.dng', {
 			headers: {
@@ -317,7 +340,9 @@ describe('Hosted SSR Worker', () => {
 		fetchMock
 			.get('https://origin.test')
 			.intercept({ path: '/mapleaperture/raw_wasm_bg.wasm', method: 'HEAD' })
-			.reply(200, '', { headers: { 'content-type': 'application/octet-stream' } });
+			.reply(200, '', {
+				headers: { 'content-type': 'application/octet-stream' },
+			});
 
 		const request = new IncomingRequest('https://mapleaperture.com/raw_wasm_bg.wasm', {
 			method: 'HEAD',
@@ -380,5 +405,39 @@ describe('Hosted SSR Worker', () => {
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
+	});
+});
+
+describe('Hosted Google connection security', () => {
+	it('serves an uncached static shell and never forwards callback query material', async () => {
+		fetchMock
+			.get('https://origin.test')
+			.intercept({ path: '/mapleaperture/index.html', method: 'GET' })
+			.reply(200, '<html>shell</html>', {
+				headers: {
+					'content-type': 'text/html',
+					etag: 'old',
+					'last-modified': 'yesterday',
+				},
+			});
+		const response = await worker.fetch(
+			navigationRequest('https://mapleeditor.com/connect/google-drive/return?ngsw-bypass=true'),
+			env,
+			createExecutionContext(),
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get('cache-control')).toBe('no-store, no-transform');
+		expect(response.headers.get('etag')).toBeNull();
+		expect(response.headers.get('content-security-policy')).toContain("worker-src 'none'");
+		expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+	});
+	it('fails API paths closed when the specific relay route is absent', async () => {
+		const response = await worker.fetch(
+			navigationRequest('https://mapleeditor.com/api/connect/google-drive/unknown'),
+			env,
+			createExecutionContext(),
+		);
+		expect(response.status).toBe(404);
+		expect(await response.text()).toBe('Not found');
 	});
 });

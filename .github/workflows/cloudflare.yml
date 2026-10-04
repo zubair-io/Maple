@@ -112,3 +112,27 @@ jobs:
       - name: Run Worker tests
         working-directory: src/cloudflare/ssr
         run: npm test
+
+  cloudflare-drive-connect-test:
+    name: cloudflare-drive-connect-test (typecheck + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install relay deps
+        working-directory: src/cloudflare/drive-connect
+        run: npm ci
+      - name: Configure local test signing key
+        working-directory: src/cloudflare/drive-connect
+        run: cp .dev.vars.example .dev.vars
+      - name: Generate Worker types
+        working-directory: src/cloudflare/drive-connect
+        run: npm run cf-typegen
+      - name: Typecheck
+        working-directory: src/cloudflare/drive-connect
+        run: npm run typecheck
+      - name: Run relay tests
+        working-directory: src/cloudflare/drive-connect
+        run: npm test

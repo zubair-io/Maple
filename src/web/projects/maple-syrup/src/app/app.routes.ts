@@ -10,6 +10,18 @@ import { HostedEditorRouteComponent } from './hosted-editor-route/hosted-editor-
 // Hosted: `/` is the Landing page with two CTAs. Users enter Browse or the
 // Editor explicitly from there.
 const baseRoutes: Routes = [
+  {
+    path: 'connect/google-drive',
+    loadComponent: () =>
+      import('./connect/google-drive/google-drive.component').then((m) => m.GoogleDriveComponent),
+  },
+  {
+    path: 'connect/google-drive/return',
+    loadComponent: () =>
+      import('./connect/google-drive-return/google-drive-return.component').then(
+        (m) => m.GoogleDriveReturnComponent,
+      ),
+  },
   { path: '', component: LandingComponent },
   // M2: path-based routes replacing ?folder= and fs: scheme.
   {

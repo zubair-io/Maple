@@ -127,7 +127,7 @@ function withHtmlIntegrity(headers: Headers): Headers {
  * status passes through rather than being masked as a successful
  * navigation.
  */
-async function spaFallback(originBaseUrl: string): Promise<Response> {
+async function spaFallback(originBaseUrl: string, connectionPage = false): Promise<Response> {
 	const target = originTarget(originBaseUrl, '/index.html');
 	const indexResponse = await fetch(target.toString());
 	const headers = buildResponseHeaders(indexResponse.headers);
@@ -144,13 +144,50 @@ async function spaFallback(originBaseUrl: string): Promise<Response> {
 	// index.html names the current build's hashed bundles, so a cached copy
 	// would strand a returning client on a stale deploy — never cache it,
 	// same rule the upload step in deploy-hosted.yml applies at the origin.
-	headers.set('Cache-Control', 'no-cache');
-	return new Response(indexResponse.body, { status: 200, headers: withHtmlIntegrity(headers) });
+	headers.set('Cache-Control', connectionPage ? 'no-store, no-transform' : 'no-cache');
+	if (connectionPage) {
+		headers.delete('ETag');
+		headers.delete('Last-Modified');
+		headers.set(
+			'Content-Security-Policy',
+			"default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; frame-src 'none'; img-src 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'none'",
+		);
+	}
+	return new Response(indexResponse.body, {
+		status: 200,
+		headers: withHtmlIntegrity(headers),
+	});
 }
 
 export default {
 	async fetch(request, env): Promise<Response> {
 		const url = new URL(request.url);
+		// #4230: auth API paths never reach Azure or the SPA fallback, even if
+		// the more-specific relay route has not been assigned in a zone yet.
+		if (
+			url.pathname === '/api/connect/google-drive' ||
+			url.pathname.startsWith('/api/connect/google-drive/')
+		)
+			return new Response('Not found', {
+				status: 404,
+				headers: {
+					'Cache-Control': 'no-store',
+					'Referrer-Policy': 'no-referrer',
+				},
+			});
+		if (['/connect/google-drive', '/connect/google-drive/return'].includes(url.pathname)) {
+			if (request.method !== 'GET' && request.method !== 'HEAD')
+				return new Response(null, {
+					status: 405,
+					headers: { Allow: 'GET, HEAD', 'Cache-Control': 'no-store' },
+				});
+			const response = await spaFallback(env.ORIGIN_BASE_URL, true);
+			if (request.method === 'HEAD') {
+				await response.body?.cancel();
+				return new Response(null, response);
+			}
+			return response;
+		}
 		const originResponse = await fetchOrigin(env.ORIGIN_BASE_URL, request, url.pathname);
 
 		if (originResponse.status === 404 && isNavigationRequest(request)) {
