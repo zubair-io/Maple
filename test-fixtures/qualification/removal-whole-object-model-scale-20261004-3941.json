@@ -1,0 +1,280 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-04T14:31:06.464372+00:00",
+  "testedParentCommit": "04e221a74a006c90693e5871f61d6faec6d3fdd2",
+  "testedBase": "ec3d1b767f98f9d56e07a2fc93fc3b70c661cc3b",
+  "purpose": "Paired whole-object model-scale diagnostic: unchanged canonical 2048 RAW context and complete retained person intent, explicitly resampled model input and interpolated generated pixels. It does not qualify native-detail inference or alter the application model cap.",
+  "releaseQualified": false,
+  "nativeDetailQualified": false,
+  "appLimitChanged": false,
+  "shippingModelPinsChanged": false,
+  "xmpWritten": false,
+  "input": {
+    "raw": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/raws/_DSC7409.NEF",
+      "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "bytes": 29019786
+    },
+    "originalUnchanged": true,
+    "canonicalContext": "test-fixtures/qualification/removal-large-canonical-person-20261004-3941.json",
+    "sourceAnchor": {
+      "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+      "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+      "width": 6000,
+      "height": 4000
+    },
+    "nativeIntent": "blake3:e0b5d70643a7968ecf88e59fa15032de566b700f45da86d2b941323b791f8556",
+    "nativeProtection": "blake3:ae9e1e7313c6299f74ac6c901ea7eb1159ae1953d020223cf07175f822ac2e94",
+    "maskScope": "Retained MobileSAM person-4 refined mask; observed complete intent, not independent full-silhouette/ownership ground truth"
+  },
+  "upstream": {
+    "revision": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+    "trackedSourceClean": true,
+    "checkpoint": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-weights-20261004/big-lama/models/best.ckpt",
+      "sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423",
+      "bytes": 410046389
+    },
+    "configuration": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-weights-20261004/big-lama/config.yaml",
+      "sha256": "4fdeed49926e13b101c4dd9e193acec9e58677dfdb4ba49dd6a3a8927964e2a7",
+      "bytes": 3947
+    },
+    "artifact": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/native-mac-generation-models-20261003/lama-native-1024.onnx",
+      "sha256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+      "bytes": 204794328
+    }
+  },
+  "runs": {
+    "runtime": {
+      "reportFile": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-runtime-20261004/report.json",
+        "sha256": "2230808f2b5b66524a0ae7314f5a431e0f7281e11a4ad36dfe3479378110362e",
+        "bytes": 2584
+      },
+      "report": {
+        "rawSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+        "sourceAnchor": {
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "width": 6000,
+          "height": 4000
+        },
+        "intent": "blake3:e0b5d70643a7968ecf88e59fa15032de566b700f45da86d2b941323b791f8556",
+        "protected": "blake3:ae9e1e7313c6299f74ac6c901ea7eb1159ae1953d020223cf07175f822ac2e94",
+        "contextFilesSHA256": {
+          "context.json": "2ceb4c3ad84cbb3e7d74df6014e2b07e38ce8849e75159469ceb1475ea74cd77",
+          "input.f32": "a813f38951f385495c8bb1b9e5a15fab5c7128751a55a29a98d9af4761f32838",
+          "input.png": "25a0d28ed9d0e88905a426b180c1b1b2c8cf64d262d309f1842b055f6108f8bd",
+          "inputs.json": "8ca977d461da1ae68e4ca101394941bba7942ab06b3a5009feb138a4b918e8c8",
+          "intent.mimf": "4e5da444ca0b5a28a7e35fd833a4c1226632e2f053471ff50e554ed0186b4c31",
+          "masks.f32": "c271b6b1bb5a6ad1fa65365b2f14f9bc89bb34a32412ccac4c9c86a05cbaf1e6",
+          "preparation.json": "5cebfb5f6cf84eeca3e3894b448c2c72416653b7955a0aad93644ac265a4858e",
+          "protected.mimf": "67fb0fb69b5618657f2a4e56b603f1e1727f7190d6bd5aa531812f29265378e1",
+          "scene.f32": "0335839c6494654aa0cb8693fa64faa6721913edd960054cbabed2bf022e8962"
+        },
+        "nativeHolePixels": 1045630,
+        "modelHolePixels": 262205,
+        "nativeHolePixelsLost": 0,
+        "extraNativePixelsInPooledCells": 3190,
+        "modelInputSHA256": "b23fe5b950aff4987de949804181a5b685c031a8961c0525167fe8ec3350c9c4",
+        "engine": "runtime",
+        "version": "1.23.2",
+        "artifactSHA256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "sourceSHA256": "38d3e61d4cefaeff236f1f0d334ed8228619afd2b26ea78778073866c0232be1",
+        "modelResultSHA256": "5586f57cad5daca2244fc4c54b8737ca4eea4b31e773f392fd03814c1bef74ce",
+        "resultSHA256": "c8d9a038e2626910393759fe362399a6add82ed829acaa07ea81e6e0028390bb",
+        "canonicalSourceExtent": [2048, 2048],
+        "modelInputExtent": [1024, 1024],
+        "modelInputResampled": true,
+        "rgbReduction": "Float32 mean of each 2x2 block before masking",
+        "holeReduction": "2x2 maximum: all native intent remains represented",
+        "outputInterpolation": "Pillow F-mode bilinear 1024 to 2048, native known RGB restored exactly",
+        "knownModelRGBSamplesChanged": 0,
+        "seconds": 8.783706500005792,
+        "processPeakRSSBytes": 2693398528,
+        "measurementScope": "Separate CPU Python owner on shared host; not app or supported-device performance",
+        "releaseQualified": false,
+        "nativeDetailQualified": false
+      }
+    },
+    "reference": {
+      "reportFile": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-reference-20261004/report.json",
+        "sha256": "227dd38e719229585014d177641b311e408be80cac27afdaa6ab0d15e2bbe687",
+        "bytes": 2585
+      },
+      "report": {
+        "rawSHA256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+        "sourceAnchor": {
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "width": 6000,
+          "height": 4000
+        },
+        "intent": "blake3:e0b5d70643a7968ecf88e59fa15032de566b700f45da86d2b941323b791f8556",
+        "protected": "blake3:ae9e1e7313c6299f74ac6c901ea7eb1159ae1953d020223cf07175f822ac2e94",
+        "contextFilesSHA256": {
+          "context.json": "2ceb4c3ad84cbb3e7d74df6014e2b07e38ce8849e75159469ceb1475ea74cd77",
+          "input.f32": "a813f38951f385495c8bb1b9e5a15fab5c7128751a55a29a98d9af4761f32838",
+          "input.png": "25a0d28ed9d0e88905a426b180c1b1b2c8cf64d262d309f1842b055f6108f8bd",
+          "inputs.json": "8ca977d461da1ae68e4ca101394941bba7942ab06b3a5009feb138a4b918e8c8",
+          "intent.mimf": "4e5da444ca0b5a28a7e35fd833a4c1226632e2f053471ff50e554ed0186b4c31",
+          "masks.f32": "c271b6b1bb5a6ad1fa65365b2f14f9bc89bb34a32412ccac4c9c86a05cbaf1e6",
+          "preparation.json": "5cebfb5f6cf84eeca3e3894b448c2c72416653b7955a0aad93644ac265a4858e",
+          "protected.mimf": "67fb0fb69b5618657f2a4e56b603f1e1727f7190d6bd5aa531812f29265378e1",
+          "scene.f32": "0335839c6494654aa0cb8693fa64faa6721913edd960054cbabed2bf022e8962"
+        },
+        "nativeHolePixels": 1045630,
+        "modelHolePixels": 262205,
+        "nativeHolePixelsLost": 0,
+        "extraNativePixelsInPooledCells": 3190,
+        "modelInputSHA256": "b23fe5b950aff4987de949804181a5b685c031a8961c0525167fe8ec3350c9c4",
+        "engine": "reference",
+        "version": "2.14.1",
+        "artifactSHA256": "339d078d9d1376d76a49efd4fa42f328c3f276af775505ae8b57c84db187c4f6",
+        "sourceSHA256": "38d3e61d4cefaeff236f1f0d334ed8228619afd2b26ea78778073866c0232be1",
+        "modelResultSHA256": "17ce7da5842b3508fb18825693f3fcb6af22fa7fb887f1a1774fbc1558e5703e",
+        "resultSHA256": "70ba80ade3f431853d2df83715fa736b7ee1f6409cfb5cf83221a8b5d2c83635",
+        "canonicalSourceExtent": [2048, 2048],
+        "modelInputExtent": [1024, 1024],
+        "modelInputResampled": true,
+        "rgbReduction": "Float32 mean of each 2x2 block before masking",
+        "holeReduction": "2x2 maximum: all native intent remains represented",
+        "outputInterpolation": "Pillow F-mode bilinear 1024 to 2048, native known RGB restored exactly",
+        "knownModelRGBSamplesChanged": 0,
+        "seconds": 5.4261148749938,
+        "processPeakRSSBytes": 16812589056,
+        "measurementScope": "Separate CPU Python owner on shared host; not app or supported-device performance",
+        "releaseQualified": false,
+        "nativeDetailQualified": false
+      }
+    }
+  },
+  "validation": {
+    "actualInputAndRefusalControlsPassed": 8,
+    "failures": 0,
+    "skips": 0,
+    "fullIntentPixelsDropped": 0,
+    "knownModelInputSamplesChanged": 0,
+    "modelExecutionDiagnostic": {
+      "maxModelFloatError": 2.092123031616211e-5,
+      "meanModelFloatError": 1.0695586070141871e-6,
+      "sameInput": true,
+      "scope": "Model-execution diagnostic only, not a photographic or RAW colour acceptance budget"
+    },
+    "rustBake": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-bake-20261004/report.json",
+      "sha256": "d6540e75b6246a2f0931189e2d72cbaf68b37d75ed350f42b4ec23258ed94a60",
+      "bytes": 4404
+    },
+    "fullRawKnownProtectedFloat32PixelsChanged": 0,
+    "independentDisplayGradesPassed": 18,
+    "protectedNativePixels": 104566,
+    "coverageNativePixels": 1021181,
+    "independentDisplayEvidence": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-preservation-20261004.json",
+      "sha256": "09bbfee7a2fe8c3c873809754f38ae01a266c41871f27d09cd86c6dff07e8369",
+      "bytes": 8041
+    },
+    "rustBakeCompiledOnRecordedBase": true,
+    "staleNativeFramework": false
+  },
+  "visualAssessment": {
+    "accepted": false,
+    "method": "Inspection of retained Auto EV0 WB0 reconstruction at native export extent, compared with prior native 2048 failed challenge",
+    "observations": [
+      "Smoothed but clearly person-shaped textured fill remains instead of a plausible market background.",
+      "Dark bag/coat fragments at the selection boundary remain visible. This experiment does not establish full object ownership."
+    ],
+    "conclusion": "Changing model scale alone is insufficient for this exact selection/context; reject this candidate for app admission."
+  },
+  "measurementScope": "Two separate CPU Python owners on shared M5 Max 128GiB; runtime/reference were not overlapping. The later Rust bake overlaps reference execution. No app/dylib, low-memory-device, native-detail, colour-gate or latency-budget qualification.",
+  "remaining": [
+    "Complete object ownership and silhouette validation, including carried objects, occlusions and protected neighbors",
+    "Photographically acceptable native-detail reconstruction for objects exceeding 1024",
+    "Native/browser/GPU/API/Windows parity, licenses/distribution and controlled supported-device budgets",
+    "Durable authoring, recovery, transport/export and full #1472 acceptance"
+  ],
+  "sourceFiles": {
+    "tools/removal/probe_lama_whole_scale.py": "38d3e61d4cefaeff236f1f0d334ed8228619afd2b26ea78778073866c0232be1",
+    "tools/removal/lama_whole_scale_test.py": "9d140a8e91375f35b0e2589bf7911dd090f927b91e30c251c576e2da6a4a269c",
+    "tools/removal/probe_lama_large_scene.py": "fb3ebbaba6cc74705fa4a18c04046b426d64616c3658ed49dbd37b5e64e21d64",
+    "tools/removal/export_lama_native.py": "8cac2884b6809012ce258ddf7c3e16eb894ca19036162d5b9d719003ac1d0ff4",
+    "tools/removal/lama_fft_onnx.py": "9e07cc491f93ba7cd112084b6daacd0f2e9dc8aaa5d0fd432c25fa9737a8ffb8",
+    "src/raw-pipeline/raw-core/examples/removal-scene-probe.rs": "2e692d4966d90ff364cfd8626c89a2eb926ba19bea60f840807004cc23256339",
+    "src/raw-pipeline/raw-core/examples/removal_scene/large.rs": "db323dc06ff72fdb8140824b1b0793161fcfced8c785dce2e15e813cee1f3cdd",
+    "src/raw-pipeline/raw-core/examples/removal_scene/large_masks.rs": "629d1345fec57c2da3ff26625402d71d8367caebd84a8d509d770388a100efcc",
+    "src/raw-pipeline/raw-core/examples/removal_scene/calibration.rs": "8b304f2854ef4841b356b2eef04e7c57cdd22f16c421322e3e21c296118581a3",
+    "src/raw-pipeline/raw-core/examples/removal_scene/encoding.rs": "5f4903b2b496150ca9aeb29629baede251b3403813c24681287f6e16e1e4089d"
+  },
+  "evidence": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-runtime-20261004.log",
+      "sha256": "2230808f2b5b66524a0ae7314f5a431e0f7281e11a4ad36dfe3479378110362e",
+      "bytes": 2584
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-reference-20261004.log",
+      "sha256": "6315fc6b476d99ddf529962240045d2377446e1219ab2f000d600edb99a97806",
+      "bytes": 2726
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-bake-20261004.log",
+      "sha256": "ecc2c842c2a822956c3e81d693e0341c9c0749041a2f5aa6c1afb22675499c26",
+      "bytes": 5971
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-controls-20261004.log",
+      "sha256": "0a7c692d8492ed789b151c438546cf7004de89e2334ecec54bfd250f3bfe8896",
+      "bytes": 1232
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/verify-whole-scale-20261004.py",
+      "sha256": "2262c1eab53f84667990d2b8566d8d063874c184cbbee24f4f0ddbeea9627f98",
+      "bytes": 3074
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-preservation-20261004.json",
+      "sha256": "09bbfee7a2fe8c3c873809754f38ae01a266c41871f27d09cd86c6dff07e8369",
+      "bytes": 8041
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-bake-20261004/report.json",
+      "sha256": "d6540e75b6246a2f0931189e2d72cbaf68b37d75ed350f42b4ec23258ed94a60",
+      "bytes": 4404
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-runtime-20261004/model-result.f32",
+      "sha256": "5586f57cad5daca2244fc4c54b8737ca4eea4b31e773f392fd03814c1bef74ce",
+      "bytes": 12582912
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-runtime-20261004/result.f32",
+      "sha256": "c8d9a038e2626910393759fe362399a6add82ed829acaa07ea81e6e0028390bb",
+      "bytes": 50331648
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-reference-20261004/model-result.f32",
+      "sha256": "17ce7da5842b3508fb18825693f3fcb6af22fa7fb887f1a1774fbc1558e5703e",
+      "bytes": 12582912
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-reference-20261004/result.f32",
+      "sha256": "70ba80ade3f431853d2df83715fa736b7ee1f6409cfb5cf83221a8b5d2c83635",
+      "bytes": 50331648
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-bake-20261004/replacement.f16",
+      "sha256": "8fb195f2cadaad6ce42b997412095da9b7ed8ac4ede47127cf7c8455d40fa3d5",
+      "bytes": 33554464
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/lama-whole-scale-person4-bake-20261004/auto_ev+0_wb+0-removal.png",
+      "sha256": "d486107a03e2d51b7239f1b399b340fd86366600506301679d44fa73e8aae03b",
+      "bytes": 5958080
+    }
+  ]
+}
