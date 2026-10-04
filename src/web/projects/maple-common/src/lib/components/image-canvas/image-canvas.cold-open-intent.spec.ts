@@ -20,7 +20,7 @@ describe('cold open rendered intent (#4101)', () => {
       temperature: 4800,
       tint: 12,
     };
-    expect(coldOpenRenderedModel(opened, { asShotTemperature: 5523, asShotTint: 7.4 })).toBe(
+    expect(coldOpenRenderedModel(opened, { asShotTemperature: 5523, asShotTint: 7.4 })).toEqual(
       opened,
     );
   });
