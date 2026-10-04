@@ -302,6 +302,86 @@ describe('FfiWorkerPool — bitmap ops', () => {
   });
 });
 
+describe('FfiWorkerPool — bitmap lane (#3527)', () => {
+  function bitmap(pool: ReturnType<typeof _createFfiPoolForTests>) {
+    return pool.renderBitmapThumbToFile('/a.jpg', '/a.avif', 512, 55, 'jpg');
+  }
+
+  it('a bitmap op dispatches immediately while the RAW lane is saturated', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+    pool.setPoolSize(1);
+
+    void render(pool); // occupies the single RAW child; never responds
+    expect(pool.stats().busy).toBe(1);
+
+    // The bitmap op must NOT queue behind it: it spawns the bitmap lane's own
+    // child and runs there.
+    const b = bitmap(pool);
+    expect(workers.length).toBe(2);
+    expect(workers[1].posted[0]?.type).toBe('renderBitmap');
+    expect(pool.stats().queued).toBe(0);
+    expect(pool.stats().bitmap.busy).toBe(1);
+    expect(pool.stats().bitmap.queued).toBe(0);
+
+    workers[1].respondWith({ type: 'renderBitmap', ok: true });
+    await expect(b).resolves.toEqual({ ok: true });
+  });
+
+  it('the bitmap lane serializes at 1 while the RAW lane is untouched', () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+
+    void bitmap(pool);
+    void bitmap(pool); // second bitmap waits for the lane's one child
+
+    expect(workers.length).toBe(1);
+    expect(pool.stats().bitmap.busy).toBe(1);
+    expect(pool.stats().bitmap.queued).toBe(1);
+    expect(pool.stats().busy).toBe(0);
+    expect(pool.stats().spawned).toBe(0);
+  });
+
+  it('setPoolSize resizes the RAW lane only; the bitmap lane stays pinned at 1', () => {
+    const { factory } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+
+    pool.setPoolSize(4);
+    expect(pool.poolSize()).toBe(4);
+    expect(pool.stats().target).toBe(4);
+    expect(pool.stats().bitmap.target).toBe(1);
+
+    pool.setPoolSize(1);
+    expect(pool.stats().target).toBe(1);
+    expect(pool.stats().bitmap.target).toBe(1);
+  });
+
+  it('a RAW-lane crash rejects only RAW work; bitmap in-flight is untouched', async () => {
+    const { factory, workers } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+    pool.setPoolSize(1);
+
+    const a = render(pool); // RAW child (workers[0])
+    const b = bitmap(pool); // bitmap child (workers[1])
+
+    workers[0].crash('segfault');
+    await expect(a).rejects.toThrow(/worker errored/);
+
+    // The bitmap lane's child and call survive the RAW crash.
+    expect(workers[1].terminated).toBe(false);
+    workers[1].respondWith({ type: 'renderBitmap', ok: true });
+    await expect(b).resolves.toEqual({ ok: true });
+  });
+
+  it('shutdown rejects bitmap-lane work too', async () => {
+    const { factory } = freshFactory();
+    const pool = _createFfiPoolForTests({ workerFactory: factory });
+    pool.shutdown();
+    await expect(bitmap(pool)).rejects.toThrow('ffi-pool: shutting down');
+    expect(pool.stats().bitmap.queued).toBe(0);
+  });
+});
+
 describe('ffiPool() — self-heal after shutdown (#3524)', () => {
   it('builds a fresh, live pool instead of handing out a shut-down one', () => {
     const previous = _setFfiPoolForTests(null);

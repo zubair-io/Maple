@@ -101,7 +101,9 @@ export interface DamagedListResponse {
   items: DamagedDoc[];
 }
 
-/** Live FFI decode-pool snapshot (GET /api/workers/performance). */
+/** Live FFI decode-pool snapshot (GET /api/workers/performance). Top-level
+ * fields describe the RAW lane (so `target` matches the `ffi_workers` knob);
+ * `bitmap` breaks out the pinned single-child bitmap lane (#3527). */
 export interface FfiPoolStats {
   /** Configured target pool size. */
   target: number;
@@ -111,6 +113,14 @@ export interface FfiPoolStats {
   busy: number;
   /** Requests waiting for a free worker. */
   queued: number;
+  /** Bitmap-lane snapshot (same four fields). Optional so fixtures that
+   * predate the lane still satisfy the type. */
+  bitmap?: {
+    target: number;
+    spawned: number;
+    busy: number;
+    queued: number;
+  };
 }
 
 /** Operator knobs for the daily generated-search run
