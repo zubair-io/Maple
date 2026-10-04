@@ -84,8 +84,9 @@ extension RemovalSession {
     let selected: Data
     let kept: Data
     if mode == .people, personChoicesNeedApply, detectedPersonMasks.count == people.count {
-      let masks = try await engine.peopleSelection(
-        people, masks: detectedPersonMasks, manualProtection: manualProtection)
+      let masks = try await engine.refinedPeopleSelection(
+        people, masks: detectedPersonMasks, gestures: personGestures,
+        manualProtection: manualProtection)
       guard current(token) else { throw CancellationError() }
       selected = masks.selection
       kept = masks.protection

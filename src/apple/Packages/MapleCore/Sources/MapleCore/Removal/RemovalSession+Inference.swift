@@ -30,7 +30,8 @@ extension RemovalSession {
           id: $0.offset + 1, detection: $0.element.detection,
           keep: $0.element.keep, role: $0.element.role)
       }
-      let discovered = try await masksForPeople(suggestedPeople, context: context, token: token)
+      let discovered = try await masksForPeople(
+        suggestedPeople, context: context, token: token, gestures: [])
       guard current(token) else { return }
       let reviewedPeople = try await engine.peopleMaskSuggestions(
         suggestedPeople, masks: discovered.detected, width: context.width, height: context.height)
@@ -54,7 +55,11 @@ extension RemovalSession {
 
   public func keepPerson(_ id: Int) {
     guard phase == .ready, people.contains(where: { $0.id == id }) else { return }
+    let gestures = personGestures
+    let redo = redoPersonGestures
     clearSelection()
+    personGestures = gestures
+    redoPersonGestures = redo
     people = people.map {
       Person(
         id: $0.id, detection: $0.detection, keep: $0.id == id ? !$0.keep : $0.keep,
@@ -74,13 +79,15 @@ extension RemovalSession {
     phase = .selecting
     message = "Preparing selected people…"
     do {
-      let masks = try await masksForPeople(people, context: context, token: token)
+      let masks = try await masksForPeople(
+        people, context: context, token: token, gestures: personGestures)
       guard current(token) else { return }
       selection = masks.selection
       protection = masks.protection
       personMasks = masks.people
       detectedPersonMasks = masks.detected
-      resetPersonRefinement(masks.bases)
+      personBases = masks.bases
+      refiningPersonID = nil
       personProtectionConflicts = masks.conflicts
       personChoicesNeedApply = false
       operation = nil
@@ -103,7 +110,7 @@ extension RemovalSession {
 
   private func masksForPeople(
     _ people: [Person], context: NativeRemovalEditorContext,
-    token: UInt64
+    token: UInt64, gestures: [RemovalPersonGesture]
   ) async throws -> (
     selection: Data, protection: Data, people: [Data], bases: [RemovalPersonSelection],
     detected: [RemovalPersonSelection], conflicts: [RemovalPersonProtectionConflict]
@@ -112,10 +119,11 @@ extension RemovalSession {
     if detectedPersonMasks.count == people.count,
       Set(detectedPersonMasks.map(\.id)) == Set(people.map(\.id))
     {
-      let masks = try await engine.peopleSelection(
-        people, masks: detectedPersonMasks, manualProtection: manualProtection)
+      let masks = try await engine.refinedPeopleSelection(
+        people, masks: detectedPersonMasks, gestures: gestures,
+        manualProtection: manualProtection)
       return (
-        masks.selection, masks.protection, masks.bases.map(\.mask), masks.bases,
+        masks.selection, masks.protection, masks.people, masks.bases,
         detectedPersonMasks,
         masks.conflicts
       )
@@ -132,10 +140,10 @@ extension RemovalSession {
       guard current(token) else { throw CancellationError() }
       detected.append(RemovalPersonSelection(id: person.id, mask: mask))
     }
-    let masks = try await engine.peopleSelection(
-      people, masks: detected, manualProtection: manualProtection)
+    let masks = try await engine.refinedPeopleSelection(
+      people, masks: detected, gestures: gestures, manualProtection: manualProtection)
     return (
-      masks.selection, masks.protection, masks.bases.map(\.mask), masks.bases, detected,
+      masks.selection, masks.protection, masks.people, masks.bases, detected,
       masks.conflicts
     )
   }

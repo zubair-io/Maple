@@ -62,6 +62,23 @@ extension NativeRemovalEditorEngine {
     return try !RemovalBridge.combineMasks(first, outside, subtract: true).isEmpty
   }
 
+  /// A checkbox changes protection, not the user's painted intent. Replay
+  /// retained gestures from immutable detected masks for both overlay and Remove.
+  func refinedPeopleSelection(
+    _ people: [RemovalSession.Person], masks: [RemovalPersonSelection],
+    gestures: [RemovalPersonGesture], manualProtection: Data
+  ) throws -> (
+    selection: Data, protection: Data, people: [Data], bases: [RemovalPersonSelection],
+    conflicts: [RemovalPersonProtectionConflict]
+  ) {
+    let choices = try peopleSelection(people, masks: masks, manualProtection: manualProtection)
+    let refined = try refinePeople(
+      choices.bases, gestures: gestures, protection: choices.protection)
+    return (
+      refined.selection, choices.protection, refined.masks, choices.bases, choices.conflicts
+    )
+  }
+
   /// Source mask replay stays off main and never invokes a model. Each person
   /// retains an independent native window for the existing grouped generation.
   func refinePeople(
@@ -121,6 +138,11 @@ extension RemovalSession {
   }
 
   func undoPersonRefinement() async {
+    if personChoicesNeedApply {
+      let token = revision &+ 1
+      await selectOtherPeople()
+      guard current(token), phase == .ready, !personChoicesNeedApply else { return }
+    }
     guard canUndoSelection, let gesture = personGestures.last else { return }
     let token = revision &+ 1
     revision = token
@@ -140,6 +162,11 @@ extension RemovalSession {
   }
 
   func redoPersonRefinement() async {
+    if personChoicesNeedApply {
+      let token = revision &+ 1
+      await selectOtherPeople()
+      guard current(token), phase == .ready, !personChoicesNeedApply else { return }
+    }
     guard canRedoSelection, let gesture = redoPersonGestures.last else { return }
     let token = revision &+ 1
     revision = token

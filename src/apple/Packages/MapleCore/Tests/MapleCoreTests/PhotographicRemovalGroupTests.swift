@@ -45,6 +45,100 @@ final class PhotographicRemovalGroupTests: XCTestCase {
     )
   }
 
+  func testActualPartialPersonCorrectionSurvivesAnotherCheckbox() async throws {
+    #if os(macOS)
+      let repository = (0..<7).reduce(URL(fileURLWithPath: #filePath)) {
+        value, _ in value.deletingLastPathComponent()
+      }
+      let fixture = repository.appendingPathComponent(
+        "test-fixtures/raws/removal-photographic/bologna.nef")
+      let models = repository.appendingPathComponent("test-fixtures/raws/removal-inference")
+      guard FileManager.default.fileExists(atPath: fixture.path),
+        (ExperimentalRemovalModels.all.map(\.file) + ["runtime.dylib"]).allSatisfy({
+          FileManager.default.fileExists(atPath: models.appendingPathComponent($0).path)
+        })
+      else { throw XCTSkip("Exact Bologna RAW and pinned models required (#3984)") }
+      let original = try Data(contentsOf: fixture)
+      XCTAssertEqual(
+        try RemovalBridge.digest(original),
+        "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718")
+      let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        UUID().uuidString)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let raw = directory.appendingPathComponent("photo.nef")
+      try original.write(to: raw)
+      let session = EditSession(asset: AssetRef(url: raw))
+      let removal = RemovalSession(
+        session: session,
+        modelStore: MacRemovalModelStore(root: directory.appendingPathComponent("models")))
+      await removal.open()
+      await removal.setMode(.people)
+      await removal.chooseModelFolder(models)
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      let detected = removal.detectedPersonMasks
+      // These retained proposals overlap one wearer. Explicitly select all
+      // three so a duplicate keeper does not protect the painted hat. This
+      // does not qualify automatic duplicate ownership or complete silhouettes.
+      for id in [3, 10, 15] {
+        if removal.people.first(where: { $0.id == id })?.keep == true { removal.keepPerson(id) }
+      }
+      await removal.beginPersonRefinement(3)
+      func targetMask() throws -> Data {
+        let index = try XCTUnwrap(removal.personBases.firstIndex { $0.id == 3 })
+        return try XCTUnwrap(
+          removal.personMasks.indices.contains(index) ? removal.personMasks[index] : nil)
+      }
+      let before = try targetMask()
+      removal.radius = 0.01
+      await removal.paint(
+        [[(37.0 + 0.5) / 1024, (205.0 + 0.5) / 683]], cropInputSize: [6000, 4000])
+      let corrected = try targetMask()
+      XCTAssertNotEqual(corrected, before, "The actual partial body mask needs the painted hat")
+      removal.keepPerson(6)
+      let overlay = try await removal.overlay(cropInputSize: [6000, 4000], aspect: 1.5)
+      let x = Int(37.5 * Double(overlay.width) / 1024)
+      let y = Int(205.5 * Double(overlay.height) / 683)
+      XCTAssertEqual(overlay.selection[(y * overlay.width + x) * 4 + 3], 255)
+      await removal.beginPersonRefinement(3)
+      XCTAssertEqual(try targetMask(), corrected)
+      await removal.undoSelection()
+      XCTAssertEqual(try targetMask(), before)
+      await removal.redoSelection()
+      XCTAssertEqual(try targetMask(), corrected)
+      XCTAssertEqual(removal.detectedPersonMasks.map(\.mask), detected.map(\.mask))
+      XCTAssertEqual(try Data(contentsOf: raw), original)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: raw).path))
+      let evidence = repository.appendingPathComponent(
+        "test-fixtures/raws/removal-photographic/person-choice-runs/\(UUID().uuidString)")
+      try FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: true)
+      try before.write(to: evidence.appendingPathComponent("before.mimf"))
+      try corrected.write(to: evidence.appendingPathComponent("corrected.mimf"))
+      try removal.selection.write(to: evidence.appendingPathComponent("selection.mimf"))
+      try removal.protection.write(to: evidence.appendingPathComponent("protection.mimf"))
+      let report: [String: Any] = [
+        "source": try JSONSerialization.jsonObject(
+          with: Data(try XCTUnwrap(removal.context).source.utf8)),
+        "target": 3, "explicitDuplicateSelections": [3, 10, 15], "changedChoice": 6,
+        "beforeDigest": try RemovalBridge.digest(before),
+        "correctedDigest": try RemovalBridge.digest(corrected),
+        "afterChoiceDigest": try RemovalBridge.digest(targetMask()),
+        "selectionDigest": try RemovalBridge.digest(removal.selection),
+        "protectionDigest": try RemovalBridge.digest(removal.protection),
+        "originalUnchanged": try Data(contentsOf: raw) == original, "releaseQualified": false,
+        "scope":
+          "Actual native RAW detector/SAM masks and manual painted correction retained across checkbox, pending overlay and exact undo/redo. No automatic duplicate ownership, complete silhouette, live UI, reconstruction quality or performance qualification.",
+      ]
+      try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+        .write(to: evidence.appendingPathComponent("report.json"))
+      print("PHOTOGRAPHIC_PERSON_CHOICE_EVIDENCE \(evidence.path)")
+      removal.close()
+      await session.releaseTransientMemory()
+    #else
+      throw XCTSkip("macOS photographic person correction qualification")
+    #endif
+  }
+
   func testSeparatedInstanceChoicesUseActualModelAndOneDurableKeep() async throws {
     #if os(macOS)
       let repository = (0..<7).reduce(URL(fileURLWithPath: #filePath)) {
