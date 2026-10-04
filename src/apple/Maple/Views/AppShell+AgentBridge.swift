@@ -1,3 +1,4 @@
+import MapleAgentWire
 import MapleCore
 import SwiftUI
 
