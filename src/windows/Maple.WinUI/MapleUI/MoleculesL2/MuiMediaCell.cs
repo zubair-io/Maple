@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -141,7 +142,14 @@ namespace Maple.UI
         /// not the rename field or rating row, which own their own
         /// interactions. The caller decides what a press means (select,
         /// open, toggle).</summary>
-        public event EventHandler? Pressed;
+        public event EventHandler? Pressed
+        {
+            add { _pressed += value; UpdateActionAvailability(); }
+            remove { _pressed -= value; UpdateActionAvailability(); }
+        }
+
+        private EventHandler? _pressed;
+        internal bool HasPressAction => _pressed != null;
 
         public event EventHandler<string>? Renamed;
 
@@ -171,9 +179,12 @@ namespace Maple.UI
             _root.Children.Add(_metaRow);
             _chrome.Child = _root;
             Content = _chrome;
-            IsTabStop = true;
+            IsTabStop = false;
+            UseSystemFocusVisuals = true;
+            FocusVisualPrimaryBrush = R("MapleTextMain");
+            FocusVisualSecondaryBrush = R("MapleSurface");
 
-            Tapped += (_, _) => { if (IsEnabled) Pressed?.Invoke(this, EventArgs.Empty); };
+            Tapped += (_, e) => { if (IsEnabled && !IsFromMetadata(e.OriginalSource)) InvokeAction(); };
             KeyDown += OnKeyDown;
             // The meta row owns its own tap/key interaction — see the class
             // doc comment for why marking these Handled is enough.
@@ -190,12 +201,39 @@ namespace Maple.UI
 
         private static Brush R(string key) => (Brush)Application.Current.Resources[key];
 
+        protected override AutomationPeer OnCreateAutomationPeer() => new MuiMediaCellAutomationPeer(this);
+
+        private void UpdateActionAvailability()
+        {
+            IsTabStop = HasPressAction;
+            FrameworkElementAutomationPeer.FromElement(this)?.InvalidatePeer();
+        }
+
+        internal void InvokeAction()
+        {
+            if (!IsEnabled) throw new ElementNotEnabledException();
+            var action = _pressed;
+            if (action == null) return;
+            action.Invoke(this, EventArgs.Empty);
+            FrameworkElementAutomationPeer.FromElement(this)?.RaiseAutomationEvent(AutomationEvents.InvokePatternOnInvoked);
+        }
+
+        private bool IsFromMetadata(object source)
+        {
+            for (var node = source as DependencyObject; node != null; node = VisualTreeHelper.GetParent(node))
+            {
+                if (ReferenceEquals(node, _metaRow)) return true;
+                if (ReferenceEquals(node, this)) return false;
+            }
+            return false;
+        }
+
         private void OnKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (!IsEnabled) return;
+            if (!IsEnabled || !HasPressAction || IsFromMetadata(e.OriginalSource)) return;
             if (e.Key != Windows.System.VirtualKey.Enter && e.Key != Windows.System.VirtualKey.Space) return;
             e.Handled = true;
-            Pressed?.Invoke(this, EventArgs.Empty);
+            InvokeAction();
         }
 
         private void RebuildBadges()
@@ -227,6 +265,8 @@ namespace Maple.UI
             Opacity = IsEnabled ? 1.0 : 0.45;
 
             AutomationProperties.SetName(this, string.IsNullOrEmpty(Alt) ? Filename : Alt);
+            AutomationProperties.SetItemStatus(this, Selected ? "Selected" : string.Empty);
+            FrameworkElementAutomationPeer.FromElement(this)?.InvalidatePeer();
         }
     }
 }
