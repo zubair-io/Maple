@@ -26,7 +26,7 @@ namespace Maple.WinUI
     /// fields, the cloud session, the on-disk caches, and the app
     /// identity. Edits persist through <see cref="AppSettings.Update"/>
     /// (the #2948 reload-then-write invariant); actions that already have
-    /// a UI (cloud connect, sidebar toggle) route through the exact
+    /// a UI (cloud connect, sidebar preference) route through the exact
     /// MainWindow handlers that own them, passed in as callbacks.
     /// </summary>
     public sealed class SettingsWindow : Window
@@ -47,7 +47,7 @@ namespace Maple.WinUI
         private readonly EditSessionViewModel _viewModel;
         private readonly Action _openCloudConnect;
         private readonly Func<bool, string?> _setCloudFiles;
-        private readonly Action _toggleSidebar;
+        private readonly Action<bool> _setSidebarVisible;
 
         private readonly MuiSettingsShell _shell = new() { NavWidth = 220, PaneMaxWidth = 640 };
         private readonly Dictionary<string, MuiListRow> _navRows = new();
@@ -60,12 +60,12 @@ namespace Maple.WinUI
         private string _activeSectionId = "library";
 
         public SettingsWindow(
-            EditSessionViewModel viewModel, Action openCloudConnect, Action toggleSidebar,
+            EditSessionViewModel viewModel, Action openCloudConnect, Action<bool> setSidebarVisible,
             Func<bool, string?> setCloudFiles)
         {
             _viewModel = viewModel;
             _openCloudConnect = openCloudConnect;
-            _toggleSidebar = toggleSidebar;
+            _setSidebarVisible = setSidebarVisible;
             _setCloudFiles = setCloudFiles;
 
             Title = "Maple Settings";
@@ -262,12 +262,11 @@ namespace Maple.WinUI
                 IsThreeState = false,               // binary setting — no indeterminate stop
                 CheckedState = !settings.LeftPanelHidden,
             };
-            // Route through MainWindow's own toggle handler — the single
-            // owner of the column width + the persisted flag (#2948) — then
-            // re-sync the visual from what actually persisted.
+            // Preview hides the sources column and compact Browse uses a
+            // temporary drawer; neither represents the saved preference.
             sidebarToggle.Click += (_, _) =>
             {
-                _toggleSidebar();
+                _setSidebarVisible(sidebarToggle.CheckedState == true);
                 sidebarToggle.CheckedState = !AppSettings.Load().LeftPanelHidden;
             };
 
@@ -277,7 +276,7 @@ namespace Maple.WinUI
                 Rows = new[]
                 {
                     new MuiSettingsSectionRow("sidebar", "Sidebar", "sidebar",
-                        "The same toggle as View → Toggle Sidebar; the choice persists across launches.",
+                        "Show the folders sidebar in wide Browse windows; the choice persists across launches.",
                         sidebarToggle, StartExpanded: true),
                 },
             });
