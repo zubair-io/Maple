@@ -190,3 +190,6 @@ WorkersFeedTests host talks to a host service (keychain, FileProvider, network, 
 WorkingSetListCacheTests slow render or decode workload that costs minutes on the runner
 
 PartialWhiteBalanceRenderTests gpu compares real Metal live pixels with core on committed calibrated RAW fixtures
+
+# Owned physical RAW + authenticated Samba restore qualification (#4139).
+RestoreCollisionParityTests fixture owned physical RAW plus authenticated disposable Samba qualification (#4139/#4142)

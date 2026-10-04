@@ -24,3 +24,6 @@ export const RESERVED_WINDOWS_NAMES: readonly string[] = [
   'LPT8',
   'LPT9',
 ];
+export const TRASH_RESTORE_COLLISION_SUFFIX = '.restored';
+export const PAIRED_SIDECAR_SUFFIX_PATTERN =
+  '(?:\\.xmp| \\(conflict from [^)]+\\)(?: \\(\\d+\\))?\\.xmp)';

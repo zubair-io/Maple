@@ -350,3 +350,9 @@ AgentInspectionRevisionTests # real lazy-raster fences: discard replies after ed
 SMBDisconnectDrainTests
 
 BrowseCancellationOwnershipTests
+# Server-advertised COPYCHUNK limits and response ownership (#4142).
+SMBCopyChunkResponseTests
+SMBCopyChunkWireTests
+
+# Real Local RAW/XMP restore collision and failure safety (#4139).
+RestoreSafetyTests

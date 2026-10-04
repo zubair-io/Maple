@@ -26,6 +26,8 @@ import { relocateFile, pickFreePath, sidecarRenameTarget } from './relocate.ts';
 import { classifySameFile } from './relocate-case-only-rename.ts';
 import { restoreDestinationOccupied, restoreFilePair } from './trash-restore-pair.ts';
 
+import { TRASH_RESTORE_COLLISION_SUFFIX } from '../generated/filename-vocabulary.generated.ts';
+
 const log = childLogger('fs/trash');
 
 export { pickFreePath };
@@ -91,10 +93,10 @@ export function computeTrashPath(absPath: string, folderRoot: string): string {
 export async function pickFreeRestoredPath(basePath: string): Promise<string> {
   const ext = path.extname(basePath);
   const stem = ext ? basePath.slice(0, -ext.length) : basePath;
-  const first = `${stem}.restored${ext}`;
+  const first = `${stem}${TRASH_RESTORE_COLLISION_SUFFIX}${ext}`;
   if (!(await restoreDestinationOccupied(first))) return first;
   for (let n = 1; n <= 1000; n++) {
-    const cand = `${stem}.restored.${n}${ext}`;
+    const cand = `${stem}${TRASH_RESTORE_COLLISION_SUFFIX}.${n}${ext}`;
     if (!(await restoreDestinationOccupied(cand))) return cand;
   }
   throw new Error(

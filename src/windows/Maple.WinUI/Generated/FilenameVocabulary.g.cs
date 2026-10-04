@@ -33,4 +33,6 @@ public static class FilenameVocabulary
         "LPT9",
     }.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
     public const string OriginalPathMarkerSuffix = ".origpath";
+    public const string RestoreCollisionSuffix = ".restored";
+    public const string PairedSidecarSuffixPattern = "(?:\\.xmp| \\(conflict from [^)]+\\)(?: \\(\\d+\\))?\\.xmp)";
 }
