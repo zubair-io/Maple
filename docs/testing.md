@@ -683,6 +683,17 @@ without skipping a missing required physical fixture:
 swift test --package-path src/apple/Packages/MapleCore -c release --filter 'testAutoFitStatusRejectsOldImageAndProfileReplies|testActualAutoFitOutcomeWithAndWithoutEmbeddedPreview'
 ```
 
+The macOS UI gate stages those two physical RAWs in owned temporary directories,
+checks the accessible achieved status, and switches Auto → Neutral → Auto on both
+render routes. Screenshots and failure accessibility trees are retained in the
+test result. The GPU case requires numeric statistics from the existing frame-time
+HUD, so a CPU fallback cannot qualify it. Original and staged RAW bytes must remain
+unchanged; missing physical fixtures fail rather than skip:
+
+```bash
+xcodebuild test -project src/apple/Maple.xcodeproj -scheme Maple -destination 'platform=macOS' -only-testing:MapleUITests/AutoFitStatusUITests
+```
+
 The browser gate mounts the shipping Profile section and image canvas with real
 OPFS originals, sidecars, and WASM worker. It checks accessible status copy,
 selected Neutral, durable reopen, and image changes. It is separate from the
