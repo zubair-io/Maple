@@ -445,10 +445,10 @@ impl EvidenceSource {
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
             EvidenceSource::SidecarContractApi => 3,
-            // 19 since #3434: cached camera-frame WB resolution joins the
-            // textured highlight/OpcodeList3 CPU/GPU parity corpus.
-            EvidenceSource::GpuChainParityLavapipe => 19,
-            EvidenceSource::GpuChainParityMetal => 19,
+            // 22: the absent-curve, fitted-identity, and residual-only
+            // Auto-fit regressions join the existing 19 parity cases (#4171).
+            EvidenceSource::GpuChainParityLavapipe => 22,
+            EvidenceSource::GpuChainParityMetal => 22,
             EvidenceSource::AppleCanvasGolden => 1,
         }
     }

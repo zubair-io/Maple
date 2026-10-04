@@ -1,13 +1,13 @@
 {
   "backend": "metal",
   "command": "env MAPLE_REQUIRE_GPU=1 bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ cargo\\ test\\ --locked\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render\\ --\\ --test-threads=1\\ --nocapture",
-  "corpus_hash": "blake3:aa91c1f6096c46f39729d0f78e7f68d16f11612667b2c1d67ed15d30bdb961f2",
-  "executed_cases": 19,
-  "expected_cases": 19,
+  "corpus_hash": "blake3:d8aa4c14ec43b4dbab19cdcf264fe23d6f30ab4abae23928a4a03813c0c15402",
+  "executed_cases": 22,
+  "expected_cases": 22,
   "failed_cases": 0,
-  "git_sha": "17f341d204cf46c987d8e96d6187c1d2c97fe769",
+  "git_sha": "9892483dc10032e6cd27e4d42f949082e6092bda",
   "pipeline_version": 8,
-  "recorded_at": "2026-10-01T23:26:26Z",
+  "recorded_at": "2026-10-04T17:19:03Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "gpu_chain_parity_metal"
