@@ -15,6 +15,7 @@
 // resolver verdict is seeded for the Lens Corrections panel.
 
 import { signal } from '@angular/core';
+import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AssetId } from '../../models/asset';
@@ -187,6 +188,44 @@ describe('runRender2d — film-look LUT threading (#3171)', () => {
       });
     },
   );
+
+  it('records the opened Neutral frame when Auto is selected during decode (#4101)', async () => {
+    const { host, decode } = harness(undefined);
+    const model = signal<ReturnType<typeof defaultAdjustmentModel>>({
+      ...defaultAdjustmentModel(),
+      profile: 'Neutral',
+    });
+    const serializer = new XmpSerializerService();
+    Object.assign(host.state, {
+      adjustmentFor: () => model,
+      updateAssetDimensions: vi.fn(),
+      seedAsShotWhiteBalance: vi.fn(),
+      seedLensCorrections: vi.fn(),
+    });
+    Object.assign(host, {
+      serializeForRender: serializer.serialize.bind(serializer),
+      fastTargetPx: () => 512,
+      recordNativeDims: vi.fn(),
+      markColdOpenDone: vi.fn(),
+      hasProvisionalPreview: () => false,
+      clearProvisionalPreview: vi.fn(),
+      scheduleRefine: vi.fn(),
+    });
+    let finish!: (value: DecodedImage) => void;
+    decode.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const opening = coldOpen2d(host, ASSET_ID, 'photo.dng', 'dng', new Uint8Array([1]));
+    // An ordinary immutable library update occurs after the old intent was dispatched.
+    model.set({ ...defaultAdjustmentModel(), profile: 'Auto' });
+    finish(decoded);
+    await opening;
+    expect(host.lastRenderedXmp).toContain('papp:Profile="Neutral"');
+    expect(host.lastRenderedXmp).not.toBe(serializer.serialize(model()));
+  });
 
   it("seeds the render reply's imported-profile verdict on every re-render (#3479)", async () => {
     const reference = `lcp1:${'a'.repeat(64)}`;
