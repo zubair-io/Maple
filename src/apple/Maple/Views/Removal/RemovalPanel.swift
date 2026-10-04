@@ -241,6 +241,13 @@ struct RemovalPanel: View {
       }
     }
     if removal.canPaint {
+      if removal.mode == .smart {
+        MuiButton(
+          label: "Refine with Paint", size: .sm,
+          disabled: removal.busy || removal.selection.isEmpty
+        ) { removal.refineWithPaint() }
+        .accessibilityIdentifier("removal-refine-with-paint")
+      }
       MuiSegmentedToggle(
         options: [
           MuiSegmentedOption(value: "add", label: "Add"),
