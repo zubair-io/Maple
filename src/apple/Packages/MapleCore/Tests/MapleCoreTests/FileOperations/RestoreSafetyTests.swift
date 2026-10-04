@@ -13,6 +13,35 @@ final class RestoreSafetyTests: XCTestCase {
     return (files.directory, URL(fileURLWithPath: result.primaryPath), files.original, xml)
   }
 
+  func testFilesystemRootContainmentReachesTheRealFilesystemWithoutWritingRoot() async throws {
+    let root = URL(fileURLWithPath: "/", isDirectory: true)
+    let unique = "restore-root-control-" + UUID().uuidString
+    // These absent paths execute the public containment gates and actual directory
+    // read. No fixture is created in the system root or any user library.
+    for relative in ["\(unique).dng", "\(unique)/photo.dng"] {
+      let source = root.appendingPathComponent(".maple/trash/" + relative)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+      do {
+        _ = try await LocalFileOperations.restoreFromMapleTrash(source, libraryRoot: root)
+        XCTFail("An absent source cannot be restored")
+      } catch let error as FileOperationError {
+        XCTFail("A valid root-library path was rejected before the filesystem read: \(error)")
+      } catch {
+        let failure = error as NSError
+        XCTAssertEqual(failure.domain, NSCocoaErrorDomain)
+        XCTAssertEqual(failure.code, NSFileReadNoSuchFileError)
+      }
+      XCTAssertFalse(FileManager.default.fileExists(atPath: source.path))
+    }
+    do {
+      _ = try await LocalFileOperations.restoreFromMapleTrash(
+        root.appendingPathComponent(".maple-other/trash/" + unique + ".dng"), libraryRoot: root)
+      XCTFail("A sibling of the trash namespace must be rejected")
+    } catch let error as FileOperationError {
+      guard case .invalidDestination = error else { return XCTFail("Unexpected error: \(error)") }
+    }
+  }
+
   func testSharedRestoreNamingCorpusUsesActualLocalFiles() async throws {
     struct Corpus: Decodable { let cases: [Case] }
     struct Case: Decodable {
