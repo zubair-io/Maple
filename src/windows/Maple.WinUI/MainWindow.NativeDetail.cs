@@ -22,6 +22,7 @@ public sealed partial class MainWindow
     private MapleRawGeometry? _nativeGeometry;
     private PhotoItem? _nativeGeometryPhoto;
     private bool _nativeZoomLayout;
+    private string? _sourceGeometryError;
 
     private void HookNativeDetail()
     {
@@ -66,6 +67,7 @@ public sealed partial class MainWindow
         _nativeGeometry = null;
         _nativeZoomLayout = false;
         _nativeGeometryPhoto = null;
+        _sourceGeometryError = null;
         if (NativeDetailOverlay != null) NativeDetailOverlay.Visibility = Visibility.Collapsed;
         if (ZoomReadout != null) ZoomReadout.Text = "Fit";
         _ = _detailDecoder.ResetAsync();
@@ -118,6 +120,7 @@ public sealed partial class MainWindow
 
     private async Task ReadSourceGeometryAsync(PhotoItem photo, CancellationToken cancellation)
     {
+        _sourceGeometryError = null;
         try
         {
             ZoomReadout.Text = "Loading source size…";
@@ -131,7 +134,11 @@ public sealed partial class MainWindow
         catch (OperationCanceledException) { }
         catch (Exception error)
         {
-            if (!_closing && !cancellation.IsCancellationRequested) ZoomReadout.Text = $"Preview · source size unavailable: {error.Message}";
+            if (!_closing && !cancellation.IsCancellationRequested && ReferenceEquals(photo, ViewModel.SelectedPhoto))
+            {
+                _sourceGeometryError = $"Preview · source size unavailable: {error.Message}";
+                ZoomReadout.Text = _sourceGeometryError;
+            }
         }
     }
 
@@ -143,7 +150,10 @@ public sealed partial class MainWindow
         if (_nativeGeometry is not { } geometry || !ReferenceEquals(_nativeGeometryPhoto, ViewModel.SelectedPhoto)
             || ContentFitRect() is not { } fit)
         {
-            ZoomReadout.Text = Math.Abs(ViewerScroll.ZoomFactor - 1) < .001 ? "Fit" : "Preview zoom";
+            // #4154: refreshes must retain the current source's explicit
+            // unsupported-detail fallback until retry or photo change.
+            ZoomReadout.Text = _sourceGeometryError ??
+                (Math.Abs(ViewerScroll.ZoomFactor - 1) < .001 ? "Fit" : "Preview zoom");
             if (_mode == ShellMode.Edit && ViewModel.Renderer.DetailSource != null) EnsureSourceGeometry();
             return;
         }
