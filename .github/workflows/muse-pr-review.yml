@@ -36,6 +36,9 @@ jobs:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    env:
+      # 1.18.34 github run omits AGENT; its prompt uses this effective default.
+      OPENCODE_CONFIG_CONTENT: '{"default_agent":"review"}'
     permissions:
       contents: read
       pull-requests: write # to post the review comment
@@ -65,6 +68,12 @@ jobs:
           bash tools/install-muse-opencode.sh "$RUNNER_TEMP/muse-opencode"
           test "$("$RUNNER_TEMP/muse-opencode/opencode" --version)" = 1.18.34
           echo "$RUNNER_TEMP/muse-opencode" >> "$GITHUB_PATH"
+
+      - name: Verify effective read-only reviewer
+        run: |
+          opencode debug config > "$RUNNER_TEMP/muse-config.json"
+          opencode debug agent review > "$RUNNER_TEMP/muse-agent.json"
+          python3 tools/test-muse-review-agent.py "$RUNNER_TEMP/muse-config.json" "$RUNNER_TEMP/muse-agent.json"
 
       - name: Run Muse review
         run: opencode github run
