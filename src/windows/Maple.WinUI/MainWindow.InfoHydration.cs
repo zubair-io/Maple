@@ -108,7 +108,7 @@ public sealed partial class MainWindow
 
     private void AddInspectorRetry()
     {
-        var retry = new Maple.UI.Atoms.MuiButton { Content = "Retry metadata" };
+        var retry = new Maple.UI.Atoms.MuiButton { Label = "Retry metadata", Height = 44 };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(retry, "Retry photo metadata");
         retry.Click += (_, _) => { CancelInspectorHydration(); HydrateInspector(); };
         ExtraInfoRows.Children.Add(retry);

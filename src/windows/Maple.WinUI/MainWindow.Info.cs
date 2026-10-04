@@ -23,6 +23,8 @@ namespace Maple.WinUI
                     IconName = "star",
                     Variant = MuiButtonVariant.Ghost,
                     ButtonSize = MuiButtonSize.Sm,
+                    Width = 44,
+                    Height = 44,
                     IconSize = MuiIconSize.Md24,
                     IconColor = (SolidColorBrush)Application.Current.Resources["MapleBorderHi"],
                 };

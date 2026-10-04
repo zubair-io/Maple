@@ -393,6 +393,7 @@ namespace Maple.WinUI
                 root.UpdateLayout();
                 if (InfoPane.ActualWidth < 280 || InfoPane.ActualWidth > size.Item1)
                     throw new InvalidOperationException($"Info overflow at {size}");
+                VerifyInspectorActionTargets();
                 SetMode(ShellMode.Edit);
             }
             root.Width = root.Height = double.NaN;
