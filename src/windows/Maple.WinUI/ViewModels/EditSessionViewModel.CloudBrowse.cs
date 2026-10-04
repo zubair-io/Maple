@@ -283,6 +283,7 @@ namespace Maple.WinUI.ViewModels
             item.IsoDisplay = exif?.Iso is { } iso ? $"ISO {iso}" : "—";
             item.Aperture = exif?.Aperture is { } f ? $"f/{f:0.#}" : "—";
             item.ShutterSpeed = exif?.Shutter ?? "—";
+            item.FocalLengthMm = exif?.FocalLengthMm;
             item.DateTaken = captured?.ToString("yyyy-MM-dd HH:mm") ?? "—";
             item.Dimensions = "—";
             return item;

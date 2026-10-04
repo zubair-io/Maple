@@ -86,6 +86,7 @@ namespace Maple.WinUI.Services.Cloud
         [JsonPropertyName("iso")] public int? Iso { get; set; }
         [JsonPropertyName("aperture")] public double? Aperture { get; set; }
         [JsonPropertyName("shutter")] public string? Shutter { get; set; }
+        [JsonPropertyName("focal_length")] public double? FocalLengthMm { get; set; }
         [JsonPropertyName("captured_at")] public string? CapturedAt { get; set; }
 
         public DateTime? CapturedAtLocal =>

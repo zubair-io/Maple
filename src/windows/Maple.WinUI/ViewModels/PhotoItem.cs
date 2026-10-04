@@ -78,6 +78,11 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private string _isoDisplay = "—";
         [ObservableProperty] private string _aperture = "—";
         [ObservableProperty] private string _shutterSpeed = "—";
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(FocalLengthDisplay))]
+        private double? _focalLengthMm;
+        public string FocalLengthDisplay => FocalLengthMm is { } mm && double.IsFinite(mm) && mm > 0
+            ? mm.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " mm" : "—";
         [ObservableProperty] private string _dateTaken = "—";
         [ObservableProperty] private string _dimensions = "—";
         public DateTime? CaptureDate { get; set; }
