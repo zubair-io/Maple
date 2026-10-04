@@ -145,6 +145,15 @@ Object.assign(window, {
       library.focusedAssetId.set(asset.id);
       active.app.injector.get(EditorStateService).bind(asset.id);
     },
+    authorWhiteBalance() {
+      if (!active) throw Error('No physical fixture mounted');
+      const library = active.app.injector.get(LibraryStateService);
+      const editor = active.app.injector.get(EditorStateService);
+      const id = library.focusedAssetId()!;
+      editor.commit('adjustment', 'Custom white balance');
+      library.updateAdjustment(id, { whiteBalancePreset: 'Custom', temperature: 4800, tint: 12 });
+      editor.endEdit();
+    },
     async state() {
       if (!active) throw Error('No Auto fixture mounted');
       const library = active.app.injector.get(LibraryStateService);
@@ -152,6 +161,11 @@ Object.assign(window, {
       await active.app.injector.get(XmpStoreService).settleAsset(id);
       return {
         profile: library.adjustmentFor(id)().profile,
+        whiteBalance: {
+          preset: library.adjustmentFor(id)().whiteBalancePreset,
+          temperature: library.adjustmentFor(id)().temperature,
+          tint: library.adjustmentFor(id)().tint,
+        },
         gpuActive: active.component.instance.canvas?.gpuPresent.active() ?? false,
         pending,
         completed,

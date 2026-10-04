@@ -1,3 +1,7 @@
+import {
+  cameraWhiteBalanceReading,
+  seedWhiteBalanceModel,
+} from '../../state/library-store-white-balance';
 // ImageCanvasComponent — two-phase live render and XMP wiring (#846/#1101):
 //   - cold open issues exactly one VIEWPORT-SIZED decode (no spurious decode)
 //   - every edit tick fires an immediate fast-phase sized decode (coalesced
@@ -96,7 +100,17 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
         return models.get(id)!;
       },
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
-      seedAsShotWhiteBalance: vi.fn(),
+      seedAsShotWhiteBalance: vi.fn(
+        (id: AssetId, temperature: number, tint: number, calibrated: boolean) => {
+          const model = models.get(id)!;
+          model.set(
+            seedWhiteBalanceModel(
+              model(),
+              cameraWhiteBalanceReading(temperature, tint, calibrated),
+            ),
+          );
+        },
+      ),
       seedLensCorrections: vi.fn(),
       seedLensProfile: vi.fn(),
       updateAssetDimensions: updateDimsSpy,
@@ -161,6 +175,35 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     expect(preview).toBe(true);
     // Asset dims are the NATIVE dims from the sized reply, not the buffer's.
     expect(updateDimsSpy).toHaveBeenCalledWith('a', NATIVE_W, NATIVE_H);
+  });
+
+  it('releases a queued profile edit without a white-balance update (#4101)', async () => {
+    setModel('a', {
+      profile: 'Neutral',
+      whiteBalancePreset: 'Custom',
+      temperature: 4800,
+      tint: 12,
+    });
+    let finish!: (image: DecodedImage) => void;
+    decodeSpy.mockImplementationOnce(
+      () =>
+        new Promise<DecodedImage>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    focused.set(fakeAsset('a'));
+    await settle(0);
+    expect(decodeSpy).toHaveBeenCalledTimes(1);
+    setModel('a', { profile: 'Auto' });
+    await settle(0); // The real adjustment effect observes the edit while the gate is closed.
+    expect(decodeSpy).toHaveBeenCalledTimes(1);
+    finish(decodedAt(VIEWPORT_LONG));
+    await settle(0);
+    expect(decodeSpy).toHaveBeenCalledTimes(2);
+    expect(decodeSpy.mock.calls[0][2]).toContain('papp:Profile="Neutral"');
+    expect(decodeSpy.mock.calls[1][2]).toContain('papp:Profile="Auto"');
+    expect(models.get('a')!().temperature).toBe(4800);
+    expect(models.get('a')!().tint).toBe(12);
   });
 
   it('an edit fires an immediate fast-phase decode; at fit no refine follows', async () => {
