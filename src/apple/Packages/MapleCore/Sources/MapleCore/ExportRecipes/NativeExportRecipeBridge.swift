@@ -46,6 +46,15 @@ public enum NativeExportRecipeBridge {
   static func render(
     source: URL, xmp: String, recipe: ExportRecipe, filmDirectory: URL?, staging: URL
   ) throws {
+    try NativeExportHEICSource.withSource(source) { input in
+      try renderShared(
+        source: input, xmp: xmp, recipe: recipe, filmDirectory: filmDirectory, staging: staging)
+    }
+  }
+
+  private static func renderShared(
+    source: URL, xmp: String, recipe: ExportRecipe, filmDirectory: URL?, staging: URL
+  ) throws {
     let encoded = try json(recipe)
     let result = source.path.withCString { path in
       xmp.withCString { xml in
