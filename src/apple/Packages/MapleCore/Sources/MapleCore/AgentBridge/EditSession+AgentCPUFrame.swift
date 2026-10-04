@@ -71,7 +71,8 @@ extension EditSession {
     let filmLattice = filmLutStore.lattice(for: model.filmLook)
     let profileLUT =
       resolvedIsRaw ? await autoProfileLUTForCPURender(asset: asset, model: model) : nil
-    return try await Task.detached(priority: .userInitiated) {
+    let capture = Task.detached(priority: .userInitiated) {
+      () throws -> (canvas: CIImage, weights: CIImage?) in
       guard let floats = pipeline.sceneLinearFloats(from: decoded, targetSize: target) else {
         throw AgentError(
           code: "render_unavailable", message: "Could not read the captured scene buffer.")
@@ -107,6 +108,7 @@ extension EditSession {
         bytesPerRow: floats.width * 4, size: CGSize(width: floats.width, height: floats.height),
         format: .Rf, colorSpace: nil)
       return (canvas, CropImageStage.apply(crop, to: weights, nativeSize: nativeSize))
-    }.value
+    }
+    return try await capture.value
   }
 }
