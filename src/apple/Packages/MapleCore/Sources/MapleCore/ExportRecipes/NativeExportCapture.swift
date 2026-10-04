@@ -129,9 +129,11 @@ public enum NativeExportCapture {
       let failure = error
       do {
         let snapshot = artifacts.snapshot()
-        try await BlockingWork.run {
-          try NativeExportArtifacts.remove(snapshot, workspace: workspace)
-        }
+        try await Task.detached {
+          try await BlockingWork.run {
+            try NativeExportArtifacts.remove(snapshot, workspace: workspace)
+          }
+        }.value
       } catch {
         throw NativeExportError.message(
           "\(NativeExportStorage.failure(failure)) Private capture cleanup could not be verified; its files were preserved for review. \(NativeExportStorage.failure(error))"
