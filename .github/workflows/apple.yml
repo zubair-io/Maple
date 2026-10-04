@@ -39,6 +39,15 @@ on:
       - '.github/workflows/apple.yml'
       - '.github/swift-regressions/**'
       - 'tools/check-swift-regressions-coverage.py'
+      - 'src/scripts/test_export_recipe_interchange.sh'
+      - 'src/scripts/qualification/recipe-interchange.swift'
+      - 'test-fixtures/export-recipes/interchange-cases.json'
+      - 'src/web/e2e/recipe-interchange/**'
+      - 'src/web/playwright.recipe-interchange.config.ts'
+      - 'src/web/projects/maple-common/src/lib/export/export-recipe-store.ts'
+      - 'src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts'
+      - 'src/web/package.json'
+      - 'src/web/bun.lock'
   pull_request:
     paths:
       - 'src/apple/**'
@@ -47,6 +56,15 @@ on:
       - '.github/workflows/apple.yml'
       - '.github/swift-regressions/**'
       - 'tools/check-swift-regressions-coverage.py'
+      - 'src/scripts/test_export_recipe_interchange.sh'
+      - 'src/scripts/qualification/recipe-interchange.swift'
+      - 'test-fixtures/export-recipes/interchange-cases.json'
+      - 'src/web/e2e/recipe-interchange/**'
+      - 'src/web/playwright.recipe-interchange.config.ts'
+      - 'src/web/projects/maple-common/src/lib/export/export-recipe-store.ts'
+      - 'src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts'
+      - 'src/web/package.json'
+      - 'src/web/bun.lock'
 
 # Cancel in-progress runs on non-main refs (PRs, feature branches). Pushes to
 # main always run to completion so the protected-branch signal stays accurate.
