@@ -58,7 +58,8 @@ extension AutoProfileCanvasParityTests {
     let physical = Self.fixtureDir("test-fixtures/raws").appendingPathComponent("test_0006.DNG")
     XCTAssertTrue(FileManager.default.fileExists(atPath: noPreview.path))
     guard FileManager.default.fileExists(atPath: physical.path) else {
-      throw XCTSkip("Physical RAW fixture is absent")
+      XCTFail("The explicit Auto-fit qualification requires test_0006.DNG")
+      return
     }
     let physicalUnavailable = Self.fixtureDir("test-fixtures/raws").appendingPathComponent(
       "test_0018.dng")
