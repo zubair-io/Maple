@@ -28,12 +28,7 @@ fn actual_gpu_fit_status_physical_4096() {
         let expected_curve_flat = cpu_curve.map(|c| c.to_flat()).unwrap_or_default();
         let (expected_lut_size, expected_lut_data) = match cpu_lut {
             Some(l) => (l.size, l.data),
-            None => {
-                let id = raw_core::view::auto_profile::lut::ColorLut::identity(
-                    raw_core::view::auto_profile::DEFAULT_LUT_SIZE,
-                );
-                (id.size, id.data)
-            }
+            None => (0, Vec::new()),
         };
         assert_eq!(
             curve_flat, expected_curve_flat,
@@ -111,4 +106,52 @@ fn amaze_fit_matches_cpu_export_and_discriminates_full() {
         amaze_key, full_key,
         "Cache keys must discriminate between Amaze and Full"
     );
+}
+
+/// Absence is explicit, never substituted identity: Neutral and
+/// unavailable-Auto yield an EMPTY curve flat + a size-0 LUT, so the GPU
+/// composers omit the look passes (raw-core's `if let Some` skips). Uses the
+/// committed synthetic DNG (no gitignored fixture); skips if it is absent.
+#[test]
+fn missing_fit_yields_absent_artifacts_not_identity() {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest
+        .ancestors()
+        .nth(3)
+        .expect("CARGO_MANIFEST_DIR is not three levels below the repo root");
+    let path = root.join("src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng");
+    if !path.exists() {
+        eprintln!("missing_fit_yields_absent_artifacts: synthetic DNG absent — skipping");
+        return;
+    }
+    let bytes = std::fs::read(&path).expect("read synthetic DNG");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode synthetic DNG");
+    // The synthetic grey DNG carries no embedded preview: Auto cannot fit.
+    let auto = AdjustmentModel::default();
+    let (curve, size, data, status) =
+        crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &auto);
+    assert_eq!(
+        status,
+        Some(false),
+        "preview-less Auto must report unavailable"
+    );
+    assert!(
+        curve.is_empty(),
+        "unavailable fit must leave the curve absent"
+    );
+    assert_eq!(size, 0, "unavailable fit must leave the LUT size 0");
+    assert!(
+        data.is_empty(),
+        "unavailable fit must leave the LUT data empty"
+    );
+    let neutral = AdjustmentModel {
+        profile: Profile::Neutral,
+        ..auto
+    };
+    let (curve, size, data, status) =
+        crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &neutral);
+    assert_eq!(status, None);
+    assert!(curve.is_empty(), "Neutral must leave the curve absent");
+    assert_eq!(size, 0, "Neutral must leave the LUT size 0");
+    assert!(data.is_empty(), "Neutral must leave the LUT data empty");
 }

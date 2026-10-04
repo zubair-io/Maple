@@ -12,9 +12,11 @@
 //!   - the sub-parameter short-circuits (#1109 / #1110 / #1111): a stage's
 //!     shape/hue/feather sub-slider alone must NOT engage its pass.
 
-use super::tests::{neutral_case, run_live_chain, TEST_SESSION_ID};
+use super::tests::{neutral_case, run_live_chain, LIVE_CHAIN_BUDGET, TEST_SESSION_ID};
 use super::*;
 use crate::dehaze::AirlightSource;
+use crate::full_chain::oracle::{frame_whites_anchor, max_abs_diff};
+use raw_core::image::{ColorSpace, Image};
 
 /// #1513/#1516 PIXEL PROOF (real GPU): a WHITE scene-linear pixel is AgX-crushed
 /// to ~0.76 gamma for a RAW shape but passes ~unchanged (1.0 = 255) for a NON-RAW
@@ -43,6 +45,119 @@ fn nonraw_white_survives_agx_but_raw_white_is_crushed() {
     assert!(
         nonraw_white > 0.999,
         "NON-RAW white must stay 1.0 (=255), not crushed by AgX/look stages (#1513/#1516); got {nonraw_white}"
+    );
+}
+
+/// ABSENT AUTO ARTIFACTS (Neutral / unavailable-Auto): the RAW live chain omits
+/// the two look passes — one per artifact, independently — matching raw-core's
+/// `if let Some` skips. A PRESENT identity curve/LUT still runs both passes
+/// (raw-core applies a present curve too), so the neutral-with-artifacts chain
+/// keeps the full 5-pass tail.
+#[test]
+fn raw_shape_omits_only_absent_look_passes() {
+    let no_airlight = AirlightSource::Cpu([0.0; 3]);
+    let case = neutral_case();
+    let present = case.gpu_inputs();
+    assert_eq!(
+        build_live_chain(&present, no_airlight.clone()).len(),
+        VIEW_TAIL_PASS_COUNT,
+        "present (identity) artifacts must keep the full tail"
+    );
+    let mut absent = case.gpu_inputs();
+    absent.profile_curve_flat = Vec::new().into();
+    absent.residual_lut_size = 0;
+    absent.residual_lut_data = Vec::new().into();
+    assert_eq!(
+        build_live_chain(&absent, no_airlight.clone()).len(),
+        VIEW_TAIL_PASS_COUNT - 2,
+        "absent artifacts must omit both look passes"
+    );
+    // Independence: each artifact gates its own pass.
+    let mut no_curve = case.gpu_inputs();
+    no_curve.profile_curve_flat = Vec::new().into();
+    assert_eq!(
+        build_live_chain(&no_curve, no_airlight.clone()).len(),
+        VIEW_TAIL_PASS_COUNT - 1,
+        "an absent curve must omit exactly its own pass"
+    );
+    let mut no_lut = case.gpu_inputs();
+    no_lut.residual_lut_size = 0;
+    no_lut.residual_lut_data = Vec::new().into();
+    assert_eq!(
+        build_live_chain(&no_lut, no_airlight.clone()).len(),
+        VIEW_TAIL_PASS_COUNT - 1,
+        "an absent LUT must omit exactly its own pass"
+    );
+    // The pool must see the shape change: absent vs present hash apart.
+    assert_ne!(
+        chain_signature(&present, (8, 8), TEST_SESSION_ID),
+        chain_signature(&absent, (8, 8), TEST_SESSION_ID),
+        "look presence must land in a fresh pool bucket"
+    );
+}
+
+/// CPU reference for a neutral model with NO Auto artifacts: every scene-linear
+/// stage short-circuits (neutral_case), the tail runs AgX → encode → gamma, and
+/// curve+LUT are SKIPPED — raw-core's `detail.rs` / `auto_fit.rs` `if let Some`
+/// path. (`cpu_oracle` always applies its case's curve+LUT, so it can't express
+/// absence; this replicates its neutral tail minus the look.)
+fn cpu_tail_without_look(input: &[f32], w: u32, h: u32) -> Vec<f32> {
+    let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    img.whites_anchor_ev = Some(frame_whites_anchor(input));
+    for (i, chunk) in input.chunks_exact(4).enumerate() {
+        img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
+    }
+    raw_core::view::agx::apply(&mut img, 0.0, 0.0);
+    raw_core::view::encode::rec2020_to_srgb(&mut img);
+    raw_core::view::encode::srgb_gamma_encode(&mut img);
+    let mut out = Vec::with_capacity(input.len());
+    for p in &img.pixels {
+        out.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
+    }
+    out
+}
+
+/// PIXEL PROOF (real GPU): an HDR-bright pixel through the RAW live chain with
+/// ABSENT artifacts matches the CPU tail that skips curve+LUT, while the same
+/// chain fed a substituted IDENTITY curve diverges — the old substitution
+/// crushed highlights via the compress knee. Non-vacuous both ways: absent≈CPU
+/// within the live budget, identity≠CPU past the divergence floor.
+#[test]
+fn absent_look_matches_cpu_skip_while_identity_substitution_crushes() {
+    let (w, h) = (8usize, 8usize);
+    // HDR headroom: post-AgX gamma lands above the 0.95 compress knee, where a
+    // substituted identity curve visibly bites and a skip doesn't.
+    let input: Vec<f32> = std::iter::repeat([8.0f32, 8.0, 8.0, 1.0])
+        .take(w * h)
+        .flatten()
+        .collect();
+    let case = neutral_case();
+    let mut absent = case.gpu_inputs_for(&input);
+    absent.profile_curve_flat = Vec::new().into();
+    absent.residual_lut_size = 0;
+    absent.residual_lut_data = Vec::new().into();
+    let gpu = run_live_chain(&input, w as u32, h as u32, &absent);
+    let cpu = cpu_tail_without_look(&input, w as u32, h as u32);
+    let skip_diff = max_abs_diff(&gpu, &cpu);
+    eprintln!("ABSENT-LOOK [parity]: gpu-vs-cpu-skip max abs diff = {skip_diff:e}");
+    assert!(
+        skip_diff < LIVE_CHAIN_BUDGET,
+        "absent-look GPU vs CPU skip {skip_diff} exceeds {LIVE_CHAIN_BUDGET}"
+    );
+    // The old behaviour, reproduced: present identity artifacts on the same
+    // chain must crush past the divergence floor (else this gate is vacuous).
+    let present = case.gpu_inputs_for(&input);
+    let crushed = run_live_chain(&input, w as u32, h as u32, &present);
+    let crush_diff = max_abs_diff(&crushed, &cpu);
+    assert!(
+        crush_diff > 1e-3,
+        "substituted identity crushed by only {crush_diff:e} — gate is vacuous"
+    );
+    assert!(
+        gpu[0] > crushed[0],
+        "absent-look output {} must exceed identity-substituted {}",
+        gpu[0],
+        crushed[0]
     );
 }
 

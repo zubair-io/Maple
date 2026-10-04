@@ -259,7 +259,7 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     // Film look (epic #2683, Task 8) — computed once, ahead of the struct
     // literal, so a mismatched host buffer is validated/logged exactly once.
     let (film_lut_size, film_lut_data) = film_lut_or_off(p);
-    let (residual_lut_size, residual_lut_data) = residual_or_identity(p);
+    let (residual_lut_size, residual_lut_data) = residual_or_empty(p);
 
     // Local-adjustment flat wire + its bitmap rasters (#3271) — read together
     // so `local_adjustments` and `mask_rasters` below always describe the
@@ -393,10 +393,10 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         defringe: crate::model::gpu_defringe_inputs(p),
         contrast: p.contrast,
         capture_sharpening,
-        // The view tail runs the Auto Profile residual-LUT pass and, if present,
-        // the Auto Profile curve pass (`build_live_split`, #4216). When the host
-        // supplies NO Auto curve (Neutral, or residual-only Auto), an empty slice
-        // is passed so the curve pass (and its highlight soft knee) is omitted.
+        // Auto Profile look: absent (NULL/zero → empty/0) omits the passes
+        // (`profile_curve_is_active` / `residual_lut_is_active`), matching
+        // raw-core's `if let Some` skips. Never substitute identity: the
+        // curve knee crushes white 1.0 → 0.975 even on an identity curve.
         profile_curve_flat: curve_flat_or_empty(p),
         residual_lut_size,
         residual_lut_data,
@@ -476,7 +476,7 @@ unsafe fn film_lut_or_off(p: &MapleGpuLiveParams) -> (u32, Cow<'_, [f32]>) {
     )
 }
 
-/// The host's immutable Auto curve, or an empty slice when absent (#4216).
+/// The host's Auto curve, or empty (= absent: the composers omit the pass).
 unsafe fn curve_flat_or_empty(p: &MapleGpuLiveParams) -> Cow<'_, [f32]> {
     use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
     if !p.profile_curve_ptr.is_null() && p.profile_curve_len == PROFILE_CURVE_FLAT_LEN {
@@ -489,10 +489,9 @@ unsafe fn curve_flat_or_empty(p: &MapleGpuLiveParams) -> Cow<'_, [f32]> {
     }
 }
 
-/// Validate edge and length together; invalid data must use the matching 2³
-/// identity edge as well as its data, never a 49³ edge with a 2³ allocation.
-unsafe fn residual_or_identity(p: &MapleGpuLiveParams) -> (usize, Cow<'_, [f32]>) {
-    use raw_core::view::auto_profile::lut::ColorLut;
+/// Validate edge and length together; invalid data is ABSENT (0 + empty),
+/// never a mismatched edge with a fallback allocation.
+unsafe fn residual_or_empty(p: &MapleGpuLiveParams) -> (usize, Cow<'_, [f32]>) {
     let size = p.residual_lut_size as usize;
     let expected = size
         .checked_mul(size)
@@ -507,11 +506,7 @@ unsafe fn residual_or_identity(p: &MapleGpuLiveParams) -> (usize, Cow<'_, [f32]>
             )),
         );
     }
-    static IDENTITY: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
-    (
-        2,
-        Cow::Borrowed(IDENTITY.get_or_init(|| ColorLut::identity(2).data)),
-    )
+    (0, Cow::Borrowed(&[]))
 }
 
 #[cfg(test)]

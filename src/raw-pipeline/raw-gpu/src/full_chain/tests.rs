@@ -473,3 +473,43 @@ fn neutral_chain_omits_capture_sharpening() {
     // the neutral identity curve must match it (else the Pass panics at encode).
     assert_eq!(inputs.profile_curve_flat.len(), PROFILE_CURVE_FLAT_LEN);
 }
+
+/// Absent Auto artifacts omit the look passes in the FULL composer too — one
+/// per artifact, independently — the same presence gate as the live chain
+/// (`profile_curve_is_active` / `residual_lut_is_active`), matching raw-core's
+/// `if let Some` skips.
+#[test]
+fn absent_look_omits_curve_and_lut_passes_independently() {
+    let case = mild_case();
+    let inputs = case.gpu_inputs();
+    let full = build_full_chain_passes(&inputs, [0.0; 3]);
+    assert_eq!(
+        full.len(),
+        21,
+        "present artifacts must keep all 21 passes (mild, no capture)"
+    );
+    let mut absent = case.gpu_inputs();
+    absent.profile_curve_flat = Vec::new().into();
+    absent.residual_lut_size = 0;
+    absent.residual_lut_data = Vec::new().into();
+    assert_eq!(
+        build_full_chain_passes(&absent, [0.0; 3]).len(),
+        19,
+        "absent artifacts must omit both look passes"
+    );
+    let mut no_curve = case.gpu_inputs();
+    no_curve.profile_curve_flat = Vec::new().into();
+    assert_eq!(
+        build_full_chain_passes(&no_curve, [0.0; 3]).len(),
+        20,
+        "an absent curve must omit exactly its own pass"
+    );
+    let mut no_lut = case.gpu_inputs();
+    no_lut.residual_lut_size = 0;
+    no_lut.residual_lut_data = Vec::new().into();
+    assert_eq!(
+        build_full_chain_passes(&no_lut, [0.0; 3]).len(),
+        20,
+        "an absent LUT must omit exactly its own pass"
+    );
+}

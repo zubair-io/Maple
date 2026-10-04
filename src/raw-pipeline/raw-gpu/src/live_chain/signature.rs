@@ -3,13 +3,9 @@
 //! inputs are the same `FullChainInputs` and the same `active_mask` the
 //! gating builder uses — nothing here is independent of that module.
 
-use super::noop::{
-    scene_tone_dispatch_shape, scene_tone_is_noop, tone_curves_is_noop, wb_is_noop, SLIDER_EPS,
-};
-use crate::color_grade::color_grade_is_identity;
-use crate::display_tone_curve::display_tone_curve_is_identity;
-use crate::full_chain::{hsl_pass_for, FullChainInputs, InputShape};
-use crate::local_adjustments::local_adjustments_are_active;
+use super::mask::active_mask;
+use super::noop::scene_tone_dispatch_shape;
+use crate::full_chain::FullChainInputs;
 
 /// The chain SIGNATURE for the live pool ([`crate::frame_pool`]): a hash of the
 /// SESSION identity + the active-stage mask + the render dims + anything that
@@ -56,8 +52,8 @@ use crate::local_adjustments::local_adjustments_are_active;
 /// - **`residual_lut_size`**: the residual-LUT pass's pooled storage buffer is
 ///   `size³·3` floats — the ONE pooled data buffer whose byte length can vary at
 ///   a constant active mask (the Auto Profile curve is `PROFILE_CURVE_FLAT_LEN`-
-///   fixed when present, gated via `active_mask` bit 20; the tone-curve slots are
-///   `NUM_SLOTS × SLOT_STRIDE`-fixed; the AgX LUT is a const). Without it, a residual
+///   fixed, the tone-curve slots are `NUM_SLOTS × SLOT_STRIDE`-fixed, the AgX
+///   LUT is a const). Without it, a residual LUT GROWING mid-session would make
 ///   `pool_scratch` replace the too-small buffer while the cached bind group at
 ///   the same signature kept referencing the OLD one — the dispatch would read
 ///   stale LUT data. Folding the size in lands the new shape in a fresh bucket.
@@ -122,104 +118,3 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32), session_id: u
     plane_len.hash(&mut h);
     h.finish()
 }
-
-/// The active-stage bitmask — which gated passes [`super::build_live_split`] includes
-/// for `inputs`, one bit per scene-linear stage (the view tail is always-on, so
-/// it isn't represented). SINGLE-SOURCED with the builder: every bit uses the
-/// exact same predicate the corresponding `if` in `build_live_split` uses, so the
-/// mask can't disagree with which passes actually get pushed. Used by
-/// [`chain_signature`] to key the live pool's bind-group cache.
-pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
-    let mut m = 0u32;
-    let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
-    // Encode input_shape in the top 2 bits of the mask so a shape change lands
-    // in a fresh pool bucket (different passes = different bind-group layouts).
-    m |= ((inputs.input_shape as u32) & 0b11) << 30;
-    // Bit 0: capture_sharpening — RAW-only (#1331); always 0 for non-RAW shapes.
-    if is_raw_shape && inputs.capture_sharpening.is_some() {
-        m |= 1 << 0;
-    }
-    // Bit 1: WB — engaged for ALL shapes when the slider is outside the skip
-    // band (the builder now includes WB unconditionally for non-RAW too).
-    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
-        m |= 1 << 1;
-    }
-    if !scene_tone_is_noop(&inputs.tone) {
-        m |= 1 << 2;
-    }
-    if !tone_curves_is_noop(&inputs.tone_curves) {
-        m |= 1 << 3;
-    }
-    if inputs.vibrance.abs() >= SLIDER_EPS {
-        m |= 1 << 4;
-    }
-    if inputs.saturation.abs() >= SLIDER_EPS {
-        m |= 1 << 5;
-    }
-    if !hsl_pass_for(inputs).is_noop() {
-        m |= 1 << 15;
-    }
-    if inputs.clarity.abs() >= SLIDER_EPS {
-        m |= 1 << 6;
-    }
-    if inputs.texture.abs() >= SLIDER_EPS {
-        m |= 1 << 7;
-    }
-    if inputs.dehaze.abs() >= SLIDER_EPS {
-        m |= 1 << 8;
-    }
-    if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
-        m |= 1 << 16;
-    }
-    // Bit 19: defringe (#3411) — same predicate as the `build_live_split` gate.
-    if inputs.defringe.is_engaged() {
-        m |= 1 << 19;
-    }
-    if inputs.vignette_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 9;
-    }
-    if inputs.sharpen_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 10;
-    }
-    if inputs.nr_luminance.abs() >= SLIDER_EPS {
-        m |= 1 << 11;
-    }
-    if inputs.nr_color.abs() >= SLIDER_EPS {
-        m |= 1 << 12;
-    }
-    if inputs.grain_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 13;
-    }
-    if !color_grade_is_identity(&crate::full_chain::color_grade_sliders(inputs)) {
-        m |= 1 << 14;
-    }
-    // Bit 17: film look (epic #2683, Task 7) — loaded LUT + engaged strength.
-    if inputs.film_lut_size > 0 && inputs.film_strength > SLIDER_EPS {
-        m |= 1 << 17;
-    }
-    // Bit 18: display-referred tone curves (#2232).
-    if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
-        m |= 1 << 18;
-    }
-    // Bit 20: Auto Profile curve pass (#4216) — RAW-only, engaged when host supplies
-    // a curve of PROFILE_CURVE_FLAT_LEN.
-    if is_raw_shape && inputs.profile_curve_flat.len() == crate::PROFILE_CURVE_FLAT_LEN {
-        m |= 1 << 20;
-    }
-    m
-}
-
-// Compile-time guard: `active_mask` packs `input_shape` into the top 2 bits
-// of a u32 (shift left by 30). That encoding supports at most 4 variants
-// (discriminants 0–3). If a 5th variant (discriminant 4) is ever added, the
-// shift would produce a value with bit 32 set, which is out-of-range for u32
-// in debug (overflow panic) or silently truncated in release. The assert below
-// turns that scenario into a compile error with a clear message instead.
-// There is no `const fn` way to iterate an enum's discriminants in stable Rust,
-// so we assert on the known highest discriminant value directly.
-const _: () = assert!(
-    InputShape::SrgbGammaEncoded8 as u32 <= 3,
-    "InputShape has a variant with discriminant > 3; active_mask's 2-bit \
-     `input_shape` pack in the top 2 bits of u32 (shift 30) would overflow. \
-     Widen the encoding or increase the shift before adding a 5th variant."
-);
