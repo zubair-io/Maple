@@ -71,6 +71,14 @@ public sealed record MetadataValues(int Rating, string Flag, string? Label, stri
     private static readonly XNamespace Dc = "http://purl.org/dc/elements/1.1/";
     private static readonly XNamespace Rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 
+    public static string KeywordSummary(IEnumerable<MetadataValues> items)
+    {
+        var sets = items.Select(v => v.Keywords.OrderBy(k => k, StringComparer.Ordinal).ToArray()).ToArray();
+        if (sets.Length == 0 || sets.Skip(1).Any(set => !sets[0].SequenceEqual(set, StringComparer.Ordinal)))
+            return "Mixed";
+        return sets[0].Length == 0 ? "none" : string.Join(", ", sets[0]);
+    }
+
     public static MetadataValues Read(XmpSidecarDocument document)
     {
         var subject = document.PassthroughNodes.Select(XElement.Parse).FirstOrDefault(e => e.Name == Dc + "subject");
