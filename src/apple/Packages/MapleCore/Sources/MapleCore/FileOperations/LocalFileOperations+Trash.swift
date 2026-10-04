@@ -101,7 +101,7 @@ extension LocalFileOperations {
       throw FileOperationError.invalidDestination(originalDir.path)
     }
     let job = Task.detached(priority: .userInitiated) {
-      try restoreFilePair(trashedPrimaryURL, to: originalDir)
+      try restoreFilePair(trashedPrimaryURL, to: originalDir, confinedTo: libraryRoot)
     }
     let plan = try await withTaskCancellationHandler {
       try await job.value

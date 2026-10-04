@@ -3,17 +3,22 @@ import Darwin
 import Foundation
 
 extension LocalFileOperations {
-  /// Stage the complete pair before publishing either member. `link` claims each
-  /// destination exclusively, so a concurrent writer is a collision, never replaced.
-  static func restoreFilePair(_ source: URL, to directory: URL) throws -> RelocatePlan {
-    try restoreFilePair(source, to: directory, beforeClaim: nil)
+  /// Stage the complete pair before publishing either member. Each claim is
+  /// exclusive — a concurrent writer is a collision, never replaced — via
+  /// `link` where hard links exist, with a no-clobber copy fallback on
+  /// filesystems without them (exFAT). `confinedTo` pins the trust root the
+  /// destination is anchored to for the whole publication.
+  static func restoreFilePair(_ source: URL, to directory: URL, confinedTo root: URL) throws
+    -> RelocatePlan
+  {
+    try restoreFilePair(source, to: directory, confinedTo: root, beforeClaim: nil)
   }
 
   // Release-available, per-operation immutable fence for the current actual
   // publication-substitution tests (#4139). Calls are serial within this job;
   // no shared mutable hook or public configuration exists.
   static func restoreFilePair(
-    _ source: URL, to directory: URL,
+    _ source: URL, to directory: URL, confinedTo root: URL,
     beforeClaim: (@Sendable (URL, URL) throws -> Void)?,
     beforeRemoval: (@Sendable (URL) throws -> Void)? = nil
   ) throws -> RelocatePlan {
@@ -24,6 +29,11 @@ extension LocalFileOperations {
     }
     let originals = try (sidecars + [source]).map { try RestoreLocalFile.capture($0) }
     try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+    // Pin the destination by walking from the library root: every ancestor
+    // resolves through an O_NOFOLLOW handle, so a swapped ancestor either
+    // breaks the walk or changes the identity the checks below compare
+    // against (#4173 review).
+    let anchor = try RestoreDirectoryAnchor.capture(directory, under: root)
     let stage = directory.appendingPathComponent(".maple-restore.tmp." + UUID().uuidString)
     try fm.createDirectory(at: stage, withIntermediateDirectories: false)
     defer { _ = rmdir(stage.path) }
@@ -68,10 +78,12 @@ extension LocalFileOperations {
         for member in members { try member.original.assertUnchanged(member.source) }
         for (index, member) in members.enumerated() {
           try member.copy.assertUnchanged(member.staged)
+          try anchor.assertSame(directory)
           try beforeClaim?(member.staged, destinations[index])
-          try exclusiveRestoreLink(member.staged, destinations[index])
+          members[index].copy = try exclusiveRestorePublish(
+            member.staged, destinations[index], expecting: member.copy)
           published.append(index)
-          try member.copy.assertUnchanged(destinations[index])
+          try members[index].copy.assertUnchanged(destinations[index])
         }
       } catch {
         for index in published.reversed() {
@@ -102,6 +114,9 @@ extension LocalFileOperations {
         }
         throw error
       }
+      // The trash originals go only while the destination still resolves
+      // to the anchored directory — never after a redirection.
+      try anchor.assertSame(directory)
       for member in members {
         try member.original.removeIfUnchanged(member.source, beforeRemoval: beforeRemoval)
       }
@@ -118,9 +133,99 @@ extension LocalFileOperations {
       "Restore exhausted collision candidates for \(original.path)")
   }
 
-  private static func exclusiveRestoreLink(_ source: URL, _ destination: URL) throws {
-    guard link(source.path, destination.path) == 0 else {
+  /// Publish one staged member under an exclusive, never-replace claim.
+  /// `link` preserves identity on supporting filesystems; where hard links
+  /// are unavailable (exFAT, some providers) a no-clobber copy is the
+  /// fallback. The staged file is retained either way so a later collision
+  /// retry can publish from it again. Returns the capture subsequent
+  /// identity checks must use: the staged capture after a link, a fresh
+  /// destination capture after a copy.
+  private static func exclusiveRestorePublish(
+    _ source: URL, _ destination: URL, expecting: RestoreLocalFile
+  ) throws -> RestoreLocalFile {
+    // The fast path is byte-identical to the original `link` claim; the
+    // post-claim assertUnchanged at the call site still verifies it.
+    if link(source.path, destination.path) == 0 {
+      return expecting
+    }
+    guard errno == EPERM || errno == EOPNOTSUPP else {
       throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    // COPYFILE_EXCL keeps the no-clobber guarantee `link` provided: an
+    // occupant fails with EEXIST and the collision loop advances past it.
+    guard
+      copyfile(source.path, destination.path, nil, UInt32(COPYFILE_EXCL | COPYFILE_DATA)) == 0
+    else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    let published = try RestoreLocalFile.capture(destination)
+    guard published.hash == expecting.hash else {
+      try? published.removeIfUnchanged(destination)
+      throw FileOperationError.verificationFailed(
+        "Restore copy differs from source: \(source.path)")
+    }
+    return published
+  }
+}
+
+/// Identity of a restore destination pinned through O_NOFOLLOW handles.
+/// Capture walks from the library root so each ancestor is a pinned file
+/// descriptor — never a re-resolved path — and every later `assertSame`
+/// re-opens the destination by path and requires the same device+inode.
+/// A swapped ancestor either breaks the walk (symlink → ELOOP, missing →
+/// ENOENT) or resolves to a different directory, failing the comparison.
+private struct RestoreDirectoryAnchor {
+  let device: dev_t
+  let inode: ino_t
+
+  static func capture(_ directory: URL, under root: URL) throws -> Self {
+    let realRoot = root.resolvingSymlinksInPath().standardizedFileURL.path
+    let resolved = directory.resolvingSymlinksInPath().standardizedFileURL.path
+    let rootPrefix = realRoot == "/" ? "/" : realRoot + "/"
+    guard resolved == realRoot || resolved.hasPrefix(rootPrefix) else {
+      throw FileOperationError.invalidDestination(directory.path)
+    }
+    let relative =
+      resolved == realRoot
+      ? []
+      : resolved.dropFirst(rootPrefix.count).split(separator: "/").map(String.init)
+    let rootFD = open(realRoot, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+    guard rootFD >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    defer { close(rootFD) }
+    var currentFD = rootFD
+    var ownsCurrent = false
+    defer { if ownsCurrent { close(currentFD) } }
+    for component in relative {
+      let next = openat(currentFD, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+      guard next >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+      if ownsCurrent { close(currentFD) }
+      currentFD = next
+      ownsCurrent = true
+    }
+    var info = stat()
+    guard fstat(currentFD, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else {
+      throw FileOperationError.verificationFailed(
+        "Restore destination is not a directory: \(directory.path)")
+    }
+    return Self(device: info.st_dev, inode: info.st_ino)
+  }
+
+  func assertSame(_ directory: URL) throws {
+    // Any re-open failure — removed, or replaced by a symlink or file —
+    // is a broken anchor, reported uniformly with an identity change.
+    let descriptor = open(directory.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+    guard descriptor >= 0 else {
+      throw FileOperationError.verificationFailed(
+        "Restore destination changed during restore: \(directory.path)")
+    }
+    defer { close(descriptor) }
+    var info = stat()
+    guard fstat(descriptor, &info) == 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    guard info.st_dev == device, info.st_ino == inode else {
+      throw FileOperationError.verificationFailed(
+        "Restore destination changed during restore: \(directory.path)")
     }
   }
 }
