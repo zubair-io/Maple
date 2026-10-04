@@ -36,6 +36,16 @@ The app target sets `GENERATE_INFOPLIST_FILE = YES` **and** `INFOPLIST_FILE = Ma
 
 The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App Group `group.app.justmaple.aperture`, app-scope bookmarks, user-selected read/write, network client, the `…aperture.shared` keychain group, extended virtual addressing and increased memory limit (100 MP RAWs), and `com.apple.security.cs.disable-library-validation` — needed because panorama stitching `dlopen`s a Microsoft-signed ONNX Runtime dylib.
 
+The Maple target's **Stamp build provenance** phase declares
+`$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)` as an input (#4183). Xcode therefore
+finishes processing the app plist before the phase writes `MapleBuildGitSHA`,
+`MapleBuildDate` and the optional `MapleEarlyFeatures` value, then signs the app.
+The phase's position in the build-phase list alone does not establish this order.
+The existing CI commit/tag and explicit early-feature overrides retain their
+precedence; local Debug builds leave the early-feature key absent for the runtime
+default. Qualification checks clean and incremental Mac/simulator builds, final
+plist contents and deep signature verification.
+
 ## Local packages
 
 ### MapleCore
