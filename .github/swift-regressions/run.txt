@@ -353,3 +353,9 @@ AgentBrowseTests # browse mode & culling tools: list_photos, get_thumbnails, set
 AgentScopeColorTests # #4104: paired ROI and canonical range coverage
 
 BrowseCancellationOwnershipTests
+# Server-advertised COPYCHUNK limits and response ownership (#4142).
+SMBCopyChunkResponseTests
+SMBCopyChunkWireTests
+
+# Real Local RAW/XMP restore collision and failure safety (#4139).
+RestoreSafetyTests

@@ -57,9 +57,11 @@ extension SMBFileOperations {
     _ trashedPath: String, shareRoot: String = "/",
     transport: SMBFileTransport
   ) async throws -> RelocateOutcome {
+    guard URL(fileURLWithPath: trashedPath).standardizedFileURL.path == trashedPath else {
+      throw FileOperationError.invalidDestination(trashedPath)
+    }
     let originalDir = try originalDestinationDir(for: trashedPath, shareRoot: shareRoot)
-    let outcome = try await relocate(
-      trashedPath, to: originalDir, mode: .move, collision: .autoSuffix, transport: transport)
+    let outcome = try await restoreFilePair(trashedPath, to: originalDir, transport: transport)
     await removeTrashedMarker(forItemAt: trashedPath, transport: transport)
     return outcome
   }
