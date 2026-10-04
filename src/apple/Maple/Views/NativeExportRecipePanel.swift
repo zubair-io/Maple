@@ -3,6 +3,14 @@
   import MapleUI
   import SwiftUI
 
+  /// Keep the selected photos and their sessions in the item that presents the sheet (#4113).
+  /// A separate presentation flag can open against an earlier empty selection.
+  struct NativeExportRecipeSelection: Identifiable {
+    let id = UUID()
+    let assets: [AssetRef]
+    let sessions: [AssetRef.ID: EditSession]
+  }
+
   struct NativeExportRecipePanel: View {
     let assets: [AssetRef]
     let resolve: NativeExportRecipePanelVM.Resolver
