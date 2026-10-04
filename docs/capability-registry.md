@@ -27,12 +27,12 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — recorded on pipeline v7, current is v8
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v7, current is v8
-  - `synthetic_grey` — recorded on pipeline v7, current is v8
-  - `grey_dcp` — recorded on pipeline v7, current is v8
-  - `color_chart` — recorded on pipeline v7, current is v8
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — recorded on pipeline v7, current is v8
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `tone` — Tone (exposure, contrast, parametric and point curves)
@@ -50,12 +50,12 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — recorded on pipeline v7, current is v8
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v7, current is v8
-  - `synthetic_grey` — recorded on pipeline v7, current is v8
-  - `grey_dcp` — recorded on pipeline v7, current is v8
-  - `color_chart` — recorded on pipeline v7, current is v8
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — recorded on pipeline v7, current is v8
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `color` — Color (HSL, B&W mixer, color grading, profile and look)
@@ -73,12 +73,12 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — recorded on pipeline v7, current is v8
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v7, current is v8
-  - `synthetic_grey` — recorded on pipeline v7, current is v8
-  - `grey_dcp` — recorded on pipeline v7, current is v8
-  - `color_chart` — recorded on pipeline v7, current is v8
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — recorded on pipeline v7, current is v8
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `detail` — Detail (sharpening, noise reduction, presence, dehaze, lens)
@@ -96,12 +96,12 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — recorded on pipeline v7, current is v8
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v7, current is v8
-  - `synthetic_grey` — recorded on pipeline v7, current is v8
-  - `grey_dcp` — recorded on pipeline v7, current is v8
-  - `color_chart` — recorded on pipeline v7, current is v8
+  - `grey_adjustments` — satisfied
+  - `synthetic_grey` — satisfied
+  - `grey_dcp` — satisfied
+  - `color_chart` — satisfied
   - `color_harness` — no record
-  - `gpu_chain_parity_metal` — recorded on pipeline v7, current is v8
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `effects` — Effects (vignette, grain, film looks)
@@ -119,8 +119,8 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
   - `sidecar_contract_api` — recorded on pipeline v7, current is v8
   - `gpu_chain_parity_lavapipe` — no record
 - Qualification evidence:
-  - `grey_adjustments` — recorded on pipeline v7, current is v8
-  - `gpu_chain_parity_metal` — recorded on pipeline v7, current is v8
+  - `grey_adjustments` — satisfied
+  - `gpu_chain_parity_metal` — satisfied
   - `apple_canvas_golden` — no record
 
 ### `geometry` — Crop and straighten
@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 41
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs`, `src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs`
-- Record: recorded on pipeline v7, current is v8 — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v7, schema v5, commit `6a43f6e804af0f1bd46f40368fe4fcd21733ad73`, recorded 2026-10-01T21:59:55Z
+- Record: satisfied — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v8, schema v5, commit `9892483dc10032e6cd27e4d42f949082e6092bda`, recorded 2026-10-04T17:17:12Z
 
 ### `synthetic_grey`
 
@@ -269,7 +269,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 6
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_invariants.rs`
-- Record: recorded on pipeline v7, current is v8 — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v7, schema v5, commit `6a43f6e804af0f1bd46f40368fe4fcd21733ad73`, recorded 2026-10-01T21:59:46Z
+- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v8, schema v5, commit `9892483dc10032e6cd27e4d42f949082e6092bda`, recorded 2026-10-04T17:16:53Z
 
 ### `grey_dcp`
 
@@ -278,7 +278,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 5
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs`
-- Record: recorded on pipeline v7, current is v8 — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v7, schema v5, commit `6a43f6e804af0f1bd46f40368fe4fcd21733ad73`, recorded 2026-10-01T21:59:57Z
+- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v8, schema v5, commit `9892483dc10032e6cd27e4d42f949082e6092bda`, recorded 2026-10-04T17:17:15Z
 
 ### `color_chart`
 
@@ -287,7 +287,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 7
 - Corpus: `src/raw-pipeline/raw-core/tests/color_chart_invariants.rs`
-- Record: recorded on pipeline v7, current is v8 — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v7, schema v5, commit `6a43f6e804af0f1bd46f40368fe4fcd21733ad73`, recorded 2026-10-01T21:59:48Z
+- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v8, schema v5, commit `9892483dc10032e6cd27e4d42f949082e6092bda`, recorded 2026-10-04T17:16:56Z
 
 ### `color_harness`
 
@@ -321,7 +321,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - render_bytes_gpu vs render_bytes on Mesa lavapipe (#1973)
 - Covers: `web`
 - Accepted backends: `vulkan-lavapipe`
-- Expected cases: 19
+- Expected cases: 22
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
 - Record: no record
 
@@ -330,9 +330,9 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - render_bytes_gpu vs render_bytes on Metal (#2315)
 - Covers: `apple`
 - Accepted backends: `metal`
-- Expected cases: 19
+- Expected cases: 22
 - Corpus: `src/raw-pipeline/raw-wasm/src/gpu_render.rs`, `src/raw-pipeline/raw-wasm/src/gpu_render`, `src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng`
-- Record: recorded on pipeline v7, current is v8 — 19 of 19 executed, 0 failed, 0 skipped, on `metal`, pipeline v7, schema v5, commit `17f341d204cf46c987d8e96d6187c1d2c97fe769`, recorded 2026-10-01T23:26:26Z
+- Record: satisfied — 22 of 22 executed, 0 failed, 0 skipped, on `metal`, pipeline v8, schema v5, commit `9892483dc10032e6cd27e4d42f949082e6092bda`, recorded 2026-10-04T17:19:03Z
 
 ### `apple_canvas_golden`
 
