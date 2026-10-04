@@ -74,10 +74,27 @@ describe('query verbatim contract (#2384)', () => {
           'limit',
           'offset',
           'q',
-          'showMatchesPosition',
           'showRankingScore',
         ]);
       });
+  });
+
+  it('requests only match metadata in addition for a single-word collision', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    await capturingClient(bodies).search('Rose', { semantic: true, limit: 20 });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.q).toBe('Rose');
+    expect(Object.keys(bodies[0]!).sort()).toEqual([
+      'attributesToRetrieve',
+      'filter',
+      'hybrid',
+      'limit',
+      'offset',
+      'q',
+      'showMatchesPosition',
+      'showRankingScore',
+    ]);
+    expect(bodies[0]!.showMatchesPosition).toBe(true);
   });
 
   it('preserves case and internal spacing exactly', async () => {
