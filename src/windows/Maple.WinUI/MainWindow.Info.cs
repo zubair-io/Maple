@@ -55,11 +55,27 @@ namespace Maple.WinUI
         // --- Docked Preview inspector ---
 
         private bool _infoPaneOpen;
+        private FocusState _infoActivationFocusState = FocusState.Programmatic;
+
+        private void InitializeInspectorFocus()
+        {
+            foreach (var button in new[] { PreviewInfoButton, InfoCloseButton })
+            {
+                button.PreviewKeyDown += (_, e) =>
+                {
+                    if (e.Key is Windows.System.VirtualKey.Enter or Windows.System.VirtualKey.Space)
+                        _infoActivationFocusState = FocusState.Keyboard;
+                };
+                button.AddHandler(UIElement.PointerPressedEvent,
+                    new Microsoft.UI.Xaml.Input.PointerEventHandler((_, _) =>
+                        _infoActivationFocusState = FocusState.Programmatic), true);
+            }
+        }
 
         private void OnToggleInfoPane(object sender, RoutedEventArgs e)
         {
-            var focusState = sender is Control { FocusState: FocusState.Keyboard }
-                ? FocusState.Keyboard : FocusState.Programmatic;
+            var focusState = _infoActivationFocusState;
+            _infoActivationFocusState = FocusState.Programmatic;
             _infoPaneOpen = !_infoPaneOpen;
             UpdateInfoPane();
             ((FrameworkElement)Content).UpdateLayout();

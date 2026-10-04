@@ -31,7 +31,7 @@ public sealed partial class MainWindow
         await Checkpoint("activate", "pointer:window caption", () => _mode == ShellMode.Preview);
         if (!PreviewInfoButton.Focus(FocusState.Keyboard))
             throw new InvalidOperationException("Photo info cannot receive keyboard focus.");
-        await Checkpoint("open", "Return", () => IsOpen() && Focused(InfoCloseButton));
+        await Checkpoint("open", "Return", () => IsOpen() && KeyboardFocused(InfoCloseButton));
         await Checkpoint("tab-rating", "Tab", () => IsOpen() && Focused(_starButtons[0]));
         await Checkpoint("return-close", "Shift_L+Tab", () => IsOpen() && Focused(InfoCloseButton));
         await Checkpoint("close", "Return", () => IsClosed() && Focused(PreviewInfoButton));
@@ -39,6 +39,10 @@ public sealed partial class MainWindow
         await Checkpoint("escape-inside", "Escape", () => IsClosed() && Focused(PreviewInfoButton));
         await Checkpoint("open-for-header", "Return", () => IsOpen() && Focused(InfoCloseButton));
         await Checkpoint("header-close", "pointer:Photo info", () => IsClosed() && Focused(PreviewInfoButton));
+        await Checkpoint("keyboard-after-pointer-close", "Return", () => IsOpen() && KeyboardFocused(InfoCloseButton));
+        await Checkpoint("space-close", "space", () => IsClosed() && KeyboardFocused(PreviewInfoButton));
+        await Checkpoint("pointer-reopen", "pointer:Photo info", () => IsOpen() && Focused(InfoCloseButton));
+        await Checkpoint("space-after-pointer-open", "space", () => IsClosed() && KeyboardFocused(PreviewInfoButton));
         await Checkpoint("escape-outside", "Escape", () => _mode == ShellMode.Browse && !_infoPaneOpen);
         var finalHash = await HashRawAsync();
         if (!hash.AsSpan().SequenceEqual(finalHash)) throw new InvalidOperationException("Info focus changed the RAW.");
@@ -50,12 +54,13 @@ public sealed partial class MainWindow
             throw new InvalidOperationException("Restored Edit mode has no visible Compare focus.");
         await File.WriteAllTextAsync(Path.Combine(output, "inspector-focus-result.json"), JsonSerializer.Serialize(new
         {
-            passed = true, casesExecuted = 9, casesSkipped = 0, originalRawSha256 = Convert.ToHexString(hash),
+            passed = true, casesExecuted = 13, casesSkipped = 0, originalRawSha256 = Convert.ToHexString(hash),
             documentPreserved = Snapshot() == original, undoDepth = undo, scale = Content.XamlRoot.RasterizationScale,
             restoredFocus = AutomationProperties.GetName(CompareButton)
         }));
 
         bool Focused(DependencyObject control) => ReferenceEquals(FocusManager.GetFocusedElement(Content.XamlRoot), control);
+        bool KeyboardFocused(Microsoft.UI.Xaml.Controls.Control control) => Focused(control) && control.FocusState == FocusState.Keyboard;
         bool IsOpen() => _mode == ShellMode.Preview && _infoPaneOpen && InfoPane.Visibility == Visibility.Visible;
         bool IsClosed() => _mode == ShellMode.Preview && !_infoPaneOpen && InfoPane.Visibility == Visibility.Collapsed;
         string Snapshot() => XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = ViewModel.Adjustments });
