@@ -163,7 +163,16 @@ function buildSdk(c: ResolvedObservabilityConfig): NodeSDK {
   // startup sequence. We ship logs ourselves via `otel-logs.ts`, which taps
   // pino's output stream directly (see `startSdk` / `stopSdk`). This NodeSDK is
   // traces-only: HTTP spans exported to `${endpoint}/v1/traces`.
-  const instrumentations = [new HttpInstrumentation()];
+  const instrumentations = [
+    new HttpInstrumentation({
+      ignoreIncomingRequestHook: (request) =>
+        (request.url ?? '').split('?')[0]!.startsWith('/api/cloud-backup/'),
+      ignoreOutgoingRequestHook: (request) =>
+        /(?:^|\.)(?:googleapis\.com|googleusercontent\.com)$/.test(
+          String(request.hostname ?? request.host ?? ''),
+        ),
+    }),
+  ];
 
   return new NodeSDK({
     resource,

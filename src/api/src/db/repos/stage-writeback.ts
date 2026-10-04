@@ -406,6 +406,21 @@ export function stageResultStatements(
   result: SqliteStageResult,
 ): SqlStatement[] {
   const { target, at } = attempt;
+  if ('defer' in result) {
+    return [
+      {
+        sql: `UPDATE stage_state SET attempts=MAX(attempts-1,0),last_error=?,next_attempt_at=?
+      WHERE asset_id=? AND stage=? AND next_attempt_at=?`,
+        params: [
+          result.defer.reason.slice(0, 500),
+          result.defer.retryAt.toISOString(),
+          target.assetId,
+          target.stage,
+          target.lease,
+        ],
+      },
+    ];
+  }
   if ('patch' in result) {
     return stageSuccessStatements(target, {
       processedAt: at,

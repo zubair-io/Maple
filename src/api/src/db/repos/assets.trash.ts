@@ -33,6 +33,7 @@
  */
 
 import * as path from 'node:path';
+import { committedLifecycleStatements } from '../../cloud-backup/lifecycle.ts';
 import type { ObjectId } from '../object-id.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { meiliRearmStatement, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
@@ -206,6 +207,13 @@ export async function markSoftDeleted(args: {
       params: [new Date().toISOString(), args.originalAbsPath, hex],
     },
     ...moveTailStatements(hex, destination, args.source),
+    ...committedLifecycleStatements(
+      hex,
+      destination.libraryId,
+      path.relative(args.libraryRoot, args.originalAbsPath).split(path.sep).join('/'),
+      path.posix.join(destination.path, destination.filename),
+      'trash',
+    ),
   ]);
   return updateOutcome(matchedOne(changesAt(results, 0)));
 }
@@ -275,6 +283,13 @@ export async function restoreFromTrash(args: {
       params: [args.size, args.mtimeMs, hex],
     },
     ...moveTailStatements(hex, destination, args.source),
+    ...committedLifecycleStatements(
+      hex,
+      destination.libraryId,
+      args.source ? path.posix.join(args.source.path, args.source.filename) : '',
+      path.posix.join(destination.path, destination.filename),
+      'active',
+    ),
   ]);
   return updateOutcome(matchedOne(changesAt(results, 1)));
 }

@@ -86,6 +86,8 @@ export interface RelocateRequest {
   collision: CollisionPolicy;
   /** Tag surfaced in `pickFreePath`'s collision-log (e.g. `'moveToTrash'`). */
   callerTag?: string;
+  /** Persist the resolved destination before publishing or deleting bytes. */
+  onDestinationPrepared?: (destination: string) => Promise<void>;
   /** Absolute paths of extra non-sidecar companion files to carry alongside
    * the primary (#2667) — e.g. a PhotoKit backup's Apple-rendered JPEG
    * (`apple_rendered_path`). Same treatment as a `.xmp` sidecar: base-swap
@@ -430,6 +432,7 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
 
   const createdPaths: string[] = [];
   try {
+    await req.onDestinationPrepared?.(finalDest);
     // 2-4. Copy + verify the primary, then carry the sidecars + any extra
     // companions (#2667) alongside.
     const { copiedSidecars, movedSidecarSources, companionPaths, movedCompanionSources } =

@@ -12,6 +12,7 @@
  */
 
 import { Elysia, status, t } from 'elysia';
+import { requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 import { ObjectId } from '../db/object-id.ts';
 import type { JobKind, JobStatus, JobWithId } from '../db/schema.ts';
@@ -90,7 +91,7 @@ const ListQuery = t.Object({
 function parseListFilter(query: { status?: string; kind?: string; limit?: string }) {
   for (const [key, allowed] of [
     ['status', KNOWN_STATUSES],
-    ['kind', KNOWN_KINDS],
+    ['kind', new Set([...KNOWN_KINDS, 'cloud_backup_restore'])],
   ] as const) {
     const value = query[key];
     if (value && !(allowed as ReadonlySet<string>).has(value)) return `Unknown ${key}: ${value}`;
@@ -145,26 +146,46 @@ export function createJobsRoutes(dbOverride?: SqliteDb) {
 
     .get(
       '/',
-      async ({ query }) => {
+      async (context) => {
+        const { query } = context;
         const filter = parseListFilter(query);
         if (typeof filter === 'string') return status(400, { error: filter });
         const docs = await listJobs(filter, dbOverride);
-        return { jobs: docs.map((doc) => projectJob(doc)) };
+        const owner = Reflect.get(context, 'auth')?.user?.role === 'owner';
+        return {
+          jobs: docs
+            .filter((doc) => owner || doc.kind !== 'cloud_backup_restore')
+            .map((doc) => projectJob(doc)),
+        };
       },
       { query: ListQuery },
     )
 
-    .get('/:id', async ({ params, query }) => {
+    .get('/:id', async (context) => {
+      const { params, query } = context;
       if (!ObjectId.isValid(params.id)) return status(400, { error: 'Invalid job id' });
       const doc = await getJob(new ObjectId(params.id), dbOverride);
       if (!doc) return status(404, { error: 'Job not found' });
+      if (doc.kind === 'cloud_backup_restore') {
+        const denial = requireOwnerBeforeHandle({
+          auth: Reflect.get(context, 'auth'),
+          set: context.set,
+        });
+        if (denial) return denial;
+      }
       return projectJob(doc, query.summary === '1');
     })
 
-    .post('/:id/cancel', async ({ params, set }) => {
+    .post('/:id/cancel', async (context) => {
+      const { params, set } = context;
       if (!ObjectId.isValid(params.id)) {
         set.status = 400;
         return { error: 'Invalid job id' };
+      }
+      const doc = await getJob(new ObjectId(params.id), dbOverride);
+      if (doc?.kind === 'cloud_backup_restore') {
+        const denial = requireOwnerBeforeHandle({ auth: Reflect.get(context, 'auth'), set });
+        if (denial) return denial;
       }
       const ok = await requestCancel(new ObjectId(params.id), undefined, dbOverride);
       if (!ok) {

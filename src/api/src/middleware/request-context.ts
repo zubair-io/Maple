@@ -277,6 +277,19 @@ export const requestContext = new Elysia({ name: 'requestContext' })
       path: new URL(request.url).pathname,
     });
 
+    // Validation errors can include submitted client secrets. Never serialize
+    // these request bodies, OAuth callback queries or their validation errors.
+    if (new URL(request.url).pathname.startsWith('/api/cloud-backup/')) {
+      const preset = statusAsNumber(set.status);
+      set.status = preset >= 400 ? preset : code === 'VALIDATION' ? 422 : 400;
+      log.warn({ code }, 'backup request rejected');
+      return {
+        error: 'Backup request rejected; check the supplied settings',
+        code: codeForStatus(statusAsNumber(set.status)),
+        requestId,
+      };
+    }
+
     const message = error instanceof Error ? error.message : String(error);
 
     // Map Elysia's built-in error codes (VALIDATION from TypeBox, NOT_FOUND

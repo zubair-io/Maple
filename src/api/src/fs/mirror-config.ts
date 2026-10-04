@@ -8,8 +8,7 @@
  * config is operator-toggleable, not env-gated.
  */
 
-import { listFoldersWithMirrors } from '../db/repos/folders.repo.ts';
-import { setMirrorRoots } from './mirror-registry.ts';
+import { loadDestinationMirrors } from '../cloud-backup/local-mirror-bridge.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/mirror-config');
@@ -25,13 +24,6 @@ const log = childLogger('fs/mirror-config');
  * registry decision, not a storage one.
  */
 export async function loadMirrorConfig(): Promise<void> {
-  const folders = await listFoldersWithMirrors();
-
-  const map = new Map<string, string[]>();
-  for (const folder of folders) {
-    const enabled = folder.mirrors.filter((m) => m.enabled).map((m) => m.path);
-    if (enabled.length > 0) map.set(folder.path, enabled);
-  }
-  setMirrorRoots(map);
-  log.info({ libraries: map.size }, 'mirror config loaded');
+  await loadDestinationMirrors();
+  log.info('mirror destination config loaded');
 }

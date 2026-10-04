@@ -40,6 +40,7 @@ export const DEFAULT_BODY_LIMIT_BYTES = 128 * 1024 * 1024;
 const STREAMING_PATHS: RegExp[] = [/^\/api\/folders\/[^/]+\/upload$/];
 
 export function bodyLimitForPath(pathname: string): number {
+  if (pathname.startsWith('/api/cloud-backup/')) return 16 * 1024;
   return STREAMING_PATHS.some((re) => re.test(pathname))
     ? MAX_REQUEST_BODY_BYTES
     : DEFAULT_BODY_LIMIT_BYTES;

@@ -59,7 +59,7 @@ import { CLAIMABLE_GATES, dependencyClauses, residualClauses } from './stage-run
 export function stagePendingCountSql(residualSql?: string): string {
   const clauses = [
     'stage = ? AND version < ? AND dead = 0',
-    STAGE_STATE_CLAIMABLE_NARROWING,
+    `(stage_state.stage='cloud-backup' OR ${STAGE_STATE_CLAIMABLE_NARROWING})`,
     ...residualClauses(residualSql),
   ];
   return `SELECT COUNT(*) AS n
@@ -85,7 +85,7 @@ export function stageReadyCountSql(dependencyCount: number, residualSql?: string
   const clauses = [
     'stage = ?',
     CLAIMABLE_GATES,
-    STAGE_STATE_CLAIMABLE_NARROWING,
+    `(stage_state.stage='cloud-backup' OR ${STAGE_STATE_CLAIMABLE_NARROWING})`,
     ...dependencyClauses(dependencyCount),
     ...residualClauses(residualSql),
   ];

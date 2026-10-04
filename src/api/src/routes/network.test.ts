@@ -15,6 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
+import { signAccessToken } from '../auth/tokens.ts';
 import { networkPublicRoutes, networkSettingsRoutes } from './network.ts';
 import { saveNetworkConfig } from '../network/network-config.repo.ts';
 import {
@@ -24,13 +25,22 @@ import {
 
 describe('/api/network/*', () => {
   let live: LiveTestDatabase;
+  let previousSecret: string | undefined;
+  let token: string;
 
   beforeEach(async () => {
+    previousSecret = process.env.MAPLE_JWT_SECRET;
+    process.env.MAPLE_JWT_SECRET = 'network-owner-tests-32-character-secret';
+    token = await signAccessToken(
+      { sub: '111111111111111111111111', email: null, role: 'owner', file_access: true },
+      process.env.MAPLE_JWT_SECRET,
+    );
     live = await createLiveTestDatabase();
   });
 
   afterEach(() => {
     live.close();
+    process.env.MAPLE_JWT_SECRET = previousSecret;
   });
 
   function publicApp() {
@@ -48,7 +58,7 @@ describe('/api/network/*', () => {
     return settingsApp().handle(
       new Request('http://localhost/api/network/config', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
       }),
     );

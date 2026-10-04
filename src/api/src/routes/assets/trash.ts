@@ -34,6 +34,7 @@ import { unlink } from 'node:fs/promises';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
+import { preparePurge } from '../../cloud-backup/lifecycle.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
 import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
@@ -115,6 +116,7 @@ async function purgeTrashedAsset(
   const located = await resolveAssetAbsPathOrRespond(info, set);
   if ('error' in located) return located;
   const { absPath } = located;
+  await preparePurge(id.toHexString());
   try {
     await unlink(absPath);
   } catch {

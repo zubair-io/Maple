@@ -124,7 +124,11 @@ test('upgrades the shipped schema once without changing assets', async () => {
   const id = insertAsset(handle.db, { exif: JSON.stringify({ captured_at: '2024-01-01' }) });
   const before = handle.db.query('SELECT * FROM assets WHERE id = ?').get(id);
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
-  expect(result.applied).toEqual([migrationId]);
+  expect(result.applied).toEqual(
+    ALL_MIGRATIONS.filter((migration) => migration.id >= migrationId).map(
+      (migration) => migration.id,
+    ),
+  );
   expect((await runMigrations(handle.migrationDb, ALL_MIGRATIONS)).applied).toEqual([]);
   expect(handle.db.query('SELECT * FROM assets WHERE id = ?').get(id)).toEqual(before);
   expect(handle.db.query('PRAGMA foreign_key_check').all()).toEqual([]);

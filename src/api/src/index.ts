@@ -82,6 +82,8 @@ import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
 import { uploadSessions } from './backup/upload-session.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { authedApi } from './routes/authed-api.ts';
+import { cloudBackupRoutes } from './routes/cloud-backup.ts';
+import { googleBackupRoutes } from './cloud-backup/google-routes.ts';
 
 import { openSqlitePool, closeSqlitePool } from './db/sqlite/index.ts';
 import { logReaderRespawn } from './db/sqlite/pool-logging.ts';
@@ -147,6 +149,9 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // the authedApi gate the same way.
     .use(cloudflareRoutes)
     .use(dbBackupRoutes)
+    .use(cloudBackupRoutes)
+    .use(googleBackupRoutes.owner)
+    .use(googleBackupRoutes.callback)
     // Owner-only user roster + per-user file-access permission (#2893) —
     // self-gates with requireOwner, so it sits outside authedApi too.
     .use(usersRoutes)

@@ -23,6 +23,7 @@ import sidecarMetadataIndexStage, {
 import cfThumbSyncStage, { startCfThumbSyncStage } from './cf-thumb-sync.ts';
 import transcribeStage, { startTranscribeStage } from './transcribe.ts';
 import videoDescribeStage, { startVideoDescribeStage } from './video-describe.ts';
+import cloudBackupStage, { startCloudBackupStage } from './cloud-backup.ts';
 import type { RunStageHandle, StageConfig } from '../run-stage.ts';
 import { ALL_STAGE_NAMES, assertCompleteStageNames, type StageName } from './stage-names.ts';
 
@@ -43,6 +44,7 @@ export const stageRegistrations = {
   'cf-thumb-sync': { definition: cfThumbSyncStage, start: startCfThumbSyncStage },
   transcribe: { definition: transcribeStage, start: startTranscribeStage },
   'video-describe': { definition: videoDescribeStage, start: startVideoDescribeStage },
+  'cloud-backup': { definition: cloudBackupStage, start: startCloudBackupStage },
 } satisfies Record<StageName, { definition: StageConfig; start: () => Promise<RunStageHandle> }>;
 
 export const stageManifest = ALL_STAGE_NAMES.map((name) => stageRegistrations[name].definition);

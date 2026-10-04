@@ -26,6 +26,7 @@
 import { unlink } from 'node:fs/promises';
 import { listTrashedBefore, type TrashedAsset } from '../db/repos/assets.sweeps.ts';
 import { hardDelete } from '../db/repos/assets.trash.ts';
+import { preparePurge } from '../cloud-backup/lifecycle.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -101,6 +102,7 @@ async function purgeTrashedAsset(
     return { purged: false, errors: 1 };
   }
 
+  await preparePurge(doc._id.toHexString());
   const originalOk = await unlinkTolerantly(absPath, 'purge unlink failed');
   const sidecarResults: boolean[] = [];
   for (const sidecar of await listPairedSidecars(absPath)) {

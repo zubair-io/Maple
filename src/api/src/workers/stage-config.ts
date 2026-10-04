@@ -91,6 +91,8 @@ export interface WorkerConfig {
  * default is the whole shape of the SQLite cutover at the handler boundary.
  */
 export type StageResult<TPatch = readonly SqlStatement[]> =
+  /** Destination retries are durable independently; keep the stage claimable without consuming its attempt budget. */
+  | { defer: { reason: string; retryAt: Date } }
   // `invalidates` lists downstream stages the runner marks stale (version 0,
   // bookkeeping cleared) in the SAME atomic $set as the patch, so their poll
   // loops re-claim the doc and rebuild from the freshly-patched fields. The
