@@ -36,6 +36,13 @@ public final class AppShellBrowseAdapter: AgentBrowseDelegate {
     browseVM?.currentScopeRoot?.path
   }
 
+  public func disconnect() {
+    browseVM = nil
+    getSessions = nil
+    ensureSessionHandler = nil
+    openPhotoHandler = nil
+  }
+
   public func session(for asset: AssetRef) -> EditSession? {
     getSessions?()[asset.id]
   }

@@ -5,6 +5,32 @@ import XCTest
 @testable import MapleCore
 
 extension AgentBrowseTests {
+  func testDisconnectReleasesSessionCapturedByBrowseHandlers() throws {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-browse-lifetime")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
+    let original = directory.appendingPathComponent("portrait.png")
+    try FileManager.default.copyItem(at: fixture, to: original)
+    let bytes = try Data(contentsOf: original)
+    let adapter = AppShellBrowseAdapter()
+    let service = AgentEditService()
+    weak var capturedSession: EditSession?
+    do {
+      let session = EditSession(asset: AssetRef(url: original))
+      capturedSession = session
+      adapter.getSessions = { [session] in [session.asset.id: session] }
+      adapter.ensureSessionHandler = { [session] _ in session }
+      adapter.openPhotoHandler = { [session] _ in session }
+    }
+    service.browseDelegate = adapter
+    XCTAssertNotNil(capturedSession)
+    service.browseDelegate = nil
+    adapter.disconnect()
+    XCTAssertNil(capturedSession, "Window teardown must release captured edit sessions")
+    XCTAssertEqual(try Data(contentsOf: original), bytes)
+  }
+
   func testColdURLlessBrowseReadsActualActorSidecarsWithoutHydration() async throws {
     let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-url-less-culling")
     defer { try? FileManager.default.removeItem(at: directory) }

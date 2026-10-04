@@ -820,6 +820,7 @@ struct AppShell: View {
       if AgentEditService.shared.browseDelegate === agentBrowseAdapter {
         AgentEditService.shared.browseDelegate = nil
       }
+      agentBrowseAdapter.disconnect()
     }
   }
 
