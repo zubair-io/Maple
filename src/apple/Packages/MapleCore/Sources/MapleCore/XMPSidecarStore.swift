@@ -41,7 +41,8 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private var subscribers: [UInt64: AsyncStream<Error>.Continuation] = [:]
   private var nextSubscriberID: UInt64 = 0
 
-  static let debounceInterval: Duration = .milliseconds(750)
+  static let debounceNanoseconds: UInt64 = 750_000_000
+  static let debounceInterval: Duration = .nanoseconds(debounceNanoseconds)
 
   public init(rawURL: URL) {
     self.primarySidecarURL = SidecarPath.sidecarURL(for: rawURL)
@@ -98,7 +99,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     pendingTask?.cancel()
     pendingTask = Task { [weak self] in
       do {
-        try await Task.sleep(for: XMPSidecarStore.debounceInterval)
+        try await Task.sleep(nanoseconds: XMPSidecarStore.debounceNanoseconds)
         await self?.writePending()
       } catch {
         // Task cancelled — a newer update superseded this one.
@@ -117,7 +118,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     pendingTask?.cancel()
     pendingTask = Task { [weak self] in
       do {
-        try await Task.sleep(for: XMPSidecarStore.debounceInterval)
+        try await Task.sleep(nanoseconds: XMPSidecarStore.debounceNanoseconds)
         await self?.writePending()
       } catch {
         // Task cancelled — a newer update superseded this one.
@@ -127,14 +128,18 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   /// Force an immediate flush of any pending write (call before closing).
   public func flush() async {
-    pendingTask?.cancel()
+    let task = pendingTask
     pendingTask = nil
+    task?.cancel()
+    _ = await task?.result
     await writePending()
   }
 
   public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
-    pendingTask?.cancel()
+    let task = pendingTask
     pendingTask = nil
+    task?.cancel()
+    _ = await task?.result
     try writeAtomically(model: model, culling: culling)
     pendingModel = nil
     pendingCulling = nil
