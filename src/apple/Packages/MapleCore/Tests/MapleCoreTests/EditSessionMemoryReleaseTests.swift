@@ -124,42 +124,10 @@ final class EditSessionMemoryReleaseTests: XCTestCase {
         XCTAssertNil(atModelAfter, "releaseTransientMemory must clear decodedAtModel too")
     }
 
-    /// The deep-zoom tile cache is a second re-derivable buffer
-    /// `releaseTransientMemory()` must free — mirrors
-    /// `testTileManagerClearEmptiesCache` (`DeepZoomTileRenderingTests`) but
-    /// through the session-level eviction call.
-    func testReleaseTransientMemoryClearsTileManager() async throws {
-        let (asset, dir) = try makeAsset()
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let session = EditSession(asset: asset)
-        let tileManager = session.ensureTileManager()
-        // Seed directly via the test-only synchronous insert — `update(...)`
-        // would enqueue a real FFI fetch against the fake `.dng` bytes
-        // `makeAsset()` writes, which isn't a real RAW.
-        let key = TileKey(
-            urlHash: TileManager.urlHash(asset.primaryURL!),
-            sidecarMtime: .distantPast,
-            viewTransformVersion: TileManager.viewTransformVersion,
-            zoomBucket: 1,
-            tileX: 0,
-            tileY: 0
-        )
-        await tileManager.testInsertTile(key: key, image: makeDecoded())
-        let countBefore = await tileManager.testCachedTileCount()
-        XCTAssertEqual(countBefore, 1, "precondition: tile cache populated")
-
-        await session.releaseTransientMemory()
-
-        let countAfter = await tileManager.testCachedTileCount()
-        XCTAssertEqual(countAfter, 0,
-            "releaseTransientMemory must clear the session's deep-zoom tile cache (#2037)")
-    }
-
-    /// The common case: a browse-primed session that never zoomed in (no
-    /// `tileManager`) and never opened a GPU-live session must not crash or
-    /// hang — `releaseTransientMemory()` no-ops on the absent pieces.
-    func testReleaseTransientMemoryIsSafeWithNoTileManagerOrGpuSession() async throws {
+    /// The common case: a browse-primed session that never zoomed in
+    /// and never opened a GPU-live session must not crash or hang —
+    /// `releaseTransientMemory()` no-ops on the absent pieces.
+    func testReleaseTransientMemoryIsSafeWithNoDetailPatchOrGpuSession() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
 

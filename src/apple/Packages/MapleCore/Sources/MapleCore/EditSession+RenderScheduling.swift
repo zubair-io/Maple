@@ -88,22 +88,20 @@ extension EditSession {
     let live = await renderActor.currentGeneration()
     guard gen == live, !Task.isCancelled else { return }
     // #638: when a crop is applied (tool disarmed, non-identity crop)
-    // the fast refine paths below operate on FULL-FRAME source
-    // geometry and can't honor the crop: the native-detail patch and the
-    // deep-zoom tile composite both crop the full-frame decode to a
-    // viewport rect, but `viewportSourceRect` is in CROPPED-image coords
+    // the fast refine path below operates on FULL-FRAME source
+    // geometry and can't honor the crop: the native-detail patch
+    // crops the full-frame decode to a viewport rect, but
+    // `viewportSourceRect` is in CROPPED-image coords
     // (the canvas/zoom now anchor to `effectiveImageSize`). Re-rendering
     // the whole frame through `decodeAndRender(.refine)` is the correct,
     // crop-aware path (it applies `CropImageStage` on the developed
     // output) — a touch slower at deep zoom on a cropped image, but
-    // correct. Full-frame (uncropped) renders keep the fast paths.
+    // correct. Full-frame (uncropped) renders keep the fast path.
     let cropApplied = !cropEditingActive && CropImageStage.shouldApply(model.crop)
     // Native visible-region detail is the production 100% path. It uses a
     // stripped-model RAW handle and sends the resulting small scene-linear
-    // patch through the same Apple display chain as the CPU canvas. The
-    // legacy full-canvas tile compositor remains behind its disabled flag
-    // because it publishes scene-linear tiles directly and has open color
-    // parity work.
+    // patch through the same Apple display chain as the CPU canvas. (The
+    // legacy full-canvas `TileManager` compositor was retired in #3288.)
     if !cropApplied,
       asset.isRaw,
       asset.primaryURL != nil,
@@ -130,21 +128,6 @@ extension EditSession {
     // Recheck before fallback work, including the cache-only shortcut below.
     let current = await renderActor.currentGeneration()
     guard gen == current, !Task.isCancelled else { return }
-    // Plan 3 / Ticket 06 M4 — deep-zoom branch. Off while a layer stack
-    // exists (#355): its tiles are developed from a stripped-model handle
-    // and published as scene-linear tiles with no per-tick chain on top,
-    // so nothing would apply the masks — the native-detail path above and
-    // the whole-image refine below both carry the stack correctly.
-    if !cropApplied,
-      model.localAdjustments.isEmpty,
-      Self.deepZoomEnabled,
-      pixelScale >= 1.0,
-      !viewportSourceRect.isEmpty,
-      asset.primaryURL != nil
-    {
-      await refineDeepZoom(gen: gen)
-      return
-    }
     // Short-circuit when refine would render at the same (or smaller)
     // target as the most recent fast pass.
     if let fast = fastTargetSize, let refine = refinedTargetSize,

@@ -209,7 +209,7 @@ Ordered mask groups (#3408) combine components with Add, Subtract or Intersect u
 
 Windows' edit rail has eight entries (Light, Color, Effects, Detail, Tone Curve, Crop, Geometry, Mask) over nine slider sections, and is the only front end that exposes the parametric tone-curve sliders and a point curve with Luma/R/G/B channel tabs side by side. Geometry (#3410/#3447) is the same seven-slider homography described above, reached as its own rail entry rather than a dock sub-tool. Mask (#3406) adds linear and radial local-adjustment layers — add/select/delete, and for the selected layer feather, invert (radial), and the eleven local develop controls (`MainWindow.Mask.cs`, `MapleUI/Organisms/MuiMaskPanel.cs`, `MuiMaskOverlay.cs`) — at parity with web (#3301) and the Apple data model (#3285): a mask authored on any of the three reads with identical geometry and values on the others, since all three already round-trip through the same `crs:GradientBasedCorrections` / `crs:CircularGradientBasedCorrections` sidecar block (`docs/xmp-canonical-format.md` § "Local adjustments").
 
-Zoom on Apple is a tiled deep-zoom path (`MapleCore/DeepZoomState.swift`, `Cache/TileManager.swift`) reaching 8× pixel scale; see [zoom.md](zoom.md). Web and Windows pan and zoom a single rendered surface with fit and 1:1 shortcuts.
+Zoom on Apple is a native-detail patch path (`MapleCore/NativeDetailRenderer.swift`, `DeepZoomState.swift`) reaching 8× pixel scale; see [zoom.md](zoom.md). Web and Windows pan and zoom a single rendered surface with fit and 1:1 shortcuts.
 
 ---
 

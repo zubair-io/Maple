@@ -119,7 +119,6 @@ extension EditorWorkflowState {
     }
     await session.previewPersistence.cancelAndJoin()
     await session.renderActor.cancelAll()
-    await session.deepZoomState.tileManager?.clear()
     guard generation == current, session.model == oldModel,
       session.transactions.nextID == editID
     else {

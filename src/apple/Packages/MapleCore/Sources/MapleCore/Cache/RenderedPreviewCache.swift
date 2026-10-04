@@ -74,7 +74,8 @@ public actor RenderedPreviewCache {
   // kept showing pre-fix output (the persistent TestFlight band/pink)
   // no matter which build was installed.
   // v7 (2026-07-12, #1904): paired with the (since-removed, #2060)
-  // DecodedBufferCache's rustVersion=6 and TileManager viewTransformVersion=4.
+  // DecodedBufferCache's rustVersion=6 and (since-removed, #3288)
+  // TileManager's viewTransformVersion=4.
   // The #1893/#1894 WB value-
   // mapping series changed pipeline output: kTintScale magnitude, the
   // Robertson slider mapping, the Robertson-consistent frame/profile CCT
@@ -87,7 +88,8 @@ public actor RenderedPreviewCache {
   // short-circuits the pipeline forever; the same failure mode as v6's
   // #1801 entry.
   //
-  // v8 (2026-07-12, #1976): paired with TileManager viewTransformVersion=5.
+  // v8 (2026-07-12, #1976): paired with (since-removed, #3288)
+  // TileManager's viewTransformVersion=5.
   // The per-tick WB delta anchor was a false explicit-(6500, 0) "decode
   // bake" — the strip-XMP decode omits WB and bakes at As-Shot, so every
   // settled render (GPU-live present, per-tick chain, and the previews

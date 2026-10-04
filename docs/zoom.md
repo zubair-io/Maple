@@ -2,7 +2,7 @@
 
 Maple's canvas has one zoom number — `pixelScale`, real screen pixels per image pixel — shared by the Apple and Web editors. `0` means fit-to-viewport, `1.0` means pixel-perfect 100% (one image pixel on one _device_ pixel, so 100% is genuinely 1:1 on a Retina display), and the cap is `8.0`. Everything downstream is a consequence of that number: at fit, both platforms render the whole image at viewport resolution and nothing more; zoomed in past 100%, rendering a full 100 MP frame would be wasteful and, on iOS, fatal, so Apple switches to developing **only the visible rectangle of source pixels** through a dedicated tile entry point in the Rust core. The Rust tile path pads the requested rectangle so filters that read neighbouring pixels still see context, then trims the pad away — the pad grows per render to the reach of the spatial stages the model engages, frame-anchored point ops are told where the tile sits, and the few stages that need a whole-frame product (dehaze, BM3D deep denoise) or an opcode mapping are _refused_ so the caller falls back to a bounded whole-image render. Web CPU fallback uses the same single visible-patch approach at 100% and above; its sized whole-image preview remains underneath while native refinement runs.
 
-There are two distinct tile consumers on Apple, and only one of them is live. `NativeDetailRenderer` (on) develops a single viewport-sized patch and paints it as an overlay above the base preview. `TileManager` (off, behind `EditSession.deepZoomEnabled = false`) is the older 512²-grid compositor.
+Apple's tile consumer is `NativeDetailRenderer`: it develops a single viewport-sized patch and paints it as an overlay above the base preview. (The older 512²-grid `TileManager` compositor, once gated behind `EditSession.deepZoomEnabled = false`, was retired in #3288.)
 
 ## The zoom model
 
@@ -35,13 +35,12 @@ At fit, the refine target equals the fast target by construction, so refine is s
 
 Apple's refine dispatcher is `refineBody` in `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+RenderScheduling.swift`, and it picks a path in this order:
 
-1. **A crop is applied** (crop tool disarmed, non-identity crop) → skip every fast path and re-render the whole frame through `decodeAndRender(.refine)`. The viewport rect is in cropped-image coordinates while the patch/tile paths work on full-frame geometry, so only the whole-frame render is crop-aware.
+1. **A crop is applied** (crop tool disarmed, non-identity crop) → skip every fast path and re-render the whole frame through `decodeAndRender(.refine)`. The viewport rect is in cropped-image coordinates while the patch path works on full-frame geometry, so only the whole-frame render is crop-aware.
 2. **Native detail** — RAW asset, a real file URL, and `pixelScale >= 1.0` with a non-empty visible rect → develop the visible patch (below). This is the production 100% path.
-3. **Deep zoom tiles** — same gate plus `EditSession.deepZoomEnabled`, which is `false`. Dead in production.
-4. **Short-circuit** — refine target no bigger than the last fast target → just persist the current preview to cache.
-5. **Fallback** — bounded whole-image refine at `refinedTargetSize`.
+3. **Short-circuit** — refine target no bigger than the last fast target → just persist the current preview to cache.
+4. **Fallback** — bounded whole-image refine at `refinedTargetSize`.
 
-Native detail returns `false` when the Rust tile entry rejects the model, which drops through to step 5.
+Native detail returns `false` when the Rust tile entry rejects the model, which drops through to step 4.
 
 ## The native-detail patch (Apple, live)
 
@@ -128,23 +127,16 @@ For `RenderQuality::Preview` the demosaic is a half-res quad, so the trim coordi
 | ----------------------------- | ------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | `RawImageCache`               | `MapleCore/Cache/RawImageCache.swift` | `(URL, mtime)`                                                                   | single entry, process-wide `.shared`, in-memory only |
 | `NativeDetailRenderer` handle | `NativeDetailRenderer.swift`          | `(URL, source mtime, stripped baked model)`                                      | one handle per session                               |
-| `TileManager` entries         | `MapleCore/Cache/TileManager.swift`   | `(url hash, sidecar mtime, view-transform version, zoom bucket, tile X, tile Y)` | byte-budget LRU, 256 MB                              |
 
 `RawImageCache` holds the opaque `MapleRawHandle` from the rawler decode. It cannot be persisted to disk — the handle is a pointer to a heap-allocated decode result. Its most important property is the `pendingDecodes` map: without it, N concurrent tile requests each start their own decode, which on iPad meant 20 visible tiles triggering 20 parallel decodes of a 100 MP RAW at 7–22 s each under memory contention. Second-through-Nth callers now await the first caller's task.
 
 `NativeDetailRenderer`'s handle key uses only decode-baked fields, so ordinary slider changes reuse the decoded mosaic and only baked-field edits (highlight recovery, for instance) reopen it. On reopen the old handle is released _before_ the new one opens, so the two decoded mosaics (30–300 MB each) never coexist.
 
-## `TileManager` and the `deepZoomEnabled` gate
+## The retired grid compositor (`TileManager`, #3288)
 
-`EditSession.deepZoomEnabled` is declared in `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession.swift` as `nonisolated(unsafe) public static var deepZoomEnabled: Bool = false`. **It defaults to off.** It is public and non-isolated so a settings toggle, launch argument, or UI-test harness could flip it from any actor; nothing in the shipping app does.
+Before native detail, the 100% path was `TileManager` (`MapleCore/Cache/TileManager.swift`, since deleted): a 512²-tile grid compositor gated behind `EditSession.deepZoomEnabled`, which defaulted to `false` and was never flipped in the shipping app. It published scene-linear tiles directly and ran each filter chain independently per tile, so local-context stages saw different context at tile boundaries — faint seams or per-tile colour shifts. Native detail superseded it entirely, developing one patch instead of a grid, so the compositor, its `TileKey`/`viewTransformVersion` machinery, the flag, and their tests were retired.
 
-The flag is off because the tile compositor publishes scene-linear tiles directly and runs each filter chain independently per tile, so local-context stages see different context at tile boundaries — visible as faint seams or per-tile colour shifts. The whole-image refine it defers to is slower at very high zoom (roughly 7 s for a 100 MP RAW on iPad) but has no seams. The native-detail path above then superseded it for the 100% case entirely, developing one patch instead of a grid.
-
-The compositor itself, should it be revived, works like this. Tiles are 512² in oriented full-image source pixels. Zoom is quantized to buckets `{1, 2, 4, 8}` and clamps at 8× — past that the caller upscales 8× tiles. `update(asset:viewportSourceRect:zoom:totalSourceSize:)` returns immediately with a composite of whatever tiles are already cached, anchored to the full canvas extent, and fires one background `Task` per missing tile (deduplicated by an in-flight map). Callers subscribe to `events()`, an `AsyncStream<TileKey>` that yields once per insert; `EditSession` uses it to reschedule a refine so the composite progressively fills in. Missing regions are not black: `compositeWithPreviewUnderlay` places the tile composite over an upscaled copy of the existing preview.
-
-Two subtleties worth keeping if the path is revived. The composite is anchored to a `CIImage(color: .clear)` cropped to the canvas rect, and cropped to that rect again on return — using `CIImage.empty()` leaves the extent as the bounding box of placed tiles only, and SwiftUI's `aspectRatio(.fit)` then stretches that strip into the frame, which looks like a wrong zoom. And tiles are placed with an explicit Y-flip (`height - (tileY+1) × tileSize`), because tile-grid rows run top-down while CoreImage's Y axis runs up; without it every tile is individually correct but the grid is upside-down.
-
-`TileKey.viewTransformVersion` is currently `5`, bumped whenever the scene-linear chain or the view transform changes meaning so stale tiles become unreachable.
+Kept here in case the grid is ever revived for pan-while-zoomed incremental refine: tiles were 512² in oriented full-image source pixels; zoom was quantized to buckets `{1, 2, 4, 8}` clamped at 8×. `update(asset:viewportSourceRect:zoom:totalSourceSize:)` returned immediately with a composite of cached tiles anchored to the full canvas extent and fired one background `Task` per missing tile (deduplicated by an in-flight map); callers subscribed to `events()`, an `AsyncStream<TileKey>` yielding once per insert, and `EditSession` rescheduled a refine per insert so the composite progressively filled in. Missing regions were covered by `compositeWithPreviewUnderlay`, which placed the composite over an upscaled copy of the existing preview. Two subtleties: the composite was anchored to a `CIImage(color: .clear)` cropped to the canvas rect (using `CIImage.empty()` left the extent as the placed-tiles bounding box, which SwiftUI's `aspectRatio(.fit)` then stretched into the frame like a wrong zoom), and tiles were placed with an explicit Y-flip (`height - (tileY+1) × tileSize`) because grid rows run top-down while CoreImage's Y runs up.
 
 ## Web
 
@@ -251,6 +243,6 @@ cargo test -p raw-core --features test-support --lib pipeline::render::detail
 
 The parity sweep (`pipeline/tile/tests_live_parity.rs`, plus `tests_live_parity_gaps.rs`) is the important one. It renders the same fixture and `AdjustmentModel` through both the live/refine chain and the tile develop and diffs them, which is precisely the comparison that was missing when a white-balance mismatch shipped as a visible horizontal band where refined tiles met the live canvas. The two paths express the same edit through different algebras — the live chain applies a Rec.2020 delta on top of an already-developed buffer, while the tile chain applies white balance in camera space before the DCP and retargets the profile — so the sweep is what proves they agree, and the gaps file pins the identity case (parked at the decode anchor, both must reproduce the decode buffer itself). `tests_full_parity.rs` is the other half: the tile against the whole-image develop, which is the oracle for the stages the live chain cannot exercise — vignette and local adjustments (bit-exact, given the window), capture sharpening, and a case with every spatial slider engaged (within a float-ordering ceiling). It is fixture-free by construction, built on a synthesised Bayer chart, so it runs on every CI machine. Fixture-gated tile-vs-full comparisons live in `tests_render_anchors.rs`.
 
-Apple-side coverage is in `src/apple/Packages/MapleCore/Tests/MapleCoreTests/`: `NativeDetailLODTests` (the three-rect geometry), `NativeDetailAEGainTests` (that `aeGain: 1.0` through the new FFI binding is bit-identical to the old entry, and that a raised gain actually brightens), `NativeDetailExitForcesFreshRenderTests`, `TileManagerByteBudgetTests` (LRU eviction), and `DeepZoomTileRenderingTests`.
+Apple-side coverage is in `src/apple/Packages/MapleCore/Tests/MapleCoreTests/`: `NativeDetailLODTests` (the three-rect geometry), `NativeDetailAEGainTests` (that `aeGain: 1.0` through the new FFI binding is bit-identical to the old entry, and that a raised gain actually brightens), `NativeDetailExitForcesFreshRenderTests`, and `DeepZoomTileRenderingTests` (tile FFI, `RawImageCache`, visible-region math and wiring).
 
 See [pipeline](pipeline.md) for the develop chain the tile path is a subset of, [caching](caching.md) for the rest of the cache hierarchy, and [testing](testing.md) for the full gate list.

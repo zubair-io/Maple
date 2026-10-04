@@ -1,11 +1,13 @@
 // DeepZoomTileRenderingTests.swift — Plan 3 (Ticket 06 M4) integration
 // tests for the tile FFI, MapleRawHandle wrapper,
-// `ImageEditPipeline.decodePreviewTile`, the TileManager + AsyncStream
-// notification, and `EditSession.computeVisibleSourceRect`.
+// `ImageEditPipeline.decodePreviewTile`, `RawImageCache`, and
+// `EditSession.computeVisibleSourceRect` + `updateTileVisibleRegion`.
+// (The 512²-grid `TileManager` compositor and its tests were retired
+// in #3288 — native detail is the 100% path; the tile FFI this file
+// covers is what native detail renders through.)
 //
 // Cross-links:
 //   .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md Task 4
-//   .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md Task 6
 //   .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md Task 8
 //
 // Tests are split into two tiers:
@@ -21,34 +23,25 @@
 //          -destination 'platform=macOS' build`
 //   Launch the resulting Maple.app and open any RAW (the reference
 //   100 MP DNG at test-fixtures/raws/dji-mavic3pro-100mp.dng works
-//   well — its detail makes tile boundaries obvious).
+//   well — its detail makes patch boundaries obvious).
 //
 //   1. The image opens at fit zoom. Indicator shows e.g. "18%".
-//      EditSession.pixelScale is 0; the deep-zoom branch is OFF.
+//      EditSession.pixelScale is 0; the native-detail branch is OFF.
 //
 //   2. Press ⌘1. pixelScale jumps to 1.0; the indicator shows "100%".
-//      `_scheduleRefine` debounces 250 ms then routes through the
-//      tile manager. The upscaled cached preview shows through while
-//      tiles fetch. Within ~500 ms the first tiles in the viewport
-//      should pop in (sharper edges, no resampling artifacts).
+//      `_scheduleRefine` debounces 150 ms then renders the
+//      native-detail patch. The sized preview shows through while
+//      the patch develops. Within ~500 ms the viewport should pop
+//      sharp (sharper edges, no resampling artifacts).
 //
 //   3. Drag-pan with two fingers (or click-drag). On `.onEnded`
-//      `notifyVisibleRegion` pushes the new viewport rect; the tile
-//      manager fetches whichever new tiles entered view. Cache hits
-//      paint immediately; misses fade in.
+//      the new viewport rect is pushed; small pans land inside the
+//      already-published patch (#2063 containment) and need no
+//      re-render, larger pans develop a fresh patch.
 //
-//   4. Pinch (Magnify) past 2.0 / 4.0 — zoom buckets (1, 2, 4, 8)
-//      kick in via TileManager.zoomBucket. New tiles are fetched at
-//      the next bucket; the previous bucket's tiles stay cached.
-//
-//   5. Move the dehaze slider (or any heavy filter). Tile path
-//      currently has no dehaze gating yet; the tiles render at the
-//      decoded model. Future plan tightens this.
-//
-//   Watch for: NO stutter on slider ticks (fit-mode budget is 16 ms;
-//   deep-zoom miss is bounded by RawImageCache hit + one renderTile
-//   call per missing tile). NO blank canvas — the upscaled preview
-//   underlay must always be visible while tiles fetch.
+//   Watch for: NO stutter on slider ticks (fit-mode budget is 16 ms).
+//   NO blank canvas — the sized preview underlay must always be
+//   visible while the patch develops.
 
 import XCTest
 import CoreImage
@@ -322,262 +315,6 @@ final class DeepZoomTileRenderingTests: XCTestCase {
         }
         let cached = await cache.cachedURL
         XCTAssertNil(cached, "failed open must NOT populate the cache")
-    }
-
-    // MARK: - Task 6: TileManager (geometry — pure functions, no fixture)
-
-    /// Geometry test: viewport (0,0)-(2048,1024) in source pixels at
-    /// zoom 1.0 should request 4×2 = 8 tiles at 512² each.
-    func testTileManagerComputesVisibleTileSet() {
-        let viewport = CGRect(x: 0, y: 0, width: 2048, height: 1024)
-        let zoom = CGFloat(1.0)
-        let tiles = TileManager.tileSet(forVisibleSourceRect: viewport, zoom: zoom, tileSize: 512)
-        XCTAssertEqual(tiles.count, 8)
-        XCTAssertTrue(tiles.contains { $0.tileX == 0 && $0.tileY == 0 })
-        XCTAssertTrue(tiles.contains { $0.tileX == 3 && $0.tileY == 1 })
-    }
-
-    /// A non-axis-aligned viewport rounds outward — minX = 100 floors to
-    /// tile 0, maxX = 1100 ceils to tile 3.
-    func testTileManagerTileSetRoundsOutward() {
-        let viewport = CGRect(x: 100, y: 100, width: 1000, height: 1000)
-        let tiles = TileManager.tileSet(forVisibleSourceRect: viewport, zoom: 1.0, tileSize: 512)
-        XCTAssertTrue(tiles.contains { $0.tileX == 0 && $0.tileY == 0 },
-                      "minX=100 must include tile col 0")
-        // maxX=1100 / 512 = 2.148 → ceil-1 = 2, so col 2 is the last col.
-        XCTAssertTrue(tiles.contains { $0.tileX == 2 },
-                      "maxX=1100 must include tile col 2")
-    }
-
-    /// Empty rect produces an empty tile set.
-    func testTileManagerTileSetEmptyRect() {
-        let tiles = TileManager.tileSet(
-            forVisibleSourceRect: .zero, zoom: 1.0, tileSize: 512)
-        // CGRect.zero has 0 width / height — the function should produce
-        // a single zero-sized region (or zero tiles); verify it doesn't
-        // crash and produces ≤ 1 tile.
-        XCTAssertLessThanOrEqual(tiles.count, 1)
-    }
-
-    /// Zoom bucket boundaries match the brief: thresholds at 2×, 4×, 8×.
-    func testTileManagerZoomBucketsAt1And2And4And8() {
-        XCTAssertEqual(TileManager.zoomBucket(for: 0.5), 1)
-        XCTAssertEqual(TileManager.zoomBucket(for: 0.99), 1)
-        XCTAssertEqual(TileManager.zoomBucket(for: 1.0), 1)
-        XCTAssertEqual(TileManager.zoomBucket(for: 1.99), 1)
-        XCTAssertEqual(TileManager.zoomBucket(for: 2.0), 2)
-        XCTAssertEqual(TileManager.zoomBucket(for: 2.5), 2)
-        XCTAssertEqual(TileManager.zoomBucket(for: 4.0), 4)
-        XCTAssertEqual(TileManager.zoomBucket(for: 7.99), 4)
-        XCTAssertEqual(TileManager.zoomBucket(for: 8.0), 8)
-        // Above 8× clamps to 8 — the brief caps zoom buckets at 8×.
-        XCTAssertEqual(TileManager.zoomBucket(for: 16.0), 8)
-        XCTAssertEqual(TileManager.zoomBucket(for: 100.0), 8)
-    }
-
-    /// `urlHash` is deterministic — same URL always hashes to the same
-    /// 32-char hex string. The hash is used in `TileKey` so cache
-    /// lookups are stable across Task hops.
-    func testTileManagerURLHashDeterministic() {
-        let u1 = URL(fileURLWithPath: "/path/to/asset_a.dng")
-        let u2 = URL(fileURLWithPath: "/path/to/asset_a.dng")
-        let u3 = URL(fileURLWithPath: "/path/to/asset_b.dng")
-        XCTAssertEqual(TileManager.urlHash(u1), TileManager.urlHash(u2))
-        XCTAssertNotEqual(TileManager.urlHash(u1), TileManager.urlHash(u3))
-        XCTAssertEqual(TileManager.urlHash(u1).count, 32, "MD5 hex is 32 chars")
-    }
-
-    // MARK: - Task 6: TileManager (cache lifecycle)
-
-    /// `update` with no cached tiles and a viewport that demands tiles
-    /// returns an empty composite (CIImage.empty) — the caller is then
-    /// responsible for showing the upscaled preview underlayer while
-    /// tiles render. Subsequent calls (after tiles populate) return a
-    /// non-empty composite.
-    func testTileManagerUpdateMissReturnsEmptyComposite() async throws {
-        guard let url = fixtureURL() else {
-            throw XCTSkip("test_0002.dng fixture not present; skipping")
-        }
-        let asset = AssetRef(url: url)
-        let cache = RawImageCache()
-        let mgr = TileManager(rawCache: cache)
-        // Demand a single tile at (0,0). On first call, no tiles are
-        // cached → composite is the clear canvas extent. The miss kicks off a render
-        // task in the background.
-        let composite = try await mgr.update(
-            asset: asset,
-            viewportSourceRect: CGRect(x: 0, y: 0, width: 256, height: 256),
-            zoom: 1.0,
-            totalSourceSize: CGSize(width: 4000, height: 4000)
-        )
-        let count = await mgr.testCachedTileCount()
-        XCTAssertEqual(count, 0, "first update must have 0 cached tiles")
-        XCTAssertEqual(composite.extent, CGRect(x: 0, y: 0, width: 4000, height: 4000),
-                       "composite must be anchored to the full canvas size")
-    }
-
-    /// After the in-flight render completes the tile is cached; the
-    /// next `update` call returns a non-empty composite. Drives the
-    /// miss → render → hit flow end-to-end against a real fixture.
-    func testTileManagerUpdatePopulatesCacheAfterRender() async throws {
-        guard let url = fixtureURL() else {
-            throw XCTSkip("test_0002.dng fixture not present; skipping")
-        }
-        let asset = AssetRef(url: url)
-        let cache = RawImageCache()
-        let mgr = TileManager(rawCache: cache)
-        // Force a synchronous fetch — bypass the fire-and-forget by
-        // using the test entry point.
-        let key = TileKey(
-            urlHash: TileManager.urlHash(url),
-            sidecarMtime: Date.distantPast,
-            viewTransformVersion: 2,
-            zoomBucket: 1,
-            tileX: 2, tileY: 2
-        )
-        try await mgr.testFetchTileSync(key: key, asset: asset)
-        let count = await mgr.testCachedTileCount()
-        XCTAssertEqual(count, 1, "synchronous fetch must populate the cache")
-    }
-
-    /// `invalidate(asset:)` drops every tile whose `urlHash` matches
-    /// the asset's URL, leaving tiles for other assets intact.
-    func testTileManagerInvalidatePerAsset() async throws {
-        let mgr = TileManager(rawCache: RawImageCache())
-        // Insert two synthetic tiles for asset A and one for asset B.
-        let urlA = URL(fileURLWithPath: "/tmp/A.dng")
-        let urlB = URL(fileURLWithPath: "/tmp/B.dng")
-        let assetA = AssetRef(url: urlA)
-        let assetB = AssetRef(url: urlB)
-        let img = Self.makeTinyCIImage()
-        let kA1 = TileKey(urlHash: TileManager.urlHash(urlA), sidecarMtime: .distantPast, viewTransformVersion: 2, zoomBucket: 1, tileX: 0, tileY: 0)
-        let kA2 = TileKey(urlHash: TileManager.urlHash(urlA), sidecarMtime: .distantPast, viewTransformVersion: 2, zoomBucket: 1, tileX: 1, tileY: 0)
-        let kB1 = TileKey(urlHash: TileManager.urlHash(urlB), sidecarMtime: .distantPast, viewTransformVersion: 2, zoomBucket: 1, tileX: 0, tileY: 0)
-        await mgr.testInsertTile(key: kA1, image: img)
-        await mgr.testInsertTile(key: kA2, image: img)
-        await mgr.testInsertTile(key: kB1, image: img)
-        let before = await mgr.testCachedTileCount()
-        XCTAssertEqual(before, 3)
-        await mgr.invalidate(asset: assetA)
-        let after = await mgr.testCachedTileCount()
-        XCTAssertEqual(after, 1, "invalidate(A) must drop only asset A's tiles")
-        // assetB's tile survives — verify by re-running invalidate(B).
-        await mgr.invalidate(asset: assetB)
-        let final = await mgr.testCachedTileCount()
-        XCTAssertEqual(final, 0)
-    }
-
-    /// `clear()` empties the entire cache.
-    func testTileManagerClearEmptiesCache() async {
-        let mgr = TileManager(rawCache: RawImageCache())
-        let img = Self.makeTinyCIImage()
-        let url = URL(fileURLWithPath: "/tmp/clear_test.dng")
-        for i in 0..<3 {
-            let key = TileKey(
-                urlHash: TileManager.urlHash(url), sidecarMtime: .distantPast,
-                viewTransformVersion: 2, zoomBucket: 1,
-                tileX: UInt32(i), tileY: 0
-            )
-            await mgr.testInsertTile(key: key, image: img)
-        }
-        let before = await mgr.testCachedTileCount()
-        XCTAssertEqual(before, 3)
-        await mgr.clear()
-        let after = await mgr.testCachedTileCount()
-        XCTAssertEqual(after, 0)
-    }
-
-    // MARK: - Task 8: tile-completion AsyncStream
-
-    /// `events()` yields a `TileKey` for every cache insert. Drives the
-    /// EditSession re-composite trigger: when a tile lands in the
-    /// background, the event fires and the editor knows to re-call
-    /// `update(...)` and republish the composite.
-    ///
-    /// Test strategy: subscribe, then synchronously insert two synthetic
-    /// tiles via `testInsertTile`. We expect to see exactly two events.
-    /// To avoid hanging on the never-finishing stream, we collect from
-    /// the iterator with a short timeout via `Task.race`-style pattern
-    /// (Task.sleep + Task.cancel).
-    func testTileManagerEventsFireOnInsert() async throws {
-        let mgr = TileManager(rawCache: RawImageCache())
-        let img = Self.makeTinyCIImage()
-        let url = URL(fileURLWithPath: "/tmp/events_test.dng")
-        let urlHash = TileManager.urlHash(url)
-        let stream = await mgr.events()
-        // Collect events on a background task so the test can drive
-        // inserts on the main one.
-        let collector = Task<[TileKey], Never> {
-            var collected: [TileKey] = []
-            for await key in stream {
-                collected.append(key)
-                if collected.count >= 2 { break }
-            }
-            return collected
-        }
-        // Defensive cancel after 2 seconds in case events never arrive.
-        let cancelTask = Task {
-            try? await Task.sleep(for: .milliseconds(2000))
-            collector.cancel()
-        }
-        // Yield once so the collector has reached its `for await` before
-        // we insert. Without this, fast inserts can race ahead of the
-        // subscriber on slow CI; the test would still pass on multicast,
-        // but the wait-and-then-insert pattern is what real callers do.
-        await Task.yield()
-        let k1 = TileKey(urlHash: urlHash, sidecarMtime: .distantPast,
-                         viewTransformVersion: 2, zoomBucket: 1,
-                         tileX: 0, tileY: 0)
-        let k2 = TileKey(urlHash: urlHash, sidecarMtime: .distantPast,
-                         viewTransformVersion: 2, zoomBucket: 1,
-                         tileX: 1, tileY: 0)
-        await mgr.testInsertTile(key: k1, image: img)
-        await mgr.testInsertTile(key: k2, image: img)
-        let received = await collector.value
-        cancelTask.cancel()
-        XCTAssertEqual(received.count, 2, "expected one event per insert")
-        XCTAssertTrue(received.contains(k1), "k1 must be reported")
-        XCTAssertTrue(received.contains(k2), "k2 must be reported")
-    }
-
-    /// Multiple subscribers each receive every event (multicast).
-    func testTileManagerEventsAreMulticast() async throws {
-        let mgr = TileManager(rawCache: RawImageCache())
-        let img = Self.makeTinyCIImage()
-        let url = URL(fileURLWithPath: "/tmp/multicast_test.dng")
-        let urlHash = TileManager.urlHash(url)
-        let s1 = await mgr.events()
-        let s2 = await mgr.events()
-        let c1 = Task<Int, Never> {
-            var n = 0
-            for await _ in s1 {
-                n += 1
-                if n >= 1 { break }
-            }
-            return n
-        }
-        let c2 = Task<Int, Never> {
-            var n = 0
-            for await _ in s2 {
-                n += 1
-                if n >= 1 { break }
-            }
-            return n
-        }
-        let cancelTask = Task {
-            try? await Task.sleep(for: .milliseconds(2000))
-            c1.cancel(); c2.cancel()
-        }
-        await Task.yield()
-        let key = TileKey(urlHash: urlHash, sidecarMtime: .distantPast,
-                          viewTransformVersion: 2, zoomBucket: 1,
-                          tileX: 5, tileY: 5)
-        await mgr.testInsertTile(key: key, image: img)
-        let n1 = await c1.value
-        let n2 = await c2.value
-        cancelTask.cancel()
-        XCTAssertEqual(n1, 1, "subscriber 1 must see the insert")
-        XCTAssertEqual(n2, 1, "subscriber 2 must see the same insert")
     }
 
     // MARK: - Task 8: EditSession.computeVisibleSourceRect (pure math)

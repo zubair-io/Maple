@@ -33,8 +33,8 @@
 // Fix, and why it's shaped this way: `primeMainDisplayCapability()` MUST be
 // called once, early, from the main thread (`MapleApp.init()` does this) and
 // stores the probed value into a plain `nonisolated(unsafe) static var` —
-// the SAME "process-wide, read-mostly config flag" pattern
-// `EditSession.deepZoomEnabled` already uses in this codebase. A first
+// a process-wide, read-mostly config flag, primed once from the main
+// thread and only read afterwards. A first
 // attempt at this cached-once value used a `static let` whose initializer
 // hopped to the main thread via `DispatchQueue.main.sync` when triggered
 // off-main — jules' review caught that this DEADLOCKS: Swift's one-time
@@ -99,8 +99,7 @@ public enum CanvasColorSpace: Int, CaseIterable, Sendable {
     public var wireValue: UInt32 { UInt32(rawValue) }
 
     /// Whether the main display reports the Display P3 gamut — a cached,
-    /// process-wide, read-mostly flag (same shape as
-    /// `EditSession.deepZoomEnabled`). `false` (conservative: sRGB) until
+    /// process-wide, read-mostly flag. `false` (conservative: sRGB) until
     /// `primeMainDisplayCapability()` runs; see the file banner's THREAD
     /// SAFETY note for why this is a plain var and not a lazily-computed
     /// `static let`.

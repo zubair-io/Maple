@@ -81,7 +81,7 @@ When a GPU is available, the app opens a **live session** instead: the decoded i
 
 The GPU is never the reference. `raw-core`'s CPU chain is the oracle, and CI diffs the WGSL chain against it (the `raw-gpu` job in `.github/workflows/raw-pipeline.yml`).
 
-Deep zoom is a third path — a tile renderer (`raw_core::pipeline::tile`, `TileManager.swift`, the canvas zoom host on web) that renders only the visible region at native resolution. See [zoom](zoom.md).
+Deep zoom is a third path — a tile renderer (`raw_core::pipeline::tile`, `NativeDetailRenderer.swift` on Apple, the canvas zoom host on web) that renders only the visible region at native resolution. See [zoom](zoom.md).
 
 ## The scene-referred invariant
 
