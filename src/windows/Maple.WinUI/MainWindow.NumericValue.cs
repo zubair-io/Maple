@@ -21,12 +21,12 @@ public sealed partial class MainWindow
             SmallChange = slider.StepFrequency,
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
         };
-        AutomationProperties.SetName(number, slider.Label);
+        AutomationProperties.SetName(number, slider.AccessibleName);
         number.Resources["TextControlBorderBrushFocused"] = Application.Current.Resources["MaplePrimary"];
         var dialog = new ContentDialog
         {
             XamlRoot = Content.XamlRoot,
-            Title = slider.Label,
+            Title = slider.AccessibleName,
             Content = number,
             PrimaryButtonText = "Apply",
             CloseButtonText = "Cancel",

@@ -18,6 +18,7 @@ namespace Maple.WinUI.ViewModels
         private bool _suppress;
 
         public string Label { get; }
+        public string AccessibleName { get; }
         public double Minimum { get; }
         public double Maximum { get; }
         public double StepFrequency { get; }
@@ -66,10 +67,11 @@ namespace Maple.WinUI.ViewModels
             EditSessionViewModel session, string label,
             double min, double max, double step,
             Func<AdjustmentState, double> get, Action<AdjustmentState, double> set,
-            Func<double, string>? format = null, bool commitOnRelease = false)
+            Func<double, string>? format = null, bool commitOnRelease = false, string? accessibleName = null)
         {
             _session = session;
             Label = label;
+            AccessibleName = accessibleName ?? label;
             Minimum = min;
             Maximum = max;
             StepFrequency = step;
@@ -411,9 +413,9 @@ namespace Maple.WinUI.ViewModels
             Func<AdjustmentState, double> lGet, Action<AdjustmentState, double> lSet)
         {
             Band = band;
-            Hue = new AdjustmentSliderViewModel(s, "Hue", -100, 100, 1, hGet, hSet);
-            Sat = new AdjustmentSliderViewModel(s, "Saturation", -100, 100, 1, sGet, sSet);
-            Lum = new AdjustmentSliderViewModel(s, "Luminance", -100, 100, 1, lGet, lSet);
+            Hue = new AdjustmentSliderViewModel(s, "Hue", -100, 100, 1, hGet, hSet, accessibleName: $"{band} hue");
+            Sat = new AdjustmentSliderViewModel(s, "Saturation", -100, 100, 1, sGet, sSet, accessibleName: $"{band} saturation");
+            Lum = new AdjustmentSliderViewModel(s, "Luminance", -100, 100, 1, lGet, lSet, accessibleName: $"{band} luminance");
         }
     }
 }
