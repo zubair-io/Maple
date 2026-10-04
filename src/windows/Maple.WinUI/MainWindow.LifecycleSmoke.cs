@@ -327,6 +327,7 @@ namespace Maple.WinUI
 
         private async Task VerifyResponsiveDesignAsync()
         {
+            await VerifyButtonMinimumHeightAsync();
             VerifyDragBarAccessibility();
             VerifyMaskSelection();
             var photo = ViewModel.SelectedPhoto;

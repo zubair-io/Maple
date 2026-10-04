@@ -126,6 +126,8 @@ namespace Maple.UI.Atoms
 
         private bool _isPointerOver;
         private bool _isPressed;
+        private Style? _sizedStyle;
+        private MuiButtonSize _styledSize;
 
         // See the IsLoading/IsEnabled interplay comment at the tail of
         // Rebuild() for why these exist: we force the platform IsEnabled
@@ -200,15 +202,25 @@ namespace Maple.UI.Atoms
 
         private void Rebuild()
         {
-            Style = (Style)Application.Current.Resources[StyleKey(Variant)];
-            ApplyColors();
-
-            (Padding, FontSize, MinHeight) = ButtonSize switch
+            var (padding, fontSize, minimumHeight) = ButtonSize switch
             {
                 MuiButtonSize.Sm => (new Thickness(8, 4, 8, 4), 11.0, 28.0),
                 MuiButtonSize.Lg => (new Thickness(24, 12, 24, 12), 15.0, 44.0),
                 _ => (new Thickness(16, 8, 16, 8), 13.0, 36.0),
             };
+            Padding = padding;
+            FontSize = fontSize;
+            var baseStyle = (Style)Application.Current.Resources[StyleKey(Variant)];
+            if (_sizedStyle == null || _sizedStyle.BasedOn != baseStyle || _styledSize != ButtonSize)
+            {
+                // #4209: size defaults belong below local values and bindings
+                // in WinUI precedence; rebuilds must not replace caller minima.
+                _sizedStyle = new Style(typeof(Button)) { BasedOn = baseStyle };
+                _sizedStyle.Setters.Add(new Setter { Property = MinHeightProperty, Value = minimumHeight });
+                _styledSize = ButtonSize;
+            }
+            Style = _sizedStyle;
+            ApplyColors();
 
             var hasIcon = !string.IsNullOrEmpty(IconName);
             _icon.IconName = IconName ?? string.Empty;
