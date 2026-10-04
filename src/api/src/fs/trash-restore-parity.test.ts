@@ -19,7 +19,9 @@ describe('shared restore collision corpus (#4139)', () => {
         const incoming =
           '<x:xmpmeta xmlns:x="adobe:ns:meta/"><foreign:retained xmlns:foreign="urn:test">case-folded bytes</foreign:retained></x:xmpmeta>';
         const sidecars: string[] = 'incoming' in item ? (item.incoming ?? []) : [];
-        for (const name of sidecars) await fs.writeFile(path.join(trash, name), incoming);
+        const unpaired: string[] = 'unpaired' in item ? (item.unpaired ?? []) : [];
+        for (const name of [...sidecars, ...unpaired])
+          await fs.writeFile(path.join(trash, name), incoming);
         const occupied = '<foreign>occupied</foreign>';
         for (const name of item.occupied) await fs.writeFile(path.join(root, name), occupied);
         const result = await moveOutOfTrash(source, path.join(root, item.base));
@@ -33,6 +35,8 @@ describe('shared restore collision corpus (#4139)', () => {
           expect(await fs.readFile(renamed!, 'utf8')).toBe(incoming);
           expect(await Bun.file(path.join(trash, name)).exists()).toBe(false);
         }
+        for (const name of unpaired)
+          expect(await fs.readFile(path.join(trash, name), 'utf8')).toBe(incoming);
         for (const name of item.occupied)
           expect(await fs.readFile(path.join(root, name), 'utf8')).toBe(occupied);
       } finally {

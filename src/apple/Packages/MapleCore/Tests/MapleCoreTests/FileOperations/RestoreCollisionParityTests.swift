@@ -35,7 +35,7 @@ final class RestoreCollisionParityTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: SidecarPath.sidecarURL(for: photo)), occupiedXmp)
   }
 
-  func testPhysicalLocalCaseFoldedSidecarFollowsRestoreCollision() async throws {
+  func testPhysicalLocalCaseFoldedWorkflowSidecarFollowsRestoreCollision() async throws {
     let root = try SidecarContractIO.makeTempDirectory(prefix: "restore-casefold")
     defer { try? FileManager.default.removeItem(at: root) }
     let trash = root.appendingPathComponent(".maple/trash", isDirectory: true)
@@ -43,27 +43,30 @@ final class RestoreCollisionParityTests: XCTestCase {
     let original = try physicalRAW()
     let xml = Data(NativeWorkflowControlFixture.input().utf8)
     let photo = trash.appendingPathComponent("PHOTO.DNG")
-    let sidecar = trash.appendingPathComponent("photo.xmp")
+    let sidecar = try RestoreCaseFoldedWorkflowFixture.stage(in: trash, bytes: xml)
     let occupied = root.appendingPathComponent("PHOTO.DNG")
     let occupant = Data("occupied namespace".utf8)
     try original.write(to: photo)
-    try xml.write(to: sidecar)
     try occupant.write(to: occupied)
     do {
       let result = try await LocalFileOperations.restoreFromMapleTrash(photo, libraryRoot: root)
       let output = URL(fileURLWithPath: result.primaryPath)
       XCTAssertEqual(output.lastPathComponent, "PHOTO.restored.DNG")
       XCTAssertEqual(try Data(contentsOf: output), original)
-      XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("PHOTO.restored.xmp")), xml)
+      XCTAssertEqual(
+        try Data(
+          contentsOf: root.appendingPathComponent(RestoreCaseFoldedWorkflowFixture.restoredName)),
+        xml)
     } catch {
       XCTAssertEqual(try Data(contentsOf: photo), original)
       XCTAssertEqual(try Data(contentsOf: sidecar), xml)
       throw error
     }
+    try RestoreCaseFoldedWorkflowFixture.assertRejectedRetained(in: trash, bytes: xml)
     XCTAssertEqual(try Data(contentsOf: occupied), occupant)
   }
 
-  func testAuthenticatedSMBCaseFoldedSidecarFollowsRestoreCollision() async throws {
+  func testAuthenticatedSMBCaseFoldedWorkflowSidecarFollowsRestoreCollision() async throws {
     let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     do {
       let original = try physicalRAW()
@@ -71,9 +74,8 @@ final class RestoreCollisionParityTests: XCTestCase {
       let trash = fixture.share.appendingPathComponent(".maple/trash", isDirectory: true)
       try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
       let photo = trash.appendingPathComponent("PHOTO.DNG")
-      let sidecar = trash.appendingPathComponent("photo.xmp")
+      let sidecar = try RestoreCaseFoldedWorkflowFixture.stage(in: trash, bytes: xml)
       try original.write(to: photo)
-      try xml.write(to: sidecar)
       let occupant = try Data(contentsOf: fixture.raw)
       let connected = await fixture.source.client
       let client = try XCTUnwrap(connected)
@@ -86,12 +88,15 @@ final class RestoreCollisionParityTests: XCTestCase {
           try Data(contentsOf: fixture.share.appendingPathComponent("PHOTO.restored.DNG")), original
         )
         XCTAssertEqual(
-          try Data(contentsOf: fixture.share.appendingPathComponent("PHOTO.restored.xmp")), xml)
+          try Data(
+            contentsOf: fixture.share.appendingPathComponent(
+              RestoreCaseFoldedWorkflowFixture.restoredName)), xml)
       } catch {
         XCTAssertEqual(try Data(contentsOf: photo), original)
         XCTAssertEqual(try Data(contentsOf: sidecar), xml)
         throw error
       }
+      try RestoreCaseFoldedWorkflowFixture.assertRejectedRetained(in: trash, bytes: xml)
       XCTAssertEqual(try Data(contentsOf: fixture.raw), occupant)
       await fixture.close()
     } catch {
