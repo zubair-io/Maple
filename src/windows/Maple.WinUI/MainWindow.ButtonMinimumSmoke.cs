@@ -56,7 +56,7 @@ public sealed partial class MainWindow
         {
             await Task.Delay(30);
             root.UpdateLayout();
-            if (Math.Abs(button.MinHeight - expected) > .5 || Math.Abs(button.ActualHeight - expected) > .5)
+            if (Math.Abs(button.MinHeight - expected) > .5 || button.ActualHeight < expected - .5)
                 throw new InvalidOperationException($"Button minimum was overwritten or not realized: expected={expected}, "
                     + $"minimum={button.MinHeight}, actual={button.ActualHeight}");
         }
