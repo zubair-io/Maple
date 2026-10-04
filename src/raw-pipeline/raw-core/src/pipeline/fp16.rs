@@ -43,14 +43,19 @@ pub fn f32_to_f16_bits(x: f32) -> u16 {
         if fp16_exp < -10 {
             return sign;
         }
-        // Add the implicit 1 and shift right to align in fp16 space.
-        // fp16 subnormal precision = 10 bits below 2^-14.
+        // #4211: binary16 subnormals have a fixed 2^-24 quantum. The
+        // float32 significand therefore shifts by -unbiased_exp - 1,
+        // equivalently 14 - fp16_exp, not 14 - unbiased_exp.
         let mant_with_implicit = mant_bits | 0x00800000;
-        let shift = (14 - unbiased_exp) as u32;
-        // Round-to-nearest-even on the shifted-out bits.
-        let shifted = mant_with_implicit >> (shift - 10 - 1); // keep 1 guard bit
-        let rounded = (shifted + 1) >> 1; // round half-up
-        return sign | ((rounded & 0x03ff) as u16);
+        let shift = (14 - fp16_exp) as u32;
+        let truncated = mant_with_implicit >> shift;
+        let remainder = mant_with_implicit & ((1 << shift) - 1);
+        let halfway = 1 << (shift - 1);
+        let rounded = truncated
+            + u32::from(remainder > halfway || (remainder == halfway && truncated & 1 != 0));
+        // Rounding can carry into 0x0400, the smallest normal. Masking the
+        // result to ten mantissa bits would incorrectly turn that into zero.
+        return sign | rounded as u16;
     }
     // Normal range. Extract top 10 mantissa bits, with round-to-nearest
     // on the next bit.
@@ -108,6 +113,54 @@ pub(crate) fn f16_bits_to_f32(bits: u16) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #4211: transport must agree with IEEE binary16, including every signed
+    /// subnormal and zero. The independent existing half crate is the oracle.
+    #[test]
+    fn every_finite_half_value_and_infinity_reencodes_exactly() {
+        for bits in 0..=u16::MAX {
+            let value = half::f16::from_bits(bits);
+            if !value.is_nan() {
+                assert_eq!(f32_to_f16_bits(value.to_f32()), bits, "half 0x{bits:04x}");
+            }
+        }
+    }
+
+    #[test]
+    fn adjacent_half_midpoints_and_both_neighbors_match_ties_to_even() {
+        for bits in 0..0x7bff {
+            let low = half::f16::from_bits(bits).to_f32();
+            let high = half::f16::from_bits(bits + 1).to_f32();
+            let midpoint = low + (high - low) * 0.5;
+            let samples = [
+                f32::from_bits(midpoint.to_bits() - 1),
+                midpoint,
+                f32::from_bits(midpoint.to_bits() + 1),
+            ];
+            for sample in samples {
+                for signed in [sample, -sample] {
+                    assert_eq!(
+                        f32_to_f16_bits(signed),
+                        half::f16::from_f32(signed).to_bits(),
+                        "rounding half 0x{bits:04x}, f32 0x{:08x}",
+                        signed.to_bits()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shadow_rounding_carries_into_minimum_normal_without_zeroing() {
+        let minimum_normal = 2.0_f32.powi(-14);
+        let largest_subnormal = half::f16::from_bits(0x03ff).to_f32();
+        let midpoint = largest_subnormal + (minimum_normal - largest_subnormal) * 0.5;
+        assert_eq!(f32_to_f16_bits(2.0_f32.powi(-15)), 0x0200);
+        assert_eq!(f32_to_f16_bits(midpoint), 0x0400);
+        assert_eq!(f32_to_f16_bits(-midpoint), 0x8400);
+        assert_eq!(f32_to_f16_bits(2.0_f32.powi(-25)), 0x0000);
+        assert_eq!(f32_to_f16_bits(-2.0_f32.powi(-25)), 0x8000);
+    }
 
     // Sanity tests for f32_to_f16_bits — guards against the bit-isolation
     // bug Spike 1.1 caught on the Apple side. `0x3c00` is the fp16 bit
