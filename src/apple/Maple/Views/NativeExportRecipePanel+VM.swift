@@ -216,6 +216,7 @@
       preparing = true
       error = nil
       preparation = Task {
+        var captured: NativeExportRecord?
         do {
           let destination: URL
           if let selected {
@@ -243,16 +244,32 @@
           let value = try await NativeExportCapture.record(
             sessions: sessions, recipe: chosen,
             destination: destination, workspace: queue.directory)
+          captured = value
           try Task.checkCancellation()
-          guard current == captureGeneration else { return }
+          guard current == captureGeneration else {
+            try await queue.releaseUnenqueuedCapture(value)
+            return
+          }
           try await queue.enqueue(value)
+          captured = nil
+          guard current == captureGeneration else { return }
           preparing = false
           queueRecord = value
           resume()
         } catch {
+          let failure = error
+          var cleanupError: Error?
+          if let captured {
+            do { try await queue.releaseUnenqueuedCapture(captured) } catch { cleanupError = error }
+          }
           guard current == captureGeneration else { return }
           preparing = false
-          if !(error is CancellationError) { self.error = error.localizedDescription }
+          if let cleanupError {
+            self.error =
+              "\(failure.localizedDescription) Private capture files were preserved because cleanup could not be verified. \(cleanupError.localizedDescription)"
+          } else if !(failure is CancellationError) {
+            self.error = failure.localizedDescription
+          }
         }
       }
     }
