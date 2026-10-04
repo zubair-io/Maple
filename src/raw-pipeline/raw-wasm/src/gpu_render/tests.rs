@@ -542,3 +542,21 @@ fn stripped_prefix_changes_on_genuine_prefix_edits() {
 
 #[path = "tests_opcodes.rs"]
 mod opcodes;
+
+/// No-preview Auto fits must reach the Web chain as an absent curve. No GPU
+/// is needed: a present identity curve would fail the empty-artifact assertion.
+#[test]
+fn no_preview_auto_fit_keeps_web_curve_absent() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng");
+    let bytes = std::fs::read(path).expect("committed synthetic DNG");
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode synthetic DNG");
+    let mut model = AdjustmentModel::default();
+    model.profile = Profile::Auto;
+    let (curve, size, data) = super::fit_profile_artifacts(&raw, &bytes, "dng", &model);
+    assert!(
+        curve.is_empty(),
+        "absent Auto curve must not become identity"
+    );
+    assert_eq!(data, auto_profile::lut::ColorLut::identity(size).data);
+}

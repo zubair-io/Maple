@@ -105,3 +105,18 @@ fn cached_fit_bakes_without_file_read_and_respects_quality() {
          reaching the decode would produce rc 7 on the garbage file"
     );
 }
+
+/// Exercise the exact composer used by the legacy FFI, including white, where
+/// substituting an identity curve would introduce its highlight knee.
+#[test]
+fn residual_only_legacy_cube_omits_curve_knee() {
+    let residual = non_identity_residual(5);
+    let actual = bake_fitted_artifacts(None, Some(residual.clone()), 9).unwrap();
+    let mut expected = ColorLut::identity(9).data;
+    residual.apply(&mut expected);
+    assert_eq!(actual, expected);
+    let old = bake_auto_profile_lut(&ProfileCurve::identity(), &residual, 9);
+    assert!(actual.iter().zip(old).any(|(a, b)| (a - b).abs() > 0.01));
+    assert_eq!(&actual[actual.len() - 3..], &[1.0; 3]);
+    assert!(bake_fitted_artifacts(None, None, 9).is_none());
+}

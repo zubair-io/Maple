@@ -405,10 +405,7 @@ fn full_gpu_chain_matches_composed_cpu_oracle() {
     }
 }
 
-/// The aggressive case must NOT be a near-no-op: if the chain barely moved the
-/// image, a tight parity number would be a false green. Assert every engaged
-/// stage class measurably changed the pixels. (Separate from the parity gate so a
-/// vacuous-input regression is a distinct, legible failure.)
+/// An absent Auto curve must match the residual-only CPU tail across edits.
 #[test]
 fn absent_auto_curve_full_chain_matches_cpu_residual_only() {
     let (w, h) = (8, 8);
@@ -434,6 +431,10 @@ fn absent_auto_curve_full_chain_matches_cpu_residual_only() {
     }
 }
 
+/// The aggressive case must NOT be a near-no-op: if the chain barely moved the
+/// image, a tight parity number would be a false green. Assert every engaged
+/// stage class measurably changed the pixels. (Separate from the parity gate so a
+/// vacuous-input regression is a distinct, legible failure.)
 #[test]
 fn aggressive_case_is_non_vacuous() {
     let (w, h) = (8usize, 8usize);

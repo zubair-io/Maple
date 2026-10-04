@@ -303,7 +303,7 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
     n: u32,
     out: *mut f32,
 ) -> i32 {
-    use raw_core::view::auto_profile::{bake_auto_profile_lut, bake_profile_lut, MAX_LUT_SIZE};
+    use raw_core::view::auto_profile::MAX_LUT_SIZE;
     if raw_path.is_null() || out.is_null() {
         return -1;
     }
@@ -427,15 +427,9 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
             // Not Auto, or no embedded JPEG (both stages None) — host AgX.
             None => return 1,
         };
-        let lut = match (curve_opt, residual_opt) {
-            (Some(curve), Some(residual)) => bake_auto_profile_lut(&curve, &residual, n),
-            (Some(curve), None) => bake_profile_lut(&curve, n),
-            (None, Some(residual)) => {
-                let mut cube = raw_core::view::auto_profile::lut::ColorLut::identity(n).data;
-                residual.apply(&mut cube);
-                cube
-            }
-            (None, None) => return 1,
+        let lut = match bake_fitted_artifacts(curve_opt, residual_opt, n) {
+            Some(lut) => lut,
+            None => return 1,
         };
         // `bake_*` always return exactly `n³ * 3` for an accepted `n`; guard the
         // unsafe copy anyway so a future layout change can't OOB. Distinct `9`
@@ -481,3 +475,22 @@ fn decode_auto_lut_cached(
 #[cfg(test)]
 #[path = "auto_profile_tests.rs"]
 mod auto_profile_tests;
+
+/// Compose the legacy FFI cube without introducing an absent curve stage.
+fn bake_fitted_artifacts(
+    curve: Option<raw_core::view::auto_profile::ProfileCurve>,
+    residual: Option<raw_core::view::auto_profile::lut::ColorLut>,
+    n: usize,
+) -> Option<Vec<f32>> {
+    use raw_core::view::auto_profile::{bake_auto_profile_lut, bake_profile_lut};
+    Some(match (curve, residual) {
+        (Some(curve), Some(residual)) => bake_auto_profile_lut(&curve, &residual, n),
+        (Some(curve), None) => bake_profile_lut(&curve, n),
+        (None, Some(residual)) => {
+            let mut cube = raw_core::view::auto_profile::lut::ColorLut::identity(n).data;
+            residual.apply(&mut cube);
+            cube
+        }
+        (None, None) => return None,
+    })
+}
