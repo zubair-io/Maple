@@ -1,6 +1,7 @@
 using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -31,17 +32,11 @@ namespace Maple.UI
     /// The row is a plain Grid/Border (NOT a native Button) with its own
     /// Tapped/KeyDown-driven invoke pattern — deliberately, so a nested
     /// interactive TrailingContent control isn't a Button-inside-Button.
-    /// WinUI's routed-event Handled flag already stops a descendant
-    /// control's own Click/Tapped from also invoking this row's handler
-    /// (standard routed-event semantics, not a custom guard this control
-    /// has to implement), which is exactly the accessibility contract
-    /// list-row.md asks for.
+    /// Trailing controls retain their own keyboard and pointer actions.
     ///
-    /// KNOWN GAP: `AutomationProperties.SetName` appends ", current" while
-    /// Active rather than a native `aria-current`/SelectionItem-pattern
-    /// equivalent — WinUI's Button/ContentControl automation peers don't
-    /// expose an IsSelected-style property the way a ListViewItem does, and
-    /// this wave has no compiler to verify a custom AutomationPeer against.
+    /// Active is also exposed through the native ItemStatus property. These
+    /// rows are independently composed actions, not children of a Selector;
+    /// they do not invent a selection container or mutate caller-owned Active.
     /// </summary>
     public sealed class MuiListRow : ContentControl
     {
@@ -59,7 +54,13 @@ namespace Maple.UI
 
         public static readonly DependencyProperty ActiveProperty =
             DependencyProperty.Register(nameof(Active), typeof(bool), typeof(MuiListRow),
-                new PropertyMetadata(false, (d, _) => ((MuiListRow)d).Rebuild()));
+                new PropertyMetadata(false, (d, e) =>
+                {
+                    var row = (MuiListRow)d;
+                    row.Rebuild();
+                    if (FrameworkElementAutomationPeer.FromElement(row) is MuiListRowAutomationPeer peer)
+                        peer.NotifyActiveChanged((bool)e.OldValue, (bool)e.NewValue);
+                }));
 
         public static readonly DependencyProperty WrapLabelProperty =
             DependencyProperty.Register(nameof(WrapLabel), typeof(bool), typeof(MuiListRow),
@@ -129,9 +130,18 @@ namespace Maple.UI
             _chrome.Child = _row;
             Content = _chrome;
             IsTabStop = true;
+            UseSystemFocusVisuals = true;
+            FocusVisualPrimaryBrush = R("MapleTextMain");
+            FocusVisualSecondaryBrush = R("MapleSurface");
 
-            Tapped += (_, _) => { if (IsEnabled) Pressed?.Invoke(this, EventArgs.Empty); };
+            Tapped += (_, e) => { if (IsEnabled && !IsFromTrailing(e.OriginalSource)) Pressed?.Invoke(this, EventArgs.Empty); };
             KeyDown += OnKeyDown;
+            GotFocus += (_, _) =>
+            {
+                if (FocusState != FocusState.Unfocused)
+                    FrameworkElementAutomationPeer.CreatePeerForElement(this)
+                        ?.RaiseAutomationEvent(AutomationEvents.AutomationFocusChanged);
+            };
             PointerEntered += (_, _) => { _isPointerOver = true; ApplyColors(); };
             PointerExited += (_, _) => { _isPointerOver = false; ApplyColors(); };
             IsEnabledChanged += (_, _) => Rebuild();
@@ -143,10 +153,27 @@ namespace Maple.UI
 
         private void OnKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (!IsEnabled) return;
+            if (!IsEnabled || IsFromTrailing(e.OriginalSource)) return;
             if (e.Key != Windows.System.VirtualKey.Enter && e.Key != Windows.System.VirtualKey.Space) return;
             e.Handled = true;
             Pressed?.Invoke(this, EventArgs.Empty);
+        }
+
+        protected override AutomationPeer OnCreateAutomationPeer() => new MuiListRowAutomationPeer(this);
+
+        internal bool HasPressAction => Pressed != null;
+
+        internal void InvokeFromAutomation()
+        {
+            if (!IsEnabled) throw new ElementNotEnabledException();
+            Pressed?.Invoke(this, EventArgs.Empty);
+        }
+
+        private bool IsFromTrailing(object source)
+        {
+            for (var current = source as DependencyObject; current != null; current = VisualTreeHelper.GetParent(current))
+                if (ReferenceEquals(current, _trailingHost)) return true;
+            return false;
         }
 
         private void ApplyColors()
@@ -178,7 +205,7 @@ namespace Maple.UI
             // clobber a name the consumer set explicitly — the same
             // ownership rule MuiActionButton adopted after MN1. Because
             // this control also composes the ", current" Active suffix
-            // (see the KNOWN GAP note above) onto whatever base is in
+            // onto whatever base is in
             // effect, the consumer's base is remembered separately: any
             // name that differs from what THIS control last wrote must
             // have come from the consumer, and stays the base from then
