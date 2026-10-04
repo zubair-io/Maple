@@ -404,7 +404,14 @@ namespace Maple.WinUI.Services
                 }
                 else if (lutRc != 1)
                 {
-                    throw new InvalidOperationException($"Auto Profile composition failed (rc={lutRc}): {RawFfi.LastError()}");
+                    var reason = lutRc switch
+                    {
+                        -1 => "Invalid Auto Profile artifacts or output dimensions.",
+                        -2 => "Auto Profile output capacity is insufficient.",
+                        99 => RawFfi.LastError() ?? "Native Auto Profile composition panicked.",
+                        _ => "Unexpected native Auto Profile composition result.",
+                    };
+                    throw new InvalidOperationException($"Auto Profile composition failed (rc={lutRc}): {reason}");
                 }
             }
         }
