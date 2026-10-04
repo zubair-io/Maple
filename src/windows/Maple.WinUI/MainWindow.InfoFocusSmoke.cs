@@ -45,10 +45,14 @@ public sealed partial class MainWindow
         _infoPaneOpen = originalInfo;
         SetMode(originalMode);
         UpdateInfoPane();
+        ((FrameworkElement)Content).UpdateLayout();
+        if (!CompareButton.Focus(FocusState.Keyboard) || !Focused(CompareButton))
+            throw new InvalidOperationException("Restored Edit mode has no visible Compare focus.");
         await File.WriteAllTextAsync(Path.Combine(output, "inspector-focus-result.json"), JsonSerializer.Serialize(new
         {
             passed = true, casesExecuted = 9, casesSkipped = 0, originalRawSha256 = Convert.ToHexString(hash),
-            documentPreserved = Snapshot() == original, undoDepth = undo, scale = Content.XamlRoot.RasterizationScale
+            documentPreserved = Snapshot() == original, undoDepth = undo, scale = Content.XamlRoot.RasterizationScale,
+            restoredFocus = AutomationProperties.GetName(CompareButton)
         }));
 
         bool Focused(DependencyObject control) => ReferenceEquals(FocusManager.GetFocusedElement(Content.XamlRoot), control);
