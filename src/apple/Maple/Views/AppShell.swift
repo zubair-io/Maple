@@ -85,9 +85,7 @@ struct AppShell: View {
   // re-render of AppShell while the sheet is open cannot rebuild the view model
   // and discard the user's in-progress edits. nil = sheet closed.
   #if os(macOS)
-    @State var showsNativeExportRecipes = false
-    @State var nativeExportSelection: [AssetRef] = []
-    @State var nativeExportSessions: [AssetRef.ID: EditSession] = [:]
+    @State var nativeExportSelection: NativeExportRecipeSelection?
   #endif
   @State private var batchMetadataVM: BatchMetadataViewModel?
   /// Batch rename sheet (#2641). Same "held in @State, not built inside
@@ -987,9 +985,9 @@ struct AppShell: View {
       clipboard: adjustmentClipboard
     )
     #if os(macOS)
-      .sheet(isPresented: $showsNativeExportRecipes, onDismiss: { nativeExportSessions = [:] }) {
-        NativeExportRecipePanel(assets: nativeExportSelection) { asset in
-          guard let session = nativeExportSessions[asset.id] else {
+      .sheet(item: $nativeExportSelection) { selection in
+        NativeExportRecipePanel(assets: selection.assets) { asset in
+          guard let session = selection.sessions[asset.id] else {
             throw NativeExportError.message("Could not prepare this photo for export.")
           }
           return session
@@ -1536,15 +1534,14 @@ struct AppShell: View {
     #if os(macOS)
       ToolbarItem {
         Button("Export recipes…") {
-          nativeExportSelection =
+          let assets =
             browseVM.isSelecting
             ? browseVM.selectedAssets
             : (selectedSession.map { [$0.asset] } ?? browseVM.selectedAsset.map { [$0] } ?? [])
-          for asset in nativeExportSelection { ensureSession(for: asset) }
-          nativeExportSessions = sessions.filter { entry in
-            nativeExportSelection.contains(where: { $0.id == entry.key })
-          }
-          showsNativeExportRecipes = true
+          for asset in assets { ensureSession(for: asset) }
+          nativeExportSelection = NativeExportRecipeSelection(
+            assets: assets,
+            sessions: sessions.filter { entry in assets.contains(where: { $0.id == entry.key }) })
         }
         .accessibilityIdentifier("browse-export-recipes")
       }

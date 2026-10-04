@@ -5,6 +5,37 @@ import XCTest
 #if os(macOS)
   /// Uses the existing staged-fixture launch path and real native folder picker (#4113).
   final class NativeExportRecipeUITests: XCTestCase {
+    func testBrowseRecipeCapturesTwoSelectedPhotosOnFirstPresentation() throws {
+      continueAfterFailure = false
+      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+      let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("native-recipe-selection-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: root) }
+      for name in ["first.png", "second.png"] {
+        try FileManager.default.copyItem(at: fixture, to: root.appendingPathComponent(name))
+      }
+      let app = XCUIApplication()
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = "first.png"
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = root.path
+      app.launchArguments = ["--uitest-browse"]
+      app.launch()
+      defer { app.terminate() }
+      XCTAssertTrue(app.buttons["thumb-first"].waitForExistence(timeout: 30))
+      XCTAssertTrue(app.buttons["thumb-second"].waitForExistence(timeout: 30))
+      let select = app.buttons["multi-select-toggle"]
+      XCTAssertTrue(select.waitForExistence(timeout: 30))
+      select.tap()
+      app.buttons["Select all images"].tap()
+      XCTAssertTrue(app.staticTexts["2 images selected"].exists)
+      app.buttons["browse-export-recipes"].tap()
+      let captured = app.staticTexts[
+        "2 photos; captured edits and sequence numbers stay fixed during retry."]
+      XCTAssertTrue(captured.waitForExistence(timeout: 10))
+      attach(app, name: "First Browse export presentation captures both selected photos")
+    }
+
     func testFocusedRecipeQueuePublishesRealFileWithoutChangingSource() throws {
       continueAfterFailure = false
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
