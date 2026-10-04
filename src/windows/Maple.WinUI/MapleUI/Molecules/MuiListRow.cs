@@ -136,12 +136,6 @@ namespace Maple.UI
 
             Tapped += (_, e) => { if (IsEnabled && !IsFromTrailing(e.OriginalSource)) Pressed?.Invoke(this, EventArgs.Empty); };
             KeyDown += OnKeyDown;
-            GotFocus += (_, _) =>
-            {
-                if (FocusState != FocusState.Unfocused)
-                    FrameworkElementAutomationPeer.CreatePeerForElement(this)
-                        ?.RaiseAutomationEvent(AutomationEvents.AutomationFocusChanged);
-            };
             PointerEntered += (_, _) => { _isPointerOver = true; ApplyColors(); };
             PointerExited += (_, _) => { _isPointerOver = false; ApplyColors(); };
             IsEnabledChanged += (_, _) => Rebuild();
