@@ -273,6 +273,34 @@ describe('ImageCanvasGpuPresent — cold-open sidecar (#1915)', () => {
     expect(calls[0][3]).toBe('<x/>');
   });
 
+  it('records the opened Neutral intent before releasing an Auto edit (#4101)', async () => {
+    const model = signal<AdjustmentModel>({ ...defaultAdjustmentModel(), profile: 'Neutral' });
+    let finish!: (info: OpenedLiveSession) => void;
+    const host = makeHost(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      model(),
+    );
+    vi.mocked(host.state.adjustmentFor).mockReturnValue(model);
+    Object.assign(host, {
+      serializeForRender: (value: AdjustmentModel) => value.profile,
+      markColdOpenDone: vi.fn(() => expect(host.lastRenderedXmp).toBe('Neutral')),
+    });
+    const present = new ImageCanvasGpuPresent(host);
+    vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
+    const opening = present.open('asset-1', new Uint8Array([1]), 'dng');
+    await vi.waitFor(() => expect(host.pipeline.openLiveSession).toHaveBeenCalledTimes(1));
+    model.set({ ...model(), profile: 'Auto' });
+    finish(makeOpenedSession());
+    expect(await opening).toBe(true);
+    expect(vi.mocked(host.pipeline.openLiveSession).mock.calls[0][3]).toBe('Neutral');
+    expect(host.lastRenderedXmp).toBe('Neutral');
+    expect(host.lastRenderedXmp).not.toBe(host.serializeForRender(model()));
+    expect(host.markColdOpenDone).toHaveBeenCalledTimes(1);
+  });
+
   it('opens with undefined xmp for a fresh (default) model — preserves the #1892 As-Shot seeding path', async () => {
     const host = makeHost(() => Promise.resolve(makeOpenedSession())); // default model
     const gpuPresent = new ImageCanvasGpuPresent(host);
