@@ -220,6 +220,8 @@ The Mac Remove tool imports all four generated experimental ONNX pins and the cu
 
 Background people starts detection automatically when opened, after model import, and after reopening the active photo. A scrollable multiselect list preselects shared Rust background suggestions and leaves subjects and uncertain detections kept. Checkbox changes are temporary; **Remove** applies the current choices before reconstruction, with no separate detection or Apply action. **Refine** also prepares pending choices before painting. Kept-person masks and manually protected areas are subtracted from removal intent. **Keep** remains the only durable acceptance action. The current experimental reconstruction still requires each selected object plus edge expansion to fit its 1024 × 1024 source-pixel context (#3984 / #3941).
 
+The Mac person detector uses the retained RAW EXIF orientation to present upright pixels to the model, then maps every proposed box back to native source coordinates. Selection proxies, SAM masks and saved edit assets retain the original RAW axes; display orientation does not change their identity.
+
 `tools/removal/mac_model_bundle.py` creates an offline testing folder from existing export outputs and the official runtime archive. It uses `removal-models.generated.json` and compiles the actual `PanoProvisionManifest.swift` with a small manifest printer, so the builder does not duplicate model or runtime pins. It requires Python 3.11+ and Xcode tools on the target Mac architecture:
 
 ```bash

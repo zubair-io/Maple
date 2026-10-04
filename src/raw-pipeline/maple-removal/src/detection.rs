@@ -31,14 +31,31 @@ impl PersonDetector {
         size: [u32; 2],
         cancel: &RemovalRunOptions,
     ) -> Result<Vec<Detection>> {
+        self.detect_oriented(rgb, size, 1, cancel)
+    }
+
+    /// Native source-framed RGB with the RAW's EXIF tag. The semantic model
+    /// sees upright pixels; every returned box remains in native source axes.
+    pub fn detect_oriented(
+        &mut self,
+        rgb: &[f32],
+        size: [u32; 2],
+        orientation: u16,
+        cancel: &RemovalRunOptions,
+    ) -> Result<Vec<Detection>> {
         valid_floats(rgb, 3 * 640 * 640, 0.0, 1.0)?;
-        if size.contains(&0) {
-            return Err(RemovalInferenceError::Input("empty detector source".into()));
-        }
+        let display = raw_core::stages::removal_detection_geometry::upright_size(size, orientation)
+            .map_err(RemovalInferenceError::Input)?;
+        let input = if orientation == 1 {
+            rgb.to_vec()
+        } else {
+            raw_core::stages::removal_detection_geometry::upright_rgb(rgb, orientation)
+                .map_err(RemovalInferenceError::Input)?
+        };
         let outputs = self.session.run_with_options(
             ort::inputs![
-                "images" => Tensor::from_array(([1,3,640,640], rgb.to_vec()))?,
-                "orig_target_sizes" => Tensor::from_array(([1,2], size.map(i64::from).to_vec()))?,
+                "images" => Tensor::from_array(([1,3,640,640], input))?,
+                "orig_target_sizes" => Tensor::from_array(([1,2], display.map(i64::from).to_vec()))?,
             ],
             cancel,
         )?;
@@ -52,15 +69,22 @@ impl PersonDetector {
         let boxes = output_f32(&outputs, "boxes", &[1, 300, 4])?;
         let scores = output_f32(&outputs, "scores", &[1, 300])?;
         valid_floats(&scores, 300, 0.0, 1.0)?;
-        Ok(labels
+        labels
             .iter()
             .zip(boxes.chunks_exact(4))
             .zip(scores)
-            .map(|((label, bounds), score)| Detection {
-                class: *label as u8,
-                bounds: [bounds[0], bounds[1], bounds[2], bounds[3]],
-                score,
+            .map(|((label, bounds), score)| {
+                Ok(Detection {
+                    class: *label as u8,
+                    bounds: raw_core::stages::removal_detection_geometry::source_box(
+                        [bounds[0], bounds[1], bounds[2], bounds[3]],
+                        size,
+                        orientation,
+                    )
+                    .map_err(RemovalInferenceError::Model)?,
+                    score,
+                })
             })
-            .collect())
+            .collect()
     }
 }

@@ -40,17 +40,18 @@ public final class NativeRemovalPersonDetector: @unchecked Sendable {
   /// CHW 640² photographic RGB in 0..1. Returns all 300 model proposals without
   /// silently choosing a subject, background role or selection threshold.
   public func detect(
-    rgb: [Float], sourceWidth: UInt32, sourceHeight: UInt32,
+    rgb: [Float], sourceWidth: UInt32, sourceHeight: UInt32, orientation: UInt32 = 1,
     operation: NativeRemovalInferenceOperation
   ) throws -> [NativeRemovalDetection] {
     guard operation.owner === self, rgb.count == 3 * 640 * 640,
-      sourceWidth > 0, sourceHeight > 0
+      sourceWidth > 0, sourceHeight > 0, (1...8).contains(orientation)
     else { throw RemovalError.invalid("Detection input or owner mismatch") }
     let data = try withExtendedLifetime((self, operation)) {
       try rgb.withUnsafeBufferPointer { rgb in
         try NativeSelectionBoundary.output {
-          maple_removal_detector_detect(
+          maple_removal_detector_detect_oriented(
             pointer, operation.pointer, rgb.baseAddress, UInt(rgb.count), sourceWidth, sourceHeight,
+            orientation,
             $0)
         }
       }
