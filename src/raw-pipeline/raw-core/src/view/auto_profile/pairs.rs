@@ -161,6 +161,35 @@ pub fn sample_display_pairs(
 mod tests {
     use super::*;
 
+    /// Render-capped scenes can be smaller than the original embedded JPEG.
+    /// Correspondences must cover the whole source frame, not its top-left.
+    #[test]
+    fn larger_preview_pairs_all_source_quadrants() {
+        let levels = [0u8, 64, 128, 255];
+        let source: Vec<f32> = levels
+            .iter()
+            .flat_map(|value| [*value as f32 / 255.0; 3])
+            .collect();
+        let preview = image::RgbImage::from_fn(4, 4, |x, y| {
+            image::Rgb([levels[((y / 2) * 2 + x / 2) as usize]; 3])
+        });
+        let pairs = sample_display_pairs(
+            &source,
+            2,
+            2,
+            image::DynamicImage::ImageRgb8(preview),
+            JpegColorSpace::SRgb,
+            ExifOrientation::Normal,
+        );
+        assert_eq!(pairs.len(), 16);
+        for (index, pair) in pairs.iter().enumerate() {
+            let quadrant = (index / 4 / 2) * 2 + (index % 4 / 2);
+            let expected = [levels[quadrant] as f32 / 255.0; 3];
+            assert_eq!(pair.maple, expected);
+            assert_eq!(pair.jpeg, expected);
+        }
+    }
+
     /// A 4×4 source paired against a 2×2 preview (matching aspect, `Normal`
     /// orientation, sRGB): the 10% border rounds to 0 (`(2·0.1).round() == 0`),
     /// so every output pixel is kept → 4 pairs. Each output pixel's footprint is
