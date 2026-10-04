@@ -10,7 +10,9 @@ fn group_components_resolve_by_digest_and_flat_ids_on_both_ffi_paths() {
     let ids: Vec<u32> = digests
         .iter()
         .map(|digest| {
-            let id = maple_mask_raster_register(digest.as_ptr(), 2, 2, data.as_ptr(), data.len());
+            let id = unsafe {
+                maple_mask_raster_register(digest.as_ptr(), 2, 2, data.as_ptr(), data.len())
+            };
             assert!(id > 0);
             id as u32
         })
