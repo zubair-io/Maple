@@ -1,0 +1,48 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Native ToggleSwitch templates retain focus, animation, keyboard and disabled states. -->
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Default">
+            <StaticResource x:Key="ToggleSwitchFillOn" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="ToggleSwitchFillOnPointerOver" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="ToggleSwitchFillOnPressed" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="ToggleSwitchStrokeOn" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="ToggleSwitchStrokeOnPointerOver" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="ToggleSwitchStrokeOnPressed" ResourceKey="MaplePrimary" />
+            <StaticResource x:Key="ToggleSwitchFillOff" ResourceKey="MapleBorder" />
+            <StaticResource x:Key="ToggleSwitchFillOffPointerOver" ResourceKey="MapleBorder" />
+            <StaticResource x:Key="ToggleSwitchFillOffPressed" ResourceKey="MapleBorder" />
+            <StaticResource x:Key="ToggleSwitchStrokeOff" ResourceKey="MapleBorder" />
+            <StaticResource x:Key="ToggleSwitchStrokeOffPointerOver" ResourceKey="MapleBorder" />
+            <StaticResource x:Key="ToggleSwitchStrokeOffPressed" ResourceKey="MapleBorder" />
+            <StaticResource x:Key="ToggleSwitchKnobFillOff" ResourceKey="MapleTextMuted" />
+            <StaticResource x:Key="ToggleSwitchKnobFillOffPointerOver" ResourceKey="MapleTextMuted" />
+            <StaticResource x:Key="ToggleSwitchKnobFillOffPressed" ResourceKey="MapleTextMuted" />
+            <StaticResource x:Key="ToggleSwitchKnobFillOn" ResourceKey="MapleTextMain" />
+            <StaticResource x:Key="ToggleSwitchKnobFillOnPointerOver" ResourceKey="MapleTextMain" />
+            <StaticResource x:Key="ToggleSwitchKnobFillOnPressed" ResourceKey="MapleTextMain" />
+        </ResourceDictionary>
+        <!-- Preserve the WinUI system-color mappings when contrast themes are active. -->
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOn" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPointerOver" Color="{ThemeResource SystemColorButtonTextColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPressed" Color="{ThemeResource SystemColorButtonTextColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOff" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOffPointerOver" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOffPressed" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOff" Color="{ThemeResource SystemColorButtonTextColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOffPointerOver" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOffPressed" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOff" Color="{ThemeResource SystemColorButtonTextColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPointerOver" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPressed" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOn" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPointerOver" Color="{ThemeResource SystemColorButtonTextColor}" />
+            <SolidColorBrush x:Key="ToggleSwitchKnobFillOnPressed" Color="{ThemeResource SystemColorButtonTextColor}" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

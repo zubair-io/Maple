@@ -8,6 +8,7 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <ResourceDictionary Source="ms-appx:///Themes/Tokens.xaml" />
+                <ResourceDictionary Source="ms-appx:///Themes/ToggleResources.xaml" />
                 <ResourceDictionary Source="ms-appx:///MapleUI/MuiStyles.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
