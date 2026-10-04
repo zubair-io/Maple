@@ -215,7 +215,7 @@ namespace Maple.UI.Atoms
             {
                 // #4209: size defaults belong below local values and bindings
                 // in WinUI precedence; rebuilds must not replace caller minima.
-                _sizedStyle = new Style(typeof(Button)) { BasedOn = baseStyle };
+                _sizedStyle = new Style(typeof(MuiButton)) { BasedOn = baseStyle };
                 _sizedStyle.Setters.Add(new Setter { Property = MinHeightProperty, Value = minimumHeight });
                 _styledSize = ButtonSize;
             }
