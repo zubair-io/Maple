@@ -54,6 +54,7 @@ namespace Maple.WinUI.Services
         public float[]? DisplayLut { get; set; }
         public int DisplayLutN { get; set; }
         internal ProfileSourceGeneration? ProfileSource { get; set; }
+        internal ProfileFitContext? ProfileFit { get; set; }
     }
 
     /// <summary>
@@ -79,7 +80,7 @@ namespace Maple.WinUI.Services
         /// <paramref name="reuseAutoProfileFrom"/>, when given, copies that
         /// prior decode's already-fitted Auto Profile tail onto the new
         /// result when the canonical source path, timestamp and length still
-        /// match. The current fit always uses Preview quality independently
+        /// match and the render calibration cap agrees. The current fit always uses Preview quality independently
         /// of this buffer's demosaic quality; a valid AMaZE upgrade therefore
         /// retains the same calibration (#4148).
         /// </summary>
@@ -142,10 +143,15 @@ namespace Maple.WinUI.Services
                     };
                     if (stripped.Profile == ProfileMode.Auto)
                     {
-                        if (CanReuseAutoProfile(reuseAutoProfileFrom, source))
+                        var fit = new ProfileFitContext((uint)(maxLongEdge > 0 ? maxLongEdge : Math.Max(decoded.Width, decoded.Height)),
+                            RefineDecodeQuality.Preview);
+                        if (CanReuseAutoProfile(reuseAutoProfileFrom, source, fit))
                             ReuseAutoProfile(decoded, reuseAutoProfileFrom!);
-                        else if (FitAutoProfile(decoded, rawPath, tempXmpPath))
+                        else if (FitAutoProfile(decoded, rawPath, tempXmpPath, fit))
+                        {
                             decoded.ProfileSource = source;
+                            decoded.ProfileFit = fit;
+                        }
                         if (!source.StillCurrent(rawPath))
                             decoded.ProfileSource = null;
                     }
@@ -195,7 +201,7 @@ namespace Maple.WinUI.Services
 
         /// <summary>Copies an already-fitted Auto Profile tail onto
         /// <paramref name="decoded"/> instead of re-fitting it (#3417
-        /// review). The source-generation guard must pass first; the current
+        /// review). Source generation and render calibration context must match; the current
         /// fitter always uses Preview quality independently of this buffer's
         /// demosaic quality.</summary>
         private static void ReuseAutoProfile(DecodedImage decoded, DecodedImage from)
@@ -206,6 +212,7 @@ namespace Maple.WinUI.Services
             decoded.DisplayLut = from.DisplayLut;
             decoded.DisplayLutN = from.DisplayLutN;
             decoded.ProfileSource = from.ProfileSource;
+            decoded.ProfileFit = from.ProfileFit;
         }
 
         /// <summary>
@@ -344,11 +351,12 @@ namespace Maple.WinUI.Services
         }
 
         /// <summary>Fit the per-image Auto Profile tail: successful artifacts
-        /// are qualified by canonical path, mtime and length, then revalidated
-        /// after decode before reuse. The separate curve + residual serve the
+        /// are qualified by canonical path, mtime, length, Preview quality and
+        /// render cap, then source-revalidated after decode before reuse.
+        /// The separate curve + residual artifacts serve
         /// the GPU live chain, and the composed display-domain LUT for the CPU
         /// fallback. rc 1 = no tail applies (plain AgX) — not an error.</summary>
-        private static bool FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath)
+        private static bool FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath, ProfileFitContext fit)
         {
             const int curveLen = 220;                 // MAPLE_PROFILE_CURVE_FLAT_LEN
             const int lutCapacityEdge = 33;
@@ -360,8 +368,8 @@ namespace Maple.WinUI.Services
             fixed (float* curvePtr = curve)
             fixed (float* lutPtr = residual)
             {
-                rc = RawFfi.maple_gpu_fit_auto_profile(
-                    rawPath, xmpPath, 1, curvePtr, &curvePresent,
+                rc = RawFfi.maple_gpu_fit_auto_profile_at_render_size(
+                    rawPath, xmpPath, fit.Quality, fit.LongEdge, curvePtr, &curvePresent,
                     lutPtr, (nuint)residual.Length, &lutSize);
                 if (rc == -2 && lutSize > 0)
                 {
@@ -370,8 +378,8 @@ namespace Maple.WinUI.Services
                     residual = new float[(int)lutSize * (int)lutSize * (int)lutSize * 3];
                     fixed (float* lutPtr2 = residual)
                     {
-                        rc = RawFfi.maple_gpu_fit_auto_profile(
-                            rawPath, xmpPath, 1, curvePtr, &curvePresent,
+                        rc = RawFfi.maple_gpu_fit_auto_profile_at_render_size(
+                            rawPath, xmpPath, fit.Quality, fit.LongEdge, curvePtr, &curvePresent,
                             lutPtr2, (nuint)residual.Length, &lutSize);
                     }
                 }
@@ -392,7 +400,9 @@ namespace Maple.WinUI.Services
             }
 
             // Compose once from the GPU's retained artifacts (#4146), not a
-            // second fit. Render-size selection/reuse guards remain in #4120.
+            // second fit. #4120: calibration follows this decode's bounded
+            // render cap; changing the production decode limit still requires
+            // integrated colour and physical latency qualification.
             const int displayN = 33;
             var displayLut = new float[displayN * displayN * displayN * 3];
             fixed (float* curvePtr = decoded.ProfileCurve)
@@ -492,6 +502,7 @@ namespace Maple.WinUI.Services
                 DisplayLut = src.DisplayLut,
                 DisplayLutN = src.DisplayLutN,
                 ProfileSource = src.ProfileSource,
+                ProfileFit = src.ProfileFit,
             };
         }
 

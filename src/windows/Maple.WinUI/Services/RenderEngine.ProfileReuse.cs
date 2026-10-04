@@ -29,6 +29,10 @@ internal readonly record struct ProfileSourceGeneration(string Path, long Modifi
 
 public static unsafe partial class RenderEngine
 {
-    private static bool CanReuseAutoProfile(DecodedImage? donor, ProfileSourceGeneration source) =>
-        donor?.ProfileSource is { } previous && previous.Matches(source);
+    private static bool CanReuseAutoProfile(DecodedImage? donor, ProfileSourceGeneration source, ProfileFitContext fit) =>
+        donor?.ProfileSource is { } previous && previous.Matches(source) && donor.ProfileFit == fit;
 }
+
+// Render-origin calibration identity, independent of a reduced presentation
+// buffer's dimensions. Native detail and half-size frames retain this identity.
+internal readonly record struct ProfileFitContext(uint LongEdge, int Quality);
