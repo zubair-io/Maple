@@ -53,6 +53,7 @@ namespace Maple.WinUI.Services
         /// equivalent.</summary>
         public float[]? DisplayLut { get; set; }
         public int DisplayLutN { get; set; }
+        internal ProfileSourceGeneration? ProfileSource { get; set; }
     }
 
     /// <summary>
@@ -77,15 +78,16 @@ namespace Maple.WinUI.Services
         /// (#3417 review — see <c>EditSessionViewModel.RefineUpgrade.cs</c>).
         /// <paramref name="reuseAutoProfileFrom"/>, when given, copies that
         /// prior decode's already-fitted Auto Profile tail onto the new
-        /// result instead of re-fitting: the fit is keyed only by
-        /// (path, mtime) and is independent of this buffer's own demosaic
-        /// quality, so an AMaZE upgrade of the same asset+sidecar never
-        /// needs a second fit.
+        /// result when the canonical source path, timestamp and length still
+        /// match. The current fit always uses Preview quality independently
+        /// of this buffer's demosaic quality; a valid AMaZE upgrade therefore
+        /// retains the same calibration (#4148).
         /// </summary>
         public static DecodedImage Decode(
             string rawPath, AdjustmentState model, int maxLongEdge, int quality,
             IntPtr cancelFlag, DecodedImage? reuseAutoProfileFrom = null)
         {
+            var source = ProfileSourceGeneration.Read(rawPath);
             var stripped = StripChainStages(model);
             // An imported LCP the sidecar names must be resolvable in this
             // process before the develop reads it (#3480): warm cache, or
@@ -140,10 +142,12 @@ namespace Maple.WinUI.Services
                     };
                     if (stripped.Profile == ProfileMode.Auto)
                     {
-                        if (reuseAutoProfileFrom != null)
-                            ReuseAutoProfile(decoded, reuseAutoProfileFrom);
-                        else
-                            FitAutoProfile(decoded, rawPath, tempXmpPath);
+                        if (CanReuseAutoProfile(reuseAutoProfileFrom, source))
+                            ReuseAutoProfile(decoded, reuseAutoProfileFrom!);
+                        else if (FitAutoProfile(decoded, rawPath, tempXmpPath))
+                            decoded.ProfileSource = source;
+                        if (!source.Matches(ProfileSourceGeneration.Read(rawPath)))
+                            decoded.ProfileSource = null;
                     }
                     DiagLog.Write(
                         $"[decode] {System.IO.Path.GetFileName(rawPath)} quality={quality} ae_gain={decoded.AeGain:0.###} " +
@@ -191,9 +195,9 @@ namespace Maple.WinUI.Services
 
         /// <summary>Copies an already-fitted Auto Profile tail onto
         /// <paramref name="decoded"/> instead of re-fitting it (#3417
-        /// review): the fit is keyed by (path, mtime), not by this buffer's
-        /// demosaic quality, so an AMaZE upgrade of the same decode can
-        /// reuse Preview's fit verbatim.</summary>
+        /// review). The source-generation guard must pass first; the current
+        /// fitter always uses Preview quality independently of this buffer's
+        /// demosaic quality.</summary>
         private static void ReuseAutoProfile(DecodedImage decoded, DecodedImage from)
         {
             decoded.ProfileCurve = from.ProfileCurve;
@@ -201,6 +205,7 @@ namespace Maple.WinUI.Services
             decoded.ResidualLutSize = from.ResidualLutSize;
             decoded.DisplayLut = from.DisplayLut;
             decoded.DisplayLutN = from.DisplayLutN;
+            decoded.ProfileSource = from.ProfileSource;
         }
 
         /// <summary>
@@ -342,7 +347,7 @@ namespace Maple.WinUI.Services
         /// (path, mtime, quality)): the separate curve + residual artifacts for
         /// the GPU live chain, and the composed display-domain LUT for the CPU
         /// fallback. rc 1 = no tail applies (plain AgX) — not an error.</summary>
-        private static void FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath)
+        private static bool FitAutoProfile(DecodedImage decoded, string rawPath, string xmpPath)
         {
             const int curveLen = 220;                 // MAPLE_PROFILE_CURVE_FLAT_LEN
             const int lutCapacityEdge = 33;
@@ -374,7 +379,7 @@ namespace Maple.WinUI.Services
             {
                 if (rc != 1)
                     DiagLog.Write($"[profile] gpu fit rc={rc}: {RawFfi.LastError()}");
-                return;
+                return rc == 1;
             }
             if (curvePresent != 0)
                 decoded.ProfileCurve = curve;
@@ -414,6 +419,7 @@ namespace Maple.WinUI.Services
                     throw new InvalidOperationException($"Auto Profile composition failed (rc={lutRc}): {reason}");
                 }
             }
+            return true;
         }
 
         /// <summary>Shared-core 3D-LUT application over display-encoded RGB —
@@ -484,6 +490,7 @@ namespace Maple.WinUI.Services
                 ResidualLutSize = src.ResidualLutSize,
                 DisplayLut = src.DisplayLut,
                 DisplayLutN = src.DisplayLutN,
+                ProfileSource = src.ProfileSource,
             };
         }
 

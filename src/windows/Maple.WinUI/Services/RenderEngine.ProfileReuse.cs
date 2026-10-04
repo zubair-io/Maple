@@ -1,0 +1,25 @@
+using System;
+using System.IO;
+
+namespace Maple.WinUI.Services;
+
+// #4148: capture before decode, then validate again before retaining a fit.
+internal readonly record struct ProfileSourceGeneration(string Path, long Modified, long Length)
+{
+    internal static ProfileSourceGeneration Read(string path)
+    {
+        var file = new FileInfo(System.IO.Path.GetFullPath(path));
+        if (!file.Exists) throw new FileNotFoundException("Auto Profile source is unavailable.", path);
+        return new(file.FullName, file.LastWriteTimeUtc.Ticks, file.Length);
+    }
+
+    internal bool Matches(ProfileSourceGeneration other) =>
+        string.Equals(Path, other.Path, StringComparison.OrdinalIgnoreCase)
+        && Modified == other.Modified && Length == other.Length;
+}
+
+public static unsafe partial class RenderEngine
+{
+    private static bool CanReuseAutoProfile(DecodedImage? donor, ProfileSourceGeneration source) =>
+        donor?.ProfileSource is { } previous && previous.Matches(source);
+}

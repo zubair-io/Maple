@@ -7,10 +7,10 @@ using Xunit;
 
 namespace Maple.WinUI.Tests;
 
-public unsafe class ProfileArtifactNativeTests
+public class ProfileArtifactNativeTests
 {
     [NativeComposeFact]
-    public void ResidualOnlyCompositionPreservesWhiteAcrossNativeBinding()
+    public unsafe void ResidualOnlyCompositionPreservesWhiteAcrossNativeBinding()
     {
         RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
         var residual = new float[24];
@@ -33,7 +33,7 @@ public unsafe class ProfileArtifactNativeTests
     }
 
     [NativeComposeFact]
-    public void ComposeOptionalAndInvalidTailsPreserveDestination()
+    public unsafe void ComposeOptionalAndInvalidTailsPreserveDestination()
     {
         RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
         var output = Enumerable.Repeat(-7f, 24).ToArray();
@@ -53,7 +53,7 @@ public unsafe class ProfileArtifactNativeTests
     }
 
     [ProfileArtifactFact]
-    public void ProductionDecodeSharesRetainedArtifactsAndPreservesOriginal()
+    public unsafe void ProductionDecodeSharesRetainedArtifactsAndPreservesOriginal()
     {
         RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
         var source = Environment.GetEnvironmentVariable("MAPLE_PROFILE_TEST_RAW")!;
@@ -116,6 +116,78 @@ public unsafe class ProfileArtifactNativeTests
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("MAPLE_RAW_FFI_DLL")))
                 Skip = "Requires the built shared-core DLL; no RAW fixture required.";
         }
+    }
+
+    [ProfileArtifactFact]
+    public void ProductionDecodeRejectsUnrelatedChangedAndUnqualifiedDonors()
+    {
+        RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var source = Environment.GetEnvironmentVariable("MAPLE_PROFILE_TEST_RAW")!;
+        var root = Path.Combine(Path.GetTempPath(), "maple-profile-reuse-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var raw = Path.Combine(root, Path.GetFileName(source));
+        var other = Path.Combine(root, "other" + Path.GetExtension(source));
+        try
+        {
+            File.Copy(source, raw);
+            File.Copy(source, other);
+            var original = SHA256.HashData(File.ReadAllBytes(source));
+            var model = new AdjustmentState();
+            DecodedImage Decode(string path, DecodedImage? donor = null) =>
+                RenderEngine.Decode(path, model, 1600, RefineDecodeQuality.Preview, IntPtr.Zero, donor);
+            var fitted = Decode(raw);
+            Assert.NotNull(fitted.DisplayLut);
+            Assert.NotNull(fitted.ProfileSource);
+            var reused = Decode(raw.Replace('\\', '/'), fitted);
+            Assert.Same(fitted.DisplayLut, reused.DisplayLut);
+            var half = RenderEngine.DownsampleHalf(fitted);
+            Assert.Equal(fitted.ProfileSource, half.ProfileSource);
+            Assert.Same(fitted.DisplayLut, Decode(raw, half).DisplayLut);
+            Assert.NotSame(fitted.DisplayLut, Decode(other, fitted).DisplayLut);
+            File.SetLastWriteTimeUtc(raw, File.GetLastWriteTimeUtc(raw).AddSeconds(5));
+            var changed = Decode(raw, fitted);
+            Assert.NotSame(fitted.DisplayLut, changed.DisplayLut);
+            changed.ProfileSource = null; // An unqualified/failed fit cannot donate even if arrays exist.
+            Assert.NotSame(changed.DisplayLut, Decode(raw, changed).DisplayLut);
+            Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(raw)));
+            Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(other)));
+            Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(source)));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void SourceGenerationRejectsLengthChangesEvenWhenTimestampIsPreserved()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "maple-profile-generation-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            File.WriteAllText(path, "first");
+            var before = ProfileSourceGeneration.Read(path);
+            File.AppendAllText(path, "longer");
+            File.SetLastWriteTimeUtc(path, new DateTime(before.Modified, DateTimeKind.Utc));
+            Assert.False(before.Matches(ProfileSourceGeneration.Read(path)));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [DemosaicNativeFact]
+    public async Task NoEmbeddedPreviewRetainsValidNoTailOwnershipInNativeDetail()
+    {
+        RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var source = Environment.GetEnvironmentVariable("MAPLE_DEMOSAIC_TEST_RAW")!;
+        var model = new AdjustmentState { AutoLateralCa = ToggleMode.Off };
+        var decoded = RenderEngine.Decode(source, model, 32, RefineDecodeQuality.Preview, IntPtr.Zero);
+        Assert.Null(decoded.DisplayLut);
+        Assert.Null(decoded.ProfileCurve);
+        Assert.Null(decoded.ResidualLut);
+        Assert.NotNull(decoded.ProfileSource);
+        var reused = RenderEngine.Decode(source, model, 32, RefineDecodeQuality.Preview, IntPtr.Zero, decoded);
+        Assert.Equal(decoded.ProfileSource, reused.ProfileSource);
+        await using var detail = new NativeDetailDecoder();
+        var patch = await detail.DecodeAsync(source, model, decoded, new(0, 0, 16, 16), default);
+        Assert.Equal(decoded.ProfileSource, patch.Image.ProfileSource);
+        Assert.Null(patch.Image.DisplayLut);
     }
 
     private sealed class ProfileArtifactFactAttribute : FactAttribute
