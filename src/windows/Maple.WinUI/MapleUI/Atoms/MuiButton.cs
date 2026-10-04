@@ -211,15 +211,19 @@ namespace Maple.UI.Atoms
             };
             var baseStyle = (Style)Application.Current.Resources[StyleKey(Variant)];
             var styles = SizedStyles.GetOrCreateValue(baseStyle);
-            if (!styles.TryGetValue(ButtonSize, out var sizedStyle))
+            Style sizedStyle;
+            lock (styles)
             {
-                // #4209: size defaults belong below local values and bindings
-                // in WinUI precedence; rebuilds must not replace caller minima.
-                sizedStyle = new Style(typeof(MuiButton)) { BasedOn = baseStyle };
-                sizedStyle.Setters.Add(new Setter { Property = MinHeightProperty, Value = minimumHeight });
-                sizedStyle.Setters.Add(new Setter { Property = PaddingProperty, Value = padding });
-                sizedStyle.Setters.Add(new Setter { Property = FontSizeProperty, Value = fontSize });
-                styles.Add(ButtonSize, sizedStyle);
+                if (!styles.TryGetValue(ButtonSize, out sizedStyle!))
+                {
+                    // #4209: cache by base-style identity and size. Setters preserve
+                    // caller precedence; the lock protects the cache, not UI affinity.
+                    sizedStyle = new Style(typeof(MuiButton)) { BasedOn = baseStyle };
+                    sizedStyle.Setters.Add(new Setter { Property = MinHeightProperty, Value = minimumHeight });
+                    sizedStyle.Setters.Add(new Setter { Property = PaddingProperty, Value = padding });
+                    sizedStyle.Setters.Add(new Setter { Property = FontSizeProperty, Value = fontSize });
+                    styles.Add(ButtonSize, sizedStyle);
+                }
             }
             Style = sizedStyle;
             ApplyColors();
