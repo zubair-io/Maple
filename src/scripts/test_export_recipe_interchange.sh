@@ -31,11 +31,13 @@ xcrun swiftc -swift-version 5 -parse-as-library \
 	"$repo_root/src/scripts/qualification/recipe-interchange.swift" \
 	"$source_root/Generated/ExportRecipe+Generated.swift" \
 	"$source_root/ExportRecipes/NativeExportRecipeBridge.swift" \
+	"$source_root/ExportRecipes/NativeExportHEICSource.swift" \
 	"$source_root/ExportRecipes/NativeExportRecord.swift" \
 	"$source_root/ExportRecipes/NativeExportStorage.swift" \
 	"$source_root/ExportRecipes/NativeExportArtifacts.swift" \
 	-I "$headers" "$archive" \
-	-framework Accelerate -framework Metal -framework CoreGraphics \
+	-framework Accelerate -framework Metal -framework CoreGraphics -framework ImageIO \
+	-framework UniformTypeIdentifiers \
 	-framework CoreVideo -framework QuartzCore -framework Foundation -framework Security -lc++ \
 	-o "$artifacts/swift-interchange" >"$artifacts/swift-build.log" 2>&1
 "$artifacts/swift-interchange" "$artifacts" >"$artifacts/swift-store.log" 2>&1
