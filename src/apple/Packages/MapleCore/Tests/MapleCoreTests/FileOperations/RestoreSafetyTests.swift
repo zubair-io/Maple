@@ -80,6 +80,7 @@ final class RestoreSafetyTests: XCTestCase {
       let occupied: [String]
       let expected: String
       let incoming: [String]?
+      let unpaired: [String]?
     }
     let corpus = try JSONDecoder().decode(
       Corpus.self,
@@ -93,7 +94,7 @@ final class RestoreSafetyTests: XCTestCase {
       let trashed = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: folder)
       let incoming = Data(NativeWorkflowControlFixture.input().utf8)
       let trashDirectory = URL(fileURLWithPath: trashed.primaryPath).deletingLastPathComponent()
-      for name in item.incoming ?? [] {
+      for name in (item.incoming ?? []) + (item.unpaired ?? []) {
         try incoming.write(to: trashDirectory.appendingPathComponent(name))
       }
       let occupied = Data("<foreign>occupied</foreign>".utf8)
@@ -112,6 +113,10 @@ final class RestoreSafetyTests: XCTestCase {
           try Data(contentsOf: folder.appendingPathComponent(renamed)), incoming, item.name)
         XCTAssertFalse(
           FileManager.default.fileExists(atPath: trashDirectory.appendingPathComponent(name).path))
+      }
+      for name in item.unpaired ?? [] {
+        XCTAssertEqual(
+          try Data(contentsOf: trashDirectory.appendingPathComponent(name)), incoming, item.name)
       }
       for name in item.occupied {
         XCTAssertEqual(
