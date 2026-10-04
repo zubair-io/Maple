@@ -60,8 +60,9 @@ public enum NativeExportCapture {
       let bytes = try await provider()
       try Task.checkCancellation()
       source = try await BlockingWork.run {
-        let directory = workspace.appendingPathComponent(
-          "Jobs/\(jobID.uuidString)/Sources", isDirectory: true)
+        let directory = workspace.appendingPathComponent("Jobs", isDirectory: true)
+          .appendingPathComponent(jobID.uuidString, isDirectory: true)
+          .appendingPathComponent("Sources", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let ext = asset.hintExtension ?? "raw"
         guard ext.allSatisfy({ $0.isLetter || $0.isNumber }), !ext.isEmpty else {
@@ -156,8 +157,9 @@ public enum NativeExportCapture {
   ) async throws -> (directory: URL?, hashes: [String: String]) {
     if ids.isEmpty { return (nil, [:]) }
     return try await BlockingWork.run {
-      let directory = workspace.appendingPathComponent(
-        "Jobs/\(jobID.uuidString)/Film", isDirectory: true)
+      let directory = workspace.appendingPathComponent("Jobs", isDirectory: true)
+        .appendingPathComponent(jobID.uuidString, isDirectory: true)
+        .appendingPathComponent("Film", isDirectory: true)
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       var hashes: [String: String] = [:]
       for id in ids {

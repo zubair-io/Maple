@@ -86,8 +86,8 @@ final class NativeExportArtifacts: @unchecked Sendable {
     _ job: NativeExportOwnedJob, by record: NativeExportRecord,
     workspace: URL
   ) -> Bool {
-    let root = workspace.appendingPathComponent("Jobs/\(job.id.uuidString)").standardizedFileURL
-      .path
+    let root = workspace.appendingPathComponent("Jobs", isDirectory: true)
+      .appendingPathComponent(job.id.uuidString, isDirectory: true).standardizedFileURL.path
     let urls = record.originals.map(\.url) + [record.filmDirectory].compactMap { $0 }
     return record.ownedJob?.id == job.id
       || urls.contains {

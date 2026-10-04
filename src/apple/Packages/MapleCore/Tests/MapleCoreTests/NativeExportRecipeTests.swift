@@ -160,8 +160,8 @@ final class NativeExportRecipeTests: XCTestCase {
     try FileManager.default.createDirectory(at: fixtures, withIntermediateDirectories: true)
     try FileManager.default.copyItem(
       at: profiles, to: fixtures.appendingPathComponent("export-recipes"))
-    let source = stage.appendingPathComponent(
-      "Packages/MapleCore/Tests/MapleCoreTests/NativeExportRecipeTests.swift")
+    let source = stage.appending(
+      path: "Packages/MapleCore/Tests/MapleCoreTests/NativeExportRecipeTests.swift")
     let staged = try NativeExportIccFixtures.root(from: source)
     for name in NativeExportIccFixtures.names {
       XCTAssertEqual(
@@ -173,7 +173,7 @@ final class NativeExportRecipeTests: XCTestCase {
   func testMissingReviewedProfilesFailsInsteadOfSkipping() throws {
     let stage = try SidecarContractIO.makeTempDirectory(prefix: "export-icc-missing")
     defer { try? FileManager.default.removeItem(at: stage) }
-    let source = stage.appendingPathComponent("Packages/MapleCore/Tests/RecipeTests.swift")
+    let source = stage.appending(path: "Packages/MapleCore/Tests/RecipeTests.swift")
     XCTAssertThrowsError(try NativeExportIccFixtures.root(from: source))
   }
 
@@ -292,7 +292,7 @@ private enum NativeExportIccFixtures {
       return parent.path == directory.path ? nil : parent
     }
     guard
-      let root = parents.lazy.map({ $0.appendingPathComponent("test-fixtures/export-recipes") })
+      let root = parents.lazy.map({ $0.appending(path: "test-fixtures/export-recipes") })
         .first(where: { directory in
           names.allSatisfy {
             FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
