@@ -58,8 +58,23 @@ namespace Maple.WinUI
 
         private void OnToggleInfoPane(object sender, RoutedEventArgs e)
         {
+            var focusState = sender is Control { FocusState: FocusState.Keyboard }
+                ? FocusState.Keyboard : FocusState.Programmatic;
             _infoPaneOpen = !_infoPaneOpen;
             UpdateInfoPane();
+            ((FrameworkElement)Content).UpdateLayout();
+            (_infoPaneOpen ? InfoCloseButton : PreviewInfoButton).Focus(focusState);
+        }
+
+        private void OnInfoPaneKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+        {
+            // #4190: dismiss the focused inspector before Preview's outer
+            // Escape navigation. Modal metadata flows keep their own keys.
+            if (e.Key != Windows.System.VirtualKey.Escape || _modalFlowGate.IsEntered) return;
+            _infoPaneOpen = false;
+            UpdateInfoPane();
+            PreviewInfoButton.Focus(FocusState.Keyboard);
+            e.Handled = true;
         }
 
         private void UpdateInfoPane()

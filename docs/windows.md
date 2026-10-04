@@ -241,6 +241,8 @@ Direct builds shown above retain the csproj's legacy `src/raw-pipeline/target/re
 
 Wrapper contract tests run without native tools: `python3 src/windows/scripts/test_build_windows.py`. Windows CI also runs the actual x64 wrapper; those compilation checks do not qualify interactive GPU or color performance.
 
+For Info focus qualification (#4190), run the built executable with `--lifecycle-smoke <owned-RAW-copy> <fresh-output-directory> gpu --inspector-focus-checkpoints`. Each `inspector-focus-*.ready` file requests one real keyboard or pointer input; capture the native window and accessibility state after that input, then write its `.continue` acknowledgment. A caption-click checkpoint establishes foreground activation before the harness assigns initial keyboard focus. The harness then checks actual native focus, Preview/Info state, document identity, undo depth and RAW hash across nine transitions. `inspector-focus-result.json` covers these transitions; inspect terminal `lifecycle.json` separately for the full lifecycle result. This does not establish Narrator speech, cloud enrichment or other DPI qualification.
+
 ```powershell
 # Qualification run (Windows, after building the app and maple-cli)
 pwsh src/windows/scripts/qualify-winui.ps1 -Raw C:\path\to\photo.dng
