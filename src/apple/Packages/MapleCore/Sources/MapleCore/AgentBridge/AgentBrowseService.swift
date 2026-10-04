@@ -45,27 +45,24 @@ enum AgentBrowseService {
 
     let collectionName = delegate.activeCollectionName ?? "Library"
     let folderPath = delegate.activeFolderPath
-    let records: [JSONValue] = slice.map { asset in
-      var photoObj: [String: JSONValue] = [
+    // Capture the page and its sessions before any I/O suspension. Folder
+    // navigation cannot redirect an already-requested asset to another source.
+    let snapshots = slice.map { asset in
+      (asset, activeSession?.asset.id == asset.id ? activeSession : delegate.session(for: asset))
+    }
+    var photos: [JSONValue] = []
+    for (asset, session) in snapshots {
+      try Task.checkCancellation()
+      var fields: [String: JSONValue] = [
         "id": .string(asset.id.uuidString),
         "name": .string(asset.displayName),
         "is_active": .bool(activeSession?.asset.id == asset.id),
       ]
-      if let path = asset.primaryURL?.path {
-        photoObj["path"] = .string(path)
-      }
-      let culling = cullingState(for: asset, delegate: delegate, activeSession: activeSession)
-      photoObj["rating"] = .int(culling.stars)
-      photoObj["flag"] = .string(culling.flag.rawValue)
-      if let color = culling.colorLabel {
-        photoObj["color_label"] = .string(color.rawValue)
-      }
-      return .object(photoObj)
-    }
-
-    var photos: [JSONValue] = []
-    for (asset, record) in zip(slice, records) {
-      var fields = record.objectValue ?? [:]
+      if let path = asset.primaryURL?.path { fields["path"] = .string(path) }
+      let culling = await cullingState(for: asset, session: session)
+      fields["rating"] = .int(culling.stars)
+      fields["flag"] = .string(culling.flag.rawValue)
+      if let color = culling.colorLabel { fields["color_label"] = .string(color.rawValue) }
       if let captureTime = await captureTimestamp(for: asset) {
         fields["capture_time"] = .string(captureTime)
       }
@@ -272,27 +269,38 @@ enum AgentBrowseService {
     return integer
   }
 
-  static func cullingState(
-    for asset: AssetRef,
-    delegate: any AgentBrowseDelegate,
-    activeSession: EditSession?
-  ) -> CullingState {
-    if activeSession?.asset.id == asset.id, let culling = activeSession?.culling {
-      return culling
-    }
-    if let session = delegate.session(for: asset) {
+  static func cullingState(for asset: AssetRef, session: EditSession?) async -> CullingState {
+    // A realized Browse cell may exist while hydration is still pending. Only
+    // loaded or explicitly edited state can outrank the persisted sidecar.
+    if let session, session.hasLoadedSidecar || session.sidecarUpdateTask != nil {
       return session.culling
     }
-    if let url = asset.primaryURL {
-      let sidecarURL = SidecarPath.sidecarURL(for: url)
-      if FileManager.default.fileExists(atPath: sidecarURL.path),
-        let xml = try? String(contentsOf: sidecarURL, encoding: .utf8),
-        let (_, culling) = try? XMPParser.parse(xml)
-      {
-        return culling
-      }
+    let startingCulling = session?.culling
+    let task = Task.detached(priority: .utility) { () -> CullingState? in
+      guard !Task.isCancelled, let url = asset.primaryURL else { return nil }
+      let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
+      let claimed = scope.startAccessingSecurityScopedResource()
+      defer { if claimed { scope.stopAccessingSecurityScopedResource() } }
+      let sidecar = SidecarPath.sidecarURL(for: url)
+      guard let xml = try? String(contentsOf: sidecar, encoding: .utf8),
+        !Task.isCancelled, let (_, culling) = try? XMPParser.parse(xml)
+      else { return nil }
+      return culling
     }
-    return CullingState()
+    let persisted = await withTaskCancellationHandler {
+      await task.value
+    } onCancel: {
+      task.cancel()
+    }
+    // Rehydrate/edit completion during the disk read owns the newer state.
+    // This query never writes disk results into the edit session.
+    if let session,
+      session.hasLoadedSidecar || session.sidecarUpdateTask != nil
+        || session.culling != startingCulling
+    {
+      return session.culling
+    }
+    return persisted ?? startingCulling ?? CullingState()
   }
 
   static func captureTimestamp(for asset: AssetRef) async -> String? {
@@ -312,67 +320,4 @@ enum AgentBrowseService {
     }.value
   }
 
-  static func loadThumbnailJPEG(
-    for asset: AssetRef,
-    delegate: any AgentBrowseDelegate,
-    activeSession: EditSession?,
-    maxEdge: Int
-  ) async -> (Data, Int, Int)? {
-    if activeSession?.asset.id == asset.id, let surface = await activeSession?.agentCanvasSnapshot()
-    {
-      let context = activeSession?.pipeline.context ?? CIContext()
-      if let inspection = try? AgentInspector.inspect(
-        surface, maxEdge: maxEdge, region: nil, context: context)
-      {
-        return (inspection.jpeg, inspection.width, inspection.height)
-      }
-    }
-
-    if let url = asset.primaryURL {
-      if let data = await ThumbnailLoader.shared.load(
-        for: url, scopeParentURL: asset.scopeParentURL),
-        let cgImage = decodeAndDownsample(data: data, maxEdge: maxEdge),
-        let jpeg = try? AgentInspector.jpeg(cgImage)
-      {
-        return (jpeg, cgImage.width, cgImage.height)
-      }
-    }
-
-    if let previewProvider = asset.displayPreviewProvider,
-      let data = try? await previewProvider(),
-      let cgImage = decodeAndDownsample(data: data, maxEdge: maxEdge),
-      let jpeg = try? AgentInspector.jpeg(cgImage)
-    {
-      return (jpeg, cgImage.width, cgImage.height)
-    }
-
-    if let url = asset.primaryURL,
-      let source = CGImageSourceCreateWithURL(url as CFURL, nil)
-    {
-      let options: [CFString: Any] = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceThumbnailMaxPixelSize: maxEdge,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-      ]
-      if let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-        let jpeg = try? AgentInspector.jpeg(cgThumb)
-      {
-        return (jpeg, cgThumb.width, cgThumb.height)
-      }
-    }
-
-    return nil
-  }
-
-  static func decodeAndDownsample(data: Data, maxEdge: Int) -> CGImage? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-      CGImageSourceGetCount(source) > 0
-    else { return nil }
-    let options: [CFString: Any] = [
-      kCGImageSourceCreateThumbnailFromImageAlways: true,
-      kCGImageSourceThumbnailMaxPixelSize: maxEdge,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-    ]
-    return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-  }
 }

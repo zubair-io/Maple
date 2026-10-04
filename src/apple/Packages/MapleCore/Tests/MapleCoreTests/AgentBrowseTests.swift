@@ -284,6 +284,36 @@ final class AgentBrowseTests: XCTestCase {
     XCTAssertNil(photo["capture_time"])
   }
 
+  func testUnhydratedBrowseSessionDoesNotHidePersistedCulling() async throws {
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-cold-culling")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let original = directory.appendingPathComponent("portrait.png")
+    try FileManager.default.copyItem(at: fixture, to: original)
+    let originalBytes = try Data(contentsOf: original)
+    var persisted = CullingState()
+    persisted.stars = 5
+    persisted.flag = .pick
+    let xml = XMPSerializer.serialize(model: .default, culling: persisted)
+    let sidecar = SidecarPath.sidecarURL(for: original)
+    try xml.write(to: sidecar, atomically: true, encoding: .utf8)
+    let asset = AssetRef(url: original, scopeParentURL: directory)
+    let delegate = MockBrowseDelegate()
+    delegate.browseAssets = [asset]
+    let session = delegate.ensureSession(for: asset)
+    XCTAssertFalse(session.hasLoadedSidecar)
+    let service = AgentEditService()
+    service.browseDelegate = delegate
+    let payload = try await call(service, "maple_list_photos").get()
+    let photo = try XCTUnwrap(payload.result["photos"]?.arrayValue?.first)
+    XCTAssertEqual(photo["rating"], 5)
+    XCTAssertEqual(photo["flag"], "pick")
+    XCTAssertFalse(session.hasLoadedSidecar, "Listing must not mutate edit-session hydration")
+    XCTAssertEqual(try Data(contentsOf: original), originalBytes)
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), xml)
+  }
+
   func testListPhotosOffsetAndLimitValidation() async {
     let service = AgentEditService()
     let delegate = MockBrowseDelegate()
