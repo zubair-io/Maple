@@ -66,6 +66,8 @@ export async function searchWithReadingDiversity(
         ...(positions ? { showMatchesPosition: true } : {}),
       },
     );
+    // Preserve a recoverable error so the search route can fall back to its
+    // built-in full-text search when Meilisearch is unavailable.
     if (!result.ok || !result.body)
       throw new MeilisearchSearchError(result.status, result.errorText);
     return result.body;
