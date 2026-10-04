@@ -196,11 +196,15 @@ public actor NativeExportQueue {
     }
     let granted = url.startAccessingSecurityScopedResource()
     defer { if granted { url.stopAccessingSecurityScopedResource() } }
-    guard try NativeExportStorage.hash(url) == value.originals[index].originalHash else {
+    let identity = try NativeExportStorage.identity(url)
+    guard try NativeExportStorage.hash(url) == value.originals[index].originalHash,
+      try NativeExportStorage.identity(url) == identity
+    else {
       throw NativeExportError.message(
         "Choose the unchanged original photo. Its bytes must match the captured export.")
     }
     var source = value.originals[index]
+    source.authorizedIdentity = identity
     source.scopeURL = url
     source.relativePath = ""
     source.bookmark = try NativeExportAccess.bookmark(url)

@@ -5,6 +5,85 @@ import XCTest
 @testable import MapleCore
 
 final class NativeExportQueueTests: XCTestCase {
+  func testResumeRejectsEqualByteReplacementUntilExplicitAuthorization() async throws {
+    let fixture = try NativeWorkflowControlFixture.files()
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    var record = try NativeExportQueueFixture.record(fixture.raw, root: fixture.directory)
+    var source = record.originals[0]
+    source.scopeURL = fixture.directory
+    source.bookmark = try NativeExportAccess.bookmark(fixture.directory)
+    source.relativePath = fixture.raw.lastPathComponent
+    record.originals[0] = source
+    let initial = record.items[0].target
+    record.items[0] = NativeExportItem(
+      target: NativeExportTarget(
+        source: source, stem: initial.stem, xmp: initial.xmp,
+        capturedAt: initial.capturedAt, index: initial.index))
+    let directory = fixture.directory.appendingPathComponent("ledger")
+    let queue = NativeExportQueue(directory: directory)
+    try await queue.enqueue(record)
+    let original = fixture.directory.appendingPathComponent("captured-original.dng")
+    try FileManager.default.moveItem(at: fixture.raw, to: original)
+    try fixture.original.write(to: fixture.raw, options: .withoutOverwriting)
+    XCTAssertNotEqual(try NativeExportStorage.identity(fixture.raw), record.originals[0].identity)
+    let restored = NativeExportQueue(directory: directory)
+    let loaded = try await restored.load()
+    let frozen = try XCTUnwrap(loaded)
+    let beforeAccess = try NativeExportAccess(record: frozen)
+    XCTAssertThrowsError(
+      try NativeExportPublication.prepare(frozen.items[0], record: frozen, access: beforeAccess))
+    try await restored.authorizeSource(id: record.originals[0].id, url: fixture.raw)
+    let authorized = try await restored.load()
+    let renewed = try XCTUnwrap(authorized)
+    XCTAssertEqual(renewed.originals[0].identity, record.originals[0].identity)
+    XCTAssertEqual(
+      renewed.originals[0].authorizedIdentity, try NativeExportStorage.identity(fixture.raw))
+    let access = try NativeExportAccess(record: renewed)
+    let rendering = try NativeExportPublication.prepare(
+      renewed.items[0], record: renewed, access: access)
+    let prepared = try NativeExportPublication.render(rendering, record: renewed, access: access)
+    let applied = try NativeExportPublication.publish(
+      prepared, record: renewed, access: access, cancellation: NativeExportCancellation())
+    XCTAssertEqual(applied.status, "applied")
+    let originalAlias = fixture.directory.appendingPathComponent("outputs/original-alias.dng")
+    try FileManager.default.linkItem(at: original, to: originalAlias)
+    XCTAssertThrowsError(try access.protect(originalAlias, originals: renewed.originals))
+    XCTAssertEqual(try Data(contentsOf: original), fixture.original)
+    XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+    let chosen = fixture.directory.appendingPathComponent("authorized-original.dng")
+    try FileManager.default.moveItem(at: fixture.raw, to: chosen)
+    try fixture.original.write(to: fixture.raw, options: .withoutOverwriting)
+    XCTAssertThrowsError(
+      try NativeExportPublication.prepare(renewed.items[0], record: renewed, access: access))
+    let chosenAlias = fixture.directory.appendingPathComponent("outputs/authorized-alias.dng")
+    try FileManager.default.linkItem(at: chosen, to: chosenAlias)
+    XCTAssertThrowsError(try access.protect(chosenAlias, originals: renewed.originals))
+    XCTAssertEqual(try Data(contentsOf: chosen), fixture.original)
+  }
+
+  func testPublicationRejectsEqualByteSourceReplacementAfterEncoding() throws {
+    let fixture = try NativeWorkflowControlFixture.files()
+    defer { try? FileManager.default.removeItem(at: fixture.directory) }
+    let record = try NativeExportQueueFixture.record(fixture.raw, root: fixture.directory)
+    let access = try NativeExportAccess(record: record)
+    let rendering = try NativeExportPublication.prepare(
+      record.items[0], record: record, access: access)
+    let prepared = try NativeExportPublication.render(rendering, record: record, access: access)
+    let staging = try XCTUnwrap(prepared.staging)
+    let output = try XCTUnwrap(prepared.output)
+    let original = fixture.directory.appendingPathComponent("captured-original.dng")
+    try FileManager.default.moveItem(at: fixture.raw, to: original)
+    try fixture.original.write(to: fixture.raw, options: .withoutOverwriting)
+    XCTAssertNotEqual(try NativeExportStorage.identity(fixture.raw), record.originals[0].identity)
+    XCTAssertThrowsError(
+      try NativeExportPublication.publish(
+        prepared, record: record, access: access, cancellation: NativeExportCancellation()))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    XCTAssertEqual(try NativeExportStorage.hash(staging), prepared.afterHash)
+    XCTAssertEqual(try Data(contentsOf: original), fixture.original)
+    XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+  }
+
   func testPreparedRecoveryRequiresPublishedInodeAsWellAsEqualBytes() throws {
     let fixture = try NativeWorkflowControlFixture.files()
     defer { try? FileManager.default.removeItem(at: fixture.directory) }

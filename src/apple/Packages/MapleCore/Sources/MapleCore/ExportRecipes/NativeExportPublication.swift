@@ -6,11 +6,10 @@ enum NativeExportPublication {
   static func prepare(
     _ item: NativeExportItem, record: NativeExportRecord, access: NativeExportAccess
   ) throws -> NativeExportItem {
-    guard let source = access.sources[item.id],
-      try NativeExportStorage.hash(source) == item.target.source.originalHash
-    else {
+    guard try sourceMatches(item, access: access) else {
       throw NativeExportError.message(
-        "The original changed or is missing. Start a new export from the current photo.")
+        "The original identity or bytes changed, or it is missing. Choose the unchanged original again, or start a new export."
+      )
     }
     let filename = try NativeExportRecipeBridge.filename(
       record.recipe, stem: item.target.stem, capturedAt: item.target.capturedAt,
@@ -118,12 +117,12 @@ enum NativeExportPublication {
     cancellation: NativeExportCancellation
   ) throws -> NativeExportItem {
     try staging(item, record: record, access: access)
-    guard let source = access.sources[item.id],
-      try NativeExportStorage.hash(source) == item.target.source.originalHash,
+    guard try sourceMatches(item, access: access),
       let output = item.output, let temp = item.staging, let after = item.afterHash
     else {
       throw NativeExportError.message(
-        "The original changed or export is incomplete. Start a new export.")
+        "The original identity or bytes changed, or export is incomplete. Choose the unchanged original again, or start a new export."
+      )
     }
     try access.protect(output, originals: record.originals)
     guard try NativeExportStorage.hash(output) == item.beforeHash else {
@@ -153,6 +152,19 @@ enum NativeExportPublication {
       throw NativeExportPublicationDurabilityError(detail: error.localizedDescription)
     }
     return result
+  }
+
+  private static func sourceMatches(_ item: NativeExportItem, access: NativeExportAccess) throws
+    -> Bool
+  {
+    guard let source = access.sources[item.id],
+      FileManager.default.fileExists(atPath: source.path)
+    else { return false }
+    let captured = item.target.source
+    let expected = captured.authorizedIdentity ?? captured.identity
+    guard try NativeExportStorage.identity(source) == expected else { return false }
+    return try NativeExportStorage.hash(source) == captured.originalHash
+      && NativeExportStorage.identity(source) == expected
   }
 
   static func staging(

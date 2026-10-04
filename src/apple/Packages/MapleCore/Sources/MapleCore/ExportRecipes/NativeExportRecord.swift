@@ -8,6 +8,8 @@ public struct NativeExportSource: Codable, Equatable, Sendable {
   public internal(set) var relativePath: String?
   public let originalHash: String
   public let identity: String
+  /// An explicitly chosen unchanged source can have a new inode; retain the original proof.
+  public internal(set) var authorizedIdentity: String? = nil
   /// Non-file adapters are captured once into the queue's private storage.
   public let ownedDirectory: UUID?
 }
@@ -75,6 +77,7 @@ public struct NativeExportRecord: Codable, Equatable, Sendable {
     guard
       originals.allSatisfy({
         $0.url.isFileURL && validHash($0.originalHash) && !$0.identity.isEmpty
+          && ($0.authorizedIdentity.map { !$0.isEmpty } ?? true)
       }),
       items.allSatisfy({ item in
         !["rendering", "prepared", "applied"].contains(item.status)
