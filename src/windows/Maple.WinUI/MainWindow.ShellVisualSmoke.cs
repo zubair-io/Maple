@@ -114,6 +114,20 @@ public sealed partial class MainWindow
                 if (name.StartsWith("editor", StringComparison.Ordinal)) VerifyEditorHeaderBounds();
                 if (!ReferenceEquals(photo, ViewModel.SelectedPhoto) || !ReferenceEquals(adjustments, ViewModel.Adjustments))
                     throw new InvalidOperationException($"Shell visual navigation changed the document: {name}");
+                var browseControls = name.StartsWith("browse", StringComparison.Ordinal)
+                    ? HeaderActionButtons(BrowseToolbar).Cast<FrameworkElement>()
+                        .Concat(new FrameworkElement[] { SearchBox, BrowseSortBox })
+                        .Where(control => control.Visibility == Visibility.Visible)
+                        .Select(control =>
+                        {
+                            var point = control.TransformToVisual(root).TransformPoint(default);
+                            return new
+                            {
+                                label = control is Maple.UI.Atoms.MuiButton button ? button.Label : control.Name,
+                                x = point.X, y = point.Y, width = control.ActualWidth, height = control.ActualHeight
+                            };
+                        }).ToArray()
+                    : null;
                 var checkpoint = Path.Combine(output, $"visual-{name}");
                 if (File.Exists(checkpoint + ".continue"))
                     throw new InvalidOperationException("Shell visual qualification requires fresh checkpoints");
@@ -126,7 +140,7 @@ public sealed partial class MainWindow
                     scale = root.XamlRoot.RasterizationScale, photoCount = ViewModel.Photos.Count,
                     shellVisualMetadataFixture = ShellVisualMetadataFixture,
                     shellVisualSourceSidecarHash = _shellVisualSourceSidecarHash,
-                    activeGroup = _activeGroup, comparison = _compare.ShowingBefore
+                    activeGroup = _activeGroup, comparison = _compare.ShowingBefore, browseControls
                 }));
                 deadline = Environment.TickCount64 + 180000;
                 while (!File.Exists(checkpoint + ".continue"))
