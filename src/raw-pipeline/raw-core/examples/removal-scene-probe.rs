@@ -21,6 +21,8 @@ mod calibration;
 mod editor_patch;
 #[path = "removal_scene/encoding.rs"]
 mod encoding;
+#[path = "removal_scene/large.rs"]
+mod large;
 #[path = "removal_scene/masks.rs"]
 mod masks;
 
@@ -34,6 +36,21 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// #3941 research only: assemble one native 2048 context from exact tiles.
+    LargeEncode {
+        raw: PathBuf,
+        inputs: PathBuf,
+        intent: PathBuf,
+        protected: PathBuf,
+        output: PathBuf,
+    },
+    /// Validate and bake one joint native 2048 result; never writes XMP.
+    LargeBake {
+        raw: PathBuf,
+        context: PathBuf,
+        model_result: PathBuf,
+        output: PathBuf,
+    },
     Encode {
         raw: PathBuf,
         x: u32,
@@ -425,6 +442,19 @@ fn bake(path: &Path, directory: &Path, model_result: &Path, output: &Path) -> Pr
 
 fn main() -> ProbeResult<()> {
     match Args::parse().command {
+        Command::LargeEncode {
+            raw,
+            inputs,
+            intent,
+            protected,
+            output,
+        } => large::encode(&raw, &inputs, &intent, &protected, &output),
+        Command::LargeBake {
+            raw,
+            context,
+            model_result,
+            output,
+        } => large::bake(&raw, &context, &model_result, &output),
         Command::Encode {
             raw,
             x,

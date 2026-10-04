@@ -124,8 +124,8 @@ pub(super) fn bake(input: Bake<'_>) -> ProbeResult<()> {
     std::fs::create_dir_all(input.output)?;
     std::fs::write(input.output.join("replacement.f16"), input.replacement)?;
     image::GrayImage::from_raw(
-        1024,
-        1024,
+        input.context.window.width,
+        input.context.window.height,
         input
             .coverage
             .iter()
@@ -221,7 +221,7 @@ pub(super) fn bake(input: Bake<'_>) -> ProbeResult<()> {
                     save_png(
                         input.output.join(format!("{prefix}-{suffix}.png")),
                         &display(scene)?,
-                        1024,
+                        input.context.window.width,
                     )?;
                 }
                 grades.push(serde_json::json!({"case":prefix,
