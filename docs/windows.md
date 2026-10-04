@@ -175,6 +175,8 @@ Registration uses the Win32 `CfRegisterSyncRoot` path rather than the WinRT `Sto
 
 `SettingsWindow.cs` composes the Settings surface directly on Maple.UI (`MuiSettingsShell` + `MuiListRow` nav + one `MuiSettingsSection` per section) with six sections: Library, Maple Cloud, Interface, Panorama, Storage, About. Actions that already have an owner in `MainWindow` (cloud connect, sidebar preference) are passed in as callbacks rather than reimplemented.
 
+Run `Maple.exe --lifecycle-smoke RAW OUT settings-sidebar` with a fresh output directory to qualify sidebar preference persistence and layout in a real WinUI window. The check exercises Preview off → on → off, wide Browse visibility, and compact Browse's temporary drawer under both saved preferences. It restores the original sidebar preference and records each assertion in `sidebar-preference.jsonl`, with the result in `lifecycle.json`. This covers the production state owner and layout; actual Settings checkbox input and reopening still require live UI qualification.
+
 `Services/FileTypeRegistrar.cs` registers the ProgId `Maple.Exposure.Image` under `HKCU\Software\Classes` for the extensions in `DropMountLogic.SupportedExtensions` — additive only (an `OpenWithProgids` entry, never the default handler), the counterpart of Apple's document-type claims. `ProtocolRegistrar.cs` does the same for `maple-app://`. Both self-register at launch so the exe path stays fresh across rebuilds.
 
 ## Panorama

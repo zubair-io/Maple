@@ -23,7 +23,7 @@ namespace Maple.WinUI
             if (index < 0) return;
             if (args.Length != index + 4 &&
                 !(args.Length == index + 5 && args[^1] is "--visual-checkpoints" or "--shell-visual-checkpoints" or "--shell-visual-checkpoints-narrow" or "--keyboard-checkpoints"))
-                throw new ArgumentException("--lifecycle-smoke RAW OUT gpu|cpu|empty|source-size-fallback|cloud-preview [--visual-checkpoints|--shell-visual-checkpoints|--shell-visual-checkpoints-narrow|--keyboard-checkpoints]");
+                throw new ArgumentException("--lifecycle-smoke RAW OUT gpu|cpu|empty|source-size-fallback|cloud-preview|settings-sidebar [--visual-checkpoints|--shell-visual-checkpoints|--shell-visual-checkpoints-narrow|--keyboard-checkpoints]");
             _ = RunLifecycleSmokeAsync(args[index + 1], args[index + 2], args[index + 3]);
         }
 
@@ -34,6 +34,13 @@ namespace Maple.WinUI
             var reportPath = Path.Combine(output, "lifecycle.json");
             try
             {
+                if (expectedPath == "settings-sidebar")
+                {
+                    await VerifySidebarPreferenceAsync(output);
+                    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
+                        { passed = true, scope = "settings-sidebar-only" }));
+                    return;
+                }
                 if (expectedPath is "native-detail-checkpoint" or "native-tile-fallback")
                 {
                     await VerifyNativeDetailCheckpointAsync(raw, output, expectedPath == "native-tile-fallback");
