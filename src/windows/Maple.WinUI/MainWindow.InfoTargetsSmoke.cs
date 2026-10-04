@@ -60,6 +60,8 @@ public sealed partial class MainWindow
         var photo = ViewModel.SelectedPhoto ?? throw new InvalidOperationException("Retry qualification needs a local photo.");
         if (photo.IsCloud) throw new InvalidOperationException("Retry qualification requires a local sidecar.");
         var path = Services.Xmp.SidecarStore.SidecarPathFor(photo.FilePath);
+        if (!File.Exists(path))
+            throw new InvalidOperationException("Retry qualification needs the sidecar created by the save-recovery checkpoint.");
         var before = Services.Xmp.SidecarStore.SnapshotHash(Services.Xmp.SidecarStore.ReadSnapshot(photo.FilePath));
         var model = ViewModel.Adjustments;
         var depth = ViewModel.UndoCount;
