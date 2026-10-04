@@ -31,6 +31,8 @@ import { withRemovalRecords } from './removal-editor-recipe';
 import { selectionTensors } from './removal-proxy-tensors';
 import {
   suggestPeople,
+  suggestPeopleWithMasks,
+  assemblePersonMasks,
   collectPersonMasks,
   peopleSelectionMessage,
   type RemovalPerson as Person,
@@ -261,8 +263,16 @@ export class RemovalEditorSession {
         this.photo.height,
       ]);
       this.check(token);
-      const suggestions = suggestPeople(found, this.photo.width, this.photo.height);
-      const masks = await this.masksForPeople(suggestions, token);
+      const proposed = suggestPeople(found, this.photo.width, this.photo.height);
+      const discovered = await this.masksForPeople(proposed, token);
+      this.check(token);
+      const suggestions = suggestPeopleWithMasks(
+        proposed,
+        discovered.detected,
+        this.photo.width,
+        this.photo.height,
+      );
+      const masks = assemblePersonMasks(suggestions, this.manualProtection, discovered.detected);
       this.check(token);
       this.people.set(suggestions);
       this.masks = masks.people;
@@ -314,6 +324,7 @@ export class RemovalEditorSession {
         protection: this.manualProtection,
         people: [] as Uint8Array[],
         bases: [] as PersonBase[],
+        detected: [] as Uint8Array[],
       };
     const photo = this.photo!;
     const tensors = await this.selectionInputs(token);

@@ -34,7 +34,33 @@ pub fn removal_mask_to_bytes(mask: &RemovalMask) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-pub fn removal_mask_from_bytes(bytes: &[u8]) -> Result<RemovalMask, String> {
+/// Verified borrowed packed pixels for cold person-overlap decisions. Avoid
+/// expanding hundreds of native masks to one byte per pixel just to compare.
+pub(crate) struct PackedRemovalMask<'a> {
+    pub source_width: u32,
+    pub source_height: u32,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub bits: &'a [u8],
+}
+
+impl PackedRemovalMask<'_> {
+    pub fn is_empty(&self) -> bool {
+        self.bits.iter().all(|v| *v == 0)
+    }
+
+    pub fn selected(&self, x: u32, y: u32) -> bool {
+        if x < self.x || y < self.y || x >= self.x + self.width || y >= self.y + self.height {
+            return false;
+        }
+        let index = (y - self.y) as usize * self.width as usize + (x - self.x) as usize;
+        self.bits[index / 8] & (1 << (index % 8)) != 0
+    }
+}
+
+pub(crate) fn packed_removal_mask(bytes: &[u8]) -> Result<PackedRemovalMask<'_>, String> {
     if bytes.len() < HEADER_LEN || &bytes[..4] != b"MIMF" {
         return Err("removal mask: missing or invalid header".into());
     }
@@ -52,24 +78,38 @@ pub fn removal_mask_from_bytes(bytes: &[u8]) -> Result<RemovalMask, String> {
     if remainder != 0 && bytes[bytes.len() - 1] >> remainder != 0 {
         return Err("removal mask: non-zero padding bits".into());
     }
-    let mut pixels = Vec::new();
-    pixels
-        .try_reserve_exact(n)
-        .map_err(|_| "removal mask: insufficient memory".to_string())?;
-    pixels.extend((0..n).map(|i| {
-        if bytes[HEADER_LEN + i / 8] & (1 << (i % 8)) == 0 {
-            0
-        } else {
-            255
-        }
-    }));
-    Ok(RemovalMask {
+    Ok(PackedRemovalMask {
         source_width,
         source_height,
         x,
         y,
         width,
         height,
+        bits: &bytes[HEADER_LEN..],
+    })
+}
+
+pub fn removal_mask_from_bytes(bytes: &[u8]) -> Result<RemovalMask, String> {
+    let mask = packed_removal_mask(bytes)?;
+    let n = mask.width as usize * mask.height as usize;
+    let mut pixels = Vec::new();
+    pixels
+        .try_reserve_exact(n)
+        .map_err(|_| "removal mask: insufficient memory".to_string())?;
+    pixels.extend((0..n).map(|i| {
+        if mask.bits[i / 8] & (1 << (i % 8)) == 0 {
+            0
+        } else {
+            255
+        }
+    }));
+    Ok(RemovalMask {
+        source_width: mask.source_width,
+        source_height: mask.source_height,
+        x: mask.x,
+        y: mask.y,
+        width: mask.width,
+        height: mask.height,
         pixels,
     })
 }

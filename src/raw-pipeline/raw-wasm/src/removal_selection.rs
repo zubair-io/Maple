@@ -17,6 +17,13 @@ pub fn removal_people_suggestions(request: &str) -> Result<String, JsError> {
     raw_core::stages::removal_people::suggest_json(request).map_err(|e| JsError::new(&e))
 }
 
+/// Same prominence rules, with exact retained-mask overlap after segmentation.
+#[wasm_bindgen]
+pub fn removal_people_mask_suggestions(request: &str, masks: &[u8]) -> Result<String, JsError> {
+    raw_core::stages::removal_people_masks::suggest_json(request, masks)
+        .map_err(|e| JsError::new(&e))
+}
+
 /// Prepare two native f32 planes, binary hole then coverage, before inference.
 #[wasm_bindgen]
 pub fn removal_generation_masks(
