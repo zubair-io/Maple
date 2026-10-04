@@ -7,8 +7,17 @@ using Xunit;
 
 namespace Maple.WinUI.Tests;
 
-public sealed class InspectorFocalLengthTests
+public sealed class InspectorFocalLengthTests : IDisposable
 {
+    private readonly CultureInfo _originalCulture = CultureInfo.CurrentCulture;
+
+    public InspectorFocalLengthTests()
+    {
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("en-US");
+    }
+
+    public void Dispose() => CultureInfo.CurrentCulture = _originalCulture;
+
     [Theory]
     [InlineData(null, "—")]
     [InlineData(0.0, "—")]
