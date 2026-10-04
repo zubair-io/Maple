@@ -92,7 +92,11 @@ describe('the candidate scan', () => {
 
     // `(asset_id, stage)` is the primary key of a WITHOUT ROWID table, so the
     // dependency gate is one B-tree descent per candidate.
-    expect(detail).toMatch(/SEARCH dep (EXISTS )?USING PRIMARY KEY \(asset_id=\? AND stage=\?\)/);
+    // Both plans are keyed probes. SQLite can prefer the covering stage_dep
+    // index when the asset eligibility branch changes its cost estimate.
+    expect(detail).toMatch(
+      /SEARCH dep (EXISTS )?USING (PRIMARY KEY \(asset_id=\? AND stage=\?\)|COVERING INDEX stage_dep \(stage=\? AND asset_id=\? AND version>\?\))/,
+    );
     expect(detail).not.toContain('SCAN dep');
     expect(detail).not.toContain('TEMP B-TREE');
   });

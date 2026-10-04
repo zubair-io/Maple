@@ -82,12 +82,13 @@ export const CLAIMABLE_GATES = `
  * out to be unreadable; it parks the asset for every stage too.
  */
 export const ASSET_CLAIMABLE_SQL = `
+  (stage_state.stage = 'cloud-backup' OR
     EXISTS (
       SELECT 1 FROM assets
        WHERE id = stage_state.asset_id
          AND ${LIVE_ASSET_PREDICATE}
          AND damaged_since IS NULL
-    )`;
+    ))`;
 
 /** One `dependsOn` entry: the named stage must have reached `minVersion`. */
 export const DEPENDENCY_SQL = `

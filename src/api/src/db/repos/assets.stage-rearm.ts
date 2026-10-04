@@ -60,7 +60,7 @@ export function meiliRearmStatement(assetId: string): SqlStatement {
  * alone, matching the Mongo fragment this replaces.
  */
 export function relocateCacheRearmStatements(assetId: string): SqlStatement[] {
-  return RELOCATE_CACHE_STAGES.map((stage) => ({
+  return [...RELOCATE_CACHE_STAGES, 'cloud-backup'].map((stage) => ({
     sql: REARM_KEEPING_PROCESSED_AT,
     params: [stage, assetId],
   }));

@@ -137,7 +137,11 @@ function toMoveResult(outcome: Awaited<ReturnType<typeof relocateFile>>): MoveRe
  * the RAW (so `IMG_1 (conflict from Mac).xmp` follows `IMG_1.ARW` →
  * `IMG_1.1.ARW` to `IMG_1.1 (conflict from Mac).xmp`).
  */
-export async function moveToTrash(absPath: string, folderRoot: string): Promise<MoveResult> {
+export async function moveToTrash(
+  absPath: string,
+  folderRoot: string,
+  onDestinationPrepared?: (destination: string) => Promise<void>,
+): Promise<MoveResult> {
   const trashTarget = computeTrashPath(absPath, folderRoot);
   const outcome = await relocateFile({
     sourceAbsPath: absPath,
@@ -145,6 +149,7 @@ export async function moveToTrash(absPath: string, folderRoot: string): Promise<
     mode: 'move',
     collision: 'auto-suffix',
     callerTag: 'moveToTrash',
+    onDestinationPrepared,
   });
   return toMoveResult(outcome);
 }
@@ -160,6 +165,7 @@ export async function moveToTrash(absPath: string, folderRoot: string): Promise<
 export async function moveOutOfTrash(
   trashAbsPath: string,
   targetAbsPath: string,
+  onDestinationPrepared?: (destination: string) => Promise<void>,
 ): Promise<MoveResult> {
   try {
     if ((await classifySameFile(trashAbsPath, targetAbsPath)) !== 'different') {
@@ -171,6 +177,7 @@ export async function moveOutOfTrash(
       const freeTarget = (await restoreDestinationOccupied(targetAbsPath))
         ? await pickFreeRestoredPath(targetAbsPath)
         : targetAbsPath;
+      await onDestinationPrepared?.(freeTarget);
       if (await restoreFilePair(trashAbsPath, freeTarget)) {
         return { kind: 'ok', newAbsPath: freeTarget };
       }

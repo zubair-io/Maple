@@ -31,7 +31,8 @@ import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { child as childLogger } from '../log.ts';
-import { findFolderById, setFolderMirrors } from '../db/repos/folders.repo.ts';
+import { findFolderById } from '../db/repos/folders.repo.ts';
+import { replaceFolderDestinations } from '../cloud-backup/local-mirror-bridge.ts';
 import { safeObjectId } from '../db/object-id.ts';
 import type { FolderWithId } from '../db/schema.ts';
 import { validateRoot } from '../fs/root.ts';
@@ -144,7 +145,7 @@ export const mirrorRoutes = new Elysia()
         mirrors.push({ path: resolved, enabled: m.enabled });
       }
 
-      await setFolderMirrors(folder._id, mirrors);
+      await replaceFolderDestinations(folder._id.toHexString(), mirrors);
       await loadMirrorConfig(); // refresh the in-memory registry — no restart
       log.info({ folder: folder.path, mirrors: mirrors.length }, 'updated library mirrors');
       return { ok: true, mirrors };

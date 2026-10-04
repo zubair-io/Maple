@@ -42,6 +42,7 @@ import { startDerivativeAudit, type DerivativeAuditHandle } from './derivative-a
 import { startGeneratedSearch, type GeneratedSearchHandle } from './generated-search/run.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { child as childLogger } from '../log.ts';
+import { maintainBackup } from '../cloud-backup/runtime.ts';
 
 const log = childLogger('maintenance');
 
@@ -61,10 +62,29 @@ let mirrorCopy: MirrorCopyHandle | null = null;
 let mirrorConfigReload: ReturnType<typeof setInterval> | null = null;
 let derivativeAudit: DerivativeAuditHandle | null = null;
 let generatedSearch: GeneratedSearchHandle | null = null;
+let backupMaintenance: ReturnType<typeof setInterval> | null = null;
+let backupMaintenanceRunning = false;
 
 /** Start every maintenance job. Idempotent — a second call is a no-op while a
  * prior set is still running. */
 export function startMaintenanceJobs(): void {
+  if (!backupMaintenance) {
+    const tick = async () => {
+      if (backupMaintenanceRunning) return;
+      backupMaintenanceRunning = true;
+      try {
+        await maintainBackup();
+      } catch {
+        log.warn('backup lifecycle maintenance requires retry');
+      } finally {
+        backupMaintenanceRunning = false;
+      }
+    };
+    backupMaintenance = setInterval(() => {
+      void tick();
+    }, 60_000);
+    void tick();
+  }
   if (!trashGc) trashGc = startTrashGc({});
   if (!changeLogGc) changeLogGc = startChangeLogGc({});
   if (!missingReaper) missingReaper = startMissingReaper();
@@ -103,6 +123,10 @@ export function startMaintenanceJobs(): void {
 /** Stop every maintenance job (cancels timers, unregisters the workers). Safe to
  * call when nothing is running. */
 export function stopMaintenanceJobs(): void {
+  if (backupMaintenance) {
+    clearInterval(backupMaintenance);
+    backupMaintenance = null;
+  }
   trashGc?.stop();
   trashGc = null;
   changeLogGc?.stop();

@@ -1224,7 +1224,8 @@ export type JobKind =
   | 'batch_jpeg_export'
   | 'pano_stitch'
   | 'batch_adjustment_sync'
-  | 'batch_recipe_export';
+  | 'batch_recipe_export'
+  | 'cloud_backup_restore';
 
 /** Lifecycle: queued → running → (done | failed | cancelled).
  * `cancelled` is set when a running job observes `cancel_requested` between

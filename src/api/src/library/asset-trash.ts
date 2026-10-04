@@ -34,6 +34,12 @@ import { classifyMediaType } from '../indexer/media-types.ts';
 import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import { findCoreInfoById, markSoftDeleted, restoreFromTrash } from '../db/repos/assets.repo.ts';
+import {
+  prepareLifecycle,
+  recordLifecycleTarget,
+  finishLocalLifecycle,
+  runLifecycleMove,
+} from '../cloud-backup/lifecycle.ts';
 import type { AssetCoreInfo } from '../db/repos/assets.repo.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
@@ -176,8 +182,21 @@ export async function trashAssetById(
   if (!folder) return { kind: 'no-folder' };
   const absPathResolved = path.join(folder.path, entryPath, entryFilename);
 
-  const result = await moveToTrash(absPathResolved, folder.path);
-  if (result.kind !== 'ok') return { kind: 'error', error: result.error };
+  const intent = await prepareLifecycle(
+    id.toHexString(),
+    'trash',
+    libraryId.toHexString(),
+    path.relative(folder.path, absPathResolved).split(path.sep).join('/'),
+  );
+  const result = await runLifecycleMove(intent, () =>
+    moveToTrash(absPathResolved, folder.path, (target) =>
+      recordLifecycleTarget(intent, folder.path, absPathResolved, target),
+    ),
+  );
+  if (result.kind !== 'ok') {
+    await finishLocalLifecycle(intent, true);
+    return { kind: 'error', error: result.error };
+  }
 
   // `source` tells the repo to rewrite ONLY the matched fileinfo entry
   // instead of clobbering the whole array — when the asset has multiple
@@ -192,6 +211,7 @@ export async function trashAssetById(
     originalAbsPath,
     source: { libraryId, path: entryPath, filename: entryFilename },
   });
+  await finishLocalLifecycle(intent);
 
   await tombstoneInSearch(id, info.maple_id);
 
@@ -450,8 +470,21 @@ export async function restoreAssetById(
   );
   if (targetResolution.kind !== 'ok') return targetResolution;
 
-  const result = await moveOutOfTrash(trashedAbsPath, targetResolution.targetAbs);
-  if (result.kind !== 'ok') return { kind: 'error', error: result.error };
+  const intent = await prepareLifecycle(
+    id.toHexString(),
+    'restore',
+    assetFolderId.toHexString(),
+    path.relative(folder.path, trashedAbsPath).split(path.sep).join('/'),
+  );
+  const result = await runLifecycleMove(intent, () =>
+    moveOutOfTrash(trashedAbsPath, targetResolution.targetAbs, (target) =>
+      recordLifecycleTarget(intent, folder.path, trashedAbsPath, target),
+    ),
+  );
+  if (result.kind !== 'ok') {
+    await finishLocalLifecycle(intent, true);
+    return { kind: 'error', error: result.error };
+  }
 
   const restoredFilename = path.basename(result.newAbsPath);
   const { size: restoredSize, mtimeMs: restoredMtimeMs } = await restatRestoredFile(
@@ -475,6 +508,7 @@ export async function restoreAssetById(
       filename: entrySpec.filename,
     },
   });
+  await finishLocalLifecycle(intent);
 
   await reindexRestoredInSearch(id, info, restoredFilename, assetFolderId);
 

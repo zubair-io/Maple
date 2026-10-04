@@ -17,6 +17,7 @@ import { batchJpegExportHandler } from './batch-jpeg-export.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
 import { batchAdjustmentSyncHandler } from './batch-adjustment-sync.ts';
 import { batchRecipeExportHandler } from './batch-recipe-export.ts';
+import { cloudBackupRestoreHandler } from './cloud-backup-restore.ts';
 
 /** Per-step context passed to handlers by the runner. */
 export interface JobHandlerContext {
@@ -53,4 +54,5 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   pano_stitch: panoStitchHandler,
   batch_adjustment_sync: batchAdjustmentSyncHandler,
   batch_recipe_export: batchRecipeExportHandler,
+  cloud_backup_restore: cloudBackupRestoreHandler,
 };

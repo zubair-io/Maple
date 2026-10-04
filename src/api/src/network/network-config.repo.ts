@@ -33,6 +33,8 @@ export function isValidPort(port: number): boolean {
 }
 
 export interface NetworkConfig {
+  /** Validated canonical browser-facing origin for OAuth and external links. */
+  public_origin?: string | null;
   /** Operator override for the advertised LAN IP/hostname. `null`/missing →
    * fall back to auto-detection. */
   local_ip_override?: string | null;
@@ -50,6 +52,7 @@ interface NetworkConfigDoc {
 }
 
 export interface ResolvedNetworkConfig {
+  public_origin?: string | null;
   enabled: boolean;
   local_ip: string | null;
   local_port: number;
@@ -78,6 +81,7 @@ export async function saveNetworkConfig(patch: Partial<NetworkConfig>): Promise<
   if (patch.enabled !== undefined) {
     set['config.enabled'] = patch.enabled;
   }
+  if (patch.public_origin !== undefined) set['config.public_origin'] = patch.public_origin;
   if (patch.local_ip_override !== undefined) {
     set['config.local_ip_override'] = patch.local_ip_override;
   }
@@ -156,6 +160,7 @@ export function resolveNetworkConfig(db: NetworkConfig | null): ResolvedNetworkC
   }
 
   return {
+    public_origin: db?.public_origin ?? null,
     enabled,
     local_ip: localIp,
     local_port: localPort,

@@ -27,6 +27,8 @@ import {
 } from '../network/network-config.repo.ts';
 import { managedHttps, type HttpsEndpoint } from '../network/managed-https.ts';
 import { TLS_ENABLED } from '../runtime/tls-config.ts';
+import { validatePublicOrigin } from '../network/public-origin.ts';
+import { requireAuth, requireOwner } from '../auth/middleware.ts';
 
 export interface LocalAddressResponse {
   available: boolean;
@@ -73,17 +75,37 @@ export const networkPublicRoutes = new Elysia().get('/api/network/local-address'
 );
 
 const NetworkConfigBody = t.Object({
+  public_origin: t.Optional(t.Union([t.String({ maxLength: 2048 }), t.Null()])),
   enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
   local_ip_override: t.Optional(t.Union([t.String(), t.Null()])),
   local_port_override: t.Optional(t.Union([t.Number(), t.Null()])),
 });
 
 export const networkSettingsRoutes = new Elysia({ prefix: '/api/network' })
+  .use(requireAuth)
+  .use(requireOwner)
   .get('/config', async () => resolveNetworkConfig(await loadNetworkConfig()))
 
   .put(
     '/config',
     async ({ body, set }) => {
+      const publicOrigin =
+        body.public_origin == null
+          ? body.public_origin
+          : (() => {
+              try {
+                return validatePublicOrigin(body.public_origin);
+              } catch {
+                return null;
+              }
+            })();
+      if (body.public_origin && !publicOrigin) {
+        set.status = 400;
+        return {
+          error:
+            'Invalid public_origin: use HTTPS, or HTTP loopback, without a path or credentials',
+        };
+      }
       let ipOverride: string | null | undefined;
       if (body.local_ip_override !== undefined) {
         const validated = validateLocalAddress(body.local_ip_override);
@@ -106,6 +128,7 @@ export const networkSettingsRoutes = new Elysia({ prefix: '/api/network' })
       }
 
       await saveNetworkConfig({
+        ...(publicOrigin !== undefined ? { public_origin: publicOrigin } : {}),
         ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
         ...(ipOverride !== undefined ? { local_ip_override: ipOverride } : {}),
         ...(body.local_port_override !== undefined
