@@ -103,16 +103,39 @@ extension AutoProfileCanvasParityTests {
     XCTAssertEqual(
       reopenedOutcome, false, "A reopened GPU session must not reuse the previous image’s status")
     await driver.closeSession()
-    for (url, expected) in [
+    let staged = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: staged) }
+    for (source, expected) in [
       (physical, AutoFitStatus.active), (noPreview, .unavailable),
       (physicalUnavailable, .unavailable),
     ] {
+      let url = staged.appendingPathComponent(source.lastPathComponent)
+      try FileManager.default.copyItem(at: source, to: url)
       let session = EditSession(asset: AssetRef(url: url))
       await session.decodeAndRender(targetSize: CGSize(width: 128, height: 128), phase: .fast)
       XCTAssertNil(session.renderError)
       XCTAssertNotNil(session.renderedPreview)
       XCTAssertEqual(
         session.autoFitStatus, expected, "Actual CPU frame publication carries the fit outcome")
+      let renderedModel = session.model
+      let renderedRevision = session.autoFitRevision
+      let frame = session.renderedPreview
+      let writer = XMPSidecarStore(rawURL: url)
+      await writer.update(model: renderedModel, culling: session.culling)
+      await writer.flush()
+      let persisted = try await XMPSidecarStore(rawURL: url).load()
+      XCTAssertEqual(persisted.0, renderedModel, "The real XMP must describe the rendered model")
+      session.renderRequested = true
+      await session.loadSidecar()
+      XCTAssertEqual(session.model, renderedModel)
+      XCTAssertTrue(
+        session.renderedPreview === frame, "Unchanged hydration retains the actual frame")
+      XCTAssertEqual(session.autoFitRevision, renderedRevision)
+      XCTAssertEqual(
+        session.autoFitStatus, expected, "Unchanged XMP must retain the achieved frame's status")
+      XCTAssertNil(
+        session.latestRenderSchedule, "Unchanged hydration schedules no replacement frame")
       await session.releaseTransientMemory()
     }
     let broken = EditSession(
