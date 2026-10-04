@@ -37,7 +37,7 @@ namespace Maple.WinUI
                 if (expectedPath == "source-size-fallback")
                 {
                     await VerifySourceSizeFallbackAsync(raw, output);
-                    File.WriteAllText(reportPath, JsonSerializer.Serialize(new
+                    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
                         { passed = true, scope = "unsupported-source-size-fallback-only" }));
                     return;
                 }
