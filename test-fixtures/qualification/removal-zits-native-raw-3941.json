@@ -1,0 +1,848 @@
+{
+  "issue": 3941,
+  "epic": 1472,
+  "recordedAt": "2026-10-04T01:18:34.438506+00:00",
+  "headBeforeCommit": "c7447901973da3960f212bb583d9977c00b1df30",
+  "releaseQualified": false,
+  "scope": "Pinned official ZITS structure-conditioned native1024 on actual shared RAW floats. Research only; no app/model-catalog, original, XMP, color-stage, GPU or accepted-mask changes.",
+  "officialSources": {
+    "implementation": "https://github.com/DQiaole/ZITS_inpainting/tree/6f4a47bb03bfb82a4860fc55ae0719ab0db8f6eb",
+    "paper": "https://arxiv.org/abs/2203.00867",
+    "weights_folder": "https://drive.google.com/drive/folders/1Dg_6ZCAi0U3HzrYgXwr9nSaOLnPsf9n-",
+    "sourceLicense": "Apache-2.0",
+    "weightsDistributionAdmission": "Not established; recorded official provenance only, no redistribution."
+  },
+  "source_and_checkpoint_pins": {
+    "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/zits-native-pins.json",
+    "sha256": "457f98368a29212c88cff340b6b5e70d206881d60f88c39957f0e0deb462a5fa",
+    "bytes": 3724
+  },
+  "probe_files": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_zits_native.py",
+      "sha256": "5c6f9daf5ba44b8db41d383aff497ef98de08bd07eea5972f20c8cdc31e4bc81",
+      "bytes": 6401
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/zits_native_upstream.py",
+      "sha256": "91d20f777bbd22b05dda31630b967d7e03f3a12c9d9a8b146ed9c404f0a096d8",
+      "bytes": 8692
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_aot_native.py",
+      "sha256": "9612632007d33ffe992f2365bf39806fc425d84b796a2097f3033aafc2765c09",
+      "bytes": 10609
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/native_orientation.py",
+      "sha256": "fd0d7d039b8b91ac9cd64b04093878d94d51843549f63f494bf92cb7ee8471c6",
+      "bytes": 1750
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/native_probe_pixels.py",
+      "sha256": "2a4373a57cbfcd2e345976e792aba1c3201fb418a9382c8fb624716bb59de170",
+      "bytes": 3311
+    }
+  ],
+  "executed_snapshots": [
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-probe-executed-20261004/native_orientation.py",
+      "sha256": "fd0d7d039b8b91ac9cd64b04093878d94d51843549f63f494bf92cb7ee8471c6",
+      "bytes": 1750
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-probe-executed-20261004/native_probe_pixels.py",
+      "sha256": "2a4373a57cbfcd2e345976e792aba1c3201fb418a9382c8fb624716bb59de170",
+      "bytes": 3311
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-probe-executed-20261004/probe_aot_native.py",
+      "sha256": "9612632007d33ffe992f2365bf39806fc425d84b796a2097f3033aafc2765c09",
+      "bytes": 10609
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-probe-executed-20261004/probe_zits_native.py",
+      "sha256": "5c6f9daf5ba44b8db41d383aff497ef98de08bd07eea5972f20c8cdc31e4bc81",
+      "bytes": 6401
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-probe-executed-20261004/sha256.json",
+      "sha256": "c88f5ccd8b9f1460c10f27648d7968f6c1a49876e7038eaf9e42d6e382bd4cb4",
+      "bytes": 573
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-probe-executed-20261004/zits-native-pins.json",
+      "sha256": "457f98368a29212c88cff340b6b5e70d206881d60f88c39957f0e0deb462a5fa",
+      "bytes": 3724
+    },
+    {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-probe-executed-20261004/zits_native_upstream.py",
+      "sha256": "91d20f777bbd22b05dda31630b967d7e03f3a12c9d9a8b146ed9c404f0a096d8",
+      "bytes": 8692
+    }
+  ],
+  "python_versions": {
+    "torch": "2.14.1",
+    "torchvision": "0.29.1",
+    "numpy": "2.4.6",
+    "opencv-python": "5.0.0.93",
+    "scikit-image": "0.26.0",
+    "yacs": "0.1.8",
+    "pillow": "12.3.0",
+    "blake3": "1.0.10",
+    "PyYAML": "6.0.3"
+  },
+  "originals": [
+    {
+      "case": "bologna",
+      "path": "/Users/riabuz/.cache/maple-removal-research/raws/_DSC7409.NEF",
+      "sha256": "2ed291a09d7d4f72c8588b0c12d6cc5c470ad42ab9e3aaad1f888f34526b959f",
+      "bytes": 29019786,
+      "unchanged": true,
+      "person_model_release_verified": false
+    },
+    {
+      "case": "night-tiger",
+      "path": "/Users/riabuz/.cache/maple-removal-research/raws/DSC_0015.nef",
+      "sha256": "8cc49f506d3ebde3f3c87862e23497c639c806a54765bf8cb8a7fcaf664e10e5",
+      "bytes": 10981379,
+      "unchanged": true,
+      "person_model_release_verified": false
+    }
+  ],
+  "cases": [
+    {
+      "name": "bologna-native",
+      "context": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-r1-20261003/context.json",
+        "sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+        "bytes": 849
+      },
+      "masks": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-r1-20261003/masks.json",
+        "sha256": "fe7b4f8e03e038d0deca02d188a9d4ad9adda5e7dd6a71b26f03abb25443c71c",
+        "bytes": 479
+      },
+      "preparation": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/bologna-person-current-contrast-8-r1-20261003/preparation.json",
+        "sha256": "ecd650a27210e48aa1967527659a34545d849acad7dec08a453a05917d066851",
+        "bytes": 4607
+      },
+      "inference_report": {
+        "source_revision": "6f4a47bb03bfb82a4860fc55ae0719ab0db8f6eb",
+        "pins_sha256": "457f98368a29212c88cff340b6b5e70d206881d60f88c39957f0e0deb462a5fa",
+        "model_tensors": {
+          "generator": 519,
+          "str_encoder": 99,
+          "transformer": 379,
+          "upsampler": 12,
+          "wireframe": 729
+        },
+        "model_parameters": {
+          "generator": 27091858,
+          "str_encoder": 22594707,
+          "transformer": 18458626,
+          "upsampler": 78466,
+          "wireframe": 10362515
+        },
+        "weights_unchanged_after_documented_half_cast": true,
+        "context_sha256": "ff1a313bc44bd90f4290cea3011e44f07848e652cdb5037e4d899d7b4b856b05",
+        "masks_sha256": "fe7b4f8e03e038d0deca02d188a9d4ad9adda5e7dd6a71b26f03abb25443c71c",
+        "source_anchor": {
+          "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+          "decode": "blake3:add2c2b7017c74c40e3b2229acc1804ab1ca5be9700e99f448093dd044bf87c9",
+          "width": 6000,
+          "height": 4000
+        },
+        "orientation": 1,
+        "orientation_metadata": {
+          "height": 1024,
+          "input_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+          "inverse": false,
+          "orientation": 1,
+          "output_blake3": "8444dd97c84684bc3194de047bf0331652f7c87ea58e0e0aed54c7aa75f8259f",
+          "raw_identity": {
+            "decoded_orientation": "Normal",
+            "decoder_verified": true,
+            "original_blake3": "2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718"
+          },
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "orientation_rows": null,
+        "orientation_probe_sha256": null,
+        "native_extent_hw": [1024, 1024],
+        "selected_pixels": 101058,
+        "input_sha256": "3377775e02ae1f64efaf0bcb416534c822dee94e5aed9f17b0c0961fbef5c5dd",
+        "result_sha256": "b71f11062d0d7b5c835f6c52423f2395e6f80d39b2138414274581a21c782083",
+        "prediction_sha256": "ebb9b41acbecdba2c448a4bf0f73b0398da6afddaa064a5056eb53a9aeb0e762",
+        "outside_float_bits_changed": 0,
+        "inference_seconds": 85.57926754200162,
+        "phases": {
+          "wireframe_seconds": 0.9034775410000293,
+          "structure_seconds": 77.46991233300287,
+          "upsampler_seconds": 1.2512322910006333,
+          "texture_seconds": 5.877050792001683
+        },
+        "process_peak_rss_bytes_macos": 22171303936,
+        "torch": "2.14.1",
+        "device": "cpu",
+        "seed": 3407,
+        "upstream_adapter": "Only three wireframe .to(0) calls select CPU; training wrapper replaced by direct exact learned modules and published forward equations. TSR explicitly half, all other modules f32.",
+        "guidance": "Published uint8 proxies at256/512; Canny sigma3, wireframe .85, TSR five iterations add.05/mul4, learned edge/line upsampling sigmoid((x+2)*2). Native FTR input remains shared f32; this differs from upstream file input quantization and is recorded, not a numerical parity claim.",
+        "releaseQualified": false,
+        "scope": "Actual full ZITS structure-conditioned native1024 reconstruction. One uncontrolled CPU point; RAW inverse, photographic quality, native app/export, supported-device and distribution admission remain separate gates."
+      },
+      "inference_report_file": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/zits-bologna-native-20261004/report.json",
+        "sha256": "2340f8aa389b99200c7ecf5a34870308caee77f831ce7fd8624be2fe94792411",
+        "bytes": 3087
+      },
+      "raw_bake_report": {
+        "as_shot_temperature": 4084.04931640625,
+        "as_shot_tint": 42.26961898803711,
+        "auto_profile_engaged": true,
+        "encoding": {
+          "high": 3.577129211400544,
+          "low": -1.6838237074610694,
+          "method": "signed-log-photographic-contrast-v1"
+        },
+        "generation_masks": "blake3:6b96d7fd5ccfb9c902ea5826a9ab4f7502a5c52a5839755c17e29a2c29b435c6",
+        "grades": [
+          {
+            "case": "neutral_ev-3_wb-1000",
+            "max_scene_float_error_identity": 2.734363079071045e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1072.7893749999998
+          },
+          {
+            "case": "auto_ev-3_wb-1000",
+            "max_scene_float_error_identity": 2.734363079071045e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1072.7893749999998
+          },
+          {
+            "case": "neutral_ev-3_wb+0",
+            "max_scene_float_error_identity": 1.52587890625e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1059.0462920000002
+          },
+          {
+            "case": "auto_ev-3_wb+0",
+            "max_scene_float_error_identity": 1.52587890625e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1059.0462920000002
+          },
+          {
+            "case": "neutral_ev-3_wb+1000",
+            "max_scene_float_error_identity": 1.1788681149482727e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1048.756958
+          },
+          {
+            "case": "auto_ev-3_wb+1000",
+            "max_scene_float_error_identity": 1.1788681149482727e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1048.756958
+          },
+          {
+            "case": "neutral_ev+0_wb-1000",
+            "max_scene_float_error_identity": 0.0002187490463256836,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1085.862083
+          },
+          {
+            "case": "auto_ev+0_wb-1000",
+            "max_scene_float_error_identity": 0.0002187490463256836,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1085.862083
+          },
+          {
+            "case": "neutral_ev+0_wb+0",
+            "max_scene_float_error_identity": 0.0001220703125,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1099.588041
+          },
+          {
+            "case": "auto_ev+0_wb+0",
+            "max_scene_float_error_identity": 0.0001220703125,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1099.588041
+          },
+          {
+            "case": "neutral_ev+0_wb+1000",
+            "max_scene_float_error_identity": 9.430944919586182e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1110.7636249999998
+          },
+          {
+            "case": "auto_ev+0_wb+1000",
+            "max_scene_float_error_identity": 9.430944919586182e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1110.7636249999998
+          },
+          {
+            "case": "neutral_ev+3_wb-1000",
+            "max_scene_float_error_identity": 0.0017499923706054688,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1140.356041
+          },
+          {
+            "case": "auto_ev+3_wb-1000",
+            "max_scene_float_error_identity": 0.0017499923706054688,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1140.356041
+          },
+          {
+            "case": "neutral_ev+3_wb+0",
+            "max_scene_float_error_identity": 0.0009765625,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1132.082292
+          },
+          {
+            "case": "auto_ev+3_wb+0",
+            "max_scene_float_error_identity": 0.0009765625,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1132.082292
+          },
+          {
+            "case": "neutral_ev+3_wb+1000",
+            "max_scene_float_error_identity": 0.0007544755935668945,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1146.804041
+          },
+          {
+            "case": "auto_ev+3_wb+1000",
+            "max_scene_float_error_identity": 0.0007544755935668945,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1146.804041
+          }
+        ],
+        "max_scene_float_error_identity": 0.0017499923706054688,
+        "model_result": "blake3:b73e08fef154417ee7c02cb37b467f55133c81cc96f5e83c5e6da22bfe0fd660",
+        "native_context": {
+          "height": 1024,
+          "width": 1024,
+          "x": 2850,
+          "y": 1300
+        },
+        "original": "blake3:2019a5cbd7bcdcf8405528789cde7c05ed4bee8d31c533df786be64f42c97718",
+        "outside_mask_max_error": 0,
+        "plate": "LinearCalibrationV1",
+        "profile_tier": "BundleConfident",
+        "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+        "release_qualified": false
+      },
+      "raw_bake_report_file": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/zits-bologna-bake-20261004/report.json",
+        "sha256": "42fa231ca7f46fa62115a0d31862fbde0db89de0e1092fc89f9a1d9ca983b7d5",
+        "bytes": 4487
+      },
+      "independent_verification": {
+        "file": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-bologna-grade-checks-20261004.json",
+          "sha256": "31e9fe58008f5b9ec9ce08826cdb1efaa1dfa5ad211ebacc07d02209540f7e3d",
+          "bytes": 10260
+        },
+        "grades": 18,
+        "known_and_protected_display_samples_changed": 0,
+        "protected_pixels": 302216,
+        "coverage_pixels": 95336
+      },
+      "review_files": [
+        {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-bologna-native-20261004/source.png",
+          "sha256": "e46cd4c3d6dca544496727a123100bf8644512af6f1561b52e67799484ad01c9",
+          "bytes": 1414734
+        },
+        {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-bologna-native-20261004/candidate.png",
+          "sha256": "33baa060cba4512721b2a19621234d594c5a7af1c5adc1accff55ba3c72f23e7",
+          "bytes": 1403899
+        },
+        {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-bologna-bake-20261004/auto_ev+0_wb+0-truth.png",
+          "sha256": "1aa485f881be5c989f116624b19c03fc34f07a05877b9c5ecb52a3db3d83274b",
+          "bytes": 1632026
+        },
+        {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-bologna-bake-20261004/auto_ev+0_wb+0-removal.png",
+          "sha256": "19df5a483e614c402b33aad9fbb4978c494c65f847fd51f49b1902e7acb52791",
+          "bytes": 1613805
+        }
+      ]
+    },
+    {
+      "name": "night-upright-native",
+      "context": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/night-poster-contrast-prepared-20261003/context.json",
+        "sha256": "a21f20840a4fb7572aceca28ed05082f75d537e3d0ae60f60d44094e2de41ca9",
+        "bytes": 847
+      },
+      "masks": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/night-poster-contrast-prepared-20261003/masks.json",
+        "sha256": "617d4775621dd2a9e4351dca222e9a6339f35384fe808e49dea5b03923456b2f",
+        "bytes": 479
+      },
+      "preparation": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/night-poster-contrast-prepared-20261003/preparation.json",
+        "sha256": "d8ebdf4f0a5eee9542b261b2c2a3138abc23587b3711cb5fd7a67431d728dd6f",
+        "bytes": 3056
+      },
+      "inference_report": {
+        "source_revision": "6f4a47bb03bfb82a4860fc55ae0719ab0db8f6eb",
+        "pins_sha256": "457f98368a29212c88cff340b6b5e70d206881d60f88c39957f0e0deb462a5fa",
+        "model_tensors": {
+          "generator": 519,
+          "str_encoder": 99,
+          "transformer": 379,
+          "upsampler": 12,
+          "wireframe": 729
+        },
+        "model_parameters": {
+          "generator": 27091858,
+          "str_encoder": 22594707,
+          "transformer": 18458626,
+          "upsampler": 78466,
+          "wireframe": 10362515
+        },
+        "weights_unchanged_after_documented_half_cast": true,
+        "context_sha256": "a21f20840a4fb7572aceca28ed05082f75d537e3d0ae60f60d44094e2de41ca9",
+        "masks_sha256": "617d4775621dd2a9e4351dca222e9a6339f35384fe808e49dea5b03923456b2f",
+        "source_anchor": {
+          "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+          "decode": "blake3:f021d621d9593e428bc59f5d0861b719c7458d05c95a08c02ed85e8b3a24da2d",
+          "width": 4288,
+          "height": 2848
+        },
+        "orientation": 8,
+        "orientation_metadata": {
+          "height": 1024,
+          "input_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+          "inverse": false,
+          "orientation": 8,
+          "output_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+          "raw_identity": {
+            "decoded_orientation": "Rotate270",
+            "decoder_verified": true,
+            "original_blake3": "45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2"
+          },
+          "releaseQualified": false,
+          "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+          "width": 1024
+        },
+        "orientation_rows": {
+          "source": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+              "inverse": false,
+              "orientation": 8,
+              "output_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "b772be8b5f59b9417f4c37f6939af7448afe03f920641f268579b04b7c92b7e3",
+              "inverse": true,
+              "orientation": 8,
+              "output_blake3": "0fd74f5b2fb5387df4e9c5f9ac0475f52b075f785760b59cb7320ca51b472577",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "hole": {
+            "forward": {
+              "height": 1024,
+              "input_blake3": "6b30c3241dee45aff3a5e11c531629a401653300f905b055b9be7f5f59047d03",
+              "inverse": false,
+              "orientation": 8,
+              "output_blake3": "955ba12a5d93bb9bc05bf415fb92715d325efc2ec6ff53e25fc4ccaeca88e173",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "inverse": {
+              "height": 1024,
+              "input_blake3": "955ba12a5d93bb9bc05bf415fb92715d325efc2ec6ff53e25fc4ccaeca88e173",
+              "inverse": true,
+              "orientation": 8,
+              "output_blake3": "6b30c3241dee45aff3a5e11c531629a401653300f905b055b9be7f5f59047d03",
+              "raw_identity": null,
+              "releaseQualified": false,
+              "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+              "width": 1024
+            },
+            "roundtrip_bits_exact": true
+          },
+          "prediction_inverse": {
+            "height": 1024,
+            "input_blake3": "2f952b113fe921ff91d3bba09342676a59f64980447923727586ddc473805216",
+            "inverse": true,
+            "orientation": 8,
+            "output_blake3": "42dd3108ec89c3ee7cb78c6bba881576a3cefbf82604ff544e49f2718251a089",
+            "raw_identity": null,
+            "releaseQualified": false,
+            "sample_math": "shared-core exact pixel permutation; no color math or resizing",
+            "width": 1024
+          }
+        },
+        "orientation_probe_sha256": "f4d3746df2eb53d3059327bbcadd4cea7a0305fe51516d4d3af68eba7002829d",
+        "native_extent_hw": [1024, 1024],
+        "selected_pixels": 44905,
+        "input_sha256": "85fd4bab4705858f4980b3e37ed9205e4696feef9df06028637f3855a9e55e17",
+        "result_sha256": "6a67d96c5cc0aa57cebf0171a7e817216578e9e85ae57c12f14e11d24b8d4dd8",
+        "prediction_sha256": "1702be04bdcb5c3d6bf0b82afd155f26f89c83edc770f27305c5a6c4cd312813",
+        "outside_float_bits_changed": 0,
+        "inference_seconds": 103.66561745900253,
+        "phases": {
+          "wireframe_seconds": 0.806258209002408,
+          "structure_seconds": 93.42515962499965,
+          "upsampler_seconds": 1.7358751249994384,
+          "texture_seconds": 7.635917666000751
+        },
+        "process_peak_rss_bytes_macos": 22221471744,
+        "torch": "2.14.1",
+        "device": "cpu",
+        "seed": 3407,
+        "upstream_adapter": "Only three wireframe .to(0) calls select CPU; training wrapper replaced by direct exact learned modules and published forward equations. TSR explicitly half, all other modules f32.",
+        "guidance": "Published uint8 proxies at256/512; Canny sigma3, wireframe .85, TSR five iterations add.05/mul4, learned edge/line upsampling sigmoid((x+2)*2). Native FTR input remains shared f32; this differs from upstream file input quantization and is recorded, not a numerical parity claim.",
+        "releaseQualified": false,
+        "scope": "Actual full ZITS structure-conditioned native1024 reconstruction. One uncontrolled CPU point; RAW inverse, photographic quality, native app/export, supported-device and distribution admission remain separate gates."
+      },
+      "inference_report_file": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/zits-night-upright-native-20261004/report.json",
+        "sha256": "f5e5927cdf9c11b4cc06ce7d018cdb1da0ce53f7b6d3fd8cdd3ab5d1ab742eab",
+        "bytes": 5576
+      },
+      "raw_bake_report": {
+        "as_shot_temperature": 5980.7216796875,
+        "as_shot_tint": -8.010068893432617,
+        "auto_profile_engaged": true,
+        "encoding": {
+          "high": 2.41594892831346,
+          "low": -0.881373587019543,
+          "method": "signed-log-photographic-contrast-v1"
+        },
+        "generation_masks": "blake3:dca7e3834b38cc3204bc518354efac24b17454aaaaf77aef0d1fe54409494b07",
+        "grades": [
+          {
+            "case": "neutral_ev-3_wb-1000",
+            "max_scene_float_error_identity": 8.692382834851742e-6,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 979.734208
+          },
+          {
+            "case": "auto_ev-3_wb-1000",
+            "max_scene_float_error_identity": 8.692382834851742e-6,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 979.734208
+          },
+          {
+            "case": "neutral_ev-3_wb+0",
+            "max_scene_float_error_identity": 7.556052878499031e-6,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 987.806834
+          },
+          {
+            "case": "auto_ev-3_wb+0",
+            "max_scene_float_error_identity": 7.556052878499031e-6,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 987.806834
+          },
+          {
+            "case": "neutral_ev-3_wb+1000",
+            "max_scene_float_error_identity": 6.779941031709313e-6,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 898.366542
+          },
+          {
+            "case": "auto_ev-3_wb+1000",
+            "max_scene_float_error_identity": 6.779941031709313e-6,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 898.366542
+          },
+          {
+            "case": "neutral_ev+0_wb-1000",
+            "max_scene_float_error_identity": 6.953906267881393e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 997.179208
+          },
+          {
+            "case": "auto_ev+0_wb-1000",
+            "max_scene_float_error_identity": 6.953906267881393e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 997.179208
+          },
+          {
+            "case": "neutral_ev+0_wb+0",
+            "max_scene_float_error_identity": 6.044842302799225e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 983.711916
+          },
+          {
+            "case": "auto_ev+0_wb+0",
+            "max_scene_float_error_identity": 6.044842302799225e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 983.711916
+          },
+          {
+            "case": "neutral_ev+0_wb+1000",
+            "max_scene_float_error_identity": 5.423952825367451e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1034.587833
+          },
+          {
+            "case": "auto_ev+0_wb+1000",
+            "max_scene_float_error_identity": 5.423952825367451e-5,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 1034.587833
+          },
+          {
+            "case": "neutral_ev+3_wb-1000",
+            "max_scene_float_error_identity": 0.0005563125014305115,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 974.9255420000001
+          },
+          {
+            "case": "auto_ev+3_wb-1000",
+            "max_scene_float_error_identity": 0.0005563125014305115,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 974.9255420000001
+          },
+          {
+            "case": "neutral_ev+3_wb+0",
+            "max_scene_float_error_identity": 0.000483587384223938,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 931.984709
+          },
+          {
+            "case": "auto_ev+3_wb+0",
+            "max_scene_float_error_identity": 0.000483587384223938,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 931.984709
+          },
+          {
+            "case": "neutral_ev+3_wb+1000",
+            "max_scene_float_error_identity": 0.00043391622602939606,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 941.697292
+          },
+          {
+            "case": "auto_ev+3_wb+1000",
+            "max_scene_float_error_identity": 0.00043391622602939606,
+            "outside_mask_max_error": 0,
+            "three_native_develops_ms": 941.697292
+          }
+        ],
+        "max_scene_float_error_identity": 0.0005563125014305115,
+        "model_result": "blake3:68d89f139d4d0dc8aae3c5157684387a0857d60ce0e466455561c8f8d19f0d17",
+        "native_context": {
+          "height": 1024,
+          "width": 1024,
+          "x": 2800,
+          "y": 1650
+        },
+        "original": "blake3:45f83349f8f98d19c2e60955201c2e8cd9bc08e435fec22079d8218395c02fa2",
+        "outside_mask_max_error": 0,
+        "plate": "LinearCalibrationV1",
+        "profile_tier": "BundleConfident",
+        "qualification": "Full native camera-WB/DCP experiment. Bounded authoring, recipe quality, clone/heal, GPU/live/tile/export integration and supported-device gates remain.",
+        "release_qualified": false
+      },
+      "raw_bake_report_file": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/zits-night-upright-bake-20261004/report.json",
+        "sha256": "c6d123ee5c73cdb1af5a365df57b3b1c31923ee296722ec647d730cdd2fab9be",
+        "bytes": 4469
+      },
+      "independent_verification": {
+        "file": {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-night-grade-checks-20261004.json",
+          "sha256": "7e4a295cc56eb23f0162e2c84980449e6a4a721ddd562242028ef5e3a109e668",
+          "bytes": 10260
+        },
+        "grades": 18,
+        "known_and_protected_display_samples_changed": 0,
+        "protected_pixels": 783226,
+        "coverage_pixels": 40673
+      },
+      "review_files": [
+        {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-night-upright-native-20261004/source.png",
+          "sha256": "2a81a76d89d8239aadf9b94b6a958a954ad4ae0f2779f51195c5ccf552bf15c0",
+          "bytes": 2050293
+        },
+        {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-night-upright-native-20261004/candidate.png",
+          "sha256": "d39bb9b61c7a42cd230c4ef87a7db4bf009fe1cd65c5ce1ab050b2932326c4e9",
+          "bytes": 2045377
+        },
+        {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-night-upright-bake-20261004/auto_ev+0_wb+0-truth.png",
+          "sha256": "3d793a7e20a1cdf02b1118211b4f3f530e093a7c6e3867afb03d3e3f17329b67",
+          "bytes": 1518346
+        },
+        {
+          "path": "/Users/riabuz/.cache/maple-removal-research/zits-night-upright-bake-20261004/auto_ev+0_wb+0-removal.png",
+          "sha256": "585b66ec3bce9f4535ebcf296340897a203ee2ecf95fe4233f8537f7944a3a3e",
+          "bytes": 1509559
+        }
+      ]
+    }
+  ],
+  "uint8_FTR_control": {
+    "report": {
+      "scope": "FTR uint8-file-input sensitivity with exactly held full learned native guides; not a full fresh upstream pipeline, CPU/CUDA parity or quality budget.",
+      "selected_prediction_max_absolute_error": 0.028040707111358643,
+      "selected_prediction_mean_absolute_error": 0.0015640895580872893,
+      "inference_seconds": 6.928327584002545,
+      "weights_unchanged": true,
+      "held_guides_sha256": {
+        "edge-native": "fe37587db1e93c9485737ff35769bff858142a56374b368051bd6ea5de520c19",
+        "line-native": "9634a23706303a6f47b28696c440a235f5e1a00731a3730b2efaeb77254dd03e"
+      },
+      "result_sha256": "3db15af7e839d6a711357bff60a5943d433d72ce16941b675326d08365223b9d",
+      "prediction_sha256": "3d8b9854aea19f12635c515e94e889d357d5d3ad7c03ab97f382458b54a85c1b",
+      "executed_source_sha256": "e071501d99dc52f6e05172d24de9ffdb2130922dc8602d0d98d74ded9d2c2905",
+      "releaseQualified": false
+    },
+    "report_file": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-ftr-file-control-20261004/report.json",
+      "sha256": "82ac3bf0ce5ad5d2142b5e4d46c17f8d82ba6601e61e398c0cdda09e19040b12",
+      "bytes": 879
+    },
+    "executed_script": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-ftr-file-control-20261004.py",
+      "sha256": "e071501d99dc52f6e05172d24de9ffdb2130922dc8602d0d98d74ded9d2c2905",
+      "bytes": 2695
+    },
+    "candidate": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-ftr-file-control-20261004/candidate.png",
+      "sha256": "082032223d41be4b6ff6b79e5ccbc9d32d163118a5b23be7ee50fc60333d99d7",
+      "bytes": 1404195
+    },
+    "visual_review": "Held-guide uint8 FTR input also leaves the selected shopper area smeared. Not a CUDA/reference parity or broad encoding-equivalence claim."
+  },
+  "wireframe_control": {
+    "report": {
+      "wireframe_calls_unmasked_then_masked": [
+        {
+          "num_proposals": 1575,
+          "lines": 106,
+          "lines_above_point85": 13
+        },
+        {
+          "num_proposals": 2053,
+          "lines": 122,
+          "lines_above_point85": 13
+        }
+      ],
+      "forward_test_exceptions": [],
+      "held_guide_exact": true,
+      "held_guide_sha256": "5cf17373eac48718ebc3a5303b2f2b697481a7962bed6b0ebc305909382b1de2",
+      "scope": "Actual unchanged pinned learned detector and default published wireframe helper rerun. Trace confirms no exception swallowed by upstream fallback; guide matches first full inference byte for byte. No model quality/performance admission.",
+      "executed_source_sha256": "19ff09fa5dc96b0d92f38edfa1815e791ac3262f123b32c4f7e45c1e2f3c815c"
+    },
+    "report_file": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-wireframe-control-20261004.json",
+      "sha256": "1a42592c7ea89272c7167e6a508ae473be83fd291597ecaf8c4458a1d69c544b",
+      "bytes": 738
+    },
+    "executed_script": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/zits-wireframe-control-20261004.py",
+      "sha256": "19ff09fa5dc96b0d92f38edfa1815e791ac3262f123b32c4f7e45c1e2f3c815c",
+      "bytes": 2352
+    }
+  },
+  "refusals": [
+    {
+      "mutation": "input.f32",
+      "refusal": "Shared context identity changed: input.f32",
+      "output_created": false
+    },
+    {
+      "mutation": "masks.f32",
+      "refusal": "Shared context identity changed: masks.f32",
+      "output_created": false
+    },
+    {
+      "mutation": "intent.mimf",
+      "refusal": "Shared context identity changed: intent.mimf",
+      "output_created": false
+    },
+    {
+      "mutation": "protected.mimf",
+      "refusal": "Shared context identity changed: protected.mimf",
+      "output_created": false
+    },
+    {
+      "mutation": "orientation source identity",
+      "refusal": "Missing source-bound shared RAW orientation evidence",
+      "output_created": false
+    },
+    {
+      "mutation": "missing wireframe checkpoint",
+      "refusal": "[Errno 2] No such file or directory: '/Users/riabuz/.cache/maple-removal-research/zits-refusals-20261004/missing-checkpoint/best_lsm_hawp.pth'",
+      "output_created": false
+    }
+  ],
+  "bologna_guidance_statistics": {
+    "edge256": {
+      "nonzero": 2053,
+      "min": 0.0,
+      "max": 1.0,
+      "finite": true
+    },
+    "line256": {
+      "nonzero": 873,
+      "min": 0.0,
+      "max": 1.0,
+      "finite": true
+    },
+    "known-line256": {
+      "nonzero": 873,
+      "min": 0.0,
+      "max": 1.0,
+      "finite": true
+    },
+    "edge-native": {
+      "nonzero": 1048576,
+      "min": 9.32372778733242e-31,
+      "max": 0.9989778995513916,
+      "finite": true
+    },
+    "line-native": {
+      "nonzero": 1048576,
+      "min": 7.784417746851538e-30,
+      "max": 0.9986615180969238,
+      "finite": true
+    }
+  },
+  "observations": [
+    "Bologna full native1024 candidate and actual Auto RAW bake have a vertically smeared central shopper/stall area. Nearby shoppers are held by the unchanged protection mask; blue boundary fragments are not independently qualified closure truth. Required person-removal photographic quality fails this review.",
+    "Night uses actual shared EXIF8 upright source/hole and canonical prediction inverse. Selected portrait poster is replaced by a plain softened wall region; this isolated diagnostic does not establish hidden-background truth, noise fidelity or general release quality.",
+    "FTR float source and uint8-file-input held-guide control differ inside selection (max .02804, mean .001564 model RGB), but both visually smear. This control tests native input quantization sensitivity only.",
+    "Upstream wireframe forward swallows exceptions. Independent actual rerun traces zero such exceptions, records1575/2053 proposals and106/122 scored lines, and exactly reproduces the first inference guide.",
+    "All1738 strict tensor entries remain unchanged after documented TSR half conversion. Four checkpoints use restricted weights_only loading; no unpickling fallback, missing learned module, fake line/edge guide, final RGB upscaling or clipping.",
+    "Two real shared native RAW inverses/fp16 patches/full-frame develops plus independent display checks preserve known/protected samples in36 Auto/Neutral EV/WB cases; originals hash unchanged. This is preservation evidence, not ACR/quality/performance qualification.",
+    "CPU phases and RSS are individual uncontrolled observations on shared M5 Max128GiB; Night overlapped the short wireframe audit. No p50/p95, supported16/24/32GB device or speed-ratio claim.",
+    "No Coast run was needed to decide against replacing the Mac model after the required shopper case failed. No source/weight/photo publication or app model admission."
+  ],
+  "decision": "Do not admit ZITS as the Mac replacement. Explicit structure conditioning still fails the required photographic shopper case, and CPU observed latency/memory are unqualified. Keep the full epic active; next inspect selection ownership/complete context and reconstruction evidence rather than integrating this candidate.",
+  "validation": {
+    "strict_loading": "519 generator,99 structure encoder,379 TSR,12 upsampler,729 wireframe entries; documented half conversion only",
+    "source_mask_identity_refusals": 6,
+    "native_RAW_grade_preservation_cases": 36,
+    "orientation": "EXIF8 source/hole bit-exact shared roundtrip and prediction inverse",
+    "ruff": "format/check pass manually via uv tool; normal hook remains required",
+    "file_budget": "both research source files below400 lines; no source runtime feature changed"
+  }
+}
