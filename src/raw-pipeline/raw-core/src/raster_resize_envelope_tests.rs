@@ -18,8 +18,11 @@
 //! * fractional downscale: within 1 code (8-wide ramp 8->6);
 //! * 2x upscale: up to 63 codes on photos — different algorithm
 //!   (affine bicubic), tracked by #4178;
-//! * nearest on a step edge: opposite side of the half-pixel boundary,
-//!   tracked by #4179.
+//! * nearest: byte-exact on every downscale swept (2..16px, steps and
+//!   ramps included — the #4179 step-edge repro does not reproduce) and on
+//!   integer upscales; fractional upscales diverge by whole texels (affine
+//!   routing, #4178) and heavy downscales by the first texel (subsample
+//!   staging, #4213).
 //!
 //! A nested module of `raster_resize_tests` so it reuses that module's
 //! `opts()` fixture while both files stay inside the repo's file-size
@@ -127,4 +130,58 @@ fn lanczos3_upscale_pins_convolution_bytes() {
             0, 255,
         ]
     );
+}
+
+/// `nearest` 8x8 half-black/half-white step -> 4x4 answers sharp's bytes
+/// exactly. This is the #4179 repro, and it does not reproduce: both sides
+/// sample source texels {1, 3, 5, 7} (floor of the center-mapped
+/// coordinate), so the boundary column agrees. Pinned so a future
+/// subsample-staging port (#4213) keeps this case green.
+#[test]
+fn nearest_step_edge_matches_sharp_byte_for_byte() {
+    let dark = [0u8, 0, 0];
+    let lite = [255u8, 255, 255];
+    let row: Vec<u8> = (0..8)
+        .flat_map(|x| if x < 4 { dark } else { lite })
+        .collect();
+    let src = RasterImage::new_rgb(8, 8, row.repeat(8));
+    let out = resize_raster(&src, &opts(4, 4, ResizeFit::Fill)).unwrap();
+    let out_row = vec![0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255];
+    assert_eq!(out.data, out_row.repeat(4));
+}
+
+/// `nearest` 4x4 -> 6x6 pins Maple's own sampling bytes. Sharp answers up
+/// to a full texel away (85 codes here) because fractional upscales run
+/// through `vips_affine`'s corner-based mapping, not center sampling
+/// (#4178) — so this test pins current behaviour as change detection, not
+/// parity. An affine-routing port will intentionally change these bytes.
+#[test]
+fn nearest_fractional_upscale_pins_maple_bytes() {
+    let out = resize_raster(&smooth4(), &opts(6, 6, ResizeFit::Fill)).unwrap();
+    assert_eq!(
+        out.data,
+        vec![
+            0, 0, 128, 85, 0, 128, 85, 0, 128, 170, 0, 128, 255, 0, 128, 255, 0, 128, 0, 85, 128,
+            85, 85, 128, 85, 85, 128, 170, 85, 128, 255, 85, 128, 255, 85, 128, 0, 85, 128, 85, 85,
+            128, 85, 85, 128, 170, 85, 128, 255, 85, 128, 255, 85, 128, 0, 170, 128, 85, 170, 128,
+            85, 170, 128, 170, 170, 128, 255, 170, 128, 255, 170, 128, 0, 170, 128, 85, 170, 128,
+            85, 170, 128, 170, 170, 128, 255, 170, 128, 255, 170, 128, 0, 255, 128, 85, 255, 128,
+            85, 255, 128, 170, 255, 128, 255, 255, 128, 255, 255, 128,
+        ]
+    );
+}
+
+/// `nearest` 13 -> 2 on a grey index row pins Maple's own sampling bytes.
+/// Sharp answers {src 0, src 9} here against Maple's {src 3, src 9}: heavy
+/// downscales stage through `vips_subsample` plus a residual reduce, whose
+/// grid differs from single-step center mapping at the first texel
+/// (#4213). A staging port will intentionally move the first texel to 0.
+#[test]
+fn nearest_heavy_downscale_pins_maple_bytes() {
+    let row: Vec<u8> = (0..13u16)
+        .flat_map(|x| [(x * 21).min(255) as u8; 3])
+        .collect();
+    let src = RasterImage::new_rgb(13, 1, row);
+    let out = resize_raster(&src, &opts(2, 1, ResizeFit::Fill)).unwrap();
+    assert_eq!(out.data, vec![63, 63, 63, 189, 189, 189]);
 }
