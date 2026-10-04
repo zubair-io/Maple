@@ -80,6 +80,12 @@ final class PhotographicRemovalGroupTests: XCTestCase {
       XCTAssertEqual(removal.phase, .ready, removal.message)
       let context = try XCTUnwrap(removal.context)
       XCTAssertEqual([context.width, context.height], [6000, 4000])
+      // Retain the production proxy/tensor, rather than reconstructing SAM's
+      // input from a display screenshot when auditing partial person masks.
+      let selectionProxy = try await context.saved.selectionProxy(xmp: context.xmp)
+      let selectionTensors = try NativeRemovalProxyTensors(
+        selectionProxy, width: context.width, height: context.height)
+      let encoderBytes = selectionTensors.encoder.withUnsafeBytes { Data($0) }
       XCTAssertEqual(removal.detectedPersonMasks.count, removal.people.count)
       // Actual mask overlap frees the blue-coat proposal from an intersecting
       // foreground box. This is one scene regression, not role-intent truth.
@@ -162,9 +168,19 @@ final class PhotographicRemovalGroupTests: XCTestCase {
       for person in detectedMasks {
         try person.mask.write(to: evidence.appendingPathComponent("detected-\(person.id).mimf"))
       }
+      try Data(selectionProxy.bytes).write(
+        to: evidence.appendingPathComponent("selection-proxy.rgb8"))
+      try encoderBytes.write(to: evidence.appendingPathComponent("selection-encoder.f32"))
       try Data(contentsOf: sidecar).write(to: evidence.appendingPathComponent("photo.xmp"))
       let report: [String: Any] = [
         "source": try JSONSerialization.jsonObject(with: Data(context.source.utf8)),
+        "selectionInput": [
+          "proxySize": [selectionProxy.width, selectionProxy.height],
+          "proxyDigest": try RemovalBridge.digest(Data(selectionProxy.bytes)),
+          "encoderDigest": try RemovalBridge.digest(encoderBytes),
+          "contentSize": [selectionTensors.inputWidth, selectionTensors.inputHeight],
+          "encoderShape": [1, 3, 1024, 1024], "encoderDomain": "RGB float32 LE 0..255",
+        ],
         "detected": detected, "selected": selected, "requests": requests,
         "detectedMasks": try detectedMasks.map {
           [
