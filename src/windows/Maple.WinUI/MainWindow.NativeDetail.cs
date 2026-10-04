@@ -136,6 +136,8 @@ public sealed partial class MainWindow
         catch (OperationCanceledException) { }
         catch (Exception error)
         {
+            // Source geometry survives tile refreshes; its cancellation token
+            // and photo identity own it, independently of the tile version.
             if (!_closing && !cancellation.IsCancellationRequested && ReferenceEquals(photo, ViewModel.SelectedPhoto))
             {
                 DiagLog.Write($"[source-geometry] {error}");
@@ -254,7 +256,7 @@ public sealed partial class MainWindow
             if (!_closing && !cancellation.IsCancellationRequested && version == Volatile.Read(ref _detailVersion)
                 && ReferenceEquals(photo, ViewModel.SelectedPhoto) && ReferenceEquals(anchor, ViewModel.Renderer.DetailSource))
             {
-                _nativeDetailError = error.Message;
+                _nativeDetailError = error.ToString();
                 DiagLog.Write($"[native-detail] {error}");
                 ZoomReadout.Text = $"{percent} · preview · native detail unavailable";
             }
