@@ -6,6 +6,7 @@
 
 using System;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Maple.WinUI.ViewModels
@@ -86,8 +87,8 @@ namespace Maple.WinUI.ViewModels
             get
             {
                 if (FocalLengthMm is not { } mm || !double.IsFinite(mm) || mm <= 0) return "—";
-                var display = mm.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-                if (display == "0") display = mm.ToString("G", System.Globalization.CultureInfo.InvariantCulture);
+                var display = mm.ToString("0.##", CultureInfo.CurrentCulture);
+                if (display == "0") display = mm.ToString("G", CultureInfo.CurrentCulture);
                 return display + " mm";
             }
         }
