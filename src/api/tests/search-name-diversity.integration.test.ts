@@ -99,6 +99,45 @@ describe('#2386 reading diversity', () => {
             });
             expect(scoped.ids).not.toContain(p.observeIds![1]);
           }
+          for (const [q, offset, limit] of [
+            ['Rose', 100, 10],
+            ['Rose', 0, 0],
+            ['', 0, 20],
+            ['  \t ', 3, 20],
+          ] as const) {
+            const body = {
+              q,
+              offset,
+              limit,
+              filter:
+                'deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false)',
+              attributesToRetrieve: ['id'],
+              showRankingScore: true,
+              hybrid: { embedder: 'caption', semanticRatio: 0.5 },
+            };
+            const raw = await meilisearchHttp<{
+              hits: { id: string; _rankingScore: number }[];
+              estimatedTotalHits: number;
+            }>(transport, 'POST', `/indexes/${indexName}/search`, body);
+            expect(raw.ok).toBe(true);
+            const missing = createMeilisearchClient({
+              ...transport,
+              indexName: indexName + '_absent',
+              semantic: true,
+              embedderUrl,
+              embedderModel: 'bge-m3',
+              semanticRatio: 0.5,
+            });
+            await expect(
+              missing.search(q, { semantic: true, offset, limit }),
+            ).rejects.toMatchObject({
+              name: 'MeilisearchSearchError',
+              details: { status: 404, code: 'index_not_found' },
+            });
+            const native = await client.search(q, { semantic: true, offset, limit });
+            expect(native.ids).toEqual(raw.body!.hits.map((h) => h.id));
+            expect(native.estimatedTotal).toBe(raw.body!.estimatedTotalHits);
+          }
           const greyson = await client.search('Greyson', {
             semantic: true,
             limit: 3,
