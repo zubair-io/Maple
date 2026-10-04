@@ -320,6 +320,8 @@ struct smb2_pdu {
 
         /* For encrypted PDUs */
         uint8_t seal:1;
+        /* #4142: validated COPYCHUNK limits IOCTL, despite error status. */
+        uint8_t copychunk_limits_reply:1;
         uint32_t crypt_len;
         unsigned char *crypt;
         time_t timeout;

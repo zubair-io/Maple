@@ -758,6 +758,9 @@ smb2_find_pdu(struct smb2_context *smb2,
 static int
 smb2_is_error_response(struct smb2_context *smb2,
                        struct smb2_pdu *pdu) {
+        if (pdu->copychunk_limits_reply) {
+                return 0;
+        }
         if ((smb2->hdr.status & SMB2_STATUS_SEVERITY_MASK) ==
             SMB2_STATUS_SEVERITY_ERROR) {
                 switch (smb2->hdr.status) {

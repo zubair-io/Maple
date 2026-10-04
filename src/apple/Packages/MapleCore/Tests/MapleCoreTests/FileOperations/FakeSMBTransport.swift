@@ -8,153 +8,196 @@
 // isn't).
 
 import Foundation
+
 @testable import MapleCore
 
 actor FakeSMBTransport: SMBFileTransport {
-    private struct Entry {
-        var data: Data
-        var mtime: Date
+  private struct Entry {
+    var data: Data
+    var mtime: Date
+    let inode: UInt64
+  }
+
+  private var nextInode: UInt64 = 1
+  private func entry(data: Data, mtime: Date) -> Entry {
+    defer { nextInode += 1 }
+    return Entry(data: data, mtime: mtime, inode: nextInode)
+  }
+
+  private var files: [String: Entry] = [:]
+  private var directories: Set<String> = ["/"]
+
+  /// Fault injection for the crash-safety test: when set, `copyItem`
+  /// throws instead of succeeding the next time `toPath` matches. This is
+  /// a seam on the FAKE transport only — production `SMBFileOperations`
+  /// has no knowledge of it — used to simulate "the copy step itself
+  /// failed" (a dropped connection, a full disk) the same way the local
+  /// engine's tests simulate it with a real unwritable destination.
+  private(set) var failCopyToPath: String?
+
+  func setFailCopyToPath(_ path: String?) {
+    failCopyToPath = path
+  }
+
+  /// Seed a file directly (bypassing `copyItem`) — the SMB equivalent of
+  /// `FileOperationsTestSupport.write(_:to:)`.
+  func seed(_ contents: String, at path: String, mtime: Date = Date()) {
+    files[path] = entry(data: Data(contents.utf8), mtime: mtime)
+    registerDirectory((path as NSString).deletingLastPathComponent)
+  }
+
+  /// Registers `dir` AND every ancestor up to `/` — a real filesystem (or
+  /// SMB share) never has a deep directory without every directory above
+  /// it also existing, so a single-level `directories.insert` after
+  /// seeding/copying/moving a nested path would leave intermediate
+  /// ancestors (e.g. `/2024` when only `/2024/Paris/IMG_1.dng` was seeded)
+  /// missing and wrongly reported as `notFound`.
+  private func registerDirectory(_ dir: String) {
+    var current = dir.isEmpty ? "/" : dir
+    while true {
+      let (inserted, _) = directories.insert(current)
+      if current == "/" || !inserted { break }
+      let parent = (current as NSString).deletingLastPathComponent
+      current = parent.isEmpty ? "/" : parent
     }
+  }
 
-    private var files: [String: Entry] = [:]
-    private var directories: Set<String> = ["/"]
+  func fileContents(at path: String) -> String? {
+    files[path].map { String(decoding: $0.data, as: UTF8.self) }
+  }
 
-    /// Fault injection for the crash-safety test: when set, `copyItem`
-    /// throws instead of succeeding the next time `toPath` matches. This is
-    /// a seam on the FAKE transport only — production `SMBFileOperations`
-    /// has no knowledge of it — used to simulate "the copy step itself
-    /// failed" (a dropped connection, a full disk) the same way the local
-    /// engine's tests simulate it with a real unwritable destination.
-    private(set) var failCopyToPath: String?
+  func fileExists(at path: String) -> Bool { files[path] != nil }
+  func directoryExists(at path: String) -> Bool { directories.contains(path) }
 
-    func setFailCopyToPath(_ path: String?) {
-        failCopyToPath = path
+  // MARK: - SMBFileTransport
+
+  func attributesOfItem(atPath path: String) async throws -> [URLResourceKey: any Sendable] {
+    if let entry = files[path] {
+      return [
+        .fileSizeKey: NSNumber(value: entry.data.count), .contentModificationDateKey: entry.mtime,
+        .documentIdentifierKey: NSNumber(value: entry.inode), .isRegularFileKey: true,
+        .isSymbolicLinkKey: false,
+      ]
     }
-
-    /// Seed a file directly (bypassing `copyItem`) — the SMB equivalent of
-    /// `FileOperationsTestSupport.write(_:to:)`.
-    func seed(_ contents: String, at path: String, mtime: Date = Date()) {
-        files[path] = Entry(data: Data(contents.utf8), mtime: mtime)
-        registerDirectory((path as NSString).deletingLastPathComponent)
+    if directories.contains(path) {
+      return [.isDirectoryKey: true]
     }
+    throw POSIXError(.ENOENT)
+  }
 
-    /// Registers `dir` AND every ancestor up to `/` — a real filesystem (or
-    /// SMB share) never has a deep directory without every directory above
-    /// it also existing, so a single-level `directories.insert` after
-    /// seeding/copying/moving a nested path would leave intermediate
-    /// ancestors (e.g. `/2024` when only `/2024/Paris/IMG_1.dng` was seeded)
-    /// missing and wrongly reported as `notFound`.
-    private func registerDirectory(_ dir: String) {
-        var current = dir.isEmpty ? "/" : dir
-        while true {
-            let (inserted, _) = directories.insert(current)
-            if current == "/" || !inserted { break }
-            let parent = (current as NSString).deletingLastPathComponent
-            current = parent.isEmpty ? "/" : parent
-        }
+  /// Includes directory entries (with `.isDirectoryKey: true`) alongside
+  /// files — needed so `SMBFileOperations`'s trash-marker scheme (an
+  /// empty directory sibling, see `TrashMarker.swift`) is actually
+  /// listable in tests the same way a real recursive AMSMB2 walk returns
+  /// them (`SMBSource.listRAWFiles`'s doc comment: "Directories ... are
+  /// skipped" — implying production callers see and filter them, which
+  /// this fake previously didn't reproduce).
+  func contentsOfDirectory(atPath path: String, recursive: Bool) async throws -> [[URLResourceKey:
+    Any]]
+  {
+    let prefix = path.hasSuffix("/") ? path : path + "/"
+    let fileEntries: [[URLResourceKey: Any]] = files.keys.filter { $0.hasPrefix(prefix) }.map {
+      [.nameKey: ($0 as NSString).lastPathComponent, .pathKey: $0, .isDirectoryKey: false]
     }
-
-    func fileContents(at path: String) -> String? {
-        files[path].map { String(decoding: $0.data, as: UTF8.self) }
+    let dirEntries: [[URLResourceKey: Any]] = directories.filter {
+      $0 != path && $0.hasPrefix(prefix)
+    }.map {
+      [.nameKey: ($0 as NSString).lastPathComponent, .pathKey: $0, .isDirectoryKey: true]
     }
+    return fileEntries + dirEntries
+  }
 
-    func fileExists(at path: String) -> Bool { files[path] != nil }
-    func directoryExists(at path: String) -> Bool { directories.contains(path) }
-
-    // MARK: - SMBFileTransport
-
-    func attributesOfItem(atPath path: String) async throws -> [URLResourceKey: any Sendable] {
-        if let entry = files[path] {
-            return [.fileSizeKey: NSNumber(value: entry.data.count), .contentModificationDateKey: entry.mtime]
-        }
-        if directories.contains(path) {
-            return [.isDirectoryKey: true]
-        }
-        throw FakeSMBTransportError.notFound(path)
+  func copyItem(
+    atPath path: String, toPath: String, recursive: Bool,
+    progress: (@Sendable (Int64, Int64) -> Bool)?
+  ) async throws {
+    if failCopyToPath == toPath {
+      failCopyToPath = nil  // one-shot — the retry after a caller's rollback should succeed
+      throw FakeSMBTransportError.injectedFailure(toPath)
     }
+    guard let source = files[path] else { throw FakeSMBTransportError.notFound(path) }
+    guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
+    files[toPath] = entry(data: source.data, mtime: source.mtime)
+    registerDirectory((toPath as NSString).deletingLastPathComponent)
+  }
 
-    /// Includes directory entries (with `.isDirectoryKey: true`) alongside
-    /// files — needed so `SMBFileOperations`'s trash-marker scheme (an
-    /// empty directory sibling, see `TrashMarker.swift`) is actually
-    /// listable in tests the same way a real recursive AMSMB2 walk returns
-    /// them (`SMBSource.listRAWFiles`'s doc comment: "Directories ... are
-    /// skipped" — implying production callers see and filter them, which
-    /// this fake previously didn't reproduce).
-    func contentsOfDirectory(atPath path: String, recursive: Bool) async throws -> [[URLResourceKey: Any]] {
-        let prefix = path.hasSuffix("/") ? path : path + "/"
-        let fileEntries: [[URLResourceKey: Any]] = files.keys.filter { $0.hasPrefix(prefix) }.map {
-            [.nameKey: ($0 as NSString).lastPathComponent, .pathKey: $0, .isDirectoryKey: false]
-        }
-        let dirEntries: [[URLResourceKey: Any]] = directories.filter { $0 != path && $0.hasPrefix(prefix) }.map {
-            [.nameKey: ($0 as NSString).lastPathComponent, .pathKey: $0, .isDirectoryKey: true]
-        }
-        return fileEntries + dirEntries
+  func removeItem(atPath path: String) async throws {
+    if files.removeValue(forKey: path) != nil { return }
+    if directories.contains(path) {
+      let prefix = path + "/"
+      let doomed = files.keys.filter { $0.hasPrefix(prefix) }
+      for key in doomed { files.removeValue(forKey: key) }
+      directories = directories.filter { $0 != path && !$0.hasPrefix(prefix) }
+      return
     }
+    throw FakeSMBTransportError.notFound(path)
+  }
 
-    func copyItem(atPath path: String, toPath: String, recursive: Bool,
-                 progress: (@Sendable (Int64, Int64) -> Bool)?) async throws {
-        if failCopyToPath == toPath {
-            failCopyToPath = nil  // one-shot — the retry after a caller's rollback should succeed
-            throw FakeSMBTransportError.injectedFailure(toPath)
-        }
-        guard let source = files[path] else { throw FakeSMBTransportError.notFound(path) }
-        files[toPath] = source
-        registerDirectory((toPath as NSString).deletingLastPathComponent)
+  func removeRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    validate: @Sendable @escaping (Data) -> Bool
+  ) async throws {
+    guard let captured = files[path], captured.inode == expectedIdentity, validate(captured.data)
+    else {
+      throw POSIXError(.ESTALE)
     }
+    files.removeValue(forKey: path)
+  }
+  func moveRestoreFile(
+    atPath path: String, toPath: String, expectedIdentity: UInt64,
+    validate: @Sendable @escaping (Data) -> Bool
+  ) async throws {
+    guard let captured = files[path], captured.inode == expectedIdentity, validate(captured.data)
+    else {
+      throw POSIXError(.ESTALE)
+    }
+    guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
+    files[toPath] = captured
+    files.removeValue(forKey: path)
+    registerDirectory((toPath as NSString).deletingLastPathComponent)
+  }
+  func createDirectory(atPath path: String) async throws {
+    registerDirectory(path)
+  }
 
-    func removeItem(atPath path: String) async throws {
-        if files.removeValue(forKey: path) != nil { return }
-        if directories.contains(path) {
-            let prefix = path + "/"
-            let doomed = files.keys.filter { $0.hasPrefix(prefix) }
-            for key in doomed { files.removeValue(forKey: key) }
-            directories = directories.filter { $0 != path && !$0.hasPrefix(prefix) }
-            return
-        }
-        throw FakeSMBTransportError.notFound(path)
+  func moveItem(atPath path: String, toPath: String) async throws {
+    guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
+    if let entry = files.removeValue(forKey: path) {
+      files[toPath] = entry
+      registerDirectory((toPath as NSString).deletingLastPathComponent)
+      return
     }
+    guard directories.contains(path) else { throw FakeSMBTransportError.notFound(path) }
+    let prefix = path + "/"
+    let moved = files.filter { $0.key.hasPrefix(prefix) }
+    for (key, entry) in moved {
+      files.removeValue(forKey: key)
+      files[toPath + key.dropFirst(path.count)] = entry
+    }
+    directories.remove(path)
+    registerDirectory(toPath)
+  }
 
-    func createDirectory(atPath path: String) async throws {
-        registerDirectory(path)
+  func setAttributes(attributes: [URLResourceKey: Any], ofItemAtPath path: String) async throws {
+    guard var entry = files[path] else { throw FakeSMBTransportError.notFound(path) }
+    if let mtime = attributes[.contentModificationDateKey] as? Date {
+      entry.mtime = mtime
+      files[path] = entry
     }
+  }
 
-    func moveItem(atPath path: String, toPath: String) async throws {
-        if let entry = files.removeValue(forKey: path) {
-            files[toPath] = entry
-            registerDirectory((toPath as NSString).deletingLastPathComponent)
-            return
-        }
-        guard directories.contains(path) else { throw FakeSMBTransportError.notFound(path) }
-        let prefix = path + "/"
-        let moved = files.filter { $0.key.hasPrefix(prefix) }
-        for (key, entry) in moved {
-            files.removeValue(forKey: key)
-            files[toPath + key.dropFirst(path.count)] = entry
-        }
-        directories.remove(path)
-        registerDirectory(toPath)
-    }
+  func readFile(atPath path: String) async throws -> Data {
+    guard let entry = files[path] else { throw FakeSMBTransportError.notFound(path) }
+    return entry.data
+  }
 
-    func setAttributes(attributes: [URLResourceKey: Any], ofItemAtPath path: String) async throws {
-        guard var entry = files[path] else { throw FakeSMBTransportError.notFound(path) }
-        if let mtime = attributes[.contentModificationDateKey] as? Date {
-            entry.mtime = mtime
-            files[path] = entry
-        }
-    }
-
-    func readFile(atPath path: String) async throws -> Data {
-        guard let entry = files[path] else { throw FakeSMBTransportError.notFound(path) }
-        return entry.data
-    }
-
-    func writeFile(data: Data, toPath path: String) async throws {
-        files[path] = Entry(data: data, mtime: Date())
-        registerDirectory((path as NSString).deletingLastPathComponent)
-    }
+  func writeFile(data: Data, toPath path: String) async throws {
+    files[path] = entry(data: data, mtime: Date())
+    registerDirectory((path as NSString).deletingLastPathComponent)
+  }
 }
 
 enum FakeSMBTransportError: Error {
-    case notFound(String)
-    case injectedFailure(String)
+  case notFound(String)
+  case injectedFailure(String)
 }

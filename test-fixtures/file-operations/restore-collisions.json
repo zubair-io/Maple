@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "free photo",
+      "base": "photo.dng",
+      "occupied": [],
+      "expected": "photo.dng"
+    },
+    {
+      "name": "first collision",
+      "base": "photo.dng",
+      "occupied": [
+        "photo.dng"
+      ],
+      "expected": "photo.restored.dng"
+    },
+    {
+      "name": "repeated collision",
+      "base": "photo.dng",
+      "occupied": [
+        "photo.dng",
+        "photo.restored.dng"
+      ],
+      "expected": "photo.restored.1.dng"
+    },
+    {
+      "name": "canonical orphan",
+      "base": "photo.dng",
+      "occupied": [
+        "photo.xmp"
+      ],
+      "expected": "photo.restored.dng"
+    },
+    {
+      "name": "conflict orphan",
+      "base": "photo.dng",
+      "occupied": [
+        "photo (conflict from Mac).xmp"
+      ],
+      "expected": "photo.restored.dng"
+    },
+    {
+      "name": "UUID orphan",
+      "base": "photo.dng",
+      "occupied": [
+        "photo.v12345678-1234-1234-1234-123456789abc.xmp"
+      ],
+      "expected": "photo.restored.dng"
+    },
+    {
+      "name": "foreign v2",
+      "base": "photo.dng",
+      "occupied": [
+        "photo.v2.xmp"
+      ],
+      "expected": "photo.dng"
+    },
+    {
+      "name": "foreign numbered sibling",
+      "base": "photo.dng",
+      "occupied": [
+        "photo (2).xmp"
+      ],
+      "expected": "photo.dng"
+    },
+    {
+      "name": "extensionless",
+      "base": "photo",
+      "occupied": [
+        "photo"
+      ],
+      "expected": "photo.restored"
+    },
+    {
+      "name": "hidden extensionless",
+      "base": ".photo",
+      "occupied": [
+        ".photo"
+      ],
+      "expected": ".photo.restored"
+    },
+    {
+      "name": "uppercase RAW",
+      "base": "PHOTO.DNG",
+      "occupied": [
+        "PHOTO.DNG"
+      ],
+      "expected": "PHOTO.restored.DNG"
+    },
+    {
+      "name": "video full-name XMP",
+      "base": "photo.mov",
+      "occupied": [
+        "photo.mov.xmp"
+      ],
+      "expected": "photo.restored.mov"
+    },
+    {
+      "name": "case-folded incoming XMP",
+      "base": "PHOTO.DNG",
+      "occupied": [
+        "PHOTO.DNG"
+      ],
+      "expected": "PHOTO.restored.DNG",
+      "incoming": [
+        "photo.xmp",
+        "photo (conflict from Mac).xmp"
+      ]
+    }
+  ]
+}

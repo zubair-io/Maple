@@ -13,39 +13,64 @@
 // without pretending to also validate AMSMB2's wire protocol, which isn't
 // this module's job.
 
-import Foundation
 import AMSMB2
+import Foundation
 
 public protocol SMBFileTransport: Sendable {
-    func attributesOfItem(atPath path: String) async throws -> [URLResourceKey: any Sendable]
-    func contentsOfDirectory(atPath path: String, recursive: Bool) async throws -> [[URLResourceKey: Any]]
-    func copyItem(atPath path: String, toPath: String, recursive: Bool,
-                  progress: (@Sendable (Int64, Int64) -> Bool)?) async throws
-    func removeItem(atPath path: String) async throws
-    func createDirectory(atPath path: String) async throws
-    func moveItem(atPath path: String, toPath: String) async throws
-    func setAttributes(attributes: [URLResourceKey: Any], ofItemAtPath path: String) async throws
-    /// Whole-file read, added for the on-share `.maple/thumbs/` cache
-    /// (#2690): `SMBThumbCache` reads/writes through this same protocol so
-    /// its tests substitute `FakeSMBTransport` instead of requiring a live
-    /// SMB server, mirroring the relocate engine's existing seam. Named
-    /// distinctly from AMSMB2's own overloaded `contents(atPath:range:)` —
-    /// that method is generic over `RangeExpression` with a defaulted
-    /// `progress` parameter, which doesn't structurally satisfy a
-    /// non-generic protocol requirement of the same name, so the `SM2Manager`
-    /// conformance below wraps it explicitly instead of matching for free.
-    func readFile(atPath path: String) async throws -> Data
-    /// Whole-file write — same naming rationale as `readFile` above; wraps
-    /// AMSMB2's `write(data:toPath:progress:)`.
-    func writeFile(data: Data, toPath path: String) async throws
+  func attributesOfItem(atPath path: String) async throws -> [URLResourceKey: any Sendable]
+  func contentsOfDirectory(atPath path: String, recursive: Bool) async throws -> [[URLResourceKey:
+    Any]]
+  func copyItem(
+    atPath path: String, toPath: String, recursive: Bool,
+    progress: (@Sendable (Int64, Int64) -> Bool)?) async throws
+  func removeItem(atPath path: String) async throws
+  func removeRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    validate: @Sendable @escaping (Data) -> Bool) async throws
+  func moveRestoreFile(
+    atPath path: String, toPath destination: String, expectedIdentity: UInt64,
+    validate: @Sendable @escaping (Data) -> Bool) async throws
+  func createDirectory(atPath path: String) async throws
+  func moveItem(atPath path: String, toPath: String) async throws
+  func setAttributes(attributes: [URLResourceKey: Any], ofItemAtPath path: String) async throws
+  /// Whole-file read, added for the on-share `.maple/thumbs/` cache
+  /// (#2690): `SMBThumbCache` reads/writes through this same protocol so
+  /// its tests substitute `FakeSMBTransport` instead of requiring a live
+  /// SMB server, mirroring the relocate engine's existing seam. Named
+  /// distinctly from AMSMB2's own overloaded `contents(atPath:range:)` —
+  /// that method is generic over `RangeExpression` with a defaulted
+  /// `progress` parameter, which doesn't structurally satisfy a
+  /// non-generic protocol requirement of the same name, so the `SM2Manager`
+  /// conformance below wraps it explicitly instead of matching for free.
+  func readFile(atPath path: String) async throws -> Data
+  /// Whole-file write — same naming rationale as `readFile` above; wraps
+  /// AMSMB2's `write(data:toPath:progress:)`.
+  func writeFile(data: Data, toPath path: String) async throws
 }
 
 extension SMB2Manager: SMBFileTransport {
-    public func readFile(atPath path: String) async throws -> Data {
-        try await contents(atPath: path, range: Range<UInt64>?.none)
-    }
+  public func readFile(atPath path: String) async throws -> Data {
+    try await contents(atPath: path, range: Range<UInt64>?.none)
+  }
 
-    public func writeFile(data: Data, toPath path: String) async throws {
-        try await write(data: data, toPath: path, progress: nil)
-    }
+  public func writeFile(data: Data, toPath path: String) async throws {
+    try await write(data: data, toPath: path, progress: nil)
+  }
+}
+
+// A custom transport lacking server-handle custody must fail closed; path
+// read/then-unlink fallback would reintroduce the proven #4139 replacement loss.
+extension SMBFileTransport {
+  public func removeRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    validate: @Sendable @escaping (Data) -> Bool
+  ) async throws {
+    throw POSIXError(.ENOTSUP)
+  }
+  public func moveRestoreFile(
+    atPath path: String, toPath destination: String, expectedIdentity: UInt64,
+    validate: @Sendable @escaping (Data) -> Bool
+  ) async throws {
+    throw POSIXError(.ENOTSUP)
+  }
 }

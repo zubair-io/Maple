@@ -355,6 +355,7 @@ extension SMB2Client {
     private class CBData {
         var result: Int32 = .init(NTStatus.success.rawValue)
         var isFinished: Bool = false
+        var copyChunkLimits = false
         var dataHandler: ((UnsafeMutableRawPointer?) -> Void)?
         var status: NTStatus {
             NTStatus(rawValue: result)
@@ -390,7 +391,13 @@ extension SMB2Client {
             if NTStatus(rawValue: status) != .success {
                 cbdata.result = status
             }
-            cbdata.dataHandler?(command_data)
+            let ntStatus = NTStatus(rawValue: status)
+            let limitsReply = cbdata.copyChunkLimits
+                && ntStatus.rawValue == SMB2_STATUS_INVALID_PARAMETER
+                && smb2?.pointee.pdu?.pointee.copychunk_limits_reply == 1
+            if ntStatus.severity != .error || limitsReply {
+                cbdata.dataHandler?(command_data)
+            }
             cbdata.isFinished = true
         } catch {}
     }
@@ -447,12 +454,14 @@ extension SMB2Client {
     @discardableResult
     func async_await_pdu<DataType>(
         dataHandler: @escaping ContextHandler<DataType>,
+        copyChunkLimits: Bool = false,
         execute handler: UnsafeContextHandler<UnsafeMutablePointer<smb2_pdu>?>
     )
         throws -> (status: UInt32, data: DataType)
     {
         try withThreadSafeContext { context -> (UInt32, DataType) in
             var cb = CBData()
+            cb.copyChunkLimits = copyChunkLimits
             var resultData: DataType?
             var dataHandlerError: (any Error)?
             cb.dataHandler = { ptr in
@@ -468,7 +477,11 @@ extension SMB2Client {
             smb2_queue_pdu(context, pdu)
             try wait_for_reply(&cb)
 
-            try POSIXError.throwIfErrorStatus(cb.status)
+            // Only the validated COPYCHUNK IOCTL body may accompany this error.
+            if !(copyChunkLimits && cb.status.rawValue == SMB2_STATUS_INVALID_PARAMETER
+                && resultData != nil) {
+                try POSIXError.throwIfErrorStatus(cb.status)
+            }
             if let error = dataHandlerError { throw error }
             return try (cb.status.rawValue, resultData.unwrap())
         }

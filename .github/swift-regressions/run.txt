@@ -368,3 +368,10 @@ TopShelfLinkTests
 NativeExportRecipeTests
 NativeExportQueueTests
 NativeExportSnapshotTests
+
+# Server-advertised COPYCHUNK limits and response ownership (#4142).
+SMBCopyChunkResponseTests
+SMBCopyChunkWireTests
+
+# Real Local RAW/XMP restore collision and failure safety (#4139).
+RestoreSafetyTests

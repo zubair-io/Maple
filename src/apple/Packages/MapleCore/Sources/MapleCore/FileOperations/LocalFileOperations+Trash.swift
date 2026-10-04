@@ -82,15 +82,36 @@ extension LocalFileOperations {
 
   /// Restore a `.maple/trash`-backed item to its original location — the
   /// mirror image of `trashDestinationDir` — auto-suffixing on a
-  /// collision the same way every other unattended relocate here does.
+  /// collision using the shared `.restored[.N]` namespace.
   public static func restoreFromMapleTrash(_ trashedPrimaryURL: URL, libraryRoot: URL) async throws
     -> RelocateOutcome
   {
     let originalDir = try originalDestinationDir(for: trashedPrimaryURL, libraryRoot: libraryRoot)
-    let outcome = try await relocate(
-      trashedPrimaryURL, to: originalDir, mode: .move, collision: .autoSuffix)
+    let realRoot = libraryRoot.resolvingSymlinksInPath().standardizedFileURL.path
+    let realTrash = realRoot + "/.maple/trash/"
+    guard trashedPrimaryURL.resolvingSymlinksInPath().standardizedFileURL.path.hasPrefix(realTrash)
+    else {
+      throw FileOperationError.invalidDestination(trashedPrimaryURL.path)
+    }
+    let realDestination = originalDir.resolvingSymlinksInPath().standardizedFileURL.path
+    guard realDestination == realRoot || realDestination.hasPrefix(realRoot + "/") else {
+      throw FileOperationError.invalidDestination(originalDir.path)
+    }
+    let job = Task.detached(priority: .userInitiated) {
+      try restoreFilePair(trashedPrimaryURL, to: originalDir)
+    }
+    let plan = try await withTaskCancellationHandler {
+      try await job.value
+    } onCancel: {
+      job.cancel()
+    }
+    await invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
+    await refreshLibraryIndexAfterMove(plan)
     removeTrashedMarker(forItemAt: trashedPrimaryURL)
-    return outcome
+    return RelocateOutcome(
+      primaryPath: plan.finalPrimaryPath, sidecarPath: plan.finalSidecarPath,
+      renamedDueToCollision: plan.renamedDueToCollision,
+      sidecarFollowed: plan.finalSidecarPath != nil)
   }
 
   /// Inverse of `trashDestinationDir`: given an item's CURRENT location

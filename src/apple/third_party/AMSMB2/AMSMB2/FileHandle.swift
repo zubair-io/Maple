@@ -337,6 +337,16 @@ final class SMB2FileHandle: @unchecked Sendable {
     func fcntl<DataType: DataProtocol, R: DecodableResponse>(
         command: IOCtl.Command, args: DataType = Data()
     ) throws -> R {
+        try ioctlResponse(command: command, args: args, copyChunkLimits: false).data
+    }
+
+    func copyChunk(_ args: IOCtl.SrvCopyChunkCopy) throws -> (status: UInt32, data: IOCtl.SrvCopyChunkResponse) {
+        try ioctlResponse(command: .srvCopyChunk, args: args, copyChunkLimits: true)
+    }
+
+    private func ioctlResponse<DataType: DataProtocol, R: DecodableResponse>(
+        command: IOCtl.Command, args: DataType, copyChunkLimits: Bool
+    ) throws -> (status: UInt32, data: R) {
         defer { withExtendedLifetime(args) {} }
         var inputBuffer = [UInt8](args)
         return try inputBuffer.withUnsafeMutableBytes { buf in
@@ -350,10 +360,10 @@ final class SMB2FileHandle: @unchecked Sendable {
                 flags: .init(SMB2_0_IOCTL_IS_FSCTL),
                 input: buf.baseAddress
             )
-            return try client.async_await_pdu(dataHandler: R.init) {
+            return try client.async_await_pdu(dataHandler: R.init, copyChunkLimits: copyChunkLimits) {
                 context, cbPtr -> UnsafeMutablePointer<smb2_pdu>? in
                 smb2_cmd_ioctl_async(context, &req, SMB2Client.generic_handler, cbPtr)
-            }.data
+            }
         }
     }
     
