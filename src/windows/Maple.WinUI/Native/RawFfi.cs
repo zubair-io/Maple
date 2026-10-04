@@ -174,6 +174,12 @@ namespace Maple.WinUI.Native
             uint* lutSize);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_compose_auto_profile_lut(
+            float* curve, nuint curveLength,
+            float* residual, nuint residualLength, uint residualSize,
+            uint size, float* output, nuint outputCapacityFloats);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int maple_compute_auto_profile_lut(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
