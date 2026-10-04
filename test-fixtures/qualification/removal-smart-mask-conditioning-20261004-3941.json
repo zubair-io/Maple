@@ -1,0 +1,219 @@
+{
+  "issues": [
+    3941,
+    3984,
+    1472
+  ],
+  "releaseQualified": false,
+  "testedHeadBeforeCommit": "c81ba3c52a071826d1c92c8406d8bddb6e7ebb0c",
+  "testedMainBase": "6178dd4848296bb4c50c95a3e8f36c679d775bbc",
+  "sourceFiles": [
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/maple-removal/src/selection.rs",
+      "sha256": "9b6d72f397e179be566b72b3c1a4f3f101f17d69dc871cc486e9142b05c55770",
+      "bytes": 6846
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/src/stages/removal_smart.rs",
+      "sha256": "c198caeec9c050cb06abbe621df21da8765f9672c0be1d9046aef5aedcead60c",
+      "bytes": 12710
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/raw-pipeline/raw-core/src/stages/removal_smart_tests.rs",
+      "sha256": "3bb7b32c80e093c2721621dbb9187a84936cc92215ea2a6f9c653996f6f4df3c",
+      "bytes": 7476
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/src/apple/Packages/MapleCore/Tests/MapleCoreTests/PhotographicRemovalSmartPaintTests.swift",
+      "sha256": "0c440bd8aa2762bf5572c0554ca7cdd7885c3893eee08f141316fb566d4d24a6",
+      "bytes": 22545
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/probe_smart_mask_conditioning.py",
+      "sha256": "44c56aa6ae5eb5773793f4a9c12328e2d918eb533ef8ce692510716ac3ef881a",
+      "bytes": 12073
+    },
+    {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/tools/removal/smart_mask_conditioning_probe_test.py",
+      "sha256": "de61b4a48088551996276300824b825920cc827137197cd2110682d96f313e37",
+      "bytes": 3773
+    }
+  ],
+  "change": "Native SmartSelector retains the original first-pass result when valid. Only a no-valid-candidate refusal triggers four stateless mask-conditioned passes, one for each current-request low-resolution candidate. Every original prompt remains mandatory; highest score ranks valid candidates only. No prior editor mask, model artifact, color stage, XMP schema or reconstruction-size policy changes.",
+  "promptDiagnosis": {
+    "report": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person4-smart-prompt-ablation-20261004/report.json",
+      "sha256": "df7ae35cdfe602edd489c7486f2aad66bcddc3988e7a7474ad661b17de6a87e5",
+      "bytes": 51201
+    },
+    "cases": 32,
+    "finding": "Production Smart strokes were already point-only. Adding positives and negatives can change the masks non-monotonically. No box-removal change or dropping explicit positives is warranted."
+  },
+  "pairedConditioning": {
+    "report": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/person4-smart-mask-conditioning-v2-20261004/report.json",
+      "sha256": "6c195bef434c6bd8d159d5da88ae1730eca034b3652d92655f07238915ee72a2",
+      "bytes": 20876
+    },
+    "cases": 10,
+    "acceptedNativeMasksExactlyEqual": 9,
+    "bothOwnersRejectNegativeControl": true,
+    "conditionedCases": 8,
+    "allRequestedTargetSamplesRetained": true,
+    "allNeighborSamplesExcluded": true,
+    "maxAbsoluteOutputDifference": 0.00018310546875,
+    "models": [
+      {
+        "id": "encoder",
+        "file": "mobile-sam-encoder.onnx",
+        "probe_path": "mobile-sam/native-build/mobile-sam-encoder.onnx",
+        "size": 27996392,
+        "sha256": "e12aec77d292b119aaa8add4e23a21114d3ff4fac44a1abfb8ca2a391f03bf2b",
+        "source_revision": "f706ad9c4eb7f219c00d9050e46328518ffb65d2",
+        "checkpoint_sha256": "6dbb90523a35330fedd7f1d3dfc66f995213d81b29a5ca8108dbcdd4e37d6c2f",
+        "license": "Apache-2.0",
+        "native_side": 1024,
+        "release_qualified": false
+      },
+      {
+        "id": "decoder",
+        "file": "mobile-sam-decoder.onnx",
+        "probe_path": "mobile-sam/native-build/mobile-sam-decoder.onnx",
+        "size": 16496934,
+        "sha256": "878e0ba9952d4d35c78d8cbd3ee57cdc3691fda0deb39d2cf1f0c8004f2f38e7",
+        "source_revision": "f706ad9c4eb7f219c00d9050e46328518ffb65d2",
+        "checkpoint_sha256": "6dbb90523a35330fedd7f1d3dfc66f995213d81b29a5ca8108dbcdd4e37d6c2f",
+        "license": "Apache-2.0",
+        "native_side": 1024,
+        "release_qualified": false
+      }
+    ],
+    "runtime": "1.23.2",
+    "scope": "Same actual mask-input tensors in ORT and pinned upstream PyTorch; sparse source-pixel samples are steering checks, not independent silhouette/ownership truth."
+  },
+  "nativeEditor": {
+    "report": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/boundary-runs/14823934-57DF-4C26-A795-F7B479B43A19/report.json",
+      "sha256": "1a4733e8e9742b52c3488ed391a1228ca106781d91e60197c688f815fb168e5f",
+      "bytes": 1711
+    },
+    "intent": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/boundary-runs/14823934-57DF-4C26-A795-F7B479B43A19/intent.mimf",
+      "sha256": "cbbbc1fce2b29866e9acf60abb63c010fe359a222143c4f647b04354ed36e077",
+      "bytes": 226142
+    },
+    "paintCorrection": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/boundary-runs/14823934-57DF-4C26-A795-F7B479B43A19/paint-correction.mimf",
+      "sha256": "20f1e09d3b1836cef358ecabf32236a9ec520aad52f5eaa5929d7829cd192cd6",
+      "bytes": 225935
+    },
+    "initialIntent": {
+      "path": "/Users/riabuz/.codex/worktrees/2c7f/_Maple/test-fixtures/raws/removal-photographic/boundary-runs/14823934-57DF-4C26-A795-F7B479B43A19/smart-intent.mimf",
+      "sha256": "ef1de151df40beda424e31ea104daf8e44d1ef3b888f358b57b10d4e602e3db2",
+      "bytes": 225324
+    },
+    "intentDigest": "blake3:b2f981bba16f9ce59f94e391cc4054ca047c2bce60817aa77772b4915acf935b",
+    "matchesPairedCurrentRequestCandidate3": true,
+    "smartAndPaintUndoRedoExact": true,
+    "conflictingPromptsRefused": true,
+    "cancelledAndStaleEmbeddingRefused": true,
+    "embeddingReusableAfterFailures": true,
+    "manualProtectionRetained": true,
+    "originalUnchanged": true,
+    "largeObjectStillRefusedBeforeGeneration": true,
+    "sidecarWritten": false
+  },
+  "validation": {
+    "rawCore": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-mask-conditioning-shared-tests-20261004.log",
+        "sha256": "0af2fb6cb1db9b4cdeaed76bd76dd668820abc9d26df311f40799fd81cecffd6",
+        "bytes": 6588
+      },
+      "passed": 14
+    },
+    "nativeAdapter": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-adapter-tests-20261004.log",
+        "sha256": "e230f7e33db50850d389c9a92612d41ec7a7f078fca20ad3d942a1efe455728e",
+        "bytes": 3258
+      },
+      "passed": 2
+    },
+    "swift": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-native-tests-final-20261004.log",
+        "sha256": "775a6dd055f8046c004dfb54232b79526525385598cced39f39dfc6a304b92d3",
+        "bytes": 13591
+      },
+      "passed": 25,
+      "failures": 0,
+      "skips": 0
+    },
+    "probePreflight": {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-probe-controls-final-20261004.log",
+        "sha256": "44b3ddfa7990fe7c201aed88d5b55c2931fca16bcab9285beef351a31144fc12",
+        "bytes": 807
+      },
+      "passed": 7
+    },
+    "builds": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-xcframework-20261004.log",
+        "sha256": "2bbc0db00f79afd685815544f723b0d412a0897baafc138ba526c01d86e5bb97",
+        "bytes": 211164
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-mac-build-20261004.log",
+        "sha256": "0f2ce0e53f9f266ddc70b220a1a3d82f8c2ad6c55a7439a7a60e172cd8011463",
+        "bytes": 861437
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-ios-build-20261004.log",
+        "sha256": "c9b81d54d633c5c66ba5f189862d3033a1b93703514f55391292f9fc0fb7e8c2",
+        "bytes": 836150
+      }
+    ],
+    "codesign": [
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-mac-codesign-20261004.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-ios-codesign-20261004.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      }
+    ],
+    "xcframeworkInputStamp": "9f074fe9283332a166752f8092455f7981594a3a",
+    "exportedSymbols": 187,
+    "nativeAdapterClippy": {
+      "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-adapter-clippy-20261004.log",
+      "sha256": "1305343cc7ae836904c3be773714806d22f1be3791633d612b4abddf6cc1cadc",
+      "bytes": 2797,
+      "passed": true,
+      "scope": "Strict warnings for maple-removal; seven inherited raw-core warnings are reported, no adapter diagnostics."
+    }
+  },
+  "disqualifiedRuns": [
+    {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-probe-controls-20261004.log",
+        "sha256": "c46c47f715e1deda07375dc2bdc26da95a6b23ce36728f6b1b3a30fa6c65a5e7",
+        "bytes": 8901
+      },
+      "reason": "Six missing-target errors in temporary test symlinks when relative fixture paths were used; corrected to resolved absolute paths before the seven final controls passed."
+    },
+    {
+      "log": {
+        "path": "/Users/riabuz/.cache/maple-removal-research/smart-conditioned-native-tests-20261004.log",
+        "sha256": "07c97739b6d53b5e2591f4e7f5affee47a25a6d1c169f6da859c278ca89a69f7",
+        "bytes": 120700
+      },
+      "reason": "29 tests, one legacy golden-corpus test skipped; not evidence for that method. Native contradiction/cancel/stale/reuse controls instead executed against the actual photographic RAW in the final 25-test run."
+    }
+  ],
+  "remaining": "Complete instance silhouettes/ownership and automatic roles; useful large-object photographic reconstruction; controlled supported-device latency/memory and color/Metal gates; remaining portability/recovery/consumer qualification; Web refinement and authoring parity. The feature remains experimental and epic #1472 remains active."
+}

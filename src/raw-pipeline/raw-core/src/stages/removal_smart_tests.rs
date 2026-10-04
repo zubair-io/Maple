@@ -46,6 +46,10 @@ fn negative_point_overrides_higher_model_score_and_native_mask_has_exact_mapping
     rectangle(&mut values, 1, 500, 250, 20, 20);
     let bytes =
         mask_from_logits_json(&request().to_string(), &values, &[0.99, 0.7, 0.0, 0.0]).unwrap();
+    assert_eq!(
+        candidate_choice_json(&request().to_string(), &values, &[0.99, 0.7, 0.0, 0.0]).unwrap(),
+        1
+    );
     let mask = crate::pipeline::removal_mask_from_bytes(&bytes).unwrap();
     assert_eq!(
         [mask.x, mask.y, mask.width, mask.height],
@@ -65,6 +69,7 @@ fn no_prompt_satisfying_proposal_is_an_error_not_an_empty_replacement() {
             .unwrap_err()
             .contains("no candidate")
     );
+    assert!(candidate_choice_json(&request().to_string(), &values, &[0.9; 4]).is_err());
 }
 
 #[test]
@@ -85,6 +90,7 @@ fn padding_cannot_create_native_intent_and_invalid_shapes_fail() {
     assert!(mask_from_logits_json(&req, &values, &[0.9; 3]).is_err());
     values[0] = f32::NAN;
     assert!(mask_from_logits_json(&req, &values, &[0.9; 4]).is_err());
+    assert!(candidate_choice_json(&req, &values, &[0.9; 4]).is_err());
 }
 
 #[test]

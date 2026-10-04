@@ -32,6 +32,67 @@ final class PhotographicRemovalSmartPaintTests: XCTestCase {
     XCTAssertEqual(removal.phase, .ready, removal.message)
   }
 
+  private func assertNativeRefinementControls(
+    _ context: NativeRemovalEditorContext, models: URL, strokes: [RemovalStroke], expected: Data
+  ) async throws {
+    let proxy = try await context.saved.selectionProxy(xmp: context.xmp)
+    let inputs = try NativeRemovalProxyTensors(proxy, width: context.width, height: context.height)
+    let requestData = try JSONSerialization.data(withJSONObject: [
+      "schema": 1, "source_width": context.width, "source_height": context.height,
+      "window": ["x": 0, "y": 0, "width": context.width, "height": context.height],
+      "input_width": inputs.inputWidth, "input_height": inputs.inputHeight,
+      "prompts": [],
+      "strokes": try JSONSerialization.jsonObject(with: JSONEncoder().encode(strokes)),
+    ])
+    let request = try RemovalBridge.smartStrokes(
+      request: String(decoding: requestData, as: UTF8.self))
+    let model = try NativeRemovalSelector.open(
+      directory: models, runtime: models.appendingPathComponent("runtime.dylib"))
+    let operation = try model.operation()
+    let embedding = try model.encode(
+      source: context.source, request: request, rgb: inputs.encoder, operation: operation)
+    XCTAssertEqual(
+      try model.refine(
+        source: context.source, request: request, embedding: embedding, operation: operation),
+      expected)
+    var conflict = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])
+    var prompts = try XCTUnwrap(conflict["prompts"] as? [[String: Any]])
+    prompts += [
+      ["position": [0.5, 0.5], "label": 1],
+      ["position": [0.5, 0.5], "label": 0],
+    ]
+    conflict["prompts"] = prompts
+    let conflictRequest = String(
+      decoding: try JSONSerialization.data(withJSONObject: conflict), as: UTF8.self)
+    XCTAssertThrowsError(
+      try model.refine(
+        source: context.source, request: conflictRequest, embedding: embedding, operation: operation
+      )
+    ) {
+      XCTAssertTrue(String(describing: $0).contains("no candidate honors"), "\($0)")
+    }
+    let cancelled = try model.operation()
+    cancelled.cancel()
+    XCTAssertThrowsError(
+      try model.refine(
+        source: context.source, request: request, embedding: embedding, operation: cancelled)
+    ) {
+      guard case PipelineError.cancelled = $0 else { return XCTFail("\($0)") }
+    }
+    var source = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: Data(context.source.utf8)) as? [String: Any])
+    source["original"] = try RemovalBridge.digest(Data("changed original".utf8))
+    let stale = String(decoding: try JSONSerialization.data(withJSONObject: source), as: UTF8.self)
+    XCTAssertThrowsError(
+      try model.refine(
+        source: stale, request: request, embedding: embedding, operation: operation))
+    XCTAssertEqual(
+      try model.refine(
+        source: context.source, request: request, embedding: embedding, operation: operation),
+      expected)
+  }
+
   func testActualSmartPaintAddsVisibleSleeveAndCarriedBag() async throws {
     #if os(macOS)
       let repository = (0..<7).reduce(URL(fileURLWithPath: #filePath)) {
@@ -94,8 +155,6 @@ final class PhotographicRemovalSmartPaintTests: XCTestCase {
       await paint([496, 330], removal: removal, subtract: true)
       let beforeNeighborNegative = removal.selection
       let priorStrokeCount = removal.strokes.count
-      let priorGestureSizes = removal.gestureSizes
-      let priorRedoCount = removal.redoGestures.count
       let neighbor: [UInt32] = [1728, 1664]
       let beforeNeighbor = try RemovalBridge.decodeMask(beforeNeighborNegative)
       let neighborPreviouslySelected =
@@ -115,32 +174,12 @@ final class PhotographicRemovalSmartPaintTests: XCTestCase {
           ]
         ], cropInputSize: nativeSize)
       XCTAssertEqual(removal.phase, .ready, removal.message)
-      XCTAssertTrue(removal.message.contains("could not follow all"), removal.message)
-      let rejectedMessage = removal.message
-      XCTAssertEqual(removal.selection, beforeNeighborNegative)
-      XCTAssertEqual(removal.strokes.count, priorStrokeCount)
-      XCTAssertEqual(removal.gestureSizes, priorGestureSizes)
-      XCTAssertEqual(removal.redoGestures.count, priorRedoCount)
+      XCTAssertTrue(removal.message.isEmpty, removal.message)
+      let intent = removal.selection
+      XCTAssertNotEqual(intent, beforeNeighborNegative)
+      XCTAssertEqual(removal.strokes.count, priorStrokeCount + 1)
       XCTAssertEqual(removal.protection, protection)
       XCTAssertNil(removal.operation)
-
-      // The model refusal cannot stand in for a successful correction. The
-      // photographer explicitly freezes this selection and brushes the face out.
-      removal.refineWithPaint()
-      XCTAssertEqual(removal.mode, .paint)
-      XCTAssertEqual(removal.selection, beforeNeighborNegative)
-      XCTAssertFalse(removal.canUndoSelection)
-      XCTAssertFalse(removal.canRedoSelection)
-      await removal.paint(
-        [
-          [
-            (Double(neighbor[0]) + 0.5) / Double(nativeSize[0]),
-            (Double(neighbor[1]) + 0.5) / Double(nativeSize[1]),
-          ]
-        ], cropInputSize: nativeSize)
-      XCTAssertEqual(removal.phase, .ready, removal.message)
-      XCTAssertTrue(removal.message.isEmpty)
-      let intent = removal.selection
       let decoded = try RemovalBridge.decodeMask(intent)
       let visibleSamples = points.map { point -> Bool in
         guard point[0] >= decoded.x, point[1] >= decoded.y,
@@ -163,6 +202,38 @@ final class PhotographicRemovalSmartPaintTests: XCTestCase {
       XCTAssertEqual(removal.selection, beforeNeighborNegative)
       await removal.redoSelection()
       XCTAssertEqual(removal.selection, intent)
+      try await assertNativeRefinementControls(
+        context, models: models, strokes: removal.strokes, expected: intent)
+
+      // Manual correction remains available after automatic refinement. Erase
+      // the carried-bag sample, then restore the exact conditioned Smart mask.
+      removal.refineWithPaint()
+      XCTAssertEqual(removal.mode, .paint)
+      XCTAssertEqual(removal.selection, intent)
+      XCTAssertFalse(removal.canUndoSelection)
+      XCTAssertFalse(removal.canRedoSelection)
+      let bag = points[3]
+      await removal.paint(
+        [
+          [
+            (Double(bag[0]) + 0.5) / Double(nativeSize[0]),
+            (Double(bag[1]) + 0.5) / Double(nativeSize[1]),
+          ]
+        ], cropInputSize: nativeSize)
+      XCTAssertEqual(removal.phase, .ready, removal.message)
+      let paintCorrection = removal.selection
+      XCTAssertNotEqual(paintCorrection, intent)
+      let corrected = try RemovalBridge.decodeMask(paintCorrection)
+      XCTAssertEqual(
+        corrected.pixels[
+          Int((bag[1] - corrected.y) * corrected.width + bag[0] - corrected.x)], 0)
+      await removal.undoSelection()
+      XCTAssertEqual(removal.selection, intent)
+      await removal.redoSelection()
+      XCTAssertEqual(removal.selection, paintCorrection)
+      await removal.undoSelection()
+      XCTAssertEqual(removal.selection, intent)
+      XCTAssertEqual(removal.protection, protection)
       await removal.remove()
       XCTAssertEqual(removal.phase, .ready, removal.message)
       XCTAssertTrue(removal.message.contains("object is too large"), removal.message)
@@ -178,6 +249,7 @@ final class PhotographicRemovalSmartPaintTests: XCTestCase {
         "test-fixtures/raws/removal-photographic/boundary-runs/\(UUID().uuidString)")
       try FileManager.default.createDirectory(at: evidence, withIntermediateDirectories: true)
       try intent.write(to: evidence.appendingPathComponent("intent.mimf"))
+      try paintCorrection.write(to: evidence.appendingPathComponent("paint-correction.mimf"))
       try beforeNeighborNegative.write(to: evidence.appendingPathComponent("smart-intent.mimf"))
       try protection.write(to: evidence.appendingPathComponent("protection.mimf"))
       let report: [String: Any] = [
@@ -187,14 +259,15 @@ final class PhotographicRemovalSmartPaintTests: XCTestCase {
         "nativeSamples": points, "visibleSamples": visibleSamples,
         "bagGestureUndoRedoExact": true, "originalUnchanged": true,
         "neighborSample": neighbor, "neighborPreviouslySelected": neighborPreviouslySelected,
-        "smartNegativeRejectedMessage": rejectedMessage,
-        "rejectedGesturePreservedSelectionAndHistory": true,
-        "neighborSelectedAfterExplicitPaint": neighborSelected,
+        "smartNegativeUndoRedoExact": true,
+        "nativeReplayConflictCancellationAndStaleControls": true,
+        "neighborSelectedAfterSmartNegative": neighborSelected,
+        "paintCorrectionDigest": try RemovalBridge.digest(paintCorrection),
         "paintCorrectionUndoRedoExact": true,
         "largeRefusedBeforeInference": true, "sidecarWritten": false,
         "releaseQualified": false,
         "scope":
-          "Actual native Smart paint recovers six observed interior sleeve/bag/body samples but leaks a neighboring face. A rejected negative preserves selection/history. Explicit Refine with Paint removes that face sample with exact undo/redo and retained protection. Sparse samples do not prove complete silhouette/ownership; large-object fill, UI, cross-host and supported-device qualification remain open (#3941/#3984).",
+          "Actual native Smart paint retains six observed interior sleeve/bag/body samples and excludes the neighboring face after mask-conditioned negative refinement, with exact Smart and explicit Paint undo/redo and retained protection. Sparse samples do not prove complete silhouette/ownership; large-object fill, UI, cross-host and supported-device qualification remain open (#3941/#3984).",
       ]
       try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
         .write(to: evidence.appendingPathComponent("report.json"))
