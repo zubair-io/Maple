@@ -125,6 +125,8 @@ public sealed partial class MainWindow
                     requestedLogicalWidth = logicalSize.Width, requestedLogicalHeight = logicalSize.Height,
                     logicalWidth = root.ActualWidth, logicalHeight = root.ActualHeight,
                     scale = root.XamlRoot.RasterizationScale, photoCount = ViewModel.Photos.Count,
+                    shellVisualMetadataFixture = ShellVisualMetadataFixture,
+                    shellVisualSourceSidecarHash = _shellVisualSourceSidecarHash,
                     activeGroup = _activeGroup, comparison = _compare.ShowingBefore
                 }));
                 deadline = Environment.TickCount64 + 180000;
