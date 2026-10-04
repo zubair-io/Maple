@@ -59,7 +59,7 @@ namespace Maple.WinUI
 
         private void InitializeInspectorFocus()
         {
-            foreach (var button in new[] { PreviewInfoButton, InfoCloseButton })
+            foreach (var button in new[] { PreviewInfoButton, InfoCloseButton, BrowseInfoButton })
             {
                 button.PreviewKeyDown += (_, e) =>
                 {
@@ -73,10 +73,13 @@ namespace Maple.WinUI
         }
 
         private void OnToggleInfoPane(object sender, RoutedEventArgs e)
+            => SetInspectorOpen(!_infoPaneOpen);
+
+        private void SetInspectorOpen(bool open)
         {
             var focusState = _infoActivationFocusState;
             _infoActivationFocusState = FocusState.Programmatic;
-            _infoPaneOpen = !_infoPaneOpen;
+            _infoPaneOpen = open;
             UpdateInfoPane();
             ((FrameworkElement)Content).UpdateLayout();
             (_infoPaneOpen ? InfoCloseButton : PreviewInfoButton).Focus(focusState);

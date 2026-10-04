@@ -667,7 +667,7 @@
                                         <StackPanel Orientation="Horizontal" Spacing="12">
                                             <mui:MuiButton Label="Open in editor" Variant="Primary" Click="OnBrowseOpenEditor" />
                                             <mui:MuiButton Label="Preview" Variant="Secondary" Click="OnBrowseOpenPreview" />
-                                            <mui:MuiButton Label="Info / Rating" Variant="Secondary" Click="OnBrowseOpenInfo" />
+                                            <mui:MuiButton x:Name="BrowseInfoButton" Label="Info / Rating" Variant="Secondary" Click="OnBrowseOpenInfo" />
                                             <mui:MuiButton Label="Share" Variant="Secondary" ToolTipService.ToolTip="Share with another application">
                                                 <mui:MuiButton.Flyout><MenuFlyout>
                                                     <MenuFlyoutItem Text="Share original files" Click="OnShareOriginals" />
