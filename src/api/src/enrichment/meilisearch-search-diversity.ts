@@ -71,12 +71,14 @@ export async function searchWithReadingDiversity(
     return result.body;
   };
   // None of these requests can consume the permuted head. Preserve the
-  // original wire request and avoid gathering unused match metadata.
+  // original wire request and avoid gathering unused match metadata. Positions
+  // do not identify which term matched, so only a single unpunctuated word
+  // can establish alternative readings of the same term.
   if (
     offset >= HEAD_SIZE ||
     limit === 0 ||
     typeof request.q !== 'string' ||
-    request.q.trim().length === 0
+    !/^\p{L}[\p{L}\p{M}\p{N}]*$/u.test(request.q.trim())
   ) {
     return search(offset, limit, false);
   }
