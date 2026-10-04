@@ -1,8 +1,11 @@
 //! Sharp-parity envelope for `resize_raster` (#3573).
 //!
-//! Every expected number in this file was measured against the installed
-//! sharp 0.34.5 / libvips 8.17.3 on the same synthetic source, not derived
-//! from reading libvips' C++. The headline finding is upside-down: Maple
+//! Every downscale expectation in this file was measured against the
+//! installed sharp 0.34.5 / libvips 8.17.3 on the same synthetic source,
+//! not derived from reading libvips' C++. (The upscale test instead pins
+//! Maple's own convolution bytes as change detection — sharp's upscale is
+//! affine bicubic regardless of the requested kernel, #4178, so there is
+//! no sharp target to pin there.) The headline finding is upside-down: Maple
 //! convolves with the requested kernel everywhere, while libvips
 //! (`vips_resize`) routes around its own kernel — integer downscales stage
 //! through `vips_reduce`'s truncated-int masks, and every upscale detours
@@ -36,6 +39,11 @@ fn smooth4() -> RasterImage {
 }
 
 fn max_diff(a: &[u8], b: &[u8]) -> u8 {
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "length mismatch hides dropped bytes behind zip truncation"
+    );
     a.iter()
         .zip(b.iter())
         .map(|(&x, &y)| x.abs_diff(y))
@@ -72,7 +80,6 @@ fn lanczos3_fractional_downscale_stays_within_one_code() {
         .iter()
         .flat_map(|&v| [v, v, v])
         .collect::<Vec<_>>();
-    assert_eq!(out.data.len(), sharp.len());
     assert!(
         max_diff(&out.data, &sharp) <= 1,
         "drifted past 1 code: {:?} vs sharp {:?}",
