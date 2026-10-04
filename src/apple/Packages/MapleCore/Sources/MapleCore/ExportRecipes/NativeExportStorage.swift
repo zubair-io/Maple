@@ -46,7 +46,8 @@ public actor NativeExportRecipeStore {
 enum NativeExportStorage {
   static func root() -> URL {
     FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-      .appendingPathComponent("Maple/Exports", isDirectory: true)
+      .appendingPathComponent("Maple", isDirectory: true)
+      .appendingPathComponent("Exports", isDirectory: true)
   }
   static func write<T: Encodable>(_ value: T, to url: URL) throws {
     try FileManager.default.createDirectory(

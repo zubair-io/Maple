@@ -115,8 +115,8 @@ final class NativeExportSnapshotTests: EditorTestCase {
       try await queue.enqueue(next)
       XCTFail("Unowned replacement must block retirement")
     } catch { XCTAssertTrue(error.localizedDescription.contains("preserved")) }
-    let preserved = directory.appendingPathComponent(
-      "Jobs/Retired-\(old.id.uuidString)/Sources/\(source.lastPathComponent)")
+    let preserved = directory.appending(
+      path: "Jobs/Retired-\(old.id.uuidString)/Sources/\(source.lastPathComponent)")
     XCTAssertEqual(try Data(contentsOf: preserved), before)
     XCTAssertEqual(try Data(contentsOf: next.originals[0].url), before)
     let durable = try JSONDecoder().decode(
@@ -148,9 +148,9 @@ final class NativeExportSnapshotTests: EditorTestCase {
       let queue = NativeExportQueue(directory: directory) { value in
         guard let retired = value.retiredJobs?.first else { return }
         if !afterClaim { Darwin._exit(78) }
-        let claimed = directory.appendingPathComponent("Jobs/Retired-\(retired.id.uuidString)")
+        let claimed = directory.appending(path: "Jobs/Retired-\(retired.id.uuidString)")
         guard FileManager.default.fileExists(atPath: claimed.path) else { return }
-        let replacement = directory.appendingPathComponent("Jobs/\(retired.id.uuidString)")
+        let replacement = directory.appending(path: "Jobs/\(retired.id.uuidString)")
         do {
           try FileManager.default.createDirectory(
             at: replacement, withIntermediateDirectories: false)
@@ -202,8 +202,8 @@ final class NativeExportSnapshotTests: EditorTestCase {
       XCTAssertEqual(child.terminationStatus, afterClaim ? 79 : 78)
       let oldCopy =
         afterClaim
-        ? directory.appendingPathComponent(
-          "Jobs/Retired-\(old.id.uuidString)/Sources/\(old.originals[0].url.lastPathComponent)")
+        ? directory.appending(path: "Jobs/Retired-\(old.id.uuidString)/Sources")
+          .appendingPathComponent(old.originals[0].url.lastPathComponent)
         : old.originals[0].url
       XCTAssertEqual(try Data(contentsOf: oldCopy), before)
       let durable = try JSONDecoder().decode(
@@ -216,7 +216,7 @@ final class NativeExportSnapshotTests: EditorTestCase {
       XCTAssertNil(recovered?.retiredJobs)
       XCTAssertFalse(FileManager.default.fileExists(atPath: oldCopy.path))
       if afterClaim {
-        let foreign = directory.appendingPathComponent("Jobs/\(old.id.uuidString)/foreign.txt")
+        let foreign = directory.appending(path: "Jobs/\(old.id.uuidString)/foreign.txt")
         XCTAssertEqual(
           try Data(contentsOf: foreign), Data("foreign public namespace replacement".utf8))
       }

@@ -141,8 +141,7 @@ extension AutoProfileCanvasParityTests {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent()
-    let noPreview = root.appendingPathComponent(
-      "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
+    let noPreview = root.appending(path: "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
     let physical = Self.fixtureDir("test-fixtures/raws").appendingPathComponent("test_0006.DNG")
     XCTAssertTrue(FileManager.default.fileExists(atPath: noPreview.path))
     guard FileManager.default.fileExists(atPath: physical.path) else {

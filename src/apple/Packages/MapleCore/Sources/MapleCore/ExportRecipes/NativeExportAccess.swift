@@ -31,12 +31,14 @@ final class NativeExportAccess: @unchecked Sendable {
             throw NativeExportError.message(
               "The saved source grant is invalid. Choose the original folder again.")
           }
-          url = relative.isEmpty ? scope : scope.appendingPathComponent(relative)
+          // `relative` is a validated multi-component path (no leading `/`, no `..`);
+          // `appending(path:)` preserves its slashes, `appendingPathComponent` must not take them.
+          url = relative.isEmpty ? scope : scope.appending(path: relative)
         } else if let owned = source.ownedDirectory, let workspace {
-          let parent = workspace.appendingPathComponent(
-            "Jobs/\(owned.uuidString)/Sources", isDirectory: true
-          )
-          .resolvingSymlinksInPath().standardizedFileURL
+          let parent = workspace.appendingPathComponent("Jobs", isDirectory: true)
+            .appendingPathComponent(owned.uuidString, isDirectory: true)
+            .appendingPathComponent("Sources", isDirectory: true)
+            .resolvingSymlinksInPath().standardizedFileURL
           guard
             source.url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
               == parent,
