@@ -16,6 +16,61 @@ use super::tests::{neutral_case, run_live_chain, TEST_SESSION_ID};
 use super::*;
 use crate::dehaze::AirlightSource;
 
+#[test]
+fn absent_auto_curve_omits_pass_and_matches_cpu_residual_only() {
+    use crate::full_chain::oracle::{frame_whites_anchor, nonidentity_lut};
+    use raw_core::image::{ColorSpace, Image};
+    let input = vec![
+        100.0, 100.0, 100.0, 1.0, 0.18, 0.18, 0.18, 1.0, 1.0, 0.1, 0.3, 1.0, 0.0, 0.0, 0.0, 1.0,
+    ];
+    for residual in [
+        raw_core::view::auto_profile::lut::ColorLut::identity(9),
+        nonidentity_lut(9),
+    ] {
+        let mut case = neutral_case();
+        case.lut = residual;
+        let present = case.gpu_inputs_for(&input);
+        let present_signature = chain_signature(&present, (4, 1), TEST_SESSION_ID);
+        let present_count = build_live_chain(&present, AirlightSource::Cpu([0.; 3])).len();
+        let full_count = crate::full_chain::build_full_chain_passes(&present, [0.; 3]).len();
+        let mut absent = case.gpu_inputs_for(&input);
+        absent.profile_curve_flat = Vec::new().into();
+        assert_eq!(
+            build_live_chain(&absent, AirlightSource::Cpu([0.; 3])).len(),
+            present_count - 1
+        );
+        assert_eq!(
+            crate::full_chain::build_full_chain_passes(&absent, [0.; 3]).len(),
+            full_count - 1
+        );
+        assert_ne!(
+            chain_signature(&absent, (4, 1), TEST_SESSION_ID),
+            present_signature
+        );
+
+        let mut image = Image::new(4, 1, ColorSpace::SceneLinearRec2020);
+        image.whites_anchor_ev = Some(frame_whites_anchor(&input));
+        for (pixel, rgba) in image.pixels.iter_mut().zip(input.chunks_exact(4)) {
+            pixel.copy_from_slice(&rgba[..3]);
+        }
+        raw_core::view::agx::apply(&mut image, 0., 0.);
+        raw_core::view::encode::rec2020_to_srgb(&mut image);
+        raw_core::view::encode::srgb_gamma_encode(&mut image);
+        let mut expected: Vec<f32> = image.pixels.into_iter().flatten().collect();
+        case.lut.apply(&mut expected);
+        let gpu = run_live_chain(&input, 4, 1, &absent);
+        assert_eq!(gpu.len(), input.len());
+        assert!(gpu.iter().chain(&expected).all(|value| value.is_finite()));
+        let maximum = expected
+            .chunks_exact(3)
+            .zip(gpu.chunks_exact(4))
+            .flat_map(|(cpu, gpu)| cpu.iter().zip(&gpu[..3]))
+            .map(|(cpu, gpu)| (cpu - gpu).abs())
+            .fold(0_f32, f32::max);
+        assert!(maximum < 1e-4, "absent-curve live parity delta {maximum}");
+    }
+}
+
 /// #1513/#1516 PIXEL PROOF (real GPU): a WHITE scene-linear pixel is AgX-crushed
 /// to ~0.76 gamma for a RAW shape but passes ~unchanged (1.0 = 255) for a NON-RAW
 /// shape (look stages skipped) — proving the gate's pixel effect, not just the list.

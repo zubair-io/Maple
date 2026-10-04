@@ -407,9 +407,11 @@ pub fn build_live_split<'a>(
     // encode is the whole tail; RAW keeps them (its fitted per-image tone curve).
     // #1516 (completes the #1513 non-RAW view-tail skip — AgX above + look here).
     if is_raw_shape {
-        suffix.push(Box::new(AutoProfileCurvePass {
-            flat_curve: inputs.profile_curve_flat.as_ref().into(),
-        }));
+        if !inputs.profile_curve_flat.is_empty() {
+            suffix.push(Box::new(AutoProfileCurvePass {
+                flat_curve: inputs.profile_curve_flat.as_ref().into(),
+            }));
+        }
         suffix.push(Box::new(ResidualLutPass {
             size: inputs.residual_lut_size,
             data: inputs.residual_lut_data.as_ref().into(),
@@ -449,6 +451,9 @@ pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 fn active_mask(inputs: &FullChainInputs) -> u32 {
     let mut m = 0u32;
     let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
+    if is_raw_shape && !inputs.profile_curve_flat.is_empty() {
+        m |= 1 << 20;
+    }
     // Encode input_shape in the top 2 bits of the mask so a shape change lands
     // in a fresh pool bucket (different passes = different bind-group layouts).
     // The 2-bit mask `& 0b11` is defensive: variant values 0/1/2 are safe, but

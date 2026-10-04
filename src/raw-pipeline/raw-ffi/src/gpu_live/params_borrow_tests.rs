@@ -2,6 +2,19 @@ use super::*;
 use raw_core::view::auto_profile::{lut::ColorLut, ProfileCurve};
 
 #[test]
+fn absent_live_curve_is_not_replaced_with_a_highlight_knee() {
+    let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
+    params.temperature = 6500.0;
+    let residual = ColorLut::identity(5);
+    params.residual_lut_ptr = residual.data.as_ptr();
+    params.residual_lut_len = residual.data.len();
+    params.residual_lut_size = residual.size as u32;
+    let inputs = unsafe { inputs_from_params(&params) };
+    assert!(inputs.profile_curve_flat.is_empty());
+    assert_eq!(inputs.residual_lut_data.as_ptr(), residual.data.as_ptr());
+}
+
+#[test]
 fn live_frames_borrow_large_host_artifacts_without_copying() {
     let curve = ProfileCurve::identity().to_flat();
     let residual = ColorLut::identity(49);
@@ -32,9 +45,9 @@ fn live_frames_borrow_large_host_artifacts_without_copying() {
 }
 
 #[test]
-fn absent_or_malformed_artifacts_share_valid_identity_storage() {
+fn absent_or_malformed_artifacts_share_valid_fallback_storage() {
     let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
-    let first_curve = unsafe { curve_flat_or_identity(&params) }.as_ptr();
+    let first_curve = unsafe { curve_flat_or_absent(&params) }.as_ptr();
     let first_lut = unsafe { residual_or_identity(&params) }.1.as_ptr();
     // A partial/stale caller can supply an edge without its array. Size must
     // fall back alongside the array, rather than presenting a mismatched grid.
@@ -43,7 +56,8 @@ fn absent_or_malformed_artifacts_share_valid_identity_storage() {
     assert_eq!(size, 2);
     assert_eq!(second_lut.len(), 2 * 2 * 2 * 3);
     assert_eq!(first_lut, second_lut.as_ptr());
-    let second_curve = unsafe { curve_flat_or_identity(&params) };
+    let second_curve = unsafe { curve_flat_or_absent(&params) };
+    assert!(second_curve.is_empty());
     assert_eq!(first_curve, second_curve.as_ptr());
     assert!(matches!(second_curve, Cow::Borrowed(_)));
     assert!(matches!(second_lut, Cow::Borrowed(_)));

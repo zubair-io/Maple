@@ -303,9 +303,7 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
     n: u32,
     out: *mut f32,
 ) -> i32 {
-    use raw_core::view::auto_profile::{
-        bake_auto_profile_lut, bake_profile_lut, ProfileCurve, MAX_LUT_SIZE,
-    };
+    use raw_core::view::auto_profile::{bake_auto_profile_lut, bake_profile_lut, MAX_LUT_SIZE};
     if raw_path.is_null() || out.is_null() {
         return -1;
     }
@@ -429,13 +427,15 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
             // Not Auto, or no embedded JPEG (both stages None) — host AgX.
             None => return 1,
         };
-        // Compose curve ∘ residual into one cube. A missing curve degrades to
-        // identity (residual-only, the AE-off brightness anchor); a missing
-        // residual bakes the curve only — BYTE-identical to the #812 cube.
-        let curve = curve_opt.unwrap_or_else(ProfileCurve::identity);
-        let lut = match residual_opt {
-            Some(residual) => bake_auto_profile_lut(&curve, &residual, n),
-            None => bake_profile_lut(&curve, n),
+        let lut = match (curve_opt, residual_opt) {
+            (Some(curve), Some(residual)) => bake_auto_profile_lut(&curve, &residual, n),
+            (Some(curve), None) => bake_profile_lut(&curve, n),
+            (None, Some(residual)) => {
+                let mut cube = raw_core::view::auto_profile::lut::ColorLut::identity(n).data;
+                residual.apply(&mut cube);
+                cube
+            }
+            (None, None) => return 1,
         };
         // `bake_*` always return exactly `n³ * 3` for an accepted `n`; guard the
         // unsafe copy anyway so a future layout change can't OOB. Distinct `9`
