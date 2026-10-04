@@ -1,3 +1,4 @@
+import './cold-profile-ui';
 import { geometryGestureWorkflow } from './geometry-gesture-workflow';
 import { lensGestureWorkflow } from './lens-gesture-workflow';
 import { comparisonWorkflow } from './comparison';
