@@ -8,6 +8,7 @@ import { XmpStoreService } from '../xmp/xmp-store.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { FilmLutService } from '../film/film-lut.service';
 import {
+  DEFAULT_EXPORT_RECIPE,
   exportRecipeProblem,
   exportCaptureTime,
   type ExportRecipe,
@@ -73,7 +74,7 @@ export class ExportRecipeRenderService {
       extensionOf(target.filename),
       {
         format: recipe.format as ExportFormat,
-        quality: recipe.quality ?? 100,
+        quality: recipe.quality ?? DEFAULT_EXPORT_RECIPE.quality!,
         colorSpace: recipe.outputProfile as ExportColorSpace,
         maxSidePixels: recipe.maxLongEdge ?? undefined,
       },

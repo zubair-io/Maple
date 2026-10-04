@@ -67,6 +67,8 @@ web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas"]
 
 [features]
 default = []
+# The browser export recipe uses the same existing AVIF encoder as native.
+avif = ["raw-core/avif-encode"]
 # Enable the parallel (rayon + wasm-bindgen-rayon) thread-pool entry points.
 # The WASM build turns this on via `wasm-pack build -- --features parallel`.
 parallel = ["dep:wasm-bindgen-rayon", "dep:rayon"]

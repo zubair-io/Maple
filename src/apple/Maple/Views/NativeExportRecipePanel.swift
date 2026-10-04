@@ -107,9 +107,34 @@
         }
         .accessibilityIdentifier("native-recipe-format")
         TextField("Bit depth", text: Binding(get: { vm.bitDepthText }, set: vm.setBitDepth))
-        TextField(
-          "Quality (1–100; empty for lossless)",
-          text: Binding(get: { vm.qualityText }, set: vm.setQuality))
+        if vm.qualitySupported {
+          TextField(
+            vm.automaticQualitySupported
+              ? "Quality (1–100; empty for automatic)" : "Quality (1–100; required)",
+            text: Binding(get: { vm.qualityText }, set: vm.setQuality)
+          )
+          .accessibilityIdentifier("native-recipe-quality")
+          if vm.automaticQualitySupported {
+            Text("Automatic uses the shared recipe default (\(ExportRecipe.defaults.quality!)).")
+              .foregroundStyle(.secondary)
+          }
+        } else if !vm.qualityText.isEmpty {
+          TextField(
+            "Imported quality (unsupported)",
+            text: Binding(get: { vm.qualityText }, set: vm.setQuality)
+          )
+          .accessibilityIdentifier("native-recipe-quality")
+          if vm.automaticQualitySupported {
+            Text(
+              "This lossless encoder cannot apply numeric quality. The imported value is preserved."
+            )
+            .foregroundStyle(.secondary)
+            Button("Use lossless quality") { vm.setQuality("") }
+              .accessibilityIdentifier("native-recipe-quality-lossless")
+          }
+        } else if vm.automaticQualitySupported {
+          Text("Lossless encoding; no numeric quality value.").foregroundStyle(.secondary)
+        }
         TextField(
           "Maximum long edge (pixels; empty for full size)",
           text: Binding(get: { vm.longEdgeText }, set: vm.setLongEdge))

@@ -9,14 +9,13 @@
 //! in flight): the convention is repo-wide, not conditional on landing
 //! order.
 //!
-//! `output_from_wire` is the one place that needs the `avif` feature: the
+//! `output_from_wire` needs the `avif-encode` feature: the
 //! wire schema below (plain `u8`/`bool`/`String` fields) has no feature
 //! dependency at all, but translating `Output::Avif` into a
 //! `RasterOutput::Avif(AvifOptions)` does, because `AvifOptions` lives in
-//! the feature-gated `raster_encode_avif` module (see `lib.rs` — wasm never
-//! enables `avif`, and `cargo test -p raw-core --lib` / the Windows CI job
-//! both build raw-core WITHOUT it). Requesting AVIF output on a build
-//! without the feature fails with a named error instead of a missing type.
+//! feature-gated `raster_encode_avif` module. The browser enables encoding;
+//! native `avif` adds decoding too. Builds without encoding reject AVIF output
+//! with a named error instead of a missing type.
 
 use serde::Deserialize;
 
@@ -27,7 +26,7 @@ use crate::raster_encode_png::PngOptions;
 use crate::raster_encode_tiff::{TiffCompression, TiffOptions};
 use crate::raster_recipe_exec::bad;
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 use crate::raster_encode_avif::{AvifChroma, AvifOptions};
 
 fn eighty() -> u16 {
@@ -259,11 +258,11 @@ fn predictor_from_wire(s: &str) -> Option<bool> {
     }
 }
 
-/// Split out so the `avif`-feature/no-`avif` split is one pair of small
+/// Split out so the `avif-encode`-feature/no-`avif-encode` split is one pair of small
 /// functions with matching signatures — the same dual-`#[cfg]` shape
 /// `export::encode_avif_rgba_with_speed` already uses — rather than an
 /// inline `#[cfg]` buried in `output_from_wire`'s match arm.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 fn avif_from_wire(
     quality: u8,
     effort: u8,
@@ -283,7 +282,7 @@ fn avif_from_wire(
         })?,
     }))
 }
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-encode"))]
 fn avif_from_wire(
     _quality: u8,
     _effort: u8,
@@ -292,7 +291,7 @@ fn avif_from_wire(
     _bitdepth: u16,
 ) -> Result<RasterOutput> {
     Err(bad(
-        "AVIF output requires raw-core's 'avif' feature".to_string()
+        "AVIF encoding is unavailable in this build. Choose JPEG, PNG or WebP.".to_string(),
     ))
 }
 

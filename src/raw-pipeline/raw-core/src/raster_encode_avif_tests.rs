@@ -62,6 +62,7 @@ fn pixi_bits(bytes: &[u8]) -> Vec<u8> {
     bytes[at + 9..at + 9 + count].to_vec()
 }
 
+#[cfg(feature = "avif")]
 #[test]
 fn encodes_an_avif_that_decodes_back() {
     let src = gradient(32, 24, false);
@@ -71,6 +72,7 @@ fn encodes_an_avif_that_decodes_back() {
     assert_eq!((decoded.width, decoded.height), (32, 24));
 }
 
+#[cfg(feature = "avif")]
 #[test]
 fn alpha_survives_an_avif_round_trip() {
     let src = gradient(32, 24, true);
@@ -272,6 +274,7 @@ fn ycbcr_beats_rgb_on_size_at_every_quality() {
 /// measures for size: `ColorModel::YCbCr` must not cost more than 1 dB
 /// against the source at any of the three qualities this encoder ships,
 /// which is the fidelity price for the size win above.
+#[cfg(feature = "avif")]
 #[test]
 fn ycbcr_psnr_cost_versus_rgb_stays_under_one_db() {
     fn psnr(a: &[u8], b: &[u8]) -> f64 {

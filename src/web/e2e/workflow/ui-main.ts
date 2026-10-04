@@ -1,5 +1,6 @@
 import { lensXmpCleanupBoundary } from './lens-xmp-cleanup';
 import { opfsWriteFailure } from './opfs-write-failure';
+import './recipe-quality-ui';
 import './cold-profile-ui';
 import { geometryGestureWorkflow } from './geometry-gesture-workflow';
 import { lensGestureWorkflow } from './lens-gesture-workflow';

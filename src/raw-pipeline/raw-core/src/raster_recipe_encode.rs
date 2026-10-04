@@ -18,7 +18,7 @@
 //! | PNG       | yes | yes  | yes (`iTXt`) | yes (`pHYs`) | via EXIF |
 //! | WebP      | yes | yes  | no (`image`'s wrapper has no XMP hook) | no | via EXIF |
 //! | TIFF      | yes | no (no EXIF block) | no | no | IFD0 tag 274 |
-//! | AVIF      | no (`ravif` 0.13 writes no ICC box) | yes | no | no | via EXIF |
+//! | AVIF      | yes | yes | no | no | via EXIF |
 //!
 //! A `None` field in [`ResolvedMetadata`] embeds nothing at all — including
 //! `icc`: there is no "leave the container's default profile tagging alone"
@@ -27,8 +27,8 @@
 //! genuinely cannot carry (see the table above) is caught by
 //! [`require_supported`] BEFORE the encoder runs and turned into a named
 //! error rather than silently not embedded (fix-round-1, item 1).
-//! Extending the table itself (WebP/TIFF/AVIF XMP, AVIF ICC via `ravif`
-//! directly, TIFF EXIF via a hand-rolled tag) is real follow-up work,
+//! Extending the table itself (WebP/TIFF/AVIF XMP or TIFF EXIF via a
+//! hand-rolled tag) is real follow-up work,
 //! tracked under #3507.
 
 use crate::error::Result;
@@ -74,10 +74,10 @@ pub(crate) const TIFF_CAPS: Capabilities = Capabilities {
     xmp: false,
     density: false,
 };
-/// Referenced by `capabilities_of` only when the `avif` feature is on — the
+/// Referenced by `capabilities_of` only when the `avif-encode` feature is on — the
 /// `RasterOutput::Avif` variant does not exist otherwise — and by this
 /// module's own tests either way.
-#[cfg_attr(not(feature = "avif"), allow(dead_code))]
+#[cfg_attr(not(feature = "avif-encode"), allow(dead_code))]
 pub(crate) const AVIF_CAPS: Capabilities = Capabilities {
     exif: true,
     icc: true,
@@ -142,10 +142,10 @@ pub(crate) fn require_supported(
 }
 
 /// WebP encode/rejection. Delegates to `raster_encode_avif::encode_webp_opts`
-/// when the `avif` feature is on (that module bundles WebP alongside AVIF);
+/// when the `avif-encode` feature is on (that module bundles WebP alongside AVIF);
 /// otherwise fails by name rather than silently dropping the request, same
 /// as `export::encode_avif_rgba_with_speed`'s feature-gated pair.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 fn encode_webp_lossless(
     raster: &RasterImage,
     lossless: bool,
@@ -153,16 +153,14 @@ fn encode_webp_lossless(
 ) -> Result<Vec<u8>> {
     crate::raster_encode_avif::encode_webp_opts(raster, lossless, meta)
 }
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-encode"))]
 fn encode_webp_lossless(
     _raster: &RasterImage,
     _lossless: bool,
     _meta: &EmbeddedMetadata<'_>,
 ) -> Result<Vec<u8>> {
     Err(crate::error::Error::UnsupportedFormat(
-        "WebP output requires raw-core's 'avif' feature (WebP and AVIF share \
-         an encoder module)"
-            .into(),
+        "WebP encoding is unavailable in this build. Choose JPEG, PNG or TIFF.".into(),
     ))
 }
 
@@ -174,7 +172,7 @@ fn capabilities_of(output: &RasterOutput) -> (&'static str, &'static Capabilitie
         RasterOutput::Jpeg(_) => ("JPEG", &JPEG_CAPS),
         RasterOutput::Png(_) => ("PNG", &PNG_CAPS),
         RasterOutput::Webp { .. } => ("WebP", &WEBP_CAPS),
-        #[cfg(feature = "avif")]
+        #[cfg(feature = "avif-encode")]
         RasterOutput::Avif(_) => ("AVIF", &AVIF_CAPS),
         RasterOutput::Tiff(_) => ("TIFF", &TIFF_CAPS),
         // Checked by the caller before this is ever reached.
@@ -220,7 +218,7 @@ pub fn encode_raster_output(
         ),
         RasterOutput::Png(o) => crate::raster_encode_png::encode_png_opts(raster, o, meta),
         RasterOutput::Webp { lossless } => encode_webp_lossless(raster, *lossless, meta),
-        #[cfg(feature = "avif")]
+        #[cfg(feature = "avif-encode")]
         RasterOutput::Avif(o) => crate::raster_encode_avif::encode_avif_opts(raster, o, meta),
         // NOT flattened: `encode_tiff_opts` writes a 4-channel raster as RGB
         // plus one unassociated alpha sample (`ExtraSamples` = 2), which is

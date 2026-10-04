@@ -266,19 +266,19 @@ fn encode_tiff16(width: u32, height: u32, rgb: &[u16], profile: Vec<u8>) -> Resu
     Ok(out)
 }
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 pub fn encode_avif(width: u32, height: u32, rgb: &[u8], quality: u8) -> Result<Vec<u8>> {
     crate::avif::encode(width, height, rgb, quality)
 }
 
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-encode"))]
 pub fn encode_avif(_width: u32, _height: u32, _rgb: &[u8], _quality: u8) -> Result<Vec<u8>> {
     Err(Error::UnsupportedFormat(
-        "AVIF export requires the 'avif' feature".into(),
+        "AVIF encoding is unavailable in this build. Choose JPEG, PNG or WebP.".into(),
     ))
 }
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 pub fn encode_avif_with_speed(
     width: u32,
     height: u32,
@@ -289,7 +289,7 @@ pub fn encode_avif_with_speed(
     crate::avif::encode_with_speed(width, height, rgb, quality, speed)
 }
 
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-encode"))]
 pub fn encode_avif_with_speed(
     _width: u32,
     _height: u32,
@@ -298,12 +298,12 @@ pub fn encode_avif_with_speed(
     _speed: u8,
 ) -> Result<Vec<u8>> {
     Err(Error::UnsupportedFormat(
-        "AVIF export requires the 'avif' feature".into(),
+        "AVIF encoding is unavailable in this build. Choose JPEG, PNG or WebP.".into(),
     ))
 }
 
 /// RGB/RGBA AVIF with colour metadata matching the already-converted samples.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 pub fn encode_avif_tagged(
     width: u32,
     height: u32,
@@ -316,7 +316,7 @@ pub fn encode_avif_tagged(
     crate::avif::encode_tagged(width, height, pixels, channels, quality, speed, primaries)
 }
 
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-encode"))]
 pub fn encode_avif_tagged(
     _width: u32,
     _height: u32,
@@ -327,7 +327,7 @@ pub fn encode_avif_tagged(
     _primaries: TargetPrimaries,
 ) -> Result<Vec<u8>> {
     Err(Error::UnsupportedFormat(
-        "AVIF export requires the 'avif' feature".into(),
+        "AVIF encoding is unavailable in this build. Choose JPEG, PNG or WebP.".into(),
     ))
 }
 
@@ -412,7 +412,7 @@ pub fn encode_raster_rgb(
 
 /// RGBA AVIF. `image`'s `AvifEncoder` accepts `ExtendedColorType::Rgba8` and
 /// routes it to `ravif::Encoder::encode_rgba`, which writes a real alpha item.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 pub fn encode_avif_rgba_with_speed(
     width: u32,
     height: u32,
@@ -434,7 +434,7 @@ pub fn encode_avif_rgba_with_speed(
     Ok(out)
 }
 
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-encode"))]
 pub fn encode_avif_rgba_with_speed(
     _width: u32,
     _height: u32,
@@ -443,7 +443,7 @@ pub fn encode_avif_rgba_with_speed(
     _speed: u8,
 ) -> Result<Vec<u8>> {
     Err(Error::UnsupportedFormat(
-        "AVIF export requires the 'avif' feature".into(),
+        "AVIF encoding is unavailable in this build. Choose JPEG, PNG or WebP.".into(),
     ))
 }
 
