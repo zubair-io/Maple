@@ -47,6 +47,7 @@ pub(super) fn encode(
     protected_path: &Path,
     output: &Path,
     reference_path: Option<&Path>,
+    photographic_contrast: bool,
 ) -> ProbeResult<()> {
     if output.exists() {
         return Err("choose a fresh large RAW research output".into());
@@ -119,7 +120,7 @@ pub(super) fn encode(
     if mismatches != 0 {
         return Err("joined native tiles differ from whole-frame calibration oracle".into());
     }
-    let encoding = encoding::ProbeEncoding::fit(&pixels, false, false)?;
+    let encoding = encoding::ProbeEncoding::fit(&pixels, false, photographic_contrast)?;
     let model = encoding.encode(&pixels)?;
     let scene = pack(pixels.iter().flatten().copied());
     let input = pack((0..3).flat_map(|c| model.iter().map(move |p| p[c])));
@@ -136,10 +137,14 @@ pub(super) fn encode(
         release_qualified: false,
     };
     if let Some(reference) = &reference {
+        // Verify the earlier recipe against these exact native RAW pixels before
+        // allowing an explicitly requested encoding comparison. A matching scene
+        // hash alone must not hide changed recipe metadata or model input bytes.
+        let reference_model = reference.encoding.encode(&pixels)?;
+        let reference_input = pack((0..3).flat_map(|c| reference_model.iter().map(move |p| p[c])));
         if reference.scene != context.scene
-            || reference.model_input != context.model_input
-            || serde_json::to_value(&reference.encoding)?
-                != serde_json::to_value(&context.encoding)?
+            || reference.model_input != ContentDigest::for_bytes(&reference_input)
+            || (!photographic_contrast && reference.model_input != context.model_input)
         {
             return Err("reference context pixels or model input recipe changed".into());
         }
@@ -168,6 +173,7 @@ pub(super) fn encode(
         serde_json::to_vec_pretty(&serde_json::json!({
             "release_qualified": false, "window": window, "joined_tile_mismatch_channels": mismatches,
             "reference_context": reference_path,
+            "encoding_comparison": photographic_contrast,
             "model_input_native_size": [SIDE,SIDE], "whole_frame_oracle": true, "resampled": false,
             "hole_pixels": planes[..(SIDE*SIDE) as usize].iter().filter(|v| **v == 1.0).count(),
             "mask_strategy": "Union of unchanged shared native mask preparation; one joint model inference, no independently reconstructed pieces"
