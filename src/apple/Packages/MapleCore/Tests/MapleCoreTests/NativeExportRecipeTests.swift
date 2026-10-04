@@ -132,6 +132,31 @@ final class NativeExportRecipeTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: original), before)
   }
 
+  func testReviewedProfilesResolveInStagedPackageLayout() throws {
+    let profiles = try NativeExportIccFixtures.root()
+    let stage = try SidecarContractIO.makeTempDirectory(prefix: "export-icc-stage")
+    defer { try? FileManager.default.removeItem(at: stage) }
+    let fixtures = stage.appendingPathComponent("test-fixtures")
+    try FileManager.default.createDirectory(at: fixtures, withIntermediateDirectories: true)
+    try FileManager.default.copyItem(
+      at: profiles, to: fixtures.appendingPathComponent("export-recipes"))
+    let source = stage.appendingPathComponent(
+      "Packages/MapleCore/Tests/MapleCoreTests/NativeExportRecipeTests.swift")
+    let staged = try NativeExportIccFixtures.root(from: source)
+    for name in NativeExportIccFixtures.names {
+      XCTAssertEqual(
+        try Data(contentsOf: staged.appendingPathComponent(name)),
+        try Data(contentsOf: profiles.appendingPathComponent(name)))
+    }
+  }
+
+  func testMissingReviewedProfilesFailsInsteadOfSkipping() throws {
+    let stage = try SidecarContractIO.makeTempDirectory(prefix: "export-icc-missing")
+    defer { try? FileManager.default.removeItem(at: stage) }
+    let source = stage.appendingPathComponent("Packages/MapleCore/Tests/RecipeTests.swift")
+    XCTAssertThrowsError(try NativeExportIccFixtures.root(from: source))
+  }
+
   func testEverySharedNativeEncoderAndProfilePreservesOriginalAndStripsMetadata() async throws {
     let fixture = try NativeWorkflowControlFixture.files()
     defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -165,12 +190,10 @@ final class NativeExportRecipeTests: XCTestCase {
         let decoded = try XCTUnwrap(CGImageSourceCreateImageAtIndex(image, 0, nil))
         XCTAssertEqual(decoded.bitsPerComponent, Int(encoder.bitDepth))
         let space = try XCTUnwrap(decoded.colorSpace)
-        var repository = URL(fileURLWithPath: #filePath)
-        for _ in 0..<7 { repository.deleteLastPathComponent() }
+        let profiles = try NativeExportIccFixtures.root()
         let goldenName = profile == "display-p3" ? "maple-display-p3-v2.icc" : "maple-srgb-v2.icc"
         let golden = try Data(
-          contentsOf: repository.appendingPathComponent(
-            "test-fixtures/export-recipes/\(goldenName)"))
+          contentsOf: profiles.appendingPathComponent(goldenName))
         if encoder.format == "png" {
           // ImageIO expands the compressed PNG iCCP chunk; other carriers store the reviewed bytes verbatim.
           XCTAssertEqual(try XCTUnwrap(space.copyICCData()) as Data, golden)
@@ -235,5 +258,33 @@ enum NativeExportQueueFixture {
       version: record.version, id: record.id, recipe: recipe,
       destinationBookmark: record.destinationBookmark, originals: record.originals,
       filmDirectory: record.filmDirectory, filmHashes: record.filmHashes, items: record.items)
+  }
+}
+
+/// Committed ICC references are required in both repository and CI-staged package layouts.
+private enum NativeExportIccFixtures {
+  static let names = ["maple-srgb-v2.icc", "maple-display-p3-v2.icc"]
+
+  static func root(from file: URL = URL(fileURLWithPath: #filePath)) throws -> URL {
+    let parents = sequence(first: file.standardizedFileURL.deletingLastPathComponent()) {
+      directory -> URL? in
+      let parent = directory.deletingLastPathComponent().standardizedFileURL
+      return parent.path == directory.path ? nil : parent
+    }
+    guard
+      let root = parents.lazy.map({ $0.appendingPathComponent("test-fixtures/export-recipes") })
+        .first(where: { directory in
+          names.allSatisfy {
+            FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
+          }
+        })
+    else {
+      throw NSError(
+        domain: "NativeExportIccFixtures", code: 1,
+        userInfo: [
+          NSLocalizedDescriptionKey: "Missing committed export ICC profiles above \(file.path)"
+        ])
+    }
+    return root
   }
 }
