@@ -285,6 +285,11 @@ before publishing XMP; a valid restored checksum cannot stand in for durability.
 Clearing an empty target does not create or require companion directories.
 A file or directory sync failure prevents confirmation;
 actual local syscall ordering does not prove physical power-loss or NAS durability.
+An already-published workflow restore with the identical command UUID is retried
+without adding another history entry. When it carries removal records, the local
+writer verifies and syncs its companions, then rereads and syncs the exact existing
+XMP inode and photo folder before acknowledging it. Restored matching XML alone
+does not establish durability; missing companions or different XML refuse confirmation.
 The shared core and Apple resolve owned removal attributes and direct scalar
 property elements on RDF descriptions by namespace URI, including renamed
 prefixes and the legacy Maple URI. Duplicate owned fields and nested XML

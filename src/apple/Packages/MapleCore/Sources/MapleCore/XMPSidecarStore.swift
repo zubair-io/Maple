@@ -260,6 +260,8 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       if output != existing {
         try self.publishSidecarXML(
           output, at: destination, durable: priorRemovals != nextRemovals)
+      } else if priorRemovals != "[]" || nextRemovals != "[]" {
+        try XMPSidecarFilePublication.confirmExisting(output, at: destination)
       }
       self.cached = restored
       return output
