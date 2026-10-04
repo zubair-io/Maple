@@ -174,6 +174,14 @@ namespace Maple.WinUI.Native
             uint* lutSize);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_gpu_fit_auto_profile_at_render_size(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
+            int qualityPreview, uint maxLongEdge,
+            float* curveOut, int* curvePresent,
+            float* lutOut, nuint lutCapacityFloats, uint* lutSize);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern int maple_compose_auto_profile_lut(
             float* curve, nuint curveLength,
             float* residual, nuint residualLength, uint residualSize,

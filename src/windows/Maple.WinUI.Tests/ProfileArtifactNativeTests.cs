@@ -9,6 +9,42 @@ namespace Maple.WinUI.Tests;
 
 public class ProfileArtifactNativeTests
 {
+    [ProfileArtifactFact]
+    public unsafe void ProductionFitUsesSizedRenderBoundaryAndRejectsOtherCalibrationContexts()
+    {
+        RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var source = Environment.GetEnvironmentVariable("MAPLE_PROFILE_TEST_RAW")!;
+        var original = SHA256.HashData(File.ReadAllBytes(source));
+        var model = new AdjustmentState();
+        var decoded = RenderEngine.Decode(source, model, 1600, RefineDecodeQuality.Preview, IntPtr.Zero);
+        Assert.Equal(new ProfileFitContext(1600, RefineDecodeQuality.Preview), decoded.ProfileFit);
+        var curve = new float[220];
+        var residual = new float[33 * 33 * 33 * 3];
+        int present;
+        uint size;
+        fixed (float* curvePtr = curve)
+        fixed (float* residualPtr = residual)
+            Assert.Equal(0, RawFfi.maple_gpu_fit_auto_profile_at_render_size(
+                source, null, RefineDecodeQuality.Preview, 1600,
+                curvePtr, &present, residualPtr, (nuint)residual.Length, &size));
+        Assert.Equal(present == 0 ? null : curve, decoded.ProfileCurve);
+        Assert.Equal(size, decoded.ResidualLutSize);
+        Assert.Equal(size == 0 ? null : residual.AsSpan(0, checked((int)(size * size * size * 3))).ToArray(), decoded.ResidualLut);
+        var retained = decoded.DisplayLut;
+        Assert.NotNull(retained);
+        var upgrade = RenderEngine.Decode(source, model, 1600, RefineDecodeQuality.Amaze, IntPtr.Zero, decoded);
+        Assert.Same(retained, upgrade.DisplayLut);
+        Assert.Equal(decoded.ProfileFit, upgrade.ProfileFit);
+        var smaller = RenderEngine.Decode(source, model, 800, RefineDecodeQuality.Preview, IntPtr.Zero, decoded);
+        Assert.NotSame(retained, smaller.DisplayLut);
+        Assert.Equal(new ProfileFitContext(800, RefineDecodeQuality.Preview), smaller.ProfileFit);
+        decoded.ProfileFit = new(1600, RefineDecodeQuality.Amaze);
+        Assert.NotSame(retained, RenderEngine.Decode(source, model, 1600, RefineDecodeQuality.Preview, IntPtr.Zero, decoded).DisplayLut);
+        decoded.ProfileFit = null;
+        Assert.NotSame(retained, RenderEngine.Decode(source, model, 1600, RefineDecodeQuality.Preview, IntPtr.Zero, decoded).DisplayLut);
+        Assert.Equal(original, SHA256.HashData(File.ReadAllBytes(source)));
+    }
+
     [NativeComposeFact]
     public unsafe void ResidualOnlyCompositionPreservesWhiteAcrossNativeBinding()
     {
@@ -142,6 +178,7 @@ public class ProfileArtifactNativeTests
             Assert.Same(fitted.DisplayLut, reused.DisplayLut);
             var half = RenderEngine.DownsampleHalf(fitted);
             Assert.Equal(fitted.ProfileSource, half.ProfileSource);
+            Assert.Equal(fitted.ProfileFit, half.ProfileFit);
             Assert.Same(fitted.DisplayLut, Decode(raw, half).DisplayLut);
             Assert.NotSame(fitted.DisplayLut, Decode(other, fitted).DisplayLut);
             File.SetLastWriteTimeUtc(raw, File.GetLastWriteTimeUtc(raw).AddSeconds(5));
@@ -207,6 +244,7 @@ public class ProfileArtifactNativeTests
         await using var detail = new NativeDetailDecoder();
         var patch = await detail.DecodeAsync(source, model, decoded, new(0, 0, 16, 16), default);
         Assert.Equal(decoded.ProfileSource, patch.Image.ProfileSource);
+        Assert.Equal(decoded.ProfileFit, patch.Image.ProfileFit);
         Assert.Null(patch.Image.DisplayLut);
     }
 
