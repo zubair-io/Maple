@@ -3,8 +3,8 @@
 // `WebLiveSession`) instead of the WASM-CPU `render_bytes` path.
 //
 // Default `true` (#1059): the shipped WASM bundle now co-builds the `gpu` AND
-// `parallel` features into ONE threaded-GPU bundle (`wasm-pack build --target web
-// --features gpu,parallel`), so the GPU entry points are present. The worker still
+// `parallel` and `avif` features into ONE threaded-GPU/export bundle (`wasm-pack build --target web
+// --features gpu,parallel,avif`), so the GPU entry points are present. The worker still
 // makes the path SAFE at runtime — it only calls the GPU entry when this is `true`
 // AND the runtime advertises WebGPU (`'gpu' in navigator`) AND the bundle exports
 // it; on a no-WebGPU browser, or if the WebGPU adapter is broken (`requestAdapter()`

@@ -6,6 +6,7 @@
     "playwright.partial-white-balance.config.ts",
     "playwright.workflow.config.ts",
     "playwright.export-original-retry.config.ts",
+    "playwright.recipe-quality.config.ts",
     "e2e/workflow/main.ts",
     "e2e/workflow/ui-main.ts"
   ],

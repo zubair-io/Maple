@@ -121,7 +121,7 @@ fn png_keeps_the_alpha_channel() {
 /// PR-F's WebP arm embedded nothing at all — it was the one container that
 /// silently dropped a profile the caller asked for. `image`'s `WebPEncoder`
 /// has both setters, so it now behaves like JPEG/PNG/TIFF (#3507).
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn webp_embeds_icc_and_exif_but_stays_untagged_without_them() {
     let icc = p3();
@@ -156,7 +156,7 @@ fn tiff_embeds_the_icc_profile() {
     assert_eq!(read_sidecars(&bytes).icc.as_deref(), Some(icc.as_slice()));
 }
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn avif_embeds_exif() {
     let bytes = encode_raster_output(
@@ -169,7 +169,7 @@ fn avif_embeds_exif() {
 }
 
 /// `RasterOutput::Webp { lossless: false }` must fail regardless of
-/// whether the `avif` feature is on: the feature-on path rejects lossy
+/// whether the `avif-encode` feature is on: the feature-on path rejects lossy
 /// WebP by name (Maple's encoder is lossless-only), and the feature-off
 /// path rejects the whole output by name (no encoder module at all).
 #[test]
@@ -182,7 +182,7 @@ fn webp_lossy_is_refused_through_the_output_enum() {
     .is_err());
 }
 
-/// #3506 F6: with the `avif` feature off, `lossless: true` — the one
+/// #3506 F6: with the `avif-encode` feature off, `lossless: true` — the one
 /// value that DOES succeed once the feature is on — must still fail by
 /// name: there is no WebP encoder at all without the feature (it shares
 /// `raster_encode_avif`'s module with AVIF, see `encode_webp_lossless`),
@@ -191,7 +191,7 @@ fn webp_lossy_is_refused_through_the_output_enum() {
 /// `webp_lossy_is_refused_through_the_output_enum` above exercises with
 /// `lossless: false` (which fails either way, for two different reasons
 /// depending on the feature).
-#[cfg(not(feature = "avif"))]
+#[cfg(not(feature = "avif-encode"))]
 #[test]
 fn webp_lossless_output_without_the_avif_feature_is_a_named_error() {
     let err = encode_raster_output(
@@ -201,8 +201,8 @@ fn webp_lossless_output_without_the_avif_feature_is_a_named_error() {
     )
     .unwrap_err();
     assert!(
-        format!("{err}").contains("avif"),
-        "expected the error to name the missing 'avif' feature, got: {err}"
+        format!("{err}").contains("WebP encoding is unavailable"),
+        "expected the error to name unavailable WebP encoding, got: {err}"
     );
 }
 

@@ -158,11 +158,11 @@ fn metadata_survives_an_op_and_a_format_change() {
 
 // ---- fix-round-1, item 1: unsupported-but-requested metadata errors ----
 
-/// `avif`-gated: Maple's WebP encoder lives in the `raster_encode_avif`
+/// `avif-encode`-gated: Maple's WebP encoder lives in the `raster_encode_avif`
 /// module, so a WebP output is a named error without the feature (#3506 F6)
 /// — the capability question this test is about only arises once there IS
 /// an encoder to reach.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn keep_with_no_xmp_in_the_input_is_fine_for_webp() {
     // "For keep: true, only fields that are actually PRESENT in the
@@ -352,7 +352,7 @@ fn an_explicit_orientation_still_wins_after_auto_orient_end_to_end() {
 
 // ---- fix-round-2: keep's default-fill ICC is not a "request" on AVIF ----
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn keep_with_no_input_icc_fills_the_avif_profile() {
     // The default fill is writable and preserved on AVIF (#3580).
@@ -372,10 +372,10 @@ fn keep_with_no_input_icc_fills_the_avif_profile() {
     );
 }
 
-/// `avif`-gated: without the feature `output_from_wire` rejects an AVIF
+/// `avif-encode`-gated: without the feature `output_from_wire` rejects an AVIF
 /// output before the capability gate ever runs (#3506 F5), so the error
 /// names the missing feature rather than the ICC box.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn keep_with_a_real_input_icc_to_avif_preserves_it() {
     // A kept source profile is now writable on AVIF (#3580).
@@ -391,10 +391,10 @@ fn keep_with_a_real_input_icc_to_avif_preserves_it() {
     assert_eq!(crate::raster_meta::read_sidecars(&out.bytes).icc, Some(icc));
 }
 
-/// `avif`-gated: without the feature `output_from_wire` rejects an AVIF
+/// `avif-encode`-gated: without the feature `output_from_wire` rejects an AVIF
 /// output before the capability gate ever runs (#3506 F5), so the error
 /// names the missing feature rather than the ICC box.
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn an_explicit_icc_to_avif_is_preserved() {
     let icc = p3_icc();

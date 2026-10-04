@@ -325,7 +325,7 @@ fn a_default_recipe_leaves_its_jpeg_output_untagged() {
     );
 }
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 #[test]
 fn a_p3_recipe_writes_its_actual_avif_profile() {
     let recipe = parse_recipe(r#"{"v":1,"input":{"kind":"raw","width":2,"height":2,"channels":3},"ops":[{"op":"toColourspace","space":"display-p3"}],"output":{"format":"avif"}}"#).unwrap();

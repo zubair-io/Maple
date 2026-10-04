@@ -145,7 +145,7 @@ fn output_supports_alpha(output: &RasterOutput) -> bool {
         // D2 grouped it with JPEG as alpha-free, which was wrong — measured,
         // `sharp(rgba).tiff()` reports 4 channels with `hasAlpha: true`.
         RasterOutput::Png(_) | RasterOutput::Webp { .. } | RasterOutput::Tiff(_) => true,
-        #[cfg(feature = "avif")]
+        #[cfg(feature = "avif-encode")]
         RasterOutput::Avif(_) => true,
         RasterOutput::Jpeg(_) | RasterOutput::Raw => false,
     }

@@ -63,6 +63,29 @@ export class RecipeExportDialogComponent {
     value: encoder.format,
     label: `${encoder.format.toUpperCase()} ${encoder.bitDepth}-bit`,
   }));
+  readonly defaultQuality = DEFAULT_EXPORT_RECIPE.quality!;
+  readonly qualitySupported = computed(() => this.supportsQuality(1));
+  readonly automaticQualitySupported = computed(() => this.supportsQuality(null));
+  readonly qualityModes = [
+    { value: 'automatic', label: 'Automatic' },
+    { value: 'explicit', label: 'Custom quality' },
+  ];
+  readonly automaticQualityHint = `Automatic uses the shared recipe default (${DEFAULT_EXPORT_RECIPE.quality}).`;
+  private supportsQuality(quality: number | null): boolean {
+    const encoder = EXPORT_ENCODERS.find((entry) => entry.format === this.recipe().format);
+    return (
+      !!encoder &&
+      exportRecipeProblem({
+        ...DEFAULT_EXPORT_RECIPE,
+        format: encoder.format,
+        bitDepth: encoder.bitDepth,
+        quality,
+      }) === null
+    );
+  }
+  setQualityMode(mode: string): void {
+    this.patch({ quality: mode === 'automatic' ? null : DEFAULT_EXPORT_RECIPE.quality });
+  }
   readonly profiles = [
     { value: 'srgb', label: 'sRGB' },
     { value: 'display-p3', label: 'Display P3' },
@@ -126,8 +149,14 @@ export class RecipeExportDialogComponent {
   }
   setFormat(format: string): void {
     const encoder = EXPORT_ENCODERS.find((entry) => entry.format === format);
-    if (encoder)
-      this.patch({ format, bitDepth: encoder.bitDepth, quality: format === 'jpeg' ? 92 : null });
+    if (!encoder) return;
+    const candidate = { ...DEFAULT_EXPORT_RECIPE, format, bitDepth: encoder.bitDepth };
+    const supportsExplicit = exportRecipeProblem({ ...candidate, quality: 1 }) === null;
+    const supportsAutomatic = exportRecipeProblem({ ...candidate, quality: null }) === null;
+    const quality = supportsExplicit
+      ? (this.recipe().quality ?? (supportsAutomatic ? null : DEFAULT_EXPORT_RECIPE.quality))
+      : null;
+    this.patch({ format, bitDepth: encoder.bitDepth, quality });
   }
   setDestination(destination: string): void {
     this.patch({

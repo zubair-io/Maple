@@ -6,8 +6,8 @@
 # the resulting wasm either panics with "time not implemented" or fails
 # to link with rayon TLS errors. `--features gpu` additionally co-builds
 # wgpu (the WebGPU live-render chain, epic #925 / #1059) into the SAME bundle;
-# the two features co-exist (spike-confirmed), so there is ONE shipped bundle —
-# the worker picks the GPU entry when WebGPU is present and the threaded-CPU
+# `avif` enables the existing shared export encoder. ONE shipped bundle lets
+# the worker pick the GPU entry when WebGPU is present and the threaded-CPU
 # `render_bytes` otherwise. Centralise the canonical command so nobody has to
 # re-derive it.
 #
@@ -23,11 +23,6 @@ export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RAW_WASM_DIR="$(cd "$SCRIPT_DIR/../raw-wasm" && pwd)"
 
-cd "$RAW_WASM_DIR"
-echo "==> wasm-pack build --target web --release  (gpu + parallel + build-std)"
-wasm-pack build --target web --release -- \
-    --features gpu,parallel \
-    -Z build-std=panic_abort,std
-
-echo "==> Done. Output: $RAW_WASM_DIR/pkg/"
-echo "    Sync into the web project with: src/web/scripts/sync-raw-wasm.sh"
+# Keep one canonical feature/build-std command. This wrapper historically
+# always rebuilt, so retain that behavior while providing its PATH bootstrap.
+exec bash "$RAW_WASM_DIR/build.sh" --force

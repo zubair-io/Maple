@@ -32,8 +32,8 @@ function interrupted(): RecipeQueueRecord {
   };
 }
 describe('export recipe contract and recovery', () => {
-  it('preserves AVIF/WebP quality and existing null-quality recipes', () => {
-    for (const format of ['avif', 'webp']) {
+  it('preserves AVIF quality and existing automatic recipes', () => {
+    for (const format of ['avif']) {
       for (const quality of [null, 55]) {
         const recipe = { ...DEFAULT_EXPORT_RECIPE, format, quality };
         expect(parseExportRecipe(recipe)).toEqual(recipe);
@@ -45,6 +45,13 @@ describe('export recipe contract and recovery', () => {
         );
       }
     }
+  });
+  it('preserves imported WebP quality and requires an explicit lossless correction', () => {
+    const recipe = { ...DEFAULT_EXPORT_RECIPE, format: 'webp', quality: 55 };
+    expect(parseExportRecipe(recipe)).toEqual(recipe);
+    expect(exportRecipeProblem(recipe)).toContain('Lossless');
+    expect(recipe.quality).toBe(55);
+    expect(exportRecipeProblem({ ...recipe, quality: null })).toBeNull();
   });
   it('refuses a missing persisted directory instead of falling back to browser downloads', async () => {
     const record = interrupted();

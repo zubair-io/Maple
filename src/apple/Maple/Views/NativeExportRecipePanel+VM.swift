@@ -29,6 +29,16 @@
     private var recipeGeneration = 0
     private var preparation: Task<Void, Never>?
 
+    var qualitySupported: Bool { supportsQuality(1) }
+    var automaticQualitySupported: Bool { supportsQuality(nil) }
+    private func supportsQuality(_ quality: UInt32?) -> Bool {
+      guard let encoder = ExportRecipe.encoders.first(where: { $0.format == recipe.format })
+      else { return false }
+      let candidate = ExportRecipe(
+        format: encoder.format, quality: quality, bitDepth: encoder.bitDepth)
+      return (try? NativeExportRecipeBridge.validate(candidate)) != nil
+    }
+
     private var inputError: String? {
       guard UInt32(bitDepthText) != nil,
         qualityText.isEmpty || UInt32(qualityText) != nil,
@@ -90,7 +100,7 @@
         recipe.bitDepth = encoder.bitDepth
         bitDepthText = String(recipe.bitDepth)
         recipe.quality =
-          ["jpeg", "avif", "webp"].contains(format) ? ExportRecipe.defaults.quality : nil
+          qualitySupported ? ExportRecipe.defaults.quality : nil
         qualityText = recipe.quality.map(String.init) ?? ""
       }
     }

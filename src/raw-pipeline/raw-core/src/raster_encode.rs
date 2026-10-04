@@ -20,7 +20,7 @@ use image::codecs::png::PngEncoder;
 use image::codecs::webp::WebPEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
-#[cfg(feature = "avif")]
+#[cfg(feature = "avif-encode")]
 use crate::raster_encode_avif::AvifOptions;
 
 /// Background a JPEG/TIFF encode composites transparent pixels over when the
@@ -63,7 +63,7 @@ pub enum RasterOutput {
     Webp {
         lossless: bool,
     },
-    #[cfg(feature = "avif")]
+    #[cfg(feature = "avif-encode")]
     Avif(AvifOptions),
     Tiff(TiffOptions),
     /// Native-size interleaved pixels, no container.
@@ -384,7 +384,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "avif")]
+    #[cfg(feature = "avif-encode")]
     #[test]
     fn avif_display_p3_carries_its_actual_profile() {
         let img = RasterImage::new_rgba(2, 2, vec![10; 16]);
@@ -404,7 +404,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "avif")]
+    #[cfg(feature = "avif-encode")]
     #[test]
     fn avif_still_encodes_when_tagged_srgb() {
         let img = RasterImage::new_rgb(2, 2, vec![10; 12]);
