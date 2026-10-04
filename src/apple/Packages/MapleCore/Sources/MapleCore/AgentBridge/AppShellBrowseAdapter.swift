@@ -70,8 +70,10 @@ public final class AppShellBrowseAdapter: AgentBrowseDelegate {
     }
     var c = session.culling
     mutate(&c)
-    session.culling = c
-    await session.flushPendingSidecarWrite()
-    return c
+    if c != session.culling {
+      session.culling = c
+      await session.flushPendingSidecarWrite()
+    }
+    return session.culling
   }
 }

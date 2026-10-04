@@ -25,7 +25,7 @@ enum AgentBrowseService {
     _ arguments: [String: JSONValue],
     delegate: (any AgentBrowseDelegate)?,
     activeSession: EditSession?
-  ) throws -> JSONValue {
+  ) async throws -> JSONValue {
     guard let delegate else {
       throw AgentError(
         code: "browse_unavailable",
@@ -63,26 +63,43 @@ enum AgentBrowseService {
       slice = []
     }
 
-    let photos: [JSONValue] = slice.map { asset in
-      var photoObj: [String: JSONValue] = [
-        "id": .string(asset.id.uuidString),
-        "name": .string(asset.displayName),
-        "is_active": .bool(activeSession?.asset.id == asset.id),
-      ]
-      if let path = asset.primaryURL?.path {
-        photoObj["path"] = .string(path)
+    // Snapshot in-memory session culling states on @MainActor so we don't
+    // access MainActor properties inside the detached background task.
+    var sessionCulling: [AssetRef.ID: CullingState] = [:]
+    for asset in slice {
+      if activeSession?.asset.id == asset.id, let c = activeSession?.culling {
+        sessionCulling[asset.id] = c
+      } else if let s = delegate.session(for: asset) {
+        sessionCulling[asset.id] = s.culling
       }
-      let culling = cullingState(for: asset, delegate: delegate, activeSession: activeSession)
-      photoObj["rating"] = .int(culling.stars)
-      photoObj["flag"] = .string(culling.flag.rawValue)
-      if let color = culling.colorLabel {
-        photoObj["color_label"] = .string(color.rawValue)
-      }
-      if let captureTime = captureTimestamp(for: asset) {
-        photoObj["capture_time"] = .string(captureTime)
-      }
-      return .object(photoObj)
     }
+    let sliceAssets = Array(slice)
+    let activeID = activeSession?.asset.id
+
+    // Perform sidecar disk parsing and EXIF header reading off @MainActor
+    // to prevent blocking the UI thread during large folder listings.
+    let photos: [JSONValue] = await Task.detached(priority: .userInitiated) {
+      sliceAssets.map { asset in
+        var photoObj: [String: JSONValue] = [
+          "id": .string(asset.id.uuidString),
+          "name": .string(asset.displayName),
+          "is_active": .bool(activeID == asset.id),
+        ]
+        if let path = asset.primaryURL?.path {
+          photoObj["path"] = .string(path)
+        }
+        let culling = cullingState(for: asset, cached: sessionCulling[asset.id])
+        photoObj["rating"] = .int(culling.stars)
+        photoObj["flag"] = .string(culling.flag.rawValue)
+        if let color = culling.colorLabel {
+          photoObj["color_label"] = .string(color.rawValue)
+        }
+        if let captureTime = captureTimestamp(for: asset) {
+          photoObj["capture_time"] = .string(captureTime)
+        }
+        return .object(photoObj)
+      }
+    }.value
 
     var result: [String: JSONValue] = [
       "photos": .array(photos),
@@ -131,17 +148,26 @@ enum AgentBrowseService {
 
     var images: [AgentImage] = []
     var thumbnailsMeta: [JSONValue] = []
+    var errors: [String] = []
 
     for idVal in idsArray {
       guard let idStr = idVal.stringValue, let uuid = UUID(uuidString: idStr) else {
-        throw AgentError(
-          code: "invalid_arguments",
-          message: "Invalid photo ID: `\(idVal)`.")
+        thumbnailsMeta.append([
+          "asset_id": idVal,
+          "error": .string("Invalid photo UUID: `\(idVal)`"),
+          "status": .string("error"),
+        ])
+        errors.append("Invalid photo UUID: `\(idVal)`")
+        continue
       }
       guard let asset = delegate.browseAssets.first(where: { $0.id == uuid }) else {
-        throw AgentError(
-          code: "asset_not_found",
-          message: "No photo found with ID `\(idStr)` in the active collection.")
+        thumbnailsMeta.append([
+          "asset_id": .string(idStr),
+          "error": .string("No photo found with ID `\(idStr)` in the active collection."),
+          "status": .string("error"),
+        ])
+        errors.append("No photo found with ID `\(idStr)` in the active collection.")
+        continue
       }
       if let (jpegData, width, height) = await loadThumbnailJPEG(
         for: asset, delegate: delegate, activeSession: activeSession, maxEdge: maxEdge)
@@ -152,21 +178,31 @@ enum AgentBrowseService {
           "name": .string(asset.displayName),
           "width": .int(width),
           "height": .int(height),
+          "status": .string("ok"),
         ])
       } else {
-        throw AgentError(
-          code: "thumbnail_unavailable",
-          message: "Could not generate or load thumbnail for `\(asset.displayName)`.")
+        thumbnailsMeta.append([
+          "asset_id": .string(idStr),
+          "name": .string(asset.displayName),
+          "error": .string("Could not generate or load thumbnail for `\(asset.displayName)`."),
+          "status": .string("error"),
+        ])
+        errors.append("Could not generate or load thumbnail for `\(asset.displayName)`.")
       }
+    }
+
+    if images.isEmpty && !errors.isEmpty {
+      throw AgentError(
+        code: "thumbnail_unavailable",
+        message: "Failed to load any thumbnails: " + errors.joined(separator: "; "))
     }
 
     return AgentPayload(
       result: [
         "thumbnails": .array(thumbnailsMeta),
-        "count": .int(thumbnailsMeta.count),
+        "count": .int(images.count),
       ],
-      images: images
-    )
+      images: images)
   }
 
   static func setRating(
@@ -199,11 +235,26 @@ enum AgentBrowseService {
         message: "No photo found with ID `\(idStr)` in the active collection.")
     }
 
+    // Early-out if rating is already set to this value to avoid unnecessary disk writes and mtime bumps.
+    let current = cullingState(
+      for: asset,
+      cached: activeSession?.asset.id == uuid
+        ? activeSession?.culling : delegate.session(for: asset)?.culling)
+    if current.stars == rating {
+      var result: [String: JSONValue] = [
+        "asset_id": .string(idStr),
+        "name": .string(asset.displayName),
+        "rating": .int(current.stars),
+        "flag": .string(current.flag.rawValue),
+      ]
+      if let color = current.colorLabel {
+        result["color_label"] = .string(color.rawValue)
+      }
+      return .object(result)
+    }
+
     let updatedCulling = try await delegate.updateCulling(assetID: uuid) { culling in
       culling.stars = rating
-    }
-    if activeSession?.asset.id == uuid {
-      activeSession?.culling.stars = rating
     }
 
     var result: [String: JSONValue] = [
@@ -245,11 +296,26 @@ enum AgentBrowseService {
         message: "No photo found with ID `\(idStr)` in the active collection.")
     }
 
+    // Early-out if flag is already set to this value to avoid unnecessary disk writes and mtime bumps.
+    let current = cullingState(
+      for: asset,
+      cached: activeSession?.asset.id == uuid
+        ? activeSession?.culling : delegate.session(for: asset)?.culling)
+    if current.flag == flag {
+      var result: [String: JSONValue] = [
+        "asset_id": .string(idStr),
+        "name": .string(asset.displayName),
+        "rating": .int(current.stars),
+        "flag": .string(current.flag.rawValue),
+      ]
+      if let color = current.colorLabel {
+        result["color_label"] = .string(color.rawValue)
+      }
+      return .object(result)
+    }
+
     let updatedCulling = try await delegate.updateCulling(assetID: uuid) { culling in
       culling.flag = flag
-    }
-    if activeSession?.asset.id == uuid {
-      activeSession?.culling.flag = flag
     }
 
     var result: [String: JSONValue] = [
@@ -284,102 +350,5 @@ enum AgentBrowseService {
         message: "No photo found with ID `\(idStr)` in the active collection.")
     }
     return try await delegate.openPhoto(assetID: uuid)
-  }
-
-  static func cullingState(
-    for asset: AssetRef,
-    delegate: any AgentBrowseDelegate,
-    activeSession: EditSession?
-  ) -> CullingState {
-    if activeSession?.asset.id == asset.id, let culling = activeSession?.culling {
-      return culling
-    }
-    if let session = delegate.session(for: asset) {
-      return session.culling
-    }
-    if let url = asset.primaryURL {
-      let sidecarURL = SidecarPath.sidecarURL(for: url)
-      if FileManager.default.fileExists(atPath: sidecarURL.path),
-        let xml = try? String(contentsOf: sidecarURL, encoding: .utf8),
-        let (_, culling) = try? XMPParser.parse(xml)
-      {
-        return culling
-      }
-    }
-    return CullingState()
-  }
-
-  static func captureTimestamp(for asset: AssetRef) -> String? {
-    if let url = asset.primaryURL,
-      let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-      let date = attrs[.creationDate] as? Date
-    {
-      return ISO8601DateFormatter().string(from: date)
-    }
-    return nil
-  }
-
-  static func loadThumbnailJPEG(
-    for asset: AssetRef,
-    delegate: any AgentBrowseDelegate,
-    activeSession: EditSession?,
-    maxEdge: Int
-  ) async -> (Data, Int, Int)? {
-    if activeSession?.asset.id == asset.id, let surface = await activeSession?.agentCanvasSnapshot()
-    {
-      let context = activeSession?.pipeline.context ?? CIContext()
-      if let inspection = try? AgentInspector.inspect(
-        surface, maxEdge: maxEdge, region: nil, context: context)
-      {
-        return (inspection.jpeg, inspection.width, inspection.height)
-      }
-    }
-
-    if let url = asset.primaryURL {
-      if let data = await ThumbnailLoader.shared.load(
-        for: url, scopeParentURL: asset.scopeParentURL),
-        let cgImage = decodeAndDownsample(data: data, maxEdge: maxEdge),
-        let jpeg = try? AgentInspector.jpeg(cgImage)
-      {
-        return (jpeg, cgImage.width, cgImage.height)
-      }
-    }
-
-    if let previewProvider = asset.displayPreviewProvider,
-      let data = try? await previewProvider(),
-      let cgImage = decodeAndDownsample(data: data, maxEdge: maxEdge),
-      let jpeg = try? AgentInspector.jpeg(cgImage)
-    {
-      return (jpeg, cgImage.width, cgImage.height)
-    }
-
-    if let url = asset.primaryURL,
-      let source = CGImageSourceCreateWithURL(url as CFURL, nil)
-    {
-      let options: [CFString: Any] = [
-        kCGImageSourceCreateThumbnailFromImageAlways: true,
-        kCGImageSourceThumbnailMaxPixelSize: maxEdge,
-        kCGImageSourceCreateThumbnailWithTransform: true,
-      ]
-      if let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-        let jpeg = try? AgentInspector.jpeg(cgThumb)
-      {
-        return (jpeg, cgThumb.width, cgThumb.height)
-      }
-    }
-
-    return nil
-  }
-
-  static func decodeAndDownsample(data: Data, maxEdge: Int) -> CGImage? {
-    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-      CGImageSourceGetCount(source) > 0
-    else { return nil }
-    let options: [CFString: Any] = [
-      kCGImageSourceCreateThumbnailFromImageAlways: true,
-      kCGImageSourceThumbnailMaxPixelSize: maxEdge,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-    ]
-    return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
   }
 }
