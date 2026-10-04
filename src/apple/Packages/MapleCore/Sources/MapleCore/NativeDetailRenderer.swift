@@ -231,7 +231,7 @@ actor NativeDetailRenderer {
         // decode — an As-Shot bake with the As-Shot DCP retarget — and the
         // live WB delta is applied once, downstream, by the per-tick chain
         // (`processSceneLinear`, anchored at `wbDeltaAnchor`). This matches
-        // every other tile caller (TileManager deep zoom, preview tiles).
+        // every other tile caller (preview tiles).
         //
         // `aeGain` (#1167/#2070): the caller passes the SAME `ae_gain` the
         // full-image (or sized) decode of this model exported, so the tile

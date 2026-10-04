@@ -6,8 +6,8 @@
 // behaviour layers live in sibling files: EditSession+Render.swift (two-phase
 // scheduler, decode lifecycle, visible-region refine, export render),
 // EditSession+Hydration.swift (cold-open path, sidecar load, preview seeds,
-// native-size discovery), EditSession+DeepZoom.swift (tile-manager wiring,
-// visible-region API), EditSession+UndoRedo.swift (the bounded undo/redo ring
+// native-size discovery), EditSession+DeepZoom.swift (visible-region API),
+// EditSession+UndoRedo.swift (the bounded undo/redo ring
 // + reset). Public API of `EditSession` is unchanged across the split — see
 // issue #120 for the three-layer cut.
 
@@ -22,27 +22,6 @@ import Foundation
 @MainActor
 @Observable
 public final class EditSession {
-  /// Master switch for the deep-zoom tile path. When `false` (the
-  /// current default), `_scheduleRefine` always uses the whole-image
-  /// sized-FFI refine even at zoom > 1.0 — slower at very high zoom
-  /// (~7 s for a 100 MP RAW on iPad) but produces pixel-perfect
-  /// colors, no tile-boundary artifacts. When `true`, deep-zoom kicks
-  /// in at `pixelScale >= 1.0` and renders 512² tiles on demand.
-  ///
-  /// Off by default while the per-tile color-parity ticket is open:
-  /// the tile pipeline runs each filter chain independently per
-  /// tile, and local-context stages (sharpen, clarity, NR) see
-  /// different overlap context at tile boundaries — visible as
-  /// faint seams or per-tile color shifts. Flip back on once the
-  /// color parity work lands.
-  ///
-  /// Public + non-isolated so callers can flip it from any actor
-  /// (e.g. a Settings UI toggle, a launch arg, a UITest harness).
-  /// Stored as `nonisolated(unsafe)` because it's effectively a
-  /// process-wide read-mostly config flag — racy reads return `false`
-  /// or `true` and that's fine.
-  nonisolated(unsafe) public static var deepZoomEnabled: Bool = false
-
   public internal(set) var asset: AssetRef
   public internal(set) var hasLoadedSidecar = false
 
@@ -487,9 +466,9 @@ public final class EditSession {
 
   // MARK: Deep zoom (Plan 3 / Ticket 06 M4) — storage + field docs moved
   // to `DeepZoomState.swift` (#2683 round-2, 570-line headroom gate).
-  // `internal`: `tileManager`/`tileEventsTask`/`fileProviderObserver`
-  // are reached as `deepZoomState.x` directly from
-  // `EditSession+Cache/Hydration/DeepZoom.swift`; `viewportSourceRect`/
+  // `internal`: `fileProviderObserver` is reached as
+  // `deepZoomState.x` directly from `EditSession+Hydration.swift`;
+  // `viewportSourceRect`/
   // `previewSize` keep public forwarding properties below (public API +
   // `previewSize`'s scheduling side effects, documented on
   // `DeepZoomState.previewSize`).

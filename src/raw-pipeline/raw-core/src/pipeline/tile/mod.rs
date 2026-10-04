@@ -191,8 +191,9 @@ fn develop_tile_oriented_f32(
     } = rect;
     guards::reject_untileable(raw, model, rect)?;
     // (src_x, src_y, src_w, src_h) are in DISPLAY-oriented source coords —
-    // that's what callers (Apple TileManager, maple-cli `tile` subcommand)
-    // know about. Translate to sensor coords before cropping the mosaic.
+    // that's what callers (Apple NativeDetailRenderer, maple-cli `tile`
+    // subcommand) know about. Translate to sensor coords before cropping
+    // the mosaic.
     // For non-Normal orientations (e.g. Rotate 270 CW on Canon CR2), the
     // sensor rect is at a rotated position and the dims may swap. The
     // final `apply_orientation_f32_rgba` step rotates the developed tile

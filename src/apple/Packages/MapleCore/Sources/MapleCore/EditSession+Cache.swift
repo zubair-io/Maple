@@ -91,7 +91,6 @@ extension EditSession {
   /// not correctness.
   public func releaseTransientMemory() async {
     await renderActor.invalidate()
-    await deepZoomState.tileManager?.clear()
     // #1881 — the on-screen preview (if any) now predates this eviction,
     // so a refine-skip persist must not write these stale pixels under a
     // fresh cache key later.

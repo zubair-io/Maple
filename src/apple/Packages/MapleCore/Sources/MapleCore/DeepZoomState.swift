@@ -19,18 +19,6 @@ import CoreGraphics
 
 @MainActor
 final class DeepZoomState {
-    /// Tile manager for deep-zoom (`pixelScale >= 1.0`) refine renders.
-    /// Created lazily on the first deep-zoom request so that
-    /// fit-mode-only sessions never allocate one. Shares the
-    /// process-wide `RawImageCache.shared` so the rawler decode is
-    /// reused across sessions and tile fetches.
-    var tileManager: TileManager?
-
-    /// Background task that listens to `tileManager.events()` and
-    /// re-kicks `_scheduleRefine()` whenever a tile lands. Cancelled
-    /// when the asset switches or the session deinits.
-    var tileEventsTask: Task<Void, Never>?
-
     /// Observer that drives `downloadProgress` while iOS/macOS materializes
     /// a FileProvider-backed asset (Files-app sidebar / iCloud Drive).
     /// Created lazily by `openAssetPipelineAsync` for URL-backed assets;
@@ -40,8 +28,8 @@ final class DeepZoomState {
 
     /// Visible region in oriented full-image source-pixel coords. Set by
     /// `CanvasZoomController` via `updateTileVisibleRegion(viewport:zoom:)`.
-    /// `_scheduleRefine`'s deep-zoom branch reads this when targeting
-    /// the tile manager. `.zero` disables the deep-zoom branch.
+    /// `_scheduleRefine`'s native-detail branch reads this when
+    /// targeting the visible patch. `.zero` disables that branch.
     var viewportSourceRect: CGRect = .zero
 
     /// Viewport size in real pixels — set by `GpuLiveCanvasView` /

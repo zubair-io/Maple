@@ -285,7 +285,7 @@ const CANVAS: readonly ParityCapability[] = [
     order: 50,
     reachability: { apple: 'released', web: 'absent' },
     presentation: SAME(
-      'Apple: tiled native-detail path (DeepZoomState / TileManager) up to 8×. Web: a single rendered surface, CSS-upscaled past its refine target',
+      'Apple: native-detail patch path (NativeDetailRenderer) up to 8×. Web: a single rendered surface, CSS-upscaled past its refine target',
     ),
     interaction: {
       keyboard: 'Same zoom shortcuts',

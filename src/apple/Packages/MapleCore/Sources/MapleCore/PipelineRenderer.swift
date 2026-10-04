@@ -963,9 +963,8 @@ public struct PipelineRenderer: Sendable {
   /// frame instead of shifting away from it. `nil` (the default) sends
   /// the `0.0`/`0.0` sentinel, preserving the legacy ABSOLUTE `resolve_wb`
   /// + `apply` behavior — correct for handles opened with `xmpPath: nil`
-  /// (the current deep-zoom `RawImageCache`/`TileManager` callers, which
-  /// carry no edits, so ABSOLUTE and DELTA already agree at the default
-  /// model).
+  /// (callers which carry no edits, so ABSOLUTE and DELTA already agree
+  /// at the default model).
   public static func renderTile(
     handle: MapleRawHandle,
     srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,

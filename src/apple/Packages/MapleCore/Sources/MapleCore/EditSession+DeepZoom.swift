@@ -1,8 +1,13 @@
-// EditSession+DeepZoom.swift — tile-based deep-zoom (Plan 3 / Ticket 06 M4).
+// EditSession+DeepZoom.swift — visible-region plumbing for deep zoom
+// (Plan 3 / Ticket 06 M4).
 //
 // Split from EditSession.swift (issue #120). Owns the visible-region
-// plumbing and the tile-manager lifecycle the refine path consults when
-// `pixelScale >= 1.0` and `EditSession.deepZoomEnabled` is on.
+// API the native-detail path consults when `pixelScale >= 1.0`
+// (`updateTileVisibleRegion`, called by `CanvasZoomController`).
+// The 512²-grid `TileManager` compositor that used to live behind
+// `EditSession.deepZoomEnabled` was retired in #3288 — native detail
+// (one viewport-sized patch, `refineNativeDetail`) is the 100% path —
+// so this file no longer owns any tile-manager lifecycle.
 //
 // Pure-math helper `computeVisibleSourceRect` stays static + nonisolated
 // so off-main callers (`CanvasZoomController` at construction time, the
@@ -17,13 +22,14 @@ extension EditSession {
 
     /// `CanvasZoomController` calls this from the magnification gesture, the
     /// ⌘1/⌘=/⌘- toolbar shortcuts, and (on macOS) the Cmd+scroll
-    /// handler. Updates the visible source-pixel rect for the tile
-    /// manager and the live `pixelScale`. When `zoom` changes
+    /// handler. Updates the visible source-pixel rect for native
+    /// detail and the live `pixelScale`. When `zoom` changes
     /// meaningfully (epsilon = 0.01) we re-schedule a refine so the
-    /// deep-zoom branch in `_scheduleRefine` re-routes through the
-    /// tile manager. Pure pan with the same zoom triggers a refine
-    /// reschedule too — the tile composite has to retarget the new
-    /// visible region.
+    /// native-detail branch in `_scheduleRefine` retargets the new
+    /// visible region. Pure pan with the same zoom triggers a refine
+    /// reschedule too — the native-detail patch has to retarget the
+    /// new visible region (unless the containment fast path below
+    /// finds it already covered).
     public func updateTileVisibleRegion(viewport: CGRect, zoom: CGFloat) {
         let prevRect = viewportSourceRect
         let prevZoom = pixelScale
@@ -70,133 +76,6 @@ extension EditSession {
             _scheduleRefine()
         }
     }
-
-    // MARK: - Refine path
-
-    /// Deep-zoom refine path (Plan 3 Task 8). Lazily spins up the
-    /// session's `TileManager`, asks it to composite the visible-tile
-    /// set, and republishes the result as `renderedPreview`. The tile
-    /// manager fetches missing tiles in the background; this method
-    /// returns the composite of currently-cached tiles immediately.
-    /// When new tiles land, `tileEventsTask` reschedules a refine so
-    /// the composite progressively fills in.
-    func refineDeepZoom(gen: UInt64) async {
-        let mgr = ensureTileManager()
-        // Snapshot inputs that the actor call might race against a
-        // pixelScale write. We only republish if the gen counter
-        // matches at the end.
-        let visible = viewportSourceRect
-        let zoom = pixelScale
-        let assetRef = self.asset
-        do {
-            let composite = try await mgr.update(
-                asset: assetRef,
-                viewportSourceRect: visible,
-                zoom: zoom,
-                totalSourceSize: nativeImageSize
-            )
-            let live = await renderActor.currentGeneration()
-            guard gen == live, !Task.isCancelled else { return }
-            if !composite.extent.isEmpty {
-                // Composite the tile-canvas OVER an upscaled version of
-                // the existing preview. Tiles cover the visible viewport;
-                // the upscaled preview fills everything else (blurry but
-                // not black — CGImage from a CIImage with transparent
-                // regions over an sRGB workspace fills with black). Read
-                // the underlay NOW, post-await: a fast pass may have
-                // published a newer full render while the tile fetch was
-                // in flight, and compositing over a pre-await capture
-                // would clobber it with stale-tone pixels (#1881).
-                renderedPreview = compositeWithPreviewUnderlay(
-                    composite,
-                    underlay: renderedPreview,
-                    canvasSize: nativeImageSize
-                )
-                // Tiles cover the viewport only; everything else is
-                // upscaled underlay of unknown vintage. Never persistable.
-                previewIsFullRender = false
-                previewIsThumbnailSeed = false  // #2040: real tile pixels supersede the thumbnail seed
-            }
-            renderError = nil
-        } catch {
-            editSessionLogger.error(
-                "refineDeepZoom failed gen=\(gen) error=\(String(describing: error), privacy: .public)"
-            )
-            renderError = error
-        }
-    }
-
-    /// Place the tile composite (full-canvas extent, transparent where
-    /// no tiles loaded) over an upscaled `underlay` (preview-quality
-    /// image) so unloaded regions show preview pixels instead of black.
-    /// The output extent equals `canvasSize`.
-    ///
-    /// Lives here because the deep-zoom path was designed around it; the
-    /// visible-region refine in `EditSession+Render.swift` calls it too
-    /// for the same "fresh viewport patch over prior preview" behaviour.
-    func compositeWithPreviewUnderlay(
-        _ composite: CIImage,
-        underlay: CIImage?,
-        canvasSize: CGSize
-    ) -> CIImage {
-        let canvasRect = CGRect(origin: .zero, size: canvasSize)
-        guard let underlay,
-              underlay.extent.width > 0,
-              underlay.extent.height > 0,
-              canvasSize.width > 0,
-              canvasSize.height > 0
-        else {
-            return composite
-        }
-        // Scale the underlay to the full canvas. Translate origin to
-        // (0, 0) first because some preview-source CIImages carry a
-        // non-zero origin (cropped buffers, embedded JPEGs).
-        let originNormalized = underlay.transformed(by: CGAffineTransform(
-            translationX: -underlay.extent.origin.x,
-            y: -underlay.extent.origin.y
-        ))
-        let sx = canvasSize.width / underlay.extent.width
-        let sy = canvasSize.height / underlay.extent.height
-        let scaledUnderlay = originNormalized
-            .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
-            .cropped(to: canvasRect)
-        return composite
-            .composited(over: scaledUnderlay)
-            .cropped(to: canvasRect)
-    }
-
-    /// Lazy create the session's `TileManager` and start the
-    /// tile-completion subscription. Subsequent calls return the
-    /// existing instance. Must be called from the main actor — the
-    /// session itself is `@MainActor` so this is implicit.
-    func ensureTileManager() -> TileManager {
-        if let mgr = deepZoomState.tileManager { return mgr }
-        let mgr = TileManager(rawCache: RawImageCache.shared)
-        deepZoomState.tileManager = mgr
-        // Subscribe to tile-completion events. Each tile insert pokes
-        // the refine scheduler so the deep-zoom composite progressively
-        // refines. The subscription task lives until the session
-        // deinits or the asset switches.
-        deepZoomState.tileEventsTask?.cancel()
-        deepZoomState.tileEventsTask = Task { [weak self, weak mgr] in
-            guard let mgr else { return }
-            // `events()` is actor-isolated; the await hops onto the
-            // tile manager's actor to construct the stream. Iterating
-            // the stream, however, is just AsyncStream.Iterator —
-            // doesn't require staying on the manager's actor.
-            let stream = await mgr.events()
-            for await _ in stream {
-                guard let self else { return }
-                if Task.isCancelled { return }
-                // Coalesce repaints. _scheduleRefine has its own 250 ms
-                // debounce, so a flurry of tile inserts collapses into
-                // a single re-composite pass. Hop onto the main actor
-                // to call into the session.
-                await MainActor.run { self._scheduleRefine() }
-            }
-        }
-        return mgr
-    }
 }
 
 // MARK: - Pure-math helper (nonisolated static)
@@ -216,8 +95,8 @@ extension EditSession {
     ///
     /// Important contract difference vs. `CanvasMath.visibleSourceRect`:
     /// here `zoom == 0` is treated as "disabled" and returns `.zero`
-    /// (the deep-zoom branch in `_scheduleRefine` reads `.isEmpty` to
-    /// decide whether to route through the tile manager). `CanvasMath`
+    /// (the native-detail branch in `_scheduleRefine` reads `.isEmpty`
+    /// to decide whether a visible patch can render). `CanvasMath`
     /// treats `pixelScale == 0` as "fit" and resolves it. Callers that
     /// pass a literal zero through this helper (e.g. fit-mode toolbar
     /// reset) want the disabled semantics; the View already
@@ -235,7 +114,7 @@ extension EditSession {
     ) -> CGRect {
         // Preserve the disabled-on-zero contract — `CanvasMath`'s
         // `visibleSourceRect` would resolve 0 → fit and return a real
-        // rect. Tests + deep-zoom branch depend on `.zero` here.
+        // rect. Tests + the native-detail branch depend on `.zero` here.
         guard zoom > 0 else { return .zero }
         let viewportPx = CGSize(
             width: viewport.width * displayScale,
