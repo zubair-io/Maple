@@ -65,7 +65,7 @@ jobs:
           # Required: with use_github_token the action skips OIDC and reads this.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          model: model_api/muse-spark-1.3
+          model: model_api/muse-spark-1.3-contributor
           agent: review
           use_github_token: true
           share: 'false' # no session card/link; the session is never uploaded
