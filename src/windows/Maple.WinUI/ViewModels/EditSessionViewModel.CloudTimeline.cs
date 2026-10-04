@@ -75,7 +75,7 @@ namespace Maple.WinUI.ViewModels
                 if (_libraryCts != owner || owner.IsCancellationRequested) return;
                 if (page == null) throw new InvalidOperationException("The server could not load the timeline.");
                 var items = page.NewPhotos(AllPhotos.Select(photo => photo.FilePath))
-                    .Select(TimelinePhotoItem).ToList();
+                    .Select(CloudPhotoMapper.FromTimeline).ToList();
                 AllPhotos.AddRange(items);
                 _timelineCursor = page.CursorPaging ? page.NextCursor : null;
                 _timelinePage = page.Page + 1;
@@ -175,27 +175,5 @@ namespace Maple.WinUI.ViewModels
             catch (OperationCanceledException) when (owner.IsCancellationRequested) { }
         }
 
-        private static PhotoItem TimelinePhotoItem(CloudTimelinePhoto image)
-        {
-            var item = CloudDirPhotoItem(new CloudDirImage
-            {
-                Name = image.Filename,
-                Path = image.Path,
-                Size = image.Size,
-                Ext = Path.GetExtension(image.Filename).TrimStart('.'),
-                Mtime = DateTimeOffset.FromUnixTimeMilliseconds((long)image.Mtime).ToString("O"),
-                Exif = new CloudDirExif
-                {
-                    CapturedAt = image.CapturedAt, CameraMake = image.Camera?.Make,
-                    CameraModel = image.Camera?.Model, Lens = image.Lens, Iso = image.Iso,
-                    Aperture = image.Aperture, Shutter = image.Shutter,
-                    FocalLengthMm = image.FocalLengthMm,
-                },
-            }, new CloudFolderNode(), image.Address);
-            item.Rating = image.Rating;
-            item.FlagStatus = image.Flag switch { 1 => "pick", -1 => "reject", _ => "none" };
-            item.ColorLabel = image.ColorLabel;
-            return item;
-        }
     }
 }

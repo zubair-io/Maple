@@ -217,7 +217,7 @@ namespace Maple.WinUI.ViewModels
                             truncated = true;
                             break;
                         }
-                        AllPhotos.Add(CloudDirPhotoItem(image, node));
+                        AllPhotos.Add(CloudPhotoMapper.FromDirectory(image, CloudAddressFor(node, image.Name)));
                     }
                     cursor = listing.NextCursor;
                 }
@@ -251,44 +251,6 @@ namespace Maple.WinUI.ViewModels
             _ = Task.Run(() => HydrateCloudThumbnailsAsync(photos, cts.Token), cts.Token);
         }
 
-        private static PhotoItem CloudDirPhotoItem(CloudDirImage image, CloudFolderNode node, string? address = null)
-        {
-            var exif = image.Exif;
-            var captured = exif?.CapturedAtLocal;
-            var item = new PhotoItem
-            {
-                IsCloud = true,
-                CloudAddress = address ?? CloudAddressFor(node, image.Name),
-                FilePath = image.Path,
-                FileName = image.Name,
-                Format = image.Ext.Length > 0 ? image.Ext.ToUpperInvariant() : "RAW",
-                FileSizeBytes = image.Size,
-                // The listing's own mtime, exactly as the local browse uses
-                // File.LastWriteTimeUtc. Capture date stays capture date: for
-                // a file the indexer hasn't reached there is no EXIF, and
-                // dating it "now" would reshuffle the day groups on every
-                // reload (grouping falls back to this field — .Library.cs).
-                FileModifiedUtc = ParseMtimeUtc(image.Mtime),
-                CaptureDate = captured,
-            };
-            // The filesystem listing carries no culling state — rating, flag
-            // and colour label live in the sidecar, which the editor fetches
-            // (LoadCloudSidecarAsync) when the photo is opened. Leaving the
-            // grid's defaults in place is honest: nothing here claims a photo
-            // is unrated, it simply hasn't been read yet.
-            item.CameraModel = exif is { } e && (e.CameraMake != null || e.CameraModel != null)
-                ? $"{e.CameraMake} {e.CameraModel}".Trim()
-                : "—";
-            item.LensInfo = exif?.Lens ?? "—";
-            item.IsoDisplay = exif?.Iso is { } iso ? $"ISO {iso}" : "—";
-            item.Aperture = exif?.Aperture is { } f ? $"f/{f:0.#}" : "—";
-            item.ShutterSpeed = exif?.Shutter ?? "—";
-            item.FocalLengthMm = exif?.FocalLengthMm;
-            item.DateTaken = captured?.ToString("yyyy-MM-dd HH:mm") ?? "—";
-            item.Dimensions = "—";
-            return item;
-        }
-
         /// <summary>`slug:relPath` — the addressing scheme the culling route
         /// (POST /api/xmp/batch) understands. Built from the browsing node's
         /// accumulated relative path plus the filename, which is how the
@@ -300,15 +262,6 @@ namespace Maple.WinUI.ViewModels
             string.IsNullOrEmpty(node.LibrarySlug)
                 ? null
                 : $"{node.LibrarySlug}:{(node.RelativePath.Length == 0 ? fileName : $"{node.RelativePath}/{fileName}")}";
-
-        /// <summary>The listing's ISO-8601 mtime. Falls back to epoch, not to
-        /// "now": a missing mtime must sort deterministically rather than jump
-        /// to the top of the grid on each reload.</summary>
-        private static DateTime ParseMtimeUtc(string? mtime) =>
-            DateTime.TryParse(mtime, null,
-                System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
-                ? dt.ToUniversalTime()
-                : DateTime.UnixEpoch;
 
         /// <summary>Fill the grid's thumbnails from GET /api/thumb/:slug/*,
         /// keyed by the item's `slug:relPath` address — the unified route the
