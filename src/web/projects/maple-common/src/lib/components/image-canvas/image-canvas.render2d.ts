@@ -47,6 +47,8 @@ export interface Render2dHost {
 
   /** Crop-aware serialize (strips crop while the crop tool is armed). */
   serializeForRender(model: AdjustmentModel): string;
+  /** Freeze crop posture for both dispatch and WB-hydrated frame identity. */
+  captureRenderSerializer(): (model: AdjustmentModel) => string;
   /** Fast-phase (viewport long-edge) render target. */
   fastTargetPx(): number;
   /** Open the adjustment-effect gate once the cold open has painted. */
@@ -127,7 +129,8 @@ export async function coldOpen2d(
     // Viewport-sized cold open (#1101): decode at the fast-phase target so first
     // pixels land at viewport resolution; the refine pass sharpens past fit.
     const openModel = host.state.adjustmentFor(assetId)();
-    const openXmp = isDefaultAdjustment(openModel) ? undefined : host.serializeForRender(openModel);
+    const serializeOpened = host.captureRenderSerializer();
+    const openXmp = isDefaultAdjustment(openModel) ? undefined : serializeOpened(openModel);
     const decoded = await host.pipeline.decode(bytes, ext, openXmp, sizing.maxLongEdge, true);
     if (!ownsRequest()) return;
 
@@ -139,7 +142,7 @@ export async function coldOpen2d(
     host.imageBitmap()?.close();
     host.imageBitmap.set(bitmap);
     host.canvasSvc.currentPixels.set(decoded);
-    publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision);
+    publishColdOpenMetadata(host, assetId, decoded, openModel, fitRevision, serializeOpened);
     host.nativeDetail?.recordBase({
       assetId,
       generation,
@@ -195,6 +198,7 @@ function publishColdOpenMetadata(
   decoded: DecodedImage,
   openModel: AdjustmentModel,
   fitRevision: number,
+  serializeOpened: (model: AdjustmentModel) => string,
 ): void {
   const state: LibraryStateService = host.state;
   // Update dimensions on the asset — the NATIVE dims (the sized reply carries
@@ -231,7 +235,7 @@ function publishColdOpenMetadata(
   // Record the dispatched intent before releasing queued edits (#4101).
   // As-Shot hydration describes this frame; a later live edit does not.
   if (host.lastRenderedXmp === null) {
-    host.lastRenderedXmp = host.serializeForRender(coldOpenRenderedModel(openModel, decoded));
+    host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, decoded));
   }
   host.markColdOpenDone();
 }

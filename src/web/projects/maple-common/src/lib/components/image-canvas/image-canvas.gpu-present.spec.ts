@@ -1,3 +1,4 @@
+import { renderModelForCrop } from './image-canvas.crop';
 // ImageCanvasGpuPresent — per-session present-failure detection (#1572).
 //
 // Tests three behaviours introduced in #1572:
@@ -127,6 +128,9 @@ function makeHost(
     xmpSerializer,
     gpuFallback,
     serializeForRender: () => '<x/>',
+    captureRenderSerializer() {
+      return this.serializeForRender.bind(this);
+    },
     loading,
     imageBitmap,
     currentAssetId: 'asset-1',
@@ -321,6 +325,48 @@ describe('ImageCanvasGpuPresent — cold-open sidecar (#1915)', () => {
     expect(host.lastRenderedXmp).not.toBe(host.serializeForRender(model()));
     expect(host.markColdOpenDone).toHaveBeenCalledTimes(1);
   });
+
+  it.each([false, true])(
+    'retains dispatched crop posture when active=%s toggles during GPU open',
+    async (active) => {
+      const cropActive = signal(active);
+      const opened = {
+        ...defaultAdjustmentModel(),
+        profile: 'Neutral' as const,
+        whiteBalancePreset: 'Custom' as const,
+        temperature: 4800,
+        tint: 12,
+        crop: { ...defaultAdjustmentModel().crop, left: 0.2 },
+      };
+      let finish!: (info: OpenedLiveSession) => void;
+      const host = makeHost(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+        opened,
+      );
+      const serialize = (value: AdjustmentModel, crop: boolean) =>
+        JSON.stringify(renderModelForCrop(value, crop));
+      Object.assign(host, {
+        serializeForRender: (value: AdjustmentModel) => serialize(value, cropActive()),
+        captureRenderSerializer: () => {
+          const snapshot = cropActive();
+          return (value: AdjustmentModel) => serialize(value, snapshot);
+        },
+      });
+      const present = new ImageCanvasGpuPresent(host);
+      vi.spyOn(ImageCanvasGpuPresent, 'testGpuPresent').mockResolvedValue(true);
+      const opening = present.open('asset-1', new Uint8Array([1]), 'dng');
+      await vi.waitFor(() => expect(host.pipeline.openLiveSession).toHaveBeenCalledTimes(1));
+      const dispatched = vi.mocked(host.pipeline.openLiveSession).mock.calls[0][3];
+      cropActive.set(!active);
+      finish(makeOpenedSession());
+      expect(await opening).toBe(true);
+      expect(host.lastRenderedXmp).toBe(dispatched);
+      expect(host.lastRenderedXmp).not.toBe(host.serializeForRender(opened));
+    },
+  );
 
   it('opens with undefined xmp for a fresh (default) model — preserves the #1892 As-Shot seeding path', async () => {
     const host = makeHost(() => Promise.resolve(makeOpenedSession())); // default model

@@ -240,6 +240,11 @@ export class ImageCanvasComponent
     return this.xmpSerializer.serialize(renderModelForCrop(model, this.cropSession.active()));
   }
 
+  captureRenderSerializer(): (model: AdjustmentModel) => string {
+    const cropActive = this.cropSession.active();
+    return (model) => this.xmpSerializer.serialize(renderModelForCrop(model, cropActive));
+  }
+
   ngAfterViewInit(): void {
     this.ro = new ResizeObserver((entries) => {
       for (const e of entries) {
