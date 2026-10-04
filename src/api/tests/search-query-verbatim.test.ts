@@ -101,3 +101,20 @@ describe('query verbatim contract (#2384)', () => {
     expect(bodies[0]!.q).toBe('Greyson Smith');
   });
 });
+
+describe('#2386 native fast paths', () => {
+  for (const [query, offset, limit] of [
+    ['Rose', 100, 10],
+    ['Rose', 0, 0],
+    ['', 0, 20],
+    ['  \t ', 3, 20],
+  ] as const) {
+    it(`preserves native request for ${JSON.stringify({ query, offset, limit })}`, async () => {
+      const bodies: Array<Record<string, unknown>> = [];
+      await capturingClient(bodies).search(query, { semantic: true, offset, limit });
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]).toMatchObject({ q: query, offset, limit });
+      expect(bodies[0]).not.toHaveProperty('showMatchesPosition');
+    });
+  }
+});
