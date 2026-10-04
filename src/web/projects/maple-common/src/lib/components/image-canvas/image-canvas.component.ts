@@ -177,7 +177,13 @@ export class ImageCanvasComponent
   private paintedLongEdge = 0;
   // Cold open seeds As-Shot WB before the adjustment effect may render.
   // Otherwise the synchronous-byte path can queue a pre-seed 6500K decode.
-  coldOpenDone = false;
+  private readonly coldOpenReady = signal(false);
+  get coldOpenDone(): boolean {
+    return this.coldOpenReady();
+  }
+  set coldOpenDone(done: boolean) {
+    this.coldOpenReady.set(done);
+  }
   // Cold open records its seeded model to deduplicate the WB-seed effect.
   // Genuine edits change this key. Shared with the GPU cold-open host.
   lastRenderedXmp: string | null = null;
