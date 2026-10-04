@@ -49,13 +49,15 @@ fn bitmap_model(digest: &[u8; 16], adjustments: PartialAdjustments) -> Adjustmen
             raster[y * rw + x] = 255;
         }
     }
-    let id = maple_mask_raster_register(
-        digest.as_ptr(),
-        rw as u32,
-        rh as u32,
-        raster.as_ptr(),
-        raster.len(),
-    );
+    let id = unsafe {
+        maple_mask_raster_register(
+            digest.as_ptr(),
+            rw as u32,
+            rh as u32,
+            raster.as_ptr(),
+            raster.len(),
+        )
+    };
     assert!(id >= 1, "raster registration failed: {id}");
     let mut model = base_model();
     model.local_adjustments = vec![LocalAdjustment {

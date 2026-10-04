@@ -317,7 +317,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const lensProfile = lensProfileFromJson(result.lens_profile_json); // #3479
   const rgb = result.take_rgb();
   result.free();
-  const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
+  const buffer = new Uint8Array(rgb).buffer;
   const response: WorkerResponse = {
     id: req.id,
     type: 'decode-success',
@@ -483,10 +483,7 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
     const asShotTint = result.as_shot_tint;
     const lanes = result.take_fp16_rgba();
     result.free();
-    const buffer = lanes.buffer.slice(
-      lanes.byteOffset,
-      lanes.byteOffset + lanes.byteLength,
-    ) as ArrayBuffer;
+    const buffer = new Uint16Array(lanes).buffer;
     const response: WorkerResponse = {
       id: req.id,
       type: 'decode-scene-linear-success',

@@ -26,7 +26,8 @@ fn bitmap_layer(recipe: BitmapRecipe, raster_id: u32) -> LocalAdjustment {
 #[test]
 fn register_returns_a_positive_id_and_resolve_attaches_the_raster() {
     let digest = b"f00d1000000000d1";
-    let id = maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len());
+    let id =
+        unsafe { maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len()) };
     assert!(id >= 1, "expected a positive id, got {id}");
 
     let mut model = AdjustmentModel::default();
@@ -75,9 +76,11 @@ fn register_returns_a_positive_id_and_resolve_attaches_the_raster() {
 #[test]
 fn resolve_falls_back_to_digest_when_the_carried_id_is_stale() {
     let digest = b"f00d2000000000d2";
-    let first_id = maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len());
+    let first_id =
+        unsafe { maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len()) };
     maple_mask_raster_release(first_id as u32);
-    let second_id = maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len());
+    let second_id =
+        unsafe { maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len()) };
     assert_ne!(first_id, second_id);
 
     let mut model = AdjustmentModel::default();
@@ -102,34 +105,38 @@ fn resolve_falls_back_to_digest_when_the_carried_id_is_stale() {
 fn register_rejects_null_bad_length_and_non_hex_digest() {
     let digest = b"f00d3000000000d3";
     assert_eq!(
-        maple_mask_raster_register(std::ptr::null(), 2, 2, DATA.as_ptr(), DATA.len()),
+        unsafe { maple_mask_raster_register(std::ptr::null(), 2, 2, DATA.as_ptr(), DATA.len()) },
         -1,
         "null digest pointer"
     );
     assert_eq!(
-        maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), 3),
+        unsafe { maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), 3) },
         -2,
         "data_len must equal width * height"
     );
     assert_eq!(
-        maple_mask_raster_register(
-            b"not-hex-not-hex!".as_ptr(),
-            2,
-            2,
-            DATA.as_ptr(),
-            DATA.len()
-        ),
+        unsafe {
+            maple_mask_raster_register(
+                b"not-hex-not-hex!".as_ptr(),
+                2,
+                2,
+                DATA.as_ptr(),
+                DATA.len(),
+            )
+        },
         -3,
         "digest bytes must be 16 lowercase hex chars"
     );
     assert_eq!(
-        maple_mask_raster_register(
-            b"0123456789ABCDEF".as_ptr(),
-            2,
-            2,
-            DATA.as_ptr(),
-            DATA.len()
-        ),
+        unsafe {
+            maple_mask_raster_register(
+                b"0123456789ABCDEF".as_ptr(),
+                2,
+                2,
+                DATA.as_ptr(),
+                DATA.len(),
+            )
+        },
         -3,
         "uppercase hex is rejected — the documented format is lowercase"
     );
@@ -141,7 +148,8 @@ fn register_rejects_null_bad_length_and_non_hex_digest() {
 #[test]
 fn layers_and_rasters_from_flat_resolves_a_registered_bitmap_record() {
     let digest = b"f00d4000000000d4";
-    let id = maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len());
+    let id =
+        unsafe { maple_mask_raster_register(digest.as_ptr(), 2, 2, DATA.as_ptr(), DATA.len()) };
     let layers = vec![bitmap_layer(BitmapRecipe::default(), id as u32)];
     let flat = raw_core::types::layers_to_flat(&layers);
 
