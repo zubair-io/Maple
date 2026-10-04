@@ -9,6 +9,122 @@ use raw_core::{
 use std::ffi::CString;
 
 #[test]
+fn paint_groups_size_probe_capacity_and_invalid_input_publish_no_prefix() {
+    let source = SourceAnchor {
+        original: ContentDigest::for_bytes(b"paint RAW"),
+        decode: ContentDigest::for_bytes(b"paint plate"),
+        width: 3000,
+        height: 100,
+    };
+    let source = CString::new(serde_json::to_string(&source).unwrap()).unwrap();
+    let mut pixels = vec![0; 2201];
+    pixels[0] = 255;
+    pixels[2200] = 255;
+    let mask = pipeline::removal_mask_to_bytes(&RemovalMask {
+        source_width: 3000,
+        source_height: 100,
+        x: 100,
+        y: 10,
+        width: 2201,
+        height: 1,
+        pixels,
+    })
+    .unwrap();
+    let expected =
+        pipeline::paint_generation_intents_packed(source.to_str().unwrap(), &mask, 8, 4.0).unwrap();
+    let mut output = vec![42; expected.len()];
+    let mut length = 42;
+    unsafe {
+        let call = |source, intent, len, cap, output, length| {
+            maple_removal_paint_intents_buf(source, intent, len, 8, 4.0, output, cap, length)
+        };
+        assert_eq!(
+            call(
+                source.as_ptr(),
+                mask.as_ptr(),
+                mask.len(),
+                0,
+                std::ptr::null_mut(),
+                &mut length
+            ),
+            100
+        );
+        assert_eq!(length, expected.len());
+        assert_eq!(
+            call(
+                source.as_ptr(),
+                mask.as_ptr(),
+                mask.len(),
+                output.len() - 1,
+                output.as_mut_ptr(),
+                &mut length
+            ),
+            100
+        );
+        assert!(output.iter().all(|v| *v == 42));
+        assert_eq!(
+            call(
+                source.as_ptr(),
+                mask.as_ptr(),
+                mask.len(),
+                output.len(),
+                output.as_mut_ptr(),
+                &mut length
+            ),
+            0
+        );
+        assert_eq!(output, expected);
+        output.fill(42);
+        assert_eq!(
+            call(
+                source.as_ptr(),
+                mask.as_ptr(),
+                mask.len() - 1,
+                output.len(),
+                output.as_mut_ptr(),
+                &mut length
+            ),
+            5
+        );
+        assert_eq!(length, 0);
+        assert!(output.iter().all(|v| *v == 42));
+        assert_eq!(
+            call(
+                std::ptr::null(),
+                mask.as_ptr(),
+                mask.len(),
+                output.len(),
+                output.as_mut_ptr(),
+                &mut length
+            ),
+            5
+        );
+        assert_eq!(
+            call(
+                source.as_ptr(),
+                std::ptr::null(),
+                mask.len(),
+                output.len(),
+                output.as_mut_ptr(),
+                &mut length
+            ),
+            5
+        );
+        assert_eq!(
+            call(
+                source.as_ptr(),
+                mask.as_ptr(),
+                mask.len(),
+                output.len(),
+                output.as_mut_ptr(),
+                std::ptr::null_mut()
+            ),
+            1
+        );
+    }
+}
+
+#[test]
 fn proposal_c_owner_matches_core_and_failure_leaves_output_untouched() {
     let source = SourceAnchor {
         original: ContentDigest::for_bytes(b"RAW"),

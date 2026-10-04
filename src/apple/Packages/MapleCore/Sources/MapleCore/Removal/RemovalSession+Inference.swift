@@ -187,7 +187,18 @@ extension RemovalSession {
     phase = .generating
     message = "Reconstructing selected pixels…"
     do {
-      let masks = mode == .people ? personMasks : [selection]
+      let masks: [Data]
+      switch mode {
+      case .people: masks = personMasks
+      case .paint: masks = try await engine.paintIntents(selection, context: context)
+      case .smart: masks = [selection]
+      }
+      guard current(token) else { return }
+      guard replacingRemovalID == nil || masks.count == 1 else {
+        throw RemovalError.invalid(
+          "Replace a saved removal within one native context. Clear distant paint or cancel replacement and create a new removal."
+        )
+      }
       guard !masks.isEmpty else { throw RemovalError.invalid("Select the people to remove first") }
       var candidate = context
       var generated: [NativeRemovalProposal] = []

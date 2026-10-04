@@ -412,3 +412,4 @@ RemovalRenderRecoveryTests
 NativeFloatExportTests
 
 SMBRemovalPublicationTests # #3984: retained removal records through real SMB model publication
+NativeRemovalPaintGroupsTests

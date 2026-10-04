@@ -261,7 +261,7 @@ pub use removal_proposal::{
     maple_removal_generation_close, maple_removal_generation_finish_buf,
     maple_removal_generation_inputs_f32, maple_removal_generation_open,
     maple_removal_generation_plan_buf, maple_removal_generation_request_buf,
-    MapleRemovalGeneration,
+    maple_removal_paint_intents_buf, MapleRemovalGeneration,
 };
 pub use removal_saved::{
     maple_removal_saved_close, maple_removal_saved_context_f32, maple_removal_saved_detail,
