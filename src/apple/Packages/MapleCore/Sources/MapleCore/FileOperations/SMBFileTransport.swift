@@ -24,12 +24,17 @@ public protocol SMBFileTransport: Sendable {
     atPath path: String, toPath: String, recursive: Bool,
     progress: (@Sendable (Int64, Int64) -> Bool)?) async throws
   func removeItem(atPath path: String) async throws
+  func readRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    consume: @Sendable @escaping (Data) -> Void) async throws
   func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool) async throws
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool) async throws
   func moveRestoreFile(
     atPath path: String, toPath destination: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool) async throws
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool) async throws
   func createDirectory(atPath path: String) async throws
   func moveItem(atPath path: String, toPath: String) async throws
   func setAttributes(attributes: [URLResourceKey: Any], ofItemAtPath path: String) async throws
@@ -61,15 +66,23 @@ extension SMB2Manager: SMBFileTransport {
 // A custom transport lacking server-handle custody must fail closed; path
 // read/then-unlink fallback would reintroduce the proven #4139 replacement loss.
 extension SMBFileTransport {
+  public func readRestoreFile(
+    atPath path: String, expectedIdentity: UInt64,
+    consume: @Sendable @escaping (Data) -> Void
+  ) async throws {
+    throw POSIXError(.ENOTSUP)
+  }
   public func removeRestoreFile(
     atPath path: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
     throw POSIXError(.ENOTSUP)
   }
   public func moveRestoreFile(
     atPath path: String, toPath destination: String, expectedIdentity: UInt64,
-    validate: @Sendable @escaping (Data) -> Bool
+    consume: @Sendable @escaping (Data) -> Void,
+    validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
     throw POSIXError(.ENOTSUP)
   }
