@@ -103,7 +103,18 @@ namespace Maple.UI
 
         /// <summary>Fires on click/tap/Enter/Space anywhere in the row
         /// except <see cref="TrailingContent"/>'s own interactive children.</summary>
-        public event EventHandler? Pressed;
+        private EventHandler? _pressed;
+        public event EventHandler? Pressed
+        {
+            add { _pressed += value; UpdateActionAvailability(); }
+            remove { _pressed -= value; UpdateActionAvailability(); }
+        }
+
+        private void UpdateActionAvailability()
+        {
+            IsTabStop = HasPressAction;
+            FrameworkElementAutomationPeer.FromElement(this)?.InvalidatePeer();
+        }
 
         private readonly Border _chrome = new()
         {
@@ -131,7 +142,7 @@ namespace Maple.UI
             _row.Children.Add(_trailingHost);
             _chrome.Child = _row;
             Content = _chrome;
-            IsTabStop = true;
+            IsTabStop = false;
             UseSystemFocusVisuals = true;
             FocusVisualPrimaryBrush = R("MapleTextMain");
             FocusVisualSecondaryBrush = R("MapleSurface");
@@ -157,12 +168,12 @@ namespace Maple.UI
 
         protected override AutomationPeer OnCreateAutomationPeer() => new MuiListRowAutomationPeer(this);
 
-        internal bool HasPressAction => Pressed != null;
+        internal bool HasPressAction => _pressed != null;
 
         internal void InvokeAction()
         {
             if (!IsEnabled) throw new ElementNotEnabledException();
-            var handler = Pressed;
+            var handler = _pressed;
             if (handler == null) return;
             handler.Invoke(this, EventArgs.Empty);
             if (FrameworkElementAutomationPeer.FromElement(this) is MuiListRowAutomationPeer peer)
@@ -175,6 +186,7 @@ namespace Maple.UI
             for (var current = source as DependencyObject; current != null; current = VisualTreeHelper.GetParent(current))
             {
                 if (ReferenceEquals(current, _trailingHost)) return interactive;
+                if (ReferenceEquals(current, this)) return false;
                 if (current is Control control && (control.IsTabStop || control is ButtonBase or ToggleSwitch))
                     interactive = true;
             }
