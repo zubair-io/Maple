@@ -865,9 +865,9 @@
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "6a43f6e804af0f1bd46f40368fe4fcd21733ad73",
-        "recorded_at": "2026-10-01T22:01:39Z",
-        "command": "swift test --package-path src/apple/Packages/MapleCore --disable-automatic-resolution --jobs 4 --filter SidecarTransactionContract"
+        "git_sha": "93002813d35346e9814d74240799b154227cc456",
+        "recorded_at": "2026-10-04T20:19:52Z",
+        "command": "swift test --package-path src/apple/Packages/MapleCore --configuration release -Xswiftc -enable-testing --no-parallel --jobs 2 --filter SidecarTransactionContract"
       }
     },
     {
