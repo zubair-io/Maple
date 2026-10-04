@@ -1,4 +1,5 @@
 import Foundation
+import RawPipeline
 
 struct RemovalStroke: Codable, Sendable {
   let points: [[Double]]
@@ -157,6 +158,7 @@ actor NativeRemovalEditorEngine {
     try Task.checkCancellation()
     return try detector.detect(
       rgb: inputs.detector, sourceWidth: context.width, sourceHeight: context.height,
+      orientation: maple_raw_handle_orientation(context.handle.pointer),
       operation: operation)
   }
 

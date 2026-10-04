@@ -263,7 +263,8 @@ pub use removal_selection::{
 };
 #[cfg(any(feature = "removal", feature = "removal-ios"))]
 pub use removal_selection_inference::{
-    maple_removal_detector_close, maple_removal_detector_detect, maple_removal_detector_open,
+    maple_removal_detector_close, maple_removal_detector_detect,
+    maple_removal_detector_detect_oriented, maple_removal_detector_open,
     maple_removal_detector_operation_new, maple_removal_embedding_free,
     maple_removal_selector_close, maple_removal_selector_encode, maple_removal_selector_open,
     maple_removal_selector_operation_new, maple_removal_selector_refine, MapleRemovalDetector,

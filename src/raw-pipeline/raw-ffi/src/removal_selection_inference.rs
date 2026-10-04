@@ -333,6 +333,24 @@ pub unsafe extern "C" fn maple_removal_detector_detect(
     height: u32,
     output: *mut MapleRemovalBuffer,
 ) -> i32 {
+    maple_removal_detector_detect_oriented(owner, op, rgb, rgb_len, width, height, 1, output)
+}
+
+/// Native source-framed detector input plus TIFF EXIF tag (1–8). Semantic
+/// inference sees upright pixels, but output boxes use original source axes.
+/// # Safety
+/// Same owner, tensor and output lifetime/disjointness as detector_detect.
+#[no_mangle]
+pub unsafe extern "C" fn maple_removal_detector_detect_oriented(
+    owner: *const MapleRemovalDetector,
+    op: *const MapleRemovalInference,
+    rgb: *const f32,
+    rgb_len: usize,
+    width: u32,
+    height: u32,
+    orientation: u32,
+    output: *mut MapleRemovalBuffer,
+) -> i32 {
     catch_panic_rc("maple_removal_detector_detect", || {
         if output.is_null() {
             return 1;
@@ -347,13 +365,20 @@ pub unsafe extern "C" fn maple_removal_detector_detect(
             if rgb.is_null() || rgb_len != 3 * 640 * 640 {
                 return Err("detector tensor size mismatch".into());
             }
+            let orientation = u16::try_from(orientation)
+                .map_err(|_| "person detection: invalid EXIF orientation")?;
+            raw_core::stages::removal_detection_geometry::upright_size(
+                [width, height],
+                orientation,
+            )?;
             let mut model = model.lock().map_err(|e| e.to_string())?;
             if op.cancelled.load(Ordering::Acquire) {
                 return Ok(None);
             }
-            let result = model.detect(
+            let result = model.detect_oriented(
                 std::slice::from_raw_parts(rgb, rgb_len),
                 [width, height],
+                orientation,
                 &op.options,
             );
             if op.cancelled.load(Ordering::Acquire) {
