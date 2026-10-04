@@ -140,9 +140,11 @@ struct SMBFolderTreeRow: View {
           onPick(share)
         }
       )
+      // Honors selection at ANY depth (#4157 review): gating on
+      // `depth == 0` here would silently break reveal for nested rows.
       .sidebarFolderReveal(
         id: "smb:\(share.host):\(share.share):\(share.username):\(path)",
-        selected: depth == 0 && isSelected
+        selected: isSelected
       )
       .overlay(
         RoundedRectangle(cornerRadius: 6)
@@ -267,7 +269,7 @@ struct SMBFolderTreeRow: View {
       }
       .onChange(of: isSelected, initial: true) { _, selected in
         #if os(macOS)
-          if depth == 0 && selected { setExpanded(true) }
+          if selected { setExpanded(true) }
         #endif
       }
       .onChange(of: refreshGeneration) { _, _ in

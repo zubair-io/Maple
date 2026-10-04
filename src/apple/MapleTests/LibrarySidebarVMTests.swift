@@ -12,11 +12,18 @@
 // naive count-based rule reads as "nothing connected".
 
 import Foundation
+import MapleCore
 import XCTest
 
 @testable import Maple
 
 final class LibrarySidebarVMTests: XCTestCase {
+
+  private let serverA = URL(string: "https://a.maple.invalid")!
+  private let serverB = URL(string: "https://b.maple.invalid")!
+  private let share = SMBCredentialStore.SavedShare(
+    host: "nas.local", share: "Photos", username: "user"
+  )
 
   // MARK: - Folders
 
@@ -108,6 +115,90 @@ final class LibrarySidebarVMTests: XCTestCase {
   /// behind it is the only route to granting access (#2454, #2924).
   func testPhotosSectionIsNeverHidden() {
     XCTAssertTrue(LibrarySidebarVM.showsPhotosSection)
+  }
+
+  // MARK: - macOS auto-expand (#4152, #4157 review)
+
+  func testCloudSectionExpandsWhenPathChangesOnItsOwnServer() {
+    XCTAssertTrue(
+      LibrarySidebarVM.shouldExpandCloudSection(
+        currentPath: "/photos/2024",
+        selection: .cloudLibrary(serverID: serverA, folderID: "1"),
+        sectionServer: serverA
+      )
+    )
+  }
+
+  /// The #4157 finding: every section observes the same path signal, so
+  /// an unscoped rule expands ALL servers when one is browsed. Browsing
+  /// server A must leave server B's section exactly as the user left it.
+  func testCloudSectionIgnoresPathsOnOtherServers() {
+    XCTAssertFalse(
+      LibrarySidebarVM.shouldExpandCloudSection(
+        currentPath: "/photos/2024",
+        selection: .cloudLibrary(serverID: serverA, folderID: "1"),
+        sectionServer: serverB
+      )
+    )
+  }
+
+  /// Exhaustive over the non-cloud cases: a stale non-nil path observed
+  /// while anything else is selected must not expand any cloud section.
+  func testCloudSectionIgnoresPathsForNonCloudSelections() {
+    let selections: [LibrarySelection] = [
+      .none,
+      .folder(path: "/Photos"),
+      .photosFilter(.all),
+      .smbShare(share),
+      .allSources,
+      .map,
+    ]
+    for selection in selections {
+      XCTAssertFalse(
+        LibrarySidebarVM.shouldExpandCloudSection(
+          currentPath: "/photos/2024",
+          selection: selection,
+          sectionServer: serverA
+        ),
+        "selection \(selection) must not expand a cloud section"
+      )
+    }
+  }
+
+  /// `nil` is "no cloud library is browsed" — including every server
+  /// except the selected one, which the parent feeds `nil` via
+  /// `pathFor(server:)`. Nothing to reveal, nothing expands.
+  func testCloudSectionStaysPutWhenNoPathIsBrowsed() {
+    XCTAssertFalse(
+      LibrarySidebarVM.shouldExpandCloudSection(
+        currentPath: nil,
+        selection: .cloudLibrary(serverID: serverA, folderID: "1"),
+        sectionServer: serverA
+      )
+    )
+  }
+
+  /// The SMB group opens for share selections and nothing else. The rule
+  /// lives in the parent sidebar (the SMB layer), not in the generic
+  /// `DisclosureRow` — this pins the behavior the move preserves.
+  func testSMBGroupExpandsOnlyForShareSelections() {
+    XCTAssertTrue(
+      LibrarySidebarVM.shouldExpandSMBGroup(selection: .smbShare(share))
+    )
+    let others: [LibrarySelection] = [
+      .none,
+      .folder(path: "/Photos"),
+      .photosFilter(.all),
+      .cloudLibrary(serverID: serverA, folderID: "1"),
+      .allSources,
+      .map,
+    ]
+    for selection in others {
+      XCTAssertFalse(
+        LibrarySidebarVM.shouldExpandSMBGroup(selection: selection),
+        "selection \(selection) must not expand the SMB group"
+      )
+    }
   }
 
 }

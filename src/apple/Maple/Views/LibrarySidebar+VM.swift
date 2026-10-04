@@ -66,4 +66,35 @@ enum LibrarySidebarVM {
   /// as a named function rather than a comment at the call site so the
   /// exception is visible to anyone extending the rule above.
   static var showsPhotosSection: Bool { true }
+
+  // MARK: - macOS sidebar auto-expand (#4152)
+
+  /// A cloud server section expands when the browsed cloud path changes
+  /// AND the selection points at THIS section's server. The server check
+  /// is the load-bearing half: every section observes the same path
+  /// signal, so without it navigating inside one library would
+  /// spuriously expand every other connected server's section (#4157
+  /// review). The surviving `selection` observer in the section covers
+  /// server switches; this covers in-library navigation (which moves the
+  /// path but not the selection) plus the cold-start `initial: true`
+  /// pass before any selection change has fired.
+  static func shouldExpandCloudSection(
+    currentPath: String?,
+    selection: LibrarySelection,
+    sectionServer: URL
+  ) -> Bool {
+    guard currentPath != nil else { return false }
+    guard case .cloudLibrary(let server, _) = selection else { return false }
+    return server == sectionServer
+  }
+
+  /// The Network (SMB) group expands when an SMB share becomes the
+  /// selection. Lives here — evaluated by the parent sidebar, not inside
+  /// `DisclosureRow` — because that row is a generic disclosure shared by
+  /// every connections group, and share-matching logic inside it would
+  /// expand groups the selection has nothing to do with (#4157 review).
+  static func shouldExpandSMBGroup(selection: LibrarySelection) -> Bool {
+    if case .smbShare = selection { return true }
+    return false
+  }
 }

@@ -131,7 +131,11 @@ struct CloudServerSection: View {
     }
     .onChange(of: cloudCurrentPath, initial: true) { _, path in
       #if os(macOS)
-        if path != nil { isExpanded = true }
+        if LibrarySidebarVM.shouldExpandCloudSection(
+          currentPath: path, selection: selection, sectionServer: serverURL
+        ) {
+          isExpanded = true
+        }
       #endif
     }
     .onChange(of: selection) { _, selection in

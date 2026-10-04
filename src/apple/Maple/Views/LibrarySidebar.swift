@@ -182,6 +182,10 @@ struct LibrarySidebar: View {
   @State private var showFolders = true
   @State private var showPhotos = true
   @State private var showConnections = true
+  /// Network (SMB) group disclosure inside CONNECTIONS — hoisted out of
+  /// `DisclosureRow` so the SMB-selection expansion rule lives in the
+  /// parent (the SMB layer), not in the generic row (#4157 review).
+  @State private var showSMBGroup = true
 
   // Cached PhotoKit state. Re-read in `.task`; PhotoKit authorization cannot
   // be observed directly so we poll on appearance.
@@ -247,7 +251,10 @@ struct LibrarySidebar: View {
     .onChange(of: selection, initial: true) { _, _ in
       #if os(macOS)
         if case .folder = selection { showFolders = true }
-        if case .smbShare = selection { showConnections = true }
+        if LibrarySidebarVM.shouldExpandSMBGroup(selection: selection) {
+          showConnections = true
+          showSMBGroup = true
+        }
       #endif
     }
     .task {
@@ -466,8 +473,8 @@ struct LibrarySidebar: View {
           icon: "network",
           label: "Network (SMB)",
           hasChildren: !savedShares.isEmpty,
-          selection: selection,
-          onAdd: onAddSMB
+          onAdd: onAddSMB,
+          expanded: $showSMBGroup
         ) {
           ForEach(savedShares, id: \.self) { share in
             SMBShareSection(
@@ -1000,13 +1007,16 @@ private struct DisclosureRow<Content: View>: View {
   let icon: String
   let label: String
   let hasChildren: Bool
-  let selection: LibrarySelection
   /// When nil, the trailing "+" button is suppressed — used for read-only
   /// groups (e.g. Self Hosted, which gains new servers only via Settings).
   let onAdd: (() -> Void)?
+  /// Parent-owned: selection-driven expansion (e.g. the SMB group
+  /// opening when a share is picked) lives in the parent, so this generic
+  /// row carries no domain-specific selection logic (#4157 review).
+  /// Declared before `content` so the memberwise init keeps `content`
+  /// last and call sites keep the trailing-closure form.
+  @Binding var expanded: Bool
   @ViewBuilder let content: () -> Content
-
-  @State private var expanded = true
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -1054,11 +1064,6 @@ private struct DisclosureRow<Content: View>: View {
       if expanded {
         content()
       }
-    }
-    .onChange(of: selection, initial: true) { _, selection in
-      #if os(macOS)
-        if case .smbShare = selection { expanded = true }
-      #endif
     }
   }
 }
