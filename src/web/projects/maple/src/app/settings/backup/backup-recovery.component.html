@@ -1,0 +1,131 @@
+<section class="mt-4 pt-4 border-t border-border" aria-label="Verified backup recovery">
+  <div class="flex justify-between items-center gap-2">
+    <h4 class="font-semibold text-[13px]">Recover verified files</h4>
+    <mui-button size="sm" [disabled]="busy() || running()" (pressed)="refresh()"
+      >Refresh catalog</mui-button
+    >
+  </div>
+  @if (view(); as vm) {
+    @if (vm.kind === 'loading') {
+      <p role="status">Reading backup catalog…</p>
+    } @else if (vm.kind === 'error') {
+      <p role="alert" class="text-error-text">{{ vm.message }}</p>
+    } @else {
+      @if (vm.jobs.length > 0) {
+        <details class="mb-4">
+          <summary class="cursor-pointer text-[12px]">Recovery jobs on this server</summary>
+          @for (job of vm.jobs; track job.id) {
+            <div class="flex gap-2 items-center mt-2 text-[12px]">
+              <span
+                >{{ job.created_at || job.id }} · {{ job.status }} · {{ job.progress.current }} /
+                {{ job.progress.total }}</span
+              ><mui-button size="sm" [disabled]="busy()" (pressed)="viewJob(job.id)"
+                >View recovery status</mui-button
+              >
+            </div>
+          }
+        </details>
+      }
+      <p class="set-fhint">
+        {{ vm.catalog.entries.length }} committed generations ·
+        {{ vm.catalog.purges.length }} permanent-delete records. Purged history is excluded from
+        recovery.
+      </p>
+      <p class="set-fhint">
+        Choose an existing empty folder inside a registered source. Maple verifies checksums and
+        never replaces existing files. Missing media, incomplete backups and unsupported server-only
+        metadata are reported before recovery.
+      </p>
+      <div class="grid gap-4 grid-cols-2 max-[767px]:grid-cols-1 mt-4">
+        <div>
+          <label class="set-flabel" for="backup-restore-target"
+            >Fresh recovery folder on this server</label
+          ><mui-input
+            inputId="backup-restore-target"
+            ariaLabel="Fresh recovery folder"
+            [(value)]="targetPath"
+            placeholder="/Volumes/Photos/Recovered"
+            [disabled]="busy() || running()"
+          />
+        </div>
+        <div>
+          <span class="set-flabel">Library or edit generation</span
+          ><mui-select
+            ariaLabel="Backup generation to restore"
+            [value]="selection()"
+            [options]="historyOptions()"
+            [disabled]="busy() || running()"
+            (valueChange)="selection.set($event)"
+          />
+        </div>
+      </div>
+      <mui-checkbox
+        class="mt-4"
+        label="Include Trash with original deletion dates"
+        [checked]="includeTrash()"
+        [disabled]="busy() || running()"
+        (checkedChange)="includeTrash.set($event)"
+      />
+      <div class="flex gap-2 flex-wrap mt-4">
+        <mui-button
+          [disabled]="!targetPath().trim() || busy() || running()"
+          [loading]="busy()"
+          (pressed)="inspect()"
+          >Preview recovery</mui-button
+        ><mui-button variant="primary" [disabled]="!canRestore()" (pressed)="restore()"
+          >Restore verified files</mui-button
+        >
+      </div>
+      @if (preview(); as preview) {
+        <p role="status" class="mt-2">
+          {{ preview.result.files }} files · {{ preview.result.bytes }} bytes ·
+          {{ preview.result.entries }} entries.
+        </p>
+        @for (gap of preview.result.gaps; track $index) {
+          <p role="alert" class="text-error-text">{{ gap }}</p>
+        }
+      }
+    }
+  }
+  @if (error()) {
+    <p role="alert" class="text-error-text mt-2">{{ error() }}</p>
+  }
+  @if (jobView(); as jobView) {
+    @if (jobView.kind === 'error') {
+      <p role="alert" class="text-error-text">{{ jobView.message }} · Retrying recovery status…</p>
+    } @else {
+      <p role="status" class="mt-2">
+        Recovery {{ jobView.job.status }} · {{ jobView.job.progress.current }} /
+        {{ jobView.job.progress.total }}
+      </p>
+      @if (jobView.job.error) {
+        <p role="alert" class="text-error-text">{{ jobView.job.error }}</p>
+      }
+      @if (jobView.job.status === 'done') {
+        <p class="set-fhint">
+          Verified recovery finished. The recovered library is indexed by Maple.
+        </p>
+      }
+      @if (jobView.job.cancel_requested) {
+        <p role="status">Cancellation requested; already recovered files remain.</p>
+      }
+      @if (jobView.job.status === 'failed' || jobView.job.status === 'cancelled') {
+        <p class="set-fhint">
+          Resume the same recovery job after resolving its error. Maple keeps its journal and
+          already recovered files.
+        </p>
+        <mui-button
+          class="mt-2"
+          variant="primary"
+          [disabled]="!canResume()"
+          [loading]="busy()"
+          (pressed)="resume()"
+          >Resume recovery</mui-button
+        >
+      }
+    }
+  }
+  @if (running()) {
+    <mui-button class="mt-2" [disabled]="busy()" (pressed)="cancel()">Cancel recovery</mui-button>
+  }
+</section>

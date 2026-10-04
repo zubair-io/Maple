@@ -419,3 +419,5 @@ export * from './lib/ui/pages/pairing/mui-page-pairing.component';
 export * from './lib/ui/pages/tv-timeline/mui-page-tv-timeline.component';
 export * from './lib/ui/pages/tv-viewer/mui-page-tv-viewer.component';
 export * from './lib/ui/pages/tv-map/mui-page-tv-map.component';
+export * from './lib/api/cloud-backup.model';
+export * from './lib/api/cloud-backup.service';

@@ -12,6 +12,8 @@ export interface NetworkConfigSource {
 }
 
 export interface NetworkConfigResponse {
+  /** Explicit browser-facing origin for OAuth callbacks behind reverse proxies. */
+  public_origin?: string | null;
   /** Master switch. When false, no LAN address is advertised at all. */
   enabled: boolean;
   /** The resolved LAN IP/hostname clients would be told about, or `null`
@@ -26,6 +28,7 @@ export interface NetworkConfigResponse {
  * field is optional; only the ones provided are changed. `null` clears an
  * override back to auto-detection/the server's listen port. */
 export interface NetworkConfigPatch {
+  public_origin?: string | null;
   enabled?: boolean | null;
   local_ip_override?: string | null;
   local_port_override?: number | null;

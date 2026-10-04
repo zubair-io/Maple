@@ -22,6 +22,14 @@ export interface StageMeta {
 // with a default description, so an added worker shows up without code
 // changes.
 export const STAGE_META: Record<string, StageMeta> = {
+  'cloud-backup': {
+    id: 'cloud-backup',
+    group: 'Index',
+    icon: 'copy',
+    enrichment: null,
+    description:
+      'Backs up originals, exact XMP and companions to configured cloud destinations. Starts paused — connect Google Drive in Settings → Backup, then resume here. Trash and permanent-delete obligations have independent progress.',
+  },
   hash: {
     id: 'hash',
     group: 'Ingest',

@@ -106,10 +106,12 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/ai/ai-settings.component').then((m) => m.AiSettingsComponent),
   },
-  // /settings/backup briefly shipped as its own page (#1073); Backup is now a
-  // group on the Workers page, so redirect the old URL instead of 404ing —
-  // same pattern as the settings/enrichment redirect above.
-  { path: 'settings/backup', redirectTo: 'settings/workers', pathMatch: 'full' },
+  {
+    path: 'settings/backup',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/backup/backup.component').then((m) => m.BackupComponent),
+  },
   // #1231 — Panorama stitching operator config (binary path + models dir + toggle).
   {
     path: 'settings/pano',

@@ -71,6 +71,7 @@ export class NetworkSettingsComponent implements OnInit {
   protected readonly fEnabled = signal(true);
   protected readonly fIpOverride = signal('');
   protected readonly fPortOverride = signal('');
+  protected readonly fPublicOrigin = signal('');
   /** Seed the form from the server config exactly once (first load); a
    * later refresh must not clobber an in-progress edit. */
   private formSeeded = false;
@@ -107,6 +108,7 @@ export class NetworkSettingsComponent implements OnInit {
   }
 
   private seedForm(cfg: NetworkConfigResponse): void {
+    this.fPublicOrigin.set(cfg.public_origin ?? '');
     this.fEnabled.set(cfg.enabled);
     // Only pre-fill the override field when one is actually saved — an
     // auto-detected value shown in "Current (resolved)" below must not
@@ -135,6 +137,7 @@ export class NetworkSettingsComponent implements OnInit {
     }
 
     const patch: NetworkConfigPatch = {
+      public_origin: this.fPublicOrigin().trim() || null,
       enabled: this.fEnabled(),
       local_ip_override: ipOverride.length > 0 ? ipOverride : null,
       local_port_override: portOverride,

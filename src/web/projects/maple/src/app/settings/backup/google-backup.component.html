@@ -1,0 +1,168 @@
+<section class="border-t border-border mt-4 pt-4" aria-label="Google Drive connection">
+  <h4 class="font-semibold text-[13px]">Google Drive connection</h4>
+  @if (view(); as vm) {
+    @if (vm.kind === 'loading') {
+      <p role="status">Loading connection…</p>
+    } @else if (vm.kind === 'error') {
+      <p role="alert" class="text-error-text">{{ vm.message }}</p>
+      <mui-button (pressed)="refresh()">Reload connection</mui-button>
+    } @else {
+      <p role="status" class="set-fhint">
+        {{ vm.config.connected ? 'Connected' : 'Not connected' }}
+        @if (vm.config.accountEmail) {
+          · {{ vm.config.accountEmail }}
+        }
+      </p>
+      <mui-checkbox
+        label="Bring your own client ID"
+        [checked]="bringOwn()"
+        [disabled]="busy()"
+        (checkedChange)="bringOwn.set($event)"
+      />
+      @if (!bringOwn()) {
+        <!-- #4223: the shared-client credential decision is unresolved; the owner-client flow is complete. -->
+        <p role="status" class="set-fhint mt-2">
+          The Maple-provided client is unavailable. Use your own Google Web Application client to
+          connect.
+        </p>
+      } @else {
+        <div class="grid gap-4 grid-cols-2 max-[767px]:grid-cols-1 mt-4">
+          <div>
+            <label class="set-flabel" for="google-client-id">Client ID</label
+            ><mui-input
+              inputId="google-client-id"
+              ariaLabel="Google OAuth Client ID"
+              [(value)]="clientId"
+              autocomplete="off"
+              [disabled]="busy()"
+            />
+          </div>
+          <div>
+            <label class="set-flabel" for="google-client-secret">Client Secret</label
+            ><mui-input
+              inputId="google-client-secret"
+              ariaLabel="Google OAuth Client Secret"
+              [(value)]="secret"
+              [masked]="true"
+              autocomplete="off"
+              [disabled]="busy()"
+              [placeholder]="vm.config.clientSecretSet ? 'Saved — leave blank to keep' : ''"
+            />
+            <p class="set-fhint">Write-only. Never returned by this server.</p>
+          </div>
+        </div>
+        <details class="mt-4">
+          <summary class="cursor-pointer text-[12px]">Callback routing</summary>
+          <mui-select
+            class="mt-2"
+            ariaLabel="Google callback routing"
+            [value]="callbackMode()"
+            [options]="modes"
+            (valueChange)="setMode($event)"
+            [disabled]="busy()"
+          />
+        </details>
+        @if (vm.config.callbackUrl; as callback) {
+          <div class="mt-4">
+            <label class="set-flabel" for="google-maple-callback">Maple callback URL</label>
+            <div class="flex gap-2 items-center">
+              <mui-input
+                class="flex-1"
+                inputId="google-maple-callback"
+                ariaLabel="Maple callback URL"
+                [readOnly]="true"
+                [value]="callback"
+              /><mui-button ariaLabel="Copy Maple callback URL" (pressed)="copy(callback)"
+                >Copy</mui-button
+              >
+            </div>
+            <p class="set-fhint">
+              @if (vm.config.callbackMode === 'relay') {
+                Paste this into the callback field on the hosted proxy page.
+              } @else {
+                This is the browser-facing callback endpoint on this server.
+              }
+            </p>
+          </div>
+        } @else {
+          <p class="set-fhint mt-4">
+            Configure the central public domain before connecting.
+            <a routerLink="/settings/network" class="text-primary">Configure domain</a>
+          </p>
+        }
+        @if (vm.config.googleRedirectUri; as redirect) {
+          <p class="set-fhint mt-2">
+            Register this saved Google OAuth redirect URL on your Web Application client (save
+            routing changes first):
+          </p>
+          <p class="font-mono text-[12px] break-all">{{ redirect }}</p>
+          <mui-button size="sm" (pressed)="copy(redirect)">Copy Google redirect URL</mui-button>
+        }
+        <p class="set-fhint mt-4">
+          Enable the Drive API. Production or eligible internal consent is needed for unattended
+          backup; Google Testing refresh tokens expire after seven days. This server exchanges and
+          renews directly with Google.
+        </p>
+        <div class="flex flex-wrap gap-2 mt-4">
+          <mui-button [disabled]="!canSave() || busy()" (pressed)="save()"
+            >Save client settings</mui-button
+          ><mui-button
+            variant="primary"
+            [disabled]="!canConnect()"
+            [loading]="busy()"
+            (pressed)="save(true)"
+            >Connect Google Drive</mui-button
+          >
+        </div>
+      }
+      @if (vm.config.connected) {
+        @if (!vm.config.rootId) {
+          <p class="set-fhint mt-4">
+            Create a new Maple Photo Backup folder or attach your existing backup below.
+          </p>
+          <mui-button [disabled]="busy()" (pressed)="createRoot()">Create backup folder</mui-button>
+        } @else {
+          <p class="set-fhint mt-4">
+            Backup folder ID: <span class="font-mono break-all">{{ vm.config.rootId }}</span>
+          </p>
+        }
+        <details class="mt-4">
+          <summary class="cursor-pointer text-[12px]">
+            Recover an existing backup after server data loss
+          </summary>
+          <p class="set-fhint mt-2">
+            Use the same Google client and account. Enter the existing Maple Photo Backup folder ID;
+            Maple verifies its descriptor and contents before attaching it.
+          </p>
+          <label class="set-flabel" for="google-backup-root">Existing backup folder ID</label
+          ><mui-input
+            inputId="google-backup-root"
+            ariaLabel="Existing Google backup folder ID"
+            [(value)]="rootId"
+          /><mui-button
+            class="mt-2"
+            [disabled]="!rootId().trim() || busy()"
+            (pressed)="attachRoot()"
+            >Verify existing backup</mui-button
+          >
+        </details>
+      }
+      <div class="flex flex-wrap gap-2 mt-4">
+        <mui-button [disabled]="busy() || !vm.config.connected" (pressed)="disconnect()"
+          >Disconnect Google</mui-button
+        ><mui-button
+          variant="ghost"
+          [disabled]="busy() || !vm.config.clientSecretSet"
+          (pressed)="disconnect(true)"
+          >Clear Google credentials</mui-button
+        >
+      </div>
+    }
+  }
+  @if (error()) {
+    <p role="alert" class="text-error-text mt-2">{{ error() }}</p>
+  }
+  @if (message()) {
+    <p role="status" class="mt-2">{{ message() }}</p>
+  }
+</section>
