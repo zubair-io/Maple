@@ -8,6 +8,7 @@ import {
   waitForMeilisearchTask,
   type MeilisearchTaskSummary,
 } from '../src/enrichment/meilisearch-transport.ts';
+import { searchWithReadingDiversity } from '../src/enrichment/meilisearch-search-diversity.ts';
 import corpus from './fixtures/search-relevance/corpus.json';
 import queries from './fixtures/search-relevance/queries.json';
 const url = process.env.MAPLE_MEILISEARCH_INTEGRATION_URL;
@@ -134,9 +135,43 @@ describe('#2386 reading diversity', () => {
               name: 'MeilisearchSearchError',
               details: { status: 404, code: 'index_not_found' },
             });
-            const native = await client.search(q, { semantic: true, offset, limit });
+            const native = await client.search(q, {
+              semantic: true,
+              offset,
+              limit,
+            });
             expect(native.ids).toEqual(raw.body!.hits.map((h) => h.id));
             expect(native.estimatedTotal).toBe(raw.body!.estimatedTotalHits);
+          }
+          // Observe actual HTTP requests while retaining the real service response.
+          // A short head cannot have a tail; an omitted q remains native browse.
+          for (const body of [
+            { q: 'Greyson', offset: 0, limit: 150, filter: 'people = "Greyson"' },
+            { offset: 3, limit: 20 },
+          ]) {
+            const sent: Record<string, unknown>[] = [];
+            const observed = {
+              ...transport,
+              fetchImpl: Object.assign(
+                async (input: RequestInfo | URL, init?: RequestInit) => {
+                  sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+                  return globalThis.fetch(input, init);
+                },
+                { preconnect: globalThis.fetch.preconnect },
+              ),
+            };
+            const actual = await searchWithReadingDiversity(observed, indexName, body);
+            const native = await meilisearchHttp<typeof actual>(
+              transport,
+              'POST',
+              `/indexes/${indexName}/search`,
+              body,
+            );
+            expect(native.ok).toBe(true);
+            expect(actual.hits.map((h) => h.id)).toEqual(native.body!.hits.map((h) => h.id));
+            expect(actual.estimatedTotalHits).toBe(native.body!.estimatedTotalHits);
+            expect(sent).toHaveLength(1);
+            if (!('q' in body)) expect(sent[0]).toEqual(body);
           }
           const greyson = await client.search('Greyson', {
             semantic: true,
