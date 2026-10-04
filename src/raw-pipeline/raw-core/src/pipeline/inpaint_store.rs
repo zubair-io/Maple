@@ -407,4 +407,23 @@ mod tests {
             .expect("empty blob decodes")
             .is_empty());
     }
+
+    /// Subnormal pixel/coverage values (e.g. 2^-15, 2^-20) must roundtrip faithfully (#4211).
+    #[test]
+    fn subnormal_patch_values_roundtrip_faithfully() {
+        let p = InpaintPatch {
+            width: 1,
+            height: 1,
+            origin: [0.0, 0.0],
+            extent: [1.0, 1.0],
+            pixels: vec![[2.0f32.powi(-15), 2.0f32.powi(-16), 2.0f32.powi(-20)]],
+            coverage: vec![2.0f32.powi(-15)],
+        };
+        let bytes = patch_to_bytes(&p);
+        let back = patch_from_bytes(&bytes).expect("decode");
+        assert_eq!(back.pixels[0][0], 2.0f32.powi(-15));
+        assert_eq!(back.pixels[0][1], 2.0f32.powi(-16));
+        assert_eq!(back.pixels[0][2], 2.0f32.powi(-20));
+        assert_eq!(back.coverage[0], 2.0f32.powi(-15));
+    }
 }
