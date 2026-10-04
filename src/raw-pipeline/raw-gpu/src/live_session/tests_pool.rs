@@ -194,7 +194,7 @@ fn same_signature_value_change_is_correct_and_zero_alloc() {
         Case {
             model,
             capture: None,
-            curve: nonidentity_curve(),
+            curve: Some(nonidentity_curve()),
             lut: nonidentity_lut(9),
             wb_method: WbMethod::Cat16,
             film_lut: None,

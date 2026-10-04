@@ -25,7 +25,7 @@ fn scope_test_case() -> Case {
     Case {
         model,
         capture: None,
-        curve: identity_curve(),
+        curve: Some(identity_curve()),
         lut: identity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None,

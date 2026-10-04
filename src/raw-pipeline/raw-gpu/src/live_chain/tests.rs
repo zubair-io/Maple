@@ -111,7 +111,7 @@ pub(super) fn neutral_case() -> Case {
     Case {
         model: noop_model(),
         capture: None,
-        curve: identity_curve(),
+        curve: Some(identity_curve()),
         lut: identity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None,
@@ -340,7 +340,7 @@ fn single_stage_case(s: &SingleStage) -> Case {
     Case {
         model,
         capture: None,
-        curve: identity_curve(),
+        curve: Some(identity_curve()),
         lut: identity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None,
