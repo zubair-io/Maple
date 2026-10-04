@@ -22,6 +22,11 @@ public sealed partial class MainWindow
             {
                 var path = Path.Combine(directory, $"Photo-{index:D3}.dng");
                 File.Copy(raw, path);
+                // Rich inspector qualification must start with its real sidecar,
+                // before the production watcher and document snapshot are active.
+                var sidecar = Services.Xmp.SidecarStore.SidecarPathFor(raw);
+                if (File.Exists(sidecar))
+                    File.Copy(sidecar, Services.Xmp.SidecarStore.SidecarPathFor(path));
                 return path;
             }).ToArray();
             File.WriteAllText(Path.Combine(output, "visual-library.json"), JsonSerializer.Serialize(new
