@@ -36,8 +36,27 @@ public sealed partial class MainWindow
             var scale = root.XamlRoot.RasterizationScale;
             var clientSize = new SizeInt32(
                 (int)Math.Round(logicalSize.Width * scale), (int)Math.Round(logicalSize.Height * scale));
-            AppWindow.ResizeClient(clientSize);
             var deadline = Environment.TickCount64 + 5000;
+            var resizeObserved = false;
+            void ObserveResize(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+            {
+                if (args.DidSizeChange) resizeObserved = true;
+            }
+            AppWindow.Changed += ObserveResize;
+            try
+            {
+                AppWindow.ResizeClient(clientSize);
+                // Caption compensation must use the completed initial resize,
+                // not client dimensions left over from the previous viewport.
+                while (!resizeObserved && !HasRequestedSize() && Environment.TickCount64 < deadline)
+                    await Task.Delay(50);
+                if (!resizeObserved && !HasRequestedSize())
+                    throw new TimeoutException("Initial shell visual client resize was not observed.");
+            }
+            finally
+            {
+                AppWindow.Changed -= ObserveResize;
+            }
             var compensationApplied = false;
             while (!HasRequestedSize() && Environment.TickCount64 < deadline)
             {
