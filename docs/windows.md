@@ -173,7 +173,7 @@ Registration uses the Win32 `CfRegisterSyncRoot` path rather than the WinRT `Sto
 
 `Services/AppSettings.cs` persists to a JSON file under `%LOCALAPPDATA%\Maple`. Its invariant: every partial write goes through `AppSettings.Update`, which reloads then writes — a long-lived cached instance calling `Save()` would serialize a stale snapshot over fields other code paths had since changed. Cloud refresh tokens are protected with DPAPI.
 
-`SettingsWindow.cs` composes the Settings surface directly on Maple.UI (`MuiSettingsShell` + `MuiListRow` nav + one `MuiSettingsSection` per section) with six sections: Library, Maple Cloud, Interface, Panorama, Storage, About. Actions that already have an owner in `MainWindow` (cloud connect, sidebar toggle) are passed in as callbacks rather than reimplemented.
+`SettingsWindow.cs` composes the Settings surface directly on Maple.UI (`MuiSettingsShell` + `MuiListRow` nav + one `MuiSettingsSection` per section) with six sections: Library, Maple Cloud, Interface, Panorama, Storage, About. Actions that already have an owner in `MainWindow` (cloud connect, sidebar preference) are passed in as callbacks rather than reimplemented.
 
 `Services/FileTypeRegistrar.cs` registers the ProgId `Maple.Exposure.Image` under `HKCU\Software\Classes` for the extensions in `DropMountLogic.SupportedExtensions` — additive only (an `OpenWithProgids` entry, never the default handler), the counterpart of Apple's document-type claims. `ProtocolRegistrar.cs` does the same for `maple-app://`. Both self-register at launch so the exe path stays fresh across rebuilds.
 
