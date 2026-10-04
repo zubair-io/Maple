@@ -148,6 +148,7 @@ describe('#2386 reading diversity', () => {
           for (const body of [
             { q: 'Greyson', offset: 0, limit: 150, filter: 'people = "Greyson"' },
             { offset: 3, limit: 20 },
+            { q: '  Rose beach  ', offset: 0, limit: 150 },
           ]) {
             const sent: Record<string, unknown>[] = [];
             const observed = {
@@ -171,7 +172,73 @@ describe('#2386 reading diversity', () => {
             expect(actual.hits.map((h) => h.id)).toEqual(native.body!.hits.map((h) => h.id));
             expect(actual.estimatedTotalHits).toBe(native.body!.estimatedTotalHits);
             expect(sent).toHaveLength(1);
-            if (!('q' in body)) expect(sent[0]).toEqual(body);
+            if (!('q' in body) || body.q === '  Rose beach  ') expect(sent[0]).toEqual(body);
+          }
+          // Match positions attest fields, not which term of a phrase matched.
+          // Multi-term queries must keep the native order and original bytes.
+          for (const q of [
+            'Rose beach',
+            '  Rose  beach  ',
+            'Mark receipt',
+            'Rose-beach',
+            'Rose/beach',
+          ]) {
+            const body = {
+              q,
+              offset: 0,
+              limit: 150,
+              filter:
+                'deletedAt IS NULL AND (hidden NOT EXISTS OR hidden IS NULL OR hidden = false)',
+              attributesToRetrieve: ['id'],
+              showRankingScore: true,
+              hybrid: { embedder: 'caption', semanticRatio: 0.5 },
+            };
+            const raw = await meilisearchHttp<{
+              hits: { id: string; _rankingScore: number }[];
+              estimatedTotalHits: number;
+            }>(transport, 'POST', `/indexes/${indexName}/search`, body);
+            expect(raw.ok).toBe(true);
+            const actual = await client.search(q, { semantic: true, offset: 0, limit: 150 });
+            console.error(
+              JSON.stringify({
+                ticket: 2386,
+                captions,
+                q,
+                nativeFirst: raw.body!.hits.slice(0, 5).map((h) => h.id),
+                actualFirst: actual.ids.slice(0, 5),
+              }),
+            );
+            expect(actual.ids).toEqual(raw.body!.hits.map((h) => h.id));
+            expect(actual.estimatedTotal).toBe(raw.body!.estimatedTotalHits);
+            for (const h of raw.body!.hits) expect(actual.scores![h.id]).toBe(h._rankingScore);
+            const pages: string[] = [];
+            for (const [offset, limit] of [
+              [0, 3],
+              [3, 94],
+              [97, 8],
+              [105, 45],
+            ]) {
+              const page = await client.search(q, { semantic: true, offset, limit });
+              expect(page.ids).toEqual(actual.ids.slice(offset, offset + limit));
+              pages.push(...page.ids);
+            }
+            expect(pages).toEqual(actual.ids);
+            const scoped = await client.search(q, {
+              semantic: true,
+              limit: 150,
+              people: ['Rose Alvarez'],
+            });
+            const nativeScoped = await meilisearchHttp<typeof raw.body>(
+              transport,
+              'POST',
+              `/indexes/${indexName}/search`,
+              {
+                ...body,
+                filter: body.filter + ' AND people = "Rose Alvarez"',
+              },
+            );
+            expect(nativeScoped.ok).toBe(true);
+            expect(scoped.ids).toEqual(nativeScoped.body!.hits.map((h) => h.id));
           }
           const greyson = await client.search('Greyson', {
             semantic: true,
