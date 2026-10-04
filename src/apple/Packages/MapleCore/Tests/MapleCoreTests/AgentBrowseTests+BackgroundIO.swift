@@ -5,6 +5,59 @@ import XCTest
 @testable import MapleCore
 
 extension AgentBrowseTests {
+  func testColdURLlessBrowseReadsActualActorSidecarsWithoutHydration() async throws {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-url-less-culling")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
+    let original = directory.appendingPathComponent("portrait.png")
+    try FileManager.default.copyItem(at: fixture, to: original)
+    let originalBytes = try Data(contentsOf: original)
+    var persisted = CullingState()
+    persisted.stars = 5
+    persisted.flag = .pick
+    let xml = XMPSerializer.serialize(model: .default, culling: persisted)
+    let sidecar = SidecarPath.sidecarURL(for: original)
+    try xml.write(to: sidecar, atomically: true, encoding: .utf8)
+    let reads = AgentBrowseOriginalReadCounter()
+    let assets = (0..<2).map { index in
+      AssetRef(displayName: "remote-\(index).png", hintExtension: "png") {
+        await reads.record()
+        throw CocoaError(.fileReadNoPermission)
+      }
+    }
+    let browse = BrowseViewModel()
+    browse.assets = assets
+    var sessions: [AssetRef.ID: EditSession] = [:]
+    let delegate = AppShellBrowseAdapter(
+      browseVM: browse, getSessions: { sessions },
+      ensureSessionHandler: { asset in
+        let session = EditSession(
+          asset: asset, remoteSidecarStore: XMPSidecarStore(rawURL: original))
+        sessions[asset.id] = session
+        return session
+      })
+    let result = try await AgentBrowseService.listPhotos(
+      [:], delegate: delegate, activeSession: nil)
+    let photos = try XCTUnwrap(result["photos"]?.arrayValue)
+    XCTAssertEqual(photos.count, 2)
+    for photo in photos {
+      XCTAssertEqual(photo["rating"], 5)
+      XCTAssertEqual(photo["flag"], "pick")
+    }
+    XCTAssertEqual(sessions.count, 2)
+    for session in sessions.values {
+      XCTAssertFalse(session.hasLoadedSidecar)
+      XCTAssertNil(session.renderedPreview)
+      XCTAssertNil(session.sidecarUpdateTask)
+      XCTAssertEqual(session.culling, CullingState())
+    }
+    let count = await reads.count
+    XCTAssertEqual(count, 0)
+    XCTAssertEqual(try Data(contentsOf: original), originalBytes)
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), xml)
+  }
+
   func testThumbnailRasterizationAllowsMainActorProgress() async throws {
     let fixture = try XCTUnwrap(
       Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
@@ -96,4 +149,9 @@ private final class AgentBrowseRasterProvider: NSObject, @unchecked Sendable {
       }
     }
   }
+}
+
+private actor AgentBrowseOriginalReadCounter {
+  private(set) var count = 0
+  func record() { count += 1 }
 }
