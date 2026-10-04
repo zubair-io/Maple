@@ -221,13 +221,13 @@ public enum AgentMaskService {
       )
     }
 
-    let maskCoverageCgImage = await session.maskCoveragePreview(for: targetLayer.mask)
+    let scopePixels = try await session.agentScopePixels(maskID: targetLayer.id, region: nil)
 
     let context = session.pipeline.context
     let rendered = try await Task.detached(priority: .userInitiated) {
       try compositeOverlay(
         canvasCiImage: canvasCiImage,
-        maskCoverageCgImage: maskCoverageCgImage,
+        scopePixels: scopePixels,
         targetLayer: targetLayer,
         maxEdge: maxEdge,
         context: context
@@ -248,10 +248,10 @@ public enum AgentMaskService {
     )
   }
 
-  /// Composites a translucent red overlay over the canvas snapshot.
+  /// Composites a translucent red overlay over the canvas snapshot using canonical paired mask coverage.
   nonisolated static func compositeOverlay(
     canvasCiImage: CIImage,
-    maskCoverageCgImage: CGImage?,
+    scopePixels: AgentScopePixels,
     targetLayer: LocalAdjustment,
     maxEdge: Int,
     context: CIContext
@@ -261,9 +261,13 @@ public enum AgentMaskService {
       throw AgentError(code: "render_unavailable", message: "The current render is empty.")
     }
 
-    let scale = min(1, Double(maxEdge) / Double(max(extent.width, extent.height)))
-    let width = max(1, Int((extent.width * scale).rounded()))
-    let height = max(1, Int((extent.height * scale).rounded()))
+    let width = scopePixels.width
+    let height = scopePixels.height
+    let count = width * height
+    guard width >= 1, height >= 1, scopePixels.rgba.count == count * 4 else {
+      throw AgentError(
+        code: "render_unavailable", message: "The current render is empty or invalid.")
+    }
 
     let scaled =
       canvasCiImage
@@ -281,22 +285,10 @@ public enum AgentMaskService {
     }
 
     var pixels = try AgentInspector.rgbaBytes(cgImage, colorSpace: sRGB)
-    let count = width * height
-
-    let weights: [UInt8]
-    if let maskCoverageCgImage {
-      weights =
-        AgentVectorscope.extractMaskWeights(maskCoverageCgImage, width: width, height: height)
-        ?? [UInt8](repeating: 0, count: count)
-    } else if targetLayer.mask == .everywhere {
-      weights = [UInt8](repeating: 255, count: count)
-    } else {
-      weights = [UInt8](repeating: 0, count: count)
-    }
-
     var nonZeroCount = 0
+
     for i in 0..<count {
-      let w = weights[i]
+      let w = scopePixels.rgba[i * 4 + 3]
       if w >= 12 { nonZeroCount += 1 }
       guard w > 0 else { continue }
       let alpha = Double(w) / 255.0 * 0.45  // 45% red opacity
@@ -331,11 +323,44 @@ public enum AgentMaskService {
       throw AgentError(code: "render_unavailable", message: "Failed to create overlay image.")
     }
 
-    let jpeg = try AgentInspector.jpeg(blendedImage)
+    let finalImage: CGImage
+    let finalWidth: Int
+    let finalHeight: Int
+    if max(width, height) > maxEdge {
+      let scale = Double(maxEdge) / Double(max(width, height))
+      finalWidth = max(1, Int((Double(width) * scale).rounded()))
+      finalHeight = max(1, Int((Double(height) * scale).rounded()))
+      guard
+        let ctx = CGContext(
+          data: nil,
+          width: finalWidth,
+          height: finalHeight,
+          bitsPerComponent: 8,
+          bytesPerRow: finalWidth * 4,
+          space: sRGB,
+          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        )
+      else {
+        throw AgentError(code: "render_unavailable", message: "Failed to scale overlay image.")
+      }
+      ctx.interpolationQuality = .high
+      ctx.draw(blendedImage, in: CGRect(x: 0, y: 0, width: finalWidth, height: finalHeight))
+      guard let scaled = ctx.makeImage() else {
+        throw AgentError(
+          code: "render_unavailable", message: "Failed to create scaled overlay image.")
+      }
+      finalImage = scaled
+    } else {
+      finalImage = blendedImage
+      finalWidth = width
+      finalHeight = height
+    }
+
+    let jpeg = try AgentInspector.jpeg(finalImage)
     return CompositeResult(
       jpeg: jpeg,
-      width: width,
-      height: height,
+      width: finalWidth,
+      height: finalHeight,
       coveragePct: coveragePct,
       sampleCount: nonZeroCount
     )
