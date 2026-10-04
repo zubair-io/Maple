@@ -179,14 +179,6 @@ namespace Maple.WinUI.Native
             float* residual, nuint residualLength, uint residualSize,
             uint size, float* output, nuint outputCapacityFloats);
 
-        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int maple_compute_auto_profile_lut(
-            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
-            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
-            int qualityPreview,
-            uint n,
-            float* outLut);           // n³ × 3 floats
-
         // --- AUTO adjustments ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
