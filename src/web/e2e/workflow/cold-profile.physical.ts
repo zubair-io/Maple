@@ -2,6 +2,43 @@ import { expect, test } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+test('failed mount releases the held frame and destroys the qualification app', async ({
+  page,
+}) => {
+  await page.route('**/physical-raw/missing-fixture.dng', (route) =>
+    route.fulfill({ status: 404 }),
+  );
+  await page.goto('http://localhost:4520');
+  await page.waitForFunction(() => Reflect.get(window, 'coldProfileUI')?.ready);
+  const errors = await page.evaluate(async () => {
+    const ui = Reflect.get(window, 'coldProfileUI');
+    const messages: string[] = [];
+    try {
+      await ui.mount(['missing-fixture.dng'], undefined, false, true);
+    } catch (error) {
+      messages.push(String(error));
+    }
+    try {
+      ui.release();
+    } catch (error) {
+      messages.push(String(error));
+    }
+    try {
+      await ui.state();
+    } catch (error) {
+      messages.push(String(error));
+    }
+    await ui.dispose();
+    return messages;
+  });
+  expect(errors).toEqual([
+    'Error: Missing physical fixture: missing-fixture.dng',
+    'Error: No pending frame',
+    'Error: No Auto fixture mounted',
+  ]);
+  await expect(page.locator('cold-profile-qualification')).toHaveCount(0);
+});
+
 for (const gpu of [false, true]) {
   for (const authored of [false, true]) {
     test(`${gpu ? 'GPU live' : 'CPU'} ${authored ? 'Custom WB' : 'As Shot'} applies Auto selected while reopening a real Neutral RAW`, async ({
