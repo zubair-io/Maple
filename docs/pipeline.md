@@ -223,6 +223,8 @@ One correction may contain ordered Add, Subtract and Intersect components, indep
 
 ## The FFI surface
 
+The GPU-enabled `maple_gpu_fit_auto_profile_at_render_size` entry returns the same separate curve/residual buffers as `maple_gpu_fit_auto_profile`, with an explicit nonzero maximum long edge matching the native sized renderer (#4136). It delegates to shared-core `FitCap::Render(edge)` and retains that size-specific cache origin; live edits do not affect the fit model. The existing entry preserves standalone-proxy calibration. Windows adoption, including composing the CPU display cube from these same artifacts and retaining them across slider ticks, is a separate delivery under #4120; this ABI addition alone does not change host defaults or qualify color/performance.
+
 `raw-ffi` is thin marshalling over `raw-core`: type shims, pointer helpers, error codes, and a `LAST_ERROR` thread-local read back through `maple_last_error`. The generated header is `RawPipeline.h`, produced by cbindgen (config in `raw-ffi/cbindgen.toml`) as part of `src/apple/scripts/build-xcframework.sh`, not by `tools/codegen.sh`. Platform-specific entries are wrapped by cbindgen `[defines]` mappings — `__APPLE__`, `TARGET_OS_IOS`, `_WIN32`.
 
 Entry families:
