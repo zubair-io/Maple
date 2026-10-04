@@ -109,6 +109,39 @@ class ColorQualificationTests(unittest.TestCase):
         )
         self.assertEqual(MODULE.aggregate(rows, manifest())["failed"], 1)
 
+    def test_error_only_attempt_is_executed_failed_without_pixel_comparison(self):
+        document = manifest(("down",), "fixture/exposure_max")
+        rows = summaries(document, {("neutral", "fixture/exposure_max"): "error"})
+        result = MODULE.aggregate(rows, document)
+        self.assertEqual(
+            result,
+            {
+                "executed": 1,
+                "failed": 1,
+                "skipped": 0,
+                "expected": 1,
+                "comparisons": 0,
+                "comparison_failures": 1,
+            },
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            data = directory / "summaries.jsonl"
+            data.write_text("".join(json.dumps(row) + "\n" for row in rows))
+            source = directory / "manifest.json"
+            source.write_text(json.dumps(document))
+            process = subprocess.run(
+                [sys.executable, str(SPEC.origin), str(data), str(source), "down", ""],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(process.returncode, 1, process.stderr)
+            self.assertIn("comparisons: executed=0 failed=1", process.stdout)
+            self.assertIn(
+                "qualification: executed=1 failed=1 skipped=0", process.stdout
+            )
+
     def test_missing_duplicate_unknown_and_inconsistent_observations_rejected(self):
         for mutation in ("missing", "duplicate", "unknown", "count"):
             with self.subTest(mutation=mutation):

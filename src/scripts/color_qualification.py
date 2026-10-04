@@ -94,7 +94,8 @@ def aggregate(summaries, manifest, resolution="down", name_filter=""):
     if seen_passes != set(PASSES):
         raise ValueError(f"missing passes: {set(PASSES) - seen_passes}")
     executed = sum(
-        any(s in ("passed", "failed") for s in states) for states in outcomes.values()
+        any(s in ("passed", "failed", "error") for s in states)
+        for states in outcomes.values()
     )
     failed = sum(
         any(s in ("failed", "error") for s in states) for states in outcomes.values()
