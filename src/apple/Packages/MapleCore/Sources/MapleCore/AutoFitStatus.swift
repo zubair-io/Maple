@@ -21,6 +21,12 @@ extension EditSession {
     autoFitStatus = .pending
   }
 
+  /// A failed render can settle an unfinished fit, but cannot invalidate a completed outcome.
+  func settleAutoFitFailure(assetID: UUID, profile: Profile, revision: UInt64) {
+    guard autoFitStatus == .pending else { return }
+    publishAutoFit(false, assetID: assetID, profile: profile, revision: revision)
+  }
+
   func publishAutoFit(_ achieved: Bool, assetID: UUID, profile: Profile, revision: UInt64) {
     guard asset.id == assetID, model.profile == profile, profile == .auto,
       autoFitRevision == revision

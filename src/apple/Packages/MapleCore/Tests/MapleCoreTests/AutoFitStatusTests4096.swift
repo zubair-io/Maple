@@ -5,6 +5,47 @@ import XCTest
 
 extension EditSessionFilmLutSyncTests {
   @MainActor
+  func testAutoFitFailureRejectsStaleIdentityAndPreservesCompletedOutcomes() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let session = EditSession(asset: AssetRef(url: directory.appendingPathComponent("first.dng")))
+    let first = session.asset.id
+    let firstRevision = session.autoFitRevision
+    session.asset = AssetRef(url: directory.appendingPathComponent("second.dng"))
+    let current = session.asset.id
+    let currentRevision = session.autoFitRevision
+    session.settleAutoFitFailure(assetID: first, profile: .auto, revision: currentRevision)
+    XCTAssertEqual(session.autoFitStatus, .pending, "An old asset cannot settle the current fit")
+    session.settleAutoFitFailure(assetID: current, profile: .neutral, revision: currentRevision)
+    XCTAssertEqual(session.autoFitStatus, .pending, "An old profile cannot settle the current fit")
+    session.settleAutoFitFailure(assetID: current, profile: .auto, revision: firstRevision)
+    XCTAssertEqual(session.autoFitStatus, .pending, "An old revision cannot settle the current fit")
+    session.settleAutoFitFailure(assetID: current, profile: .auto, revision: currentRevision)
+    XCTAssertEqual(session.autoFitStatus, .unavailable)
+    session.publishAutoFit(true, assetID: current, profile: .auto, revision: currentRevision)
+    XCTAssertEqual(session.autoFitStatus, .active, "A successful later fit may update the outcome")
+    session.settleAutoFitFailure(assetID: current, profile: .auto, revision: currentRevision)
+    XCTAssertEqual(session.autoFitStatus, .active)
+    session.publishAutoFit(false, assetID: current, profile: .auto, revision: currentRevision)
+    XCTAssertEqual(
+      session.autoFitStatus, .unavailable, "An actual later fit result remains authoritative")
+    session.settleAutoFitFailure(assetID: current, profile: .auto, revision: currentRevision)
+    XCTAssertEqual(session.autoFitStatus, .unavailable)
+    session.isHydratingInitialState = true
+    session.model.profile = .neutral
+    let neutralRevision = session.autoFitRevision
+    session.settleAutoFitFailure(assetID: current, profile: .auto, revision: neutralRevision)
+    XCTAssertEqual(
+      session.autoFitStatus, .pending, "A current Neutral image has no Auto fit to settle")
+    session.model.profile = .auto
+    session.isHydratingInitialState = false
+    session.settleAutoFitFailure(assetID: current, profile: .auto, revision: neutralRevision)
+    XCTAssertEqual(session.autoFitStatus, .pending, "A profile round trip invalidates the failure")
+    await session.releaseTransientMemory()
+  }
+
+  @MainActor
   func testAutoFitStatusRejectsOldImageAndProfileReplies() async throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -48,6 +89,53 @@ extension EditSessionFilmLutSyncTests {
 }
 
 extension AutoProfileCanvasParityTests {
+  @MainActor
+  func testScalarRenderFailurePreservesCompletedAutoFit() async throws {
+    let source = Self.fixtureDir("test-fixtures/raws").appendingPathComponent("test_0006.DNG")
+    XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent(source.lastPathComponent)
+    try FileManager.default.copyItem(at: source, to: url)
+    let session = EditSession(asset: AssetRef(url: url))
+    await session.decodeAndRender(targetSize: CGSize(width: 128, height: 128), phase: .fast)
+    XCTAssertNil(session.renderError)
+    XCTAssertEqual(session.autoFitStatus, .active, "The real embedded preview fit completed")
+    let revision = session.autoFitRevision
+    let assetID = session.asset.id
+    await session.releaseTransientMemory()
+    // Simulate an unavailable owned source after eviction, without altering the original RAW.
+    try FileManager.default.removeItem(at: url)
+    session.isHydratingInitialState = true
+    session.model.exposure += 0.25
+    session.isHydratingInitialState = false
+    XCTAssertEqual(session.autoFitRevision, revision, "Scalar edits keep the fit identity")
+    XCTAssertEqual(session.asset.id, assetID)
+    await session.decodeAndRender(targetSize: CGSize(width: 128, height: 128), phase: .fast)
+    XCTAssertNotNil(session.renderError, "The real missing-source decode must fail")
+    XCTAssertEqual(session.autoFitRevision, revision)
+    XCTAssertEqual(
+      session.autoFitStatus, .active, "A render error does not disprove a completed fit")
+    await session.releaseTransientMemory()
+  }
+
+  @MainActor
+  func testPendingAutoFitDecodeFailureSettlesUnavailable() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let url = directory.appendingPathComponent("invalid.dng")
+    try Data("not a RAW image".utf8).write(to: url)
+    let session = EditSession(asset: AssetRef(url: url))
+    XCTAssertEqual(session.autoFitStatus, .pending)
+    await session.decodeAndRender(targetSize: CGSize(width: 128, height: 128), phase: .fast)
+    XCTAssertNotNil(session.renderError)
+    XCTAssertEqual(session.autoFitStatus, .unavailable)
+    XCTAssertEqual(try Data(contentsOf: url), Data("not a RAW image".utf8))
+    await session.releaseTransientMemory()
+  }
+
   @MainActor
   func testActualAutoFitOutcomeWithAndWithoutEmbeddedPreview() async throws {
     let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()

@@ -541,7 +541,7 @@ extension EditSession {
       editSessionLogger.error(
         "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
       )
-      publishAutoFit(false, assetID: asset.id, profile: m.profile, revision: fitRevision)
+      settleAutoFitFailure(assetID: asset.id, profile: m.profile, revision: fitRevision)
       renderError = error
       // Terminal failure once the decode is done (e.g. an unreadable file):
       // no full-quality frame is coming, so settle the cold-open indicator
