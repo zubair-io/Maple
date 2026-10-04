@@ -77,6 +77,8 @@ public partial class EditSessionViewModel
         // spellings must identify the same visible unselected target (#4144).
         photo.FilePath = Path.GetFullPath(fixture).Replace('\\', '/');
         session.AllPhotos.Add(photo);
+        foreach (var missingPath in new[] { null, "", " " })
+            session.AllPhotos.Add(new PhotoItem { FilePath = missingPath!, FileName = "Missing path" });
         var snapshot = await TransferSnapshot.ReadAsync(fixture, null, CancellationToken.None);
         var incoming = baseline.Clone();
         incoming.Exposure = 1;

@@ -35,7 +35,7 @@ public partial class EditSessionViewModel
 
     public async Task RefreshLocalTransferThumbnailsAsync(Services.Transfer.LocalTransferJob job)
     {
-        var visible = AllPhotos.Where(photo => !photo.IsCloud)
+        var visible = AllPhotos.Where(photo => !photo.IsCloud && !string.IsNullOrWhiteSpace(photo.FilePath))
             .ToLookup(photo => Path.GetFullPath(photo.FilePath), StringComparer.OrdinalIgnoreCase);
         await foreach (var path in job.CurrentAppliedPathsAsync())
         {
