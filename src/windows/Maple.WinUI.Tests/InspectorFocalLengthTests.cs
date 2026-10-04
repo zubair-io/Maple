@@ -17,6 +17,8 @@ public sealed class InspectorFocalLengthTests
     [InlineData(double.PositiveInfinity, "—")]
     [InlineData(35.0, "35 mm")]
     [InlineData(24.75, "24.75 mm")]
+    [InlineData(0.004, "0.004 mm")]
+    [InlineData(0.0004, "0.0004 mm")]
     public void FocalLengthHasUnitsAndHonestAbsentState(double? value, string expected)
     {
         var previous = CultureInfo.CurrentCulture;
