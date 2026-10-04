@@ -9,9 +9,9 @@ config = json.loads(Path(sys.argv[1]).read_text())
 agent = json.loads(Path(sys.argv[2]).read_text())
 if config.get("default_agent") != "review" or agent.get("name") != "review":
     raise SystemExit("Muse must select the review agent; refusing review secrets")
-if config.get("model") != "model_api/muse-spark-1.3" or agent.get("model") != {
+if config.get("model") != "model_api/muse-spark-1.3-contributor" or agent.get("model") != {
     "providerID": "model_api",
-    "modelID": "muse-spark-1.3",
+    "modelID": "muse-spark-1.3-contributor",
 }:
     raise SystemExit("Muse review model changed; refusing review secrets")
 enabled = {name for name, allowed in agent["tools"].items() if allowed}
