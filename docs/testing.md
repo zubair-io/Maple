@@ -264,6 +264,7 @@ CPU↔GPU agreement is a real gate, and it runs on a **software** Vulkan adapter
 cargo build -p raw-ffi --features gpu                      # the FFI GPU surface compiles
 cargo test -p raw-ffi --features gpu --lib gpu_auto_profile::sized::tests # fixture-free sized ABI guards
 cargo test -p raw-ffi --features gpu --lib auto_profile_compose -- --test-threads=1 # composition / isolated residual-kernel parity
+cargo test -p raw-ffi --features gpu --lib gpu_live::params -- --test-threads=1 # optional profile ABI / borrowing guards
 cargo check -p raw-wasm --all-features --all-targets       # raw-wasm's gpu module tree type-checks
 cargo install naga-cli --locked --version 23.0.0
 bash src/scripts/check_wgsl.sh                             # naga front-end + validator, no GPU needed
