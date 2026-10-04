@@ -192,6 +192,9 @@ public enum AgentMaskService {
     in session: EditSession
   ) async throws -> AgentPayload {
     let maxEdge = try AgentInspector.parseMaxEdge(arguments["max_edge"])
+    if let value = arguments["mask_id"], value.stringValue == nil {
+      throw AgentError(code: "invalid_arguments", message: "mask_id must be a UUID string.")
+    }
     let targetLayer: LocalAdjustment
     if let maskIdStr = arguments["mask_id"]?.stringValue {
       guard let uuid = UUID(uuidString: maskIdStr),

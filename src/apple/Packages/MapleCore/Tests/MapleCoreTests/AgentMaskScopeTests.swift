@@ -34,6 +34,90 @@ final class AgentMaskScopeTests: XCTestCase {
     return try XCTUnwrap(state["revision"]?.stringValue)
   }
 
+  func testNonStringAdjustmentMaskIDCannotFallBackToGlobalEdits() async throws {
+    try await assertNonStringMaskIDsAreRejected(tool: "maple_set_adjustments")
+  }
+
+  func testNonStringOverlayMaskIDCannotFallBackToSelectedMask() async throws {
+    try await assertNonStringMaskIDsAreRejected(tool: "maple_render_mask_overlay")
+  }
+
+  private func assertNonStringMaskIDsAreRejected(tool: String) async throws {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-mask-id-type")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let fixture = try XCTUnwrap(
+      Bundle.module.url(forResource: "portrait-skin-test", withExtension: "png"))
+    let original = directory.appendingPathComponent("portrait.png")
+    try FileManager.default.copyItem(at: fixture, to: original)
+    let bytes = try Data(contentsOf: original)
+    let session = EditSession(asset: AssetRef(url: original))
+    session.previewSize = CGSize(width: 200, height: 200)
+    await session.openAssetPipelineAsync()
+    _ = await session.latestRenderSchedule?.value
+    let service = AgentEditService()
+    service.activate(session)
+    let created = try await call(
+      service, "maple_create_mask",
+      ["expected_revision": .string(try await revision(service)), "kind": "radial"]
+    ).get().result
+    let maskID = try XCTUnwrap(created["mask_id"]?.stringValue)
+    await session.flushPendingSidecarWrite()
+    let sidecar = SidecarPath.sidecarURL(for: original)
+    let savedXML = try Data(contentsOf: sidecar)
+    let initialModel = session.model
+    let initialRevision = try await revision(service)
+    let initialHistoryCount = session.undoHistory.count
+
+    for invalid: JSONValue in [.number(1), .null, .bool(false), .array([]), .object([:])] {
+      let response = await call(
+        service, tool,
+        [
+          "mask_id": invalid, "expected_revision": .string(initialRevision),
+          "adjustments": ["exposure": 0.5], "max_edge": 256,
+        ])
+      if case .failure(let error) = response {
+        XCTAssertEqual(error.code, "invalid_arguments", "\(tool): \(invalid)")
+      } else {
+        XCTFail("A supplied non-string mask ID fell back to another target: \(tool), \(invalid)")
+      }
+      XCTAssertEqual(session.model, initialModel)
+      XCTAssertEqual(session.undoHistory.count, initialHistoryCount)
+      XCTAssertEqual(session.selectedMaskId?.uuidString, maskID)
+      let currentRevision = try await revision(service)
+      XCTAssertEqual(currentRevision, initialRevision)
+      await session.flushPendingSidecarWrite()
+      XCTAssertEqual(try Data(contentsOf: sidecar), savedXML)
+      XCTAssertEqual(try Data(contentsOf: original), bytes)
+    }
+
+    // Omission retains the documented default; an explicit UUID still targets the mask.
+    let omitted = try await call(
+      service, tool,
+      ["expected_revision": .string(initialRevision), "adjustments": ["exposure": 0.5]]
+    ).get()
+    if tool == "maple_set_adjustments" {
+      XCTAssertEqual(session.model.exposure, 0.5)
+      XCTAssertEqual(session.model.localAdjustments, initialModel.localAdjustments)
+    } else {
+      XCTAssertEqual(omitted.result["mask_id"]?.stringValue, maskID)
+      XCTAssertNotNil(omitted.image)
+    }
+    let targeted = try await call(
+      service, tool,
+      [
+        "mask_id": .string(maskID), "expected_revision": .string(try await revision(service)),
+        "adjustments": ["exposure": 0.6], "max_edge": 256,
+      ]
+    ).get()
+    XCTAssertEqual(targeted.result["mask_id"]?.stringValue, maskID)
+    if tool == "maple_set_adjustments" {
+      XCTAssertEqual(session.model.exposure, 0.5)
+      XCTAssertEqual(session.model.localAdjustments.first?.adjustments.exposure, 0.6)
+    }
+    await session.flushPendingSidecarWrite()
+    XCTAssertEqual(try Data(contentsOf: original), bytes)
+  }
+
   func testUndoClearsRemovedMaskSelectionAndRedoPreservesValidSelection() async throws {
     let directory = try SidecarContractIO.makeTempDirectory(prefix: "agent-mask-undo")
     defer { try? FileManager.default.removeItem(at: directory) }
