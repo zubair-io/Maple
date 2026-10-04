@@ -275,6 +275,11 @@ does not invalidate the proposal.
 
 Apple writers use a persistent advisory `.photo.xmp.lock` file, synchronize new
 assets and the accepted sidecar, and publish through atomic filesystem operations.
+Local companion publication also syncs `.maple/inpaint`, `.maple`, the photo
+folder and any destination ancestors created during that publication, deepest
+first, before returning prepared records. Existing carrier directories are synced
+on repeated publication as well. A directory sync failure prevents confirmation;
+actual local syscall ordering does not prove physical power-loss or NAS durability.
 The shared core and Apple resolve owned removal attributes and direct scalar
 property elements on RDF descriptions by namespace URI, including renamed
 prefixes and the legacy Maple URI. Duplicate owned fields and nested XML
