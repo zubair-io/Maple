@@ -385,21 +385,26 @@ namespace Maple.WinUI.Services
                 decoded.ResidualLutSize = lutSize;
             }
 
-            // Composed display-domain LUT for the CPU fallback path.
+            // Compose once from the GPU's retained artifacts (#4146), not a
+            // second fit. Render-size selection/reuse guards remain in #4120.
             const int displayN = 33;
             var displayLut = new float[displayN * displayN * displayN * 3];
+            fixed (float* curvePtr = decoded.ProfileCurve)
+            fixed (float* residualPtr = decoded.ResidualLut)
             fixed (float* displayPtr = displayLut)
             {
-                var lutRc = RawFfi.maple_compute_auto_profile_lut(
-                    rawPath, xmpPath, 1, displayN, displayPtr);
+                var lutRc = RawFfi.maple_compose_auto_profile_lut(
+                    curvePtr, (nuint)(decoded.ProfileCurve?.Length ?? 0),
+                    residualPtr, (nuint)(decoded.ResidualLut?.Length ?? 0), decoded.ResidualLutSize,
+                    displayN, displayPtr, (nuint)displayLut.Length);
                 if (lutRc == 0)
                 {
                     decoded.DisplayLut = displayLut;
                     decoded.DisplayLutN = displayN;
                 }
-                else
+                else if (lutRc != 1)
                 {
-                    DiagLog.Write($"[profile] cpu lut rc={lutRc}: {RawFfi.LastError()}");
+                    throw new InvalidOperationException($"Auto Profile composition failed (rc={lutRc}): {RawFfi.LastError()}");
                 }
             }
         }
