@@ -45,7 +45,7 @@ final class NativeExportQueueTests: XCTestCase {
     let applied = try NativeExportPublication.publish(
       prepared, record: renewed, access: access, cancellation: NativeExportCancellation())
     XCTAssertEqual(applied.status, "applied")
-    let originalAlias = fixture.directory.appendingPathComponent("outputs/original-alias.dng")
+    let originalAlias = fixture.directory.appending(path: "outputs/original-alias.dng")
     try FileManager.default.linkItem(at: original, to: originalAlias)
     XCTAssertThrowsError(try access.protect(originalAlias, originals: renewed.originals))
     XCTAssertEqual(try Data(contentsOf: original), fixture.original)
@@ -55,7 +55,7 @@ final class NativeExportQueueTests: XCTestCase {
     try fixture.original.write(to: fixture.raw, options: .withoutOverwriting)
     XCTAssertThrowsError(
       try NativeExportPublication.prepare(renewed.items[0], record: renewed, access: access))
-    let chosenAlias = fixture.directory.appendingPathComponent("outputs/authorized-alias.dng")
+    let chosenAlias = fixture.directory.appending(path: "outputs/authorized-alias.dng")
     try FileManager.default.linkItem(at: chosen, to: chosenAlias)
     XCTAssertThrowsError(try access.protect(chosenAlias, originals: renewed.originals))
     XCTAssertEqual(try Data(contentsOf: chosen), fixture.original)
@@ -177,7 +177,7 @@ final class NativeExportQueueTests: XCTestCase {
     try await queue.enqueue(record)
     let moved = fixture.directory.appendingPathComponent("moved.dng")
     try FileManager.default.moveItem(at: fixture.raw, to: moved)
-    let output = fixture.directory.appendingPathComponent("outputs/output.png")
+    let output = fixture.directory.appending(path: "outputs/output.png")
     try FileManager.default.linkItem(at: moved, to: output)
     try await queue.authorizeSource(id: record.originals[0].id, url: moved)
     let restored = try await queue.load()
@@ -212,7 +212,7 @@ final class NativeExportQueueTests: XCTestCase {
     XCTAssertEqual(cancelled?.remaining, 1)
     XCTAssertFalse(
       FileManager.default.fileExists(
-        atPath: fixture.directory.appendingPathComponent("outputs/output.png").path))
+        atPath: fixture.directory.appending(path: "outputs/output.png").path))
     XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
     let resumed = NativeExportQueue(directory: queue.directory)
     try await resumed.run()
@@ -250,7 +250,7 @@ final class NativeExportQueueTests: XCTestCase {
     XCTAssertEqual(try NativeExportStorage.identity(staging), record.originals[0].identity)
     XCTAssertFalse(
       FileManager.default.fileExists(
-        atPath: fixture.directory.appendingPathComponent("outputs/output.png").path))
+        atPath: fixture.directory.appending(path: "outputs/output.png").path))
   }
 
   func testSecondQueueCannotOverwriteLedgerDuringNativeRun() async throws {

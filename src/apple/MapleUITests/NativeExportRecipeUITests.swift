@@ -8,7 +8,7 @@ import XCTest
     func testBrowseRecipeCapturesTwoSelectedPhotosOnFirstPresentation() throws {
       continueAfterFailure = false
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+        .appending(path: "Fixtures/layout/rgb-gradient.png")
       let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("native-recipe-selection-\(UUID().uuidString)", isDirectory: true)
       try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -39,7 +39,7 @@ import XCTest
     func testFocusedRecipeQueuePublishesRealFileWithoutChangingSource() throws {
       continueAfterFailure = false
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+        .appending(path: "Fixtures/layout/rgb-gradient.png")
       let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("native-recipe-ui-\(UUID().uuidString)", isDirectory: true)
       let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
