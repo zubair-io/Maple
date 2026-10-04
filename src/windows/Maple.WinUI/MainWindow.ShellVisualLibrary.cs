@@ -26,7 +26,7 @@ public sealed partial class MainWindow
         var library = await Task.Run(() =>
         {
             Directory.CreateDirectory(directory);
-            var sourceHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(raw)));
+            var sourceHash = HashShellVisualFile(raw);
             var sourceSidecar = SidecarStore.ReadSnapshot(raw);
             var sourceSidecarHash = SidecarStore.SnapshotHash(sourceSidecar);
             var files = Enumerable.Range(0, 64).Select(index =>
@@ -50,7 +50,7 @@ public sealed partial class MainWindow
                 files = files.Select(file => new
                 {
                     name = Path.GetFileName(file.Path),
-                    sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file.Path))),
+                    sha256 = HashShellVisualFile(file.Path),
                     sidecarSha256 = file.SidecarHash
                 })
             }));
@@ -70,5 +70,11 @@ public sealed partial class MainWindow
             await Task.Delay(50);
         }
         return paths[0];
+    }
+
+    private static string HashShellVisualFile(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream));
     }
 }
