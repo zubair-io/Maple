@@ -438,7 +438,7 @@ final class NativeExportSnapshotTests: EditorTestCase {
     XCTAssertEqual(try Data(contentsOf: original), before)
   }
 
-  private static func jpeg(_ root: URL) throws -> URL {
+  static func jpeg(_ root: URL) throws -> URL {
     let png = root.appendingPathComponent("seed.png")
     try SidecarContractIO.makeSyntheticOriginal(at: png)
     let source = try XCTUnwrap(CGImageSourceCreateWithURL(png as CFURL, nil))
@@ -453,7 +453,7 @@ final class NativeExportSnapshotTests: EditorTestCase {
     return jpeg
   }
 
-  private static func byteSession(_ original: URL, root: URL) async throws -> EditSession {
+  static func byteSession(_ original: URL, root: URL) async throws -> EditSession {
     let support = AppSupportSidecarStore(root: root.appendingPathComponent("sidecars"))
     let sidecar = support.sidecarURL(phassetLocalId: "native/recipe/bytes")
     try FileManager.default.createDirectory(

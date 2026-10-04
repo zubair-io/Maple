@@ -61,6 +61,37 @@ public actor NativeExportQueue {
   }
 
   public func enqueue(_ value: NativeExportRecord) async throws {
+    do { try await enqueueCaptured(value) } catch {
+      let failure = error
+      do { try await releaseUnenqueuedCapture(value) } catch {
+        throw NativeExportError.message(
+          "\(NativeExportStorage.failure(failure)) Private capture cleanup could not be verified; its files were preserved. \(NativeExportStorage.failure(error))"
+        )
+      }
+      throw failure
+    }
+  }
+
+  /// A capture belongs to its caller until the actual queue ledger adopts it (#4113).
+  /// An enqueue can throw after persistence while retiring the previous job.
+  public func releaseUnenqueuedCapture(_ value: NativeExportRecord) async throws {
+    guard let job = value.ownedJob else { return }
+    let lock = running ? nil : try NativeExportRunLock(directory: directory)
+    defer { withExtendedLifetime(lock) {} }
+    if FileManager.default.fileExists(atPath: ledger.path) {
+      let saved = try JSONDecoder().decode(NativeExportRecord.self, from: Data(contentsOf: ledger))
+      try saved.validate()
+      if NativeExportArtifacts.referenced(job, by: saved, workspace: directory) { return }
+    }
+    let workspace = directory
+    // Cancellation releases a caller-owned capture; it must not cancel that cleanup.
+    try await Task.detached {
+      try await BlockingWork.run { try NativeExportArtifacts.remove(job, workspace: workspace) }
+    }.value
+  }
+
+  private func enqueueCaptured(_ value: NativeExportRecord) async throws {
+    try Task.checkCancellation()
     guard !running else {
       throw NativeExportError.message("Wait for the active export to stop.")
     }
@@ -76,6 +107,7 @@ public actor NativeExportQueue {
     replacement.retiredJobs = candidates.filter {
       !NativeExportArtifacts.referenced($0, by: replacement, workspace: directory)
     }
+    try Task.checkCancellation()
     record = replacement
     do { try persist() } catch {
       record = previous
