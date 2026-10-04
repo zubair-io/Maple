@@ -51,6 +51,18 @@ extension NativeRemovalGeneration {
 }
 
 extension NativeRemovalEditorEngine {
+  /// Validate the whole removal before opening a model job, including a later
+  /// oversized person. Planning stays on this actor and never changes intent.
+  func preflightIntents(_ masks: [Data], source: String) throws {
+    for mask in masks {
+      try Task.checkCancellation()
+      _ = try NativeRemovalGeneration.plan(
+        source: source, intent: mask, holeRadius: ExperimentalRemovalModels.holeRadius,
+        fringeRadius: ExperimentalRemovalModels.fringeRadius)
+    }
+    try Task.checkCancellation()
+  }
+
   func paintIntents(_ intent: Data, context: NativeRemovalEditorContext) throws -> [Data] {
     try Task.checkCancellation()
     let masks = try NativeRemovalGeneration.paintIntents(

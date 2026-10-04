@@ -199,3 +199,4 @@ NativeRemovalSelectorTests fixture requires gitignored pinned ONNX/ORT qualifica
 PhotographicRemovalGroupTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3941 / #3984); exercised locally, absent in fixture-free CI which rejects skips
 PhotographicRemovalOrientationTests fixture requires gitignored portrait RAW and pinned ONNX/ORT detector/runtime (#3941); exercised locally, absent in fixture-free CI which rejects skips
 PhotographicRemovalPaintTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3984); exercised locally, absent in fixture-free CI which rejects skips
+PhotographicRemovalSmartPaintTests fixture requires gitignored Bologna RAW and pinned ONNX/ORT corpus (#3984 / #3941); exercised locally, absent in fixture-free CI which rejects skips

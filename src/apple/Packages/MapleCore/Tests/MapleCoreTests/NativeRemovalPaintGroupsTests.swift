@@ -84,4 +84,23 @@ final class NativeRemovalPaintGroupsTests: XCTestCase {
       try NativeRemovalGeneration.paintIntents(
         source: source(), intent: mask, holeRadius: 0, fringeRadius: 1))
   }
+
+  func testWholeGroupPreflightRefusesALaterOversizedObjectWithoutLoadingModels() async throws {
+    let small = try paint([[[0.1, 0.5]]])
+    let large = try paint([[[0.1, 0.5], [0.9, 0.5]]])
+    let anchor = try source()
+    let engine = NativeRemovalEditorEngine()
+    try await engine.preflightIntents([small, small], source: anchor)
+    do {
+      try await engine.preflightIntents([small, large], source: anchor)
+      XCTFail("A fitting first object cannot admit an oversized second object")
+    } catch {
+      XCTAssertTrue(error.localizedDescription.contains("object is too large"))
+      XCTAssertTrue(error.localizedDescription.contains("1024"))
+    }
+    XCTAssertThrowsError(
+      try NativeRemovalGeneration.plan(
+        source: anchor, intent: large, holeRadius: ExperimentalRemovalModels.holeRadius,
+        fringeRadius: ExperimentalRemovalModels.fringeRadius))
+  }
 }
