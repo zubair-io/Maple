@@ -237,7 +237,7 @@ jobs:
   # `force_fallback_adapter` is set, wgpu-core-23 instance.rs) — so the whole
   # suite runs, headless and compute-only, on the stock runner.
   #
-  # The six gates, in execution order:
+  # The seven gates, in execution order:
   #   1. `cargo build -p raw-ffi --features gpu` — the FFI GPU surface
   #      (src/gpu.rs + src/gpu_live.rs) that delegates into raw-gpu/wgpu; a
   #      compile-only gate needing no GPU. Catches the "raw-ffi --features gpu
@@ -246,18 +246,20 @@ jobs:
   #      — CPU-only guards for the render-sized profile ABI.
   #   3. `cargo test -p raw-ffi --features gpu --lib auto_profile_compose -- --test-threads=1`
   #      — retained composition against the isolated GPU residual kernel;
-  #      production absent-stage chain coverage is tracked in #4216.
-  #   4. `cargo check -p raw-wasm --all-features --all-targets` — raw-wasm's
+  #      production absent-stage chain coverage runs in raw-gpu below (#4216).
+  #   4. `cargo test -p raw-ffi --features gpu --lib gpu_live::params -- --test-threads=1`
+  #      — CPU-only guards for absent/borrowed profile inputs at the live ABI.
+  #   5. `cargo check -p raw-wasm --all-features --all-targets` — raw-wasm's
   #      `gpu` feature gates a whole module tree (src/gpu_render/, including
   #      model.rs) that a default `cargo check` never compiles, so type-level rot
   #      there was invisible to every job. `--all-features` also pulls `parallel`;
   #      both resolve on the host target.
-  #   5. `check_wgsl.sh` — naga's CPU WGSL front-end + validator over every
+  #   6. `check_wgsl.sh` — naga's CPU WGSL front-end + validator over every
   #      hand-written kernel (assembled with its generated headers, mirroring
   #      the runtime concat). Needs no GPU. naga-cli is pinned to 23.0.0 to
   #      match the naga 23.1.0 that wgpu 23.0.1 bundles (Cargo.lock), so the
   #      gate matches the compiler the app actually runs.
-  #   6. THE PARITY GATE: `cargo test -p raw-gpu` (every WGSL kernel against its
+  #   7. THE PARITY GATE: `cargo test -p raw-gpu` (every WGSL kernel against its
   #      raw-core Rust stage) followed by `cargo test -p raw-wasm --features gpu`
   #      (the whole `render_bytes_gpu` chain against `render_bytes`, on the
   #      committed synthetic grey DNG). A WGSL kernel that stops agreeing with
@@ -382,14 +384,14 @@ jobs:
         working-directory: src/raw-pipeline
         run: cargo check -p raw-wasm --all-features --all-targets
 
-      # 5. WGSL syntax/type gate — CPU-only naga validation. Pinned to the naga
+      # 6. WGSL syntax/type gate — CPU-only naga validation. Pinned to the naga
       #    version wgpu bundles so the gate mirrors the app's own compiler.
       - name: Install naga-cli (pinned to wgpu 23's naga)
         run: cargo install naga-cli --locked --version 23.0.0
       - name: WGSL validate (check_wgsl.sh)
         run: bash src/scripts/check_wgsl.sh
 
-      # 6. The parity gate proper. raw-gpu first: its ~180 tests hard-`.expect()`
+      # 7. The parity gate proper. raw-gpu first: its ~180 tests hard-`.expect()`
       #    a context, so if the adapter ever disappears this step is the loud
       #    failure that stops the job before anything downstream can soft-pass.
       # --test-threads=1 (#2336): serialised, not a retry band-aid — see the
