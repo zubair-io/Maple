@@ -127,7 +127,7 @@ pub(super) fn mild_case() -> Case {
     Case {
         model,
         capture: None,
-        curve: nonidentity_curve(),
+        curve: Some(nonidentity_curve()),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None,
@@ -167,7 +167,7 @@ pub(super) fn aggressive_case() -> Case {
     Case {
         model,
         capture: None,
-        curve: nonidentity_curve(),
+        curve: Some(nonidentity_curve()),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None,
@@ -179,7 +179,7 @@ pub(super) fn neutral_case() -> Case {
     Case {
         model: noop_model(),
         capture: None,
-        curve: nonidentity_curve(),
+        curve: Some(nonidentity_curve()),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None,

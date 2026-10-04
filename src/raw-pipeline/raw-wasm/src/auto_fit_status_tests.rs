@@ -48,13 +48,17 @@ fn actual_gpu_fit_status_physical_4096() {
             "WebGPU Auto LUT data must match CPU export AMaZE LUT data for {name}"
         );
 
+        if !expected {
+            assert!(curve_flat.is_empty(), "unavailable Auto must not invent a curve");
+        }
         let neutral = AdjustmentModel {
             profile: Profile::Neutral,
             ..auto
         };
-        let (_, _, _, status) =
+        let (curve, _, _, status) =
             crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &neutral);
         assert_eq!(status, None);
+        assert!(curve.is_empty(), "Neutral must carry no fitted curve");
         assert_eq!(std::fs::read(path).expect("original reread"), bytes);
     }
 }

@@ -340,7 +340,9 @@ fn cpu_oracle_limit(input: &[f32], w: u32, h: u32, case: &Case, limit: usize) ->
     }
 
     if stage_idx <= limit {
-        raw_core::view::auto_profile::apply::apply_curve(&mut rgb, &case.curve);
+        if let Some(curve) = &case.curve {
+            raw_core::view::auto_profile::apply::apply_curve(&mut rgb, curve);
+        }
     }
     stage_idx += 1;
 

@@ -65,7 +65,7 @@ pub struct MapleGpuLiveParams {
     pub tone_curve_green_len: usize,
     pub tone_curve_blue_ptr: *const f32,
     pub tone_curve_blue_len: usize,
-    // --- Auto Profile fitted curve (flat; PROFILE_CURVE_FLAT_LEN floats) ---
+    // --- Fitted curve (PROFILE_CURVE_FLAT_LEN floats); NULL/0 means absent. ---
     pub profile_curve_ptr: *const f32,
     pub profile_curve_len: usize,
     // --- Auto Profile residual 3D LUT (size³ × 3 floats) ---

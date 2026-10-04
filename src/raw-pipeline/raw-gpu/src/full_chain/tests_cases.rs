@@ -62,7 +62,7 @@ pub(super) fn mild_case() -> Case {
     Case {
         model,
         capture: None, // the one legitimate builder gate (pass-count test)
-        curve: nonidentity_curve(),
+        curve: Some(nonidentity_curve()),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None, // no film look — see `film_case` for that coverage
@@ -122,7 +122,7 @@ pub(super) fn aggressive_case() -> Case {
             strength: 1.0,
             noise_floor: 3e-4,
         }),
-        curve: nonidentity_curve(),
+        curve: Some(nonidentity_curve()),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
         film_lut: None, // no film look — see `film_case` for that coverage
@@ -171,7 +171,7 @@ pub(super) fn film_case() -> Case {
     Case {
         model,
         capture: None,
-        curve: nonidentity_curve(),
+        curve: Some(nonidentity_curve()),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
         // A real, non-identity 9^3 film LUT at an interior strength (63) —
