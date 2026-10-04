@@ -49,6 +49,24 @@ public sealed partial class MainWindow
             await CheckAsync(80);
             button.ClearValue(FrameworkElement.MinHeightProperty);
             await CheckAsync(28);
+
+            var resources = Application.Current.Resources;
+            var originalStyle = (Style)resources["MuiButtonGhostStyle"];
+            try
+            {
+                var derivedStyle = new Style(typeof(MuiButton)) { BasedOn = originalStyle };
+                derivedStyle.Setters.Add(new Setter { Property = FrameworkElement.TagProperty, Value = "derived-target-style" });
+                resources["MuiButtonGhostStyle"] = derivedStyle;
+                button.Variant = MuiButtonVariant.Ghost;
+                await CheckAsync(28);
+                if (!Equals(button.Tag, "derived-target-style"))
+                    throw new InvalidOperationException("Button size style lost its derived base-style setter.");
+            }
+            finally { resources["MuiButtonGhostStyle"] = originalStyle; }
+            button.Label = "Restored base style";
+            await CheckAsync(28);
+            if (button.Tag != null)
+                throw new InvalidOperationException("Button size style retained a superseded base-style setter.");
         }
         finally { root.Children.Remove(host); }
 
