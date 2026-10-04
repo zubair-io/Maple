@@ -107,8 +107,9 @@ extension EditSession {
       pixels: floats.pixels,
       width: floats.width, height: floats.height, params: params, layer: layer,
       noiseProfile: snapshot.noiseProfile, localAdjustments: model.localAdjustments)
-    let rgb: [Float] = stride(from: 0, to: paired.count, by: 4).flatMap { (i: Int) -> [Float] in
-      [paired[i], paired[i + 1], paired[i + 2], Float(1)]
+    var rgb = paired
+    for index in stride(from: 3, to: rgb.count, by: 4) {
+      rgb[index] = 1
     }
     let rgbaData: Data = rgb.withUnsafeBufferPointer {
       (buffer: UnsafeBufferPointer<Float>) -> Data in
