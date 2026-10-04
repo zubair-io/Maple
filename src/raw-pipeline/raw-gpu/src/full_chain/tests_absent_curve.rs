@@ -115,21 +115,31 @@ fn absent_residual_preserves_hdr_while_present_identity_matches_cpu_clamping() {
         .collect();
     assert!(max_abs_diff(&input, &expected_present) > 0.25);
     for live in [false, true] {
-        for present in [false, true] {
-            let mut inputs = sample.gpu_inputs();
-            if !present {
-                inputs.residual_lut_size = 0;
-                inputs.residual_lut_data = Vec::new().into();
-            }
-            let suffix = if live {
-                crate::live_chain::build_live_split(&inputs, AirlightSource::Cpu([0.0; 3])).1
-            } else {
-                build_split(&inputs, [0.0; 3]).1
-            };
-            // AgX, display primaries and gamma precede the look boundary.
-            // Existing whole-chain controls qualify those stages separately.
-            assert_eq!(suffix.len(), 3 + usize::from(present));
-            let refs: Vec<&dyn Pass> = suffix.iter().skip(3).map(|pass| pass.as_ref()).collect();
+        let mut absent_inputs = sample.gpu_inputs();
+        absent_inputs.residual_lut_size = 0;
+        absent_inputs.residual_lut_data = Vec::new().into();
+        let present_inputs = sample.gpu_inputs();
+        let absent_suffix = if live {
+            crate::live_chain::build_live_split(&absent_inputs, AirlightSource::Cpu([0.0; 3])).1
+        } else {
+            build_split(&absent_inputs, [0.0; 3]).1
+        };
+        let present_suffix = if live {
+            crate::live_chain::build_live_split(&present_inputs, AirlightSource::Cpu([0.0; 3])).1
+        } else {
+            build_split(&present_inputs, [0.0; 3]).1
+        };
+        // Both composers append the residual LAST, directly after gamma.
+        // Their shared upstream stage count differs (full includes neutral
+        // stages); the actual absent composition defines this boundary.
+        let boundary = absent_suffix.len();
+        assert_eq!(present_suffix.len(), boundary + 1);
+        for (present, suffix) in [(false, &absent_suffix), (true, &present_suffix)] {
+            let refs: Vec<&dyn Pass> = suffix[boundary..]
+                .iter()
+                .map(|pass| pass.as_ref())
+                .collect();
+            assert_eq!(refs.len(), usize::from(present));
             let image = GpuImage::upload(&ctx, &input, 8, 8);
             let actual = ChainRunner::new(&ctx, &image).run_blocking(&refs);
             let expected = if present { &expected_present } else { &input };
