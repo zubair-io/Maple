@@ -75,14 +75,18 @@ pub unsafe extern "C" fn maple_compose_auto_profile_lut(
             if !data.iter().all(|value| value.is_finite()) {
                 return -1;
             }
-            bake_auto_profile_lut(
-                &parsed,
-                &ColorLut {
-                    size: residual_size,
-                    data: data.to_vec(),
-                },
-                size,
-            )
+            let residual = ColorLut {
+                size: residual_size,
+                data: data.to_vec(),
+            };
+            if no_curve {
+                // An absent curve must skip its highlight soft knee (#4212).
+                let mut cube = ColorLut::identity(size).data;
+                residual.apply(&mut cube);
+                cube
+            } else {
+                bake_auto_profile_lut(&parsed, &residual, size)
+            }
         };
         if cube.len() != required {
             return -1;

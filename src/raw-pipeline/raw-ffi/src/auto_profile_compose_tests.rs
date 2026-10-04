@@ -15,6 +15,31 @@ fn artifacts() -> (ProfileCurve, ColorLut) {
 }
 
 #[test]
+fn residual_only_identity_preserves_white_without_curve_soft_knee() {
+    let residual = ColorLut::identity(5);
+    let mut output = vec![-7.; 5 * 5 * 5 * 3];
+    assert_eq!(
+        unsafe {
+            maple_compose_auto_profile_lut(
+                ptr::null(),
+                0,
+                residual.data.as_ptr(),
+                residual.data.len(),
+                5,
+                5,
+                output.as_mut_ptr(),
+                output.len(),
+            )
+        },
+        0
+    );
+    assert_eq!(&output[output.len() - 3..], &[1., 1., 1.]);
+    for (actual, expected) in output.iter().zip(&residual.data) {
+        assert!((actual - expected).abs() < 1e-6);
+    }
+}
+
+#[test]
 fn output_can_overlap_either_retained_input() {
     let (curve, residual) = artifacts();
     let flat = curve.to_flat();
@@ -121,10 +146,9 @@ fn composition_supports_optional_curve_and_residual() {
         },
         0
     );
-    assert_eq!(
-        output,
-        bake_auto_profile_lut(&ProfileCurve::identity(), &residual, 9)
-    );
+    let mut expected = ColorLut::identity(9).data;
+    residual.apply(&mut expected);
+    assert_eq!(output, expected);
     let before = output.clone();
     assert_eq!(
         unsafe {
