@@ -67,7 +67,8 @@ public sealed partial class MainWindow
 
         async Task<byte[]> HashRawAsync()
         {
-            await using var stream = File.OpenRead(raw);
+            await using var stream = new FileStream(raw, FileMode.Open, FileAccess.Read, FileShare.Read,
+                4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
             return await SHA256.HashDataAsync(stream);
         }
 
@@ -81,7 +82,7 @@ public sealed partial class MainWindow
                 name, key, exposure = ViewModel.Adjustments.Exposure, undoDepth = ViewModel.UndoCount,
                 mode = _mode.ToString(), scale = Content.XamlRoot.RasterizationScale
             }));
-            File.Move(path + ".ready.tmp", path + ".ready");
+            File.Move(path + ".ready.tmp", path + ".ready", overwrite: true);
             var deadline = Environment.TickCount64 + 180000;
             while (!File.Exists(path + ".continue"))
             {
