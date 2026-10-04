@@ -1,7 +1,7 @@
 use super::*;
 use std::ptr;
 
-fn artifacts() -> (ProfileCurve, ColorLut) {
+pub(super) fn artifacts() -> (ProfileCurve, ColorLut) {
     let mut curve = ProfileCurve::identity();
     for anchor in &mut curve.r.anchors {
         anchor.1 = anchor.0.powf(0.7);

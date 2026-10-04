@@ -99,3 +99,7 @@ pub unsafe extern "C" fn maple_compose_auto_profile_lut(
 #[cfg(test)]
 #[path = "auto_profile_compose_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "gpu"))]
+#[path = "auto_profile_compose_gpu_tests.rs"]
+mod gpu_tests;
