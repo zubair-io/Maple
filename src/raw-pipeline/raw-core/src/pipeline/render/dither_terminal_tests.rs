@@ -104,6 +104,13 @@ fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
     let export_src = include_str!("export.rs");
     let synthetic_src = include_str!("synthetic.rs");
 
+    // #4096 keeps the existing entry point as a wrapper around the terminal
+    // that also reports achieved Auto fit. Check that delegation before
+    // following the actual pixel stages; the wrapper itself never quantizes.
+    assert!(
+        slice_fn(render_src, "render_display_from_raw").contains("render_from_raw_with_auto_fit(")
+    );
+
     // A depth terminal's own stages, appended to the shared colour chain, is
     // the sequence a render of that depth really runs.
     let terminal = |src: &'static str, name: &str| -> Vec<&'static str> {
@@ -115,7 +122,7 @@ fn present_chains() -> Vec<(&'static str, Vec<&'static str>)> {
     vec![
         (
             "render_display_from_raw (RAW develop path, 8-bit display terminal)",
-            terminal(render_src, "render_display_from_raw"),
+            terminal(render_src, "render_from_raw_with_auto_fit"),
         ),
         (
             "export finish_eight (JPEG / PNG terminal)",
