@@ -39,6 +39,13 @@ let active: {
   name: string;
 } | null = null;
 async function dispose() {
+  release?.();
+  release = null;
+  pending = false;
+  completed = false;
+  dispatched = undefined;
+  edits = [];
+  gateIntent = null;
   if (!active) return;
   const library = active.app.injector.get(LibraryStateService);
   const id = library.focusedAssetId();
@@ -55,87 +62,100 @@ Object.assign(window, {
       const app = await createApplication({
         providers: [provideHostedWorkspace(), provideHttpClient(withFetch()), provideRouter([])],
       });
-      app.injector.get(GpuLiveRenderGate).apply(gpu);
-      pending = false;
-      completed = false;
-      dispatched = undefined;
-      edits = [];
-      gateIntent = null;
-      const pipeline = app.injector.get(RawPipelineService);
-      if (hold) {
-        const barrier = new Promise<void>((resolve) => {
-          release = resolve;
-        });
-        const decode = pipeline.decode.bind(pipeline);
-        pipeline.decode = async (...args: Parameters<RawPipelineService['decode']>) => {
-          if (dispatched === undefined) {
-            dispatched = args[2];
+      const host = document.createElement('div');
+      try {
+        app.injector.get(GpuLiveRenderGate).apply(gpu);
+        pending = false;
+        completed = false;
+        dispatched = undefined;
+        edits = [];
+        gateIntent = null;
+        const pipeline = app.injector.get(RawPipelineService);
+        if (hold) {
+          const barrier = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          const decode = pipeline.decode.bind(pipeline);
+          pipeline.decode = async (...args: Parameters<RawPipelineService['decode']>) => {
+            if (dispatched === undefined) {
+              dispatched = args[2];
+              const frame = await decode(...args);
+              pending = true;
+              await barrier;
+              return frame;
+            }
+            edits.push(args[2] ?? '');
             const frame = await decode(...args);
+            completed = true;
+            return frame;
+          };
+          const open = pipeline.openLiveSession.bind(pipeline);
+          pipeline.openLiveSession = async (
+            ...args: Parameters<RawPipelineService['openLiveSession']>
+          ) => {
+            dispatched = args[3];
+            const frame = await open(...args);
             pending = true;
             await barrier;
             return frame;
-          }
-          edits.push(args[2] ?? '');
-          const frame = await decode(...args);
-          completed = true;
-          return frame;
-        };
-        const open = pipeline.openLiveSession.bind(pipeline);
-        pipeline.openLiveSession = async (
-          ...args: Parameters<RawPipelineService['openLiveSession']>
-        ) => {
-          dispatched = args[3];
-          const frame = await open(...args);
-          pending = true;
-          await barrier;
-          return frame;
-        };
-        const render = pipeline.renderLiveSession.bind(pipeline);
-        pipeline.renderLiveSession = async (
-          ...args: Parameters<RawPipelineService['renderLiveSession']>
-        ) => {
-          edits.push(args[0] ?? '');
-          const result = await render(...args);
-          completed = true;
-          return result;
-        };
-      }
-      const root = await navigator.storage.getDirectory();
-      const folderName = name ?? 'maple-cold-profile-' + crypto.randomUUID();
-      const native = await root.getDirectoryHandle(folderName, { create: true });
-      const folder = { native, name: folderName, read: true, write: true };
-      const access = app.injector.get(FolderAccessService);
-      if (!name)
-        for (const filename of files) {
-          const response = await fetch('/physical-raw/' + filename);
-          if (!response.ok) throw Error('Missing physical fixture: ' + filename);
-          await access.writeFile(folder, filename, new Uint8Array(await response.arrayBuffer()));
+          };
+          const render = pipeline.renderLiveSession.bind(pipeline);
+          pipeline.renderLiveSession = async (
+            ...args: Parameters<RawPipelineService['renderLiveSession']>
+          ) => {
+            edits.push(args[0] ?? '');
+            const result = await render(...args);
+            completed = true;
+            return result;
+          };
         }
-      const library = app.injector.get(LibraryStateService);
-      await library.openFolder(folder);
-      const first = library.assets().find((a) => a.filename === files[0]);
-      if (!first) throw Error('Physical asset was not indexed');
-      library.focusedAssetId.set(first.id);
-      app.injector.get(EditorStateService).bind(first.id);
-      const host = document.createElement('div');
-      document.body.append(host);
-      const component = createComponent(ColdProfileQualification, {
-        environmentInjector: app.injector,
-        hostElement: host,
-      });
-      app.attachView(component.hostView);
-      component.changeDetectorRef.detectChanges();
-      const canvas = component.instance.canvas;
-      if (!canvas) throw Error('Canvas missing');
-      if (hold) {
-        const mark = canvas.markColdOpenDone.bind(canvas);
-        canvas.markColdOpenDone = () => {
-          gateIntent = canvas.lastRenderedXmp;
-          mark();
-        };
+        const root = await navigator.storage.getDirectory();
+        const folderName = name ?? 'maple-cold-profile-' + crypto.randomUUID();
+        const native = await root.getDirectoryHandle(folderName, { create: true });
+        const folder = { native, name: folderName, read: true, write: true };
+        const access = app.injector.get(FolderAccessService);
+        if (!name)
+          for (const filename of files) {
+            const response = await fetch('/physical-raw/' + filename);
+            if (!response.ok) throw Error('Missing physical fixture: ' + filename);
+            await access.writeFile(folder, filename, new Uint8Array(await response.arrayBuffer()));
+          }
+        const library = app.injector.get(LibraryStateService);
+        await library.openFolder(folder);
+        const first = library.assets().find((a) => a.filename === files[0]);
+        if (!first) throw Error('Physical asset was not indexed');
+        library.focusedAssetId.set(first.id);
+        app.injector.get(EditorStateService).bind(first.id);
+        document.body.append(host);
+        const component = createComponent(ColdProfileQualification, {
+          environmentInjector: app.injector,
+          hostElement: host,
+        });
+        app.attachView(component.hostView);
+        component.changeDetectorRef.detectChanges();
+        const canvas = component.instance.canvas;
+        if (!canvas) throw Error('Canvas missing');
+        if (hold) {
+          const mark = canvas.markColdOpenDone.bind(canvas);
+          canvas.markColdOpenDone = () => {
+            gateIntent = canvas.lastRenderedXmp;
+            mark();
+          };
+        }
+        active = { app, component, host, name: folderName };
+        return folderName;
+      } catch (error) {
+        release?.();
+        release = null;
+        pending = false;
+        completed = false;
+        dispatched = undefined;
+        edits = [];
+        gateIntent = null;
+        app.destroy();
+        host.remove();
+        throw error;
       }
-      active = { app, component, host, name: folderName };
-      return folderName;
     },
     async focus(filename: string) {
       if (!active) throw Error('No Auto fixture mounted');
