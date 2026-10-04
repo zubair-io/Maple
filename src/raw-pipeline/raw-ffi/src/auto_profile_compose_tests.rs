@@ -15,6 +15,42 @@ fn artifacts() -> (ProfileCurve, ColorLut) {
 }
 
 #[test]
+fn output_can_overlap_either_retained_input() {
+    let (curve, residual) = artifacts();
+    let flat = curve.to_flat();
+    let expected = bake_auto_profile_lut(&curve, &residual, 9);
+    for overlap_curve in [true, false] {
+        let input = if overlap_curve { &flat } else { &residual.data };
+        let mut shared = vec![-7.; expected.len() + 3];
+        shared[..input.len()].copy_from_slice(input);
+        let pointer = shared.as_mut_ptr();
+        let result = unsafe {
+            maple_compose_auto_profile_lut(
+                if overlap_curve {
+                    pointer
+                } else {
+                    flat.as_ptr()
+                },
+                flat.len(),
+                if overlap_curve {
+                    residual.data.as_ptr()
+                } else {
+                    pointer
+                },
+                residual.data.len(),
+                5,
+                9,
+                pointer,
+                shared.len(),
+            )
+        };
+        assert_eq!(result, 0);
+        assert_eq!(&shared[..expected.len()], expected.as_slice());
+        assert_eq!(&shared[expected.len()..], &[-7.; 3]);
+    }
+}
+
+#[test]
 fn composition_matches_core_and_preserves_stage_order_and_output_tail() {
     let (curve, residual) = artifacts();
     let flat = curve.to_flat();
