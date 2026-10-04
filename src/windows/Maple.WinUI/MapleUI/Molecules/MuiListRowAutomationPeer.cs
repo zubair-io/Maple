@@ -17,13 +17,5 @@ internal sealed class MuiListRowAutomationPeer : FrameworkElementAutomationPeer,
     protected override object GetPatternCore(PatternInterface patternInterface) =>
         patternInterface == PatternInterface.Invoke && Row.HasPressAction ? this : base.GetPatternCore(patternInterface);
 
-    public void Invoke()
-    {
-        Row.InvokeFromAutomation();
-        RaiseAutomationEvent(AutomationEvents.InvokePatternOnInvoked);
-    }
-
-    internal void NotifyActiveChanged(bool oldValue, bool newValue) =>
-        RaisePropertyChangedEvent(AutomationElementIdentifiers.ItemStatusProperty,
-            oldValue ? "Current" : string.Empty, newValue ? "Current" : string.Empty);
+    public void Invoke() => Row.InvokeAction();
 }

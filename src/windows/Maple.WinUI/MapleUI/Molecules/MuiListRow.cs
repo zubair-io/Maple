@@ -23,9 +23,8 @@ namespace Maple.UI
     ///   the persistent Active look.
     /// - Disabled is 40-50% opacity.
     /// - The whole row is the tap target (min 44px height) when
-    ///   <see cref="Pressed"/> has a subscriber worth calling — this control
-    ///   always exposes the row as pressable; a caller with no navigation
-    ///   action simply doesn't handle <see cref="Pressed"/>.
+    ///   <see cref="Pressed"/> has a subscriber. Passive rows expose a group.
+    ///   Attach action handlers before exposing the row to automation.
     /// - <see cref="TrailingContent"/> can itself be interactive (e.g. an
     ///   inline Toggle) and must stay independently focusable rather than
     ///   being swallowed by the row's own tap handling.
@@ -59,8 +58,10 @@ namespace Maple.UI
                 {
                     var row = (MuiListRow)d;
                     row.Rebuild();
+                    // WinUI compares cached Name and ItemStatus and raises both
+                    // property-change events when the peer is invalidated.
                     if (FrameworkElementAutomationPeer.FromElement(row) is MuiListRowAutomationPeer peer)
-                        peer.NotifyActiveChanged((bool)e.OldValue, (bool)e.NewValue);
+                        peer.InvalidatePeer();
                 }));
 
         public static readonly DependencyProperty WrapLabelProperty =
@@ -135,7 +136,7 @@ namespace Maple.UI
             FocusVisualPrimaryBrush = R("MapleTextMain");
             FocusVisualSecondaryBrush = R("MapleSurface");
 
-            Tapped += (_, e) => { if (IsEnabled && !IsFromTrailing(e.OriginalSource)) Pressed?.Invoke(this, EventArgs.Empty); };
+            Tapped += (_, e) => { if (IsEnabled && !IsFromTrailing(e.OriginalSource)) InvokeAction(); };
             KeyDown += OnKeyDown;
             PointerEntered += (_, _) => { _isPointerOver = true; ApplyColors(); };
             PointerExited += (_, _) => { _isPointerOver = false; ApplyColors(); };
@@ -151,20 +152,23 @@ namespace Maple.UI
             if (!IsEnabled || IsFromTrailing(e.OriginalSource)) return;
             if (e.Key != Windows.System.VirtualKey.Enter && e.Key != Windows.System.VirtualKey.Space) return;
             e.Handled = true;
-            Pressed?.Invoke(this, EventArgs.Empty);
+            InvokeAction();
         }
 
         protected override AutomationPeer OnCreateAutomationPeer() => new MuiListRowAutomationPeer(this);
 
         internal bool HasPressAction => Pressed != null;
 
-        internal void InvokeFromAutomation()
+        internal void InvokeAction()
         {
             if (!IsEnabled) throw new ElementNotEnabledException();
-            Pressed?.Invoke(this, EventArgs.Empty);
+            if (Pressed == null) return;
+            Pressed.Invoke(this, EventArgs.Empty);
+            if (FrameworkElementAutomationPeer.FromElement(this) is MuiListRowAutomationPeer peer)
+                peer.RaiseAutomationEvent(AutomationEvents.InvokePatternOnInvoked);
         }
 
-        private bool IsFromTrailing(object source)
+        private bool IsFromTrailing(object? source)
         {
             var interactive = false;
             for (var current = source as DependencyObject; current != null; current = VisualTreeHelper.GetParent(current))
