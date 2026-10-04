@@ -13,6 +13,7 @@ import { ControlCardComponent } from './control-card.component';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { makeLibraryStub } from '../../editor/editor-state.test-helpers';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
@@ -43,6 +44,7 @@ function render(
   // so each `render()` starts from a clean module.
   TestBed.resetTestingModule();
   const focusedAssetId = signal<string | null>('asset-1');
+  const capabilities = new LensCorrectionCapabilities();
   const adjustmentFor = vi.fn(() => signal(defaultAdjustmentModel()));
   const updateAdjustment = vi.fn();
   const commit = vi.fn();
@@ -64,7 +66,12 @@ function render(
       },
       {
         provide: LibraryStateService,
-        useValue: { focusedAssetId, adjustmentFor, updateAdjustment },
+        useValue: {
+          focusedAssetId,
+          adjustmentFor,
+          updateAdjustment,
+          lensCorrectionsFor: (id: string) => capabilities.for(id),
+        },
       },
     ],
   });
@@ -225,6 +232,7 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
   it('a real Color slider replaces a named preset and Undo restores its provenance', async () => {
     const lib = makeLibraryStub();
     const focusedAssetId = signal<string | null>('asset-1');
+    const capabilities = new LensCorrectionCapabilities();
     TestBed.configureTestingModule({
       imports: [ControlCardComponent],
       providers: [
@@ -259,6 +267,7 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
   it('Undo after a drag restores the pre-gesture value (real EditorStateService)', () => {
     const lib = makeLibraryStub();
     const focusedAssetId = signal<string | null>('asset-1');
+    const capabilities = new LensCorrectionCapabilities();
 
     TestBed.configureTestingModule({
       imports: [ControlCardComponent],

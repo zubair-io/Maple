@@ -12,6 +12,10 @@
 import { signal, type Signal, type WritableSignal } from '@angular/core';
 
 import { defaultAdjustmentModel, type AdjustmentModel } from '../models/adjustment-model';
+import {
+  LensCorrectionCapabilities,
+  type LensCorrectionCapability,
+} from '../state/library-store-lens-corrections';
 
 export interface LibraryStub {
   /**
@@ -28,6 +32,7 @@ export interface LibraryStub {
   bytesFor(id: string): Uint8Array | undefined;
   bytesForAsset(id: string): Promise<Uint8Array>;
   adjustmentFor(id: string): Signal<AdjustmentModel>;
+  lensCorrectionsFor(id: string): LensCorrectionCapability;
   updateAdjustment(id: string, patch: Partial<AdjustmentModel>): void;
   asShotWbFor(id: string): { temperature: number; tint: number } | undefined;
 }
@@ -47,6 +52,7 @@ export function makeLibraryStub(): LibraryStub {
   const models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
   const asShot = new Map<string, { temperature: number; tint: number }>();
   const bytesCache = new Map<string, Uint8Array>();
+  const capabilities = new LensCorrectionCapabilities();
 
   const ensure = (id: string): ReturnType<typeof signal<AdjustmentModel>> => {
     const existing = models.get(id);
@@ -60,6 +66,8 @@ export function makeLibraryStub(): LibraryStub {
     assets: signal([{ id: 'asset-1', filename: 'test.dng' }]),
 
     updateCount: 0,
+
+    lensCorrectionsFor: (id) => capabilities.for(id),
 
     primeBytes(id, bytes) {
       bytesCache.set(id, bytes);

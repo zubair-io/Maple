@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { ImageCanvasComponent } from './image-canvas.component';
 import { LibraryStateService } from '../../state/library-state.service';
+import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
@@ -64,6 +65,7 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
       Promise.resolve({ close: vi.fn() } as unknown as ImageBitmap),
     );
 
+    const capabilities = new LensCorrectionCapabilities();
     const stateStub = {
       focusedAsset: focused,
       adjustmentFor: () => model,
@@ -71,6 +73,9 @@ describe('ImageCanvasComponent — recoverable byte-load error (#2407)', () => {
       bytesFor: () => undefined,
       bytesForAsset: bytesForAssetSpy,
       seedAsShotWhiteBalance: vi.fn(),
+      seedLensCorrections: capabilities.seed.bind(capabilities),
+      seedLensProfile: capabilities.seedProfile.bind(capabilities),
+      lensCorrectionsFor: (id: string) => capabilities.for(id),
       updateAssetDimensions: vi.fn(),
       openDownloadProgress: signal(null),
     } as unknown as Partial<LibraryStateService>;
