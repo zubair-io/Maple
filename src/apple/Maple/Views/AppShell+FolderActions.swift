@@ -183,12 +183,8 @@ extension AppShell {
     libraryTitle = url.lastPathComponent
     currentRootBookmark = rootBookmark
     mode = .browse
-    Task.detached { await ThumbnailLoader.shared.cancelAll() }
-    Task.detached {
-      await ThumbnailDiskCache.shared.configure(folderURL: url)
-      await RenderedPreviewCache.shared.configure(folderURL: url)
-    }
     Task { @MainActor in
+      guard librarySelection == .folder(path: url.path) else { return }
       // Claim security scope via the root's bookmark. Child URLs live
       // inside the same scope on macOS, so a sandboxed read works.
       var isStale = false
@@ -215,6 +211,13 @@ extension AppShell {
       // Propagate the scope-backed root to the VM so synthesised
       // AssetRefs carry it (enables sandboxed Rust FFI reads).
       browseVM.currentScopeRoot = rootURL
+      // #4150: discovery must not publish tiles against the previous
+      // folder's cache, and cache I/O requires the claimed root scope.
+      await ThumbnailLoader.shared.cancelAll()
+      guard librarySelection == .folder(path: url.path) else { return }
+      await ThumbnailDiskCache.shared.configure(folderURL: url)
+      guard librarySelection == .folder(path: url.path) else { return }
+      await RenderedPreviewCache.shared.configure(folderURL: url)
       // Non-recursive walk of the sub-folder — the grid shows only
       // RAWs directly inside it, matching Finder-style drill-down.
       guard librarySelection == .folder(path: url.path) else { return }
