@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreImage
 import Foundation
 import MapleAgentWire
+import RawPipeline
 
 @MainActor
 extension EditSession {
@@ -71,44 +72,68 @@ extension EditSession {
     let filmLattice = filmLutStore.lattice(for: model.filmLook)
     let profileLUT =
       resolvedIsRaw ? await autoProfileLUTForCPURender(asset: asset, model: model) : nil
-    let capture = Task.detached(priority: .userInitiated) {
-      () throws -> (canvas: CIImage, weights: CIImage?) in
-      guard let floats = pipeline.sceneLinearFloats(from: decoded, targetSize: target) else {
-        throw AgentError(
-          code: "render_unavailable", message: "Could not read the captured scene buffer.")
-      }
-      let scale = NoiseSamplingScale.reduced(
-        snapshot.nrSamplingScale, from: source,
-        to: CGSize(width: floats.width, height: floats.height))
-      let params = PipelineRenderer.makeParams(
-        from: model,
-        decodedTemperature: resolvedIsRaw ? (anchor?.temperature ?? 6500) : 6500,
-        decodedTint: resolvedIsRaw ? (anchor?.tint ?? 0) : 0, skipAgX: !resolvedIsRaw,
-        iso: snapshot.iso, wbFrame: resolvedIsRaw ? snapshot.wbFrame : nil,
-        whitesAnchorEv: snapshot.whitesAnchorEv, nrSamplingScale: scale)
-      let paired = try PipelineRenderer.agentScopeFrame(
-        pixels: floats.pixels,
-        width: floats.width, height: floats.height, params: params, layer: layer,
-        noiseProfile: snapshot.noiseProfile, localAdjustments: model.localAdjustments)
-      let rgb = stride(from: 0, to: paired.count, by: 4).flatMap { i in
-        [paired[i], paired[i + 1], paired[i + 2], Float(1)]
-      }
-      let encoded = CIImage(
-        bitmapData: rgb.withUnsafeBufferPointer { Data(buffer: $0) },
-        bytesPerRow: floats.width * 16, size: CGSize(width: floats.width, height: floats.height),
-        format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
-      let auto = AutoProfileLUT.apply(profileLUT, to: encoded)
-      let final = FilmLookCube.apply(
-        to: auto, lattice: filmLattice, strengthPct: model.filmStrength)
-      let canvas = CropImageStage.apply(crop, to: final, nativeSize: nativeSize)
-      guard maskID != nil else { return (canvas, nil) }
-      let coverage = stride(from: 3, to: paired.count, by: 4).map { paired[$0] }
-      let weights = CIImage(
-        bitmapData: coverage.withUnsafeBufferPointer { Data(buffer: $0) },
-        bytesPerRow: floats.width * 4, size: CGSize(width: floats.width, height: floats.height),
-        format: .Rf, colorSpace: nil)
-      return (canvas, CropImageStage.apply(crop, to: weights, nativeSize: nativeSize))
+    let capture = Task<(canvas: CIImage, weights: CIImage?), Error>.detached(
+      priority: .userInitiated
+    ) {
+      try Self.captureAgentCPUFrame(
+        pipeline: pipeline, decoded: decoded, target: target, source: source,
+        snapshot: snapshot, model: model, resolvedIsRaw: resolvedIsRaw, anchor: anchor,
+        layer: layer, crop: crop, nativeSize: nativeSize, profileLUT: profileLUT,
+        filmLattice: filmLattice, hasMask: maskID != nil)
     }
     return try await capture.value
+  }
+
+  nonisolated private static func captureAgentCPUFrame(
+    pipeline: ImageEditPipeline, decoded: CIImage, target: CGSize, source: CGSize,
+    snapshot: RenderActor.DecodedSnapshot, model: AdjustmentModel, resolvedIsRaw: Bool,
+    anchor: ImageEditPipeline.AsShotWB?, layer: Int32, crop: Crop, nativeSize: CGSize,
+    profileLUT: CIFilter?, filmLattice: (data: [Float], size: Int, key: UInt32)?, hasMask: Bool
+  ) throws -> (canvas: CIImage, weights: CIImage?) {
+    guard let floats = pipeline.sceneLinearFloats(from: decoded, targetSize: target) else {
+      throw AgentError(
+        code: "render_unavailable", message: "Could not read the captured scene buffer.")
+    }
+    let scale: Float = NoiseSamplingScale.reduced(
+      snapshot.nrSamplingScale, from: source,
+      to: CGSize(width: floats.width, height: floats.height))
+    let params: MapleAdjustmentParams = PipelineRenderer.makeParams(
+      from: model,
+      decodedTemperature: resolvedIsRaw ? (anchor?.temperature ?? 6500) : 6500,
+      decodedTint: resolvedIsRaw ? (anchor?.tint ?? 0) : 0, skipAgX: !resolvedIsRaw,
+      iso: snapshot.iso, wbFrame: resolvedIsRaw ? snapshot.wbFrame : nil,
+      whitesAnchorEv: snapshot.whitesAnchorEv, nrSamplingScale: scale)
+    let paired: [Float] = try PipelineRenderer.agentScopeFrame(
+      pixels: floats.pixels,
+      width: floats.width, height: floats.height, params: params, layer: layer,
+      noiseProfile: snapshot.noiseProfile, localAdjustments: model.localAdjustments)
+    let rgb: [Float] = stride(from: 0, to: paired.count, by: 4).flatMap { (i: Int) -> [Float] in
+      [paired[i], paired[i + 1], paired[i + 2], Float(1)]
+    }
+    let rgbaData: Data = rgb.withUnsafeBufferPointer {
+      (buffer: UnsafeBufferPointer<Float>) -> Data in
+      Data(buffer: buffer)
+    }
+    let encoded: CIImage = CIImage(
+      bitmapData: rgbaData,
+      bytesPerRow: floats.width * 16, size: CGSize(width: floats.width, height: floats.height),
+      format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+    let auto: CIImage = AutoProfileLUT.apply(profileLUT, to: encoded)
+    let final: CIImage = FilmLookCube.apply(
+      to: auto, lattice: filmLattice, strengthPct: model.filmStrength)
+    let canvas: CIImage = CropImageStage.apply(crop, to: final, nativeSize: nativeSize)
+    guard hasMask else { return (canvas, nil) }
+    let coverage: [Float] = stride(from: 3, to: paired.count, by: 4).map { (index: Int) -> Float in
+      paired[index]
+    }
+    let coverageData: Data = coverage.withUnsafeBufferPointer {
+      (buffer: UnsafeBufferPointer<Float>) -> Data in
+      Data(buffer: buffer)
+    }
+    let weights: CIImage = CIImage(
+      bitmapData: coverageData,
+      bytesPerRow: floats.width * 4, size: CGSize(width: floats.width, height: floats.height),
+      format: .Rf, colorSpace: nil)
+    return (canvas, CropImageStage.apply(crop, to: weights, nativeSize: nativeSize))
   }
 }
