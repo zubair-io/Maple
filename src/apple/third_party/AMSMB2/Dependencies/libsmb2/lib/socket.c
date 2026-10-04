@@ -326,7 +326,19 @@ smb2_write_to_socket(struct smb2_context *smb2)
 typedef ssize_t (*read_func)(struct smb2_context *smb2,
                              const struct iovec *iov, int iovcnt);
 
-/* Bound COPYCHUNK's exceptional error body to BOTH the compound command
+static int smb2_is_copychunk_request(struct smb2_pdu *pdu)
+{
+        uint32_t command;
+        if (pdu->header.command != SMB2_IOCTL || pdu->out.niov <= 1 ||
+            pdu->out.iov[1].len < 8) {
+                return 0;
+        }
+        smb2_get_uint32(&pdu->out.iov[1], 4, &command);
+        return command == SMB2_FSCTL_SRV_COPYCHUNK ||
+               command == SMB2_FSCTL_SRV_COPYCHUNK_WRITE;
+}
+
+/* Bound COPYCHUNK bodies to BOTH the compound command
  * and the enclosing plaintext packet (socket SPL or decrypted buffer SPL).
  * A peer-supplied NextCommand is never itself evidence of available bytes. */
 static int smb2_copychunk_packet_end(struct smb2_context *smb2,
@@ -656,7 +668,7 @@ read_more_data:
                         return -1;
                 }
 
-                if (pdu->copychunk_limits_reply) {
+                if (smb2_is_copychunk_request(pdu)) {
                         size_t packet_end;
                         if (smb2_copychunk_packet_end(smb2, has_xfrmhdr, &packet_end)) {
                                 smb2_set_error(smb2, "Invalid COPYCHUNK limits boundary");
