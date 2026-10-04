@@ -320,6 +320,7 @@ cargo test -p raw-gpu                            # WGSL kernels vs their raw-cor
 cargo test -p raw-wasm --features gpu            # render_bytes_gpu vs the CPU path
 cargo build -p raw-ffi --features gpu
 cargo test -p raw-ffi --features gpu --lib gpu_auto_profile::sized::tests # fixture-free ABI guards
+cargo test -p raw-ffi --features gpu --lib auto_profile_compose -- --test-threads=1 # retained composition / residual-kernel parity
 cargo check -p raw-wasm --all-features --all-targets
 ```
 

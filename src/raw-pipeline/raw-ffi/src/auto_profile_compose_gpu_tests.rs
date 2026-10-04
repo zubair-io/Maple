@@ -3,7 +3,9 @@ use raw_gpu::{ChainRunner, GpuContext, GpuImage, ResidualLutPass};
 use std::ptr;
 
 #[test]
-fn residual_only_composition_matches_gpu_without_curve() {
+fn residual_only_composition_matches_isolated_gpu_residual_kernel() {
+    // This pins composition against ResidualLutPass, not the production chain.
+    // Absence propagation through the live/full chain is covered by #4216.
     let context = GpuContext::new_blocking().expect("GPU context");
     let grid = ColorLut::identity(9).data;
     let input: Vec<f32> = grid
