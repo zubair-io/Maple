@@ -110,6 +110,41 @@ fn tint_leaves_a_four_channel_image_alpha_alone_across_the_luma_lut() {
 }
 
 #[test]
+fn tint_orange_matches_sharp_within_one_code() {
+    // #3581: orange tint over greys — including every level that drifts
+    // by 1 — plus saturated colours to exercise the luma-reduction path.
+    // Expected bytes measured against real sharp 0.34.5 on this exact
+    // 19-pixel fixture (reproduce with the noise/ramp sweep in that
+    // ticket); Maple holds max abs drift 1 here.
+    let greys = [0u8, 4, 12, 19, 21, 25, 26, 29, 34, 64, 128, 192, 255];
+    let colours = [
+        [255u8, 0, 0],
+        [0, 255, 0],
+        [0, 0, 255],
+        [255, 255, 0],
+        [255, 128, 0],
+        [123, 45, 200],
+    ];
+    let mut data = Vec::with_capacity(19 * 3);
+    for v in greys {
+        data.extend_from_slice(&[v, v, v]);
+    }
+    for px in colours {
+        data.extend_from_slice(&px);
+    }
+    let out = RasterImage::new_rgb(19, 1, data).tint([255, 128, 0]).data;
+    let want: [u8; 57] = [
+        0, 0, 0, 13, 2, 0, 27, 7, 0, 38, 13, 0, 41, 14, 0, 50, 16, 0, 52, 16, 0, 57, 17, 0, 66, 20,
+        0, 119, 36, 0, 211, 93, 0, 255, 169, 97, 255, 255, 255, 210, 92, 0, 255, 206, 160, 139, 44,
+        0, 255, 244, 232, 247, 133, 37, 160, 56, 0,
+    ];
+    assert_eq!(out.len(), want.len());
+    for (i, (&got, &want)) in out.iter().zip(want.iter()).enumerate() {
+        assert!(got.abs_diff(want) <= 1, "byte {i}: got {got}, sharp {want}");
+    }
+}
+
+#[test]
 fn modulate_identity_changes_nothing() {
     let img = RasterImage::new_rgb(1, 1, vec![90, 130, 70]);
     let out = img.modulate(1.0, 1.0, 0.0, 0.0);
