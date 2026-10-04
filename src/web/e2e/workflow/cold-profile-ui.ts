@@ -38,7 +38,7 @@ let active: {
   host: HTMLElement;
   name: string;
 } | null = null;
-async function dispose() {
+function resetHarness() {
   release?.();
   release = null;
   pending = false;
@@ -46,6 +46,9 @@ async function dispose() {
   dispatched = undefined;
   edits = [];
   gateIntent = null;
+}
+async function dispose() {
+  resetHarness();
   if (!active) return;
   await disposeProfileFixture(active);
   active = null;
@@ -132,13 +135,7 @@ Object.assign(window, {
         active = { app, component, host, name: folderName };
         return folderName;
       } catch (error) {
-        release?.();
-        release = null;
-        pending = false;
-        completed = false;
-        dispatched = undefined;
-        edits = [];
-        gateIntent = null;
+        resetHarness();
         app.destroy();
         host.remove();
         throw error;
