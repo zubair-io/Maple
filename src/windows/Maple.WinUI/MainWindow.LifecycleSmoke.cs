@@ -47,7 +47,7 @@ namespace Maple.WinUI
                 {
                     RecordSmokeStage(output, "cloud-preview");
                     await EditSessionViewModel.VerifySavedCloudPreviewAsync(raw, output);
-                    File.WriteAllText(reportPath, JsonSerializer.Serialize(new
+                    await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
                         { passed = true, scope = "cloud-preview-only" }));
                     return;
                 }
