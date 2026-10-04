@@ -7,7 +7,7 @@ using Maple.WinUI.ViewModels;
 
 namespace Maple.WinUI
 {
-    /// <summary>Browse mode: sidebar toggle, single-selection sync between the
+    /// <summary>Browse mode: sidebar visibility preference, single-selection sync between the
     /// grid, the filmstrip rail and the viewer's embedded-JPEG placeholder, and the
     /// sources-tree/timeline/format/rating/flag/search filters that drive
     /// ViewModel.Photos.</summary>
