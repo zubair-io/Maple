@@ -53,6 +53,12 @@ final class AgentScopeColorTests: XCTestCase {
     XCTAssertEqual(wanted.sample_count, 2500)
     XCTAssertEqual(wanted.confidence, 3)
     XCTAssertEqual(empty.sample_count, 0)
+    let locus = AgentVectorscope.result(wanted, hasSkinTarget: true, maskId: nil)
+    XCTAssertFalse(locus.insufficientEvidence)
+    let locusAngle = try XCTUnwrap(locus.skinLocusAngleDeg)
+    let locusDev = try XCTUnwrap(locus.deviationDeg)
+    XCTAssertEqual(locusAngle, 126.4, accuracy: 0.5)
+    XCTAssertEqual(locusDev, 3.4, accuracy: 0.5)
   }
   func testRealSkinRangeExcludesNonSkinAndMatchesRequestedROI() async throws {
     try await assertRealSkinRange(format: "jpg")
@@ -115,6 +121,26 @@ final class AgentScopeColorTests: XCTestCase {
     XCTAssertEqual(background["sample_count"]?.numberValue, 0)
     XCTAssertEqual(background["insufficient_evidence"]?.boolValue, true)
     XCTAssertNil(background["skin_locus_angle_deg"])
+
+    // Face region inside skin mask: isolated face quadrant inside the skin mask
+    // weights only the face region without misalignment or bleed.
+    let face = try await service.handle(
+      AgentRequest(
+        id: 5, tool: "maple_get_vectorscope",
+        arguments: [
+          "mask_id": .string(maskID),
+          "region": .object(["x": 0, "y": 0, "width": 0.5, "height": 0.5]),
+        ])
+    ).outcome.get().result
+    XCTAssertEqual(face["sample_count"]?.numberValue, 32 * 24)
+    XCTAssertEqual(face["confidence"]?.stringValue, "high")
+    let faceAngle = try XCTUnwrap(face["skin_locus_angle_deg"]?.numberValue)
+    let faceDev = try XCTUnwrap(face["deviation_deg"]?.numberValue)
+    let allAngle = try XCTUnwrap(all["skin_locus_angle_deg"]?.numberValue)
+    let allDev = try XCTUnwrap(all["deviation_deg"]?.numberValue)
+    XCTAssertEqual(faceAngle, allAngle, accuracy: 0.2)
+    XCTAssertEqual(faceDev, allDev, accuracy: 0.2)
+
     session.model.crop = Crop(top: 0.25, left: 0.25, bottom: 0.75, right: 0.75, angle: 0)
     session._scheduleRender(phase: .fast)
     _ = await session.latestRenderSchedule?.value
@@ -135,4 +161,80 @@ final class AgentScopeColorTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: url), original)
   }
 
+  func testFaceRegionInsideSkinMaskAssertsPrecomputedLocus() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "agent-face-locus")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let url = root.appendingPathComponent("portrait.png")
+
+    // 64x48 image:
+    // Top-left (face, 0..<32, 0..<24): warm skin tone [217, 153, 115, 255] (precomputed angle ~128.0°)
+    // Bottom-left (body, 0..<32, 24..<48): darker skin tone [160, 100, 70, 255] (precomputed angle ~124.9°)
+    // Right half (32..<64): cyan non-skin [13, 204, 230, 255]
+    let colors: [UInt8] = (0..<48).flatMap { row -> [UInt8] in
+      (0..<64).flatMap { col -> [UInt8] in
+        if col < 32 {
+          return row >= 24 ? [217, 153, 115, 255] : [160, 100, 70, 255]
+        } else {
+          return [13, 204, 230, 255]
+        }
+      }
+    }
+    let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let image = CIImage(
+      bitmapData: Data(colors), bytesPerRow: 64 * 4,
+      size: CGSize(width: 64, height: 48), format: .RGBA8, colorSpace: space)
+    try CIContext().writePNGRepresentation(of: image, to: url, format: .RGBA8, colorSpace: space)
+
+    let session = EditSession(asset: AssetRef(url: url), model: model(), culling: CullingState())
+    session.previewSize = CGSize(width: 64, height: 48)
+    await session.openAssetPipelineAsync()
+    _ = await session.latestRenderSchedule?.value
+
+    let service = AgentEditService()
+    service.activate(session)
+
+    let state = try await service.handle(
+      AgentRequest(id: 1, tool: "maple_get_active_photo", arguments: [:])
+    ).outcome.get().result
+    let revision = try XCTUnwrap(state["revision"]?.stringValue)
+
+    // Create whole-image skin mask (selects both Tone A and Tone B in the left half, rejects cyan)
+    let created = try await service.handle(
+      AgentRequest(
+        id: 2, tool: "maple_create_mask",
+        arguments: [
+          "kind": "whole_image_skin", "expected_revision": .string(revision),
+        ])
+    ).outcome.get().result
+    let maskID = try XCTUnwrap(created["mask_id"]?.stringValue)
+
+    // Full mask evaluation includes both Tone A and Tone B
+    let all = try await service.handle(
+      AgentRequest(
+        id: 3, tool: "maple_get_vectorscope",
+        arguments: ["mask_id": .string(maskID)])
+    ).outcome.get().result
+    XCTAssertEqual(all["sample_count"]?.numberValue, 32 * 48)
+    let allAngle = try XCTUnwrap(all["skin_locus_angle_deg"]?.numberValue)
+
+    // Target the face region (top-left: x 0..0.5, y 0..0.5) inside the skin mask
+    let face = try await service.handle(
+      AgentRequest(
+        id: 4, tool: "maple_get_vectorscope",
+        arguments: [
+          "mask_id": .string(maskID),
+          "region": .object(["x": 0, "y": 0, "width": 0.5, "height": 0.5]),
+        ])
+    ).outcome.get().result
+    XCTAssertEqual(face["sample_count"]?.numberValue, 32 * 24)
+    let faceAngle = try XCTUnwrap(face["skin_locus_angle_deg"]?.numberValue)
+    let faceDev = try XCTUnwrap(face["deviation_deg"]?.numberValue)
+
+    // Precomputed angle for Tone A [217, 153, 115] is 128.0° (deviation +5.0° from 123.0° reference)
+    XCTAssertEqual(faceAngle, 128.0, accuracy: 0.3)
+    XCTAssertEqual(faceDev, 5.0, accuracy: 0.3)
+    // The blended full-mask angle (averaging Tone A 128.0° and Tone B 124.9°) is distinct from faceAngle
+    XCTAssertTrue(abs(allAngle - 126.5) < 0.5)
+    XCTAssertTrue(allAngle < faceAngle)
+  }
 }
