@@ -68,6 +68,8 @@ export interface GpuPresentHost {
   /** Serialize a model for the renderer, stripping the crop while the crop
    *  tool is armed (#638) so cold-open dedup matches the 2D path. */
   serializeForRender(model: AdjustmentModel): string;
+  /** Freeze crop posture for both dispatch and WB-hydrated frame identity. */
+  captureRenderSerializer(): (model: AdjustmentModel) => string;
   readonly loading: WritableSignal<boolean>;
   readonly imageBitmap: WritableSignal<ImageBitmap | null>;
 
@@ -219,9 +221,8 @@ export class ImageCanvasGpuPresent {
       // contract: the Rust side treats `None` as the As-Shot sentinel, and passing
       // a serialized default instead could perturb that WB path.
       const openModel = this.host.state.adjustmentFor(assetId)();
-      const openXmp = isDefaultAdjustment(openModel)
-        ? undefined
-        : this.host.serializeForRender(openModel);
+      const serializeOpened = this.host.captureRenderSerializer();
+      const openXmp = isDefaultAdjustment(openModel) ? undefined : serializeOpened(openModel);
       // Develop fit to the viewport (#1080): pass the wrap's long edge in real
       // pixels so the session never develops (or sizes a surface at) full sensor
       // res. The session pins this target for its lifetime; CSS scales the
@@ -240,7 +241,7 @@ export class ImageCanvasGpuPresent {
         return true; // superseded; the newer open/teardown owns the canvas now
       }
 
-      this.publishOpenedFrame(assetId, info, openModel, fitRevision);
+      this.publishOpenedFrame(assetId, info, openModel, fitRevision, serializeOpened);
       performance.mark(`maple:open:${assetId}:paint`);
       performance.measure(
         `maple:open`,
@@ -291,6 +292,7 @@ export class ImageCanvasGpuPresent {
     info: OpenedLiveSession,
     openModel: AdjustmentModel,
     fitRevision: number,
+    serializeOpened: (model: AdjustmentModel) => string,
   ): void {
     this.colorSpace.set(info.colorSpace);
     this.active.set(true);
@@ -330,9 +332,7 @@ export class ImageCanvasGpuPresent {
     );
     // Release queued edits only after recording the frame's actual intent (#4101).
     if (this.host.lastRenderedXmp === null) {
-      this.host.lastRenderedXmp = this.host.serializeForRender(
-        coldOpenRenderedModel(openModel, info),
-      );
+      this.host.lastRenderedXmp = serializeOpened(coldOpenRenderedModel(openModel, info));
     }
     this.host.markColdOpenDone();
   }

@@ -71,6 +71,7 @@ describe('ImageCanvasRawOpen', () => {
       renderGeneration: 1,
       lastRenderedXmp: null,
       serializeForRender: () => '<xmp />',
+      captureRenderSerializer: () => () => '<xmp />',
       fastTargetPx: () => 800,
       markColdOpenDone: () => (coldOpenDone = true),
       hasProvisionalPreview: (id: AssetId) => rawOpen.hasProvisionalPreview(id),
