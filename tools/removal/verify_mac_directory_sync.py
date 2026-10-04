@@ -58,7 +58,13 @@ def verify(path):
         ],
         [target, target.parent, target.parent.parent],
     ]
-    if len(starts) != 3:
+    # Historical traces predate confirmed-boundary carrier syncs. Preserve
+    # their explicit directory-only evidence; current traces also require the
+    # two confirmed target sequences before the sidecar receipts (#3940).
+    confirmed_assets = len(starts) == 5
+    if confirmed_assets:
+        expected = [expected[0], expected[0], expected[1], expected[2], expected[2]]
+    elif len(starts) != 3:
         raise ValueError(
             "Expected first publication, deep transfer and existing-tree retry"
         )
@@ -68,9 +74,18 @@ def verify(path):
                 f"Missing bottom-up carrier/ancestor syncs at publication {start}"
             )
     # Confirmed sidecar directory sync follows every referenced-asset sync.
-    if paths[starts[0] + len(expected[0]) : starts[1]] != [root] or paths[
-        starts[1] + len(expected[1]) : starts[2]
-    ] != [target.parent.parent]:
+    intervals = [
+        paths[start + len(required) : next_start]
+        for start, required, next_start in zip(
+            starts, expected, starts[1:] + [len(paths)], strict=True
+        )
+    ]
+    required_intervals = (
+        [[], [root], [], [target.parent.parent], []]
+        if confirmed_assets
+        else [[root], [target.parent.parent], []]
+    )
+    if intervals != required_intervals:
         raise ValueError(
             "Sidecar must be durably published after its complete carrier tree"
         )
@@ -81,6 +96,7 @@ def verify(path):
         "successfulDirectorySyncs": [str(p) for p in paths],
         "requiredPublicationSequences": [[str(p) for p in group] for group in expected],
         "sidecarFollowsCompanions": True,
+        "confirmedTargetCarrierSyncs": confirmed_assets,
         "releaseQualified": False,
         "scope": "Actual Darwin fsync calls and real local fixtures; not physical power-loss, iOS or SMB qualification",
     }

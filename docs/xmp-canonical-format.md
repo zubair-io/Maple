@@ -278,7 +278,12 @@ assets and the accepted sidecar, and publish through atomic filesystem operation
 Local companion publication also syncs `.maple/inpaint`, `.maple`, the photo
 folder and any destination ancestors created during that publication, deepest
 first, before returning prepared records. Existing carrier directories are synced
-on repeated publication as well. A directory sync failure prevents confirmation;
+on repeated publication as well. Reused immutable files are verified and synced
+through the same open handle. Confirmed local Keep, redo and workflow restore
+sync every target companion and its carrier again under the sidecar writer lock,
+before publishing XMP; a valid restored checksum cannot stand in for durability.
+Clearing an empty target does not create or require companion directories.
+A file or directory sync failure prevents confirmation;
 actual local syscall ordering does not prove physical power-loss or NAS durability.
 The shared core and Apple resolve owned removal attributes and direct scalar
 property elements on RDF descriptions by namespace URI, including renamed

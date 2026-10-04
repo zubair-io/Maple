@@ -386,6 +386,7 @@ SMBCopyOnlyRestoreTests
 LocalRelocationJournalTests
 LocalRemovalAssetStoreTests
 LocalRemovalDirectoryPublicationTests
+LocalRemovalRestoredPublicationTests
 LocalRemovalRelocateTests
 NativeDetailRemovalTests
 NativeSavedRemovalSessionTests

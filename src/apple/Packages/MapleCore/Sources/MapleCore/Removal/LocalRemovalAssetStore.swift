@@ -23,7 +23,7 @@ public actor LocalRemovalAssetStore {
     try publish(mask, names: names)
     try Task.checkCancellation()
     try publish(patch, names: names)
-    try syncDirectories(publicationDirectories)
+    try Self.syncDirectories(publicationDirectories)
     // A previously accepted edit with missing assets must not disappear from
     // the proposed stack. Publication may leave safe orphans if this fails.
     _ = try readAssets(records: records)
@@ -47,6 +47,33 @@ public actor LocalRemovalAssetStore {
         try RemovalBridge.verifyAsset(name: name, data: data)
         return (name, data)
       })
+  }
+
+  /// Reused/restored companions must be durable at the XMP visibility boundary,
+  /// including redo paths that do not call publish (#3940). Verify and sync the
+  /// same open file, rather than inheriting a receipt from a previous inode.
+  nonisolated static func synchronizeAssets(records: String, rawURL: URL) throws {
+    let names = try RemovalBridge.assetNames(records: records)
+    guard !names.isEmpty else { return }
+    let parent = rawURL.deletingLastPathComponent()
+    let directory = parent.appendingPathComponent(".maple/inpaint", isDirectory: true)
+    for name in names {
+      try synchronizeAsset(name: name, at: directory.appendingPathComponent(name))
+    }
+    try syncDirectories([directory, directory.deletingLastPathComponent(), parent])
+  }
+
+  nonisolated private static func synchronizeAsset(name: String, at url: URL) throws {
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      throw RemovalError.missingCompanion(name)
+    }
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    let data = try handle.readToEnd() ?? Data()
+    try RemovalBridge.verifyAsset(name: name, data: data)
+    guard fsync(handle.fileDescriptor) == 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
   }
 
   /// Publish all referenced companions at a relocation destination before its
@@ -77,7 +104,7 @@ public actor LocalRemovalAssetStore {
       try Task.checkCancellation()
       try publish(assets[name]!, names: [name])
     }
-    try syncDirectories(publicationDirectories)
+    try Self.syncDirectories(publicationDirectories)
     _ = try readAssets(records: records)
   }
 
@@ -89,7 +116,7 @@ public actor LocalRemovalAssetStore {
     try RemovalBridge.verifyAsset(name: name, data: data)
     let target = directory.appendingPathComponent(name)
     if FileManager.default.fileExists(atPath: target.path) {
-      try RemovalBridge.verifyAsset(name: name, data: Data(contentsOf: target))
+      try Self.synchronizeAsset(name: name, at: target)
       return
     }
     let temporary = directory.appendingPathComponent(".\(UUID().uuidString).tmp")
@@ -105,7 +132,7 @@ public actor LocalRemovalAssetStore {
     } catch {
       guard FileManager.default.fileExists(atPath: target.path) else { throw error }
       // A concurrent publisher may have won with the same immutable bytes.
-      try RemovalBridge.verifyAsset(name: name, data: Data(contentsOf: target))
+      try Self.synchronizeAsset(name: name, at: target)
     }
   }
 
@@ -126,7 +153,7 @@ public actor LocalRemovalAssetStore {
     return Set(carrier + parents).sorted { $0.pathComponents.count > $1.pathComponents.count }
   }
 
-  private func syncDirectories(_ directories: [URL]) throws {
+  nonisolated private static func syncDirectories(_ directories: [URL]) throws {
     for directory in directories {
       let descriptor = open(directory.path, O_RDONLY | O_DIRECTORY)
       guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }

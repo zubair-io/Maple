@@ -507,18 +507,10 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       // only the empty target would lose this binding during undo/reset.
       try RemovalBridge.verifySource(records: current, rawURL: rawURL)
       try RemovalBridge.verifySource(records: removalChange.records, rawURL: rawURL)
-      // Companion publication is checked again at the visibility boundary.
-      // A missing prior asset cannot turn into a successful partial save.
-      let names = try RemovalBridge.assetNames(records: removalChange.records)
-      let assetDirectory = rawURL.deletingLastPathComponent()
-        .appendingPathComponent(".maple/inpaint", isDirectory: true)
-      for name in names {
-        let assetURL = assetDirectory.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: assetURL.path) else {
-          throw RemovalError.missingCompanion(name)
-        }
-        try RemovalBridge.verifyAsset(name: name, data: Data(contentsOf: assetURL))
-      }
+      // A valid restored file need not have a durable publication receipt.
+      // Redo/restore can bypass publish, so verify and sync every target asset
+      // and its carrier under this writer lock before publishing XMP (#3940).
+      try LocalRemovalAssetStore.synchronizeAssets(records: removalChange.records, rawURL: rawURL)
     }
     // Ordinary saves preserve the disk stack even when their incoming model
     // is stale. Only the verified CAS route above can change accepted pixels.
