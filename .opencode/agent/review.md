@@ -5,7 +5,7 @@ description: >-
   no shell and no write access. Can post PR comments but never writes code,
   approves, or merges. Use to review opened/updated PRs.
 mode: all
-model: model_api/muse-spark-1.3
+model: model_api/muse-spark-1.3-contributor
 # Last matching rule wins: default-deny first, specific allows after. (The
 # deprecated `tools:` block is deliberately absent — everything is expressed
 # here, so there is no second rule source to disagree with this one.)
