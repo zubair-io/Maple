@@ -14,10 +14,12 @@ static int audit_fsync(int descriptor) {
   int saved_errno = errno;
   struct stat status;
   char path[1024];
-  if (fstat(descriptor, &status) == 0 && S_ISDIR(status.st_mode) &&
+  if (fstat(descriptor, &status) == 0 &&
+      (S_ISDIR(status.st_mode) || S_ISREG(status.st_mode)) &&
       fcntl(descriptor, F_GETPATH, path) == 0) {
     char line[1200];
-    int length = snprintf(line, sizeof(line), "MAPLE_DIRECTORY_SYNC %d %s\n", result, path);
+    const char *kind = S_ISDIR(status.st_mode) ? "DIRECTORY" : "FILE";
+    int length = snprintf(line, sizeof(line), "MAPLE_%s_SYNC %d %s\n", kind, result, path);
     if (length > 0 && (size_t)length < sizeof(line)) {
       (void)write(STDERR_FILENO, line, (size_t)length);
     }
