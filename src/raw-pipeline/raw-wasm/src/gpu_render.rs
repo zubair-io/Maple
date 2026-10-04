@@ -325,8 +325,8 @@ pub(crate) fn develop_prefix_rgba(
 /// entry `apply_auto_profile` shares a cache with — see #924 / #972) and flatten
 /// them into the `(profile_curve_flat, residual_lut_size, residual_lut_data)` shape
 /// [`build_full_chain_inputs`] consumes. A `None` (Neutral, no preview, degenerate
-/// fit) collapses to identity → the chain's view tail is pure AgX, matching
-/// `Profile::Neutral`. The fit is keyed on the RAW BYTES (not the model), so after
+/// fit) leaves the curve empty, omitting its pass; an absent residual uses an
+/// identity LUT, preserving `Profile::Neutral`. The fit is keyed on RAW BYTES, so after
 /// the first call it is cache-served — re-running it per slider tick is cheap.
 #[cfg(any(target_arch = "wasm32", test))]
 fn fit_profile_artifacts(

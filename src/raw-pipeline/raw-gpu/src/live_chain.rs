@@ -431,9 +431,9 @@ pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
     inputs.dehaze.abs() >= SLIDER_EPS
 }
 
-/// The number of view-tail passes for a RAW input shape (`agx`, `display_encode`,
-/// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). A neutral RAW chain has
-/// exactly this many passes; each engaged slider adds one (or, for the spatial
+/// The view-tail count for RAW with a present Auto curve (`agx`, `display_encode`,
+/// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). Absent-curve RAW has
+/// `VIEW_TAIL_PASS_COUNT - 1`; each engaged slider adds one (or, for the spatial
 /// stages, still one `Pass` — they orchestrate their own sub-dispatches). NON-RAW
 /// shapes skip the whole LOOK portion — `agx` (#1513) plus `auto_profile_curve`
 /// + `residual_lut` (#1516) — leaving only the colorimetric encode
@@ -443,8 +443,8 @@ pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
 pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 
 /// The active-stage bitmask — which gated passes [`build_live_split`] includes
-/// for `inputs`, one bit per scene-linear stage (the view tail is always-on, so
-/// it isn't represented). SINGLE-SOURCED with the builder: every bit uses the
+/// for `inputs`, one bit per scene-linear stage plus Auto curve presence (bit 20).
+/// SINGLE-SOURCED with the builder: every bit uses the
 /// exact same predicate the corresponding `if` in `build_live_split` uses, so the
 /// mask can't disagree with which passes actually get pushed. Used by
 /// [`chain_signature`] to key the live pool's bind-group cache.

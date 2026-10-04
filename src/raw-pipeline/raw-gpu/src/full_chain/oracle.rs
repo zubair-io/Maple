@@ -385,9 +385,9 @@ pub fn shared_airlight(input: &[f32], w: u32, h: u32, case: &Case) -> [f32; 3] {
 /// CRUCIAL for the LIVE gate: every scene-linear `apply` fn here short-circuits
 /// at its no-op threshold (e.g. `vibrance::apply` returns early at `|v| < 1e-3`),
 /// so a neutral `Case` yields the same pixels the *gated* `build_live_chain`
-/// produces (which OMITS those passes) — but NOT what the *ungated*
-/// `build_full_chain_passes` produces (which runs them unconditionally). That
-/// gap is exactly what `live_chain/tests.rs` measures.
+/// produces (which OMITS those scene-linear passes), while
+/// `build_full_chain_passes` runs them unconditionally. Both builders omit an
+/// absent Auto curve; the scene-linear gap is what `live_chain/tests.rs` measures.
 pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     cpu_oracle_with_auto_curve(input, w, h, case, Some(&case.curve))
 }
