@@ -493,12 +493,13 @@ It uses Node and npm rather than Bun — deliberately. `@cloudflare/vitest-pool-
 
 Some behaviour is implemented independently in three or four languages and can't be shared as code. Those cases are pinned as declarative JSON corpora, replayed by each language's own runner against its own primitives — proving identical _outcomes_ without shared implementation.
 
-| Corpus                                        | Replayed by                                                                                                                                                             |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test-fixtures/file-operations/cases.json`    | `src/api/src/fs/relocate.parity.test.ts`, `src/apple/…/MapleCoreTests/FileOperations/RelocateParityTests.swift`, `src/windows/Maple.WinUI.Tests/RelocateParityTests.cs` |
-| `test-fixtures/filename-templates/cases.json` | `src/raw-pipeline/raw-core/src/filename/tests_fixtures.rs`, `src/apple/…/MapleCoreTests/FilenameTemplateEngineTests.swift`                                              |
+| Corpus                                                  | Replayed by                                                                                                                                                             |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `test-fixtures/file-operations/cases.json`              | `src/api/src/fs/relocate.parity.test.ts`, `src/apple/…/MapleCoreTests/FileOperations/RelocateParityTests.swift`, `src/windows/Maple.WinUI.Tests/RelocateParityTests.cs` |
+| `test-fixtures/file-operations/restore-collisions.json` | `src/api/src/fs/trash-restore-parity.test.ts`, `src/apple/…/MapleCoreTests/FileOperations/RestoreSafetyTests.swift`                                                     |
+| `test-fixtures/filename-templates/cases.json`           | `src/raw-pipeline/raw-core/src/filename/tests_fixtures.rs`, `src/apple/…/MapleCoreTests/FilenameTemplateEngineTests.swift`                                              |
 
-Two rules the file-operations corpus states explicitly, and every runner honours: each runner **must** assert `schema_version` before running a single case (a mismatch is a hard failure, not a warning), and a case whose `requires` capability the platform lacks **must** be skipped with a printed message naming the case and the missing capability. A silently-omitted case is worse than no case at all.
+Two rules the file-operations corpus states explicitly, and every runner honours: each runner **must** assert the corpus schema version (`schema_version` or `schemaVersion`, as declared) before running a single case (a mismatch is a hard failure, not a warning), and a case whose `requires` capability the platform lacks **must** be skipped with a printed message naming the case and the missing capability. A silently-omitted case is worse than no case at all.
 
 ---
 

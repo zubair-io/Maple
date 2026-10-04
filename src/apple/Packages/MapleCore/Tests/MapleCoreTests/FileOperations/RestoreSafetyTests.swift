@@ -73,7 +73,10 @@ final class RestoreSafetyTests: XCTestCase {
   }
 
   func testSharedRestoreNamingCorpusUsesActualLocalFiles() async throws {
-    struct Corpus: Decodable { let cases: [Case] }
+    struct Corpus: Decodable {
+      let schemaVersion: Int
+      let cases: [Case]
+    }
     struct Case: Decodable {
       let name: String
       let base: String
@@ -85,6 +88,10 @@ final class RestoreSafetyTests: XCTestCase {
     let corpus = try JSONDecoder().decode(
       Corpus.self,
       from: Data(contentsOf: Self.restoreCorpusURL(from: URL(fileURLWithPath: #filePath))))
+    guard corpus.schemaVersion == 1 else {
+      XCTFail("Unsupported restore corpus schemaVersion: \(corpus.schemaVersion)")
+      return
+    }
     for item in corpus.cases {
       let folder = try SidecarContractIO.makeTempDirectory(prefix: "restore-corpus")
       defer { try? FileManager.default.removeItem(at: folder) }
