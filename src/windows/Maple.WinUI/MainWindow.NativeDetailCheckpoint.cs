@@ -54,7 +54,8 @@ public sealed partial class MainWindow
         if (tileFallback)
         {
             if (NativeDetailOverlay.Visibility == Visibility.Visible
-                || !ZoomReadout.Text.Contains("Native detail unavailable (10)", StringComparison.Ordinal))
+                || ZoomReadout.Text != "100% · preview · native detail unavailable"
+                || _nativeDetailError?.Contains("Native detail unavailable (10)", StringComparison.Ordinal) != true)
                 throw new InvalidOperationException($"Unsupported tile did not present explicit fallback: {ZoomReadout.Text}");
         }
         else if (NativeDetailOverlay.Visibility != Visibility.Visible
@@ -69,6 +70,7 @@ public sealed partial class MainWindow
         if (before != after) throw new InvalidOperationException("Actual Size changed the adjustment document.");
         await File.WriteAllTextAsync(Path.Combine(output, "native-detail-result.json"), JsonSerializer.Serialize(new
             { passed = true, tileFallback, physicalScale, scale = DisplayScale, status = ZoomReadout.Text,
+                nativeDetailError = _nativeDetailError,
                 sourceWidth = geometry.CropWidth, sourceHeight = geometry.CropHeight,
                 overlayWidth = tileFallback ? (double?)null : NativeDetailOverlay.ActualWidth,
                 overlayHeight = tileFallback ? (double?)null : NativeDetailOverlay.ActualHeight,

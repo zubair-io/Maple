@@ -23,6 +23,7 @@ public sealed partial class MainWindow
     private PhotoItem? _nativeGeometryPhoto;
     private bool _nativeZoomLayout;
     private string? _sourceGeometryError;
+    private string? _nativeDetailError;
 
     private void HookNativeDetail()
     {
@@ -51,6 +52,7 @@ public sealed partial class MainWindow
     private CancellationToken BeginDetailRequest()
     {
         Interlocked.Increment(ref _detailVersion);
+        _nativeDetailError = null;
         _detailCancellation?.Cancel();
         _detailCancellation?.Dispose();
         _detailCancellation = new CancellationTokenSource();
@@ -136,7 +138,8 @@ public sealed partial class MainWindow
         {
             if (!_closing && !cancellation.IsCancellationRequested && ReferenceEquals(photo, ViewModel.SelectedPhoto))
             {
-                _sourceGeometryError = $"Preview · source size unavailable: {error.Message}";
+                DiagLog.Write($"[source-geometry] {error}");
+                _sourceGeometryError = "Preview · source size unavailable";
                 ZoomReadout.Text = _sourceGeometryError;
             }
         }
@@ -248,7 +251,13 @@ public sealed partial class MainWindow
         catch (OperationCanceledException) { }
         catch (Exception error)
         {
-            if (!_closing && version == Volatile.Read(ref _detailVersion)) ZoomReadout.Text = $"{percent} · preview: {error.Message}";
+            if (!_closing && !cancellation.IsCancellationRequested && version == Volatile.Read(ref _detailVersion)
+                && ReferenceEquals(photo, ViewModel.SelectedPhoto) && ReferenceEquals(anchor, ViewModel.Renderer.DetailSource))
+            {
+                _nativeDetailError = error.Message;
+                DiagLog.Write($"[native-detail] {error}");
+                ZoomReadout.Text = $"{percent} · preview · native detail unavailable";
+            }
         }
     }
 }
