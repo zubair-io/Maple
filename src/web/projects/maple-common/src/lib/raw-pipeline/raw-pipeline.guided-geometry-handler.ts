@@ -4,7 +4,7 @@ import type { GuidedGeometryRequest, GuidedGeometryResponse } from './raw-pipeli
 
 export async function handleGuidedGeometry(
   req: GuidedGeometryRequest,
-  ensureReady: () => Promise<void>,
+  ensureReady: () => Promise<unknown>,
 ): Promise<void> {
   try {
     await ensureReady();
