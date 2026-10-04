@@ -1,7 +1,9 @@
 //! Resize: target-size arithmetic per fit mode, then SIMD resampling through
 //! `fast_image_resize`. Split out of `raster.rs` (#3502) so that file stays
 //! inside the repo's file-size budget; the public names are re-exported from
-//! `raster` so no caller's import path changes.
+//! `raster` so no caller's import path changes. The measured sharp-parity
+//! envelope (exact where it matches, bounded where libvips routes around
+//! its own kernel) is pinned in `raster_resize_envelope_tests` (#3573).
 
 use fast_image_resize as fr;
 
